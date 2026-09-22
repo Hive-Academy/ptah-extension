@@ -247,6 +247,55 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(service.hasPendingUpdates('tab-origin')).toBe(false);
   });
 
+  it('flushSync(origin) keeps the ORIGIN deferred while the surface is inactive', () => {
+    // The origin exemption covers the per-tab selection, not the surface being
+    // unaddressed. `agent_start` fires on every spawn, so without this the act
+    // of navigating to Settings mid-stream still paid for the execution-tree
+    // rebuild and markdown re-derive that this whole gate exists to avoid.
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('o1'));
+    runRaf();
+    tabManager.setStreamingState.mockClear();
+
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('o2'));
+
+    service.flushSync('tab-origin');
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-origin')).toBe(true);
+
+    // Reactivation is what publishes it, and it publishes the NEWEST state.
+    surfaceActive.set(true);
+    TestBed.flushEffects();
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-origin',
+      expect.objectContaining({ currentMessageId: 'o2' }),
+    );
+  });
+
+  it('flushSync() with no origin still drains a deferred tab on an inactive surface', () => {
+    // Turn-end finalization keeps its unconditional contract. It runs right
+    // before MessageFinalizationService clears the tab's streaming state, so a
+    // deferred entry left behind holds the PRE-clear object and a later drain
+    // would re-install a finished turn over the finalized message.
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('final'));
+
+    service.flushSync();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-origin',
+      expect.objectContaining({ currentMessageId: 'final' }),
+    );
+    expect(service.hasPendingUpdates('tab-origin')).toBe(false);
+  });
+
   it('flushSync(origin) moves non-origin pending updates that became non-flushable to deferred', () => {
     // Non-origin tab was flushable when scheduled -> placed in pendingTabUpdates
     activeTabSignal.set('tab-bystander');

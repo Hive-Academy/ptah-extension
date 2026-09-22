@@ -152,18 +152,27 @@ export class BatchedUpdateService {
   }
 
   /**
+   * Whether ANY tab on this surface could be observed right now.
+   *
+   * Split out from `canFlush` because the two halves of that predicate are not
+   * equally waivable. This half means "nobody can see anything" — the surface
+   * is not the addressed one, or the window is minimized. The other half is a
+   * per-tab selection, and that is the only part a tab's own event may waive.
+   */
+  private surfaceObservable(): boolean {
+    if (!this.surfaceActive()) return false;
+    return !(
+      typeof document !== 'undefined' && document.visibilityState === 'hidden'
+    );
+  }
+
+  /**
    * A tab may flush when the document is visible AND the tab is on-screen:
    * present in the visible set (Orchestra Canvas tiles) or — when no tile has
    * registered (single-tab webview) — the active tab.
    */
   private canFlush(tabId: string): boolean {
-    if (!this.surfaceActive()) return false;
-    if (
-      typeof document !== 'undefined' &&
-      document.visibilityState === 'hidden'
-    ) {
-      return false;
-    }
+    if (!this.surfaceObservable()) return false;
     const visible = this.tabManager.visibleTabIds();
     if (visible.size > 0) return visible.has(tabId);
     const activeId = this.tabManager.activeTabId();
@@ -221,14 +230,23 @@ export class BatchedUpdateService {
    *
    * Two distinct callers, two distinct contracts:
    *
-   * - **With `originTabId`** (per-event, hot): only the ORIGIN tab escapes the
-   *   visibility gate. Every other tab (deferred, or pending but since
-   *   inactivated/hidden) is kept or moved to deferred and drains through the
-   *   normal `visibilitychange` / active-tab / visible-set paths.
-   *   `agent_start` raises `agentStartFlushNeeded` on EVERY agent spawn, so the
-   *   un-gated version made one hidden tab's agent spawn flush all three
-   *   sessions' deferred trees — the gate at `canFlush` exists precisely to
-   *   stop that work, and this call was the hole in it.
+   * - **With `originTabId`** (per-event, hot): the ORIGIN tab escapes the
+   *   per-tab selection ONLY, never `surfaceObservable`. Every other tab
+   *   (deferred, or pending but since inactivated/hidden) is kept or moved to
+   *   deferred and drains through the normal `visibilitychange` / active-tab /
+   *   visible-set paths. `agent_start` raises `agentStartFlushNeeded` on EVERY
+   *   agent spawn, so the un-gated version made one hidden tab's agent spawn
+   *   flush all three sessions' deferred trees — the gate at `canFlush` exists
+   *   precisely to stop that work, and this call was the hole in it.
+   *
+   *   The origin's exemption is deliberately narrow. It exists so a tab that
+   *   is streaming in the background is not starved by the active-tab rule —
+   *   a per-tab concern. It is NOT a licence to publish into a surface nobody
+   *   is looking at: with the surface unaddressed or the window minimized,
+   *   forcing the origin through still pays for the execution-tree rebuild and
+   *   markdown re-derive in the downstream computed signals, which is the
+   *   entire cost this gate exists to avoid. So the origin waives the tab
+   *   selection and nothing above it, and drains on reactivation instead.
    *
    * - **Without `originTabId`** (turn-end finalization): full drain, as before.
    *   `MessageFinalizationService` calls this immediately before it promotes
@@ -238,6 +256,17 @@ export class BatchedUpdateService {
    *   the finalized message. Finalization is once per turn, not per event, so
    *   draining everything there costs nothing measurable.
    */
+  /**
+   * Whether a per-event `flushSync` may push this tab out in this tick. The
+   * origin waives the per-tab selection; every tab, origin included, still
+   * has to clear `surfaceObservable`.
+   */
+  private mayForce(tabId: string, originTabId: string): boolean {
+    return tabId === originTabId
+      ? this.surfaceObservable()
+      : this.canFlush(tabId);
+  }
+
   flushSync(originTabId?: string): void {
     this.frameGeneration++;
     if (this.rafId !== null) {
@@ -246,8 +275,8 @@ export class BatchedUpdateService {
     }
     if (this.deferredTabUpdates.size > 0) {
       for (const [tabId, state] of [...this.deferredTabUpdates]) {
-        if (originTabId !== undefined && tabId !== originTabId) {
-          if (!this.canFlush(tabId)) continue;
+        if (originTabId !== undefined && !this.mayForce(tabId, originTabId)) {
+          continue;
         }
         this.pendingTabUpdates.set(tabId, state);
         this.deferredTabUpdates.delete(tabId);
@@ -256,11 +285,10 @@ export class BatchedUpdateService {
     }
     if (originTabId !== undefined) {
       for (const [tabId, state] of [...this.pendingTabUpdates]) {
-        if (tabId !== originTabId && !this.canFlush(tabId)) {
-          this.pendingTabUpdates.delete(tabId);
-          this.deferredTabUpdates.set(tabId, state);
-          this.pendingFlush.add(tabId);
-        }
+        if (this.mayForce(tabId, originTabId)) continue;
+        this.pendingTabUpdates.delete(tabId);
+        this.deferredTabUpdates.set(tabId, state);
+        this.pendingFlush.add(tabId);
       }
     }
     this.flushPendingUpdates(true);
