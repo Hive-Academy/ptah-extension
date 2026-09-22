@@ -17,7 +17,11 @@ import {
   GripVertical,
   KeyRound,
 } from 'lucide-angular';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import type {
   AgentOrchestrationConfig,
 } from '@ptah-extension/shared';
@@ -409,6 +413,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   private readonly appState = inject(AppStateManager);
+  private readonly providersState = inject(ProvidersSettingsStateService);
   manageProviders(): void {
     this.appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
     this.appState.setCurrentView('settings');
@@ -520,7 +525,15 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         this.agentConfig.update((c) =>
           c ? { ...c, detectedClis: result.data.clis } : c,
         );
-        await this.loadCliModels();
+        // Detection changes which CLI agents exist, so anything derived from
+        // them is stale until it re-reads. PR #568 fixed that staleness by
+        // reloading this component's own model arrays; those arrays moved to
+        // the Providers page, so the refresh moves with them rather than
+        // being dropped along with the method.
+        await Promise.all([
+          this.providersState.refreshCliAgents(),
+          this.providersState.refreshCliModels(),
+        ]);
       } else {
         this.agentConfigError.set(result.error ?? 'Detection failed');
       }
