@@ -87,6 +87,8 @@ import {
   buildMemoryNamespace,
   buildCorpusNamespace,
   buildCodeNamespace,
+  buildDashboardNamespace,
+  createDashboardBroadcast,
   buildHarnessNamespace,
   buildTasksNamespace,
   type TaskSpecWriterLike,
@@ -828,6 +830,23 @@ export class PtahAPIBuilder {
             }
             void webviewManager.broadcastMessage(type, payload);
           },
+          logger: this.logger,
+        });
+      }),
+      dashboard: this.buildNamespaceSafe('dashboard', () => {
+        // Captured exactly as the harness namespace above does it: the
+        // callback outlives this call and must not re-read the field.
+        const webviewManager = this.webviewManager;
+        return buildDashboardNamespace({
+          // `createDashboardBroadcast` owns the delivery semantics and its
+          // own doc comment explains why `void broadcastMessage(...)` was
+          // wrong here (TASK_2026_493 revision 1, finding 2). Absent manager
+          // is a `no-surface` SUCCESS, not a failure: the CLI host has no
+          // webview and the tool's plain-text result is the whole answer.
+          broadcast: createDashboardBroadcast(
+            () => webviewManager,
+            this.logger,
+          ),
           logger: this.logger,
         });
       }),

@@ -18,6 +18,10 @@
     "./schemas": {
       "types": "./src/schemas.ts",
       "default": "./src/schemas.ts"
+    },
+    "./mcp-apps-contracts": {
+      "types": "./src/mcp-apps-contracts/index.ts",
+      "default": "./src/mcp-apps-contracts/index.ts"
     }
   },
   "dependencies": {

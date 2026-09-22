@@ -126,6 +126,7 @@ import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
 import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
 import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
+import type { DashboardSpecEnvelope } from '../../../mcp-apps-contracts/dashboard-spec.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
@@ -210,6 +211,37 @@ export interface HarnessOpenWorkflowPayload {
 export interface HarnessConfigProposedPayload {
   readonly configUpdates: Partial<HarnessConfig>;
   readonly isConfigComplete?: boolean;
+}
+
+/**
+ * Payload for MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED ('dashboard:spec-proposed').
+ *
+ * TASK_2026_493_9f58, deliverable 6. `spec` is the VALIDATED envelope — it has
+ * already passed `validateDashboardSpec` at the MCP tool boundary, so the type
+ * here is the parsed one and not `unknown`. TASK_2026_494 re-validates at the
+ * webview RPC boundary anyway (`context.md` names two measurement points), and
+ * it does so with the same validator, not a second opinion.
+ *
+ * `DashboardSpecEnvelope` comes from `mcp-apps-contracts/dashboard-spec.types.ts`,
+ * which imports no zod — deliberately NOT from `dashboard-spec.schemas.ts`. An
+ * `import type` from the schemas module would be erased at runtime but would
+ * still pull that file into every consumer's TYPE program, including the twenty
+ * backend libs that inherit `"strict": false` from `tsconfig.base.json`; under
+ * `strictNullChecks: false` every zod-inferred key becomes optional and the
+ * contract fails to compile there. `@ptah-extension/settings-core:typecheck`
+ * demonstrated it. Plain interfaces are strictness-independent.
+ */
+export interface DashboardSpecProposedPayload {
+  readonly spec: DashboardSpecEnvelope;
+  /**
+   * The Ptah session that made the tool call. Optional because an ANONYMOUS
+   * MCP caller (a `tools/call` whose URL carried no `/session/{id}`) genuinely
+   * has none — see `mcp-request-context.ts`. A surface that scopes a spec to a
+   * session must treat absence as "not mine", never as "the active one".
+   */
+  readonly sessionId?: string;
+  /** The MCP request id of the `tools/call` that produced this spec. */
+  readonly toolCallId: string;
 }
 
 /**
@@ -331,6 +363,7 @@ export interface MessagePayloadMap {
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
+  'dashboard:spec-proposed': DashboardSpecProposedPayload;
   'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
   'file:content-changed': FileContentChangedPayload;
