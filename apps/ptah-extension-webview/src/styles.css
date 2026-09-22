@@ -690,6 +690,25 @@ MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
 Enhanced typography, visual hierarchy, and reading comfort
 ============================================================================ */
 
+/* TASK_2026_532 — layer 1 of markdown containment. The host element is the
+   boundary between agent HTML and the app: `contain: layout` makes the host
+   the containing block for any fixed/absolute descendant and `paint` clips
+   descendants to the host's padding box (wide content scrolls inside its own
+   `pre { overflow-x: auto }` / table boxes below); `isolation: isolate` opens
+   a stacking context so no descendant z-index can stack above the app. This
+   holds regardless of how the CSS was spelled, closing what the sanitizer's
+   text-level policy cannot. Containment does not apply to inline boxes, so
+   `display: block` is required — `markdown` is otherwise an unknown
+   (inline) element. Paint containment clips content wider than the host
+   that cannot wrap (many-column tables, fixed-width SVG), so the host
+   scrolls horizontally rather than hiding it. */
+markdown {
+  display: block;
+  contain: layout paint;
+  isolation: isolate;
+  overflow-x: auto;
+}
+
 .prose {
   max-width: none;
   line-height: 1.7;
