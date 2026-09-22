@@ -164,12 +164,13 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
       @container (max-width: 600px) {
         .cs-body {
           grid-template-columns: 1fr;
-          grid-template-rows: auto minmax(0, 1fr);
+          /* The cap lives on the track: a percentage max-height on the item is
+             ignored while an auto track sizes, which gave the feed 0px. */
+          grid-template-rows: fit-content(45%) minmax(0, 1fr);
         }
         .cs-recap-pane {
           border-right: 0;
           border-bottom: 1px solid oklch(var(--bc) / 0.1);
-          max-height: 45%;
         }
       }
 
