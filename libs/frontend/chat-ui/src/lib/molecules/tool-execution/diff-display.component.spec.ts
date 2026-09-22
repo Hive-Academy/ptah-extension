@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { FILE_LINK_OPENER } from '@ptah-extension/core';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import { DiffDisplayComponent } from './diff-display.component';
 
@@ -8,6 +9,7 @@ describe('DiffDisplayComponent', () => {
     await TestBed.configureTestingModule({
       imports: [DiffDisplayComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         provideMarkdown(),
         {
           provide: FILE_LINK_OPENER,

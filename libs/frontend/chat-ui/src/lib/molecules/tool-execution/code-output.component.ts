@@ -1,10 +1,14 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  signal,
+  inject,
   Component,
   input,
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { fenceCodeBlock } from './code-fence';
 import {
   type ExecutionNode,
@@ -35,13 +39,13 @@ import {
 @Component({
   selector: 'ptah-code-output',
   standalone: true,
-  imports: [MarkdownModule],
+  imports: [SurfaceMarkdownPipe, MarkdownModule],
   template: `
     <div
       class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto"
     >
       <markdown
-        [data]="formattedOutput()"
+        [data]="formattedOutput() | surfaceMarkdown: surfaceActive()"
         class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
       />
     </div>
@@ -68,6 +72,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CodeOutputComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly node = input.required<ExecutionNode>();
   private readonly languageMap: Record<string, string> = {
     '.ts': 'typescript',

@@ -1,3 +1,4 @@
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import type {
@@ -54,7 +55,7 @@ describe('ToolInputDisplayComponent — retention marker', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ToolInputDisplayComponent],
-      providers: [provideMarkdown()],
+      providers: [provideSurfaceActiveTesting(), provideMarkdown()],
     }).compileComponents();
     fixture = TestBed.createComponent(ToolInputDisplayComponent);
   });

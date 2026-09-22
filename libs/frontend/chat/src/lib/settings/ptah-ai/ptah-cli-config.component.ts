@@ -1,1172 +1,212 @@
-import {
-  Component,
-  inject,
-  ChangeDetectionStrategy,
-  computed,
-  signal,
-  input,
-  output,
-  OnInit,
-  OnDestroy,
-  ElementRef,
-  viewChild,
-} from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import {
-  LucideAngularModule,
-  Bot,
-  Plus,
-  Pencil,
-  Trash2,
-  Plug,
-  Check,
-  X,
-  Loader2,
-  Eye,
-  EyeOff,
-  Layers,
-  Github,
-} from 'lucide-angular';
-import { ClaudeRpcService, PtahCliStateService } from '@ptah-extension/core';
-import { ConfirmationDialogService } from '@ptah-extension/chat-state';
-import { ProviderModelSelectorComponent } from '../auth/provider-model-selector.component';
-import type { PtahCliSummary } from '@ptah-extension/shared';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, OnDestroy } from '@angular/core';
+import { ProvidersSettingsStateService, type ProvidersEditContext, type ProvidersSettingsPatch } from '@ptah-extension/core';
+import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
+import { SettingScopeRowComponent } from '../providers/setting-scope-row.component';
+type DelegatedModelKey = 'codexModel' | 'copilotModel' | 'cursorModel' | 'antigravityModel' | 'opencodeModel' | 'piModel'
+  | 'codexReasoningEffort' | 'copilotReasoningEffort' | 'piReasoningEffort';
+const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-muted bg-base-100 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
-/**
- * Known provider definitions for the Ptah CLI agent creation form.
- * These are Anthropic-compatible providers supported by the Ptah CLI adapter.
- */
-interface ProviderOption {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-}
 
-/**
- * Sentinel value identifying a Copilot OAuth-based provider configuration.
- * Mirrors COPILOT_OAUTH_SENTINEL from @ptah-extension/agent-sdk (backend, not importable here).
- */
-const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
-
-/** Sentinel for local providers that don't need an API key */
-const LOCAL_PROVIDER_SENTINEL = 'ollama';
-
-/**
- * Providers that truly need no key at all: local inference (Ollama, LM Studio)
- * and native Claude (`claude-cli`), which inherits the host's local Claude
- * login / subscription. None collect an API key in the form.
- */
-const LOCAL_PROVIDER_IDS = new Set(['ollama', 'lm-studio', 'claude-cli']);
-
-/** Providers with authType:'none' but an OPTIONAL key (e.g. ollama-cloud). */
-const OPTIONAL_KEY_PROVIDER_IDS = new Set(['ollama-cloud']);
-
-const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    description: 'Access 200+ models via unified API',
-  },
-  {
-    id: 'moonshot',
-    name: 'Moonshot (Kimi)',
-    description: 'Moonshot AI / Kimi models',
-  },
-  {
-    id: 'z-ai',
-    name: 'Z.AI (Zhipu AI)',
-    description: 'Z.AI GLM models via Zhipu AI',
-  },
-  {
-    id: 'sakana',
-    name: 'Sakana (Fugu)',
-    description: 'Fugu models via Sakana AI',
-  },
-  {
-    id: 'github-copilot',
-    name: 'GitHub Copilot',
-    description: 'Claude models via GitHub Copilot subscription',
-  },
-  {
-    id: 'claude-cli',
-    name: 'Claude (Subscription)',
-    description: 'Use your local Claude login — no API key needed',
-  },
-  {
-    id: 'ollama',
-    name: 'Ollama',
-    description: 'Run local models via Ollama (no API key needed)',
-  },
-  {
-    id: 'lm-studio',
-    name: 'LM Studio',
-    description: 'Run local models via LM Studio (no API key needed)',
-  },
-  {
-    id: 'ollama-cloud',
-    name: 'Ollama Cloud',
-    description: 'Cloud GPU models via Ollama Cloud (free tier)',
-  },
-] as const;
-
-/**
- * PtahCliConfigComponent - CRUD management for Ptah CLI agent instances
- *
- * Complexity Level: 2 (Medium - form with CRUD operations and service delegation)
- * Patterns: Signal-based state, composition, DaisyUI styling
- *
- * Responsibilities:
- * - List configured Ptah CLI agents with status, provider, enable toggle
- * - Add new agent via inline form (name, provider, API key)
- * - Edit agent configuration (name, API key)
- * - Delete agent with confirmation dialog
- * - Test connection with latency display
- * - Enable/disable toggle per agent
- *
- * RPC Methods Used:
- * - ptahCli:list    -> List all agents
- * - ptahCli:create  -> Create new agent
- * - ptahCli:update  -> Update agent config
- * - ptahCli:delete  -> Delete agent
- * - ptahCli:testConnection -> Test API connection
- */
-@Component({
-  selector: 'ptah-cli-config',
-  standalone: true,
-  imports: [FormsModule, LucideAngularModule, ProviderModelSelectorComponent],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <div class="mt-3">
-      <!-- Ptah CLI Agents sub-header -->
-      <div class="flex items-center justify-between mb-2">
-        <div class="text-xs font-medium text-base-content-muted">
-          Ptah CLI Agents
-        </div>
-        <button
-          class="btn btn-ghost btn-xs gap-1"
-          (click)="toggleAddForm()"
-          [disabled]="isLoading()"
-          aria-label="Add Ptah CLI agent"
-        >
-          @if (showAddForm()) {
-            <lucide-angular [img]="XIcon" class="w-3 h-3" />
-            <span>Cancel</span>
-          } @else {
-            <lucide-angular [img]="PlusIcon" class="w-3 h-3" />
-            <span>Add</span>
-          }
-        </button>
-      </div>
-
-      <!-- Error display -->
-      @if (error()) {
-        <div class="alert alert-error text-xs py-2 px-3 mb-2">
-          <span>{{ error() }}</span>
-        </div>
-      }
-
-      <!-- Success display -->
-      @if (successMessage()) {
-        <div class="alert alert-success text-xs py-2 px-3 mb-2">
-          <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
-          <span>{{ successMessage() }}</span>
-        </div>
-      }
-
-      <!-- Loading state -->
-      @if (isLoading() && agents().length === 0) {
-        <div
-          class="flex items-center gap-2 text-xs text-base-content-muted py-2"
-        >
-          <span class="loading loading-spinner loading-xs"></span>
-          <span>Loading Ptah CLI agents...</span>
-        </div>
-      }
-
-      <!-- Add Agent Form (inline, collapsible) -->
-      @if (showAddForm()) {
-        <div
-          class="border border-primary/20 rounded p-3 mb-3 bg-base-100 space-y-2"
-        >
-          <div class="text-xs font-medium text-base-content-muted mb-1">
-            New Ptah CLI Agent
-          </div>
-
-          <!-- Name -->
-          <div class="form-control">
-            <label for="new-agent-name" class="label py-0.5">
-              <span class="label-text text-xs">Name</span>
-            </label>
-            <input
-              id="new-agent-name"
-              type="text"
-              class="input input-bordered input-xs w-full"
-              placeholder="e.g., My OpenRouter Agent"
-              [ngModel]="newAgentName()"
-              (ngModelChange)="newAgentName.set($event)"
-            />
-          </div>
-
-          <!-- Provider -->
-          <div class="form-control">
-            <label for="new-agent-provider" class="label py-0.5">
-              <span class="label-text text-xs">Provider</span>
-            </label>
-            <select
-              id="new-agent-provider"
-              class="select select-bordered select-xs w-full"
-              [ngModel]="newAgentProvider()"
-              (ngModelChange)="onProviderChange($event)"
-            >
-              <option value="">Select provider...</option>
-              @for (provider of providers; track provider.id) {
-                <option [value]="provider.id">
-                  {{ provider.name }} - {{ provider.description }}
-                </option>
-              }
-            </select>
-          </div>
-
-          <!-- API Key (hidden for github-copilot and local providers) -->
-          @if (
-            newAgentProvider() !== 'github-copilot' &&
-            (!isLocalProvider(newAgentProvider()) ||
-              isOptionalKeyProvider(newAgentProvider()))
-          ) {
-            <div class="form-control">
-              <label for="new-agent-apikey" class="label py-0.5">
-                <span class="label-text text-xs"
-                  >API Key{{
-                    isOptionalKeyProvider(newAgentProvider())
-                      ? ' (optional)'
-                      : ''
-                  }}</span
-                >
-              </label>
-              <div class="relative">
-                <input
-                  id="new-agent-apikey"
-                  [type]="showNewApiKey() ? 'text' : 'password'"
-                  class="input input-bordered input-xs w-full pr-8"
-                  [placeholder]="
-                    isOptionalKeyProvider(newAgentProvider())
-                      ? 'Optional — ollama.com API key for live models & pricing'
-                      : 'sk-...'
-                  "
-                  [ngModel]="newAgentApiKey()"
-                  (ngModelChange)="newAgentApiKey.set($event)"
-                />
-                <button
-                  type="button"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square"
-                  (click)="showNewApiKey.set(!showNewApiKey())"
-                  [attr.aria-label]="
-                    showNewApiKey() ? 'Hide API key' : 'Show API key'
-                  "
-                >
-                  @if (showNewApiKey()) {
-                    <lucide-angular [img]="EyeOffIcon" class="w-3 h-3" />
-                  } @else {
-                    <lucide-angular [img]="EyeIcon" class="w-3 h-3" />
-                  }
-                </button>
-              </div>
-            </div>
-          }
-
-          <!-- Keyless provider hint (Claude subscription, Ollama, LM Studio) -->
-          @if (isLocalProvider(newAgentProvider())) {
-            <div class="text-xs text-base-content-muted mt-2 px-1">
-              @if (newAgentProvider() === 'claude-cli') {
-                No API key needed — uses your local Claude login / subscription.
-              } @else {
-                No API key needed — make sure Ollama is running locally.
-              }
-            </div>
-          }
-          @if (isOptionalKeyProvider(newAgentProvider())) {
-            <div class="text-xs text-base-content-muted mt-2 px-1">
-              Optional — run <code class="text-xs">ollama signin</code> to use
-              Ollama Cloud, or paste an ollama.com API key above to enable live
-              model discovery and pricing.
-            </div>
-          }
-
-          <!-- GitHub Copilot Login (shown only for github-copilot) -->
-          @if (newAgentProvider() === 'github-copilot') {
-            <div class="form-control">
-              <div class="py-0.5">
-                <span class="text-xs opacity-70">Authentication</span>
-              </div>
-              @if (copilotLoginStatus() === 'connected') {
-                <div class="flex items-center gap-2 text-xs text-success py-1">
-                  <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5" />
-                  <span>Connected as {{ copilotUsername() }}</span>
-                </div>
-              } @else if (copilotLoginStatus() === 'logging-in') {
-                <div
-                  class="flex items-center gap-2 text-xs text-base-content-muted py-1"
-                >
-                  <span class="loading loading-spinner loading-xs"></span>
-                  <span>Signing in with GitHub...</span>
-                </div>
-              } @else if (copilotLoginStatus() === 'error') {
-                <div
-                  class="flex items-center gap-2 text-xs text-error py-1 mb-1"
-                >
-                  <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
-                  <span>Login failed. Please try again.</span>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-xs gap-1.5"
-                  (click)="loginWithGitHub()"
-                  aria-label="Retry login with GitHub"
-                >
-                  <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
-                  <span>Retry Login with GitHub</span>
-                </button>
-              } @else {
-                <button
-                  type="button"
-                  class="btn btn-outline btn-xs gap-1.5"
-                  (click)="loginWithGitHub()"
-                  aria-label="Login with GitHub"
-                >
-                  <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
-                  <span>Login with GitHub</span>
-                </button>
-                <p class="text-[10px] text-base-content-muted mt-1">
-                  Requires an active GitHub Copilot subscription.
-                </p>
-              }
-            </div>
-          }
-
-          <!-- Create Button -->
-          <div class="flex justify-end pt-1">
-            <button
-              class="btn btn-primary btn-xs gap-1"
-              [disabled]="!canCreate() || isCreating()"
-              (click)="createAgent()"
-            >
-              @if (isCreating()) {
-                <span class="loading loading-spinner loading-xs"></span>
-              } @else {
-                <lucide-angular [img]="PlusIcon" class="w-3 h-3" />
-              }
-              <span>Create Agent</span>
-            </button>
-          </div>
-        </div>
-      }
-
-      <!-- Agent List -->
-      @if (agents().length > 0) {
-        <div class="space-y-2">
-          @for (agent of agents(); track agent.id) {
-            <div
-              class="p-2 border border-base-300 rounded bg-base-200/30"
-              [class.opacity-50]="!agent.enabled"
-            >
-              <!-- Agent Header Row -->
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2 min-w-0 flex-1">
-                  <lucide-angular
-                    [img]="BotIcon"
-                    class="w-3.5 h-3.5 shrink-0"
-                    [class.text-success]="agent.status === 'available'"
-                    [class.text-error]="agent.status === 'error'"
-                    [class.text-warning]="agent.status === 'initializing'"
-                    [class.opacity-40]="agent.status === 'unconfigured'"
-                  />
-                  <!-- Agent Name (editable inline) -->
-                  @if (editingAgentId() === agent.id) {
-                    <input
-                      type="text"
-                      class="input input-bordered input-xs flex-1 min-w-0"
-                      [ngModel]="editName()"
-                      (ngModelChange)="editName.set($event)"
-                      (keydown.enter)="saveEdit(agent.id)"
-                      (keydown.escape)="cancelEdit()"
-                    />
-                  } @else {
-                    <span class="text-xs font-medium truncate">{{
-                      agent.name
-                    }}</span>
-                  }
-                  <span class="badge badge-ghost badge-xs shrink-0">{{
-                    agent.providerName
-                  }}</span>
-                </div>
-
-                <div class="flex items-center gap-1 shrink-0">
-                  <!-- Status badge -->
-                  @if (agent.status === 'available') {
-                    <span class="badge badge-success badge-xs">Ready</span>
-                  } @else if (agent.status === 'error') {
-                    <span class="badge badge-error badge-xs">Error</span>
-                  } @else if (agent.status === 'initializing') {
-                    <span class="badge badge-warning badge-xs">Init</span>
-                  } @else {
-                    <span class="badge badge-ghost badge-xs">No Key</span>
-                  }
-
-                  <!-- Enable/Disable toggle -->
-                  <input
-                    type="checkbox"
-                    class="toggle toggle-xs toggle-success"
-                    [checked]="agent.enabled"
-                    (change)="toggleEnabled(agent)"
-                    [disabled]="isUpdating()"
-                    [attr.aria-label]="
-                      (agent.enabled ? 'Disable' : 'Enable') + ' ' + agent.name
-                    "
-                  />
-                </div>
-              </div>
-
-              @if (
-                editingAgentId() === agent.id &&
-                agent.providerId !== 'github-copilot' &&
-                !isLocalProvider(agent.providerId)
-              ) {
-                <div class="relative mt-1.5">
-                  <input
-                    [type]="showEditApiKey() ? 'text' : 'password'"
-                    class="input input-bordered input-xs w-full pr-8"
-                    [placeholder]="
-                      isOptionalKeyProvider(agent.providerId)
-                        ? 'Optional — new ollama.com API key (blank keeps current)'
-                        : 'New API key (blank keeps current)'
-                    "
-                    [ngModel]="editApiKey()"
-                    (ngModelChange)="editApiKey.set($event)"
-                    (keydown.enter)="saveEdit(agent.id)"
-                    (keydown.escape)="cancelEdit()"
-                  />
-                  <button
-                    type="button"
-                    class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square"
-                    (click)="showEditApiKey.set(!showEditApiKey())"
-                    [attr.aria-label]="
-                      showEditApiKey() ? 'Hide API key' : 'Show API key'
-                    "
-                  >
-                    @if (showEditApiKey()) {
-                      <lucide-angular [img]="EyeOffIcon" class="w-3 h-3" />
-                    } @else {
-                      <lucide-angular [img]="EyeIcon" class="w-3 h-3" />
-                    }
-                  </button>
-                </div>
-              }
-
-              <!-- Agent Actions Row -->
-              <div
-                class="flex items-center justify-between mt-1.5 pt-1.5 border-t border-base-300/50"
-              >
-                <div class="flex items-center gap-1">
-                  <!-- API Key status -->
-                  @if (agent.hasStoredKey) {
-                    <span
-                      class="text-[10px] text-success/70 flex items-center gap-0.5"
-                    >
-                      <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
-                      Key set
-                    </span>
-                  } @else if (isOptionalKeyProvider(agent.providerId)) {
-                    <span class="text-[10px] text-base-content-muted"
-                      >Cloud (signin)</span
-                    >
-                  } @else {
-                    <span class="text-[10px] text-warning/70">No API key</span>
-                  }
-
-                  <!-- Model count -->
-                  @if (agent.modelCount > 0) {
-                    <span class="text-[10px] text-base-content-muted">
-                      {{ agent.modelCount }} models
-                    </span>
-                  }
-                </div>
-
-                <div class="flex items-center gap-0.5">
-                  <!-- Test Connection -->
-                  <button
-                    class="btn btn-ghost btn-xs gap-0.5"
-                    (click)="testConnection(agent.id)"
-                    [disabled]="
-                      testingAgentId() === agent.id || !agent.hasApiKey
-                    "
-                    [attr.aria-label]="'Test connection for ' + agent.name"
-                  >
-                    @if (testingAgentId() === agent.id) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    } @else {
-                      <lucide-angular [img]="PlugIcon" class="w-3 h-3" />
-                    }
-                    <span class="text-[10px]">Test</span>
-                  </button>
-
-                  <!-- Model Mapping -->
-                  <button
-                    class="btn btn-ghost btn-xs gap-0.5"
-                    (click)="openModelMapping(agent)"
-                    [attr.aria-label]="'Model mapping for ' + agent.name"
-                  >
-                    <lucide-angular [img]="LayersIcon" class="w-3 h-3" />
-                  </button>
-
-                  <!-- Edit -->
-                  @if (editingAgentId() === agent.id) {
-                    <button
-                      class="btn btn-ghost btn-xs gap-0.5"
-                      (click)="saveEdit(agent.id)"
-                      aria-label="Save changes"
-                    >
-                      <lucide-angular
-                        [img]="CheckIcon"
-                        class="w-3 h-3 text-success"
-                      />
-                    </button>
-                    <button
-                      class="btn btn-ghost btn-xs gap-0.5"
-                      (click)="cancelEdit()"
-                      aria-label="Cancel editing"
-                    >
-                      <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                    </button>
-                  } @else {
-                    <button
-                      class="btn btn-ghost btn-xs gap-0.5"
-                      (click)="startEdit(agent)"
-                      [attr.aria-label]="'Edit ' + agent.name"
-                    >
-                      <lucide-angular [img]="PencilIcon" class="w-3 h-3" />
-                    </button>
-                  }
-
-                  <!-- Delete -->
-                  <button
-                    class="btn btn-ghost btn-xs gap-0.5 text-error/70 hover:text-error"
-                    (click)="deleteAgent(agent)"
-                    [attr.aria-label]="'Delete ' + agent.name"
-                  >
-                    <lucide-angular [img]="Trash2Icon" class="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-
-              <!-- Test Connection Result (inline) -->
-              @if (testResultAgentId() === agent.id && testResult()) {
-                <div
-                  class="mt-1.5 pt-1.5 border-t border-base-300/50 text-[10px]"
-                  [class.text-success]="testResult()!.success"
-                  [class.text-error]="!testResult()!.success"
-                >
-                  @if (testResult()!.success) {
-                    <span class="flex items-center gap-1">
-                      <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
-                      Connected ({{ testResult()!.latencyMs }}ms)
-                    </span>
-                  } @else {
-                    <span class="flex items-center gap-1">
-                      <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
-                      {{ testResult()!.error }}
-                    </span>
-                  }
-                </div>
-              }
-
-              <!-- Model Mapping Badges -->
-              @if (getAgentMappings(agent); as mappings) {
-                @if (mappings.sonnet || mappings.opus || mappings.haiku) {
-                  <div
-                    class="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-base-300/50 flex-wrap"
-                  >
-                    @if (mappings.sonnet) {
-                      <span
-                        class="badge badge-xs badge-primary font-mono text-[9px]"
-                        title="Sonnet mapping"
-                        >{{ mappings.sonnet }}</span
-                      >
-                    }
-                    @if (mappings.opus) {
-                      <span
-                        class="badge badge-xs badge-secondary font-mono text-[9px]"
-                        title="Opus mapping"
-                        >{{ mappings.opus }}</span
-                      >
-                    }
-                    @if (mappings.haiku) {
-                      <span
-                        class="badge badge-xs badge-accent font-mono text-[9px]"
-                        title="Haiku mapping"
-                        >{{ mappings.haiku }}</span
-                      >
-                    }
-                  </div>
+/** The CLI instance manager, mounted only inside Providers. */
+@Component({ selector: 'ptah-cli-config', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent],
+  template: `        <section aria-labelledby="providers-cli-heading" class="space-y-3">
+          <h2 id="providers-cli-heading" data-focus="cli-agents" tabindex="-1" class="text-sm font-semibold scroll-mt-4">CLI agents</h2>
+          <button type="button" [class]="control" (click)="beginCliCreate()" [disabled]="!canStartSetup()">Add CLI agent</button>
+          @if (cliCreateOpen()) {
+            <div class="rounded-md border border-base-content-muted p-3 space-y-2">
+              <label for="providers-cli-name">Agent name</label>
+              <input id="providers-cli-name" [class]="field" [value]="cliName()" (input)="cliName.set(inputValue($event))" />
+              <label for="providers-cli-provider">Provider connection</label>
+              <select id="providers-cli-provider" [class]="field" [value]="cliProvider()" (change)="cliProvider.set(inputValue($event))">
+                <option value="">Choose a provider</option>
+                @for (provider of state.connections().data ?? []; track provider.id) {
+                  @if (provider.id !== 'anthropic' && provider.id !== 'openai-codex') { <option [value]="provider.id">{{ provider.name }}</option> }
                 }
-              }
+              </select>
+              <label for="providers-cli-key">API key for this CLI instance</label>
+              <input id="providers-cli-key" type="password" autocomplete="new-password" [class]="field" [value]="cliKey()" (input)="cliKey.set(inputValue($event))" aria-describedby="providers-cli-key-help" />
+              <p id="providers-cli-key-help">Stored provider keys are not copied. Enter this instance's key for API-key providers; local or subscription connections can leave it empty. Saved globally. Codex uses the delegated CLI settings below.</p>
+              <button type="button" [class]="control" (click)="createCli()" [disabled]="!canCreateCli()">Create CLI agent</button>
+              <button type="button" [class]="control" (click)="cancelCliCreate()" [disabled]="saving()">Cancel CLI setup</button>
             </div>
           }
-        </div>
-      }
-
-      <!-- Empty state -->
-      @if (!isLoading() && agents().length === 0 && !showAddForm()) {
-        <div
-          class="text-center py-4 text-xs text-base-content-muted border border-dashed border-base-300 rounded"
-        >
-          <lucide-angular
-            [img]="BotIcon"
-            class="w-6 h-6 mx-auto mb-2 opacity-30"
-          />
-          <p>No Ptah CLI agents configured.</p>
-          <p class="mt-1">
-            Click
-            <button class="link link-primary" (click)="toggleAddForm()">
-              Add
-            </button>
-            to connect an external AI provider.
-          </p>
-        </div>
-      }
-
-      <!-- Model Mapping Modal -->
-      <dialog #modelMappingDialog class="modal">
-        <div class="modal-box bg-base-100 max-w-lg">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-medium">
-              Model Mapping — {{ modelMappingAgent()?.name }}
-            </h3>
-            <button
-              class="btn btn-ghost btn-xs btn-square"
-              (click)="closeModelMapping()"
-              aria-label="Close"
-            >
-              <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
-            </button>
-          </div>
-          @if (modelMappingAgent()) {
-            <ptah-provider-model-selector
-              [providerId]="modelMappingAgent()!.providerId"
-              [hasKey]="modelMappingAgent()!.hasApiKey"
-              [scope]="'cliAgent'"
-            />
+          @if (state.cliAgents().status === 'ready' && !state.cliAgents().data?.length) { <p>No CLI agents configured.</p> }
+          @for (agent of state.cliAgents().data ?? []; track agent.id) {
+            <ptah-native-card density="compact" [clickable]="false">
+              <div class="space-y-3 min-w-0">
+                <h3 class="font-semibold break-words">{{ agent.name }} · {{ agent.providerName }}</h3>
+                <p>{{ agent.modelCount }} available models · {{ agent.enabled ? 'Enabled' : 'Disabled' }}</p>
+                @if (state.cliModels().status === 'ready') {
+                  @if (state.cliModels().data?.[agent.id]; as models) {
+                    <p class="break-all">Model: {{ models.selectedModel || 'Use provider tier mappings' }}</p>
+                    @if (cliModelDraft()?.id === agent.id) {
+                      <ptah-provider-model-picker [fixedProvider]="agent.providerId" [model]="cliModelDraft()?.model ?? ''" [label]="agent.name + ' model'"
+                        [disabled]="saving()" (selectionChange)="cliModelDraft.set({ id: agent.id, model: $event.model })" />
+                      <p>Saved globally for this CLI instance. The provider connection is unchanged.</p>
+                      <button type="button" [class]="control" (click)="saveCliModel()" [disabled]="saving()">Save {{ agent.name }} model</button>
+                      <button type="button" [class]="control" (click)="cliModelDraft.set(null)" [disabled]="saving()">Cancel {{ agent.name }} model edit</button>
+                    } @else {
+                      <button type="button" [class]="control" (click)="editCliModel(agent.id, models.selectedModel ?? '')" [disabled]="saving()">Edit {{ agent.name }} model</button>
+                    }
+                  } @else { <p>Saved model details are unavailable for this instance. Refresh settings to check again.</p> }
+                }
+                <label class="flex min-h-9 items-center gap-2">
+                  <input type="checkbox" class="toggle toggle-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                    [checked]="agent.enabled" [disabled]="saving() || state.cliAgents().status !== 'ready'"
+                    [attr.aria-label]="'Enable ' + agent.name + ' for delegated work'" (change)="toggleCli(agent.id, $event)" />
+                  Enable {{ agent.name }} for delegated work
+                </label>
+                <button type="button" [class]="control" (click)="beginEdit(agent.id, agent.name)">Edit name or key</button>
+                <button type="button" [class]="control" (click)="state.testCliConnection(agent.id)" [disabled]="state.cliTest().status === 'loading'">Test connection</button>
+                @if (state.cliTest().data?.id === agent.id) { <p role="status">{{ state.cliTest().status === 'ready' ? state.cliTest().data?.success ? 'Connection checked.' : 'Connection check failed.' : 'Connection check unavailable.' }}</p> }
+                @if (editId() === agent.id) {
+                  <label [for]="'cli-edit-name-' + agent.id">Agent name</label><input [id]="'cli-edit-name-' + agent.id" [class]="field" [value]="editName()" (input)="editName.set(inputValue($event))" />
+                  <label [for]="'cli-edit-key-' + agent.id">Replacement API key (leave empty to keep)</label><input type="password" [id]="'cli-edit-key-' + agent.id" [class]="field" [value]="editKey()" (input)="editKey.set(inputValue($event))" />
+                  <button type="button" [class]="control" [disabled]="saving() || !editName().trim()" (click)="saveEdit()">Save instance</button>
+                  <button type="button" [class]="control" (click)="cancelEdit()">Cancel instance edit</button>
+                }
+                <button type="button" [class]="control" (click)="removeCliId.set(agent.id)" [disabled]="saving()">Remove {{ agent.name }}</button>
+                @if (removeCliId() === agent.id) {
+                  <p>Remove this CLI instance? Its provider connection will remain available.</p>
+                  <button type="button" [class]="control" (click)="removeCli(agent.id)" [disabled]="saving()">Confirm removal of {{ agent.name }}</button>
+                  <button type="button" [class]="control" (click)="removeCliId.set(null)">Cancel removal</button>
+                }
+              </div>
+            </ptah-native-card>
           }
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button (click)="closeModelMapping()">close</button>
-        </form>
-      </dialog>
-    </div>
-  `,
+          <div class="space-y-2">
+            <label for="providers-cursor-key">Cursor API key</label>
+            <input id="providers-cursor-key" type="password" autocomplete="new-password" [class]="field" [value]="cursorKey()" (input)="cursorKey.set(inputValue($event))" />
+            <button type="button" [class]="control" [disabled]="saving() || !cursorKey().trim()" (click)="saveCursorKey()">Save Cursor credential</button>
+          </div>
+          @if (state.orchestration().status === 'ready') {
+            <h3 class="font-semibold">Delegated CLI models and reasoning effort</h3>
+            @for (choice of delegatedModels; track choice.key) {
+              <div class="rounded-md border border-base-300 p-3 space-y-2">
+                <p>{{ choice.name }}: {{ state.orchestration().data?.[choice.key] || 'Provider default' }}</p>
+                <ptah-setting-scope-row [fieldName]="choice.name" [scope]="state.scopeEntry('agentOrchestration.' + choice.key)?.scope ?? null" [disabled]="true" />
+                @if (delegatedDraft()?.key === choice.key) {
+                  @if (choice.key.endsWith('Model')) {
+                    <ptah-provider-model-picker [fixedProvider]="delegatedProvider(choice.key)" [model]="delegatedDraft()?.value ?? ''" [label]="choice.name"
+                      [disabled]="saving()" (selectionChange)="delegatedDraft.set({ key: choice.key, value: $event.model })" />
+                  } @else {
+                    <label [for]="'providers-' + choice.key">{{ choice.name }}</label>
+                    <input [id]="'providers-' + choice.key" [class]="field" [value]="delegatedDraft()?.value ?? ''" (input)="setDelegatedModel(choice.key, $event)" />
+                  }
+                  <p>Leave empty to use the provider default. Saved globally for delegated work.</p>
+                  <button type="button" [class]="control" (click)="saveDelegatedModel()" [disabled]="saving()">Save {{ choice.name }}</button>
+                  <button type="button" [class]="control" (click)="delegatedDraft.set(null)" [disabled]="saving()">Cancel {{ choice.name }} edit</button>
+                } @else {
+                  <button type="button" [class]="control" (click)="editDelegatedModel(choice.key)" [disabled]="saving()">Edit {{ choice.name }}</button>
+                }
+              </div>
+            }
+          }
+        </section>
+
+`,
 })
-export class PtahCliConfigComponent implements OnInit, OnDestroy {
-  private readonly rpcService = inject(ClaudeRpcService);
-  private readonly confirmDialog = inject(ConfirmationDialogService);
-  private readonly ptahCliState = inject(PtahCliStateService);
-
-  /**
-   * Provider id to auto-open the "New Ptah CLI Agent" form for, pre-selected.
-   * Set when the user deep-links here from elsewhere (e.g. the tribunal
-   * panel's "Configure" action) so they land on the add form for that exact
-   * provider instead of an empty list. Ignored if the id isn't a known
-   * provider option.
-   */
-  readonly autoOpenProviderId = input<string | undefined>(undefined);
-
-  /** Emitted after successful create/update/delete so siblings can refresh */
-  readonly ptahCliChanged = output<void>();
-  readonly BotIcon = Bot;
-  readonly PlusIcon = Plus;
-  readonly PencilIcon = Pencil;
-  readonly Trash2Icon = Trash2;
-  readonly PlugIcon = Plug;
-  readonly CheckIcon = Check;
-  readonly XIcon = X;
-  readonly Loader2Icon = Loader2;
-  readonly EyeIcon = Eye;
-  readonly EyeOffIcon = EyeOff;
-  readonly LayersIcon = Layers;
-  readonly GithubIcon = Github;
-  readonly providers = AVAILABLE_PROVIDERS;
-  readonly agents = signal<PtahCliSummary[]>([]);
-  readonly isLoading = signal(false);
-  readonly error = signal<string | null>(null);
-  readonly successMessage = signal<string | null>(null);
-  readonly showAddForm = signal(false);
-  readonly newAgentName = signal('');
-  readonly newAgentProvider = signal('');
-  readonly newAgentApiKey = signal('');
-  readonly showNewApiKey = signal(false);
-  readonly isCreating = signal(false);
-  readonly editingAgentId = signal<string | null>(null);
-  readonly editName = signal('');
-  readonly editApiKey = signal('');
-  readonly showEditApiKey = signal(false);
-  readonly testingAgentId = signal<string | null>(null);
-  readonly testResultAgentId = signal<string | null>(null);
-  readonly testResult = signal<{
-    success: boolean;
-    latencyMs?: number;
-    error?: string;
-  } | null>(null);
-  readonly isUpdating = signal(false);
-  readonly copilotLoginStatus = signal<
-    'idle' | 'logging-in' | 'connected' | 'error'
-  >('idle');
-  readonly copilotUsername = signal<string | null>(null);
-  readonly providerTierMappings = signal<
-    Record<
-      string,
-      { sonnet: string | null; opus: string | null; haiku: string | null }
-    >
-  >({});
-  readonly modelMappingAgent = signal<PtahCliSummary | null>(null);
-  private readonly modelMappingDialog =
-    viewChild<ElementRef<HTMLDialogElement>>('modelMappingDialog');
-  private successTimer: ReturnType<typeof setTimeout> | null = null;
-
-  readonly canCreate = computed(() => {
-    const hasName = this.newAgentName().trim().length > 0;
-    const hasProvider = this.newAgentProvider().length > 0;
-    if (this.newAgentProvider() === 'github-copilot') {
-      return (
-        hasName && hasProvider && this.copilotLoginStatus() === 'connected'
-      );
-    }
-    if (
-      LOCAL_PROVIDER_IDS.has(this.newAgentProvider()) ||
-      OPTIONAL_KEY_PROVIDER_IDS.has(this.newAgentProvider())
-    ) {
-      return hasName && hasProvider;
-    }
-
-    return hasName && hasProvider && this.newAgentApiKey().trim().length > 0;
+export class PtahCliConfigComponent implements OnDestroy {
+  readonly autoOpenProviderId = input<string>('');
+  protected readonly state = inject(ProvidersSettingsStateService);
+  protected readonly control = CONTROL;
+  protected readonly field = FIELD;
+  protected readonly saving = computed(() => this.state.commit().status === 'saving');
+  protected readonly canStartSetup = computed(() => this.state.connections().status === 'ready' && this.state.scopes().status === 'ready' && !this.saving());
+  private delegatedContext: ProvidersEditContext | null = null;
+  private cliCreateContext: ProvidersEditContext | null = null;
+  private cliModelContext: ProvidersEditContext | null = null;
+  private openedProvider = '';
+  protected readonly delegatedDraft = signal<{ key: DelegatedModelKey; value: string } | null>(null);
+  protected readonly delegatedModels: readonly { key: DelegatedModelKey; name: string }[] = [
+    { key: 'codexModel', name: 'Codex model' }, { key: 'copilotModel', name: 'Copilot model' }, { key: 'cursorModel', name: 'Cursor model' },
+    { key: 'antigravityModel', name: 'Antigravity model' }, { key: 'opencodeModel', name: 'OpenCode model' }, { key: 'piModel', name: 'Pi model' },
+    { key: 'codexReasoningEffort', name: 'Codex reasoning effort' }, { key: 'copilotReasoningEffort', name: 'Copilot reasoning effort' },
+    { key: 'piReasoningEffort', name: 'Pi reasoning effort' },
+  ];
+  protected readonly removeCliId = signal<string | null>(null);
+  protected readonly cliCreateOpen = signal(false);
+  protected readonly cliName = signal('');
+  protected readonly cliProvider = signal('');
+  protected readonly cliKey = signal('');
+  protected readonly cliModelDraft = signal<{ id: string; model: string } | null>(null);
+  protected readonly canCreateCli = computed(() => {
+    const provider = this.state.connections().data?.find((entry) => entry.id === this.cliProvider());
+    return !!this.cliName().trim() && !!provider && provider.id !== 'anthropic' && provider.id !== 'openai-codex' &&
+      (provider.authMode !== 'apiKey' || !!this.cliKey().trim()) && !this.saving();
   });
 
-  async ngOnInit(): Promise<void> {
-    await this.loadAgents();
-    await this.loadTierMappings();
-    this.maybeAutoOpenAddForm();
-  }
-
-  /**
-   * When deep-linked with a provider id (e.g. from the tribunal "Configure"
-   * action), open the add form pre-selected to that provider so the user can
-   * create the agent in one step. No-op if the id isn't a known provider.
-   */
-  private maybeAutoOpenAddForm(): void {
-    const requested = this.autoOpenProviderId();
-    if (!requested) return;
-    if (!AVAILABLE_PROVIDERS.some((p) => p.id === requested)) return;
-    this.showAddForm.set(true);
-    this.onProviderChange(requested);
-  }
-
-  ngOnDestroy(): void {
-    if (this.successTimer) {
-      clearTimeout(this.successTimer);
-      this.successTimer = null;
-    }
-  }
-
-  async loadAgents(): Promise<void> {
-    this.isLoading.set(true);
-    this.error.set(null);
-    try {
-      const result = await this.rpcService.call(
-        'ptahCli:list',
-        {} as Record<string, never>,
-      );
-      if (result.isSuccess()) {
-        this.agents.set(result.data.agents);
-        this.ptahCliState.refresh().catch(() => {});
-      } else {
-        this.error.set(result.error ?? 'Failed to load Ptah CLI agents');
+  constructor() {
+    effect(() => {
+      const provider = this.autoOpenProviderId();
+      if (provider && provider !== this.openedProvider && this.canStartSetup()) {
+        this.openedProvider = provider; this.cliProvider.set(provider); this.beginCliCreate();
       }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.error.set(
-        `Failed to load Ptah CLI agents: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    } finally {
-      this.isLoading.set(false);
-    }
-  }
-
-  toggleAddForm(): void {
-    this.showAddForm.update((v) => !v);
-    if (!this.showAddForm()) {
-      this.resetAddForm();
-    }
-  }
-
-  /** Check if a provider uses authType: 'none' (no API key needed) */
-  isLocalProvider(providerId: string): boolean {
-    return LOCAL_PROVIDER_IDS.has(providerId);
-  }
-
-  /** Check if a provider has authType:'none' but accepts an optional API key. */
-  isOptionalKeyProvider(providerId: string): boolean {
-    return OPTIONAL_KEY_PROVIDER_IDS.has(providerId);
-  }
-
-  /**
-   * Handle provider dropdown change. Resets copilot state and checks
-   * copilot auth status when github-copilot is selected.
-   */
-  onProviderChange(providerId: string): void {
-    this.newAgentProvider.set(providerId);
-
-    if (providerId === 'github-copilot') {
-      this.checkCopilotStatus();
-    } else {
-      this.copilotLoginStatus.set('idle');
-      this.copilotUsername.set(null);
-    }
-  }
-
-  async createAgent(): Promise<void> {
-    if (!this.canCreate()) return;
-
-    this.isCreating.set(true);
-    this.error.set(null);
-    try {
-      const providerId = this.newAgentProvider();
-      const isCopilot = providerId === 'github-copilot';
-      const isLocal = LOCAL_PROVIDER_IDS.has(providerId);
-      const isOptionalKey = OPTIONAL_KEY_PROVIDER_IDS.has(providerId);
-      const typedKey = this.newAgentApiKey().trim();
-      const apiKey = isCopilot
-        ? COPILOT_OAUTH_SENTINEL
-        : isLocal
-          ? LOCAL_PROVIDER_SENTINEL
-          : isOptionalKey && typedKey.length === 0
-            ? LOCAL_PROVIDER_SENTINEL
-            : typedKey;
-      const result = await this.rpcService.call('ptahCli:create', {
-        name: this.newAgentName().trim(),
-        providerId,
-        apiKey,
-      });
-
-      if (result.isSuccess() && result.data.success) {
-        this.showSuccess(`Agent "${this.newAgentName().trim()}" created`);
-        this.resetAddForm();
-        this.showAddForm.set(false);
-        await this.loadAgents();
-        await this.loadTierMappings();
-        this.ptahCliChanged.emit();
-      } else {
-        this.error.set(
-          result.data?.error ?? result.error ?? 'Failed to create agent',
-        );
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.error.set(
-        `Failed to create agent: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    } finally {
-      this.isCreating.set(false);
-    }
-  }
-
-  private resetAddForm(): void {
-    this.newAgentName.set('');
-    this.newAgentProvider.set('');
-    this.newAgentApiKey.set('');
-    this.showNewApiKey.set(false);
-    this.copilotLoginStatus.set('idle');
-    this.copilotUsername.set(null);
-  }
-
-  /**
-   * Initiate GitHub OAuth login for Copilot provider.
-   * Calls the backend RPC which triggers VS Code's GitHub auth flow.
-   */
-  async loginWithGitHub(): Promise<void> {
-    this.copilotLoginStatus.set('logging-in');
-    this.error.set(null);
-
-    try {
-      const result = await this.rpcService.call(
-        'auth:copilotLogin',
-        {} as Record<string, never>,
-      );
-
-      if (result.isSuccess() && result.data.success) {
-        this.copilotLoginStatus.set('connected');
-        this.copilotUsername.set(result.data.username ?? 'GitHub User');
-      } else {
-        this.copilotLoginStatus.set('error');
-        const errorMsg =
-          result.data?.error ?? result.error ?? 'GitHub login failed';
-        this.error.set(errorMsg);
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig] Copilot login failed', err);
-      this.copilotLoginStatus.set('error');
-      this.error.set(
-        `GitHub login failed: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    }
-  }
-
-  /**
-   * Check Copilot auth status when the provider is selected.
-   * Called from the provider dropdown change handler.
-   */
-  async checkCopilotStatus(): Promise<void> {
-    try {
-      const result = await this.rpcService.call(
-        'auth:copilotStatus',
-        {} as Record<string, never>,
-      );
-
-      if (result.isSuccess() && result.data.authenticated) {
-        this.copilotLoginStatus.set('connected');
-        this.copilotUsername.set(result.data.username ?? 'GitHub User');
-      } else {
-        this.copilotLoginStatus.set('idle');
-        this.copilotUsername.set(null);
-      }
-    } catch {
-      this.copilotLoginStatus.set('idle');
-      this.copilotUsername.set(null);
-    }
-  }
-
-  startEdit(agent: PtahCliSummary): void {
-    this.editingAgentId.set(agent.id);
-    this.editName.set(agent.name);
-    this.editApiKey.set('');
-    this.showEditApiKey.set(false);
-  }
-
-  cancelEdit(): void {
-    this.editingAgentId.set(null);
-    this.editName.set('');
-    this.editApiKey.set('');
-    this.showEditApiKey.set(false);
-  }
-
-  async saveEdit(agentId: string): Promise<void> {
-    const name = this.editName().trim();
-    if (!name) return;
-
-    this.error.set(null);
-    try {
-      const newKey = this.editApiKey().trim();
-      const result = await this.rpcService.call('ptahCli:update', {
-        id: agentId,
-        name,
-        ...(newKey.length > 0 ? { apiKey: newKey } : {}),
-      });
-
-      if (result.isSuccess() && result.data.success) {
-        this.showSuccess('Agent updated');
-        this.cancelEdit();
-        await this.loadAgents();
-        await this.loadTierMappings();
-        this.ptahCliChanged.emit();
-      } else {
-        this.error.set(
-          result.data?.error ?? result.error ?? 'Failed to update agent',
-        );
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.error.set(
-        `Failed to update agent: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    }
-  }
-
-  async toggleEnabled(agent: PtahCliSummary): Promise<void> {
-    if (this.isUpdating()) return;
-    this.isUpdating.set(true);
-    this.error.set(null);
-    try {
-      const result = await this.rpcService.call('ptahCli:update', {
-        id: agent.id,
-        enabled: !agent.enabled,
-      });
-
-      if (result.isSuccess() && result.data.success) {
-        this.agents.update((agents) =>
-          agents.map((a) =>
-            a.id === agent.id ? { ...a, enabled: !a.enabled } : a,
-          ),
-        );
-        this.ptahCliState.refresh().catch(() => {});
-        this.ptahCliChanged.emit();
-      } else {
-        this.error.set(
-          result.data?.error ?? result.error ?? 'Failed to toggle agent',
-        );
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.error.set(
-        `Failed to toggle agent: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    } finally {
-      this.isUpdating.set(false);
-    }
-  }
-
-  async deleteAgent(agent: PtahCliSummary): Promise<void> {
-    const confirmed = await this.confirmDialog.confirm({
-      title: 'Delete Ptah CLI Agent',
-      message: `Are you sure you want to delete "${agent.name}"? This action cannot be undone.`,
-      confirmLabel: 'Delete',
-      confirmStyle: 'error',
     });
-
-    if (!confirmed) return;
-
-    this.error.set(null);
-    try {
-      const result = await this.rpcService.call('ptahCli:delete', {
-        id: agent.id,
-      });
-
-      if (result.isSuccess() && result.data.success) {
-        this.showSuccess(`Agent "${agent.name}" deleted`);
-        await this.loadAgents();
-        await this.loadTierMappings();
-        this.ptahCliChanged.emit();
-      } else {
-        this.error.set(
-          result.data?.error ?? result.error ?? 'Failed to delete agent',
-        );
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.error.set(
-        `Failed to delete agent: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      );
-    }
   }
-
-  async testConnection(agentId: string): Promise<void> {
-    this.testingAgentId.set(agentId);
-    this.testResultAgentId.set(null);
-    this.testResult.set(null);
-    this.error.set(null);
-
-    try {
-      const result = await this.rpcService.call('ptahCli:testConnection', {
-        id: agentId,
-      });
-
-      if (result.isSuccess()) {
-        this.testResultAgentId.set(agentId);
-        this.testResult.set({
-          success: result.data.success,
-          latencyMs: result.data.latencyMs,
-          error: result.data.error,
-        });
-      } else {
-        this.testResultAgentId.set(agentId);
-        this.testResult.set({
-          success: false,
-          error: result.error ?? 'Connection test failed',
-        });
-      }
-    } catch (err) {
-      console.error('[PtahCliConfig]', err);
-      this.testResultAgentId.set(agentId);
-      this.testResult.set({
-        success: false,
-        error: `Connection test failed: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`,
-      });
-    } finally {
-      this.testingAgentId.set(null);
-    }
+  ngOnDestroy(): void { this.cliKey.set(''); this.editKey.set(''); this.cursorKey.set(''); }
+  protected readonly editId = signal<string | null>(null);
+  protected readonly editName = signal('');
+  protected readonly editKey = signal('');
+  protected readonly cursorKey = signal('');
+  private editContext: ProvidersEditContext | null = null;
+  protected beginEdit(id: string, name: string): void { this.editContext = this.state.reviewContext(); this.editId.set(id); this.editName.set(name); this.editKey.set(''); }
+  protected cancelEdit(): void { this.editId.set(null); this.editKey.set(''); }
+  protected async saveEdit(): Promise<void> {
+    const id = this.editId(); if (!id || !this.editContext) return;
+    await this.state.saveSettings({ cli: [{ action: 'update', params: { id, name: this.editName().trim(), ...(this.editKey().trim() ? { apiKey: this.editKey() } : {}) } }] }, this.editContext);
+    if (this.state.commit().status === 'saved') this.cancelEdit();
   }
-
-  async loadTierMappings(): Promise<void> {
-    const agents = this.agents();
-    const uniqueProviderIds = [
-      ...new Set(agents.filter((a) => a.hasApiKey).map((a) => a.providerId)),
-    ];
-
-    const mappings: Record<
-      string,
-      { sonnet: string | null; opus: string | null; haiku: string | null }
-    > = {};
-
-    await Promise.all(
-      uniqueProviderIds.map(async (providerId) => {
-        const result = await this.rpcService.call('provider:getModelTiers', {
-          providerId,
-          scope: 'cliAgent',
-        });
-        if (result.isSuccess() && result.data) {
-          const data = result.data as unknown as {
-            sonnet?: string | null;
-            opus?: string | null;
-            haiku?: string | null;
-          };
-          mappings[providerId] = {
-            sonnet: data.sonnet ?? null,
-            opus: data.opus ?? null,
-            haiku: data.haiku ?? null,
-          };
-        }
-      }),
-    );
-
-    this.providerTierMappings.set(mappings);
+  protected async saveCursorKey(): Promise<void> {
+    const context = this.state.reviewContext(); if (!context) return;
+    await this.state.saveCursorCredential(this.cursorKey(), context);
+    if (this.state.commit().status === 'saved') this.cursorKey.set('');
   }
-
-  getAgentMappings(agent: PtahCliSummary): {
-    sonnet: string | null;
-    opus: string | null;
-    haiku: string | null;
-  } | null {
-    return this.providerTierMappings()[agent.providerId] ?? null;
+  protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
+  protected async toggleCli(id: string, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const enabled = input.checked; input.checked = !enabled;
+    await this.commitCli({ cli: [{ action: 'update', params: { id, enabled } }] });
   }
-
-  openModelMapping(agent: PtahCliSummary): void {
-    this.modelMappingAgent.set(agent);
-    this.modelMappingDialog()?.nativeElement.showModal();
+  protected async removeCli(id: string): Promise<void> {
+    await this.commitCli({ cli: [{ action: 'delete', params: { id } }] });
+    if (this.state.commit().status === 'saved') this.removeCliId.set(null);
   }
-
-  async closeModelMapping(): Promise<void> {
-    this.modelMappingDialog()?.nativeElement.close();
-    this.modelMappingAgent.set(null);
-    await this.loadTierMappings();
+  protected beginCliCreate(): void {
+    this.cliCreateContext = this.state.reviewContext(); this.cliCreateOpen.set(true);
   }
-
-  private showSuccess(message: string): void {
-    this.successMessage.set(message);
-    if (this.successTimer) {
-      clearTimeout(this.successTimer);
-    }
-    this.successTimer = setTimeout(() => {
-      this.successMessage.set(null);
-      this.successTimer = null;
-    }, 3000);
+  protected cancelCliCreate(): void { this.cliCreateOpen.set(false); this.cliKey.set(''); this.cliName.set(''); }
+  protected async createCli(): Promise<void> {
+    if (!this.canCreateCli() || !this.cliCreateContext) return;
+    await this.state.saveSettings({ cli: [{ action: 'create', params: {
+      name: this.cliName().trim(), providerId: this.cliProvider(), apiKey: this.cliKey(),
+    } }] }, this.cliCreateContext);
+    if (this.state.commit().status === 'saved' && this.state.cliAgents().status === 'ready') this.cancelCliCreate();
+  }
+  protected editCliModel(id: string, model: string): void {
+    this.cliModelContext = this.state.reviewContext(); this.cliModelDraft.set({ id, model });
+  }
+  protected async saveCliModel(): Promise<void> {
+    const draft = this.cliModelDraft(); if (!draft || !this.cliModelContext) return;
+    await this.state.saveSettings({ cli: [{ action: 'update', params: { id: draft.id, selectedModel: draft.model } }] }, this.cliModelContext);
+    if (this.state.commit().status === 'saved' && this.state.cliModels().status === 'ready') this.cliModelDraft.set(null);
+  }
+  protected editDelegatedModel(key: DelegatedModelKey): void {
+    this.delegatedContext = this.state.reviewContext();
+    this.delegatedDraft.set({ key, value: this.state.orchestration().data?.[key] ?? '' });
+  }
+  protected delegatedProvider(key: DelegatedModelKey): string {
+    return key === 'codexModel' ? 'openai-codex' : key === 'copilotModel' ? 'github-copilot' : key.replace(/Model$/, '');
+  }
+  protected setDelegatedModel(key: DelegatedModelKey, event: Event): void { this.delegatedDraft.set({ key, value: this.inputValue(event) }); }
+  protected async saveDelegatedModel(): Promise<void> {
+    const draft = this.delegatedDraft(); if (!draft || !this.delegatedContext) return;
+    await this.state.saveSettings({ orchestration: { [draft.key]: draft.value.trim() } }, this.delegatedContext);
+    if (this.state.commit().status === 'saved') this.delegatedDraft.set(null);
+  }
+  private async commitCli(patch: ProvidersSettingsPatch): Promise<void> {
+    const context = this.state.reviewContext(); if (context) await this.state.saveSettings(patch, context);
   }
 }

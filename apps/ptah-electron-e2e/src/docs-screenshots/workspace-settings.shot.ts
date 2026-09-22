@@ -30,9 +30,21 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     await ui.goto('settings');
     const settings = page.locator('ptah-settings');
     await expect(settings).toBeVisible();
+    // The landing (default) tab is the consolidated Providers page: tab id
+    // `claude-auth` is retained, but it renders `ptah-providers-settings`,
+    // whose Background models section carries `assignments-heading`.
+    await expect(page.locator('ptah-providers-settings')).toBeVisible();
     await expect(
-      page.locator('[data-testid="settings-section-auth"]'),
+      page.locator('[data-testid="assignments-heading"]'),
     ).toBeVisible();
+    // Give the page's async section reads a beat to land so the shot shows
+    // content, not skeletons. Best-effort: a profile with no configured
+    // connection still shoots the page.
+    await page
+      .locator('[data-testid="provider-connection-card"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .catch(() => undefined);
     await page.waitForTimeout(1_500);
     await shoot(page, 'settings-overview');
 

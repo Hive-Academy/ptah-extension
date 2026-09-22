@@ -261,7 +261,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (!this.isSingleton()) return false;
     if (this.layoutFocusTabId() !== null) return true;
     const constraints = this.viewConstraints();
-    return !(constraints.length === 1 && isCompactViewMode(constraints[0].heightTier));
+    return !(
+      constraints.length === 1 && isCompactViewMode(constraints[0].heightTier)
+    );
   });
 
   /** Responsive column capacity; spans promote against it at render time. */

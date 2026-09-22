@@ -4,7 +4,7 @@ import {
   type DependencyContainer,
 } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -28,6 +28,7 @@ import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
 import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
+import { DraftVerificationService } from '../auth/draft-verification.service';
 import { providerQuotaStore } from '../auth/provider-quota.store';
 
 export function registerAuthProvidersServices(
@@ -103,6 +104,15 @@ export function registerAuthProvidersServices(
     { useClass: AuthManager },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION,
+    { useClass: DraftVerificationService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // Draft verification is required on every host, including VS Code, which
+  // never registers the memory curator. Register the resolver's complete proxy
+  // graph here; none of these lazy registrations starts a proxy server.
+  registerCuratorAuthServices(container, logger);
 
   container.register(SDK_TOKENS.PRICING_PROVIDER, {
     useFactory: instanceCachingFactory((c) =>
@@ -121,6 +131,15 @@ export function registerCuratorAuthServices(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  // Electron and CLI also call this from their curator setup. Re-registering
+  // singletons would replace live resolver/proxy instances, so keep this
+  // shared graph intact when the required auth phase already supplied it.
+  if (
+    container.isRegistered(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER) &&
+    container.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_PROXY_MANAGER)
+  )
+    return;
+
   logger.info('[auth-providers] Registering curator auth services...');
 
   container.register(
@@ -144,11 +163,21 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  container.register(
-    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_PROXY_MANAGER,
-    { useClass: CuratorProxyManager },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // The final numeric constructor argument is a test-only TTL override, not
+  // a DI dependency. A factory preserves its default with decorator metadata
+  // enabled too (tsyringe otherwise attempts to resolve Number).
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_PROXY_MANAGER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new CuratorProxyManager(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_COPILOT_PROXY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_CODEX_PROXY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY),
+        ),
+    ),
+  });
   container.register(
     SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER,
     { useClass: ProviderAuthResolver },

@@ -1,10 +1,13 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  inject,
   Component,
   input,
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { LucideAngularModule, ChevronDown, Brain } from 'lucide-angular';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
@@ -20,7 +23,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-thinking-block',
   standalone: true,
-  imports: [MarkdownModule, LucideAngularModule],
+  imports: [SurfaceMarkdownPipe, MarkdownModule, LucideAngularModule],
   template: `
     <div class="card card-border my-3 border-base-300 bg-base-200/50 shadow-sm">
       <!-- Card header (clickable to toggle) -->
@@ -72,7 +75,9 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           <div
             class="prose prose-sm prose-invert max-w-none text-base-content-muted leading-relaxed"
           >
-            <markdown [data]="node().content || ''" />
+            <markdown
+              [data]="node().content || '' | surfaceMarkdown: surfaceActive()"
+            />
           </div>
         </div>
       }
@@ -81,6 +86,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThinkingBlockComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
   readonly ChevronIcon = ChevronDown;

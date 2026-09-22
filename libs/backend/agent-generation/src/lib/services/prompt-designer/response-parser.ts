@@ -4,9 +4,10 @@
  * with fallback handling for malformed output.
  */
 
-import type {
-  PromptDesignerOutput,
-  PromptDesignerResponse,
+import {
+  VALIDATOR_TOTAL_TOKENS_WITH_QUALITY,
+  type PromptDesignerOutput,
+  type PromptDesignerResponse,
 } from './prompt-designer.types';
 
 /**
@@ -231,7 +232,145 @@ function extractSections(text: string): ExtractedSections {
 }
 
 /**
+ * Marker appended to a section that had to be shortened to fit the budget.
+ */
+const SECTION_SHORTENED_MARKER =
+  '\n\n_(section shortened to fit the prompt budget)_';
+
+/**
+ * Estimate the token count of a text the way this module does (~4 characters
+ * per token, rounded up). SafeCountTokens uses the same ratio as a fallback.
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** A list item starts with one of these markers followed by a space. */
+const LIST_MARKER_PATTERN = /^(?:[-*+]|\d+[.)])\s/;
+
+function isListItemStart(line: string): boolean {
+  return LIST_MARKER_PATTERN.test(line.trimStart());
+}
+
+function isHeadingLine(line: string): boolean {
+  return /^#{1,6}\s/.test(line);
+}
+
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function isBlankLine(line: string): boolean {
+  return line.trim() === '';
+}
+
+/**
+ * Structural analysis of a section: the char offsets where a cut keeps every
+ * Markdown block whole, and whether the content contains any list.
+ *
+ * A block is a heading with its body, a paragraph, or one complete top-level
+ * list item. A list item owns every following line indented deeper than its
+ * marker (wrapped text and nested items) and every blank line that a deeper
+ * indented line follows (loose-list separation). A cut between the returned
+ * offsets therefore never splits an item and never separates a nested item
+ * from its parent.
+ */
+interface StructuralAnalysis {
+  boundaries: number[];
+  hasList: boolean;
+}
+
+function analyzeStructure(content: string): StructuralAnalysis {
+  // Parse CR-stripped copies so CRLF content behaves the same, but compute
+  // offsets from the raw lines so cuts stay byte-exact.
+  const rawLines = content.split('\n');
+  const lines = rawLines.map((line) =>
+    line.endsWith('\r') ? line.slice(0, -1) : line,
+  );
+  const hasList = lines.some((line) => isListItemStart(line));
+
+  const prefixLengths: number[] = [];
+  let total = 0;
+  for (const [i, line] of rawLines.entries()) {
+    total += line.length + (i > 0 ? 1 : 0);
+    prefixLengths.push(total);
+  }
+
+  const boundaries: number[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) {
+      i++;
+      continue;
+    }
+    if (isHeadingLine(line)) {
+      // The heading block runs to the next blank line: a cut right after the
+      // heading would leave it dangling without its body.
+      i++;
+      while (i < lines.length && !isBlankLine(lines[i])) {
+        i++;
+      }
+      boundaries.push(prefixLengths[i - 1]);
+      continue;
+    }
+    if (isListItemStart(line)) {
+      const markerIndent = indentOf(line);
+      i++;
+      while (i < lines.length) {
+        const next = lines[i];
+        if (isBlankLine(next)) {
+          const after = lines[i + 1];
+          if (
+            after === undefined ||
+            isBlankLine(after) ||
+            indentOf(after) <= markerIndent
+          ) {
+            break;
+          }
+          // Blank line inside the item, continued by a deeper-indented line.
+          i += 2;
+        } else if (indentOf(next) > markerIndent) {
+          // Continuation line: wrapped text or a nested item.
+          i++;
+        } else {
+          break;
+        }
+      }
+      boundaries.push(prefixLengths[i - 1]);
+      continue;
+    }
+    // Paragraph: ends at a blank line, a heading, or the start of a list.
+    i++;
+    while (
+      i < lines.length &&
+      !isBlankLine(lines[i]) &&
+      !isHeadingLine(lines[i]) &&
+      !isListItemStart(lines[i])
+    ) {
+      i++;
+    }
+    boundaries.push(prefixLengths[i - 1]);
+  }
+
+  return { boundaries, hasList };
+}
+
+/**
  * Truncate section content to fit within token budget
+ *
+ * Reserves the shortened marker's token cost before it selects a boundary,
+ * and verifies the complete result (content plus marker) against the budget.
+ *
+ * When the content contains a list, the cut lands on a block boundary only:
+ * the leading whole items (each with all continuation lines and nested
+ * children) that fit the reserved target are kept, the rest is dropped, and
+ * the sentence-level fallback never runs. Empty content plus the marker is
+ * the last resort.
+ *
+ * When the content contains no list, a structural boundary above half the
+ * reserved target wins; otherwise a sentence-level cut runs. Budgets too
+ * small for even the marker return the marker alone.
  *
  * @param content - Section content
  * @param maxTokens - Maximum allowed tokens
@@ -246,7 +385,71 @@ export function truncateToTokenBudget(
   if (currentTokens <= maxTokens) {
     return content;
   }
+
+  const markerOnly = SECTION_SHORTENED_MARKER.trim();
+  const markerTokens = estimateTokens(SECTION_SHORTENED_MARKER);
+  if (maxTokens < markerTokens) {
+    // The budget cannot hold even the shortened marker.
+    return markerOnly;
+  }
+
   const targetChars = Math.floor((maxTokens / currentTokens) * content.length);
+  // Reserve the marker's cost before selecting a boundary.
+  const effectiveTargetChars = targetChars - markerTokens;
+  if (effectiveTargetChars <= 0) {
+    return markerOnly;
+  }
+
+  const { boundaries, hasList } = analyzeStructure(content);
+
+  // Largest boundary that fits the reserved target.
+  let end = -1;
+  while (
+    end + 1 < boundaries.length &&
+    boundaries[end + 1] <= effectiveTargetChars
+  ) {
+    end++;
+  }
+
+  if (hasList) {
+    // Never cut inside a list with the sentence heuristic: walk to the
+    // nearest safe boundary, with no floor. Empty content plus the marker
+    // is the last resort.
+    while (
+      end >= 0 &&
+      estimateTokens(
+        content.slice(0, boundaries[end]) + SECTION_SHORTENED_MARKER,
+      ) > maxTokens
+    ) {
+      // The complete result is still over budget: one boundary back.
+      end--;
+    }
+    if (end < 0) {
+      return markerOnly;
+    }
+    return content.slice(0, boundaries[end]).trim() + SECTION_SHORTENED_MARKER;
+  }
+
+  // No list in the content: a structural boundary above half the reserved
+  // target wins; otherwise the sentence-level fallback runs.
+  if (end >= 0 && boundaries[end] >= effectiveTargetChars * 0.5) {
+    let boundaryEnd = end;
+    while (
+      boundaryEnd >= 0 &&
+      estimateTokens(
+        content.slice(0, boundaries[boundaryEnd]) + SECTION_SHORTENED_MARKER,
+      ) > maxTokens
+    ) {
+      boundaryEnd--;
+    }
+    if (boundaryEnd >= 0) {
+      return (
+        content.slice(0, boundaries[boundaryEnd]).trim() +
+        SECTION_SHORTENED_MARKER
+      );
+    }
+  }
+
   let truncated = content.slice(0, targetChars);
   const lastPeriod = truncated.lastIndexOf('. ');
   const lastNewline = truncated.lastIndexOf('\n');
@@ -256,7 +459,19 @@ export function truncateToTokenBudget(
     truncated = truncated.slice(0, breakPoint + 1);
   }
 
-  return truncated.trim() + '...';
+  // Verify the complete result, marker included, and shrink until it fits.
+  while (
+    truncated.length > 0 &&
+    estimateTokens(truncated + SECTION_SHORTENED_MARKER) > maxTokens
+  ) {
+    const overflow =
+      estimateTokens(truncated + SECTION_SHORTENED_MARKER) - maxTokens;
+    truncated = content.slice(0, Math.max(0, truncated.length - overflow * 4));
+  }
+  if (truncated.trim().length === 0) {
+    return markerOnly;
+  }
+  return truncated.trim() + SECTION_SHORTENED_MARKER;
 }
 
 /**
@@ -312,7 +527,9 @@ export function validateOutput(output: PromptDesignerOutput): {
       issues.push(`Contains generic phrase: "${phrase}"`);
     }
   }
-  const tokenBudget = output.qualityGuidance ? 2300 : 2000;
+  const tokenBudget = output.qualityGuidance
+    ? VALIDATOR_TOTAL_TOKENS_WITH_QUALITY
+    : 2000;
   if (output.totalTokens > tokenBudget) {
     issues.push(
       `Total tokens (${output.totalTokens}) exceeds budget of ${tokenBudget}`,

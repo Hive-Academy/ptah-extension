@@ -74,7 +74,14 @@ import {
 const SERVICE_TAG = '[MultiPhaseAnalysis]';
 /** Per-phase ceiling, covering the queue wait AND the stream. */
 export const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
-const MAX_AGENT_TURNS = 50;
+export const DEFAULT_MAX_AGENT_TURNS = 50;
+export const PHASE_MAX_AGENT_TURNS: Record<MultiPhaseId, number> = {
+  'project-profile': 50,
+  'architecture-assessment': 50,
+  'quality-audit': 120,
+  'elevation-plan': 50,
+};
+export const SUBSTANTIAL_PHASE_FILE_MIN_BYTES = 500;
 const DEFAULT_MODEL = 'default';
 const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
 
@@ -410,6 +417,13 @@ export class MultiPhaseAnalysisService {
    * else is `failed` with a non-empty error; captured text is still written
    * for diagnosis.
    *
+   * When a phase fails due to reaching the turn limit (`error_max_turns`),
+   * `fileWrittenThisRun` is true, and the file is substantial (>= 500 UTF-8 bytes),
+   * it is recorded as `completed` with a partial document warning. The on-disk file
+   * is the primary deliverable containing usable findings for downstream consumers;
+   * recording it as failed would cause consumers to ignore the findings, and a
+   * subsequent resumed run would delete the file and start over.
+   *
    * @param priorFileContent - The phase file's content immediately before this
    *   run executed the phase, or null when there was no readable file.
    * @param priorFileMtime - The phase file's modification time immediately
@@ -471,12 +485,40 @@ export class MultiPhaseAnalysisService {
       return;
     }
 
+    const currentFileBytes =
+      currentFileContent !== null
+        ? Buffer.byteLength(currentFileContent, 'utf8')
+        : 0;
+    const hasSubstantialFile =
+      currentFileBytes >= SUBSTANTIAL_PHASE_FILE_MIN_BYTES;
+    const isMaxTurns = outcome.error?.includes('error_max_turns') ?? false;
+
+    // Only the quality-audit phase is prompted to write incrementally, so only
+    // its capped file is a partial document rather than an incomplete one.
+    if (
+      isMaxTurns &&
+      phaseId === 'quality-audit' &&
+      fileWrittenThisRun &&
+      hasSubstantialFile
+    ) {
+      this.logger.warn(
+        `${SERVICE_TAG} Phase ${phaseId} hit max turns cap but produced a substantial file (${currentFileBytes} bytes); recording as completed with partial document`,
+        { phaseId, durationMs, bytes: currentFileBytes },
+      );
+      await checkpoint.markCompleted(phaseId, durationMs);
+      return;
+    }
+
     const error =
       outcome.error ??
       (outcome.timedOut
         ? `analysis_timeout: phase exceeded ${PER_PHASE_TIMEOUT_MS} ms`
         : 'Stream ended without a result');
-    if (!fileWrittenThisRun && outcome.assistantText) {
+
+    if (
+      (!fileWrittenThisRun || (isMaxTurns && !hasSubstantialFile)) &&
+      outcome.assistantText
+    ) {
       this.logger.warn(
         `${SERVICE_TAG} Phase ${phaseId}: keeping captured text as a diagnostic file (phase still failed)`,
       );
@@ -558,6 +600,10 @@ export class MultiPhaseAnalysisService {
       pluginSkillsContext,
     );
 
+    const maxTurns =
+      (PHASE_MAX_AGENT_TURNS as Record<string, number>)[phaseConfig.id] ??
+      DEFAULT_MAX_AGENT_TURNS;
+
     this.logger.info(
       `${SERVICE_TAG} Executing phase ${phaseIndex + 1}/${LLM_PHASE_COUNT}: ${phaseConfig.id}`,
       {
@@ -566,7 +612,7 @@ export class MultiPhaseAnalysisService {
         cwd,
         mcpServerRunning,
         mcpPort,
-        maxTurns: MAX_AGENT_TURNS,
+        maxTurns,
         systemPromptLength: systemPrompt.length,
         userPromptLength: userPrompt.length,
         slugDir,
@@ -599,7 +645,7 @@ export class MultiPhaseAnalysisService {
         systemPromptAppend: systemPrompt,
         mcpServerRunning,
         mcpPort,
-        maxTurns: MAX_AGENT_TURNS,
+        maxTurns,
         abortController: phaseAbortController,
       });
 

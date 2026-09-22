@@ -1,10 +1,10 @@
 import {
   Component,
-  CUSTOM_ELEMENTS_SCHEMA,
   Input,
   NgModule,
   ChangeDetectionStrategy,
   signal,
+  CUSTOM_ELEMENTS_SCHEMA,
 } from '@angular/core';
 
 jest.mock('ngx-markdown', () => {
@@ -111,6 +111,18 @@ describe('SettingsComponent deep-link', () => {
     expect(appState.consumePendingSettingsTab()).toBeNull();
   });
 
+  it('forwards provider configuration links to Providers CLI agents', async () => {
+    appState.requestSettingsTab({ tab: 'orchestration', providerId: 'openrouter' });
+    const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+    expect(fixture.componentInstance.providersTarget()).toBe('cli-agents');
+    expect(fixture.componentInstance.requestedProviderId()).toBe('openrouter');
+  });
+  it('forwards a background field without changing it', async () => {
+    appState.requestSettingsTab({ tab: 'providers', section: 'memory-curator' });
+    const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
+    expect(fixture.componentInstance.providersTarget()).toBe('memory-curator');
+  });
   it('ngOnInit leaves the default tab when no pending target', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();

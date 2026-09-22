@@ -4,6 +4,7 @@ import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   SkillSynthesisSettingsDto,
+  SkillSynthesisSettingsWriteDto,
   EligibilityHistogramDto,
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
@@ -701,6 +702,13 @@ describe('skill settings mappers', () => {
     judgeEnabled: true,
     minJudgeScore: 6,
     judgeModel: 'inherit',
+    judgeProvider: '',
+    enhanceTimeoutMs: {
+      value: 120000,
+      default: 120000,
+      min: 15000,
+      max: 600000,
+    },
     maxPinnedSkills: 10,
     curatorEnabled: true,
     curatorIntervalHours: 24,
@@ -735,7 +743,7 @@ describe('skill settings mappers', () => {
    * keys in `flat`, which `skillSettingsFormToDto`'s own `...flat` re-emits. A
    * deleted mapper line still round-trips clean that way.
    */
-  function saveThroughForm(): SkillSynthesisSettingsDto {
+  function saveThroughForm(): Partial<SkillSynthesisSettingsWriteDto> {
     TestBed.configureTestingModule({
       imports: [SkillSynthesisTabComponent],
       providers: [
@@ -863,8 +871,14 @@ describe('skill settings mappers', () => {
     expect('budget' in out).toBe(false);
   });
 
-  it('round-trips every settings key unchanged', () => {
-    expect(saveThroughForm()).toEqual(dto);
+  it('round-trips form-owned settings and leaves Providers-only fields untouched', () => {
+    const { judgeModel, judgeProvider, enhanceTimeoutMs, ...formOwned } = dto;
+    expect(judgeModel).toBeDefined();
+    expect(saveThroughForm()).toEqual(formOwned);
+    expect(skillSettingsDtoToForm(dto)).toMatchObject({
+      judgeProvider,
+      enhanceTimeoutMs,
+    });
   });
 });
 

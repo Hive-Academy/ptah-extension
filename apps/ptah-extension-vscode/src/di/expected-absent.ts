@@ -30,7 +30,9 @@ import {
   FileViewRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
-/** Handler classes the VS Code host must never construct. */
+/** Handler classes the VS Code host must never construct.
+ * ConfigScopeRpcHandlers is deliberately not absent: scope inspection/clearing serves every host.
+ */
 export const EXPECTED_ABSENT_HANDLERS = [
   MemoryRpcHandlers,
   MemRpcHandlers,

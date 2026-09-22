@@ -115,6 +115,19 @@ export class WorkspaceScopeResolver {
     return undefined;
   }
 
+  /** Defined candidates in resolution order, without changing stored settings. */
+  inspect<T = unknown>(
+    globalKey: string,
+    appScopable = false,
+  ): readonly { key: string; value: T }[] {
+    const defined: { key: string; value: T }[] = [];
+    for (const key of this.candidateKeys(globalKey, appScopable)) {
+      const value = this.store.readGlobal<T>(key);
+      if (value !== undefined) defined.push({ key, value });
+    }
+    return defined;
+  }
+
   hasOverride(globalKey: string, appScopable = false): boolean {
     const candidates = this.candidateKeys(globalKey, appScopable);
     for (let i = 0; i < candidates.length - 1; i++) {

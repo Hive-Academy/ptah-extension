@@ -619,6 +619,75 @@ describe('EnhancedPromptsService', () => {
       expect(mocks.cacheService.set).toHaveBeenCalled();
     });
 
+    it('detects monorepo when nx is only in devDependencies', async () => {
+      mocks.workspaceIntelligence.getProjectInfo.mockResolvedValue({
+        name: 'p',
+        type: 'app',
+        path: '/p',
+        dependencies: ['react', 'onnx'],
+        devDependencies: ['nx', 'jest', 'typescript'],
+        fileStatistics: { '.ts': 5 },
+        totalFiles: 5,
+      });
+      mocks.workspaceIntelligence.getCurrentWorkspaceInfo.mockReturnValue({
+        name: 'p',
+        path: '/p',
+        projectType: 'app',
+        frameworks: ['react'],
+      });
+      primeSuccessfulSdk();
+
+      const result = await service.runWizard(testWorkspacePath);
+      expect(result.success).toBe(true);
+      expect(result.state?.detectedStack?.projectType).toBe('monorepo');
+    });
+
+    it('detects monorepo from a scoped @nx package', async () => {
+      mocks.workspaceIntelligence.getProjectInfo.mockResolvedValue({
+        name: 'p',
+        type: 'app',
+        path: '/p',
+        dependencies: ['react'],
+        devDependencies: ['@nx/devkit', 'jest'],
+        fileStatistics: { '.ts': 5 },
+        totalFiles: 5,
+      });
+      mocks.workspaceIntelligence.getCurrentWorkspaceInfo.mockReturnValue({
+        name: 'p',
+        path: '/p',
+        projectType: 'app',
+        frameworks: ['react'],
+      });
+      primeSuccessfulSdk();
+
+      const result = await service.runWizard(testWorkspacePath);
+      expect(result.success).toBe(true);
+      expect(result.state?.detectedStack?.projectType).toBe('monorepo');
+    });
+
+    it('does not report monorepo when no monorepo tool is present', async () => {
+      mocks.workspaceIntelligence.getProjectInfo.mockResolvedValue({
+        name: 'p',
+        type: 'app',
+        path: '/p',
+        dependencies: ['react', 'onnx', 'next'],
+        devDependencies: ['jest', 'typescript'],
+        fileStatistics: { '.ts': 5 },
+        totalFiles: 5,
+      });
+      mocks.workspaceIntelligence.getCurrentWorkspaceInfo.mockReturnValue({
+        name: 'p',
+        path: '/p',
+        projectType: 'app',
+        frameworks: ['react'],
+      });
+      primeSuccessfulSdk();
+
+      const result = await service.runWizard(testWorkspacePath);
+      expect(result.success).toBe(true);
+      expect(result.state?.detectedStack?.projectType).toBe('app');
+    });
+
     it('returns failure when workspace analysis throws', async () => {
       mocks.workspaceIntelligence.getProjectInfo.mockRejectedValue(
         new Error('analysis blew up'),

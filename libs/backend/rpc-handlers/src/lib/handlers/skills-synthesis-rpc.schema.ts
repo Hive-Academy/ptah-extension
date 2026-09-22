@@ -7,6 +7,17 @@
  */
 import { z } from 'zod';
 import type { SkillDigestItemKind } from '@ptah-extension/shared';
+import {
+  ENHANCE_TIMEOUT_DEFAULT_MS,
+  ENHANCE_TIMEOUT_MAX_MS,
+  ENHANCE_TIMEOUT_MIN_MS,
+} from '@ptah-extension/platform-core';
+
+export {
+  ENHANCE_TIMEOUT_DEFAULT_MS,
+  ENHANCE_TIMEOUT_MAX_MS,
+  ENHANCE_TIMEOUT_MIN_MS,
+};
 
 /**
  * A croner-compatible 5- or 6-field expression.
@@ -27,6 +38,36 @@ const CronExprSchema = z
     return fields.length === 5 || fields.length === 6;
   }, 'cron expression must have 5 or 6 fields');
 
+export const EnhanceTimeoutDtoSchema = z.object({
+  value: z.coerce
+    .number()
+    .int()
+    .min(ENHANCE_TIMEOUT_MIN_MS)
+    .max(ENHANCE_TIMEOUT_MAX_MS),
+  default: z.coerce.number().int(),
+  min: z.coerce.number().int(),
+  max: z.coerce.number().int(),
+});
+
+export const EnhanceTimeoutSettingSchema = z.union([
+  EnhanceTimeoutDtoSchema,
+  z.coerce
+    .number()
+    .int()
+    .transform((val) => {
+      const clamped = Math.min(
+        Math.max(val, ENHANCE_TIMEOUT_MIN_MS),
+        ENHANCE_TIMEOUT_MAX_MS,
+      );
+      return {
+        value: clamped,
+        default: ENHANCE_TIMEOUT_DEFAULT_MS,
+        min: ENHANCE_TIMEOUT_MIN_MS,
+        max: ENHANCE_TIMEOUT_MAX_MS,
+      };
+    }),
+]);
+
 export const SkillSynthesisSettingsSchema = z.object({
   enabled: z.boolean(),
   successesToPromote: z.coerce.number().int().min(1).max(100),
@@ -41,6 +82,8 @@ export const SkillSynthesisSettingsSchema = z.object({
   judgeEnabled: z.boolean(),
   minJudgeScore: z.coerce.number().min(0).max(10),
   judgeModel: z.string(),
+  judgeProvider: z.string(),
+  enhanceTimeoutMs: EnhanceTimeoutSettingSchema,
   maxPinnedSkills: z.coerce.number().int().min(0).max(1000),
   curatorEnabled: z.boolean(),
   curatorIntervalHours: z.coerce.number().int().min(1).max(8760),
@@ -141,7 +184,16 @@ export type SkillSynthesisSettingsInput = z.infer<
 >;
 
 export const UpdateSkillSynthesisSettingsParamsSchema = z.object({
-  settings: SkillSynthesisSettingsSchema.partial(),
+  settings: SkillSynthesisSettingsSchema.omit({ enhanceTimeoutMs: true })
+    .partial()
+    .extend({
+      enhanceTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(ENHANCE_TIMEOUT_MIN_MS)
+        .max(ENHANCE_TIMEOUT_MAX_MS)
+        .optional(),
+    }),
 });
 
 export type UpdateSkillSynthesisSettingsParams = z.infer<

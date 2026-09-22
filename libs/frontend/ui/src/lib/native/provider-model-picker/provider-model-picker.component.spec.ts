@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type {
   ProviderListModelsResult,
@@ -640,6 +641,299 @@ describe('ProviderModelPickerComponent', () => {
       ).map((o) => o.value);
 
       expect(values.slice(1)).toEqual(ANTHROPIC_PROVIDERS.map((p) => p.id));
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Batch C extensions — fixed-provider mode, external identities, disabled
+  // state, catalog retry, arbitrary model entry, content slot. Everything
+  // below must stay reachable through inputs and public methods only: the
+  // injector-surface test above pins the single inject() call.
+  // ---------------------------------------------------------------------
+  describe('fixed-provider mode', () => {
+    const [first] = ANTHROPIC_PROVIDERS;
+
+    it('replaces the provider select with the fixed provider name', async () => {
+      const fixture = await create({ fixedProvider: first.id });
+
+      expect(el(fixture, 'provider-model-picker-provider')).toBeNull();
+      expect(
+        el(fixture, 'provider-model-picker-fixed-provider')?.textContent,
+      ).toContain(first.name);
+    });
+
+    it('falls back to the raw id when the registry does not know the fixed provider', async () => {
+      const fixture = await create({ fixedProvider: 'spec-fixed-unknown' });
+
+      expect(
+        el(
+          fixture,
+          'provider-model-picker-fixed-provider',
+        )?.textContent?.trim(),
+      ).toBe('spec-fixed-unknown');
+    });
+
+    it('points the catalogue load at the fixed provider', async () => {
+      await create({ fixedProvider: first.id });
+      expect(listModels).toHaveBeenCalledWith(first.id);
+    });
+
+    it('emits the fixed provider with the chosen model', async () => {
+      listModels.mockResolvedValue(result([model({ id: 'm-1', name: 'One' })]));
+      const fixture = await create({ fixedProvider: first.id });
+      const emitted: ProviderModelSelection[] = [];
+      fixture.componentInstance.selectionChange.subscribe((s) =>
+        emitted.push(s),
+      );
+
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      modelSelect.value = 'm-1';
+      modelSelect.dispatchEvent(new Event('change'));
+
+      expect(emitted).toEqual([{ provider: first.id, model: 'm-1' }]);
+    });
+  });
+
+  describe('externally supplied identities', () => {
+    const [first] = ANTHROPIC_PROVIDERS;
+
+    it('appends supplied identities after the registry options', async () => {
+      const fixture = await create({
+        extraProviders: [
+          { id: 'cli-opencode', name: 'OpenCode CLI' },
+          { id: first.id, name: 'Duplicate of a registry entry' },
+        ],
+      });
+      const values = Array.from(
+        select(fixture, 'provider-model-picker-provider').options,
+      ).map((o) => o.value);
+
+      // Registry wins on id collisions; extras dedupe among themselves.
+      expect(values.slice(1)).toEqual([
+        ...ANTHROPIC_PROVIDERS.map((p) => p.id),
+        'cli-opencode',
+      ]);
+    });
+
+    it('re-reads the registry when refreshProviders is called', async () => {
+      const fixture = await create();
+      expect(getAllAnthropicProviders().map((p) => p.id)).not.toContain(
+        'spec-refresh-gateway',
+      );
+
+      setCustomProviderEntries([
+        {
+          id: 'spec-refresh-gateway',
+          name: 'Spec Refresh Gateway',
+          baseUrl: 'https://gateway.invalid/v1',
+          lane: 'anthropic',
+          authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+          keyPrefix: '',
+          helpUrl: '',
+        },
+      ]);
+      // Without refreshProviders the merged registry is not signal-tracked —
+      // the rendered list must not change until the host asks for it.
+      fixture.detectChanges();
+      expect(
+        Array.from(
+          select(fixture, 'provider-model-picker-provider').options,
+        ).map((o) => o.value),
+      ).not.toContain('spec-refresh-gateway');
+
+      fixture.componentInstance.refreshProviders();
+      fixture.detectChanges();
+
+      expect(
+        Array.from(
+          select(fixture, 'provider-model-picker-provider').options,
+        ).map((o) => o.value),
+      ).toContain('spec-refresh-gateway');
+    });
+  });
+
+  describe('disabled state', () => {
+    it('disables both selects and hides the manual-entry disclosure', async () => {
+      const fixture = await create({ disabled: true });
+
+      expect(select(fixture, 'provider-model-picker-provider').disabled).toBe(
+        true,
+      );
+      expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
+        true,
+      );
+      expect(el(fixture, 'provider-model-picker-manual-entry')).toBeNull();
+    });
+
+    it('keeps both selects enabled by default', async () => {
+      const fixture = await create();
+
+      expect(select(fixture, 'provider-model-picker-provider').disabled).toBe(
+        false,
+      );
+      expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('catalog retry', () => {
+    it('offers a Retry action in the error row that re-runs the load', async () => {
+      listModels
+        .mockRejectedValueOnce(new Error('transport down'))
+        .mockResolvedValueOnce(result([model({ id: 'm-1', name: 'One' })]));
+
+      const fixture = await create({ provider: ANTHROPIC_PROVIDERS[0].id });
+      expect(el(fixture, 'provider-model-picker-error')).not.toBeNull();
+      const callsAfterFirstLoad = listModels.mock.calls.length;
+
+      const retry = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-retry"]',
+      ) as HTMLButtonElement;
+      expect(retry).not.toBeNull();
+      retry.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(listModels.mock.calls.length).toBeGreaterThan(callsAfterFirstLoad);
+      expect(el(fixture, 'provider-model-picker-error')).toBeNull();
+      expect(
+        Array.from(select(fixture, 'provider-model-picker-model').options).map(
+          (o) => o.value,
+        ),
+      ).toEqual(['', 'm-1']);
+    });
+
+    it('disables retry while loading is blocked by the disabled state', async () => {
+      listModels.mockRejectedValue(new Error('transport down'));
+      const fixture = await create({
+        provider: ANTHROPIC_PROVIDERS[0].id,
+        disabled: true,
+      });
+      expect(el(fixture, 'provider-model-picker-error')).not.toBeNull();
+      // The whole control is inert in disabled mode: the Retry action is
+      // rendered but disabled, like the selects.
+      const retryDisabled = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-retry"]',
+      ) as HTMLButtonElement;
+      expect(retryDisabled.disabled).toBe(true);
+      expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('arbitrary model entry', () => {
+    const [first] = ANTHROPIC_PROVIDERS;
+
+    it('renders a pinned unknown id as not in current catalog', async () => {
+      listModels.mockResolvedValue(result([]));
+      const fixture = await create({
+        provider: first.id,
+        model: 'vendor/custom-id',
+      });
+
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect.value).toBe('vendor/custom-id');
+      const option = modelSelect.options[modelSelect.selectedIndex];
+      expect(option.textContent?.trim()).toBe(
+        'vendor/custom-id · not in current catalog',
+      );
+    });
+
+    it('accepts a manually entered model id and emits it', async () => {
+      const fixture = await create({ provider: first.id });
+      const emitted: ProviderModelSelection[] = [];
+      fixture.componentInstance.selectionChange.subscribe((s) =>
+        emitted.push(s),
+      );
+
+      const input = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-manual-input"]',
+      ) as HTMLInputElement;
+      input.value = 'vendor/manual-id';
+      input.dispatchEvent(new Event('input'));
+      // A CD pass is what applies [disabled]="manualApplyDisabled()" to the
+      // button — a click against the still-disabled DOM property is a no-op.
+      fixture.detectChanges();
+
+      const apply = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-manual-apply"]',
+      ) as HTMLButtonElement;
+      expect(apply.disabled).toBe(false);
+      apply.click();
+      fixture.detectChanges();
+
+      expect(emitted).toEqual([
+        { provider: first.id, model: 'vendor/manual-id' },
+      ]);
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect.value).toBe('vendor/manual-id');
+      expect(
+        modelSelect.options[modelSelect.selectedIndex].textContent?.trim(),
+      ).toBe('vendor/manual-id · not in current catalog');
+    });
+
+    it('keeps manual entry disabled until a provider is pinned', async () => {
+      const fixture = await create();
+
+      const input = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-manual-input"]',
+      ) as HTMLInputElement;
+      const apply = fixture.nativeElement.querySelector(
+        '[data-testid="provider-model-picker-manual-apply"]',
+      ) as HTMLButtonElement;
+      expect(input.disabled).toBe(true);
+      expect(apply.disabled).toBe(true);
+    });
+
+    it('hides the manual-entry disclosure entirely when the control is disabled', async () => {
+      const fixture = await create({ provider: first.id, disabled: true });
+      expect(el(fixture, 'provider-model-picker-manual-entry')).toBeNull();
+    });
+  });
+
+  describe('content slot', () => {
+    @Component({
+      selector: 'ptah-spec-picker-slot-host',
+      standalone: true,
+      imports: [ProviderModelPickerComponent],
+      template: `
+        <ptah-provider-model-picker>
+          <p data-testid="projected-scope-row">Scope row</p>
+        </ptah-provider-model-picker>
+      `,
+    })
+    class PickerSlotHostComponent {}
+
+    beforeEach(async () => {
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [PickerSlotHostComponent],
+        providers: [
+          { provide: PROVIDER_MODELS_LOADER, useValue: { listModels } },
+        ],
+      }).compileComponents();
+    });
+
+    it('projects host content (e.g. a scope row) at the end of the picker', async () => {
+      const hostFixture = TestBed.createComponent(PickerSlotHostComponent);
+      hostFixture.detectChanges();
+      await hostFixture.whenStable();
+
+      const pickerSection = (
+        hostFixture.nativeElement as HTMLElement
+      ).querySelector('ptah-provider-model-picker');
+      expect(pickerSection).not.toBeNull();
+      // The slot sits at the end of the picker's <section>, so the projected
+      // row is that section's last element child.
+      const innerSection = pickerSection?.querySelector('section');
+      expect(innerSection?.lastElementChild?.tagName).toBe('P');
+      expect(
+        (hostFixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="projected-scope-row"]',
+        ),
+      ).not.toBeNull();
     });
   });
 });

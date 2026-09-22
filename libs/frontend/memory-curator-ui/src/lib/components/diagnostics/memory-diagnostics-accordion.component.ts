@@ -6,17 +6,12 @@ import {
   computed,
   inject,
 } from '@angular/core';
-import {
-  PROVIDER_MODELS_LOADER,
-  ProviderModelPickerComponent,
-  type ProviderModelSelection,
-} from '@ptah-extension/ui';
+import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
 
 import {
   MemoryDiagnosticsStateService,
   type LastRunSnapshot,
 } from '../../services/memory-diagnostics-state.service';
-import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-rpc.service';
 
 import {
   MemoryTriggerToggleComponent,
@@ -35,19 +30,6 @@ import { EventFeedComponent } from './event-feed.component';
     DbHealthPanelComponent,
     StorageHealthPanelComponent,
     EventFeedComponent,
-    ProviderModelPickerComponent,
-  ],
-  /**
-   * The picker is domain-free and takes its transport as a port, so the Memory
-   * tab supplies its OWN RPC service here. `MemoryDiagnosticsRpcService.listModels`
-   * already calls the generic `provider:listModels`, so it satisfies
-   * `ProviderModelsLoader` structurally with no adapter.
-   */
-  providers: [
-    {
-      provide: PROVIDER_MODELS_LOADER,
-      useExisting: MemoryDiagnosticsRpcService,
-    },
   ],
   template: `
     <div class="flex flex-col gap-3">
@@ -155,12 +137,11 @@ import { EventFeedComponent } from './event-feed.component';
       </section>
 
       @if (triggers(); as t) {
-        <ptah-provider-model-picker
-          label="Curator model"
-          [provider]="t.curatorProvider ?? ''"
-          [model]="t.curatorModel ?? ''"
-          (selectionChange)="onCuratorModelChange($event)"
-        />
+        <section aria-label="Curator model" class="p-3 space-y-2">
+          <h3>Curator model</h3>
+          <p>{{ t.curatorProvider || 'Follows main agent' }} → {{ t.curatorModel || (t.curatorProvider ? 'Provider haiku tier' : resolvedCuratorModel()) }}</p>
+          <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageCurator()">Manage in Providers</button>
+        </section>
       }
 
       <ptah-event-feed [events]="recentEvents()" [now]="now()" />
@@ -239,6 +220,7 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   public ngOnInit(): void {
     this.state.startPolling();
+    void this.providers.refreshRoute();
   }
 
   public ngOnDestroy(): void {
@@ -309,11 +291,17 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     void this.state.setTriggers({ maxCuratesPerHour: value });
   }
 
-  protected onCuratorModelChange(change: ProviderModelSelection): void {
-    void this.state.setTriggers({
-      curatorProvider: change.provider,
-      curatorModel: change.model,
-    });
+  private readonly appState = inject(AppStateManager);
+  private readonly providers = inject(ProvidersSettingsStateService);
+  protected readonly resolvedCuratorModel = computed(() => {
+    const route = this.providers.route();
+    if (route.status !== 'ready') return 'Main agent route not checked';
+    const model = route.data?.resolvedModel;
+    return model?.kind === 'model' ? model.id : model?.kind === 'tier' ? `${model.tier} tier` : 'Model unresolved';
+  });
+  protected manageCurator(): void {
+    this.appState.requestSettingsTab({ tab: 'providers', section: 'memory-curator' });
+    this.appState.setCurrentView('settings');
   }
 }
 

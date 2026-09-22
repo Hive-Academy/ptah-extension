@@ -1,4 +1,6 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  inject,
   Component,
   input,
   signal,
@@ -6,6 +8,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { fenceCodeBlock } from './code-fence';
 import { ExpandableContentComponent } from '../../atoms/expandable-content.component';
 import { type ExecutionNode, isWriteToolInput } from '@ptah-extension/shared';
@@ -33,7 +36,7 @@ interface InputParam {
 @Component({
   selector: 'ptah-tool-input-display',
   standalone: true,
-  imports: [MarkdownModule, ExpandableContentComponent],
+  imports: [SurfaceMarkdownPipe, MarkdownModule, ExpandableContentComponent],
   template: `
     @if (hasNonTrivialInput()) {
       <div class="mb-1.5 mt-1.5">
@@ -73,7 +76,10 @@ interface InputParam {
                         class="bg-base-300/50 rounded max-h-96 overflow-y-auto overflow-x-auto"
                       >
                         <markdown
-                          [data]="getFormattedParamContent(param)"
+                          [data]="
+                            getFormattedParamContent(param)
+                              | surfaceMarkdown: surfaceActive()
+                          "
                           class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
                         />
                       </div>
@@ -134,6 +140,8 @@ interface InputParam {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolInputDisplayComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly node = input.required<ExecutionNode>();
   readonly isInputCollapsed = signal(true);
   readonly isContentExpanded = signal(false);

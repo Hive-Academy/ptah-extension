@@ -21,58 +21,21 @@
 import {
   getAnthropicProvider,
   resolveStrategy,
-  type AuthStrategyType,
+  type EffectiveRouteProvider,
+  type EffectiveRouteResult,
   type LegacyAuthMethod,
 } from '@ptah-extension/shared';
 
-/**
- * Minimal provider shape consumed by `resolveEffectiveAuthRoute`. Kept
- * structurally compatible with the CLI's `DoctorProviderEntry` so callers
- * can reuse their probe results without a translation layer.
- */
-export interface EffectiveRouteProvider {
-  id: string;
-  /**
-   * Auth modality reported by the registry. Mirrors
-   * `LlmGetProviderStatusEntry.authType` after the local-* split:
-   *   - 'apiKey'       → IAuthStrategy = 'api-key'
-   *   - 'oauth'        → IAuthStrategy = 'oauth-proxy'
-   *   - 'local-native' → IAuthStrategy = 'local-native'
-   *   - 'local-proxy'  → IAuthStrategy = 'local-proxy'
-   *   - 'cli'          → IAuthStrategy = 'cli'
-   */
-  type: 'apiKey' | 'oauth' | 'local-native' | 'local-proxy' | 'cli' | 'unknown';
-  /**
-   * Resolved connectivity verdict from a probe. Drives the `blockers[]`
-   * decision — anything other than 'connected' / 'reachable' surfaces as a
-   * blocker.
-   */
-  status:
-    | 'connected'
-    | 'needs-key'
-    | 'unauthenticated'
-    | 'reachable'
-    | 'unreachable'
-    | 'not-installed'
-    | 'missing'
-    | 'unknown'
-    | 'skipped';
-}
+export type {
+  EffectiveRouteProvider,
+  EffectiveRouteResult,
+} from '@ptah-extension/shared';
 
 /** Auth-related config slice the resolver consumes. */
 export interface EffectiveRouteConfig {
   authMethod: string | null;
   defaultProvider: string | null;
   anthropicProviderId: string | null;
-}
-
-export interface EffectiveRouteResult {
-  /** Resolved IAuthStrategy id, or 'unresolved' when the input is unusable. */
-  route: AuthStrategyType | 'unresolved';
-  /** True when no blockers are present. */
-  ready: boolean;
-  /** Human-readable reasons the route is not ready. Empty when ready. */
-  blockers: string[];
 }
 
 /**
@@ -103,7 +66,12 @@ export function resolveEffectiveAuthRoute(
     blockers.push(
       `authMethod is unset or unrecognized ('${config.authMethod ?? ''}')`,
     );
-    return { route: 'unresolved', ready: false, blockers };
+    return {
+      route: 'unresolved',
+      ready: false,
+      blockers,
+      driverProviderId: null,
+    };
   }
 
   const normalize = (v: string | null | undefined): string | null => {
@@ -126,7 +94,12 @@ export function resolveEffectiveAuthRoute(
     blockers.push(
       'no provider selected — choose a provider and configure its credentials',
     );
-    return { route: 'unresolved', ready: false, blockers };
+    return {
+      route: 'unresolved',
+      ready: false,
+      blockers,
+      driverProviderId: null,
+    };
   }
 
   const driver = providers.find((p) => p.id === driverProviderId);
@@ -166,5 +139,5 @@ export function resolveEffectiveAuthRoute(
     }
   }
 
-  return { route, ready: blockers.length === 0, blockers };
+  return { route, ready: blockers.length === 0, blockers, driverProviderId };
 }

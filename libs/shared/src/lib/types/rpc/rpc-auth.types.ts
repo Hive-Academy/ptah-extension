@@ -1,3 +1,6 @@
+import type { AuthStrategyType } from '../auth-strategy.types';
+import type { ProviderModelTier } from './rpc-providers.types';
+
 /**
  * Authentication RPC Type Definitions
  *
@@ -201,4 +204,311 @@ export interface AuthGetScopeResult {
 /** Response from auth:clearWorkspaceOverride RPC method */
 export interface AuthClearWorkspaceOverrideResult {
   success: boolean;
+}
+
+/**
+ * Minimal provider shape consumed by `resolveEffectiveAuthRoute`. Kept
+ * structurally compatible with the CLI's `DoctorProviderEntry` so callers
+ * can reuse their probe results without a translation layer.
+ */
+export interface EffectiveRouteProvider {
+  id: string;
+  /**
+   * Auth modality reported by the registry. Mirrors
+   * `LlmGetProviderStatusEntry.authType` after the local-* split:
+   *   - 'apiKey'       → IAuthStrategy = 'api-key'
+   *   - 'oauth'        → IAuthStrategy = 'oauth-proxy'
+   *   - 'local-native' → IAuthStrategy = 'local-native'
+   *   - 'local-proxy'  → IAuthStrategy = 'local-proxy'
+   *   - 'cli'          → IAuthStrategy = 'cli'
+   */
+  type: 'apiKey' | 'oauth' | 'local-native' | 'local-proxy' | 'cli' | 'unknown';
+  /**
+   * Resolved connectivity verdict from a probe. Drives the `blockers[]`
+   * decision — anything other than 'connected' / 'reachable' surfaces as a
+   * blocker.
+   */
+  status:
+    | 'connected'
+    | 'needs-key'
+    | 'unauthenticated'
+    | 'reachable'
+    | 'unreachable'
+    | 'not-installed'
+    | 'missing'
+    | 'unknown'
+    | 'skipped';
+}
+
+export interface EffectiveRouteResult {
+  /** Resolved IAuthStrategy id, or 'unresolved' when the input is unusable. */
+  route: AuthStrategyType | 'unresolved';
+  /** True when no blockers are present. */
+  ready: boolean;
+  /** Human-readable reasons the route is not ready. Empty when ready. */
+  blockers: string[];
+  driverProviderId: string | null;
+}
+
+export type SettingScope = 'global' | 'app' | 'workspace';
+
+export interface AuthGetEffectiveRouteParams {
+  refresh?: boolean;
+}
+export interface AuthGetEffectiveRouteResult extends Omit<
+  EffectiveRouteResult,
+  'blockers'
+> {
+  blockers: readonly string[];
+  resolvedAuthModality: 'api-key' | 'oauth' | 'cli' | 'local' | 'unknown';
+  resolvedModel:
+    | { kind: 'model'; id: string }
+    | { kind: 'tier'; tier: ProviderModelTier }
+    | { kind: 'unresolved' };
+  /** Raw diagnostic only. Never render as a user-facing auth enum. */
+  storedAuthMethodDiagnostic: string | null;
+  storedAuthMethodScope: SettingScope;
+  providers: readonly EffectiveRouteProvider[];
+  lastSuccessfulProbeAt: string | null;
+  lastFailedProbeAt: string | null;
+  probedAt: string;
+  fromCache: boolean;
+}
+
+export interface ScopedSettingEntry {
+  key: string;
+  scope: SettingScope;
+  hasOverride: boolean;
+  effectiveKey: string;
+  supportedTargets: readonly SettingScope[];
+  fallbackPreview: { scope: SettingScope; value: unknown } | null;
+  credentialSource: 'machine-secret-store' | 'host-supplied' | 'not-a-secret';
+  runtime?: string;
+}
+export interface ConfigGetScopesParams {
+  keys: readonly string[];
+}
+export interface ConfigGetScopesResult {
+  activePath: string | null;
+  entries: readonly ScopedSettingEntry[];
+}
+export interface ConfigClearScopeOverrideParams {
+  key: string;
+  target?: 'nearest' | 'all-above-global';
+}
+export interface ConfigClearScopeOverrideResult {
+  success: boolean;
+  cleared: readonly string[];
+  resolvesFrom: SettingScope;
+}
+
+/** Only these plain settings may be inspected or cleared through config scope RPCs.
+ * Angle-bracket entries are key families, matched and validated by the handler.
+ */
+export const SCOPED_SETTING_KEYS: Record<
+  string,
+  {
+    appScopable: boolean;
+    supportedTargets: SettingScope[];
+  }
+> = {
+  authMethod: {
+    appScopable: true,
+    supportedTargets: ['global', 'app', 'workspace'],
+  },
+  anthropicProviderId: {
+    appScopable: true,
+    supportedTargets: ['global', 'app', 'workspace'],
+  },
+  'provider.<authKey>.selectedModel': {
+    appScopable: true,
+    supportedTargets: ['global', 'app', 'workspace'],
+  },
+  'provider.<authKey>.reasoningEffort': {
+    appScopable: true,
+    supportedTargets: ['global', 'app', 'workspace'],
+  },
+  // Tier usage scopes (mainAgent/cliAgent/lane) are not workspace write targets.
+  // ProviderModelsService persists these through ConfigManager, globally.
+  'provider.<id>.modelTier.opus': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'provider.<id>.modelTier.sonnet': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'provider.<id>.modelTier.haiku': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  ptahCliAgents: { appScopable: false, supportedTargets: ['global'] },
+  'agentOrchestration.codexModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.codexReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.copilotModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.copilotReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.piReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.cursorModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.antigravityModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.opencodeModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.piModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'memory.curatorProvider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'memory.curatorModel': { appScopable: false, supportedTargets: ['global'] },
+  'skillSynthesis.archaeologist.provider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.archaeologist.model': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.synthesis.provider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.synthesis.model': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.judge.provider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.judge.model': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.replay.provider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.replay.model': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.judgeModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.judgeProvider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skillSynthesis.enhanceTimeoutMs': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+};
+
+/**
+ * Why a draft connection probe (`auth:verifyDraftConnection`) failed.
+ *
+ * One-to-one with the setup wizard's "Probe failure copy by reason" table: the
+ * frontend selects copy from a data map keyed by this union and never parses a
+ * message string. `null` on the wire only when the outcome is `verified`.
+ *
+ * Values are assigned by a fixed precedence table (ten rules, evaluated in
+ * order — see `classifyDraftProbeFailure` in
+ * `libs/backend/auth-providers/.../draft-verification.service.ts`). A probe
+ * that matches several rules reports the FIRST matching one, so the order of
+ * that table is behaviour, not presentation.
+ */
+export type ProbeFailureReason =
+  | 'credential-rejected' // 401
+  | 'permission-denied' // 403
+  | 'unreachable' // DNS, refused, reset
+  | 'timeout'
+  | 'rate-limited' // 429
+  | 'quota-exhausted'
+  | 'model-unavailable'
+  | 'cancelled'
+  | 'unclassified';
+
+/** Parameters for auth:verifyDraftConnection RPC method */
+export interface AuthVerifyDraftConnectionParams {
+  /**
+   * Client-generated probe identifier. Echoed back verbatim so the frontend can
+   * discard results from superseded probes (a stale result whose `probeId` does
+   * not match the latest issued id is dropped, not rendered).
+   */
+  probeId: string;
+  /** Provider registry id, or the draft custom entry's id. */
+  providerId: string;
+  /** The connection mode the wizard step is configuring. */
+  authMode:
+    'apiKey' | 'oauth' | 'cli' | 'local-native' | 'local-proxy' | 'custom';
+  /**
+   * TRANSIENT: the draft credential, held in memory only for the duration of
+   * this probe. It is never written to `~/.ptah/settings.json` or the
+   * encrypted secrets file, never echoed back, and dropped when the probe
+   * completes, is cancelled, or expires.
+   */
+  credential?: { kind: 'apiKey'; value: string };
+  /** Base URL for local and custom providers. */
+  baseUrl?: string;
+  /** Model to probe with; the provider's default tier when absent. */
+  model?: string;
+  /** Probe timeout in milliseconds; clamped server-side. */
+  timeoutMs?: number;
+}
+
+/**
+ * Response from auth:verifyDraftConnection RPC method.
+ *
+ * SECURITY: `detail` is a sanitized diagnostic string. It never contains the
+ * credential, an `Authorization` header, or a full request URL, and it never
+ * echoes a raw provider error message.
+ */
+export interface AuthVerifyDraftConnectionResult {
+  probeId: string;
+  outcome: 'verified' | 'failed' | 'cancelled';
+  /** `null` only when `outcome` is `'verified'`. */
+  reason: ProbeFailureReason | null;
+  detail: string | null;
+  /** Wall-clock cost of the probe; `null` when it never started. */
+  latencyMs: number | null;
+  /** The model the probe ran with, when one was known. */
+  modelUsed: string | null;
+  /** ISO 8601 timestamp of the completed check. */
+  checkedAt: string;
+}
+
+/** Parameters for auth:cancelDraftVerification RPC method */
+export interface AuthCancelDraftVerificationParams {
+  probeId: string;
+}
+
+/** Response from auth:cancelDraftVerification RPC method */
+export interface AuthCancelDraftVerificationResult {
+  cancelled: boolean;
 }

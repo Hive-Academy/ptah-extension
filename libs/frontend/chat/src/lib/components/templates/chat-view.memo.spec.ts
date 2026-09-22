@@ -38,7 +38,7 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
-import { VSCodeService } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
@@ -104,6 +104,7 @@ function makeMemoHarness(): MemoHarness {
   TestBed.configureTestingModule({
     imports: [ChatTranscriptComponent],
     providers: [
+      { provide: SURFACE_ACTIVE, useValue: signal(true) },
       {
         provide: VSCodeService,
         useValue: {

@@ -7,7 +7,10 @@ import {
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { createMockRpcService } from '@ptah-extension/core/testing';
+import {
+  createMockRpcService,
+  provideSurfaceActiveTesting,
+} from '@ptah-extension/core/testing';
 import type {
   CliOutputSegment,
   CliType,
@@ -40,6 +43,7 @@ describe('unified CLI agent output', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent, CliAgentOutputComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         provideMarkdown(),
         { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },

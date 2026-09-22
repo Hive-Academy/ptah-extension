@@ -10,6 +10,12 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_PROVIDER_PROXY_POOL: Symbol.for('SdkProviderProxyPool'),
   /** The shared 429 cooldown record. See `auth/provider-quota.store.ts`. */
   SDK_PROVIDER_QUOTA_STORE: Symbol.for('SdkProviderQuotaStore'),
+  /**
+   * Draft connection probe registry behind `auth:verifyDraftConnection` /
+   * `auth:cancelDraftVerification`. Holds transient draft credentials in
+   * memory only. See `auth/draft-verification.service.ts`.
+   */
+  SDK_DRAFT_VERIFICATION: Symbol.for('SdkDraftVerification'),
 
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),

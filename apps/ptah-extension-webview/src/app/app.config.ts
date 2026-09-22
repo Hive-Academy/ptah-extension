@@ -27,6 +27,8 @@ import {
   WORKSPACE_COORDINATOR,
   ORCHESTRA_CANVAS_COMPONENT,
   FILE_LINK_OPENER,
+  SURFACE_ACTIVE,
+  surfaceActiveFor,
 } from '@ptah-extension/core';
 import { appRoutes } from './app.routes';
 import {
@@ -121,6 +123,9 @@ class WebviewErrorHandler implements ErrorHandler {
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    // Root streaming ingestion serves both persistent layouts. The outlet and
+    // the two element boundaries provide their narrower surface signals.
+    { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },

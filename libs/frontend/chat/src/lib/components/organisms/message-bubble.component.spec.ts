@@ -6,6 +6,7 @@
  * via the same stub pattern used in chat-input.component.spec.ts.
  */
 
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import {
   Component,
   Input,
@@ -73,6 +74,7 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     await TestBed.configureTestingModule({
       imports: [MessageBubbleComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         { provide: VSCodeService, useValue: vscodeStub },
         { provide: ChatStore, useValue: chatStoreStub },
       ],

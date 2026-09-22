@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import { AgentCardOutputComponent } from './agent-card-output.component';
 
@@ -8,7 +9,7 @@ describe('AgentCardOutputComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AgentCardOutputComponent],
-      providers: [provideMarkdown()],
+      providers: [provideSurfaceActiveTesting(), provideMarkdown()],
     }).compileComponents();
     fixture = TestBed.createComponent(AgentCardOutputComponent);
     fixture.componentRef.setInput('embedded', true);
@@ -17,7 +18,9 @@ describe('AgentCardOutputComponent', () => {
 
   it('renders tool-result markup as literal text', async () => {
     const content = '```html\n<div class="fixed">x</div>\n```';
-    fixture.componentRef.setInput('segments', [{ type: 'tool-result', content }]);
+    fixture.componentRef.setInput('segments', [
+      { type: 'tool-result', content },
+    ]);
     fixture.detectChanges();
     await fixture.whenStable();
 

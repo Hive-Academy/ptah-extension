@@ -18,6 +18,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  ConfigScopeRpcHandlers,
   AgentRpcHandlers,
   CommandRpcHandlers,
   FilePickerRpcHandlers,
@@ -65,6 +66,7 @@ export function registerPhase3Handlers(
   container.registerSingleton(FileRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
+  container.registerSingleton(ConfigScopeRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);
   container.registerSingleton(ProviderRpcHandlers);
   container.registerSingleton(SubagentRpcHandlers);

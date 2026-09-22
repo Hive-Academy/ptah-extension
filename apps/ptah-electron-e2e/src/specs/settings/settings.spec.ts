@@ -8,14 +8,24 @@ async function openWebSearchSection(ui: UiDriver): Promise<void> {
 }
 
 test.describe('Settings', () => {
+  /**
+   * The default (first) settings tab is now the consolidated Providers page:
+   * tab id `claude-auth` is retained, but it renders `ptah-providers-settings`
+   * (`settings.component.html:73-112`) instead of the old authentication
+   * editor that carried `settings-section-auth`. Coverage moved, not dropped:
+   * the old assertion proved the default tab actually mounted content; the
+   * new ones prove the same against the new page by asserting its Background
+   * models section header (`assignments-heading`), not just the shell.
+   */
   test('settings renders', async ({ ui }) => {
     await ui.goto('settings');
 
     const page = ui.page;
 
     await expect(page.locator('ptah-settings')).toBeVisible();
+    await expect(page.locator('ptah-providers-settings')).toBeVisible();
     await expect(
-      page.locator('[data-testid="settings-section-auth"]'),
+      page.locator('[data-testid="assignments-heading"]'),
     ).toBeVisible();
     await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
   });

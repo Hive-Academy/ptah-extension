@@ -12,7 +12,8 @@ export default {
       },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$)'],
+  // Match chat's real-parser tests: marked distributes ESM in a .js file.
+  transformIgnorePatterns: ['node_modules/(?!(.*\\.mjs$|marked|ngx-markdown))'],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

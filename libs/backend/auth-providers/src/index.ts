@@ -6,6 +6,11 @@ export {
 } from './lib/di/register';
 export { ProviderAuthResolver } from './lib/auth/provider-auth-resolver';
 export {
+  DraftVerificationService,
+  classifyDraftProbeFailure,
+  type DraftProbeFailureInput,
+} from './lib/auth/draft-verification.service';
+export {
   CuratorProxyManager,
   type CuratorProxyHandle,
 } from './lib/auth/curator-proxy-manager';

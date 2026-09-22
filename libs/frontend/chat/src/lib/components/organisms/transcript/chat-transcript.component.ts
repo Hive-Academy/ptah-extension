@@ -19,7 +19,7 @@ import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empt
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
-import { VSCodeService } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   ExecutionChatMessage,
@@ -90,7 +90,7 @@ function mergeByTime(
 
 /**
  * Frozen view snapshot consumed by the template. When the transcript is hidden
- * (`!active()`), the gated `vm` computed returns the last snapshot taken while
+ * (`!workActive()`), the gated `vm` computed returns the last snapshot taken while
  * active, so streaming writes to `TabManagerService.tabs()` neither rebuild the
  * execution tree nor refresh the DOM — and the built bubbles survive a
  * workspace switch that drops the tab from `tabs()` entirely.
@@ -191,6 +191,10 @@ export class ChatTranscriptComponent {
    * `display:none` when false.
    */
   readonly active = input.required<boolean>();
+  private readonly surfaceActive = inject(SURFACE_ACTIVE);
+  protected readonly workActive = computed(
+    () => this.active() && this.surfaceActive(),
+  );
 
   /** Whether this tab's session has a live SDK `Query` (gates rewind action). */
   readonly isSessionActive = input<boolean>(false);
@@ -219,6 +223,9 @@ export class ChatTranscriptComponent {
    */
   private resizeObserver: ResizeObserver | null = null;
   private scrollRafId: number | null = null;
+  private scrollGeneration = 0;
+  private retentionReleasePending = false;
+  private retentionReleaseGeneration = 0;
   private retentionReleaseRafId: number | null = null;
   private retentionReleaseTimeoutId: number | null = null;
   private lastContentHeight = 0;
@@ -273,7 +280,7 @@ export class ChatTranscriptComponent {
    * on the activation edge.
    */
   private savedScrollTop: number | null = null;
-  /** Previous `active()` value — detects the hidden→visible activation edge. */
+  /** Previous combined activity value — detects the hidden→visible activation edge. */
   private wasActive = false;
 
   /**
@@ -425,15 +432,15 @@ export class ChatTranscriptComponent {
   private _frozenView: TranscriptViewModel = EMPTY_VIEW_MODEL;
 
   /**
-   * Single template-facing view model, GATED on `active()`. While hidden it
-   * returns `_frozenView` and its ONLY dependency is `active` — streaming
+   * Single template-facing view model, gated on surface and tab activity. While
+   * hidden it returns `_frozenView` and reads only `workActive` — streaming
    * chunks (`tabs()` identity churn, `buildTree`, markdown re-parse) become
-   * invisible. Flipping `active` true re-evaluates it exactly once, producing a
+   * invisible. Reactivation re-evaluates it exactly once, producing a
    * one-shot catch-up render over the diffed `@for` (`track msg.id` reuses every
    * existing bubble).
    */
   protected readonly vm = computed<TranscriptViewModel>(() => {
-    if (!this.active()) {
+    if (!this.workActive()) {
       return this._frozenView;
     }
     const finalized = this.finalizedFiltered();
@@ -489,10 +496,16 @@ export class ChatTranscriptComponent {
     // stick to bottom when pinned. `display:none` resets `scrollTop`, so the
     // restore runs on re-show via rAF (once the block layout is back).
     effect(() => {
-      const isActive = this.active();
+      const isActive = this.workActive();
       untracked(() => {
         if (isActive && !this.wasActive) {
           this.restoreScrollOnActivation();
+          this.setupResizeObserver();
+        } else if (!isActive) {
+          this.cancelScrollFrame();
+          this.resizeObserver?.disconnect();
+          this.resizeObserver = null;
+          this.cancelReplayRetentionRelease();
         }
         this.wasActive = isActive;
       });
@@ -542,14 +555,17 @@ export class ChatTranscriptComponent {
     effect(() => {
       const historyReplaying = this.historyReplaying();
       const view = this.vm();
-      const isActive = this.active();
+      const isActive = this.workActive();
       untracked(() => {
         if (historyReplaying && !this.wasRenderWindowReplaying) {
           this.cancelReplayRetentionRelease();
+          this.retentionReleasePending = false;
           this.renderWindow.setReplayRetention(true);
         } else if (!historyReplaying && this.wasRenderWindowReplaying) {
-          this.scheduleReplayRetentionRelease();
+          this.retentionReleasePending = true;
         }
+        if (isActive && this.retentionReleasePending)
+          this.scheduleReplayRetentionRelease();
         this.wasRenderWindowReplaying = historyReplaying;
         this.renderWindow.setActive(isActive);
         this.renderWindow.syncMessages(
@@ -580,6 +596,7 @@ export class ChatTranscriptComponent {
    * re-pins.
    */
   onScroll(_event: Event): void {
+    if (!this.workActive()) return;
     const el = this.scrollContainer()?.nativeElement;
     if (!el) return;
 
@@ -591,10 +608,7 @@ export class ChatTranscriptComponent {
 
     if (movedUp && distanceFromBottom > 1) {
       this.pinnedToBottom = false;
-      if (this.scrollRafId !== null) {
-        cancelAnimationFrame(this.scrollRafId);
-        this.scrollRafId = null;
-      }
+      this.cancelScrollFrame();
       return;
     }
     if (distanceFromBottom < this.NEAR_BOTTOM_PX) {
@@ -612,10 +626,11 @@ export class ChatTranscriptComponent {
    * callbacks, so a user who scrolled up in this frame is not pulled back.
    */
   private scheduleStickToBottom(): void {
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-    }
+    if (!this.workActive()) return;
+    this.cancelScrollFrame();
+    const generation = this.scrollGeneration;
     this.scrollRafId = requestAnimationFrame(() => {
+      if (generation !== this.scrollGeneration || !this.workActive()) return;
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
       if (!el || !this.pinnedToBottom) return;
@@ -631,10 +646,11 @@ export class ChatTranscriptComponent {
    * bottom when pinned (or when there is no saved offset yet, e.g. first show).
    */
   private restoreScrollOnActivation(): void {
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-    }
+    if (!this.workActive()) return;
+    this.cancelScrollFrame();
+    const generation = this.scrollGeneration;
     this.scrollRafId = requestAnimationFrame(() => {
+      if (generation !== this.scrollGeneration || !this.workActive()) return;
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
       if (!el) return;
@@ -653,10 +669,12 @@ export class ChatTranscriptComponent {
    * transcript follows the stream without any per-frame re-measure loop.
    */
   private setupResizeObserver(): void {
+    if (!this.workActive() || typeof ResizeObserver === 'undefined') return;
     const wrapper = this.contentWrapper()?.nativeElement;
     if (!wrapper || this.resizeObserver) return;
 
-    this.resizeObserver = new ResizeObserver((entries) => {
+    const observer = new ResizeObserver((entries) => {
+      if (!this.workActive() || this.resizeObserver !== observer) return;
       const height = entries[0]?.contentRect.height ?? 0;
       if (Math.abs(height - this.lastContentHeight) < 1) return;
       this.lastContentHeight = height;
@@ -664,7 +682,14 @@ export class ChatTranscriptComponent {
         this.scheduleStickToBottom();
       }
     });
-    this.resizeObserver.observe(wrapper);
+    this.resizeObserver = observer;
+    observer.observe(wrapper);
+  }
+
+  private cancelScrollFrame(): void {
+    this.scrollGeneration++;
+    if (this.scrollRafId !== null) cancelAnimationFrame(this.scrollRafId);
+    this.scrollRafId = null;
   }
 
   /** Cleanup observer, animation frames, and timeouts on destroy. */
@@ -673,10 +698,7 @@ export class ChatTranscriptComponent {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-      this.scrollRafId = null;
-    }
+    this.cancelScrollFrame();
     this.cancelReplayRetentionRelease();
     if (this.finalizingTimeoutId) {
       clearTimeout(this.finalizingTimeoutId);
@@ -686,8 +708,13 @@ export class ChatTranscriptComponent {
   }
 
   private scheduleReplayRetentionRelease(): void {
+    if (!this.workActive() || this.retentionReleaseRafId !== null) return;
     this.cancelReplayRetentionRelease();
+    const generation = this.retentionReleaseGeneration;
     const release = () => {
+      if (!this.workActive() || generation !== this.retentionReleaseGeneration)
+        return;
+      this.retentionReleasePending = false;
       this.cancelReplayRetentionRelease();
       this.renderWindow.setReplayRetention(false);
     };
@@ -696,6 +723,7 @@ export class ChatTranscriptComponent {
   }
 
   private cancelReplayRetentionRelease(): void {
+    this.retentionReleaseGeneration++;
     if (this.retentionReleaseRafId !== null)
       cancelAnimationFrame(this.retentionReleaseRafId);
     this.retentionReleaseRafId = null;

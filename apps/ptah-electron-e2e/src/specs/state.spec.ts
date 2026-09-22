@@ -15,6 +15,18 @@ import { test, expect } from '../support/fixtures';
  */
 
 test.describe('webview state IPC', () => {
+  // `set-state` is `ipcRenderer.send`: awaiting it resolves when the message
+  // leaves the renderer, NOT when IStateStorage has persisted it. These specs
+  // used to bridge that gap with a fixed sleep, and on a slow runner the read
+  // landed first — `{}` for a fresh key, `"second"` for the last-write case.
+  // The same spec failed that way on unrelated branches, so it was the sleep,
+  // not the code under test. Poll for the written value instead. A real
+  // ordering defect still fails: if an earlier write lands after a later one,
+  // the expected value never appears and the poll times out.
+  const stateJson = async (rpcBridge: {
+    getState: () => Promise<unknown>;
+  }): Promise<string> => JSON.stringify((await rpcBridge.getState()) ?? {});
+
   test('initial get-state returns an object (possibly empty)', async ({
     rpcBridge,
     mainWindow,
@@ -33,18 +45,13 @@ test.describe('webview state IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const marker = `e2e-${Date.now()}`;
     await rpcBridge.setState({ 'chat.lastSession': marker });
-    // Async persist -- give the storage layer a beat to settle.
-    await mainWindow.waitForTimeout(150);
 
-    const after = (await rpcBridge.getState()) as Record<
-      string,
-      unknown
-    > | null;
-    expect(after).not.toBeNull();
-    expect(typeof after).toBe('object');
     // The cached state object should contain our marker somewhere -- we don't
     // pin the exact wrapping because storage adapters may envelope it.
-    expect(JSON.stringify(after ?? {})).toContain(marker);
+    await expect.poll(() => stateJson(rpcBridge)).toContain(marker);
+    const after = await rpcBridge.getState();
+    expect(after).not.toBeNull();
+    expect(typeof after).toBe('object');
   });
 
   test('multiple sequential set-state calls -- last write wins', async ({
@@ -57,14 +64,9 @@ test.describe('webview state IPC', () => {
     await rpcBridge.setState({ counter: 'second' });
     await mainWindow.waitForTimeout(50);
     await rpcBridge.setState({ counter: 'third-final' });
-    await mainWindow.waitForTimeout(150);
 
-    const after = (await rpcBridge.getState()) as Record<
-      string,
-      unknown
-    > | null;
-    const json = JSON.stringify(after ?? {});
-    expect(json).toContain('third-final');
+    await expect.poll(() => stateJson(rpcBridge)).toContain('third-final');
+    const json = await stateJson(rpcBridge);
     // The earlier values should have been overwritten -- the IStateStorage
     // adapter replaces the 'webview-state' record on each update.
     expect(json).not.toContain('"counter":"first"');
@@ -78,7 +80,10 @@ test.describe('webview state IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const marker = `reload-${Date.now()}`;
     await rpcBridge.setState({ persisted: marker });
-    await mainWindow.waitForTimeout(200);
+    // Confirm the write landed BEFORE reloading. Otherwise a slow persist
+    // makes this look like state lost across reload, which is the opposite
+    // of what the spec is trying to prove.
+    await expect.poll(() => stateJson(rpcBridge)).toContain(marker);
 
     await mainWindow.reload();
     await mainWindow.waitForLoadState('domcontentloaded');

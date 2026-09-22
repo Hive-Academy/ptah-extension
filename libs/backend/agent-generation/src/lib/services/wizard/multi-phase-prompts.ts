@@ -225,7 +225,13 @@ Read these files to understand the project before auditing:
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool to save the full document.
+Write incrementally — do NOT wait until the end to write a single final file:
+- Create the output file with its heading skeleton FIRST before starting deep inspection.
+- append each finding section to the file as soon as it is established (one write per area surveyed), instead of one final write at the end.
+- Fill in and refine the Overall Quality Score and Strengths before finishing.
+This ensures your findings are preserved on disk even if a turn cap is reached.
+
+Use the Write tool to save the document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -291,7 +297,7 @@ The file MUST be a markdown document with these sections:
 - Notable quality achievements
 
 ## Instructions
-Read both previous phase files first. Then use the \`execute_code\` tool with \`ptah.*\` APIs for deep code examination.
+Read both previous phase files first. Create the heading skeleton in \`${outputFile}\` FIRST, then use the \`execute_code\` tool with \`ptah.*\` APIs for deep code examination, appending each finding section as soon as it is established (one write per area surveyed), instead of one final write at the end.
 
 **Key API calls for this phase:**
 - \`ptah.files.read('${slugDir}/01-project-profile.md')\` — Read project profile
@@ -313,10 +319,10 @@ If you write any JSON files during this phase, call \`ptah_json_validate\` with 
 immediately after writing. The tool will extract JSON, repair common issues, and overwrite with
 clean JSON. If validation fails, read the errors and re-write the file.
 
-CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
+CRITICAL: Write incrementally to \`${outputFile}\`: create the heading skeleton FIRST, then append each finding section to the file as soon as it is established (one write per area surveyed), instead of one final write at the end.
 CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
 
-    userPrompt: `Read the previous analysis files at ${slugDir}/01-project-profile.md and ${slugDir}/02-architecture-assessment.md, then perform a quality audit. Write the complete document to \`${outputFile}\`. Use the \`execute_code\` tool with \`ptah.*\` APIs to examine the codebase in depth. Do not emit any text — only make tool calls, then respond "Done." when finished.`,
+    userPrompt: `Read the previous analysis files at ${slugDir}/01-project-profile.md and ${slugDir}/02-architecture-assessment.md, then perform a quality audit. Write incrementally to \`${outputFile}\`: create the output file with its heading skeleton FIRST, then append each finding section to the file as soon as it is established (one write per area surveyed), instead of one final write at the end. Use the \`execute_code\` tool with \`ptah.*\` APIs to examine the codebase in depth. Do not emit any text — only make tool calls, then respond "Done." when finished.`,
   };
 }
 

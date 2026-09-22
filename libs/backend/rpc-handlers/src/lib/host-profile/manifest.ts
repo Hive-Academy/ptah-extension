@@ -26,6 +26,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 import type { Capability } from './capabilities';
 import {
   AgentRpcHandlers,
+  ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   BootRpcHandlers,
   PeerSessionRpcHandlers,
@@ -95,6 +96,12 @@ export interface RpcHandlerManifestEntry {
 }
 
 export const RPC_HANDLER_MANIFEST = [
+  {
+    key: 'configScope',
+    methods: ConfigScopeRpcHandlers.METHODS,
+    requires: [],
+    handler: ConfigScopeRpcHandlers,
+  },
   // --- library-owned, every host --------------------------------------------
   {
     key: 'agent',

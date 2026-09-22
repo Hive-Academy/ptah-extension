@@ -21,6 +21,20 @@
  * comes from `ProviderModelInfo.supportsToolUse`. Adding a provider to the
  * registry is the whole integration.
  *
+ * EXTENSION SURFACE (TASK_2026_523 batch C). Everything a host composition
+ * needs arrives as INPUTS or a PUBLIC METHOD — never a service, which would
+ * break the `type:ui` boundary the loader port already obeys:
+ * - {@link fixedProvider} pins the provider (rendered as text, no select);
+ * - {@link extraProviders} appends externally supplied identities (CLI
+ *   agents, draft connections) after the registry, deduped by id;
+ * - {@link refreshProviders} re-reads the registry + extras;
+ * - {@link refreshCatalog} re-runs the model load (the error row offers a
+ *   Retry wired to it);
+ * - {@link disabled} disables the whole control;
+ * - the trailing content slot takes a host-rendered scope row.
+ * A model id absent from the loaded catalogue stays selectable and renders
+ * "`<id>` · not in current catalog".
+ *
  * @example
  * ```html
  * <ptah-provider-model-picker
@@ -58,6 +72,15 @@ export interface ProviderModelSelection {
   readonly provider: string;
   /** Model id, or `''` meaning "use the provider's default tier". */
   readonly model: string;
+}
+
+/**
+ * An externally supplied provider identity (plan Decision 4): a connection or
+ * CLI agent the host knows about that is not in the merged registry.
+ */
+export interface ProviderIdentityOption {
+  readonly id: string;
+  readonly name: string;
 }
 
 interface ProviderOption {
@@ -107,7 +130,10 @@ function buildDefaultModelLabel(
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rounded-md border border-base-300 bg-base-100">
+    <section
+      class="rounded-md border border-base-300 bg-base-100"
+      [attr.aria-disabled]="disabled() || null"
+    >
       <header
         class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
         data-testid="provider-model-picker-label"
@@ -116,30 +142,47 @@ function buildDefaultModelLabel(
       </header>
 
       <div class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">
-        <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content-muted"
-            >Provider</span
-          >
-          <select
-            class="select select-bordered select-sm"
-            data-testid="provider-model-picker-provider"
-            [value]="selectedProvider()"
-            [attr.aria-label]="providerAriaLabel()"
-            (change)="onProviderChange($event)"
-          >
-            <option value="" [selected]="selectedProvider() === ''">
-              {{ inheritProviderLabel }}
-            </option>
-            @for (opt of providerOptions; track opt.id) {
-              <option
-                [value]="opt.id"
-                [selected]="opt.id === selectedProvider()"
-              >
-                {{ opt.name }}
+        @if (fixedProvider(); as fixedId) {
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-base-content-muted"
+              >Provider</span
+            >
+            <span
+              class="flex min-h-9 items-center bg-base-100 px-1 text-sm text-base-content"
+              data-testid="provider-model-picker-fixed-provider"
+              >{{ fixedProviderName() }}</span
+            >
+            <span class="sr-only"
+              >{{ providerAriaLabel() }}: {{ fixedProviderName() }}</span
+            >
+          </div>
+        } @else {
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-base-content-muted"
+              >Provider</span
+            >
+            <select
+              class="select select-bordered select-sm"
+              data-testid="provider-model-picker-provider"
+              [value]="selectedProvider()"
+              [disabled]="disabled()"
+              [attr.aria-label]="providerAriaLabel()"
+              (change)="onProviderChange($event)"
+            >
+              <option value="" [selected]="selectedProvider() === ''">
+                {{ inheritProviderLabel }}
               </option>
-            }
-          </select>
-        </label>
+              @for (opt of providerOptions(); track opt.id) {
+                <option
+                  [value]="opt.id"
+                  [selected]="opt.id === selectedProvider()"
+                >
+                  {{ opt.name }}
+                </option>
+              }
+            </select>
+          </label>
+        }
 
         <label class="flex flex-col gap-1">
           <span class="text-xs font-medium text-base-content-muted">Model</span>
@@ -147,14 +190,14 @@ function buildDefaultModelLabel(
             class="select select-bordered select-sm"
             data-testid="provider-model-picker-model"
             [value]="selectedModelId()"
-            [disabled]="modelsLoading()"
+            [disabled]="modelsLoading() || disabled()"
             [attr.aria-label]="modelAriaLabel()"
             (change)="onModelChange($event)"
           >
             <option value="" [selected]="selectedModelId() === ''">
               {{ defaultModelLabel() }}
             </option>
-            @for (m of models(); track m.id) {
+            @for (m of modelOptions(); track m.id) {
               <option [value]="m.id" [selected]="m.id === selectedModelId()">
                 {{ m.name }}
               </option>
@@ -183,14 +226,65 @@ function buildDefaultModelLabel(
       }
 
       @if (modelsError(); as err) {
-        <p
-          class="px-3 pb-2 text-xs text-error"
-          role="alert"
-          data-testid="provider-model-picker-error"
-        >
-          {{ err }}
-        </p>
+        <div class="flex flex-wrap items-center gap-2 px-3 pb-2">
+          <p
+            class="text-xs text-error"
+            role="alert"
+            data-testid="provider-model-picker-error"
+          >
+            {{ err }}
+          </p>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm min-h-9 text-base-content"
+            data-testid="provider-model-picker-retry"
+            [disabled]="disabled()"
+            (click)="refreshCatalog()"
+          >
+            Retry
+          </button>
+        </div>
       }
+
+      @if (!disabled()) {
+        <details
+          class="px-3 pb-2"
+          data-testid="provider-model-picker-manual-entry"
+        >
+          <summary class="cursor-pointer text-xs text-base-content-muted">
+            Not listed? Enter a model ID
+          </summary>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              class="input input-bordered input-sm w-full min-w-0 flex-1"
+              data-testid="provider-model-picker-manual-input"
+              [value]="manualDraft()"
+              [disabled]="!selectedProvider()"
+              [attr.aria-label]="manualModelAriaLabel()"
+              placeholder="Model ID, e.g. vendor/model-name"
+              (input)="onManualDraftInput($event)"
+            />
+            <button
+              type="button"
+              class="btn btn-outline btn-sm min-h-9"
+              data-testid="provider-model-picker-manual-apply"
+              [disabled]="manualApplyDisabled()"
+              (click)="applyManualModel()"
+            >
+              Use model ID
+            </button>
+          </div>
+          @if (!selectedProvider()) {
+            <p class="mt-1 text-xs text-base-content-muted">
+              Choose a provider first — the model ID belongs to it.
+            </p>
+          }
+        </details>
+      }
+
+      <!-- Content slot: the host projects its scope/provenance row here. -->
+      <ng-content />
     </section>
   `,
   styles: [
@@ -226,23 +320,71 @@ export class ProviderModelPickerComponent {
    */
   readonly requiresToolUse = input<boolean>(false);
 
+  /**
+   * Fixed-provider mode (plan Decision 4): when non-empty, the provider
+   * select is replaced by static text naming this provider and every
+   * selection is emitted against it. Wins over {@link provider} when both
+   * are set.
+   */
+  readonly fixedProvider = input<string>('');
+
+  /**
+   * Externally supplied identities (connections, CLI agents) appended after
+   * the registry options, deduped by id with the registry winning. Rendered
+   * only when the control is not in fixed-provider mode.
+   */
+  readonly extraProviders = input<readonly ProviderIdentityOption[]>([]);
+
+  /**
+   * Whole-control disabled state: both selects, the manual-entry disclosure
+   * (hidden entirely) and the Retry action.
+   */
+  readonly disabled = input<boolean>(false);
+
   /** Fires on every user edit of either select, with both current values. */
   readonly selectionChange = output<ProviderModelSelection>();
 
   protected readonly inheritProviderLabel = INHERIT_PROVIDER_LABEL;
 
-  // The MERGED registry accessor, not the static array, so a user-defined
-  // provider can be selected here. Reverting this to `ANTHROPIC_PROVIDERS`
-  // silently drops every custom provider from the list — the picker still
-  // renders, so nothing fails except the user's provider not being there.
-  protected readonly providerOptions: readonly ProviderOption[] =
-    getAllAnthropicProviders().map((p) => ({ id: p.id, name: p.name }));
+  /**
+   * Registry + externally supplied options. The registry accessor itself is
+   * module-global mutable state (user-defined providers merge into it), so
+   * this computed ALSO reads {@link _registryVersion}: without a dependency
+   * on that signal, a host that changed the registry would never re-render
+   * the list until some other input moved.
+   */
+  protected readonly providerOptions = computed<readonly ProviderOption[]>(
+    () => {
+      void this._registryVersion();
+      const registry = getAllAnthropicProviders().map((p) => ({
+        id: p.id,
+        name: p.name,
+      }));
+      const known = new Set(registry.map((r) => r.id));
+      const supplied: ProviderOption[] = [];
+      for (const extra of this.extraProviders()) {
+        if (extra.id === '' || known.has(extra.id)) continue;
+        known.add(extra.id);
+        supplied.push({ id: extra.id, name: extra.name });
+      }
+      return [...registry, ...supplied];
+    },
+  );
+
+  /** Display name of the fixed provider, or the raw id when unknown. */
+  protected readonly fixedProviderName = computed<string>(() => {
+    const id = this.fixedProvider();
+    if (!id) return '';
+    return this.providerOptions().find((o) => o.id === id)?.name ?? id;
+  });
 
   private readonly _provider = signal<string>('');
   private readonly _model = signal<string>('');
   private readonly _models = signal<readonly ProviderModelInfo[]>([]);
   private readonly _modelsLoading = signal<boolean>(false);
   private readonly _modelsError = signal<string | null>(null);
+  private readonly _manualDraft = signal<string>('');
+  private readonly _registryVersion = signal(0);
 
   protected readonly models = this._models.asReadonly();
   protected readonly modelsLoading = this._modelsLoading.asReadonly();
@@ -270,6 +412,26 @@ export class ProviderModelPickerComponent {
   protected readonly selectedProvider = this._provider.asReadonly();
   protected readonly selectedModelId = this._model.asReadonly();
 
+  /**
+   * Catalogue options for the model select, with one extra entry prepended
+   * when the pinned model id is absent from the loaded catalogue. The extra
+   * keeps a host-pinned or manually entered id visible and re-selectable —
+   * without it, the browser drops the select's value and the control silently
+   * misreports the pin. The label preserves the existing
+   * "`<id>` · not in current catalog" display.
+   */
+  protected readonly modelOptions = computed<readonly ProviderOption[]>(() => {
+    const options = this._models().map((m) => ({ id: m.id, name: m.name }));
+    const pinned = this._model();
+    if (pinned && !options.some((o) => o.id === pinned)) {
+      return [
+        { id: pinned, name: `${pinned} · not in current catalog` },
+        ...options,
+      ];
+    }
+    return options;
+  });
+
   protected readonly defaultModelLabel = computed(() =>
     buildDefaultModelLabel(this._provider(), this.defaultTier()),
   );
@@ -278,6 +440,17 @@ export class ProviderModelPickerComponent {
     () => `${this.label()} provider`,
   );
   protected readonly modelAriaLabel = computed(() => `${this.label()} model`);
+  protected readonly manualModelAriaLabel = computed(
+    () => `${this.label()} model ID`,
+  );
+
+  /** Current text of the manual-entry input. */
+  protected readonly manualDraft = this._manualDraft.asReadonly();
+
+  protected readonly manualApplyDisabled = computed(
+    () =>
+      this.disabled() || this._manualDraft().trim() === '' || !this._provider(),
+  );
 
   /** The loaded entry for the pinned model, when the catalogue knows it. */
   private readonly selectedModel = computed<ProviderModelInfo | null>(() => {
@@ -316,7 +489,7 @@ export class ProviderModelPickerComponent {
 
   constructor() {
     effect(() => {
-      const providerId = this.provider();
+      const providerId = this.fixedProvider() || this.provider();
       this._provider.set(providerId);
       this._model.set(this.model());
       void this.loadModels(providerId);
@@ -335,6 +508,42 @@ export class ProviderModelPickerComponent {
   protected onModelChange(event: Event): void {
     this._model.set((event.target as HTMLSelectElement).value);
     this.emit();
+  }
+
+  protected onManualDraftInput(event: Event): void {
+    this._manualDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * Applies the manually entered model id. It lands as the pinned selection
+   * (rendered as "`<id>` · not in current catalog" until a catalogue load
+   * knows it) and emits like any other selection.
+   */
+  protected applyManualModel(): void {
+    if (this.manualApplyDisabled()) return;
+    const id = this._manualDraft().trim();
+    if (!id) return;
+    this._model.set(id);
+    this._manualDraft.set('');
+    this.emit();
+  }
+
+  /**
+   * Re-reads the provider registry and the supplied {@link extraProviders}.
+   * Call this after the host merged user-defined providers into the registry —
+   * the registry accessor is not signal-tracked, so the list does not refresh
+   * on its own.
+   */
+  refreshProviders(): void {
+    this._registryVersion.update((v) => v + 1);
+  }
+
+  /**
+   * Re-runs the model catalogue load for the current provider. The error row
+   * renders a Retry wired to this.
+   */
+  refreshCatalog(): void {
+    void this.loadModels(this._provider());
   }
 
   private emit(): void {

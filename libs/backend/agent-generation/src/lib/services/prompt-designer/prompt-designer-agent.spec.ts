@@ -1,13 +1,17 @@
 import 'reflect-metadata';
 import { PromptDesignerAgent } from './prompt-designer-agent';
-import type {
-  PromptDesignerInput,
-  PromptDesignerOutput,
-  PromptGenerationProgress,
+import {
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+  deriveEffectiveBudgets,
+  VALIDATOR_TOTAL_TOKENS,
+  VALIDATOR_TOTAL_TOKENS_WITH_QUALITY,
+  type PromptDesignerInput,
+  type PromptDesignerOutput,
+  type PromptGenerationProgress,
 } from './prompt-designer.types';
 
 jest.mock('./generation-prompts', () => ({
-  PROMPT_DESIGNER_SYSTEM_PROMPT: 'mock system prompt',
+  buildSystemPrompt: jest.fn().mockReturnValue('mock system prompt'),
   buildGenerationUserPrompt: jest.fn().mockReturnValue('mock user prompt'),
   buildFallbackGuidance: jest
     .fn()
@@ -36,9 +40,11 @@ jest.mock('./response-parser', () => ({
   validateOutput: jest.fn().mockReturnValue({ valid: true, issues: [] }),
   formatAsPromptSection: jest.fn().mockReturnValue('formatted prompt section'),
   truncateToTokenBudget: jest.fn((text: string) => text),
+  estimateTokens: jest.fn((text: string) => Math.ceil(text.length / 4)),
 }));
 
 const generationPrompts = jest.requireMock('./generation-prompts') as {
+  buildSystemPrompt: jest.Mock;
   buildGenerationUserPrompt: jest.Mock;
   buildFallbackGuidance: jest.Mock;
   buildQualityContextPrompt: jest.Mock;
@@ -104,6 +110,10 @@ describe('PromptDesignerAgent', () => {
       expect(generationPrompts.buildGenerationUserPrompt).toHaveBeenCalledWith(
         baseInput,
         undefined,
+        expect.objectContaining({
+          maxSectionTokens: 400,
+          maxArchitectureNotesTokens: 600,
+        }),
       );
     });
 
@@ -114,6 +124,10 @@ describe('PromptDesignerAgent', () => {
       expect(generationPrompts.buildGenerationUserPrompt).toHaveBeenCalledWith(
         baseInput,
         qualityContext,
+        expect.objectContaining({
+          maxSectionTokens: 400,
+          maxArchitectureNotesTokens: 600,
+        }),
       );
     });
 
@@ -167,6 +181,51 @@ describe('PromptDesignerAgent', () => {
       expect(props).toHaveProperty('frameworkGuidelines');
       expect(props).toHaveProperty('codingStandards');
       expect(props).toHaveProperty('architectureNotes');
+    });
+
+    it('should build the system prompt from the effective budgets', async () => {
+      await agent.buildPrompts(baseInput);
+
+      expect(generationPrompts.buildSystemPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maxSectionTokens: 400,
+          maxArchitectureNotesTokens: 600,
+          maxQualityGuidanceTokens: 400,
+          maxTotalTokens: 1800,
+        }),
+      );
+    });
+
+    it('should derive schema descriptions and prompt budgets from a configured section budget', async () => {
+      agent.configure({ maxSectionTokens: 200 });
+
+      const result = await agent.buildPrompts(baseInput);
+
+      expect(generationPrompts.buildSystemPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maxSectionTokens: 200,
+          maxArchitectureNotesTokens: 300,
+          maxQualityGuidanceTokens: 200,
+        }),
+      );
+      expect(generationPrompts.buildGenerationUserPrompt).toHaveBeenCalledWith(
+        baseInput,
+        undefined,
+        expect.objectContaining({ maxSectionTokens: 200 }),
+      );
+      const props = result.outputSchema['properties'] as Record<
+        string,
+        { description: string }
+      >;
+      expect(props['projectContext'].description).toContain(
+        'under 200 tokens',
+      );
+      expect(props['architectureNotes'].description).toContain(
+        'under 300 tokens',
+      );
+      expect(props['qualityGuidance'].description).toContain(
+        'under 200 tokens',
+      );
     });
 
     it('should log info with project details', async () => {
@@ -438,11 +497,172 @@ describe('PromptDesignerAgent', () => {
 
       expect(responseParser.truncateToTokenBudget).not.toHaveBeenCalled();
     });
+
+    it('should give architectureNotes a 1.5x budget over other sections', () => {
+      responseParser.truncateToTokenBudget.mockImplementation(
+        (_text: string, maxTokens: number) => `truncated to ${maxTokens}`,
+      );
+      agent.configure({ maxSectionTokens: 100 });
+
+      const output: PromptDesignerOutput = {
+        projectContext: 'context over budget',
+        frameworkGuidelines: 'short',
+        codingStandards: 'short',
+        architectureNotes: 'notes over the section budget',
+        generatedAt: Date.now(),
+        totalTokens: 300,
+        tokenBreakdown: {
+          projectContext: 140,
+          frameworkGuidelines: 10,
+          codingStandards: 10,
+          architectureNotes: 140,
+        },
+      };
+
+      const result = agent.enforceTokenBudgets(output);
+
+      // projectContext (140) exceeds maxSectionTokens (100): truncated.
+      expect(result.projectContext).toBe('truncated to 100');
+      // architectureNotes (140) fits its 1.5x budget (150): untouched.
+      expect(result.architectureNotes).toBe('notes over the section budget');
+      expect(responseParser.truncateToTokenBudget).toHaveBeenCalledTimes(1);
+    });
+
+    it('should truncate architectureNotes above its own budget', () => {
+      responseParser.truncateToTokenBudget.mockImplementation(
+        (_text: string, maxTokens: number) => `truncated to ${maxTokens}`,
+      );
+      agent.configure({ maxSectionTokens: 100 });
+
+      const output: PromptDesignerOutput = {
+        projectContext: 'short',
+        frameworkGuidelines: 'short',
+        codingStandards: 'short',
+        architectureNotes: 'architecture notes over budget',
+        generatedAt: Date.now(),
+        totalTokens: 230,
+        tokenBreakdown: {
+          projectContext: 10,
+          frameworkGuidelines: 10,
+          codingStandards: 10,
+          architectureNotes: 200,
+        },
+      };
+
+      const result = agent.enforceTokenBudgets(output);
+
+      expect(responseParser.truncateToTokenBudget).toHaveBeenCalledWith(
+        expect.any(String),
+        150,
+        200,
+      );
+      expect(result.architectureNotes).toBe('truncated to 150');
+    });
+
+    it('should bound qualityGuidance by the same per-section budget as the other sections', () => {
+      responseParser.truncateToTokenBudget.mockImplementation(
+        (_text: string, maxTokens: number) => `truncated to ${maxTokens}`,
+      );
+
+      const output: PromptDesignerOutput = {
+        projectContext: 'short',
+        frameworkGuidelines: 'short',
+        codingStandards: 'short',
+        architectureNotes: 'short',
+        qualityGuidance: 'quality guidance over the default budget',
+        generatedAt: Date.now(),
+        totalTokens: 700,
+        tokenBreakdown: {
+          projectContext: 10,
+          frameworkGuidelines: 10,
+          codingStandards: 10,
+          architectureNotes: 10,
+          qualityGuidance: 600,
+        },
+      };
+
+      const result = agent.enforceTokenBudgets(output);
+
+      expect(responseParser.truncateToTokenBudget).toHaveBeenCalledWith(
+        expect.any(String),
+        400,
+        600,
+      );
+      expect(result.qualityGuidance).toBe('truncated to 400');
+    });
+
+    it('should recount every section from the final text and report the true total', () => {
+      const output: PromptDesignerOutput = {
+        // 400 chars = 100 tokens, but the breakdown claims only 10.
+        projectContext: 'x'.repeat(400),
+        frameworkGuidelines: 'short guidelines',
+        codingStandards: 'short standards',
+        architectureNotes: 'short notes',
+        generatedAt: Date.now(),
+        totalTokens: 40,
+        tokenBreakdown: {
+          projectContext: 10,
+          frameworkGuidelines: 10,
+          codingStandards: 10,
+          architectureNotes: 10,
+        },
+      };
+
+      const result = agent.enforceTokenBudgets(output);
+
+      expect(result.tokenBreakdown.projectContext).toBe(100);
+      expect(result.tokenBreakdown.frameworkGuidelines).toBe(
+        Math.ceil('short guidelines'.length / 4),
+      );
+      expect(result.totalTokens).toBe(
+        result.tokenBreakdown.projectContext +
+          result.tokenBreakdown.frameworkGuidelines +
+          result.tokenBreakdown.codingStandards +
+          result.tokenBreakdown.architectureNotes,
+      );
+      // The stale claimed total of 40 is gone: no clamp replaces it.
+      expect(result.totalTokens).toBe(111);
+    });
+
+    it('should honor an explicit maxArchitectureNotesTokens override', () => {
+      responseParser.truncateToTokenBudget.mockImplementation(
+        (_text: string, maxTokens: number) => `truncated to ${maxTokens}`,
+      );
+      agent.configure({
+        maxSectionTokens: 100,
+        maxArchitectureNotesTokens: 120,
+      });
+
+      const output: PromptDesignerOutput = {
+        projectContext: 'short',
+        frameworkGuidelines: 'short',
+        codingStandards: 'short',
+        architectureNotes: 'architecture notes over override',
+        generatedAt: Date.now(),
+        totalTokens: 170,
+        tokenBreakdown: {
+          projectContext: 10,
+          frameworkGuidelines: 10,
+          codingStandards: 10,
+          architectureNotes: 140,
+        },
+      };
+
+      const result = agent.enforceTokenBudgets(output);
+
+      expect(responseParser.truncateToTokenBudget).toHaveBeenCalledWith(
+        expect.any(String),
+        120,
+        140,
+      );
+      expect(result.architectureNotes).toBe('truncated to 120');
+    });
   });
 
   describe('configure', () => {
     it('should apply partial config overrides', async () => {
-      agent.configure({ maxSectionTokens: 100, maxTotalTokens: 400 });
+      // 3 * 100 + 150 = 450 required tokens must fit the configured total.
+      agent.configure({ maxSectionTokens: 100, maxTotalTokens: 500 });
 
       const output: PromptDesignerOutput = {
         projectContext: 'x'.repeat(2000),
@@ -469,6 +689,68 @@ describe('PromptDesignerAgent', () => {
         200,
       );
       expect(result.projectContext).toBe('truncated to 100');
+    });
+  });
+
+  describe('deriveEffectiveBudgets', () => {
+    it('keeps the defaults inside the validator limits', () => {
+      const budgets = deriveEffectiveBudgets(DEFAULT_PROMPT_DESIGNER_CONFIG);
+      expect(budgets).toEqual({
+        maxSectionTokens: 400,
+        maxArchitectureNotesTokens: 600,
+        maxQualityGuidanceTokens: 400,
+        maxTotalTokens: 1800,
+      });
+    });
+
+    it('scales an oversized configuration down to the validator limit', () => {
+      const budgets = deriveEffectiveBudgets({
+        ...DEFAULT_PROMPT_DESIGNER_CONFIG,
+        maxSectionTokens: 500,
+        maxTotalTokens: 2600,
+      });
+      const required =
+        3 * budgets.maxSectionTokens + budgets.maxArchitectureNotesTokens;
+      expect(required).toBeLessThanOrEqual(VALIDATOR_TOTAL_TOKENS);
+      expect(required + budgets.maxQualityGuidanceTokens).toBeLessThanOrEqual(
+        VALIDATOR_TOTAL_TOKENS_WITH_QUALITY,
+      );
+      expect(budgets.maxTotalTokens).toBeLessThanOrEqual(
+        VALIDATOR_TOTAL_TOKENS,
+      );
+      expect(budgets.maxArchitectureNotesTokens).toBeGreaterThan(
+        budgets.maxSectionTokens,
+      );
+    });
+
+    it('scales the section budgets down to a configured total below the validator limit', () => {
+      const budgets = deriveEffectiveBudgets({
+        ...DEFAULT_PROMPT_DESIGNER_CONFIG,
+        maxSectionTokens: 400,
+        maxTotalTokens: 1000,
+      });
+      const required =
+        3 * budgets.maxSectionTokens + budgets.maxArchitectureNotesTokens;
+      expect(required).toBeLessThanOrEqual(1000);
+      expect(budgets.maxTotalTokens).toBe(required);
+      expect(budgets.maxSectionTokens).toBeLessThan(400);
+    });
+
+    it('rejects non-positive, non-finite, or unholdable budgets', () => {
+      const base = DEFAULT_PROMPT_DESIGNER_CONFIG;
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxSectionTokens: 0 }),
+      ).toThrow(RangeError);
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxTotalTokens: -1 }),
+      ).toThrow(RangeError);
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxArchitectureNotesTokens: NaN }),
+      ).toThrow(RangeError);
+      // 3 * 400 + 600 = 1800 scaled to a total of 2 floors every budget to 0.
+      expect(() =>
+        deriveEffectiveBudgets({ ...base, maxTotalTokens: 2 }),
+      ).toThrow(/too small/);
     });
   });
 });

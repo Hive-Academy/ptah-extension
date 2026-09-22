@@ -28,6 +28,7 @@ import {
   SessionRpcHandlers,
   ChatRpcHandlers,
   ConfigRpcHandlers,
+  ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   ContextRpcHandlers,
   LicenseRpcHandlers,
@@ -89,6 +90,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(ChatRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
+  container.registerSingleton(ConfigScopeRpcHandlers);
   container.registerSingleton(ContextRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);
   container.registerSingleton(AutocompleteRpcHandlers);

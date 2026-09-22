@@ -1,10 +1,14 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  signal,
+  inject,
   Component,
   input,
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { fenceCodeBlock } from './code-fence';
 import { LucideAngularModule, FileEdit, CheckCircle } from 'lucide-angular';
 import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
@@ -29,7 +33,12 @@ import type { EditToolInput } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-diff-display',
   standalone: true,
-  imports: [MarkdownModule, LucideAngularModule, FilePathLinkComponent],
+  imports: [
+    SurfaceMarkdownPipe,
+    MarkdownModule,
+    LucideAngularModule,
+    FilePathLinkComponent,
+  ],
   template: `
     <div class="mt-1.5">
       <!-- Header with file path and replacement count -->
@@ -51,7 +60,7 @@ import type { EditToolInput } from '@ptah-extension/shared';
         class="bg-base-300/50 rounded max-h-64 overflow-y-auto overflow-x-auto diff-container"
       >
         <markdown
-          [data]="formattedDiff()"
+          [data]="formattedDiff() | surfaceMarkdown: surfaceActive()"
           class="diff-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent"
         />
       </div>
@@ -106,6 +115,8 @@ import type { EditToolInput } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DiffDisplayComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly toolInput = input.required<EditToolInput>();
   readonly replacements = input<number>(1);
 

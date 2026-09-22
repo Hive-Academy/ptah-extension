@@ -82,3 +82,5 @@ export {
   CREDENTIAL_DENY_LIST,
   isCredentialPath,
 } from './file-link-root-policy';
+
+export { ConfigScopeRpcHandlers } from './config-scope-rpc.handlers';

@@ -68,3 +68,17 @@ export * from './lib/constants/workspace-scan.constants';
 export * from './lib/constants/skill-drain.constants';
 export * from './lib/constants/stack-profiles';
 export * from './lib/connectors/ptah-connectors.catalog';
+
+export type {
+  EffectiveRouteProvider,
+  EffectiveRouteResult,
+  SettingScope,
+  AuthGetEffectiveRouteParams,
+  AuthGetEffectiveRouteResult,
+  ScopedSettingEntry,
+  ConfigGetScopesParams,
+  ConfigGetScopesResult,
+  ConfigClearScopeOverrideParams,
+  ConfigClearScopeOverrideResult,
+} from './lib/types/rpc/rpc-auth.types';
+export { SCOPED_SETTING_KEYS } from './lib/types/rpc/rpc-auth.types';

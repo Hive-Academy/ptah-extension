@@ -50,6 +50,7 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   ALWAYS_MOUNTED_TAIL,
@@ -80,7 +81,7 @@ interface Harness {
   placeholders: () => HTMLElement[];
 }
 
-function makeHarness(): Harness {
+function makeHarness(surfaceActive?: WritableSignal<boolean>): Harness {
   const messagesSig = signal<readonly ExecutionChatMessage[]>([]);
   const streamingStateSig = signal<unknown>(null);
   const buildTreeMock = jest.fn(() => [] as ExecutionNode[]);
@@ -106,6 +107,10 @@ function makeHarness(): Harness {
     iconUri: 'data:image/svg+xml;base64,PHN2Zy8+',
   });
 
+  if (surfaceActive)
+    TestBed.configureTestingModule({
+      providers: [{ provide: SURFACE_ACTIVE, useValue: surfaceActive }],
+    });
   const fixture = TestBed.createComponent(ChatTranscriptComponent);
   fixture.componentRef.setInput('tabId', 'tab-1');
   fixture.componentRef.setInput('active', true);
@@ -145,6 +150,73 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
     rafSpy.mockRestore();
     TestBed.resetTestingModule();
     jest.clearAllMocks();
+  });
+
+  it('combines inherited surface activity with tab activity and cancels stale scroll frames', () => {
+    const frames: FrameRequestCallback[] = [];
+    rafSpy.mockImplementation((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const cancel = jest.spyOn(window, 'cancelAnimationFrame');
+    const surfaceActive = signal(true);
+    const h = makeHarness(surfaceActive);
+    h.messagesSig.set([makeMessage('m1')]);
+    h.fixture.detectChanges();
+    const container = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    ) as HTMLElement;
+    Object.defineProperty(container, 'scrollHeight', { value: 1000 });
+    Object.defineProperty(container, 'clientHeight', { value: 200 });
+    container.scrollTop = 300;
+    const staleFrames = [...frames];
+    surfaceActive.set(false);
+    h.fixture.detectChanges();
+    expect(cancel).toHaveBeenCalled();
+    h.messagesSig.set([makeMessage('m1'), makeMessage('m2')]);
+    const frameCount = frames.length;
+    h.fixture.detectChanges();
+    expect(h.bubbleCount()).toBe(1);
+    expect(frames).toHaveLength(frameCount);
+    staleFrames.forEach((frame) => frame(0));
+    expect(container.scrollTop).toBe(300);
+    surfaceActive.set(true);
+    h.fixture.detectChanges();
+    expect(h.bubbleCount()).toBe(2);
+    staleFrames.forEach((frame) => frame(0));
+    expect(container.scrollTop).toBe(300);
+    h.fixture.componentRef.setInput('active', false);
+    h.fixture.detectChanges();
+    h.messagesSig.set([
+      makeMessage('m1'),
+      makeMessage('m2'),
+      makeMessage('m3'),
+    ]);
+    h.fixture.detectChanges();
+    expect(h.bubbleCount()).toBe(2);
+    cancel.mockRestore();
+  });
+
+  it('restores the saved unpinned scroll offset after surface reactivation', () => {
+    const surfaceActive = signal(true);
+    const h = makeHarness(surfaceActive);
+    h.fixture.detectChanges();
+    const container = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    ) as HTMLElement;
+    Object.defineProperty(container, 'scrollHeight', { value: 1000 });
+    Object.defineProperty(container, 'clientHeight', { value: 200 });
+    container.scrollTop = 800;
+    h.component.onScroll(new Event('scroll'));
+    container.scrollTop = 300;
+    h.component.onScroll(new Event('scroll'));
+    surfaceActive.set(false);
+    h.fixture.detectChanges();
+    container.scrollTop = 0;
+    h.component.onScroll(new Event('scroll'));
+    surfaceActive.set(true);
+    h.fixture.detectChanges();
+    expect(container.scrollTop).toBe(300);
   });
 
   it('freezes the DOM and skips buildTree while hidden, then catches up on activation', () => {

@@ -3,6 +3,7 @@ import {
   Input,
   NgModule,
   ChangeDetectionStrategy,
+  signal,
 } from '@angular/core';
 
 jest.mock('ngx-markdown', () => {
@@ -47,6 +48,7 @@ jest.mock('ngx-markdown', () => {
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { MarkdownComponent } from 'ngx-markdown';
 import { ExecutionNodeComponent } from './execution-node.component';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import type { ExecutionNode, ExecutionStatus } from '@ptah-extension/shared';
 
 /** The markdown stub, reached through the mocked module's export. */
@@ -88,8 +90,10 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
    */
   let frameByHandle: Map<number, () => void>;
   let nextFrameHandle: number;
+  const surfaceActive = signal(true);
 
   beforeEach(() => {
+    surfaceActive.set(true);
     frames = [];
     cancelled = [];
     frameByHandle = new Map();
@@ -111,7 +115,10 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
         cancelled.push(handle);
       });
 
-    TestBed.configureTestingModule({ imports: [ExecutionNodeComponent] });
+    TestBed.configureTestingModule({
+      imports: [ExecutionNodeComponent],
+      providers: [{ provide: SURFACE_ACTIVE, useValue: surfaceActive }],
+    });
     fixture = TestBed.createComponent(ExecutionNodeComponent);
   });
 
@@ -160,6 +167,34 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
       }
     ).flipAnimationDisabled();
   }
+
+  it('cancels a pending hidden frame and resumes with the latest content only', () => {
+    pushContent('queued', 'streaming');
+    const oldFrames = [...frames];
+    surfaceActive.set(false);
+    fixture.detectChanges();
+    pushContent('hidden latest', 'streaming');
+    oldFrames.forEach((frame) => frame());
+    fixture.detectChanges();
+    expect(published()).toBe('');
+    expect(cancelled.length).toBeGreaterThan(0);
+    surfaceActive.set(true);
+    fixture.detectChanges();
+    flushFrames();
+    expect(published()).toBe('hidden latest');
+    expect(renders()).toEqual(['hidden latest']);
+  });
+
+  it('publishes a turn finalized while hidden when reactivated', () => {
+    surfaceActive.set(false);
+    pushContent('final content', 'complete');
+    expect(published()).toBe('');
+    surfaceActive.set(true);
+    fixture.detectChanges();
+    expect(published()).toBe('final content');
+    flushFrames();
+    expect(renders()).toEqual(['final content']);
+  });
 
   it('coalesces 100 rapid deltas into a single markdown render', () => {
     let content = '';

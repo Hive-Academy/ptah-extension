@@ -7,6 +7,10 @@
   "main": "./index.cjs",
   "types": "./src/index.d.ts",
   "exports": {
+    "./angular": {
+      "types": "./src/angular/index.ts",
+      "default": "./src/angular/index.ts"
+    },
     ".": {
       "types": "./src/index.d.ts",
       "default": "./index.cjs"
@@ -22,6 +26,14 @@
     "./mcp-apps-contracts": {
       "types": "./src/mcp-apps-contracts/index.ts",
       "default": "./src/mcp-apps-contracts/index.ts"
+    }
+  },
+  "peerDependencies": {
+    "@angular/core": "22.1.7"
+  },
+  "peerDependenciesMeta": {
+    "@angular/core": {
+      "optional": true
     }
   },
   "dependencies": {

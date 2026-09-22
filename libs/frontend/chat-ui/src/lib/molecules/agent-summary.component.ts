@@ -1,4 +1,6 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  inject,
   Component,
   input,
   computed,
@@ -6,6 +8,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import {
   LucideAngularModule,
   Brain,
@@ -40,7 +43,7 @@ export type ParsedBlock =
 @Component({
   selector: 'ptah-agent-summary',
   standalone: true,
-  imports: [MarkdownModule, LucideAngularModule],
+  imports: [SurfaceMarkdownPipe, MarkdownModule, LucideAngularModule],
   template: `
     <div class="space-y-1.5">
       @for (block of parsedBlocks(); track $index) {
@@ -72,7 +75,9 @@ export type ParsedBlock =
                   <div
                     class="prose prose-xs prose-invert max-w-none text-[11px] text-base-content-muted pt-1.5"
                   >
-                    <markdown [data]="block.content" />
+                    <markdown
+                      [data]="block.content | surfaceMarkdown: surfaceActive()"
+                    />
                   </div>
                 </div>
               }
@@ -99,7 +104,9 @@ export type ParsedBlock =
           @case ('text') {
             @if (block.content.trim()) {
               <div class="prose prose-xs prose-invert max-w-none text-[12px]">
-                <markdown [data]="block.content" />
+                <markdown
+                  [data]="block.content | surfaceMarkdown: surfaceActive()"
+                />
               </div>
             }
           }
@@ -110,6 +117,8 @@ export type ParsedBlock =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentSummaryComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly content = input.required<string>();
   readonly BrainIcon = Brain;
   readonly WrenchIcon = Wrench;

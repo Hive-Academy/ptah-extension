@@ -7,12 +7,14 @@
  */
 
 import { Injectable, signal, inject } from '@angular/core';
+import { EffortSettingsChangeService } from './effort-settings-change.service';
 import { ClaudeRpcService } from './claude-rpc.service';
 import type { EffortLevel, SessionId } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class EffortStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly changes = inject(EffortSettingsChangeService);
 
   /** Current effort level. undefined = SDK default. */
   private readonly _currentEffort = signal<EffortLevel | undefined>(undefined);
@@ -35,6 +37,7 @@ export class EffortStateService {
     effort: EffortLevel | undefined,
     sessionId?: SessionId | null,
   ): Promise<void> {
+    const finishWrite = this.changes.beginWrite();
     const previous = this._currentEffort();
     this._currentEffort.set(effort);
 
@@ -50,9 +53,11 @@ export class EffortStateService {
         );
         this._currentEffort.set(previous);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[EffortStateService] Error saving effort:', error);
       this._currentEffort.set(previous);
+    } finally {
+      finishWrite();
     }
   }
 
@@ -73,7 +78,7 @@ export class EffortStateService {
         this._currentEffort.set(result.data.effort);
       }
       this._isLoaded.set(true);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[EffortStateService] Error loading effort:', error);
       this._isLoaded.set(true);
     }
