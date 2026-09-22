@@ -17,10 +17,13 @@ import {
   GripVertical,
   KeyRound,
 } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import type {
   AgentOrchestrationConfig,
-  CliModelOption,
 } from '@ptah-extension/shared';
 
 /**
@@ -32,7 +35,7 @@ import type {
  *
  * Cross-component communication:
  * Parent uses viewChild(AgentOrchestrationConfigComponent) to call redetectClis()
- * when LlmProvidersConfigComponent emits (modelChanged).
+ * when the Providers page emits (modelChanged).
  */
 @Component({
   selector: 'ptah-agent-orchestration-config',
@@ -282,437 +285,10 @@ import type {
                     </div>
                   </div>
 
-                  <!-- Expanded detail panel -->
-                  @if (
-                    isCliExpanded(cli.cli) &&
-                    (cli.installed || cli.cli === 'cursor')
-                  ) {
-                    <div class="px-2 pb-2 pt-0 border-t border-base-300/30">
-                      <!-- Codex model + reasoning + permissions -->
-                      @if (cli.cli === 'codex') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-codex-model"
-                            class="text-[10px] text-base-content-muted mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-codex-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('codex', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.codexModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of codexModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.codexModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-
-                          <label
-                            for="agent-codex-reasoning"
-                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
-                          >
-                            Reasoning Effort
-                          </label>
-                          <select
-                            id="agent-codex-reasoning"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onReasoningEffortSelect('codex', $event)"
-                          >
-                            @for (
-                              opt of reasoningEffortOptions;
-                              track opt.value
-                            ) {
-                              <option
-                                [value]="opt.value"
-                                [selected]="
-                                  opt.value ===
-                                  agentConfig()?.codexReasoningEffort
-                                "
-                              >
-                                {{ opt.label }}
-                              </option>
-                            }
-                          </select>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Permissions</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                Full auto — Codex runs headless with full access
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      <!-- Copilot model + reasoning + auto-approve -->
-                      @if (cli.cli === 'copilot') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-copilot-model"
-                            class="text-[10px] text-base-content-muted mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-copilot-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('copilot', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.copilotModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of copilotModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.copilotModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-
-                          <label
-                            for="agent-copilot-reasoning"
-                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
-                          >
-                            Reasoning Effort
-                          </label>
-                          <select
-                            id="agent-copilot-reasoning"
-                            class="select select-bordered select-xs w-full"
-                            (change)="
-                              onReasoningEffortSelect('copilot', $event)
-                            "
-                          >
-                            @for (
-                              opt of reasoningEffortOptions;
-                              track opt.value
-                            ) {
-                              <option
-                                [value]="opt.value"
-                                [selected]="
-                                  opt.value ===
-                                  agentConfig()?.copilotReasoningEffort
-                                "
-                              >
-                                {{ opt.label }}
-                              </option>
-                            }
-                          </select>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Auto-approve tools</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                Skip permission prompts for all tool calls
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              class="toggle toggle-xs toggle-success"
-                              [checked]="agentConfig()!.copilotAutoApprove"
-                              (change)="toggleAutoApprove('copilot')"
-                              aria-label="Auto-approve Copilot tool calls"
-                            />
-                          </div>
-                        </div>
-                      }
-
-                      <!-- Cursor API key + model -->
-                      @if (cli.cli === 'cursor') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-cursor-apikey"
-                            class="text-[10px] text-base-content-muted mb-0.5 flex items-center gap-1"
-                          >
-                            <lucide-angular
-                              [img]="KeyRoundIcon"
-                              class="w-3 h-3"
-                            />
-                            API Key
-                            @if (agentConfig()?.cursorApiKeyConfigured) {
-                              <span class="badge badge-success badge-xs"
-                                >Set</span
-                              >
-                            }
-                          </label>
-                          <div class="flex items-center gap-1.5">
-                            <input
-                              id="agent-cursor-apikey"
-                              type="password"
-                              autocomplete="off"
-                              class="input input-bordered input-xs flex-1 font-mono"
-                              [placeholder]="
-                                agentConfig()?.cursorApiKeyConfigured
-                                  ? '•••••••••• (stored)'
-                                  : 'key_...'
-                              "
-                              [value]="cursorApiKeyInput()"
-                              (input)="onCursorApiKeyInput($event)"
-                            />
-                            <button
-                              class="btn btn-primary btn-xs"
-                              [disabled]="
-                                savingCursorApiKey() ||
-                                cursorApiKeyInput().trim().length === 0
-                              "
-                              (click)="saveCursorApiKey()"
-                            >
-                              @if (savingCursorApiKey()) {
-                                <span
-                                  class="loading loading-spinner loading-xs"
-                                ></span>
-                              } @else {
-                                Save
-                              }
-                            </button>
-                          </div>
-                          <p class="text-[9px] text-base-content-muted mt-1">
-                            Create a key at cursor.com → Dashboard →
-                            Integrations. Stored in
-                            <code>~/.ptah/settings.json</code>; the
-                            <code>CURSOR_API_KEY</code> env var also works.
-                          </p>
-
-                          <label
-                            for="agent-cursor-model"
-                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-cursor-model"
-                            class="select select-bordered select-xs w-full"
-                            [disabled]="!agentConfig()?.cursorApiKeyConfigured"
-                            (change)="onModelSelect('cursor', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.cursorModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of cursorModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.cursorModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Permissions</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                Full auto — Cursor runs headless with full
-                                access
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      <!-- Antigravity model (model-only; reasoning effort is
-                           baked into the model labels, e.g. "… (High)") -->
-                      @if (cli.cli === 'antigravity') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-antigravity-model"
-                            class="text-[10px] text-base-content-muted mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-antigravity-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('antigravity', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.antigravityModel"
-                            >
-                              Default
-                            </option>
-                            @for (
-                              model of antigravityModels();
-                              track model.id
-                            ) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.antigravityModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Permissions</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                Full auto — Antigravity runs headless with full
-                                access
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      <!-- opencode model (model-only). Model id format is
-                           provider/model, e.g. anthropic/claude-sonnet-4-5 -->
-                      @if (cli.cli === 'opencode') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-opencode-model"
-                            class="text-[10px] text-base-content-muted mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-opencode-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('opencode', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.opencodeModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of opencodeModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.opencodeModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-                          <p class="text-[9px] text-base-content-muted mt-1">
-                            Model id uses <code>provider/model</code> format
-                            (e.g. <code>anthropic/claude-sonnet-4-5</code>).
-                          </p>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Permissions</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                Full auto — opencode runs headless with
-                                <code>--auto</code>
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      <!-- Pi model (model-only) -->
-                      @if (cli.cli === 'pi') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-pi-model"
-                            class="text-[10px] text-base-content-muted mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-pi-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('pi', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.piModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of piModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="model.id === agentConfig()?.piModel"
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-
-                          <label
-                            for="agent-pi-reasoning"
-                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
-                          >
-                            Reasoning Effort
-                          </label>
-                          <select
-                            id="agent-pi-reasoning"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onReasoningEffortSelect('pi', $event)"
-                          >
-                            @for (
-                              opt of piReasoningEffortOptions;
-                              track opt.value
-                            ) {
-                              <option
-                                [value]="opt.value"
-                                [selected]="
-                                  opt.value === agentConfig()?.piReasoningEffort
-                                "
-                              >
-                                {{ opt.label }}
-                              </option>
-                            }
-                          </select>
-
-                          <div class="flex items-center justify-between mt-2">
-                            <div>
-                              <span class="text-[10px] text-base-content-muted"
-                                >Permissions</span
-                              >
-                              <p class="text-[9px] text-base-content-muted">
-                                No approval gate and no MCP support — Pi always
-                                runs tools with full process permissions.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      }
-                    </div>
+                  @if (cli.cli === 'codex' || cli.cli === 'copilot') {
+                    <button type="button" class="btn btn-outline min-h-9" (click)="toggleAutoApprove(cli.cli)">Toggle {{ cli.cli }} automatic approval</button>
                   }
+                  <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageProviders()">Manage provider, model and credentials in Providers</button>
                 </div>
               }
             </div>
@@ -759,45 +335,11 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly ArrowDownIcon = ArrowDown;
   readonly GripVerticalIcon = GripVertical;
   readonly KeyRoundIcon = KeyRound;
-  readonly reasoningEffortOptions = [
-    { value: '', label: 'Default' },
-    { value: 'minimal', label: 'Minimal' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra High' },
-  ];
-  /**
-   * Pi's thinking scale is wider than Codex/Copilot's — the backend passes the
-   * value through raw to `--thinking` (no max→xhigh coercion), so the UI must be
-   * able to express `off` and `max`. Kept separate from `reasoningEffortOptions`
-   * because Codex/Copilot's `mapEffortToCli` only handles minimal..xhigh.
-   */
-  readonly piReasoningEffortOptions = [
-    { value: '', label: 'Default' },
-    { value: 'off', label: 'Off' },
-    { value: 'minimal', label: 'Minimal' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra High' },
-    { value: 'max', label: 'Max' },
-  ];
   readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
   readonly agentConfigLoading = signal(false);
   readonly agentConfigError = signal<string | null>(null);
   readonly isDetectingClis = signal(false);
   readonly expandedClis = signal<Set<string>>(new Set());
-  readonly codexModels = signal<CliModelOption[]>([]);
-  readonly copilotModels = signal<CliModelOption[]>([]);
-  readonly cursorModels = signal<CliModelOption[]>([]);
-  readonly antigravityModels = signal<CliModelOption[]>([]);
-  readonly opencodeModels = signal<CliModelOption[]>([]);
-  readonly piModels = signal<CliModelOption[]>([]);
-  /** Draft value of the Cursor API key input (write-only; never prefilled from the backend). */
-  readonly cursorApiKeyInput = signal('');
-  readonly savingCursorApiKey = signal(false);
-
   /** System CLIs only (excludes ptah-cli entries shown via projected content) */
   readonly systemClis = computed(() => {
     const config = this.agentConfig();
@@ -860,7 +402,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
       const result = await this.rpcService.call('agent:getConfig', undefined);
       if (result.isSuccess()) {
         this.agentConfig.set(result.data);
-        this.loadCliModels();
       } else {
         this.agentConfigError.set(result.error ?? 'Failed to load config');
       }
@@ -871,71 +412,11 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  async loadCliModels(): Promise<void> {
-    const result = await this.rpcService.call('agent:listCliModels', undefined);
-    if (result.isSuccess()) {
-      this.codexModels.set(result.data.codex);
-      this.copilotModels.set(result.data.copilot);
-      this.cursorModels.set(result.data.cursor);
-      this.antigravityModels.set(result.data.antigravity);
-      this.opencodeModels.set(result.data.opencode);
-      this.piModels.set(result.data.pi);
-    }
-  }
-
-  public onModelSelect(
-    cli: 'codex' | 'copilot' | 'cursor' | 'antigravity' | 'opencode' | 'pi',
-    event: Event,
-  ): void {
-    const value = (event.target as HTMLSelectElement).value;
-    this.setAgentModel(cli, value);
-  }
-
-  /** Update the draft Cursor API key as the user types. */
-  public onCursorApiKeyInput(event: Event): void {
-    this.cursorApiKeyInput.set((event.target as HTMLInputElement).value);
-  }
-
-  /**
-   * Persist the Cursor API key, then re-detect CLIs so availability flips
-   * once the key resolves. The raw key is write-only — never read back.
-   */
-  public async saveCursorApiKey(): Promise<void> {
-    const key = this.cursorApiKeyInput().trim();
-    this.savingCursorApiKey.set(true);
-    try {
-      const result = await this.rpcService.call('agent:setConfig', {
-        cursorApiKey: key,
-      });
-      if (result.isSuccess()) {
-        this.agentConfig.update((c) =>
-          c ? { ...c, cursorApiKeyConfigured: key.length > 0 } : c,
-        );
-        this.cursorApiKeyInput.set('');
-        await this.redetectClis();
-        await this.loadCliModels();
-      }
-    } finally {
-      this.savingCursorApiKey.set(false);
-    }
-  }
-
-  public onReasoningEffortSelect(
-    cli: 'codex' | 'copilot' | 'pi',
-    event: Event,
-  ): void {
-    const value = (event.target as HTMLSelectElement).value;
-    const key =
-      cli === 'codex'
-        ? 'codexReasoningEffort'
-        : cli === 'copilot'
-          ? 'copilotReasoningEffort'
-          : 'piReasoningEffort';
-    this.rpcService.call('agent:setConfig', { [key]: value }).then((result) => {
-      if (result.isSuccess()) {
-        this.agentConfig.update((c) => (c ? { ...c, [key]: value } : c));
-      }
-    });
+  private readonly appState = inject(AppStateManager);
+  private readonly providersState = inject(ProvidersSettingsStateService);
+  manageProviders(): void {
+    this.appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
+    this.appState.setCurrentView('settings');
   }
 
   public onMaxConcurrentChange(event: Event): void {
@@ -996,30 +477,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  async setAgentModel(
-    cli: 'codex' | 'copilot' | 'cursor' | 'antigravity' | 'opencode' | 'pi',
-    model: string,
-  ): Promise<void> {
-    const key =
-      cli === 'codex'
-        ? 'codexModel'
-        : cli === 'cursor'
-          ? 'cursorModel'
-          : cli === 'antigravity'
-            ? 'antigravityModel'
-            : cli === 'opencode'
-              ? 'opencodeModel'
-              : cli === 'pi'
-                ? 'piModel'
-                : 'copilotModel';
-    const result = await this.rpcService.call('agent:setConfig', {
-      [key]: model,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, [key]: model } : c));
-    }
-  }
-
   /** Toggle accordion expand/collapse for a CLI card */
   toggleCliExpand(cliType: string): void {
     this.expandedClis.update((set) => {
@@ -1068,7 +525,15 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         this.agentConfig.update((c) =>
           c ? { ...c, detectedClis: result.data.clis } : c,
         );
-        await this.loadCliModels();
+        // Detection changes which CLI agents exist, so anything derived from
+        // them is stale until it re-reads. PR #568 fixed that staleness by
+        // reloading this component's own model arrays; those arrays moved to
+        // the Providers page, so the refresh moves with them rather than
+        // being dropped along with the method.
+        await Promise.all([
+          this.providersState.refreshCliAgents(),
+          this.providersState.refreshCliModels(),
+        ]);
       } else {
         this.agentConfigError.set(result.error ?? 'Detection failed');
       }

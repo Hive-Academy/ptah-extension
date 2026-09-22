@@ -70,6 +70,29 @@ const CHAT_AUTH_KEYS: ReadonlyArray<keyof AuthEnv> = [
 ];
 
 /**
+ * A draft connection the setup wizard asked `auth:verifyDraftConnection` to
+ * probe: the wire params minus the fields this class does not need (`probeId`,
+ * `model`, `timeoutMs`). See `rpc-auth.types.ts` for the wire shape.
+ */
+export interface DraftConnectionInput {
+  readonly providerId: string;
+  readonly authMode:
+    | 'apiKey'
+    | 'oauth'
+    | 'cli'
+    | 'local-native'
+    | 'local-proxy'
+    | 'custom';
+  /**
+   * TRANSIENT: supplied only for key-carrying modes and held solely inside
+   * `DraftVerificationService`'s in-memory entry. Never persisted, never
+   * logged, never echoed back.
+   */
+  readonly credential?: { readonly kind: 'apiKey'; readonly value: string };
+  readonly baseUrl?: string;
+}
+
+/**
  * Builds the credential + tier snapshot for running one query on a provider
  * that is not the active chat provider.
  *
@@ -459,5 +482,125 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
       base[key] = undefined;
     }
     return { ...base, ...values } as AuthEnv;
+  }
+
+  /**
+   * The credential + tier snapshot for probing a DRAFT connection
+   * (`auth:verifyDraftConnection`), assembled by the SAME machinery as
+   * {@link resolve}: {@link buildLaneEnv} strips the chat provider's ambient
+   * identity, {@link buildTierValues} layers the named provider's tiers back
+   * on, and {@link assertNotCoolingDown} gates a provider still cooling down
+   * from a 429. One env assembler, not a second one.
+   *
+   * ## Why this is not `resolve()` with a parameter
+   *
+   * `resolve()` reads the PERSISTED credential on every branch
+   * (`resolveDirectAnthropic`, `resolveThirdPartyApiKey`) — a draft's key is
+   * not persisted, so routing a draft through `resolve` would require writing
+   * it first, which is exactly what the draft flow must not do. This method
+   * re-routes the same strategy matrix off the draft's own `authMode`, reads
+   * the draft credential where one is needed, and delegates to the
+   * persisted-OAuth paths (`'oauth'`, `'local-proxy'`) where the credential is
+   * the OS token cache rather than a field the wizard holds.
+   *
+   * Never returns `null`, unlike `resolve()`: `null` there means "ride the
+   * active provider", and a draft probe must exercise the DRAFT, never the
+   * persisted route.
+   *
+   * @throws ProviderQuotaError when the draft's provider is still cooling down
+   *   — same gate, same semantics as `resolve()`.
+   * @throws ProviderAuthError when the draft cannot produce a usable
+   *   credential at all (no key for a key-carrying mode, no base URL for a
+   *   custom entry, proxy provider not signed in, proxy would not start).
+   */
+  async buildDraftOverride(
+    draft: DraftConnectionInput,
+  ): Promise<OneShotAuthOverride> {
+    const providerId = draft.providerId.trim();
+    const provider = getAnthropicProvider(providerId);
+
+    // Same gate as `resolve()`, keyed on the provider that would actually be
+    // dialled — the draft names exactly one, so there is no inherit case.
+    this.assertNotCoolingDown(providerId);
+
+    // Draft endpoints are per-query snapshots. Never start the persisted local
+    // proxy here: that would verify its old upstream instead of the draft.
+    if ((draft.authMode === 'local-native' || draft.authMode === 'local-proxy') && draft.baseUrl?.trim()) {
+      const baseUrl = draft.baseUrl.trim();
+      const values: AuthEnv = {
+        ANTHROPIC_BASE_URL: baseUrl,
+        ...this.buildTierValues(providerId, 'mainAgent'),
+        ...(draft.credential?.value.trim()
+          ? { [getProviderAuthEnvVar(providerId)]: draft.credential.value.trim() }
+          : {}),
+      };
+      return { env: this.buildLaneEnv(values), baseUrl };
+    }
+
+    switch (draft.authMode) {
+      case 'cli':
+        return this.resolveCli();
+      // OAuth has no editable draft endpoint; use its authenticated proxy.
+      case 'oauth':
+      case 'local-proxy':
+        return this.resolveProxyProvider(providerId, 'mainAgent');
+      case 'local-native':
+        return this.resolveLocalNative(providerId, 'mainAgent');
+      case 'custom': {
+        const draftKey = draft.credential?.value.trim();
+        const draftBaseUrl = draft.baseUrl?.trim();
+        if (!draftKey) {
+          throw new ProviderAuthError(
+            providerId,
+            'A draft API key is required to verify this connection.',
+          );
+        }
+        if (!draftBaseUrl) {
+          throw new ProviderAuthError(
+            providerId,
+            'A base URL is required to verify a custom connection.',
+          );
+        }
+        const values: AuthEnv = {
+          ANTHROPIC_BASE_URL: draftBaseUrl,
+          [getProviderAuthEnvVar(providerId)]: draftKey,
+          ...this.buildTierValues(providerId, 'mainAgent'),
+        };
+        return { env: this.buildLaneEnv(values), baseUrl: draftBaseUrl };
+      }
+      case 'apiKey': {
+        const draftKey = draft.credential?.value.trim();
+        const isDirectAnthropic =
+          providerId === ANTHROPIC_DIRECT_PROVIDER_ID || providerId === 'apiKey';
+        if (isDirectAnthropic) {
+          if (!draftKey) {
+            throw new ProviderAuthError(
+              ANTHROPIC_DIRECT_PROVIDER_ID,
+              'A draft API key is required to verify this connection.',
+            );
+          }
+          return { env: this.buildLaneEnv({ ANTHROPIC_API_KEY: draftKey }) };
+        }
+        if (!draftKey) {
+          // `getAnthropicProvider` answers undefined for a draft custom entry
+          // id, so the display name is optional here.
+          throw new ProviderAuthError(
+            providerId,
+            `A draft API key is required to verify the connection to ${
+              provider?.name ?? providerId
+            }.`,
+          );
+        }
+        const baseUrl =
+          draft.baseUrl?.trim() || this.resolveProviderBaseUrl(providerId);
+        const authEnvVar = getProviderAuthEnvVar(providerId);
+        const values: AuthEnv = {
+          ANTHROPIC_BASE_URL: baseUrl,
+          [authEnvVar]: draftKey,
+          ...this.buildTierValues(providerId, 'mainAgent'),
+        };
+        return { env: this.buildLaneEnv(values), baseUrl };
+      }
+    }
   }
 }

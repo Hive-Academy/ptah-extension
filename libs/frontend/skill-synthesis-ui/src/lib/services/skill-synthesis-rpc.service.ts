@@ -29,6 +29,7 @@ import type {
   SkillSynthesisSaveCloneBodyResult,
   SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
+  SkillSynthesisSettingsWriteDto,
   SkillSynthesisStatsResult,
   SkillSynthesisUpdateSuggestionResult,
   SkillSynthesisSpecSummary,
@@ -241,7 +242,7 @@ export class SkillSynthesisRpcService {
 
   /** Persist a partial settings update. */
   public async updateSettings(
-    settings: Partial<SkillSynthesisSettingsDto>,
+    settings: Partial<SkillSynthesisSettingsWriteDto>,
   ): Promise<void> {
     const result = await this.rpcService.call(
       'skillSynthesis:updateSettings',

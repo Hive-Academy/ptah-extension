@@ -17,7 +17,7 @@ import {
   Zap,
 } from 'lucide-angular';
 import type { SavedAnalysisMetadata } from '@ptah-extension/shared';
-import { ModelStateService } from '@ptah-extension/core';
+import { AppStateManager, ModelStateService } from '@ptah-extension/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -149,24 +149,8 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
               >
                 Analysis model
               </label>
-              <select
-                id="wizard-model-select"
-                class="select select-bordered select-sm w-full text-xs"
-                [value]="modelState.currentModel()"
-                [disabled]="modelState.isPending()"
-                (change)="onModelChange($event)"
-                aria-label="Select the model used for analysis"
-              >
-                @for (model of modelState.availableModels(); track model.id) {
-                  <option
-                    [value]="model.id"
-                    [selected]="model.id === modelState.currentModel()"
-                  >
-                    {{ model.name
-                    }}{{ model.isRecommended ? ' (Recommended)' : '' }}
-                  </option>
-                }
-              </select>
+              <p>{{ modelState.currentModel() }}</p>
+              <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageModel()">Manage model in Providers</button>
               @if (modelState.currentModelInfo(); as info) {
                 <div
                   class="mt-2 rounded-md border border-base-300 bg-base-200/40 px-3 py-2"
@@ -348,10 +332,10 @@ export class WelcomeComponent implements OnInit {
     this.wizardState.setCurrentStep('scan');
   }
 
-  protected onModelChange(event: Event): void {
-    const model = (event.target as HTMLSelectElement).value;
-    if (!model) return;
-    void this.modelState.switchModel(model);
+  private readonly appState = inject(AppStateManager);
+  protected manageModel(): void {
+    this.appState.requestSettingsTab({ tab: 'providers', section: 'main-model' });
+    this.appState.setCurrentView('settings');
   }
 
   protected async onUseAnalysis(

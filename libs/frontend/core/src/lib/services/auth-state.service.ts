@@ -13,6 +13,7 @@ import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
 import { EffortStateService } from './effort-state.service';
 import type {
+  SettingScope,
   AuthGetAuthStatusResponse,
   AuthSaveSettingsParams,
   AuthMethod,
@@ -23,7 +24,6 @@ import type {
 } from '@ptah-extension/shared';
 
 type ApplyTo = 'global' | 'app' | 'workspace';
-type SettingScope = 'global' | 'app' | 'workspace';
 
 /**
  * Outcome of an add/update/remove against `provider.custom.entries`.

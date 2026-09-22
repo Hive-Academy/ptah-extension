@@ -431,6 +431,10 @@ export interface SkillSynthesisSettings {
   minJudgeScore: number;
   /** Model identifier for the LLM judge; 'inherit' resolves to workspace default. */
   judgeModel: string;
+  /** Provider identifier for the LLM judge; empty string resolves to workspace default / inherit. */
+  judgeProvider?: string;
+  /** Timeout in milliseconds for skill enhancement (15000 to 600000). */
+  enhanceTimeoutMs?: number;
   /** Maximum number of manually pinned skills allowed simultaneously. */
   maxPinnedSkills: number;
   /** Whether the Curator service runs on a background interval. */

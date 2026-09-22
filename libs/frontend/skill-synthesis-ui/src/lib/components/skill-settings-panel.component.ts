@@ -1,95 +1,18 @@
-/**
- * SkillSettingsPanelComponent — every knob the Skills tab owns, in one place.
- *
- * THIS IS THE ONE SOURCE OF TRUTH for skill-synthesis settings. The general
- * Settings view LINKS here rather than duplicating the controls: two copies of
- * a lane picker means two places a provider can be pinned and one of them
- * silently losing.
- *
- * Presentational by construction. The Core / Eligibility / Judging / Pinning /
- * Background sections are bound to a `FormGroup` the parent owns; the Lanes
- * section is bound to a `SkillLanesDto` the parent loads and re-emits. The only
- * thing this component injects is the model-catalogue port the shared picker
- * needs, which it supplies from the Skills tab's own RPC service.
- */
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
+  inject,
   input,
   output,
 } from '@angular/core';
 import { ReactiveFormsModule, FormGroup } from '@angular/forms';
-import {
-  PROVIDER_MODELS_LOADER,
-  ProviderModelPickerComponent,
-  type ProviderModelSelection,
-} from '@ptah-extension/ui';
-import type {
-  SkillLaneDto,
-  SkillLaneIdDto,
-  SkillLanesDto,
-} from '@ptah-extension/shared';
-
-import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
-
-/** A lane edit, ready to be handed to `skillSynthesis:setLanes` as a patch. */
-export interface SkillLaneSelectionChange {
-  readonly laneId: SkillLaneIdDto;
-  readonly provider: string;
-  readonly model: string;
-}
-
-interface LaneRow {
-  readonly id: SkillLaneIdDto;
-  readonly label: string;
-  readonly lane: SkillLaneDto;
-  readonly requiresToolUse: boolean;
-}
-
-/**
- * Render order and human labels for the four stages that call an LLM.
- *
- * Ordered by where each sits in the pipeline, not alphabetically. There is no
- * provider id here and there never may be: a lane is a set of capability
- * fields, and the provider behind it is whatever the user picked — or, by
- * default, nothing at all.
- */
-const LANE_LABELS: ReadonlyArray<{
-  readonly id: SkillLaneIdDto;
-  readonly label: string;
-}> = [
-  { id: 'archaeologist', label: 'Archaeologist lane' },
-  { id: 'synthesis', label: 'Synthesis lane' },
-  { id: 'judge', label: 'Judge lane' },
-  { id: 'replay', label: 'Replay lane' },
-];
-
-/**
- * The sentence that states the default in words.
- *
- * The MACHINE expression of the same default is `SkillLaneDto.provider === ''`,
- * which makes the shared picker's own inherit option the selected one. No lane
- * ships with a provider preselected — that is the guarantee that an existing
- * install keeps behaving exactly as it did before lanes existed.
- */
-const INHERIT_EXPLANATION =
-  'Every lane inherits the active provider until you choose one here. Leaving all four untouched keeps the current behaviour exactly.';
+import { AppStateManager } from '@ptah-extension/core';
 
 @Component({
   selector: 'ptah-skill-settings-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ReactiveFormsModule, ProviderModelPickerComponent],
-  /**
-   * The picker takes its transport as a port so it can live in `libs/frontend/ui`
-   * without importing `type:core`. The Skills tab supplies its OWN RPC service,
-   * which is what lets one picker serve both this tab (VS Code + Electron) and
-   * the Electron-only Memory tab.
-   */
-  providers: [
-    { provide: PROVIDER_MODELS_LOADER, useExisting: SkillSynthesisRpcService },
-  ],
+  imports: [ReactiveFormsModule],
   template: `
     @if (loaded()) {
       <form [formGroup]="form()" class="max-w-2xl space-y-6">
@@ -228,16 +151,7 @@ const INHERIT_EXPLANATION =
                 formControlName="minJudgeScore"
               />
             </label>
-            <label class="flex flex-col gap-1 sm:col-span-2">
-              <span class="text-xs text-base-content-muted"
-                >Judge model ('inherit' = workspace default)</span
-              >
-              <input
-                type="text"
-                class="input input-bordered input-sm"
-                formControlName="judgeModel"
-              />
-            </label>
+            <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manage('judging-enhancement')">Manage judging model in Providers</button>
           </div>
         </section>
 
@@ -296,38 +210,9 @@ const INHERIT_EXPLANATION =
         </section>
 
         <section class="space-y-3" data-testid="skills-lanes-section">
-          <div class="space-y-1">
-            <h2 class="text-sm font-semibold">Lanes</h2>
-            <p
-              class="text-xs text-base-content-muted"
-              data-testid="skills-lanes-inherit-note"
-            >
-              {{ inheritExplanation }}
-            </p>
-          </div>
-
-          @if (laneRows(); as lanes) {
-            <div class="space-y-2">
-              @for (row of lanes; track row.id) {
-                <ptah-provider-model-picker
-                  [attr.data-testid]="'skills-lane-picker'"
-                  [attr.data-lane]="row.id"
-                  [label]="row.label"
-                  [provider]="row.lane.provider"
-                  [model]="row.lane.model"
-                  [defaultTier]="row.lane.defaultTier"
-                  [requiresToolUse]="row.requiresToolUse"
-                  (selectionChange)="onLaneSelection(row.id, $event)"
-                />
-              }
-            </div>
-          } @else {
-            <p
-              class="text-xs text-base-content-muted"
-              data-testid="skills-lanes-loading"
-            >
-              Loading lane configuration…
-            </p>
+          <h2 class="text-sm font-semibold">Background models</h2>
+          @for (lane of laneTargets; track lane) {
+            <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manage(lane)">Manage {{ lane }} in Providers</button>
           }
         </section>
 
@@ -522,9 +407,6 @@ export class SkillSettingsPanelComponent {
   public readonly loaded = input<boolean>(false);
   public readonly saving = input<boolean>(false);
 
-  /** All four lanes, or `null` while `skillSynthesis:getLanes` is in flight. */
-  public readonly lanes = input<SkillLanesDto | null>(null);
-
   /**
    * Gates the tray-keepalive toggle. There is no tray in the VS Code webview,
    * so offering the control there would promise something the host cannot do.
@@ -533,36 +415,11 @@ export class SkillSettingsPanelComponent {
 
   public readonly save = output<void>();
 
-  /** One lane edit. The parent turns it into a sparse `setLanes` patch. */
-  public readonly laneChange = output<SkillLaneSelectionChange>();
-
+  private readonly appState = inject(AppStateManager);
   protected readonly skeletonSlots = [0, 1, 2, 3];
-  protected readonly inheritExplanation = INHERIT_EXPLANATION;
-
-  protected readonly laneRows = computed<readonly LaneRow[] | null>(() => {
-    const lanes = this.lanes();
-    if (!lanes) return null;
-    return LANE_LABELS.map(({ id, label }) => {
-      const lane = lanes[id];
-      return {
-        id,
-        label,
-        lane,
-        // Surfaced so the picker can warn when a pinned model cannot drive
-        // tools, instead of letting the lane burn its whole timeout finding out.
-        requiresToolUse: lane.toolUse === 'required',
-      };
-    });
-  });
-
-  protected onLaneSelection(
-    laneId: SkillLaneIdDto,
-    selection: ProviderModelSelection,
-  ): void {
-    this.laneChange.emit({
-      laneId,
-      provider: selection.provider,
-      model: selection.model,
-    });
+  protected readonly laneTargets = ['archaeologist', 'synthesis', 'judge', 'replay'] as const;
+  protected manage(section: typeof this.laneTargets[number] | 'judging-enhancement'): void {
+    this.appState.requestSettingsTab({ tab: 'providers', section });
+    this.appState.setCurrentView('settings');
   }
 }

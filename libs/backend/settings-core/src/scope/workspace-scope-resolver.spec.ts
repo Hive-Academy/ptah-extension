@@ -636,3 +636,71 @@ describe('WorkspaceScopeResolver', () => {
     });
   });
 });
+
+describe('WorkspaceScopeResolver.inspect', () => {
+  it('returns defined candidates in precedence order without writing', async () => {
+    const store = makeMemoryStore({ authMethod: 'global' });
+    const source = makeSource(path.resolve('scope-inspection'));
+    const resolver = new WorkspaceScopeResolver(store, source, 'app.electron');
+    const workspace = new WorkspaceScopeResolver(store, source);
+    await workspace.write('authMethod', 'workspace', 'workspace');
+    await resolver.write('authMethod', 'app', 'app', true);
+    await resolver.write('authMethod', 'app-workspace', 'workspace', true);
+    const before = { ...store.data };
+    const writes = store.writeCalls.length;
+    expect(
+      resolver
+        .inspect<string>('authMethod', true)
+        .map((candidate) => candidate.value),
+    ).toEqual(['app-workspace', 'app', 'workspace', 'global']);
+    expect(resolver.inspect('authMethod', true)[0].key).toBe(
+      resolver.effectiveKey('authMethod', true),
+    );
+    expect(
+      resolver
+        .inspect<string>('authMethod')
+        .map((candidate) => candidate.value),
+    ).toEqual(['workspace', 'global']);
+    expect(store.data).toEqual(before);
+    expect(store.writeCalls).toHaveLength(writes);
+  });
+
+  it('preserves false, null, zero and empty-string overrides and omits undefined', async () => {
+    const store = makeMemoryStore({ value: null });
+    const source = makeSource(path.resolve('scope-inspection'));
+    const resolver = new WorkspaceScopeResolver(store, source, 'app.electron');
+    const workspace = new WorkspaceScopeResolver(store, source);
+    await workspace.write('value', 0, 'workspace');
+    await resolver.write('value', false, 'app', true);
+    await resolver.write('value', '', 'workspace', true);
+    expect(
+      resolver.inspect('value', true).map((candidate) => candidate.value),
+    ).toEqual(['', false, 0, null]);
+    await resolver.clearOverride('value', true);
+    expect(
+      resolver.inspect('value', true).map((candidate) => candidate.value),
+    ).toEqual([false, 0, null]);
+    expect(resolver.inspect('missing', true)).toEqual([]);
+  });
+
+  it('uses the current workspace and handles an absent workspace without fabricating keys', async () => {
+    const store = makeMemoryStore({ value: 'global' });
+    let activePath: string | undefined = path.resolve('scope-first');
+    const source: IActiveWorkspaceSource = {
+      getActivePath: () => activePath,
+      onDidChange: () => ({ dispose: () => undefined }),
+    };
+    const resolver = new WorkspaceScopeResolver(store, source, 'app.electron');
+    await resolver.write('value', 'first', 'workspace', true);
+    activePath = path.resolve('scope-second');
+    expect(resolver.inspect('value', true)).toEqual([
+      { key: 'value', value: 'global' },
+    ]);
+    activePath = undefined;
+    await resolver.write('value', 'app', 'app', true);
+    expect(resolver.inspect('value', true)).toEqual([
+      { key: 'app.electron.value', value: 'app' },
+      { key: 'value', value: 'global' },
+    ]);
+  });
+});

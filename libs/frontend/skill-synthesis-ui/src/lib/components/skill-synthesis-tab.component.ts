@@ -19,10 +19,10 @@ import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
-  SkillLanesDto,
   SkillSynthesisCandidateScope,
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
+  SkillSynthesisSettingsWriteDto,
   SkillSynthesisRunCuratorResult,
 } from '@ptah-extension/shared';
 
@@ -46,17 +46,12 @@ import {
 import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
 import {
   SkillSettingsPanelComponent,
-  type SkillLaneSelectionChange,
 } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
 type SkillSubView =
-  | 'candidates'
-  | 'suggestions'
-  | 'activity'
-  | 'clones'
-  | 'settings';
+  'candidates' | 'suggestions' | 'activity' | 'clones' | 'settings';
 
 interface ActionDialogState {
   readonly kind: ActionKind;
@@ -590,10 +585,8 @@ interface ActionDialogState {
                 [form]="settingsForm"
                 [loaded]="settingsLoaded()"
                 [saving]="loading()"
-                [lanes]="lanes()"
                 [isElectron]="isElectron()"
                 (save)="onSaveSettings()"
-                (laneChange)="onLaneChange($event)"
               />
               @if (toast(); as t) {
                 <div
@@ -799,7 +792,6 @@ export class SkillSynthesisTabComponent implements OnInit {
     prefilterMinToolUses: [2, Validators.min(1)],
     judgeEnabled: [true],
     minJudgeScore: [6.0],
-    judgeModel: ['inherit'],
     maxPinnedSkills: [10],
     curatorEnabled: [true],
     curatorIntervalHours: [24],
@@ -836,8 +828,6 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   public readonly settingsLoaded = signal<boolean>(false);
 
-  /** All four lanes, `null` until `skillSynthesis:getLanes` resolves. */
-  public readonly lanes = signal<SkillLanesDto | null>(null);
 
   public readonly toast = signal<{
     message: string;
@@ -941,7 +931,6 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.refreshDigest({ allowRewrite: false });
     void this.state.refreshSpecs();
     void this.loadSettings();
-    void this.loadLanes();
   }
 
   protected setSubView(view: SkillSubView): void {
@@ -980,46 +969,15 @@ export class SkillSynthesisTabComponent implements OnInit {
     }
   }
 
-  /**
-   * Read the lane configuration.
-   *
-   * A failure leaves `lanes()` null, which renders as "loading" rather than as
-   * four pickers showing invented defaults — an empty picker would look like a
-   * lane with no provider configured, which is a real and different state.
-   */
-  private async loadLanes(): Promise<void> {
-    try {
-      this.lanes.set(await this.rpc.getLanes());
-    } catch (err: unknown) {
-      this.showToast(err instanceof Error ? err.message : String(err), 'error');
-    }
-  }
-
-  /**
-   * Persist ONE lane's provider/model pair as a sparse patch.
-   *
-   * Only the edited lane and only its two edited fields are sent; the backend
-   * leaves every omitted field alone. Sending the whole `SkillLanesDto` back
-   * would rewrite all 32 keys on every keystroke.
-   */
-  protected async onLaneChange(
-    change: SkillLaneSelectionChange,
-  ): Promise<void> {
-    try {
-      const lanes = await this.rpc.setLanes({
-        [change.laneId]: { provider: change.provider, model: change.model },
-      });
-      this.lanes.set(lanes);
-    } catch (err: unknown) {
-      this.showToast(err instanceof Error ? err.message : String(err), 'error');
-    }
-  }
-
   protected async onSaveSettings(): Promise<void> {
     if (!this.settingsForm.valid) return;
     try {
       const sf = skillSettingsFormToDto(this.settingsForm.getRawValue());
-      await this.rpc.updateSettings(sf);
+      const policy = { ...sf };
+      delete policy.judgeModel;
+      delete policy.judgeProvider;
+      delete policy.enhanceTimeoutMs;
+      await this.rpc.updateSettings(policy);
       this.showToast('Settings saved.', 'success');
     } catch (err: unknown) {
       this.showToast(err instanceof Error ? err.message : String(err), 'error');
@@ -1329,10 +1287,10 @@ export function skillSettingsDtoToForm(
  */
 export function skillSettingsFormToDto(
   value: SkillSettingsFormValue,
-): SkillSynthesisSettingsDto {
+): Partial<SkillSynthesisSettingsWriteDto> {
   const { drain, budget, ...flat } = value;
   return {
-    ...(flat as unknown as SkillSynthesisSettingsDto),
+    ...(flat as Partial<SkillSynthesisSettingsWriteDto>),
     'drain.cronExpr': drain.cronExpr,
     'drain.nightlyCronExpr': drain.nightlyCronExpr,
     'drain.weeklyCronExpr': drain.weeklyCronExpr,

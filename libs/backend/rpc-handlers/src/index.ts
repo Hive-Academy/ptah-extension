@@ -25,6 +25,7 @@ export {
   ConfigRpcHandlers,
   LicenseRpcHandlers,
   ChatRpcHandlers,
+  ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,

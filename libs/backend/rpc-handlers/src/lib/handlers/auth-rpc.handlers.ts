@@ -6,9 +6,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
+  RpcUserError,
   TOKENS,
   ConfigManager,
   IAuthSecretsService,
@@ -32,17 +34,21 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type { SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 import {
+  resolveEffectiveAuthRoute,
   ProviderModelsService,
   ActiveProviderResolver,
+  DraftVerificationService,
   AUTH_PROVIDERS_TOKENS,
 } from '@ptah-extension/auth-providers';
 import type {
   CopilotAuthService,
   CopilotDeviceLoginInfo,
   ICodexAuthService,
+  ModelResolver,
 } from '@ptah-extension/auth-providers';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AuthDeviceCodePayload } from '@ptah-extension/shared';
+import { resolveScopeFromKey } from './setting-scope';
 import { asAuthCommandRunner } from './auth-command-runner';
 import {
   SETTINGS_TOKENS,
@@ -54,8 +60,14 @@ import {
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
 import type {
+  AuthGetEffectiveRouteResult,
+  EffectiveRouteProvider,
   AuthGetScopeResult,
   AuthClearWorkspaceOverrideResult,
+  AuthVerifyDraftConnectionParams,
+  AuthVerifyDraftConnectionResult,
+  AuthCancelDraftVerificationParams,
+  AuthCancelDraftVerificationResult,
 } from '@ptah-extension/shared';
 import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -134,28 +146,6 @@ interface SecretProbeResult {
   hasAnyProviderKey: boolean;
 }
 
-function resolveScopeFromKey(
-  effectiveKey: string,
-  globalKey: string,
-): { scope: 'global' | 'app' | 'workspace'; runtime?: string } {
-  if (effectiveKey === globalKey) {
-    return { scope: 'global' };
-  }
-  const appMatch = /^app\.([^.]+)\.(.*)$/.exec(effectiveKey);
-  if (appMatch) {
-    const runtime = appMatch[1];
-    const rest = appMatch[2];
-    if (rest.startsWith('workspace.')) {
-      return { scope: 'workspace', runtime };
-    }
-    return { scope: 'app', runtime };
-  }
-  if (effectiveKey.startsWith('workspace.')) {
-    return { scope: 'workspace' };
-  }
-  return { scope: 'global' };
-}
-
 /**
  * RPC handlers for authentication operations
  */
@@ -164,6 +154,7 @@ export class AuthRpcHandlers {
   static readonly METHODS = [
     'auth:getHealth',
     'auth:getAuthStatus',
+    'auth:getEffectiveRoute',
     'auth:getStatus',
     'auth:saveSettings',
     'auth:setApiKey',
@@ -175,6 +166,8 @@ export class AuthRpcHandlers {
     'auth:getApiKeyStatus',
     'auth:getScope',
     'auth:clearWorkspaceOverride',
+    'auth:verifyDraftConnection',
+    'auth:cancelDraftVerification',
   ] as const satisfies readonly RpcMethodName[];
 
   /**
@@ -259,6 +252,8 @@ export class AuthRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
     private readonly scopeResolver: WorkspaceScopeResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION)
+    private readonly draftVerification: DraftVerificationService,
     /**
      * Optional: absent in unit harnesses and in any host that has not wired a
      * webview manager. Used only to broadcast interactive-login progress
@@ -274,6 +269,8 @@ export class AuthRpcHandlers {
      */
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS, { isOptional: true })
     private readonly adapterEvents?: SdkAdapterEvents,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER, { isOptional: true })
+    private readonly modelResolver?: ModelResolver,
   ) {}
 
   /**
@@ -282,6 +279,7 @@ export class AuthRpcHandlers {
   register(): void {
     this.registerGetHealth();
     this.registerGetAuthStatus();
+    this.registerGetEffectiveRoute();
     this.registerGetStatus();
     this.registerSaveSettings();
     this.registerSetApiKey();
@@ -293,6 +291,8 @@ export class AuthRpcHandlers {
     this.registerGetApiKeyStatus();
     this.registerGetScope();
     this.registerClearWorkspaceOverride();
+    this.registerVerifyDraftConnection();
+    this.registerCancelDraftVerification();
 
     // An external `codex login` changes the answer without going through any
     // method here, so the TTL is the only thing that would eventually notice.
@@ -315,6 +315,8 @@ export class AuthRpcHandlers {
         'auth:getApiKeyStatus',
         'auth:getScope',
         'auth:clearWorkspaceOverride',
+        'auth:verifyDraftConnection',
+        'auth:cancelDraftVerification',
       ],
     });
   }
@@ -340,6 +342,215 @@ export class AuthRpcHandlers {
             { errorSource: 'AuthRpcHandlers.registerGetHealth' },
           );
           throw error;
+        }
+      },
+    );
+  }
+
+  /** Read-only route snapshot composed from the existing status sources. */
+  private registerGetEffectiveRoute(): void {
+    const paramsSchema = z.object({ refresh: z.boolean().optional() }).strict();
+    const statusSchema = z.object({
+      copilotAuthenticated: z.boolean().optional(),
+      codexAuthenticated: z.boolean().optional(),
+      codexTokenStale: z.boolean().optional(),
+      claudeCliInstalled: z.boolean().optional(),
+    });
+    const providersSchema = z.object({
+      providers: z.array(
+        z.object({
+          name: z.string(),
+          authType: z.enum(['apiKey', 'oauth', 'cli', 'none']),
+          hasApiKey: z.boolean(),
+          isLocal: z.boolean(),
+          requiresProxy: z.boolean(),
+        }),
+      ),
+    });
+    this.rpcHandler.registerMethod(
+      'auth:getEffectiveRoute',
+      async (raw: unknown): Promise<AuthGetEffectiveRouteResult> => {
+        const params = paramsSchema.safeParse(raw ?? {});
+        if (!params.success)
+          throw new RpcUserError(
+            'Invalid effective route request',
+            'INVALID_PARAMS',
+          );
+        try {
+          if (params.data.refresh) this.invalidateAuthStatusCache();
+          const generation = this.cacheGeneration;
+          const activePath = this.scopeResolver.getActivePath();
+          // Do not normalize: an unset/invalid stored method is a resolver blocker.
+          const storedAuthMethodDiagnostic =
+            this.scopeResolver.read<string>('authMethod', true) ?? null;
+          const anthropicProviderId =
+            this.scopeResolver.read<string>('anthropicProviderId', true) ??
+            null;
+          const defaultProvider =
+            this.configManager.get<string>('llm.defaultProvider') ?? null;
+          const storedAuthMethodScope = resolveScopeFromKey(
+            this.scopeResolver.effectiveKey('authMethod', true),
+            'authMethod',
+          ).scope;
+          const cache = this.statusCache.get(this.authStatusCacheKey({}));
+          const fromCache = !!cache && cache.expiresAt > Date.now();
+          // Reuse the registered status paths, including their coalescing and probe ceilings.
+          const [authResponse, providerResponse] = await Promise.all([
+            this.rpcHandler.handleMessage({
+              method: 'auth:getAuthStatus',
+              params: {},
+              correlationId: 'effective-route-auth',
+            }),
+            this.rpcHandler.handleMessage({
+              method: 'llm:getProviderStatus',
+              params: {},
+              correlationId: 'effective-route-providers',
+            }),
+          ]);
+          const auth = statusSchema.safeParse(authResponse.data);
+          const catalogue = providersSchema.safeParse(providerResponse.data);
+          if (
+            !authResponse.success ||
+            !providerResponse.success ||
+            !auth.success ||
+            !catalogue.success
+          ) {
+            throw new RpcUserError(
+              'Unable to read authentication status',
+              'AUTH_REQUIRED',
+            );
+          }
+          if (
+            generation !== this.cacheGeneration ||
+            activePath !== this.scopeResolver.getActivePath()
+          ) {
+            throw new RpcUserError(
+              'Authentication changed during the check; refresh the route',
+              'AUTH_REQUIRED',
+            );
+          }
+          const providers: EffectiveRouteProvider[] =
+            catalogue.data.providers.map((provider) => {
+              if (
+                provider.name === 'claude-cli' ||
+                provider.authType === 'cli'
+              ) {
+                return {
+                  id: provider.name,
+                  type: 'cli',
+                  status: this.claudeCliHealth
+                    ? this.claudeCliHealth.available
+                      ? 'connected'
+                      : 'missing'
+                    : 'unknown',
+                };
+              }
+              if (provider.authType === 'apiKey') {
+                return {
+                  id: provider.name,
+                  type: 'apiKey',
+                  status: provider.hasApiKey ? 'connected' : 'needs-key',
+                };
+              }
+              if (provider.authType === 'oauth') {
+                const authenticated =
+                  provider.name === COPILOT_PROVIDER_ID
+                    ? auth.data.copilotAuthenticated
+                    : provider.name === CODEX_PROVIDER_ID
+                      ? auth.data.codexAuthenticated &&
+                        !auth.data.codexTokenStale
+                      : undefined;
+                return {
+                  id: provider.name,
+                  type: 'oauth',
+                  status:
+                    authenticated === undefined
+                      ? 'unknown'
+                      : authenticated
+                        ? 'connected'
+                        : 'unauthenticated',
+                };
+              }
+              return {
+                id: provider.name,
+                type: provider.isLocal
+                  ? provider.requiresProxy
+                    ? 'local-proxy'
+                    : 'local-native'
+                  : 'unknown',
+                status: 'skipped',
+              };
+            });
+          if (!providers.some((provider) => provider.id === 'claude-cli')) {
+            providers.push({
+              id: 'claude-cli',
+              type: 'cli',
+              status: this.claudeCliHealth
+                ? this.claudeCliHealth.available
+                  ? 'connected'
+                  : 'missing'
+                : 'unknown',
+            });
+          }
+          const effective = resolveEffectiveAuthRoute(
+            {
+              authMethod: storedAuthMethodDiagnostic,
+              anthropicProviderId,
+              defaultProvider,
+            },
+            providers,
+          );
+          const authKey = resolveAuthProviderKey(
+            storedAuthMethodDiagnostic ?? '',
+            anthropicProviderId ?? '',
+          );
+          const selected = this.scopeResolver.read<unknown>(
+            `provider.${authKey}.selectedModel`,
+            true,
+          );
+          let resolvedModel: AuthGetEffectiveRouteResult['resolvedModel'] = {
+            kind: 'unresolved',
+          };
+          if (effective.route !== 'unresolved' && this.modelResolver) {
+            // Use the runtime's resolver, including dated-model remapping and provider defaults.
+            const model = this.modelResolver.resolve(
+              typeof selected === 'string' && selected ? selected : 'default',
+            );
+            if (model === 'opus' || model === 'sonnet' || model === 'haiku') {
+              resolvedModel = { kind: 'tier', tier: model };
+            } else if (model && model !== 'default') {
+              resolvedModel = { kind: 'model', id: model };
+            }
+            // 'default' remains SDK-selected, so no concrete identity is claimed.
+          }
+          return {
+            ...effective,
+            resolvedAuthModality:
+              effective.route === 'oauth-proxy'
+                ? 'oauth'
+                : effective.route === 'local-native' ||
+                    effective.route === 'local-proxy'
+                  ? 'local'
+                  : effective.route === 'unresolved'
+                    ? 'unknown'
+                    : effective.route,
+            resolvedModel,
+            storedAuthMethodDiagnostic,
+            storedAuthMethodScope,
+            providers,
+            // These status sources prove configuration/installation, not a successful inference request.
+            // Never manufacture connection timestamps from credential presence or cache age.
+            lastSuccessfulProbeAt: null,
+            lastFailedProbeAt: null,
+            probedAt: new Date().toISOString(),
+            fromCache,
+          };
+        } catch (error: unknown) {
+          if (error instanceof RpcUserError) throw error;
+          this.logger.warn('Unable to read the effective route', {
+            errorType: error instanceof Error ? error.name : 'unknown',
+          });
+          throw new Error('Unable to read the effective route');
         }
       },
     );
@@ -444,7 +655,7 @@ export class AuthRpcHandlers {
    * Bumping {@link cacheGeneration} is the half that makes this hold under
    * concurrency: clearing alone is undone by any probe still in flight.
    */
-  private invalidateAuthStatusCache(): void {
+  invalidateAuthStatusCache(): void {
     this.cacheGeneration++;
     this.statusCache.clear();
     this.statusInFlight.clear();
@@ -1320,6 +1531,68 @@ export class AuthRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * auth:verifyDraftConnection - Probe a draft connection BEFORE it is saved.
+   *
+   * Delegates to `DraftVerificationService.verify`, which exercises the DRAFT
+   * (via `ProviderAuthResolver.buildDraftOverride`) and never the persisted
+   * route, writes nothing to disk, and returns a sanitized diagnostic. The
+   * draft credential is transient: it is passed through this handler to the
+   * service and is never logged, echoed back, or persisted here.
+   */
+  private registerVerifyDraftConnection(): void {
+    this.rpcHandler.registerMethod<
+      AuthVerifyDraftConnectionParams,
+      AuthVerifyDraftConnectionResult
+    >(
+      'auth:verifyDraftConnection',
+      async (params: AuthVerifyDraftConnectionParams) => {
+        try {
+          this.logger.debug('RPC: auth:verifyDraftConnection called');
+          return await this.draftVerification.verify(params);
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:verifyDraftConnection failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerVerifyDraftConnection' },
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  /**
+   * auth:cancelDraftVerification - Abort an in-flight draft probe by id.
+   *
+   * Infallible by design: an unknown or already-settled `probeId` answers
+   * `{ cancelled: false }` rather than throwing, because the frontend issues
+   * cancel on a fire-and-forget basis (the transport carries no per-request
+   * cancel token) and must not surface an error for a benign race.
+   */
+  private registerCancelDraftVerification(): void {
+    this.rpcHandler.registerMethod<
+      AuthCancelDraftVerificationParams,
+      AuthCancelDraftVerificationResult
+    >(
+      'auth:cancelDraftVerification',
+      async (params: AuthCancelDraftVerificationParams) => {
+        try {
+          return await this.draftVerification.cancel(params);
+        } catch (error) {
+          this.logger.warn(
+            'RPC: auth:cancelDraftVerification failed (non-fatal)',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return { cancelled: false };
+        }
+      },
+    );
   }
 
   /**

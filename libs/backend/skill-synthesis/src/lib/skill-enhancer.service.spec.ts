@@ -10,6 +10,7 @@ import {
 import { JUDGE_DEFAULT_MODEL_ID, type SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
+import { ENHANCE_TIMEOUT_DEFAULT_MS } from '@ptah-extension/platform-core';
 import { ProviderNetworkBackoffs } from './lanes/provider-network-backoffs';
 
 function emptyScorecard(slug: string): AgentScorecard {
@@ -47,6 +48,8 @@ function makeSettings(
     judgeEnabled: true,
     minJudgeScore: 6.0,
     judgeModel: 'claude-haiku-4-5-20251001',
+    judgeProvider: '',
+    enhanceTimeoutMs: ENHANCE_TIMEOUT_DEFAULT_MS,
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
@@ -110,6 +113,11 @@ interface Harness {
   repropagation: { repropagate: jest.Mock };
   specFindings: { getRecentFindings: jest.Mock };
   scorecard: { getScorecards: jest.Mock };
+  authResolver?: { resolve: jest.Mock } | null;
+  workspaceProvider: {
+    getConfiguration: jest.Mock;
+    getWorkspaceRoot: jest.Mock;
+  };
 }
 
 function makeHarness(opts: {
@@ -138,7 +146,7 @@ function makeHarness(opts: {
    * Settings this workspace has stored. Unseeded keys read `''`, which is what
    * every pre-existing case in this file relied on.
    */
-  configSeed?: Record<string, string>;
+  configSeed?: Record<string, unknown>;
   /**
    * The port the in-process MCP server is listening on, or `null` for a host
    * that started none. `undefined` injects no status port at all — the CLI.
@@ -148,6 +156,8 @@ function makeHarness(opts: {
   streamMessages?: readonly unknown[];
   /** The library's per-provider network back-offs; absent = none injected. */
   networkBackoffs?: ProviderNetworkBackoffs;
+  /** Optional auth resolver for provider resolution. */
+  authResolver?: { resolve: jest.Mock } | null;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(
@@ -241,6 +251,9 @@ function makeHarness(opts: {
     }),
   };
 
+  const authResolver =
+    opts.authResolver !== undefined ? opts.authResolver : null;
+
   const svc = new SkillEnhancerService(
     logger as never,
     workspaceProvider as never,
@@ -257,6 +270,7 @@ function makeHarness(opts: {
       ? null
       : { getPort: () => opts.mcpPort ?? null }) as never,
     opts.networkBackoffs ?? null,
+    authResolver as never,
   );
 
   return {
@@ -269,6 +283,8 @@ function makeHarness(opts: {
     repropagation,
     specFindings,
     scorecard,
+    authResolver,
+    workspaceProvider,
   };
 }
 
@@ -604,6 +620,167 @@ describe('SkillEnhancerService', () => {
         unknown
       >;
       expect(call['model']).toBe('an-explicitly-pinned-model');
+    });
+
+    it('resolves model and authOverride when judgeProvider is set and judgeModel is inherit', async () => {
+      const mockAuthOverride = {
+        apiKey: 'secret-key',
+        baseUrl: 'https://api.deepseek.com',
+      };
+      const authResolver = {
+        resolve: jest.fn().mockReturnValue(mockAuthOverride),
+      };
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        authResolver,
+      });
+
+      await h.svc.enhance(
+        'deep-research',
+        makeSettings({
+          judgeProvider: 'deepseek',
+          judgeModel: 'inherit',
+        }),
+      );
+
+      expect(authResolver.resolve).toHaveBeenCalledWith('deepseek', 'lane');
+      const call = h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      // For pinned provider with model 'inherit', resolveLaneModel uses defaultTier 'haiku'
+      expect(call['model']).toBe('haiku');
+      expect(call['auth']).toEqual(mockAuthOverride);
+    });
+
+    it('resolves model and authOverride when judgeProvider is set and judgeModel is explicit', async () => {
+      const mockAuthOverride = { apiKey: 'secret-key' };
+      const authResolver = {
+        resolve: jest.fn().mockReturnValue(mockAuthOverride),
+      };
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        authResolver,
+      });
+
+      await h.svc.enhance(
+        'deep-research',
+        makeSettings({
+          judgeProvider: 'deepseek',
+          judgeModel: 'deepseek-reasoner',
+        }),
+      );
+
+      expect(authResolver.resolve).toHaveBeenCalledWith('deepseek', 'lane');
+      const call = h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      expect(call['model']).toBe('deepseek-reasoner');
+      expect(call['auth']).toEqual(mockAuthOverride);
+    });
+
+    it('returns provider-unreachable skipReason when authResolver throws for judgeProvider', async () => {
+      const authResolver = {
+        resolve: jest.fn().mockImplementation(() => {
+          throw new Error('Credential not found in secret store');
+        }),
+      };
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        authResolver,
+      });
+
+      const result = await h.svc.enhance(
+        'deep-research',
+        makeSettings({
+          judgeProvider: 'deepseek',
+          judgeModel: 'deepseek-reasoner',
+        }),
+      );
+
+      expect(authResolver.resolve).toHaveBeenCalledWith('deepseek', 'lane');
+      expect(result).toMatchObject({
+        changed: false,
+        skipReason: 'provider-unreachable',
+      });
+      expect(h.internalQuery.execute).not.toHaveBeenCalled();
+      expect(h.judge.judge).not.toHaveBeenCalled();
+    });
+
+    it('does not resolve auth when judgeProvider is empty', async () => {
+      const authResolver = {
+        resolve: jest.fn(),
+      };
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        authResolver,
+      });
+
+      await h.svc.enhance(
+        'deep-research',
+        makeSettings({
+          judgeProvider: '',
+          judgeModel: 'inherit',
+        }),
+      );
+
+      expect(authResolver.resolve).not.toHaveBeenCalled();
+      const call = h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      expect(call['auth']).toBeUndefined();
+    });
+  });
+
+  describe('enhance: enhanceTimeoutMs configuration', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 8,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+
+    it('reads skillSynthesis.enhanceTimeoutMs from workspace without defaultValue', async () => {
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        configSeed: {
+          'skillSynthesis.enhanceTimeoutMs': 45_000,
+        },
+      });
+
+      await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'skillSynthesis.enhanceTimeoutMs',
+      );
+      // Ensure exactly 2 arguments were passed (no defaultValue passed)
+      const callArgs = h.workspaceProvider.getConfiguration.mock.calls.find(
+        (args: unknown[]) => args[1] === 'skillSynthesis.enhanceTimeoutMs',
+      );
+      expect(callArgs).toEqual(['ptah', 'skillSynthesis.enhanceTimeoutMs']);
+      expect(callArgs.length).toBe(2);
+    });
+
+    it('falls back to ENHANCE_TIMEOUT_DEFAULT_MS when setting is unconfigured or invalid', async () => {
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+      });
+
+      await h.svc.enhance('deep-research', makeSettings(), {});
+
+      expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'skillSynthesis.enhanceTimeoutMs',
+      );
     });
   });
 

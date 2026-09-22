@@ -17,8 +17,7 @@ import {
   ArrowLeftRight,
   Globe,
 } from 'lucide-angular';
-import { AuthConfigComponent } from './auth/auth-config.component';
-import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
+import { ProvidersSettingsComponent, type ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
@@ -26,7 +25,6 @@ import { McpPortConfigComponent } from './pro-features/mcp-port-config.component
 import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
-import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 import {
@@ -64,8 +62,7 @@ import {
   selector: 'ptah-settings',
   standalone: true,
   imports: [
-    AuthConfigComponent,
-    ProviderModelSelectorComponent,
+    ProvidersSettingsComponent,
     LicenseStatusCardComponent,
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
@@ -73,7 +70,6 @@ import {
     WorkflowsConfigComponent,
     OutputStyleConfigComponent,
     AgentOrchestrationConfigComponent,
-    PtahCliConfigComponent,
     WebSearchConfigComponent,
     VoiceConfigComponent,
     LucideAngularModule,
@@ -100,7 +96,7 @@ export class SettingsComponent implements OnInit {
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
+    'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
   /**
@@ -108,15 +104,13 @@ export class SettingsComponent implements OnInit {
    * tribunal panel's "Configure" action). Forwarded to PtahCliConfigComponent
    * so it auto-opens the add form pre-selected to that provider.
    */
+  readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
+
+
+
   readonly requestedProviderId = signal<string | undefined>(undefined);
 
   readonly isElectron = this.vscodeService.isElectron;
-
-  /**
-   * Computed: Whether provider model mapping section should be shown
-   * Delegates to AuthStateService which checks authMethod + hasProviderKey
-   */
-  readonly showProviderModels = this.authState.showProviderModels;
 
   /**
    * Initialize: Load auth status on component mount.
@@ -125,7 +119,8 @@ export class SettingsComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     const pending = this.appState.consumePendingSettingsTab();
     if (pending) {
-      this.setActiveTab(pending.tab);
+      this.setActiveTab(pending.providerId || pending.section ? 'providers' : pending.tab);
+      this.providersTarget.set(pending.section ?? (pending.tab === 'orchestration' && pending.providerId ? 'cli-agents' : 'main-agent'));
       this.requestedProviderId.set(pending.providerId);
     }
     await this.authState.loadAuthStatus();
@@ -135,9 +130,9 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
+    tab: 'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
-    this.activeSettingsTab.set(tab);
+    this.activeSettingsTab.set(tab === 'providers' ? 'claude-auth' : tab);
   }
 
   /**
@@ -206,11 +201,4 @@ export class SettingsComponent implements OnInit {
     this.agentOrchestrationConfig()?.redetectClis();
   }
 
-  /**
-   * Called when Ptah CLI config (custom agents) changes (create/update/delete).
-   * Refreshes the Agent Orchestration panel to reflect new CLI agents.
-   */
-  onPtahCliChanged(): void {
-    this.agentOrchestrationConfig()?.loadAgentConfig();
-  }
 }

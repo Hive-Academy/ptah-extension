@@ -57,6 +57,9 @@ import {
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  ENHANCE_TIMEOUT_DEFAULT_MS,
+  ENHANCE_TIMEOUT_MAX_MS,
+  ENHANCE_TIMEOUT_MIN_MS,
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -141,6 +144,8 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   judgeEnabled: true,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
+  judgeProvider: '',
+  enhanceTimeoutMs: ENHANCE_TIMEOUT_DEFAULT_MS,
   maxPinnedSkills: 10,
   curatorEnabled: true,
   curatorIntervalHours: 24,
@@ -649,9 +654,7 @@ export class SkillSynthesisService {
       source = embeddingProviderOrOptions.source;
     } else {
       embeddingProvider = embeddingProviderOrOptions as
-        | IEmbedder
-        | null
-        | undefined;
+        IEmbedder | null | undefined;
       force = maybeOptions?.force === true;
       signal = maybeOptions?.signal;
       transcriptPath = maybeOptions?.transcriptPath;
@@ -1329,6 +1332,21 @@ export class SkillSynthesisService {
         'skillSynthesis.judgeModel',
         SETTINGS_DEFAULTS.judgeModel,
       ),
+      judgeProvider: get(
+        'skillSynthesis.judgeProvider',
+        SETTINGS_DEFAULTS.judgeProvider ?? '',
+      ),
+      enhanceTimeoutMs: (() => {
+        const fallback =
+          SETTINGS_DEFAULTS.enhanceTimeoutMs ?? ENHANCE_TIMEOUT_DEFAULT_MS;
+        const raw = get<unknown>('skillSynthesis.enhanceTimeoutMs', fallback);
+        return typeof raw === 'number' && Number.isFinite(raw)
+          ? Math.min(
+              Math.max(raw, ENHANCE_TIMEOUT_MIN_MS),
+              ENHANCE_TIMEOUT_MAX_MS,
+            )
+          : fallback;
+      })(),
       maxPinnedSkills: get(
         'skillSynthesis.maxPinnedSkills',
         SETTINGS_DEFAULTS.maxPinnedSkills,

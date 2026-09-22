@@ -86,11 +86,16 @@ export interface HarnessWorkflowRequest {
 }
 
 export type SettingsTabId =
-  'claude-auth' | 'orchestration' | 'pro-features' | 'tools';
+  | 'providers'
+  | 'claude-auth'
+  | 'orchestration'
+  | 'pro-features'
+  | 'tools';
 
 export interface PendingSettingsTab {
   tab: SettingsTabId;
   providerId?: string;
+  section?: 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'background-models' | 'cli-agents' | 'more-providers' | 'memory-curator' | 'archaeologist' | 'synthesis' | 'judge' | 'replay' | 'judging-enhancement';
 }
 
 /**

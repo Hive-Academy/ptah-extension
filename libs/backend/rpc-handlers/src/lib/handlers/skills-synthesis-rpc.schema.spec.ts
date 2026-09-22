@@ -87,6 +87,8 @@ const validFull = {
   judgeEnabled: true,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
+  judgeProvider: '',
+  enhanceTimeoutMs: 120000,
   maxPinnedSkills: 10,
   curatorEnabled: true,
   curatorIntervalHours: 24,
@@ -487,10 +489,66 @@ describe('SkillSynthesisSettingsSchema', () => {
         'triggerEval.enabled',
       ]);
     });
+
+    describe('judgeProvider and enhanceTimeoutMs (TASK_2026_523)', () => {
+      it('accepts judgeProvider as string and enhanceTimeoutMs as number or object', () => {
+        const result = SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          judgeProvider: 'openrouter',
+          enhanceTimeoutMs: 150000,
+        });
+        expect(result.judgeProvider).toBe('openrouter');
+        expect(result.enhanceTimeoutMs).toEqual({
+          value: 150000,
+          default: 120000,
+          min: 15000,
+          max: 600000,
+        });
+      });
+
+      it('clamps enhanceTimeoutMs below min to 15000', () => {
+        const result = SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          enhanceTimeoutMs: 5000,
+        });
+        expect(result.enhanceTimeoutMs.value).toBe(15000);
+      });
+
+      it('clamps enhanceTimeoutMs above max to 600000', () => {
+        const result = SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          enhanceTimeoutMs: 700000,
+        });
+        expect(result.enhanceTimeoutMs.value).toBe(600000);
+      });
+    });
   });
 });
 
 describe('UpdateSkillSynthesisSettingsParamsSchema', () => {
+  it('accepts valid enhanceTimeoutMs within 15000-600000', () => {
+    const result = UpdateSkillSynthesisSettingsParamsSchema.parse({
+      settings: { enhanceTimeoutMs: 30000 },
+    });
+    expect(result.settings.enhanceTimeoutMs).toBe(30000);
+  });
+
+  it('rejects enhanceTimeoutMs below 15000 in update payload', () => {
+    expect(() =>
+      UpdateSkillSynthesisSettingsParamsSchema.parse({
+        settings: { enhanceTimeoutMs: 14999 },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects enhanceTimeoutMs above 600000 in update payload', () => {
+    expect(() =>
+      UpdateSkillSynthesisSettingsParamsSchema.parse({
+        settings: { enhanceTimeoutMs: 600001 },
+      }),
+    ).toThrow();
+  });
+
   it('accepts a partial settings object (only one field)', () => {
     const result = UpdateSkillSynthesisSettingsParamsSchema.parse({
       settings: { successesToPromote: 5 },
