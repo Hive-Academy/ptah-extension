@@ -434,6 +434,9 @@ function makeHarness(
     cliDetector as unknown as ClaudeCliDetector,
     sentry as unknown as SentryService,
     scopeResolver as unknown as WorkspaceScopeResolver,
+    // Draft verification is not exercised by this harness: every probe path
+    // has its own coverage. Present only to keep the positional list aligned.
+    {} as unknown as import('@ptah-extension/auth-providers').DraftVerificationService,
     webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
     adapterEvents as unknown as import('@ptah-extension/agent-sdk').SdkAdapterEvents,
   );
