@@ -218,8 +218,9 @@ export function deriveEffectiveBudgets(
   let maxArchitectureNotesTokens =
     config.maxArchitectureNotesTokens ?? Math.round(maxSectionTokens * 1.5);
   const requiredTotal = 3 * maxSectionTokens + maxArchitectureNotesTokens;
-  if (requiredTotal > VALIDATOR_TOTAL_TOKENS) {
-    const scale = VALIDATOR_TOTAL_TOKENS / requiredTotal;
+  const requiredLimit = Math.min(VALIDATOR_TOTAL_TOKENS, config.maxTotalTokens);
+  if (requiredTotal > requiredLimit) {
+    const scale = requiredLimit / requiredTotal;
     maxSectionTokens = Math.floor(maxSectionTokens * scale);
     maxArchitectureNotesTokens = Math.floor(maxArchitectureNotesTokens * scale);
   }

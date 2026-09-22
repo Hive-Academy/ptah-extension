@@ -661,7 +661,8 @@ describe('PromptDesignerAgent', () => {
 
   describe('configure', () => {
     it('should apply partial config overrides', async () => {
-      agent.configure({ maxSectionTokens: 100, maxTotalTokens: 400 });
+      // 3 * 100 + 150 = 450 required tokens must fit the configured total.
+      agent.configure({ maxSectionTokens: 100, maxTotalTokens: 500 });
 
       const output: PromptDesignerOutput = {
         projectContext: 'x'.repeat(2000),
@@ -720,6 +721,19 @@ describe('PromptDesignerAgent', () => {
       expect(budgets.maxArchitectureNotesTokens).toBeGreaterThan(
         budgets.maxSectionTokens,
       );
+    });
+
+    it('scales the section budgets down to a configured total below the validator limit', () => {
+      const budgets = deriveEffectiveBudgets({
+        ...DEFAULT_PROMPT_DESIGNER_CONFIG,
+        maxSectionTokens: 400,
+        maxTotalTokens: 1000,
+      });
+      const required =
+        3 * budgets.maxSectionTokens + budgets.maxArchitectureNotesTokens;
+      expect(required).toBeLessThanOrEqual(1000);
+      expect(budgets.maxTotalTokens).toBe(required);
+      expect(budgets.maxSectionTokens).toBeLessThan(400);
     });
   });
 });

@@ -1,6 +1,6 @@
 # Setup wizard agent-generation investigation
 
-Investigated 2026-09-22 in `D:\projects\ptah-extension`. Repository source was read-only; this report is the only repository file written. No wizard, download, build, or full test suite was run. File references below are relative to that repository unless absolute. Findings distinguish the current code and files from the unobserved execution of today's wizard.
+Investigated 2026-09-22 in `<workspace-root>`. Repository source was read-only; this report is the only repository file written. No wizard, download, build, or full test suite was run. File references below are relative to that repository unless absolute. Findings distinguish the current code and files from the unobserved execution of today's wizard.
 
 ## 1. Runtime template source and the user layer
 
@@ -17,7 +17,7 @@ The complete registration and loading chain is:
 
 Direct recursive byte comparison found **20/20 current checkout template/partial files identical to their runtime-cache counterparts**. Thus this machine's current cached corpus contains the same old rules as this checkout. This is an observed equality, not evidence that the wizard reads workspace source.
 
-The other directory, `<user-home>\.ptah\user\agents\ptah-extension-f3f2fa6ea9b593a6`, exists and holds generated **editable clones with origin sidecars**, used as downstream harness sources:
+The other directory, `<user-home>\.ptah\user\agents\<workspace-scope>`, exists and holds generated **editable clones with origin sidecars**, used as downstream harness sources:
 
 - `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts:276` documents the workspace scope; lines 292–298 construct the scoped agent root.
 - `libs/backend/harness-sync/src/lib/state/agent-sync-gate.ts:182` resolves the upstream agent source as `<workspace>/.claude/agents` at line 190.
