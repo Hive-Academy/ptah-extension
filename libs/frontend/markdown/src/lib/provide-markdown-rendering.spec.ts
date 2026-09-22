@@ -18,6 +18,7 @@ import { parseFileLinkHref } from './file-link-target';
 import {
   provideMarkdownRendering,
   __resetMemberPurifierForTests,
+  MARKDOWN_CONTAINMENT_ROOT_CLASS,
   type MarkdownRenderingConfig,
 } from './provide-markdown-rendering';
 
@@ -79,6 +80,24 @@ function presetConfig(extensions: 'full' | 'member'): CapturedMarkdownConfig {
     Array<{ provide: string; useValue: CapturedMarkdownConfig }>
   >;
   return providers[0][0].useValue;
+}
+
+/**
+ * The shipped 'full' sanitizer wraps every render in the containment root
+ * (TASK_2026_532). This asserts the wrapper on every call and hands back the
+ * inner HTML, so the policy tests below compare exactly what content became.
+ */
+const CONTAINMENT_ROOT_OPEN = `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}" style="contain: layout paint; isolation: isolate; overflow-x: auto;">`;
+
+function unwrapContainmentRoot(output: string): string {
+  expect(output.startsWith(CONTAINMENT_ROOT_OPEN)).toBe(true);
+  expect(output.endsWith('</div>')).toBe(true);
+  return output.slice(CONTAINMENT_ROOT_OPEN.length, -'</div>'.length);
+}
+
+function fullSanitizer(): (html: string) => string {
+  const sanitize = presetConfig('full').sanitize.useFactory();
+  return (html) => unwrapContainmentRoot(sanitize(html));
 }
 
 function memberConfig(): CapturedMarkdownConfig {
@@ -197,7 +216,7 @@ describe("permissive sanitizer behavior (the shipped 'full' factory)", () => {
   let sanitize: (html: string) => string;
 
   beforeEach(() => {
-    sanitize = presetConfig('full').sanitize.useFactory();
+    sanitize = fullSanitizer();
   });
 
   it('strips <script> tags', () => {
@@ -284,7 +303,7 @@ describe("file links through the shipped 'full' pipeline", () => {
   let sanitize: (html: string) => string;
 
   beforeEach(() => {
-    sanitize = fullConfig().sanitize.useFactory();
+    sanitize = fullSanitizer();
   });
 
   it('keeps a Windows drive target in data-ptah-file-href', () => {
@@ -353,15 +372,49 @@ describe("file links through the shipped 'full' pipeline", () => {
  * (TASK_2026_532, review-lane-b defects 1–6): `class` is an allowlist of the
  * tokens the pipeline itself emits, `style` rejects obfuscation and
  * positioning declarations, and the popover/invoker and `<dialog>`
- * affordances are gone. Layer 1 (the `contain: layout paint` host rule) is a
- * browser guarantee jsdom cannot measure — it is covered in the webview
- * stylesheet and verified in a browser harness, not here.
+ * affordances are gone. Layer 1 (the containment root) is asserted
+ * structurally in the next block; its layout effect is a browser guarantee
+ * jsdom cannot measure and was verified in a Chromium harness.
  */
+describe("the 'full' preset containment root (TASK_2026_532)", () => {
+  const rawFull = (html: string): string =>
+    presetConfig('full').sanitize.useFactory()(html);
+
+  it('wraps the sanitized output in exactly one outermost root', () => {
+    const template = document.createElement('template');
+    template.innerHTML = rawFull('<p>a</p><p>b</p>');
+    expect(template.content.children).toHaveLength(1);
+    const root = template.content.firstElementChild as HTMLElement;
+    expect(root.className).toBe(MARKDOWN_CONTAINMENT_ROOT_CLASS);
+    expect(root.getAttribute('style')).toBe(
+      'contain: layout paint; isolation: isolate; overflow-x: auto;',
+    );
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('keeps unbalanced closing tags in content from ending the root early', () => {
+    const template = document.createElement('template');
+    template.innerHTML = rawFull('x</div></div><div data-probe>y</div>');
+    expect(template.content.children).toHaveLength(1);
+    expect(template.content.querySelector('[data-probe]')?.parentElement).toBe(
+      template.content.firstElementChild,
+    );
+  });
+
+  it('does not let content forge a root of its own', () => {
+    expect(
+      fullSanitizer()(
+        `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}">x</div>`,
+      ),
+    ).toBe('<div>x</div>');
+  });
+});
+
 describe("the 'full' preset class and style policy (TASK_2026_532)", () => {
   let sanitize: (html: string) => string;
 
   beforeEach(() => {
-    sanitize = presetConfig('full').sanitize.useFactory();
+    sanitize = fullSanitizer();
   });
 
   it('drops an overlay utility spelling entirely, keeping the element', () => {
@@ -457,7 +510,9 @@ describe("the 'full' preset class and style policy (TASK_2026_532)", () => {
   });
 
   it('drops a style attribute in mixed casing with padded declarations', () => {
-    const out = sanitize('<div style="POSITION : fixed ; Z-INDEX : 50">x</div>');
+    const out = sanitize(
+      '<div style="POSITION : fixed ; Z-INDEX : 50">x</div>',
+    );
     expect(out).not.toContain('style');
   });
 
@@ -543,14 +598,18 @@ describe("the 'full' preset keeps every extension's rendered output", () => {
   let sanitize: (html: string) => string;
 
   beforeEach(() => {
-    sanitize = presetConfig('full').sanitize.useFactory();
+    sanitize = fullSanitizer();
   });
 
   /** The single extension that registers a renderer method of this name. */
-  const rendererFor = (name: string): ((this: unknown, token: unknown) => string | false) => {
-    const found = (presetConfig('full').markedExtensions as Array<{
-      useValue: MarkedExtension;
-    }>)
+  const rendererFor = (
+    name: string,
+  ): ((this: unknown, token: unknown) => string | false) => {
+    const found = (
+      presetConfig('full').markedExtensions as Array<{
+        useValue: MarkedExtension;
+      }>
+    )
       .map(
         (provider) =>
           (provider.useValue.renderer ?? {}) as unknown as Record<
@@ -605,8 +664,14 @@ describe("the 'full' preset keeps every extension's rendered output", () => {
 
   it('keeps the enhanced heading classes', () => {
     const parser = { parseInline: () => 'Title' };
-    const h1 = rendererFor('heading').call({ parser }, { depth: 1, tokens: [] });
-    const h3 = rendererFor('heading').call({ parser }, { depth: 3, tokens: [] });
+    const h1 = rendererFor('heading').call(
+      { parser },
+      { depth: 1, tokens: [] },
+    );
+    const h3 = rendererFor('heading').call(
+      { parser },
+      { depth: 3, tokens: [] },
+    );
     const out = sanitize(`${h1 as string}${h3 as string}`);
     expect(out).toContain('prose-heading-accented');
     expect(out).toContain('prose-heading-dot');

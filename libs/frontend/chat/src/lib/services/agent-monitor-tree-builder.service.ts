@@ -38,6 +38,17 @@ import {
 /** Maximum recursion depth for nested agent tree building */
 const MAX_DEPTH = 10;
 
+/** Header label for a result segment that arrived with no matching tool call. */
+const ORPHAN_TOOL_LABELS: Record<
+  'tool-result' | 'tool-result-error' | 'command' | 'file-change',
+  string
+> = {
+  'tool-result': 'Tool result',
+  'tool-result-error': 'Tool result',
+  command: 'Command',
+  'file-change': 'File change',
+};
+
 /**
  * Memoization cache entry for the segment tree builder.
  * Store updates replace the segment array, including coalesced text updates.
@@ -331,13 +342,7 @@ export class AgentMonitorTreeBuilderService {
                 type: 'tool',
                 status:
                   segment.type === 'tool-result-error' ? 'error' : 'complete',
-                toolName:
-                  segment.toolName ||
-                  (segment.type === 'command'
-                    ? 'Command'
-                    : segment.type === 'file-change'
-                      ? 'File change'
-                      : 'Tool result'),
+                toolName: segment.toolName || ORPHAN_TOOL_LABELS[segment.type],
                 toolOutput: segment.content,
                 content: null,
               }),

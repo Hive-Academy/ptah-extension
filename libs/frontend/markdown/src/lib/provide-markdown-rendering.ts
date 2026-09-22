@@ -71,8 +71,8 @@ function isAllowedClassToken(token: string): boolean {
 /**
  * CSS properties that move an element out of normal flow or place it against
  * the viewport. `transform`, `translate` and negative `margin` are
- * deliberately absent: layer 1 (the `contain: layout paint` rule on the
- * markdown host in the webview stylesheet) clips their geometry, and
+ * deliberately absent: layer 1 ({@link wrapInContainmentRoot}) clips their
+ * geometry, and
  * enumerating every positioning property is a race a deny-list cannot win
  * (review defect 4).
  */
@@ -193,67 +193,93 @@ function getFullPurifier(): ReturnType<typeof DOMPurify> {
  *     edge offsets, `z-index`).
  * - Custom elements from marked extensions (callout cards, code headers, etc.)
  *
- * Layer 2 of the containment design. Layer 1 is the `contain: layout paint`
- * rule on the `markdown` host in the webview stylesheet, which contains any
- * escape that still slips past a text-level policy.
+ * Layer 2 of the containment design. Layer 1 is
+ * {@link wrapInContainmentRoot}, which contains any escape that still slips
+ * past a text-level policy.
  */
 function createPermissiveSanitizer(): (html: string) => string {
-  return (html: string) =>
-    getFullPurifier().sanitize(html, {
-      FORBID_TAGS: [
-        'script',
-        // <style> survives DOMPurify's default allowlist and injects global
-        // CSS into the whole webview — a bigger layout escape than any class
-        // token, and one the attribute hook cannot reach because the
-        // declarations are element content, not an attribute (TASK_2026_532).
-        // `link`, `meta` and `base` are already outside the default
-        // allowlist, so `style` is the only one to name. Its content is
-        // dropped with it: `style` is in DOMPurify's default FORBID_CONTENTS.
-        'style',
-        // <dialog> carries UA-supplied out-of-flow geometry (review defect 3)
-        // and nothing in this content contract needs it; details/summary
-        // remain the sanctioned collapse pattern.
-        'dialog',
-        'iframe',
-        'object',
-        'embed',
-        'form',
-        'input',
-        'textarea',
-        'select',
-        'button',
-      ],
-      FORBID_ATTR: [
-        'onerror',
-        'onload',
-        'onclick',
-        'onmouseover',
-        'onfocus',
-        'onblur',
-        'onsubmit',
-        'onchange',
-        'oninput',
-        'onkeydown',
-        'onkeyup',
-        'onkeypress',
-        // The popover/invoker family positions an element through the
-        // browser stylesheet, with no `position` declaration anywhere for
-        // the style policy to see (review defect 3).
-        'popover',
-        'popovertarget',
-        'popovertargetaction',
-        'command',
-        'commandfor',
-        // The file-link opt-in marker belongs to the surface around the
-        // rendered markdown, never to content. FORBID_ATTR wins over
-        // ALLOW_DATA_ATTR, so agent HTML cannot carry it.
-        MARKDOWN_FILE_LINKS_OPT_IN_ATTR,
-      ],
-      ALLOW_DATA_ATTR: true,
-      ALLOW_ARIA_ATTR: true,
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
-    });
+  return (html: string) => wrapInContainmentRoot(sanitizeFull(html));
+}
+
+/**
+ * Class of the element every `'full'` render is wrapped in. Not in
+ * {@link ALLOWED_CLASS_EXACT}, so content cannot forge a root of its own.
+ */
+export const MARKDOWN_CONTAINMENT_ROOT_CLASS = 'ptah-markdown-root';
+
+/**
+ * Layer 1 of the containment design: the sanitized HTML is wrapped AFTER
+ * DOMPurify runs, so the wrapper is outside anything content controls.
+ * `contain: layout paint` makes it the containing block for fixed/absolute
+ * descendants and clips them to its box, however their CSS was spelled or
+ * wherever the browser stylesheet placed them; `isolation: isolate` caps
+ * descendant z-index; `overflow-x: auto` scrolls content that cannot wrap
+ * (many-column tables, fixed-width SVG) instead of clipping it out of reach.
+ *
+ * Inline style rather than a stylesheet rule so the library owns its own
+ * boundary: it holds in any app that installs the preset, and content cannot
+ * override it — `<style>` is forbidden and no class can reach this element.
+ */
+function wrapInContainmentRoot(html: string): string {
+  return `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}" style="contain: layout paint; isolation: isolate; overflow-x: auto;">${html}</div>`;
+}
+
+function sanitizeFull(html: string): string {
+  return getFullPurifier().sanitize(html, {
+    FORBID_TAGS: [
+      'script',
+      // <style> survives DOMPurify's default allowlist and injects global
+      // CSS into the whole webview — a bigger layout escape than any class
+      // token, and one the attribute hook cannot reach because the
+      // declarations are element content, not an attribute (TASK_2026_532).
+      // `link`, `meta` and `base` are already outside the default
+      // allowlist, so `style` is the only one to name. Its content is
+      // dropped with it: `style` is in DOMPurify's default FORBID_CONTENTS.
+      'style',
+      // <dialog> carries UA-supplied out-of-flow geometry (review defect 3)
+      // and nothing in this content contract needs it; details/summary
+      // remain the sanctioned collapse pattern.
+      'dialog',
+      'iframe',
+      'object',
+      'embed',
+      'form',
+      'input',
+      'textarea',
+      'select',
+      'button',
+    ],
+    FORBID_ATTR: [
+      'onerror',
+      'onload',
+      'onclick',
+      'onmouseover',
+      'onfocus',
+      'onblur',
+      'onsubmit',
+      'onchange',
+      'oninput',
+      'onkeydown',
+      'onkeyup',
+      'onkeypress',
+      // The popover/invoker family positions an element through the
+      // browser stylesheet, with no `position` declaration anywhere for
+      // the style policy to see (review defect 3).
+      'popover',
+      'popovertarget',
+      'popovertargetaction',
+      'command',
+      'commandfor',
+      // The file-link opt-in marker belongs to the surface around the
+      // rendered markdown, never to content. FORBID_ATTR wins over
+      // ALLOW_DATA_ATTR, so agent HTML cannot carry it.
+      MARKDOWN_FILE_LINKS_OPT_IN_ATTR,
+    ],
+    ALLOW_DATA_ATTR: true,
+    ALLOW_ARIA_ATTR: true,
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
 }
 
 /* -------------------------------------------------------------------------- */
