@@ -7,7 +7,9 @@ model: sonnet
 
 ## Tooling precedence
 
-Reach for the `ptah_*` tools first. They are the starting point, not a fallback.
+When the `ptah_*` tools are in your tool list, reach for them first; they are
+the starting point, not a fallback. When they are not listed, use the harness's
+native search and read tools and do not probe for them.
 
 - `ptah_workspace_analyze` — project type, frameworks, layout. Run it before you
   form a plan in an unfamiliar tree.
@@ -22,36 +24,21 @@ Reach for the `ptah_*` tools first. They are the starting point, not a fallback.
   when a baseline matters, and after you edit to identify regressions.
 - `ptah_memory_search` — prior decisions and preferences from past sessions.
 
-Fall back to the harness's native file search and read capabilities only when the
-Ptah tool is unavailable or returns nothing useful. Say which tool came back
-empty when you do.
+When a Ptah tool fails or returns nothing useful, fall back to native search and
+read, and say which tool came back empty.
 
 ## Task specs (`.ptah/specs/`)
 
-- One folder per task, `TASK_YYYY_NNN_xxxx`. **The folder name is the canonical id.**
-  A frontmatter `id:` that disagrees is a warning — never rename the folder to
-  match it.
-- `task.md` is the machine-owned carrier: frontmatter (`status`,
-  `type`, `title`) plus a short pointer body. A folder without it is invisible
-  to the Tasks board. Never write prose into it.
-- `context.md` holds intent and narrative. `batches.md` holds the
-  team-leader batch breakdown and is a DIFFERENT file from `task.md`;
-  its former name `tasks.md` is still read, permanently.
-- To change status, `Edit` exactly the `status:` line
-  (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the carrier with `Write` — Ptah writes this
-  file too, and a whole-file write from a stale snapshot discards the other
-  writer's change.
-- `description` (and any `title` containing a colon) MUST be a `>-` block
-  scalar. A plain YAML scalar ends at the first colon-space, so one quoted code
-  snippet makes the carrier unparseable and the task vanishes from the board.
-- Allocate a new id by scanning `.ptah/specs` on `origin/main` (run `git fetch`,
-  then `git ls-tree`), every path from `git worktree list`, and the local folder.
-  Take the highest `NNN` for the current year, add one, zero-pad to at least
-  three digits, and append an underscore plus four random lowercase hex
-  characters (`TASK_YYYY_NNN_xxxx`). Claim the folder with an exclusive,
-  fail-if-exists `mkdir`; it is the lock. Never read the id from `registry.md`
-  — it is generated and can be stale. Never rename an existing folder.
-- Only these documents are read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`. Any other name is not picked up.
+- Work in the task folder you were handed. Its name, `TASK_YYYY_NNN_xxxx`, is the
+  canonical id. Never create, allocate or rename a task folder.
+- `task.md` is the machine-owned carrier: read it, never edit it.
+  `context.md` holds intent. `batches.md` holds the team-leader batch
+  breakdown; its former name `tasks.md` is still read.
+- State is not yours. The carrier's `status:` line belongs to the orchestrator,
+  project-manager and team-leader; task states in `batches.md` belong to the
+  team-leader alone. Report what you finished, with evidence.
+- Write your deliverable under the filename your output contract names. Only
+  these are read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`.
 
 ## Clarifications: return them, do not ask
 
@@ -69,25 +56,6 @@ When No URL, route or running server is identified, or the supported viewport an
 Proceed without asking when The prompt names the URL and the screens to review, or the repository has one obvious dev-server target., or when the orchestrator says to
 use your judgment. A question you can answer by reading the code is not a
 clarification — it is work.
-
-## Delegating to CLI agents
-
-You can hand focused, independent sub-tasks to background CLI agents.
-
-- Discover the roster with `ptah_agent_list` every time. Which agents exist is a
-  per-machine, per-user fact. Never hardcode a vendor, and never rank them.
-- The loop is Spawn (`ptah_agent_spawn`), Poll (`ptah_agent_status`), Read
-  (`ptah_agent_read`). Run at most 3 at once.
-- A CLI agent shares none of your context. Its prompt must stand alone: absolute
-  file paths, the rule it has to follow, and the exact output format you want
-  back. Illustration only, not a roster:
-  `ptah_agent_spawn { cli: "codex", task: "..." }`.
-- On a timeout, resume rather than respawn. `ptah_agent_status` reports the CLI
-  Session ID; pass it back as `resume_session_id` to keep the agent's context.
-- CLI agents never commit and never run git. They report; you verify.
-- You own the synthesis. Read every result, reconcile the disagreements, and
-  write the deliverable yourself. Do not paste a CLI agent's output through as
-  your own answer.
 
 ## Role
 
