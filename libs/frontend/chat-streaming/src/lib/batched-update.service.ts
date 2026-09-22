@@ -222,8 +222,9 @@ export class BatchedUpdateService {
    * Two distinct callers, two distinct contracts:
    *
    * - **With `originTabId`** (per-event, hot): only the ORIGIN tab escapes the
-   *   visibility gate. Every other deferred tab is left deferred and drains
-   *   through the normal `visibilitychange` / active-tab / visible-set paths.
+   *   visibility gate. Every other tab (deferred, or pending but since
+   *   inactivated/hidden) is kept or moved to deferred and drains through the
+   *   normal `visibilitychange` / active-tab / visible-set paths.
    *   `agent_start` raises `agentStartFlushNeeded` on EVERY agent spawn, so the
    *   un-gated version made one hidden tab's agent spawn flush all three
    *   sessions' deferred trees — the gate at `canFlush` exists precisely to
@@ -251,6 +252,15 @@ export class BatchedUpdateService {
         this.pendingTabUpdates.set(tabId, state);
         this.deferredTabUpdates.delete(tabId);
         this.pendingFlush.delete(tabId);
+      }
+    }
+    if (originTabId !== undefined) {
+      for (const [tabId, state] of [...this.pendingTabUpdates]) {
+        if (tabId !== originTabId && !this.canFlush(tabId)) {
+          this.pendingTabUpdates.delete(tabId);
+          this.deferredTabUpdates.set(tabId, state);
+          this.pendingFlush.add(tabId);
+        }
       }
     }
     this.flushPendingUpdates(true);

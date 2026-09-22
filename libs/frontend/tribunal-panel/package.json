@@ -12,8 +12,8 @@
     }
   },
   "peerDependencies": {
-    "@angular/core": "21.2.6",
-    "@angular/common": "21.2.6"
+    "@angular/core": "22.1.7",
+    "@angular/common": "22.1.7"
   },
   "sideEffects": false
 }

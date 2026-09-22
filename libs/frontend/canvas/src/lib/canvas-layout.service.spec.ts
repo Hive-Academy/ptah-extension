@@ -118,6 +118,30 @@ describe('CanvasLayoutService', () => {
     raf.mockRestore();
   });
 
+  it('keeps a pending good measurement when a zero-size observation follows it', () => {
+    measure(1464);
+    const pending: FrameRequestCallback[] = [];
+    const raf = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((cb) => {
+        pending.push(cb);
+        return pending.length;
+      });
+
+    // A real resize schedules a frame, then the grid is hidden before that
+    // frame runs. Hiding delivers a 0x0 entry. Discarding it must not revoke
+    // the good measurement already in flight — cancelling first and then
+    // bailing left the container stale at the previous width indefinitely,
+    // which is a few pixels of drift in every geometry derived from it.
+    measure(1180);
+    expect(pending).toHaveLength(1);
+    measure(0, 0);
+    pending[0](0);
+
+    expect(service.containerWidth()).toBe(1180);
+    raf.mockRestore();
+  });
+
   it('does not commit a pending frame after deactivation', () => {
     measure(1464);
     let pending: FrameRequestCallback | undefined;

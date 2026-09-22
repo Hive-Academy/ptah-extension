@@ -89,8 +89,13 @@ export class CanvasLayoutService {
     this.disconnect();
     this.element = element;
     this.resizeObserver = new ResizeObserver((entries) => {
-      this.cancelFrame();
       const entry = entries[0];
+      // Discard BEFORE cancelling. Hiding the grid delivers a 0x0 entry, and
+      // cancelling first meant that entry revoked a good measurement still
+      // pending in a frame and then scheduled nothing to replace it — the
+      // container dimensions stayed stale at whatever they were an update ago.
+      // Each callback captures its own `entry`, so a pending frame left alone
+      // still applies the good size it was scheduled with.
       if (
         !this.active() ||
         !entry ||
@@ -98,6 +103,7 @@ export class CanvasLayoutService {
         entry.contentRect.height <= 0
       )
         return;
+      this.cancelFrame();
       const generation = this.frameGeneration;
       this.rafId = requestAnimationFrame(() => {
         if (generation !== this.frameGeneration) return;

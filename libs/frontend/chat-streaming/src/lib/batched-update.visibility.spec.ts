@@ -247,6 +247,34 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(service.hasPendingUpdates('tab-origin')).toBe(false);
   });
 
+  it('flushSync(origin) moves non-origin pending updates that became non-flushable to deferred', () => {
+    // Non-origin tab was flushable when scheduled -> placed in pendingTabUpdates
+    activeTabSignal.set('tab-bystander');
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-bystander', makeState('b1'));
+
+    // Before rAF fires, active tab switches to tab-origin, making tab-bystander non-flushable
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+
+    // Origin tab spawns agent -> triggers flushSync('tab-origin')
+    service.flushSync('tab-origin');
+
+    const tabIds = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
+    expect(tabIds).not.toContain('tab-bystander');
+    expect(service.hasPendingUpdates('tab-bystander')).toBe(true);
+
+    // Later, when tab-bystander becomes flushable again, it drains through normal paths
+    activeTabSignal.set('tab-bystander');
+    TestBed.flushEffects();
+    runRaf();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-bystander',
+      expect.objectContaining({ currentMessageId: 'b1' }),
+    );
+  });
+
   it('flushSync(origin) still drains deferred tabs that became flushable', () => {
     visibleTabSignal.set(new Set(['tab-tile-1']));
     TestBed.flushEffects();
