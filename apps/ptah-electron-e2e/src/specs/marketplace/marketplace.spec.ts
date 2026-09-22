@@ -40,14 +40,17 @@ test.describe('Marketplace (lazy route, TASK_2026_524)', () => {
       ]),
     );
 
-    // Confirms the mounted component is real, not a frozen shell: the
-    // provider overview grid (marketplace-hub.component.html:90-107) renders
-    // from the static MARKETPLACE_PROVIDERS registry with zero RPC calls, so
-    // this is safe to assert without mocking anything provider-specific.
-    // 'MCP Registry' is a 'live' (non-disabled) provider entry
-    // (providers.registry.ts:29-32).
-    await expect(
-      page.getByRole('button', { name: 'Open MCP Registry' }),
-    ).toBeVisible();
+    // Confirms the mounted component is real, not a frozen shell: the section
+    // strip (marketplace-hub.component.html:28-33) renders from the static
+    // MARKETPLACE_SECTIONS registry with zero RPC calls, so this is safe to
+    // assert without mocking anything section-specific. TASK_2026_524 replaced
+    // the seven-tile provider grid with these three tabs; 'Connected' is the
+    // default section (sections.registry.ts:48-52).
+    // Scoped to the hub: the app shell's own top nav is also a `role="tab"`
+    // tablist, and an unscoped lookup would match it instead.
+    const hub = page.locator('ptah-marketplace-hub');
+    for (const section of ['Connected', 'Apps', 'Skills']) {
+      await expect(hub.getByRole('tab', { name: section })).toBeVisible();
+    }
   });
 });

@@ -46,9 +46,9 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
  * plugin marketplaces (any GitHub repo exposing `.claude-plugin/marketplace.json`).
  *
  * Owns the whole external-marketplace RPC surface and hosts the consent gate.
- * Composed into {@link PluginsSurfaceComponent} BELOW the bundled plugin
- * widget; the two are independent (bundled plugins are enable/disable, external
- * ones are fetch-and-install).
+ * Mounted by the Skills section behind its `marketplaces` chip, beside — never
+ * inside — the bundled plugin catalogue; the two are independent (bundled
+ * plugins are enable/disable, external ones are fetch-and-install).
  *
  * THE INSTALL IS A STRICT TWO-CALL PROTOCOL and this component never shortcuts
  * it:

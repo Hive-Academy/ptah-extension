@@ -19,10 +19,11 @@ import { WorkspaceScopeService } from './workspace-scope.service';
  * quick succession per view (`tmp/logs/log.log:978-993, 1907-1924, 1949-1968`),
  * because:
  *
- * - `PluginStatusWidgetComponent` fetches both on `ngOnInit`, and
- *   `PluginBrowserModalComponent` fetches both again when it opens — and both
- *   are mounted in the SAME view, twice over (the chat empty state and the
- *   Marketplace plugins surface);
+ * - the plugin status widget fetched both on `ngOnInit`, and the plugin
+ *   browser modal fetched both again when it opened — and both were mounted
+ *   in the SAME view, twice over (the chat empty state and the Marketplace
+ *   plugins surface). Both are gone (TASK_2026_524): the inline
+ *   `PluginCatalogPanelComponent` and the Connected view now read this store;
  * - the chat empty state is rendered PER TRANSCRIPT, so N idle tabs mounted N
  *   widgets and issued N pairs on boot;
  * - `ChatEmptyStateComponent` issued a third bare `plugins:get-config` for its
@@ -109,25 +110,35 @@ export class PluginCatalogService {
   readonly isLoaded = computed(() => this.current() !== null);
 
   /**
-   * The plugins that are actually ACTIVE.
+   * The plugins that are actually ACTIVE, not just how many.
    *
-   * Not `enabledPluginIds.length`: bundled and external plugins are opt-IN,
-   * while harness-authored and skills.sh ones are opt-OUT, so a user-authored
-   * skill is live without ever appearing in `enabledPluginIds`. The rule comes
-   * from `isOptOutPluginSource` in `shared` rather than a literal comparison
-   * here, because this count silently disagreeing with what the reconciler
-   * propagates is invisible until someone toggles a plugin and the number does
-   * not move.
+   * Not `enabledPluginIds`: bundled and external plugins are opt-IN, while
+   * harness-authored and skills.sh ones are opt-OUT, so a user-authored skill
+   * is live without ever appearing in `enabledPluginIds`. The rule comes from
+   * `isOptOutPluginSource` in `shared` rather than a literal comparison here,
+   * because this list silently disagreeing with what the reconciler propagates
+   * is invisible until someone toggles a plugin and nothing moves.
+   *
+   * Empty — not stale, and not the whole catalog — while `config()` is `null`.
    */
-  readonly enabledCount = computed(() => {
+  readonly enabledPlugins = computed<readonly PluginInfo[]>(() => {
     const config = this.config();
-    if (config === null) return 0;
-    return countEnabledPlugins(
+    if (config === null) return [];
+    return filterEnabledPlugins(
       this.plugins(),
       config.enabledPluginIds,
       config.disabledPluginIds ?? [],
     );
   });
+
+  /**
+   * How many plugins are active.
+   *
+   * Derived from {@link enabledPlugins} rather than counted separately, so the
+   * Connected view's row list and the Skills header's `{enabled}/{total}` can
+   * never disagree — the exact drift the old private counter warned about.
+   */
+  readonly enabledCount = computed(() => this.enabledPlugins().length);
 
   /** How many plugins the host offers, enabled or not. */
   readonly pluginTotal = computed(() => this.plugins().length);
@@ -233,17 +244,19 @@ interface CatalogSnapshot {
 }
 
 /**
- * Count the plugins that are actually active.
+ * The plugins that are actually active.
  *
  * Kept beside the store rather than exported: it is the store's own derivation,
  * and a second copy is exactly how the widget's count and the modal's selection
- * drifted apart before they shared a source.
+ * drifted apart before they shared a source. It returns the ARRAY and the count
+ * is `.length` of it, so the "how many" and the "which ones" cannot drift
+ * either.
  */
-function countEnabledPlugins(
+function filterEnabledPlugins(
   plugins: readonly PluginInfo[],
   enabledPluginIds: readonly string[],
   disabledPluginIds: readonly string[],
-): number {
+): readonly PluginInfo[] {
   const enabled = new Set(enabledPluginIds);
   const disabled = new Set(disabledPluginIds);
 
@@ -251,5 +264,5 @@ function countEnabledPlugins(
     isOptOutPluginSource(plugin.source)
       ? !disabled.has(plugin.id)
       : enabled.has(plugin.id) && !disabled.has(plugin.id),
-  ).length;
+  );
 }

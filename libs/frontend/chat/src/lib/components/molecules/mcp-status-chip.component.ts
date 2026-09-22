@@ -22,7 +22,11 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  encodeMarketplaceTarget,
+} from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import {
@@ -373,8 +377,18 @@ export class McpStatusChipComponent {
 
   // ── Internals ──────────────────────────────────────────────────────────────
 
-  private navigateToMarketplace(surface: 'connectors' | 'smithery'): void {
-    this.appState.setMarketplaceActiveProvider(surface);
+  /**
+   * Open the Marketplace on the Apps section, focused on one source chip.
+   *
+   * The hub no longer has per-source drill-in tiles (TASK_2026_524), so the
+   * persisted field now carries a `section:source` target rather than a bare
+   * provider id. `chat` cannot import `@ptah-extension/marketplace`, so the
+   * encoding comes from `core`.
+   */
+  private navigateToMarketplace(source: 'connectors' | 'smithery'): void {
+    this.appState.setMarketplaceActiveProvider(
+      encodeMarketplaceTarget('apps', source),
+    );
     this.appState.setCurrentView('marketplace');
   }
 

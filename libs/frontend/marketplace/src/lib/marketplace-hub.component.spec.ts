@@ -1,7 +1,13 @@
 /**
- * MarketplaceHubComponent specs — the claude.ai connector wiring.
+ * MarketplaceHubComponent specs — the section strip and the claude.ai
+ * connector wiring.
  *
- * What is pinned here is the whole reason the hub reads MCP state at all:
+ * The section strip is asserted at the level the hub owns: three tabs, a
+ * default of `connected`, and the standing rule that an unselected section
+ * fires zero RPC. Each section's own chips and surfaces are covered by their
+ * own specs.
+ *
+ * What is pinned below that is the whole reason the hub reads MCP state at all:
  * `McpDirectoryBrowserComponent.connectorServers` was shipped unbound, so a
  * Gmail / Calendar / Drive / Canva connector reported by a live session
  * appeared nowhere in the Installed tab. These specs mount the REAL child, not
@@ -16,6 +22,7 @@ import {
   AppStateManager,
   ClaudeRpcService,
   CommandDiscoveryFacade,
+  VSCodeService,
 } from '@ptah-extension/core';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
@@ -55,7 +62,7 @@ function diskServer(serverKey: string): InstalledMcpServer {
   };
 }
 
-describe('MarketplaceHubComponent — claude.ai connector rows', () => {
+describe('MarketplaceHubComponent', () => {
   let fixture: ComponentFixture<MarketplaceHubComponent>;
   let hostElement: HTMLElement;
   let appState: AppStateManager;
@@ -128,13 +135,18 @@ describe('MarketplaceHubComponent — claude.ai connector rows', () => {
           provide: CommandDiscoveryFacade,
           useValue: { clearCache: jest.fn() },
         },
+        {
+          provide: VSCodeService,
+          useValue: { isElectron: false, postMessage: jest.fn() },
+        },
       ],
     });
 
     appState = TestBed.inject(AppStateManager);
     mcpStatus = TestBed.inject(SessionMcpStatusRegistry);
-    // The MCP Registry surface is the only one that renders an Installed tab.
-    appState.setMarketplaceActiveProvider('official-mcp');
+    // The MCP Registry chip is the only one that renders an Installed tab, and
+    // the only selection that justifies the hub's own `listInstalled` read.
+    appState.setMarketplaceActiveProvider('apps:mcp-registry');
   });
 
   afterEach(() => {
@@ -224,11 +236,96 @@ describe('MarketplaceHubComponent — claude.ai connector rows', () => {
     expect(hostElement.textContent).toContain('No MCP servers installed yet');
   });
 
-  it('fires no installed read while a different provider is selected', async () => {
-    appState.setMarketplaceActiveProvider('composio');
+  it('fires no installed read while a different section is selected', async () => {
+    appState.setMarketplaceActiveProvider('skills');
 
     await createComponent();
 
     expect(calls).not.toContain('mcpDirectory:listInstalled');
+  });
+
+  it('fires no installed read while another Apps chip is selected', async () => {
+    appState.setMarketplaceActiveProvider('apps:connectors');
+
+    await createComponent();
+
+    expect(calls).not.toContain('mcpDirectory:listInstalled');
+  });
+
+  describe('section strip', () => {
+    const tabs = (): HTMLElement[] =>
+      Array.from(hostElement.querySelectorAll('[data-testid="native-tab"]'));
+
+    it('renders the three sections and keeps the Marketplace heading', async () => {
+      await createComponent();
+
+      expect(tabs().map((t) => t.textContent?.trim())).toEqual([
+        'Connected',
+        'Apps',
+        'Skills',
+      ]);
+      expect(hostElement.querySelector('h1')?.textContent?.trim()).toBe(
+        'Marketplace',
+      );
+    });
+
+    it('opens on Connected when nothing is persisted', async () => {
+      appState.setMarketplaceActiveProvider(null);
+
+      await createComponent();
+
+      const selected = tabs().find(
+        (t) => t.getAttribute('aria-selected') === 'true',
+      );
+      expect(selected?.textContent?.trim()).toBe('Connected');
+      expect(
+        hostElement.querySelector('[data-testid="connected-surface"]'),
+      ).toBeTruthy();
+    });
+
+    it('opens Connected for a retired provider id (AC5)', async () => {
+      appState.setMarketplaceActiveProvider('composio');
+
+      await createComponent();
+
+      expect(
+        hostElement.querySelector('[data-testid="connected-surface"]'),
+      ).toBeTruthy();
+    });
+
+    it('mounts exactly one section at a time', async () => {
+      await createComponent();
+
+      expect(
+        hostElement.querySelector('[data-testid="apps-chips"]'),
+      ).toBeTruthy();
+      expect(
+        hostElement.querySelector('[data-testid="connected-surface"]'),
+      ).toBeNull();
+      expect(
+        hostElement.querySelector('[data-testid="skills-chips"]'),
+      ).toBeNull();
+    });
+
+    it('swaps the mounted surface when a chip is clicked', async () => {
+      await createComponent();
+      expect(installedRows().length).toBe(0);
+
+      const connectorsChip = Array.from(
+        hostElement.querySelectorAll<HTMLButtonElement>(
+          '[data-testid="marketplace-chip"]',
+        ),
+      ).find((b) => b.dataset['sourceId'] === 'connectors');
+      connectorsChip?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(connectorsChip?.getAttribute('aria-pressed')).toBe('true');
+      expect(
+        hostElement.querySelector('ptah-mcp-directory-browser'),
+      ).toBeNull();
+      expect(hostElement.querySelector('ptah-connectors-surface')).toBeTruthy();
+    });
   });
 });

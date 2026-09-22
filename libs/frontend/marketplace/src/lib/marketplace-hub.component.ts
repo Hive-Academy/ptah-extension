@@ -5,59 +5,42 @@ import {
   effect,
   inject,
   signal,
-  Type,
 } from '@angular/core';
-import { NgComponentOutlet } from '@angular/common';
-import {
-  LucideAngularModule,
-  LucideIconData,
-  Store,
-  ArrowLeft,
-} from 'lucide-angular';
+import { LucideAngularModule, Store, ArrowLeft } from 'lucide-angular';
 import {
   AppStateManager,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  type MarketplaceSection,
+  type MarketplaceSourceId,
 } from '@ptah-extension/core';
-import {
-  McpDirectoryBrowserComponent,
-  SkillShBrowserComponent,
-} from '@ptah-extension/chat-ui';
+import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import type { InstalledMcpServer } from '@ptah-extension/shared';
 import { toConnectorRows } from './mcp-connector-rows';
-import { MARKETPLACE_PROVIDERS } from './providers.registry';
-import { MarketplaceProviderSpec } from './provider-spec';
+import { MARKETPLACE_SECTIONS } from './sections.registry';
 import { MarketplaceStateService } from './marketplace-state.service';
-import { ComingSoonPlaceholderComponent } from './coming-soon-placeholder.component';
-import { OAuthSurfaceComponent } from './oauth-surface.component';
-
-/**
- * Registry id of the MCP Registry provider — the one surface that renders the
- * Installed tab, and therefore the only selection that justifies the extra
- * `mcpDirectory:listInstalled` read this host makes.
- */
-const MCP_REGISTRY_PROVIDER_ID = 'official-mcp';
+import { ConnectedSurfaceComponent } from './connected-surface.component';
+import { AppsSectionComponent } from './apps-section.component';
+import { SkillsSectionComponent } from './skills-section.component';
 
 /**
  * Marketplace hub — the `'marketplace'` top-level view.
  *
- * Renders the provider registry as a selectable list and mounts the selected
- * provider's content surface lazily (only the active surface mounts, so a
- * coming-soon / unselected provider fires ZERO RPC). Open/Closed: the provider
- * list + generic surface mount are driven entirely by {@link MARKETPLACE_PROVIDERS},
- * so adding a descriptor requires no edits here.
+ * Header, the three-section tab strip, and the `SessionMcpStatusRegistry`
+ * wiring. Exactly one section composer mounts at a time, and each composer
+ * mounts exactly one surface, so an unselected section AND an unselected chip
+ * fire zero RPC — the hub's standing rule, now applied at two levels.
  */
 @Component({
   selector: 'ptah-marketplace-hub',
   standalone: true,
   imports: [
     LucideAngularModule,
-    NgComponentOutlet,
-    McpDirectoryBrowserComponent,
-    SkillShBrowserComponent,
-    OAuthSurfaceComponent,
-    ComingSoonPlaceholderComponent,
+    NativeTabGroupComponent,
+    ConnectedSurfaceComponent,
+    AppsSectionComponent,
+    SkillsSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './marketplace-hub.component.html',
@@ -69,26 +52,27 @@ export class MarketplaceHubComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly mcpStatus = inject(SessionMcpStatusRegistry);
 
-  protected readonly providers = MARKETPLACE_PROVIDERS;
   protected readonly StoreIcon = Store;
   protected readonly ArrowLeftIcon = ArrowLeft;
 
-  /** Surface refs used to bind install side-effects on the live surfaces. */
-  protected readonly McpSurface = McpDirectoryBrowserComponent;
-  protected readonly SkillsSurface = SkillShBrowserComponent;
-  protected readonly OAuthSurface = OAuthSurfaceComponent;
+  /** The section strip, in registry order. */
+  protected readonly sectionTabs: readonly NativeTab[] =
+    MARKETPLACE_SECTIONS.map((section) => ({
+      id: section.id,
+      label: section.label,
+    }));
 
-  public readonly selectedProvider = this.state.selectedProvider;
-  public readonly selectedProviderId = this.state.selectedProviderId;
+  public readonly activeSection = this.state.activeSection;
+  public readonly activeSource = this.state.activeSource;
   public readonly refreshTrigger = this.state.refreshTrigger;
 
   /**
-   * `serverKey`s the MCP surface already reaches on its own, used only to keep
-   * a disk-configured server from also appearing as a connector row.
+   * `serverKey`s the MCP Registry surface already reaches on its own, used only
+   * to keep a disk-configured server from also appearing as a connector row.
    *
    * Read here as well as inside the surface because the surface keeps its list
    * private and the de-duplication has to happen BEFORE the rows are handed
-   * over: `installedGroups` groups by origin AND key, so an undeduplicated
+   * over: `groupInstalledServers` groups by origin AND key, so an undeduplicated
    * `ptah` would render twice, once per origin.
    */
   private readonly installedServerKeys = signal<readonly string[]>([]);
@@ -102,8 +86,7 @@ export class MarketplaceHubComponent {
    * — `SessionMcpStatusRegistry.record` re-inserts a session on every write, so
    * the last key is the newest report. That is the session whose connector
    * picture is most likely to match what the user would get if they started a
-   * turn right now. With no session ever recorded this is `[]`, and the tab
-   * behaves exactly as it does today.
+   * turn right now. With no session ever recorded this is `[]`.
    */
   public readonly connectorServers = computed<InstalledMcpServer[]>(() => {
     const sessions = this.mcpStatus.sessions();
@@ -115,17 +98,20 @@ export class MarketplaceHubComponent {
   });
 
   /**
-   * Load the installed keys only while the MCP surface is the selected one.
+   * Load the installed keys only while the MCP Registry chip is the selected
+   * one. That chip's surface is the only consumer of `connectorServers` from
+   * this host; the Connected surface does its own `listInstalled` read and
+   * re-filters against it, so it needs nothing from here.
    *
-   * The hub's standing rule is that an unselected provider fires ZERO RPC, so
-   * this read is gated on the selection rather than run on construction. It
-   * re-runs on `refreshTrigger` so an install or removal cannot leave a stale
-   * key set behind and resurrect a duplicate row.
+   * Gated on the selection rather than run on construction, and re-run on
+   * `refreshTrigger` so an install or removal cannot leave a stale key set
+   * behind and resurrect a duplicate row.
    */
   private readonly installedKeysEffect = effect(() => {
-    const providerId = this.selectedProviderId();
+    const section = this.activeSection();
+    const source = this.activeSource();
     this.refreshTrigger();
-    if (providerId !== MCP_REGISTRY_PROVIDER_ID) {
+    if (section !== 'apps' || source !== 'mcp-registry') {
       return;
     }
     void this.loadInstalledServerKeys();
@@ -149,17 +135,24 @@ export class MarketplaceHubComponent {
     }
   }
 
-  /** Narrow the descriptor's `unknown` icon ref to the lucide template type. */
-  public iconOf(icon: unknown): LucideIconData {
-    return icon as LucideIconData;
+  /** Tab strip selection. Unknown ids cannot reach here — the strip owns them. */
+  public onSection(id: string): void {
+    const section = MARKETPLACE_SECTIONS.find((s) => s.id === id);
+    if (!section) return;
+    this.state.select(section.id);
   }
 
-  public selectProvider(provider: MarketplaceProviderSpec): void {
-    this.state.select(provider.id);
+  /** Chip selection inside the active section. */
+  public onSource(source: MarketplaceSourceId): void {
+    this.state.selectSource(source);
   }
 
-  public backToOverview(): void {
-    this.state.clearSelection();
+  /** A Connected-view "Manage" or empty-state button asked for a section. */
+  public onNavigateRequested(target: {
+    section: MarketplaceSection;
+    source: MarketplaceSourceId;
+  }): void {
+    this.state.select(target.section, target.source);
   }
 
   public goBack(): void {
@@ -175,15 +168,5 @@ export class MarketplaceHubComponent {
   public onContentChanged(): void {
     this.commandDiscovery.clearCache();
     this.state.notifyContentChanged();
-  }
-
-  /** Whether the selected provider has a generic (non-special-cased) surface. */
-  public isGenericSurface(surface: Type<unknown> | undefined): boolean {
-    return (
-      !!surface &&
-      surface !== this.McpSurface &&
-      surface !== this.SkillsSurface &&
-      surface !== this.OAuthSurface
-    );
   }
 }

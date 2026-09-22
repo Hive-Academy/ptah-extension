@@ -6,9 +6,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { LucideAngularModule, Sparkles } from 'lucide-angular';
+import { LucideAngularModule, Sparkles, X } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { PluginBrowserModalComponent } from '@ptah-extension/chat-ui';
+import { PluginCatalogPanelComponent } from '@ptah-extension/chat-ui';
 import type { HarnessGetSkillSelectionResult } from '@ptah-extension/shared';
 
 /** Budget for the one read this card makes. A cached gate resolve plus one skills walk. */
@@ -47,17 +47,25 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
  *
  * ### One card, one control
  *
- * Following the precedent card exactly: the button opens the existing
- * **Configure Ptah Skills** modal and does nothing else. No RPC, no
- * pre-selection, no "select all" shortcut. The selection is made in one place,
- * by ticking boxes, and this card is not that place — a convenience here would
- * manufacture a choice the user did not make, which is precisely what U2
- * rejected.
+ * Following the precedent card exactly: the button opens the **Configure Ptah
+ * Skills** picker and does nothing else. No RPC, no pre-selection, no "select
+ * all" shortcut. The selection is made in one place, by ticking boxes, and this
+ * card is not that place — a convenience here would manufacture a choice the
+ * user did not make, which is precisely what U2 rejected.
  *
- * The modal is a SIBLING of the section rather than a child, so a spec asserting
- * "this card contains no checkboxes" keeps holding while the modal is open, and
- * so the modal outlives the card: a successful selection empties the condition
- * below and hides the section while the user is still looking at the picker.
+ * ### The dialog chrome is this card's, the body is not
+ *
+ * `PluginCatalogPanelComponent` (`ptah-plugin-catalog-panel`) is a plain inline
+ * panel — the Marketplace Skills section mounts it flat on the page, with no
+ * overlay. It owns no `isOpen`, no backdrop and no close affordance, so a host
+ * that wants it in a dialog supplies that itself. This card does: the
+ * `<dialog class="modal modal-open">`, the close button and the backdrop below
+ * are the chrome the old picker used to carry, and the panel is its body.
+ *
+ * The dialog is a SIBLING of the section rather than a child, so a spec asserting
+ * "this card contains no checkboxes" keeps holding while it is open, and so the
+ * picker outlives the card: a successful selection empties the condition below
+ * and hides the section while the user is still looking at the picker.
  *
  * Complexity Level: 2 — one RPC read, one derived boolean, one piece of local
  * UI state. No store: this is the only consumer in the lib, and a `providedIn:
@@ -66,7 +74,7 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
 @Component({
   selector: 'ptah-skill-selection-card',
   standalone: true,
-  imports: [LucideAngularModule, PluginBrowserModalComponent],
+  imports: [LucideAngularModule, PluginCatalogPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (needsSelection()) {
@@ -112,7 +120,32 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
     }
 
     @if (pickerOpen()) {
-      <ptah-plugin-browser-modal [isOpen]="true" (closed)="onPickerClosed()" />
+      <dialog class="modal modal-open" aria-label="Configure Ptah Skills">
+        <div class="modal-box max-w-2xl relative">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-3 top-3"
+            type="button"
+            data-testid="skill-selection-card-close"
+            aria-label="Close plugin browser"
+            (click)="onPickerClosed()"
+          >
+            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
+          </button>
+
+          <ptah-plugin-catalog-panel (saved)="onPickerClosed()" />
+        </div>
+        <!--
+          A real button, not the styled div daisyui's own markup uses: a click
+          handler on a div is neither focusable nor keyboard-operable, and the
+          template a11y rules reject it. The class does the layout either way.
+        -->
+        <button
+          class="modal-backdrop"
+          type="button"
+          aria-label="Close plugin browser"
+          (click)="onPickerClosed()"
+        ></button>
+      </dialog>
     }
   `,
 })
@@ -120,6 +153,7 @@ export class SkillSelectionCardComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
 
   protected readonly SparklesIcon = Sparkles;
+  protected readonly XIcon = X;
 
   /** Whether the Configure Ptah Skills modal is mounted. */
   protected readonly pickerOpen = signal(false);
@@ -163,7 +197,7 @@ export class SkillSelectionCardComponent implements OnInit {
   /**
    * Re-read after the picker closes, on Cancel as well as on Save.
    *
-   * The modal reports neither what was chosen nor whether anything was — its
+   * The panel reports neither what was chosen nor whether anything was — its
    * `saved` output carries plugin ids, which are a different axis — so this card
    * asks the backend rather than inferring. One read on close is cheaper than
    * being wrong, and it is the only way a card that should now be gone actually
