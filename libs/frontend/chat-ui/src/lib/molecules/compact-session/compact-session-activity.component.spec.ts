@@ -1,3 +1,9 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  NgModule,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { CompactSessionActivityComponent } from './compact-session-activity.component';
 import type {
@@ -5,7 +11,39 @@ import type {
   CompactSessionSummary,
 } from './compact-session-summary';
 
-function mark(overrides: Partial<CompactSemanticMark> = {}): CompactSemanticMark {
+jest.mock('ngx-markdown', () => {
+  @Component({
+    // eslint-disable-next-line @angular-eslint/component-selector
+    selector: 'markdown',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: `<div data-test="markdown-stub">{{ data }}</div>`,
+  })
+  class MarkdownStubComponent {
+    @Input() data: string | null | undefined = '';
+  }
+
+  @NgModule({
+    imports: [MarkdownStubComponent],
+    exports: [MarkdownStubComponent],
+  })
+  class MarkdownModule {}
+
+  return {
+    MarkdownModule,
+    MarkdownComponent: MarkdownStubComponent,
+    provideMarkdown: () => [],
+    MARKED_OPTIONS: 'MARKED_OPTIONS',
+    CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS',
+    MARKED_EXTENSIONS: 'MARKED_EXTENSIONS',
+    MERMAID_OPTIONS: 'MERMAID_OPTIONS',
+    SANITIZE: 'SANITIZE',
+  };
+});
+
+function mark(
+  overrides: Partial<CompactSemanticMark> = {},
+): CompactSemanticMark {
   return {
     id: 'tool:1',
     kind: 'tool',
@@ -53,13 +91,9 @@ function summary(
   };
 }
 
-function render(
-  summaryValue: CompactSessionSummary,
-  tier: 'compact' | 'compact-tall' = 'compact',
-) {
+function render(summaryValue: CompactSessionSummary) {
   const fixture = TestBed.createComponent(CompactSessionActivityComponent);
   fixture.componentRef.setInput('summary', summaryValue);
-  fixture.componentRef.setInput('tier', tier);
   fixture.detectChanges();
   return fixture;
 }
@@ -126,8 +160,7 @@ describe(CompactSessionActivityComponent.name, () => {
       '[data-zone="feed"] [role="listitem"]',
     ) as HTMLElement;
 
-    // Exactly one text line (the time/badge/label row) inside the row — no
-    // second, empty detail line rendered for a mark with no `text`.
+    // Exactly one text line (the time/badge/label row) inside the row
     expect(row.children).toHaveLength(1);
   });
 
@@ -147,7 +180,6 @@ describe(CompactSessionActivityComponent.name, () => {
     ] as HTMLElement[];
 
     expect(badges).toHaveLength(2);
-    // Different glyph + different kind text, not merely different colour classes.
     expect(badges[0].textContent?.trim()).not.toBe(
       badges[1].textContent?.trim(),
     );
@@ -155,24 +187,18 @@ describe(CompactSessionActivityComponent.name, () => {
     expect(badges[1].textContent).toContain('TOOL');
   });
 
-  it('bounds the feed to the tier row budget: fewer rows at compact than compact-tall', () => {
-    const manyMarks = Array.from({ length: 20 }, (_, index) =>
+  it('renders all marks in the feed scroll area (no fixed ROW_BUDGET truncation)', () => {
+    const twentyMarks = Array.from({ length: 20 }, (_, index) =>
       mark({ id: `m${index}`, timestamp: index }),
     );
 
-    const compactFixture = render(summary({ marks: manyMarks }), 'compact');
-    const tallFixture = render(summary({ marks: manyMarks }), 'compact-tall');
+    const fixture = render(summary({ marks: twentyMarks }));
 
-    const compactRows = compactFixture.nativeElement.querySelectorAll(
-      '[data-zone="feed"] [role="listitem"]',
-    ).length;
-    const tallRows = tallFixture.nativeElement.querySelectorAll(
+    const rows = fixture.nativeElement.querySelectorAll(
       '[data-zone="feed"] [role="listitem"]',
     ).length;
 
-    expect(compactRows).toBeLessThan(tallRows);
-    expect(compactRows).toBe(5);
-    expect(tallRows).toBe(10);
+    expect(rows).toBe(20);
   });
 
   it('keeps the newest mark last (chronological) within the visible feed', () => {
@@ -192,5 +218,250 @@ describe(CompactSessionActivityComponent.name, () => {
 
     expect(labels[0]).toContain('Older event');
     expect(labels[1]).toContain('Newer event');
+  });
+
+  it('renders MarkdownBlockComponent for prose recap and plain text for question', () => {
+    const proseFixture = render(
+      summary({
+        content: {
+          kind: 'prose',
+          text: '## Assistant decision\n\nVerified **100%** coverage.',
+          additionalPromptCount: 0,
+          actionable: false,
+        },
+      }),
+    );
+    const markdownEl = proseFixture.nativeElement.querySelector(
+      '[data-zone="recap"] markdown',
+    );
+    expect(markdownEl).not.toBeNull();
+    expect(markdownEl?.textContent).toContain('## Assistant decision');
+
+    const questionFixture = render(
+      summary({
+        content: {
+          kind: 'question',
+          text: 'Which file should be edited?',
+          additionalPromptCount: 0,
+          actionable: true,
+        },
+      }),
+    );
+    expect(
+      questionFixture.nativeElement.querySelector(
+        '[data-zone="recap"] markdown',
+      ),
+    ).toBeNull();
+    expect(questionFixture.nativeElement.textContent).toContain(
+      'Which file should be edited?',
+    );
+  });
+
+  it('strips markdown syntax from feed row labels and details to a single line', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'm1',
+            label: 'Tool started: `read_file`',
+            text: '## Target File\n| File | Lines |\n|---|---|\n| `foo.ts` | 42 |',
+          }),
+        ],
+      }),
+    );
+    const textContent = fixture.nativeElement.textContent;
+    expect(textContent).toContain('Tool started: read_file');
+    expect(textContent).toContain('Target File File Lines foo.ts 42');
+    expect(textContent).not.toContain('## Target File');
+    expect(textContent).not.toContain('|---|---|');
+  });
+
+  it('filters marks locally using ALL, ERR, and WARN filter chips and updates aria-pressed', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({ id: '1', tone: 'success', label: 'Success event' }),
+          mark({ id: '2', tone: 'error', label: 'Error event' }),
+          mark({ id: '3', tone: 'warning', label: 'Warning event' }),
+          mark({ id: '4', tone: 'error', label: 'Another error' }),
+        ],
+      }),
+    );
+
+    const buttons = fixture.nativeElement.querySelectorAll(
+      '.cs-filter-chips button',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(buttons).toHaveLength(3);
+
+    const [allBtn, errBtn, warnBtn] = Array.from(buttons);
+    expect(allBtn.textContent).toContain('ALL (4)');
+    expect(errBtn.textContent).toContain('ERR (2)');
+    expect(warnBtn.textContent).toContain('WARN (1)');
+
+    expect(allBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(errBtn.getAttribute('aria-pressed')).toBe('false');
+
+    // Filter to ERR
+    errBtn.click();
+    fixture.detectChanges();
+
+    expect(errBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(allBtn.getAttribute('aria-pressed')).toBe('false');
+    const errRows = fixture.nativeElement.querySelectorAll(
+      '[data-zone="feed"] [role="listitem"]',
+    );
+    expect(errRows).toHaveLength(2);
+    expect(fixture.nativeElement.textContent).toContain('Error event');
+    expect(fixture.nativeElement.textContent).toContain('Another error');
+    expect(fixture.nativeElement.textContent).not.toContain('Success event');
+
+    // Filter to WARN
+    warnBtn.click();
+    fixture.detectChanges();
+
+    const warnRows = fixture.nativeElement.querySelectorAll(
+      '[data-zone="feed"] [role="listitem"]',
+    );
+    expect(warnRows).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).toContain('Warning event');
+
+    // Reset to ALL
+    allBtn.click();
+    fixture.detectChanges();
+    const allRows = fixture.nativeElement.querySelectorAll(
+      '[data-zone="feed"] [role="listitem"]',
+    );
+    expect(allRows).toHaveLength(4);
+  });
+
+  it('renders an empty state listitem when no events match the active filter', () => {
+    const fixture = render(
+      summary({
+        marks: [mark({ id: '1', tone: 'success', label: 'Success only' })],
+      }),
+    );
+    // Click ERR filter
+    const errBtn = fixture.nativeElement.querySelectorAll(
+      '.cs-filter-chips button',
+    )[1] as HTMLButtonElement;
+    errBtn.click();
+    fixture.detectChanges();
+
+    const items = fixture.nativeElement.querySelectorAll(
+      '[data-zone="feed"] [role="listitem"]',
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].textContent?.trim()).toBe('No matching events');
+  });
+
+  it('shows blinking cursor on newest live row and tone badge on status row', () => {
+    const fixture = render(
+      summary({
+        status: {
+          text: 'Using tools',
+          icon: '⚙',
+          tone: 'live',
+          sessionColor: 'oklch(0.6 0.2 250)',
+          workspaceLabel: 'ptah-extension',
+        },
+        marks: [
+          mark({ id: 'm1', tone: 'live', label: 'First live mark' }),
+          mark({ id: 'm2', tone: 'live', label: 'Second live mark' }),
+        ],
+      }),
+    );
+
+    // Status tone badge
+    const statusZone = fixture.nativeElement.querySelector(
+      '[data-zone="status"]',
+    );
+    expect(statusZone?.textContent).toContain('▶');
+    expect(statusZone?.textContent).toContain('RUN');
+
+    // Recap outcome tag
+    const recapZone = fixture.nativeElement.querySelector(
+      '[data-zone="recap"]',
+    );
+    expect(recapZone?.textContent).toContain('ACTIVE');
+
+    // Only newest live row in the feed list has blinking cursor
+    const rowCursors = fixture.nativeElement.querySelectorAll(
+      '[data-zone="feed"] [role="listitem"] .blinking-cursor',
+    );
+    expect(rowCursors).toHaveLength(1);
+
+    // Terminal prompt footer also features a blinking cursor when live
+    const terminalCursors = fixture.nativeElement.querySelectorAll(
+      '.cs-terminal-footer .blinking-cursor',
+    );
+    expect(terminalCursors).toHaveLength(1);
+  });
+
+  it('derives agent context box and outcome tag without 3x repeating finished text', () => {
+    const fixture = render(
+      summary({
+        status: {
+          text: 'Finished',
+          icon: '✓',
+          tone: 'success',
+          sessionColor: 'oklch(0.6 0.2 140)',
+          workspaceLabel: 'ptah-extension',
+        },
+        marks: [
+          mark({
+            id: 'ag:1',
+            kind: 'agent',
+            tone: 'success',
+            label: 'Agent started: backend-developer',
+          }),
+          mark({
+            id: 'err:1',
+            kind: 'tool',
+            tone: 'error',
+            label: 'Bash failed',
+          }),
+        ],
+      }),
+    );
+
+    const root = fixture.nativeElement as HTMLElement;
+    // Status badge shows DONE
+    expect(root.querySelector('[data-zone="status"]')?.textContent).toContain(
+      'DONE',
+    );
+    // Recap title shows FINISHED tag
+    expect(root.querySelector('[data-zone="recap"]')?.textContent).toContain(
+      'FINISHED',
+    );
+    // Agent context box shows backend-developer, total events, and newest error
+    const agentContext = root.querySelector('.cs-agent-context');
+    expect(agentContext?.textContent).toContain('backend-developer');
+    expect(agentContext?.textContent).toContain('Events:');
+    expect(agentContext?.textContent).toContain('2');
+    expect(agentContext?.textContent).toContain('Last error: Bash failed');
+    expect(agentContext?.textContent).not.toContain('Phase:');
+  });
+
+  it('renders terminal prompt footer with workspace label and event count', () => {
+    const fixture = render(
+      summary({
+        status: {
+          text: 'Ready',
+          icon: '✓',
+          tone: 'idle',
+          sessionColor: 'oklch(0.5 0.1 200)',
+          workspaceLabel: 'my-workspace',
+        },
+        marks: [mark({ id: '1' }), mark({ id: '2' })],
+      }),
+    );
+
+    const terminalFooter = fixture.nativeElement.querySelector(
+      '.cs-terminal-footer',
+    );
+    expect(terminalFooter).not.toBeNull();
+    expect(terminalFooter?.textContent).toContain('ptah:my-workspace$');
+    expect(terminalFooter?.textContent).toContain('ready');
+    expect(terminalFooter?.textContent).toContain('2 events');
   });
 });
