@@ -1,5 +1,21 @@
 # Batch 2 — SURFACE_ACTIVE activity contract
 
+> **The canvas portion described below did NOT ship.** It was reverted out of
+> PR 574 before merge: it regressed the `real Gridstack drag keeps an explicit
+2+1 row` electron-e2e test on three CI runs across two commits, while the
+> canvas unit suite — including the unit-level equivalent of that assertion —
+> stayed green. Everything else in this report shipped as written.
+>
+> Reverted: `canvas-layout.service.ts`, `canvas-workspace-grid.component.ts`
+> and both specs, restored to their pre-batch state. Re-filed as
+> **TASK_2026_531_c4a8**, which carries the evidence, the ruled-out
+> hypotheses and the one ResizeObserver ordering fix that should come back
+> with it. The original attempt is recoverable from commit `acb791814`.
+>
+> Sections 1 and 2 still describe canvas as a gated consumer, and the
+> measurement in the CanvasRenderMetricsService section was taken against the
+> reverted code. Read those as the proposal, not as shipped behaviour.
+
 ## 1. Token design and injector reach
 
 Implemented only the activity batch. The existing Angular Router foundation, component lifetimes and every `[class.hidden]` binding remain. No RouteReuseStrategy, detach, child routes, host persistence or panel serialization was introduced.

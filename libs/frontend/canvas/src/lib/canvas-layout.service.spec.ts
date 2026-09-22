@@ -1,5 +1,3 @@
-import { signal } from '@angular/core';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
 import {
   CanvasLayoutService,
@@ -40,7 +38,6 @@ const geometry = (layout: ReturnType<CanvasLayoutService['computeLayout']>) =>
   layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }));
 
 describe('CanvasLayoutService', () => {
-  const active = signal(true);
   let service: CanvasLayoutService;
   const measure = (containerWidth: number, height = 900): void => {
     callback?.([
@@ -49,7 +46,6 @@ describe('CanvasLayoutService', () => {
   };
 
   beforeEach(() => {
-    active.set(true);
     callback = null;
     originalObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
@@ -75,12 +71,7 @@ describe('CanvasLayoutService', () => {
     }) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() =>
       undefined) as typeof cancelAnimationFrame;
-    TestBed.configureTestingModule({
-      providers: [
-        CanvasLayoutService,
-        { provide: SURFACE_ACTIVE, useValue: active },
-      ],
-    });
+    TestBed.configureTestingModule({ providers: [CanvasLayoutService] });
     service = TestBed.inject(CanvasLayoutService);
     service.observe(document.createElement('div'));
   });
@@ -89,82 +80,6 @@ describe('CanvasLayoutService', () => {
     globalThis.ResizeObserver = originalObserver;
     globalThis.requestAnimationFrame = originalRaf;
     globalThis.cancelAnimationFrame = originalCancel;
-  });
-
-  it('preserves geometry and schedules no frames when the wrapper is inactive or observations are zero-size', () => {
-    measure(1464);
-    const pending: FrameRequestCallback[] = [];
-    const raf = jest
-      .spyOn(globalThis, 'requestAnimationFrame')
-      .mockImplementation((cb) => {
-        pending.push(cb);
-        return pending.length;
-      });
-    active.set(false);
-    TestBed.tick();
-    raf.mockClear();
-    measure(0, 0);
-    measure(1180);
-    expect(raf).not.toHaveBeenCalled();
-    expect(service.containerWidth()).toBe(1464);
-    active.set(true);
-    TestBed.tick();
-    raf.mockClear();
-    measure(0, 0);
-    expect(raf).not.toHaveBeenCalled();
-    measure(1180);
-    pending.at(-1)?.(0);
-    expect(service.containerWidth()).toBe(1180);
-    raf.mockRestore();
-  });
-
-  it('keeps a pending good measurement when a zero-size observation follows it', () => {
-    measure(1464);
-    const pending: FrameRequestCallback[] = [];
-    const raf = jest
-      .spyOn(globalThis, 'requestAnimationFrame')
-      .mockImplementation((cb) => {
-        pending.push(cb);
-        return pending.length;
-      });
-
-    // A real resize schedules a frame, then the grid is hidden before that
-    // frame runs. Hiding delivers a 0x0 entry. Discarding it must not revoke
-    // the good measurement already in flight — cancelling first and then
-    // bailing left the container stale at the previous width indefinitely,
-    // which is a few pixels of drift in every geometry derived from it.
-    measure(1180);
-    expect(pending).toHaveLength(1);
-    measure(0, 0);
-    pending[0](0);
-
-    expect(service.containerWidth()).toBe(1180);
-    raf.mockRestore();
-  });
-
-  it('does not commit a pending frame after deactivation', () => {
-    measure(1464);
-    let pending: FrameRequestCallback | undefined;
-    globalThis.requestAnimationFrame = (cb) => {
-      pending = cb;
-      return 2;
-    };
-    measure(1180);
-    const resizeFrame = pending;
-    active.set(false);
-    TestBed.tick();
-    resizeFrame?.(0);
-    expect(service.containerWidth()).toBe(1464);
-    active.set(true);
-    TestBed.tick();
-    resizeFrame?.(0);
-    expect(service.containerWidth()).toBe(1464);
-    measure(1300);
-    const resumedFrame = pending;
-    resumedFrame?.(0);
-    expect(service.containerWidth()).toBe(1300);
-    resizeFrame?.(0);
-    expect(service.containerWidth()).toBe(1300);
   });
 
   it('derives responsive columns from minimum tile width', () => {

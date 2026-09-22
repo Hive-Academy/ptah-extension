@@ -4,8 +4,6 @@ import {
   inject,
   input,
   effect,
-  afterRenderEffect,
-  linkedSignal,
   computed,
   viewChild,
   OnDestroy,
@@ -21,10 +19,7 @@ import {
   type elementCB,
 } from 'gridstack/dist/angular';
 import { CanvasStore } from './canvas.store';
-import {
-  CanvasLayoutService,
-  type CanvasLayout,
-} from './canvas-layout.service';
+import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
 import {
   effectiveUnits,
@@ -35,19 +30,10 @@ import {
   type TileSpan,
   type TileViewConstraint,
   type TileViewConstraints,
-  type TileWidthIntent,
 } from './canvas-layout-intent';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-
-interface CanvasGridItem {
-  tabId: string;
-  width: TileWidthIntent;
-  rowBreakBefore: boolean;
-  firstInOrder: boolean;
-  options: GridStackWidget;
-}
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -128,7 +114,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
           <ptah-canvas-tile
             data-testid="canvas-tile"
             [tabId]="item.tabId"
-            [visible]="active()"
+            [visible]="visible()"
             [focused]="canvasStore.focusedTabId() === item.tabId"
             [widthIntent]="item.width"
             [rowBreakBefore]="item.rowBreakBefore"
@@ -203,10 +189,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   protected readonly layoutService = inject(CanvasLayoutService);
   protected readonly metrics = inject(CanvasRenderMetricsService);
-
-  protected readonly active = computed(
-    () => this.layoutService.active() && this.visible(),
-  );
 
   private readonly gridComp = viewChild(GridstackComponent);
 
@@ -294,89 +276,76 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.canvasStore.layoutFocusTabIdFor(this.workspacePath()),
   );
 
-  private readonly layout = linkedSignal<boolean, CanvasLayout>({
-    source: this.active,
-    computation: (active, previous) => {
-      if (!active)
-        return previous?.value ?? { cellHeight: 120, columns: 1, tiles: [] };
-      this.layoutService.containerWidth();
-      this.layoutService.containerHeight();
-      // Count only cache misses: this callback runs when layout is actually
-      // recomputed, unlike readers of the cached computed value.
-      this.metrics.increment('layoutComputations', 1, false);
-      return this.layoutService.computeLayout(
-        this.tiles(),
-        this.layoutFocusTabId(),
-        this.viewConstraints(),
-      );
-    },
+  private readonly layout = computed(() => {
+    this.layoutService.containerWidth();
+    this.layoutService.containerHeight();
+    // Count only cache misses: this callback runs when layout is actually
+    // recomputed, unlike readers of the cached computed value.
+    this.metrics.increment('layoutComputations', 1, false);
+    return this.layoutService.computeLayout(
+      this.tiles(),
+      this.layoutFocusTabId(),
+      this.viewConstraints(),
+    );
   });
 
-  protected readonly compactSingletonHeight = linkedSignal<boolean, string>({
-    source: this.active,
-    computation: (active, previous) => {
-      if (!active) return previous?.value ?? '0px';
-      const measurements = this.locked()
-        ? (this._lockedMeasurements ??
-          this._lastAppliedMeasurements ??
-          this.currentMeasurements())
-        : this.currentMeasurements();
-      const layout = this.layoutService.computeLayout(
-        this.tiles(),
-        this.layoutFocusTabId(),
-        this.viewConstraints(),
-        measurements,
-      );
-      return `${layout.cellHeight * (layout.tiles[0]?.h ?? 0)}px`;
-    },
+  protected readonly compactSingletonHeight = computed(() => {
+    const measurements = this.locked()
+      ? (this._lockedMeasurements ??
+        this._lastAppliedMeasurements ??
+        this.currentMeasurements())
+      : this.currentMeasurements();
+    const layout = this.layoutService.computeLayout(
+      this.tiles(),
+      this.layoutFocusTabId(),
+      this.viewConstraints(),
+      measurements,
+    );
+    return `${layout.cellHeight * (layout.tiles[0]?.h ?? 0)}px`;
   });
 
   private readonly creationOptions = new Map<string, GridStackWidget>();
 
   /** Template view-model: derived geometry keyed by tabId, never by index. */
-  protected readonly items = linkedSignal<boolean, CanvasGridItem[]>({
-    source: this.active,
-    computation: (active, previous) => {
-      if (!active) return previous?.value ?? [];
-      const derived = new Map(this.layout().tiles.map((t) => [t.tabId, t]));
-      const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
-      for (const tabId of this.creationOptions.keys()) {
-        if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
-      }
-      const frozen = this.isSingleton() || this.layoutFocusTabId() !== null;
-      const compactIds = this.compactTabIds();
-      const firstId = firstByOrder(this.tiles());
-      return this.tiles().map((tile) => {
-        const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
-        // Compact width is derived, not stored: a resize handle would write a
-        // hidden span the user cannot see until returning to full mode.
-        const noResize = frozen || compactIds.has(tile.tabId);
-        let options = this.creationOptions.get(tile.tabId);
-        if (!options) {
-          options = {
-            x: position.x,
-            y: position.y,
-            w: position.w,
-            h: position.h,
-            id: tile.tabId,
-            noMove: frozen,
-            noResize,
-          };
-          this.creationOptions.set(tile.tabId, options);
-          this.metrics.increment('creationOptionWrites', 1, false);
-        } else {
-          options.noMove = frozen;
-          options.noResize = noResize;
-        }
-        return {
-          tabId: tile.tabId,
-          width: tile.width,
-          rowBreakBefore: tile.rowBreakBefore,
-          firstInOrder: tile.tabId === firstId,
-          options,
+  protected readonly items = computed(() => {
+    const derived = new Map(this.layout().tiles.map((t) => [t.tabId, t]));
+    const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
+    for (const tabId of this.creationOptions.keys()) {
+      if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
+    }
+    const frozen = this.isSingleton() || this.layoutFocusTabId() !== null;
+    const compactIds = this.compactTabIds();
+    const firstId = firstByOrder(this.tiles());
+    return this.tiles().map((tile) => {
+      const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
+      // Compact width is derived, not stored: a resize handle would write a
+      // hidden span the user cannot see until returning to full mode.
+      const noResize = frozen || compactIds.has(tile.tabId);
+      let options = this.creationOptions.get(tile.tabId);
+      if (!options) {
+        options = {
+          x: position.x,
+          y: position.y,
+          w: position.w,
+          h: position.h,
+          id: tile.tabId,
+          noMove: frozen,
+          noResize,
         };
-      });
-    },
+        this.creationOptions.set(tile.tabId, options);
+        this.metrics.increment('creationOptionWrites', 1, false);
+      } else {
+        options.noMove = frozen;
+        options.noResize = noResize;
+      }
+      return {
+        tabId: tile.tabId,
+        width: tile.width,
+        rowBreakBefore: tile.rowBreakBefore,
+        firstInOrder: tile.tabId === firstId,
+        options,
+      };
+    });
   });
 
   /**
@@ -394,7 +363,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   private _gestureStopped = false;
 
   private _wasVisible = false;
-  private _needsReconcile = false;
 
   /**
    * View fingerprint this grid last applied to Gridstack. While locked, an
@@ -412,35 +380,15 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // hidden so Gridstack never runs layout math against a 0-width display:none
     // grid, and while locked so a frozen arrangement stays frozen — except the
     // view-mode exception below.
-    afterRenderEffect(() => {
-      const active = this.active();
-      const grid = this.gridComp()?.grid;
-      if (!active) {
-        this._wasVisible = false;
-        return;
-      }
-      this.layoutService.containerWidth();
-      this.layoutService.containerHeight();
-      if (!grid) return;
-      if (!this._wasVisible) {
-        this._applyingLayout = true;
-        try {
-          grid.onResize();
-        } finally {
-          this._applyingLayout = false;
-        }
-        this._wasVisible = true;
-      }
+    effect(() => {
+      if (!this.visible()) return;
       if (this.locked()) {
         this._lockedMeasurements ??=
           this._lastAppliedMeasurements ?? this.currentMeasurements();
-        if (
-          this._needsReconcile ||
-          this.viewFingerprint() !== this._appliedViewFingerprint
-        ) {
-          // A locked grid can project view-mode changes or settle a gesture
-          // cancelled while hidden. Freeze measurements so a pending responsive
-          // reflow cannot hitchhike on either exception.
+        if (this.viewFingerprint() !== this._appliedViewFingerprint) {
+          // The one application a locked grid may perform: tab-owned view-mode
+          // geometry. Its non-view measurements are frozen at lock time, so a
+          // pending responsive reflow cannot hitchhike on this exception.
           this.applyAuthoritativeGeometry(true, this._lockedMeasurements);
         }
         return;
@@ -449,9 +397,25 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.applyAuthoritativeGeometry();
     });
 
+    // Re-measure geometry once when a hidden grid is shown again — display:none
+    // leaves Gridstack with a stale 0-width column measurement. Wrapped in the
+    // same flag: the re-measure is the other non-gesture `change` source.
+    effect(() => {
+      const visible = this.visible();
+      const grid = this.gridComp()?.grid;
+      if (visible && !this._wasVisible && grid) {
+        this._applyingLayout = true;
+        try {
+          (grid as unknown as { onResize?: () => void }).onResize?.();
+        } finally {
+          this._applyingLayout = false;
+        }
+      }
+      this._wasVisible = visible;
+    });
+
     // Apply the canvas-wide lock to this grid's Gridstack instance.
     effect(() => {
-      if (!this.active()) return;
       const locked = this.locked();
       const grid = this.gridComp()?.grid;
       grid?.setStatic(locked);
@@ -460,14 +424,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // For singleton session, suppress drag and resize handles on engine nodes
     // without forcing locked=true. For multi-session, restore handles unless locked.
     effect(() => {
-      if (!this.active()) return;
       const grid = this.gridComp()?.grid;
       if (!grid) return;
       this.applyNodeInteractionState(grid);
     });
 
     effect(() => {
-      const visible = this.active();
+      const visible = this.visible();
       const locked = this.locked();
       const workspacePath = this.workspacePath();
       const capacity = this.capacity();
@@ -493,7 +456,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   onGestureStart(kind: GestureKind, event: elementCB): void {
     this.cancelGesture();
     if (
-      !this.active() ||
+      !this.visible() ||
       this.locked() ||
       this.isSingleton() ||
       this.layoutFocusTabId() !== null
@@ -562,7 +525,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   onGridChange(): void {
     this.metrics.increment('changeCallbacks');
     if (this._applyingLayout) return;
-    if (this.locked() || !this.active()) {
+    if (this.locked() || !this.visible()) {
       this.cancelGesture();
       return;
     }
@@ -717,10 +680,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // A component input change invalidates the old grid/workspace association.
     // Never project a rejected old-workspace gesture through the new partition.
     if (gesture.workspacePath !== this.workspacePath()) return;
-    if (!this.active()) {
-      this._needsReconcile = true;
-      return;
-    }
     this.applyAuthoritativeGeometry(
       true,
       this.locked() ? (this._lockedMeasurements ?? undefined) : undefined,
@@ -739,7 +698,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     force = false,
     frozenMeasurements?: LayoutMeasurements,
   ): void {
-    if (!this.active() || (!force && this.locked())) return;
+    if (!force && (!this.visible() || this.locked())) return;
     const measurements = frozenMeasurements ?? this.currentMeasurements();
     const { cellHeight, tiles: positioned } = frozenMeasurements
       ? this.layoutService.computeLayout(
@@ -752,7 +711,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.metrics.increment('applyChecks');
     const viewFingerprint = this.viewFingerprint();
     if (positioned.length === 0) {
-      this._needsReconcile = false;
       this._appliedViewFingerprint = viewFingerprint;
       this._lastAppliedMeasurements = measurements;
       return;
@@ -810,7 +768,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
-      this._needsReconcile = false;
       this._appliedViewFingerprint = viewFingerprint;
       this._lastAppliedMeasurements = measurements;
       if (!restoreStatic) this.applyNodeInteractionState(grid);

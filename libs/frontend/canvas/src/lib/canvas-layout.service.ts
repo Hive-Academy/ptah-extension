@@ -1,11 +1,4 @@
-import {
-  Injectable,
-  DestroyRef,
-  inject,
-  signal,
-  effect,
-  afterRenderEffect,
-} from '@angular/core';
+import { Injectable, DestroyRef, inject, signal } from '@angular/core';
 import {
   FULL_TILE_HEIGHT_UNITS,
   projectTileGeometry,
@@ -13,8 +6,6 @@ import {
   type TileIntent,
   type TileViewConstraints,
 } from './canvas-layout-intent';
-
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
 const MARGIN = 8;
 const MIN_CELL_HEIGHT = 20;
@@ -54,13 +45,8 @@ export interface CanvasLayout {
 @Injectable()
 export class CanvasLayoutService {
   private readonly destroyRef = inject(DestroyRef);
-  /** The always-mounted wrapper owns router and layout-mode activity. */
-  readonly active = inject(SURFACE_ACTIVE);
-  private wasActive = this.active();
-  private element: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private rafId: number | null = null;
-  private frameGeneration = 0;
 
   private readonly _containerWidth = signal(0);
   private readonly _containerHeight = signal(0);
@@ -69,45 +55,16 @@ export class CanvasLayoutService {
   readonly containerHeight = this._containerHeight.asReadonly();
 
   constructor() {
-    effect(() => {
-      if (!this.active()) this.cancelFrame();
-    });
-    afterRenderEffect(() => {
-      const active = this.active();
-      if (active && !this.wasActive && this.element && this.resizeObserver) {
-        // Re-observation requests fresh content-box geometry after unhide,
-        // even when the visible dimensions match the last delivered entry.
-        this.resizeObserver.disconnect();
-        this.resizeObserver.observe(this.element);
-      }
-      this.wasActive = active;
-    });
     this.destroyRef.onDestroy(() => this.disconnect());
   }
 
   observe(element: HTMLElement): void {
     this.disconnect();
-    this.element = element;
     this.resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      // Discard BEFORE cancelling. Hiding the grid delivers a 0x0 entry, and
-      // cancelling first meant that entry revoked a good measurement still
-      // pending in a frame and then scheduled nothing to replace it — the
-      // container dimensions stayed stale at whatever they were an update ago.
-      // Each callback captures its own `entry`, so a pending frame left alone
-      // still applies the good size it was scheduled with.
-      if (
-        !this.active() ||
-        !entry ||
-        entry.contentRect.width <= 0 ||
-        entry.contentRect.height <= 0
-      )
-        return;
-      this.cancelFrame();
-      const generation = this.frameGeneration;
+      if (this.rafId !== null) cancelAnimationFrame(this.rafId);
       this.rafId = requestAnimationFrame(() => {
-        if (generation !== this.frameGeneration) return;
-        if (this.active()) {
+        const entry = entries[0];
+        if (entry) {
           this._containerWidth.set(Math.floor(entry.contentRect.width));
           this._containerHeight.set(Math.floor(entry.contentRect.height));
         }
@@ -177,19 +134,13 @@ export class CanvasLayoutService {
     };
   }
 
-  private cancelFrame(): void {
-    this.frameGeneration++;
+  private disconnect(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
-  }
-
-  private disconnect(): void {
-    this.cancelFrame();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
-    this.element = null;
   }
 }
 
