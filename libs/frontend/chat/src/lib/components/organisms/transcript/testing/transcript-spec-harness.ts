@@ -4,11 +4,12 @@ import {
   Input,
   Output,
   ChangeDetectionStrategy,
+  signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { VSCodeService } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import type {
   ExecutionChatMessage,
   ExecutionNode,
@@ -58,6 +59,7 @@ export function configureTranscriptTestBed(
   TestBed.configureTestingModule({
     imports: [ChatTranscriptComponent],
     providers: [
+      { provide: SURFACE_ACTIVE, useValue: signal(true) },
       {
         provide: VSCodeService,
         useValue: {

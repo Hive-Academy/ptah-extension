@@ -6,7 +6,10 @@ import {
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { createMockRpcService } from '@ptah-extension/core/testing';
+import {
+  createMockRpcService,
+  provideSurfaceActiveTesting,
+} from '@ptah-extension/core/testing';
 import { AgentCardComponent } from './agent-card.component';
 
 function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -53,6 +56,7 @@ describe('raw stdout disclosure', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         provideMarkdown(),
         { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
@@ -166,7 +170,9 @@ describe('raw stdout disclosure', () => {
       makeAgent({
         status: 'failed',
         stdout: 'Initializing sandbox environment',
-        segments: [{ type: 'error', content: 'opencode CLI exited with code 1' }],
+        segments: [
+          { type: 'error', content: 'opencode CLI exited with code 1' },
+        ],
       }),
     );
 

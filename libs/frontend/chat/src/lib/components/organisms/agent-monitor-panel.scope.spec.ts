@@ -9,6 +9,7 @@
  * groups, and its "Clear completed" wiped every session.
  */
 
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -60,6 +61,7 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
     TestBed.configureTestingModule({
       imports: [AgentMonitorPanelComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         { provide: AgentMonitorStore, useValue: storeMock },
         {
           provide: VSCodeService,

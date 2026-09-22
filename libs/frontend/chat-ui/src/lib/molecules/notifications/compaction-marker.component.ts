@@ -1,4 +1,6 @@
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
+  inject,
   Component,
   computed,
   input,
@@ -66,7 +68,10 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 
           <div class="flex-1 overflow-y-auto text-sm pr-1">
             @if (isOpen()) {
-              <ptah-markdown-block [content]="text" />
+              <ptah-markdown-block
+                [active]="surfaceActive()"
+                [content]="text"
+              />
             }
           </div>
         </div>
@@ -84,6 +89,8 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactionMarkerComponent {
+  protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+
   readonly summary = input<string | null>(null);
   readonly preTokens = input<number | null>(null);
   readonly postTokens = input<number | null>(null);

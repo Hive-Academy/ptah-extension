@@ -20,6 +20,7 @@
  *     through finalize → stray post-turn events → send, with no queueing
  */
 
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
@@ -110,9 +111,15 @@ describe('MessageDispatchService', () => {
       tabs: () => tabs,
       setMessages: setMessagesMock,
       setQueuedContent: setQueuedContentMock,
-      setQueuedContentAndOptions: (id: string, content: string, options: TabState['queuedOptions']) => {
+      setQueuedContentAndOptions: (
+        id: string,
+        content: string,
+        options: TabState['queuedOptions'],
+      ) => {
         setQueuedContentMock(id, content);
-        tabs = tabs.map(t => t.id === id ? { ...t, queuedOptions: options } : t);
+        tabs = tabs.map((t) =>
+          t.id === id ? { ...t, queuedOptions: options } : t,
+        );
       },
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
@@ -150,6 +157,7 @@ describe('MessageDispatchService', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        provideSurfaceActiveTesting(),
         MessageDispatchService,
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: AuthStateService, useValue: authStateMock },
@@ -166,15 +174,27 @@ describe('MessageDispatchService', () => {
   });
 
   it('shows a resolved direct-send failure in transcript state', async () => {
-    sendMock.mockResolvedValue({ success: false, error: 'Your follow-up was not sent.' });
+    sendMock.mockResolvedValue({
+      success: false,
+      error: 'Your follow-up was not sent.',
+    });
     await service.sendOrQueueMessage('stop');
-    expect(JSON.stringify(tabs[0].messages)).toContain('Your follow-up was not sent.');
+    expect(JSON.stringify(tabs[0].messages)).toContain(
+      'Your follow-up was not sent.',
+    );
   });
 
   it('restores resolved queue failure with attachments without overwriting newer arrivals', async () => {
-    tabs = [makeTab({ queuedContent: 'old', queuedOptions: { files: ['old.ts'], effort: 'high' } })];
+    tabs = [
+      makeTab({
+        queuedContent: 'old',
+        queuedOptions: { files: ['old.ts'], effort: 'high' },
+      }),
+    ];
     continueExistingSessionForQueueFlushMock.mockImplementation(async () => {
-      tabs = [makeTab({ queuedContent: 'new', queuedOptions: { files: ['new.ts'] } })];
+      tabs = [
+        makeTab({ queuedContent: 'new', queuedOptions: { files: ['new.ts'] } }),
+      ];
       return { success: false, error: 'not sent' };
     });
     await service.sendQueuedMessage('tab-1', 'old');
@@ -676,6 +696,7 @@ describe('MessageDispatchService with the real StreamingHandler + MessageFinaliz
 
     TestBed.configureTestingModule({
       providers: [
+        provideSurfaceActiveTesting(),
         MessageDispatchService,
         { provide: TabManagerService, useValue: tabManagerFake },
         // `turn_state` is never fed here; the applier would drag in the
@@ -694,7 +715,10 @@ describe('MessageDispatchService with the real StreamingHandler + MessageFinaliz
         },
         {
           provide: MessageSenderService,
-          useValue: { send: sendMock, continueExistingSessionForQueueFlush: jest.fn() },
+          useValue: {
+            send: sendMock,
+            continueExistingSessionForQueueFlush: jest.fn(),
+          },
         },
         {
           provide: ConversationService,

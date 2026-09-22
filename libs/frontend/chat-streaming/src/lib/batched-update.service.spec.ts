@@ -9,6 +9,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
@@ -71,6 +72,7 @@ describe('BatchedUpdateService', () => {
       providers: [
         BatchedUpdateService,
         { provide: TabManagerService, useValue: tabManager },
+        provideSurfaceActiveTesting(),
       ],
     });
     service = TestBed.inject(BatchedUpdateService);

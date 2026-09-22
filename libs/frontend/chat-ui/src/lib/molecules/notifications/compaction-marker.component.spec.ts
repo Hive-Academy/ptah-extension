@@ -1,3 +1,4 @@
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import {
   Component,
   Input,
@@ -42,6 +43,7 @@ describe('CompactionMarkerComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [CompactionMarkerComponent],
+      providers: [provideSurfaceActiveTesting()],
     }).compileComponents();
   });
 
@@ -77,7 +79,9 @@ describe('CompactionMarkerComponent', () => {
   ])('uses neutral wording for non-shrinking values: %i → %i', (pre, post) => {
     const fixture = setup({ preTokens: pre, postTokens: post });
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain(`${pre.toLocaleString()} → ${post.toLocaleString()} tokens`);
+    expect(text).toContain(
+      `${pre.toLocaleString()} → ${post.toLocaleString()} tokens`,
+    );
     expect(text).not.toContain('shrank');
   });
 

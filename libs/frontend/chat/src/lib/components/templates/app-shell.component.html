@@ -44,10 +44,7 @@
   designed for it. A surface that needs to scroll owns that on its own host;
   see `DashboardGridComponent`. `app-shell.outlet-wrapper.spec.ts` pins it.
 -->
-<div
-  class="h-full w-full"
-  [class.hidden]="!isStandaloneView()"
->
+<div class="h-full w-full" [class.hidden]="!isStandaloneView()">
   <router-outlet />
 </div>
 
@@ -605,7 +602,11 @@
          This preserves canvas tile state (CanvasStore is scoped per component instance)
          across layout toggles. Matches the [class.hidden] pattern used for standalone views. -->
     <div class="flex-1 overflow-hidden">
-      <div class="h-full" [class.hidden]="layoutMode() !== 'grid'">
+      <div
+        class="h-full"
+        ptahSurfaceActive="canvas"
+        [class.hidden]="layoutMode() !== 'grid'"
+      >
         @if (orchestraCanvasComponent) {
           <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
         } @else if (bootStatus.isBooting()) {
@@ -630,7 +631,11 @@
           </div>
         }
       </div>
-      <div class="h-full" [class.hidden]="layoutMode() !== 'single'">
+      <div
+        class="h-full"
+        ptahSurfaceActive="chat"
+        [class.hidden]="layoutMode() !== 'single'"
+      >
         <ptah-chat-view />
       </div>
     </div>

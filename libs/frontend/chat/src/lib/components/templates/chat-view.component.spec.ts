@@ -19,6 +19,7 @@
  * loads it (the component imports from @ptah-extension/chat-ui which pulls it).
  */
 
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import {
   Component,
   Input,
@@ -350,9 +351,9 @@ function makeHarness(
     getSubagentTranscript: jest.fn(),
     toggleAgentExpanded: jest.fn(),
     tick: signal(0),
-    cliOutputDemand: signal<
-      readonly { sessionId: string; agentId: string }[]
-    >([]).asReadonly(),
+    cliOutputDemand: signal<readonly { sessionId: string; agentId: string }[]>(
+      [],
+    ).asReadonly(),
     panelOpenRequest: signal({ seq: 0, tabId: null }).asReadonly(),
   } as unknown as AgentMonitorStore;
 
@@ -400,6 +401,7 @@ function makeHarness(
   TestBed.configureTestingModule({
     imports: [ChatViewComponent],
     providers: [
+      provideSurfaceActiveTesting(),
       { provide: ChatStore, useValue: chatStoreStub },
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
@@ -1661,14 +1663,16 @@ describe('agent panel narrow overlay mode', () => {
     disconnectMock = jest.fn();
     originalResizeObserver = global.ResizeObserver;
 
-    global.ResizeObserver = jest.fn().mockImplementation((cb: ResizeObserverCallback) => {
-      resizeCallbacks.push(cb);
-      return {
-        observe: observeMock,
-        unobserve: jest.fn(),
-        disconnect: disconnectMock,
-      };
-    }) as unknown as typeof ResizeObserver;
+    global.ResizeObserver = jest
+      .fn()
+      .mockImplementation((cb: ResizeObserverCallback) => {
+        resizeCallbacks.push(cb);
+        return {
+          observe: observeMock,
+          unobserve: jest.fn(),
+          disconnect: disconnectMock,
+        };
+      }) as unknown as typeof ResizeObserver;
   });
 
   afterEach(() => {
@@ -1891,9 +1895,7 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).not.toBeNull();
     // Falling through to the full view would render the input area instead.
-    expect(
-      fixture.nativeElement.querySelector('ptah-chat-input'),
-    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
   });
 
   it('renders the full view (not the compact card) for "full"', () => {

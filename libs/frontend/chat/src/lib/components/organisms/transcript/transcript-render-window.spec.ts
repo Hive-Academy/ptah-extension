@@ -39,6 +39,7 @@ function makeAttached(
 ) {
   const win = new TranscriptRenderWindow();
   const root = document.createElement('div');
+  win.setActive(true);
   win.attach(root);
   const observer = FakeIntersectionObserver.instances[0];
 
@@ -75,6 +76,7 @@ describe('TranscriptRenderWindow', () => {
     it('creates no observer on attach', () => {
       removeFakeIntersectionObserver();
       const win = new TranscriptRenderWindow();
+      win.setActive(true);
       win.attach(document.createElement('div'));
       expect(FakeIntersectionObserver.instances).toHaveLength(0);
     });
@@ -86,6 +88,7 @@ describe('TranscriptRenderWindow', () => {
     it('roots the observer on the scroll container with the vertical margin', () => {
       const win = new TranscriptRenderWindow();
       const root = document.createElement('div');
+      win.setActive(true);
       win.attach(root);
 
       const observer = FakeIntersectionObserver.instances[0];
@@ -99,6 +102,7 @@ describe('TranscriptRenderWindow', () => {
       const win = new TranscriptRenderWindow();
       const early = document.createElement('div');
       win.register('m0', early);
+      win.setActive(true);
       win.attach(document.createElement('div'));
 
       expect(FakeIntersectionObserver.instances[0].observed.has(early)).toBe(
@@ -255,6 +259,61 @@ describe('TranscriptRenderWindow', () => {
       expect(win.placeholderHeight('m0')).toBe(PLACEHOLDER_FALLBACK_PX);
     });
 
+    it('disconnects while inactive and rejects old callbacks after reconnecting', () => {
+      const { win, observer, elements } = makeAttached(ids(20), 20);
+      const first = elements.get('m0') as HTMLElement;
+      observer.emit([entry(first, true, 120)]);
+      observer.emit([entry(first, false, 640)]);
+      win.setActive(false);
+      expect(observer.observed.size).toBe(0);
+      const added = document.createElement('div');
+      win.register('m1', added);
+      expect(observer.observed.size).toBe(0);
+      win.setActive(true);
+      const resumed = FakeIntersectionObserver.instances[1];
+      expect(resumed.observed.has(first)).toBe(true);
+      expect(resumed.observed.has(added)).toBe(true);
+      observer.emit([entry(first, true, 999)]);
+      expect(win.isMounted('m0')).toBe(false);
+      expect(win.placeholderHeight('m0')).toBe(640);
+      resumed.emit([entry(first, true, 120)]);
+      expect(win.isMounted('m0')).toBe(true);
+      win.ngOnDestroy();
+      expect(resumed.observed.size).toBe(0);
+      resumed.emit([entry(first, false, 999)]);
+      expect(win.placeholderHeight('m0')).toBe(640);
+    });
+
+    it('seeds newly visible slots on activation without losing replay retention', () => {
+      const { win, root, observer, elements } = makeAttached(ids(20), 20);
+      const first = elements.get('m0') as HTMLElement;
+      observer.emit([entry(first, true, 120)]);
+      win.setReplayRetention(true);
+      win.setActive(false);
+      jest
+        .spyOn(root, 'getBoundingClientRect')
+        .mockReturnValue(new DOMRect(0, 0, 400, 500));
+      jest
+        .spyOn(elements.get('m1') as HTMLElement, 'getBoundingClientRect')
+        .mockReturnValue(new DOMRect(0, 200, 400, 120));
+      win.setActive(true);
+      expect(win.isMounted('m0')).toBe(true);
+      expect(win.isMounted('m1')).toBe(true);
+      FakeIntersectionObserver.instances[1].emit([entry(first, false, 640)]);
+      expect(win.isMounted('m0')).toBe(true);
+      win.setReplayRetention(false);
+      expect(win.isMounted('m0')).toBe(false);
+      expect(win.placeholderHeight('m0')).toBe(640);
+    });
+
+    it('does not connect until an initially inactive window activates', () => {
+      const win = new TranscriptRenderWindow();
+      win.attach(document.createElement('div'));
+      expect(FakeIntersectionObserver.instances).toHaveLength(0);
+      win.setActive(true);
+      expect(FakeIntersectionObserver.instances).toHaveLength(1);
+    });
+
     it('records the height measured on the leaving edge, not the entering one', () => {
       const list = ids(20);
       const { win, observer, elements } = makeAttached(list, list.length);
@@ -303,6 +362,7 @@ describe('TranscriptRenderWindow', () => {
 
     it('re-observes when a slot element is re-keyed to a new id', () => {
       const win = new TranscriptRenderWindow();
+      win.setActive(true);
       win.attach(document.createElement('div'));
       const observer = FakeIntersectionObserver.instances[0];
       const el = document.createElement('div');

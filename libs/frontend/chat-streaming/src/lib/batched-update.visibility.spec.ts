@@ -4,6 +4,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
 type TabManagerSlice = Pick<
   TabManagerService,
@@ -73,6 +74,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
   let originalRaf: typeof requestAnimationFrame;
   let originalCancel: typeof cancelAnimationFrame;
   let visibility: VisibilityHandle;
+  const surfaceActive = signal(true);
 
   function makeState(messageId: string | null = null): StreamingState {
     const s = createEmptyStreamingState();
@@ -87,6 +89,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
   }
 
   beforeEach(() => {
+    surfaceActive.set(true);
     rafCallbacks = [];
     originalRaf = globalThis.requestAnimationFrame;
     originalCancel = globalThis.cancelAnimationFrame;
@@ -113,6 +116,7 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     TestBed.configureTestingModule({
       providers: [
         BatchedUpdateService,
+        { provide: SURFACE_ACTIVE, useValue: surfaceActive },
         { provide: TabManagerService, useValue: tabManager },
       ],
     });
@@ -126,6 +130,28 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     globalThis.cancelAnimationFrame = originalCancel;
     TestBed.resetTestingModule();
     jest.restoreAllMocks();
+  });
+
+  it('cancels the old frame and drains only the latest hidden state on activation', () => {
+    service.scheduleUpdate('tab-active', makeState('old'));
+    const staleFrame = rafCallbacks[rafCallbacks.length - 1];
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-active', makeState('latest'));
+    staleFrame(0);
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-active')).toBe(true);
+    surfaceActive.set(true);
+    TestBed.flushEffects();
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-active',
+      expect.objectContaining({ currentMessageId: 'latest' }),
+    );
+    expect(service.hasPendingUpdates('tab-active')).toBe(false);
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
   });
 
   it('defers flush when tabId !== activeTabId (background tab)', () => {
@@ -219,6 +245,83 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
     expect(tabIds).toEqual(['tab-origin']);
     expect(service.hasPendingUpdates('tab-bystander')).toBe(true);
     expect(service.hasPendingUpdates('tab-origin')).toBe(false);
+  });
+
+  it('flushSync(origin) keeps the ORIGIN deferred while the surface is inactive', () => {
+    // The origin exemption covers the per-tab selection, not the surface being
+    // unaddressed. `agent_start` fires on every spawn, so without this the act
+    // of navigating to Settings mid-stream still paid for the execution-tree
+    // rebuild and markdown re-derive that this whole gate exists to avoid.
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('o1'));
+    runRaf();
+    tabManager.setStreamingState.mockClear();
+
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('o2'));
+
+    service.flushSync('tab-origin');
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(service.hasPendingUpdates('tab-origin')).toBe(true);
+
+    // Reactivation is what publishes it, and it publishes the NEWEST state.
+    surfaceActive.set(true);
+    TestBed.flushEffects();
+    runRaf();
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-origin',
+      expect.objectContaining({ currentMessageId: 'o2' }),
+    );
+  });
+
+  it('flushSync() with no origin still drains a deferred tab on an inactive surface', () => {
+    // Turn-end finalization keeps its unconditional contract. It runs right
+    // before MessageFinalizationService clears the tab's streaming state, so a
+    // deferred entry left behind holds the PRE-clear object and a later drain
+    // would re-install a finished turn over the finalized message.
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+    surfaceActive.set(false);
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-origin', makeState('final'));
+
+    service.flushSync();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-origin',
+      expect.objectContaining({ currentMessageId: 'final' }),
+    );
+    expect(service.hasPendingUpdates('tab-origin')).toBe(false);
+  });
+
+  it('flushSync(origin) moves non-origin pending updates that became non-flushable to deferred', () => {
+    // Non-origin tab was flushable when scheduled -> placed in pendingTabUpdates
+    activeTabSignal.set('tab-bystander');
+    TestBed.flushEffects();
+    service.scheduleUpdate('tab-bystander', makeState('b1'));
+
+    // Before rAF fires, active tab switches to tab-origin, making tab-bystander non-flushable
+    activeTabSignal.set('tab-origin');
+    TestBed.flushEffects();
+
+    // Origin tab spawns agent -> triggers flushSync('tab-origin')
+    service.flushSync('tab-origin');
+
+    const tabIds = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
+    expect(tabIds).not.toContain('tab-bystander');
+    expect(service.hasPendingUpdates('tab-bystander')).toBe(true);
+
+    // Later, when tab-bystander becomes flushable again, it drains through normal paths
+    activeTabSignal.set('tab-bystander');
+    TestBed.flushEffects();
+    runRaf();
+
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-bystander',
+      expect.objectContaining({ currentMessageId: 'b1' }),
+    );
   });
 
   it('flushSync(origin) still drains deferred tabs that became flushable', () => {

@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
+import { SurfaceMarkdownPipe } from './surface-markdown.pipe';
 
 /**
  * MarkdownBlockComponent - Renders markdown content with syntax highlighting
@@ -22,12 +23,19 @@ import { MarkdownModule } from 'ngx-markdown';
 @Component({
   selector: 'ptah-markdown-block',
   standalone: true,
-  imports: [MarkdownModule],
-  template: ` <markdown [data]="content()" [class]="proseClass()" /> `,
+  imports: [MarkdownModule, SurfaceMarkdownPipe],
+  template: `
+    <markdown
+      [data]="content() | surfaceMarkdown: active()"
+      [class]="proseClass()"
+    />
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MarkdownBlockComponent {
   public readonly content = input.required<string>();
+  /** Presentation activity supplied by the host; website embeddings render normally. */
+  public readonly active = input(true);
 
   /**
    * Prose colour scheme.

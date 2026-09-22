@@ -21,6 +21,7 @@ import {
   NgModule,
   ChangeDetectionStrategy,
   inject,
+  signal,
 } from '@angular/core';
 
 jest.mock('ngx-markdown', () => {
@@ -64,7 +65,7 @@ import {
   type ModelRefreshControl,
 } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { VSCodeService } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
@@ -143,6 +144,7 @@ describe('ChatViewComponent keep-alive — workspace-switch transcript survival'
     TestBed.configureTestingModule({
       imports: [KeepAliveHostComponent],
       providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
         TabManagerService,
         TabWorkspacePartitionService,
         ConversationRegistry,

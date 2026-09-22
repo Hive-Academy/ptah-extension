@@ -28,7 +28,10 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { createMockRpcService } from '@ptah-extension/core/testing';
+import {
+  createMockRpcService,
+  provideSurfaceActiveTesting,
+} from '@ptah-extension/core/testing';
 import type {
   AgentOutputDelta,
   AgentProcessInfo,
@@ -63,6 +66,7 @@ describe('agent card — what a trimmed card shows', () => {
     TestBed.configureTestingModule({
       imports: [OutputHostComponent],
       providers: [
+        provideSurfaceActiveTesting(),
         // The card renders agent prose through `<markdown>`; the real provider
         // is used rather than a stub so a rendered assertion means the text
         // actually reached the DOM.
