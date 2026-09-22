@@ -9,8 +9,11 @@
  *     allowlist are both finished decisions and must render nothing; only
  *     `'selected'` + `[]` is the unanswered question.
  *   - **One card, one control, no repair.** The card's only job is to open
- *     the existing Configure Ptah Skills modal — same shape as the precedent
- *     `HarnessCardComponent`, which performs no repair itself.
+ *     the Configure Ptah Skills picker — same shape as the precedent
+ *     `HarnessCardComponent`, which performs no repair itself. Since
+ *     TASK_2026_524 the picker is `PluginCatalogPanelComponent`, an inline
+ *     panel with no chrome of its own, so this card supplies the dialog,
+ *     the close button and the backdrop — all three are pinned below.
  *   - **It claims no fault.** No badge, no error/warning/amber styling — this
  *     is an unanswered question, not a degraded state, and a permanent amber
  *     badge nobody can clear is exactly the failure mode U2 rejected.
@@ -188,7 +191,7 @@ describe('dashboard skill-selection card', () => {
       expect(before?.querySelectorAll('input')).toHaveLength(0);
       expect(before?.querySelectorAll('a')).toHaveLength(0);
 
-      // Opening the modal is the only thing the button does.
+      // Opening the picker is the only thing the button does.
       calls.length = 0;
       before
         ?.querySelector<HTMLButtonElement>(
@@ -197,16 +200,109 @@ describe('dashboard skill-selection card', () => {
         ?.click();
       await settle(fixture);
 
-      // The modal — a SIBLING of the card's section, not a child of it — is
+      // The picker — a SIBLING of the card's section, not a child of it — is
       // where selection happens. It routed there and did nothing else itself.
       expect(
         host.querySelector('[data-testid="skill-selection"]'),
       ).not.toBeNull();
 
-      // The card's own section still owns no selection UI while the modal is open.
+      // The card's own section still owns no selection UI while it is open.
       const after = host.querySelector('[data-testid="skill-selection-card"]');
       expect(after?.querySelectorAll('input')).toHaveLength(0);
       expect(after?.querySelectorAll('button')).toHaveLength(1);
+    });
+  });
+
+  /**
+   * `PluginCatalogPanelComponent` is a bare inline panel: no `isOpen`, no
+   * overlay, no `closed` output. Everything that used to make the picker read
+   * as a dialog now belongs to this card, so these are the assertions that
+   * would have caught a rehost that dropped the chrome and left the catalogue
+   * rendered flat underneath the dashboard.
+   */
+  describe('the dialog chrome the card now owns', () => {
+    const openPicker = async (): Promise<
+      ComponentFixture<SkillSelectionCardComponent>
+    > => {
+      setResponder('harness:get-skill-selection', () =>
+        ok(selection({ mode: 'selected', slugs: [] })),
+      );
+      const fixture = await mountCard();
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="skill-selection-card-choose"]',
+        )
+        ?.click();
+      await settle(fixture);
+      return fixture;
+    };
+
+    it('mounts the catalogue panel inside an open modal dialog with a backdrop', async () => {
+      const fixture = await openPicker();
+      const host = fixture.nativeElement as HTMLElement;
+
+      const dialog = host.querySelector('dialog.modal');
+      expect(dialog).not.toBeNull();
+      expect(dialog?.classList.contains('modal-open')).toBe(true);
+      expect(dialog?.querySelector('.modal-box')).not.toBeNull();
+      expect(dialog?.querySelector('.modal-backdrop')).not.toBeNull();
+      expect(dialog?.querySelector('ptah-plugin-catalog-panel')).not.toBeNull();
+
+      // Sibling, not child: the card's section must not contain the dialog.
+      expect(
+        host
+          .querySelector('[data-testid="skill-selection-card"]')
+          ?.querySelector('dialog'),
+      ).toBeNull();
+    });
+
+    it('closes on the close button and on the backdrop, re-reading the selection each time', async () => {
+      for (const closer of [
+        '[data-testid="skill-selection-card-close"]',
+        '.modal-backdrop',
+      ]) {
+        const fixture = await openPicker();
+        const host = fixture.nativeElement as HTMLElement;
+
+        calls.length = 0;
+        host.querySelector<HTMLElement>(closer)?.click();
+        await settle(fixture);
+
+        expect(host.querySelector('dialog.modal')).toBeNull();
+        expect(
+          calls.some((c) => c.method === 'harness:get-skill-selection'),
+        ).toBe(true);
+
+        fixture.destroy();
+      }
+    });
+
+    it('closes on Escape pressed anywhere in the document, and is a no-op while closed', async () => {
+      const escape = (): void =>
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape' }),
+        );
+
+      // Open: one Escape closes the picker and re-reads the selection.
+      const fixture = await openPicker();
+      const host = fixture.nativeElement as HTMLElement;
+      escape();
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).toBeNull();
+      expect(
+        calls.some((c) => c.method === 'harness:get-skill-selection'),
+      ).toBe(true);
+
+      // Closed: a second Escape does nothing — no re-read, no state change.
+      calls.length = 0;
+      escape();
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).toBeNull();
+      expect(calls).toHaveLength(0);
+
+      fixture.destroy();
     });
   });
 
