@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 6/29
+Total tasks: 63 | Batches: 29 | Complete: 7/29
 
-Wave A (Batches 1, 2, 3), 5, 7a and 7d are COMPLETE. Batches 4 and 6 are IN_PROGRESS
-(different projects: ui and marketplace).
+Complete: Batches 1, 2, 3, 5, 6, 7a, 7d. IN_PROGRESS: Batch 4 (ui, in review) and Batch 12
+(marketplace). They are in different projects.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -73,9 +73,11 @@ Agreed 2026-09-23:
 6. After 540 merges, a workspace switch while ANY configuration surface is open (marketplace and every child route) does NOT re-navigate; 540 sets `_settlementOwner` directly. Consequences: (a) the restore redirect is not reached on a workspace switch while the Marketplace is open — accepted; (b) the shell-scoped stores must reload on `WorkspaceScopeService.generation` because nothing re-creates them — acceptance added to Batches 5 and 6; (c) an open detail whose ref no longer exists after the reload must fall back to "Not found" (or close to the list) — acceptance added to Task 13.3 (and Task 16.3).
 7. Batch 18b target: `marketplaceRoute` goes into 540's global `_configurationSurfaces.perSurface.marketplace` (via `updateConfigurationSurfaceSlot('marketplace', { marketplaceRoute })` plus our own typed computed, or a dedicated marketplace slot interface); settlement recording goes through 540's private `recordSettledView(surface)`. 540 plan: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940\implementation-plan.md` ("Design decisions" 1-3, "Extension points").
 
-Plan defect for the architect (h1 ownership): implementation-plan.md:365 gives the shell header "an `<h1>` naming the surface", while :383 says "One `h1` per page, rendered by the page, not the shell", and :470 and :491 (connector detail focus, e2e migration) rely on the PAGE `h1`. Default applied in Batch 12 until the architect rules: the shell breadcrumb is a `<nav aria-label="Breadcrumb">` whose current item is plain text; the only `h1` is the page's. If the architect wants the shell `h1`, pages drop to `h2` and Tasks 15.2 and 19.1 change.
+DECIDED (h1 ownership, plan C6 :365 and C7): the shell renders a breadcrumb `<nav aria-label="Breadcrumb">` and NO `<h1>`; each page renders its own single `<h1>`. Batch 12 implements this; Tasks 15.2 and 19.1 keep relying on the page `h1`.
 
-Open item for the architect (from Batch 2, pinned by `surface-router.service.spec.ts:702` ("A3: a bare /marketplace navigation keeps the list but closes an open detail")): a bare `/marketplace` navigation (Electron menu/tab, `setCurrentView('marketplace')`) while a detail is open (`/marketplace/servers/claude-user:sentry`) closes the detail and keeps the list instance, because only the PAGE is remembered. Consistent with D2 "detail ids dropped", but user-visible; with 540's menu opening the bare root this path becomes common. Decision needed before Batch 17 (keep, or remember the detail ref too).
+DECIDED (bare /marketplace with an open detail, plan C1 :256-272): `AppStateManager.setCurrentView(view)` returns without navigating when `normalizeView(view) === currentView()`, `surfaceRouter.pendingSurface() === null` and `_settlementOwner === _activeWorkspacePath()`, so a bare Marketplace click keeps an open detail in place; `openMarketplace(route)` still navigates. Lands in Task 18.2 with four `app-state.service.spec.ts` cases. TASK_2026_540 accepts the rule for its surfaces and does not change `setCurrentView`. The router-level probe `surface-router.service.spec.ts:702` stays as is.
+
+Still OPEN for the architect: connector-rows workspace scope (risk table row "Stale claude.ai connector rows"), needed before Batch 14.
 
 ## Plan validation
 
@@ -85,7 +87,7 @@ Assumptions:
 
 - A1 `RouterOutlet` re-created inside a `@switch` branch re-activates the current child route — VERIFIED PASS in Batch 3 (Task 3.3 probe, 5/5).
 - A2 A `RedirectFunction` runs in an injection context and can `inject(AppStateManager)` — VERIFIED PASS in Batch 2 (Task 2.3; spec `surface-router.service.spec.ts:625-647`).
-- A3 `navigateByUrl('/marketplace')` while on `/marketplace/servers` redirects to the remembered route and reuses the active components — VERIFIED PASS in Batch 2 (Task 2.3; result `navigated`, zero re-creations). Caveat: an open detail closes (see External coordination, open item).
+- A3 `navigateByUrl('/marketplace')` while on `/marketplace/servers` redirects to the remembered route and reuses the active components — VERIFIED PASS in Batch 2 (Task 2.3; result `navigated`, zero re-creations). Router-level caveat (an open detail closes on a bare `navigateToSurface`) is handled at the user path by the C1 `setCurrentView` no-op rule, Task 18.2.
 - A4 svgo 4 custom-plugin shape `{ name, fn: () => ({ element: { enter } }) }` — unverified; checked in Task 4.1 before the manifest is filled.
 - A5 Which CLIs receive OAuth/Smithery session overrides (`mcpServersOverride` consumers found in `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, `session-query-executor.service.ts`) — unverified; checked in Task 8.3 before `coverage.ts` renders anything other than "Ptah sessions".
 - R6 The router percent-encodes `/` inside a single `:skillRef` segment — VERIFIED PASS in Batch 3 (Task 3.2 probe, 4/4); no base64url fallback.
@@ -318,7 +320,7 @@ Edge cases:
 - Determinism check passes; ≤300 KB; A4 outcome stated; `PROVIDER_BRAND_ART` present and small
 - Reviewer: code-logic-reviewer (rejection rules, failure behaviour)
 
-## Batch 5: `MarketplaceInventoryStore` (C3) — COMPLETE
+## Batch 5: `MarketplaceInventoryStore` (C3) — COMPLETE (commit f7a393f46)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (spec migration needs judgement)
@@ -343,16 +345,17 @@ Edge cases:
 - Store and spec exist; migrated assertions listed in the report against their source spec lines
 - Reviewer: code-logic-reviewer (failure isolation, stale generations, removal safety)
 
-## Batch 6: `ConnectorLinksStore` (C4) — IN_PROGRESS
+## Batch 6: `ConnectorLinksStore` (C4) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: poll lifecycle and per-kind routing lifted from a 740-line component with an 897-line spec.
 - Tasks: 1 | Depends on: Batch 7a (shared `normalizeMcpServerUrl`)
+- Review status: logic review CHANGES REQUESTED 7/10 (`code-logic-review-batch-6.md`); serious finding — a raw thrown `Error.message` reaches `actionError`/`loadError` and can leak credentials embedded in custom MCP URLs; fixed in revise round 1 (`failThrown` at `connector-links.store.ts:843-855`, fixed fallback texts, 5 credential-leak spec cases). Two moderate follow-ups moved to Batch 15.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 6.1: Connector links store — IN_PROGRESS
+### Task 6.1: Connector links store — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\connector-links.store.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\connector-links.store.spec.ts`
 - Plan reference: implementation-plan.md C4, C14 shared normalizers (:597)
@@ -653,17 +656,17 @@ Edge cases:
 
 - Reviewer: code-style-reviewer
 
-## Batch 12: Shell, nav and status bar (C6) — PENDING
+## Batch 12: Shell, nav and status bar (C6) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: shell provides stores and layout that nav and status bar read.
 - Tasks: 2 | Depends on: Batches 2, 3, 5, 6
-- Header rule RESOLVED (External coordination item 4, plan C6 :365): header in both hosts; back button only in VS Code; slim single row in Electron. h1 ownership default: see the h1 plan-defect note under External coordination.
+- Header rule RESOLVED (External coordination item 4, plan C6 :365): header in both hosts; back button only in VS Code; slim single row in Electron. h1 ownership DECIDED: shell breadcrumb `<nav aria-label="Breadcrumb">` with no `h1`; each page owns its single `h1`.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 12.1: `MarketplaceShellComponent` — PENDING
+### Task 12.1: `MarketplaceShellComponent` — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-shell.component.ts`, `...\shell\marketplace-shell.component.html`, `...\shell\marketplace-shell.component.spec.ts` (all under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`)
 - Plan reference: implementation-plan.md C6
@@ -672,7 +675,7 @@ Edge cases:
 - Validation notes: spec — header present in Electron WITHOUT a back button, header present in VS Code WITH it; exactly one `h1` in the rendered page; mounting the shell alone fires 0 RPC (spy); `/` handling; remembered route written; 400px compact render without horizontal overflow; migrate hub spec "keeps the Marketplace heading"/`goBack` assertions.
 - Implementation details: pages own their `h1`.
 
-### Task 12.2: `MarketplaceNavComponent` + `MarketplaceStatusBarComponent` — PENDING
+### Task 12.2: `MarketplaceNavComponent` + `MarketplaceStatusBarComponent` — IN_PROGRESS
 
 - Depends on: Task 12.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-nav.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-status-bar.component.ts` (+`.spec.ts`, added — the plan lists none)
@@ -790,6 +793,7 @@ Edge cases:
 
 ### Batch 15 verification
 
+- Follow-ups from the Batch 6 logic review (owned here; fix in `connector-links.store.ts` only if the page cannot handle them, and that file must not grow past 700 lines): (1) `openSmitherySetup` returning `opened:false` with no error is reported as a failure although it can mean "already connected" (`connector-links.store.ts:604-612`) — the page must show the connected state, not an error; (2) the 5-minute Smithery poll deadline ends silently (`:638-644`) — the card must show a "timed out, retry" state. Each pinned by a spec. (3) Flaky test: `connector-links.store.spec.ts:1081` "gives up after five minutes" failed once in the team-leader's full `lint,typecheck,test` run of Batch 6 (passed in 6 other runs, incl. 4 concurrent) — give it an explicit timeout or reduce the fake-timer work so it is stable under load.
 - Reviewer: code-logic-reviewer
 
 ## Batch 16: Skills pages (C9 part) — PENDING
@@ -839,7 +843,7 @@ Edge cases:
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: route table, barrel and deletions must land together or the app loses its marketplace.
-- Tasks: 4 | Depends on: Batches 12, 13, 14, 15, 16; architect decision on the open "bare /marketplace closes an open detail" item (External coordination)
+- Tasks: 4 | Depends on: Batches 12, 13, 14, 15, 16
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace ptah-extension-webview @ptah-extension/dashboard` then `npx nx build ptah-extension-webview` + R7 initial-chunk comparison
 
 ### Task 17.1: `MARKETPLACE_ROUTES` — PENDING
@@ -858,7 +862,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C10 barrel
 - Pattern to follow: `CONVENTIONS.md:42-52`
 - Quality requirements: exports `MARKETPLACE_ROUTES`, `HarnessHealthBadgeComponent`, harness model exports now at `index.ts:24-40`; ≤150 lines; named exports; stale `MarketplaceHubComponent` mentions at `harness.ts:6`, `services.ts:7-15`, `harness-health.store.ts:52` rewritten (D-7).
-- Validation notes: `dashboard/.../harness-card.spec.ts:29` still compiles; eager barrels' export lists unchanged.
+- Validation notes: `dashboard/.../harness-card.spec.ts:29` still compiles; eager barrels' export lists unchanged. The old `ConnectorStatus`/`ConnectorLink` type exports from `connectors-surface.component.ts` disappear with the rewrite; stores are not exported (no consumer outside the lib).
 - Implementation details: no re-export of pages or stores.
 
 ### Task 17.3: App route switch and deletions — PENDING
@@ -910,8 +914,9 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`, `...\app-state.service.spec.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\index.ts`; DELETE `D:\projects\ptah-extension\libs\frontend\core\src\lib\marketplace\marketplace-section.ts`, `...\marketplace-section.spec.ts`
 - Plan reference: implementation-plan.md D2 effect, C1 DELETE, C10
 - Pattern to follow: Task 2.2
-- Quality requirements: `marketplaceActiveProvider` field, computed and setter gone; old exports gone; slice doc comment `:206` updated.
-- Validation notes: repo-wide grep for `marketplaceActiveProvider|encodeMarketplaceTarget|parseMarketplaceTarget|MarketplaceSection` returns nothing outside `.ptah/`.
+- Quality requirements: `marketplaceActiveProvider` field, computed and setter gone; old exports gone; slice doc comment `:206` updated. PLUS the C1 re-request rule (implementation-plan.md:256-272): `setCurrentView(view)` returns without navigating when `normalizeView(view) === currentView()` AND `surfaceRouter.pendingSurface() === null` AND `_settlementOwner === _activeWorkspacePath()`; `requestSurface`/`switchWorkspace` and `navigateToSurface` keep their behaviour.
+- Specs (C1): four new `app-state.service.spec.ts` cases — same surface owned and idle: no navigation call; different surface: navigates; owner `null`: navigates; pending navigation: navigates.
+- Validation notes: repo-wide grep for `marketplaceActiveProvider|encodeMarketplaceTarget|parseMarketplaceTarget|MarketplaceSection` returns nothing outside `.ptah/`; the router-level probe `surface-router.service.spec.ts:702` stays unchanged.
 - Implementation details: none beyond removal.
 
 ### Batch 18 verification
