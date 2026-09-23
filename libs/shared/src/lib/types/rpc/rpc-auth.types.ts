@@ -452,7 +452,22 @@ export type ProbeFailureReason =
   | 'quota-exhausted'
   | 'model-unavailable'
   | 'cancelled'
-  | 'unclassified';
+  | 'unclassified'
+  // `credential: { kind: 'stored' }` but the host holds no key for the
+  // provider. Assigned before the probe starts, outside the precedence table.
+  | 'no-stored-credential'
+  // `credential: { kind: 'stored' }` with a mode or endpoint the key was not
+  // saved for. Refused before the key is read; a typed key is required.
+  | 'stored-credential-mismatch';
+
+/**
+ * Draft probe credential. `apiKey` carries a TRANSIENT typed key; `stored`
+ * asks the host to use the key it already holds for `providerId` — the secret
+ * never crosses the RPC boundary in either direction.
+ */
+export type DraftProbeCredential =
+  | { kind: 'apiKey'; value: string }
+  | { kind: 'stored' };
 
 /** Parameters for auth:verifyDraftConnection RPC method */
 export interface AuthVerifyDraftConnectionParams {
@@ -471,9 +486,11 @@ export interface AuthVerifyDraftConnectionParams {
    * TRANSIENT: the draft credential, held in memory only for the duration of
    * this probe. It is never written to `~/.ptah/settings.json` or the
    * encrypted secrets file, never echoed back, and dropped when the probe
-   * completes, is cancelled, or expires.
+   * completes, is cancelled, or expires. `{ kind: 'stored' }` verifies the
+   * key already stored on the host for `providerId` (Manage / Edit without
+   * re-entry); the host reads it and uses it exactly like a typed draft key.
    */
-  credential?: { kind: 'apiKey'; value: string };
+  credential?: DraftProbeCredential;
   /** Base URL for local and custom providers. */
   baseUrl?: string;
   /** Model to probe with; the provider's default tier when absent. */

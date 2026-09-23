@@ -68,6 +68,11 @@ const PROVIDER = 'moonshot';
 function makeService(opts: {
   configValues?: Record<string, unknown>;
   authEnv?: Partial<AuthEnv>;
+  /**
+   * Active main-agent provider (thirdParty). Defaults to PROVIDER unless
+   * `configValues` sets `authMethod` itself. Env tier writes apply only to it.
+   */
+  activeProvider?: string;
 }): {
   service: ProviderModelsService;
   config: MockConfigManager;
@@ -77,12 +82,21 @@ function makeService(opts: {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues });
   const authEnv: AuthEnv = { ...(opts.authEnv ?? {}) };
+  const configValues = opts.configValues ?? {};
+  const resolverValues =
+    'authMethod' in configValues
+      ? configValues
+      : {
+          authMethod: 'thirdParty',
+          anthropicProviderId: opts.activeProvider ?? PROVIDER,
+          ...configValues,
+        };
 
   const service = new ProviderModelsService(
     logger as unknown as Logger,
     config as unknown as import('@ptah-extension/vscode-core').ConfigManager,
     authEnv,
-    makeActiveProviderResolver(opts.configValues ?? {}),
+    makeActiveProviderResolver(resolverValues),
   );
 
   return { service, config, authEnv, logger };
@@ -193,6 +207,51 @@ describe('ProviderModelsService.setModelTier', () => {
         `provider.${PROVIDER}.mainAgent.modelTier.haiku`,
         'kimi-k2',
       );
+    });
+  });
+
+  // TASK_2026_534 B2-2: "Connect only" saves tiers for a provider the running
+  // main agent is not using; that must not change the running session.
+  describe('mainAgent scope for a provider that is not active', () => {
+    it('persists the tier but leaves process.env and authEnv untouched', async () => {
+      const { service, config, authEnv } = makeService({
+        activeProvider: 'openrouter',
+        authEnv: { [ENV_HAIKU]: 'running-haiku' } as Partial<AuthEnv>,
+      });
+      process.env[ENV_HAIKU] = 'running-haiku';
+      const envBefore = { ...process.env };
+      const authEnvBefore = { ...authEnv };
+
+      await service.setModelTier(PROVIDER, 'haiku', 'kimi-k2', 'mainAgent');
+
+      expect(config.set).toHaveBeenCalledWith(
+        `provider.${PROVIDER}.mainAgent.modelTier.haiku`,
+        'kimi-k2',
+      );
+      expect({ ...process.env }).toEqual(envBefore);
+      expect({ ...authEnv }).toEqual(authEnvBefore);
+    });
+
+    it('applies the saved tier when that provider is activated', async () => {
+      const values: Record<string, unknown> = {};
+      const { service, config } = makeService({ activeProvider: 'openrouter', configValues: values });
+      await service.setModelTier(PROVIDER, 'haiku', 'kimi-k2', 'mainAgent');
+      expect(process.env[ENV_HAIKU]).toBeUndefined();
+      // The value really landed in the store the activation path reads.
+      expect(config.get(`provider.${PROVIDER}.mainAgent.modelTier.haiku`)).toBe('kimi-k2');
+
+      // Auth reset -> strategy.configure -> switchActiveProvider(providerId).
+      service.switchActiveProvider(PROVIDER);
+      expect(process.env[ENV_HAIKU]).toBe('kimi-k2');
+    });
+
+    it('clearing a non-active provider tier leaves the running authEnv entry', async () => {
+      const { service, authEnv } = makeService({
+        activeProvider: 'openrouter',
+        authEnv: { [ENV_HAIKU]: 'running-haiku' } as Partial<AuthEnv>,
+      });
+      await service.clearModelTier(PROVIDER, 'haiku', 'mainAgent');
+      expect(authEnv[ENV_HAIKU as keyof AuthEnv]).toBe('running-haiku');
     });
   });
 
@@ -339,12 +398,42 @@ describe('ProviderModelsService.clearModelTier', () => {
     );
   });
 
-  it('mainAgent scope removes authEnv entry', async () => {
+  // Review round 2, N3: the next SDK launch spreads process.env first, so a
+  // cleared override must leave BOTH env stores on the provider default.
+  it('mainAgent scope on the active provider falls back to the registry default in both env stores', async () => {
+    const fallback = getAnthropicProvider(PROVIDER)?.defaultTiers?.haiku;
+    expect(fallback).toBeTruthy();
     const { service, authEnv } = makeService({
-      authEnv: { [ENV_HAIKU]: 'some-model' } as Partial<AuthEnv>,
+      authEnv: { [ENV_HAIKU]: 'old-override' } as Partial<AuthEnv>,
     });
+    process.env[ENV_HAIKU] = 'old-override';
     await service.clearModelTier(PROVIDER, 'haiku', 'mainAgent');
+    expect(authEnv[ENV_HAIKU as keyof AuthEnv]).toBe(fallback);
+    expect(process.env[ENV_HAIKU]).toBe(fallback);
+  });
+
+  it('mainAgent scope on an active provider with no default removes the tier from both env stores', async () => {
+    const provider = 'openrouter';
+    expect(getAnthropicProvider(provider)?.defaultTiers?.haiku).toBeUndefined();
+    const { service, authEnv } = makeService({
+      activeProvider: provider,
+      authEnv: { [ENV_HAIKU]: 'old-override' } as Partial<AuthEnv>,
+    });
+    process.env[ENV_HAIKU] = 'old-override';
+    await service.clearModelTier(provider, 'haiku', 'mainAgent');
     expect(authEnv[ENV_HAIKU as keyof AuthEnv]).toBeUndefined();
+    expect(process.env[ENV_HAIKU]).toBeUndefined();
+  });
+
+  it('mainAgent scope on a provider that is not active leaves both env stores alone', async () => {
+    const { service, authEnv } = makeService({
+      activeProvider: 'openrouter',
+      authEnv: { [ENV_HAIKU]: 'running-model' } as Partial<AuthEnv>,
+    });
+    process.env[ENV_HAIKU] = 'running-model';
+    await service.clearModelTier(PROVIDER, 'haiku', 'mainAgent');
+    expect(authEnv[ENV_HAIKU as keyof AuthEnv]).toBe('running-model');
+    expect(process.env[ENV_HAIKU]).toBe('running-model');
   });
 
   it('cliAgent scope clears the scoped config key', async () => {
@@ -1243,7 +1332,7 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('publishes the provider model label and description alongside the id', async () => {
-    const { service, authEnv } = makeService({});
+    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1270,7 +1359,7 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('omits the capability allowlist when the provider declares none', async () => {
-    const { service, authEnv } = makeService({});
+    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1297,7 +1386,7 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('emits a comma-separated allowlist when the provider does declare capabilities', async () => {
-    const { service, authEnv } = makeService({});
+    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1323,7 +1412,7 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('clearAllTierEnvVars clears the metadata vars too', async () => {
-    const { service, authEnv } = makeService({});
+    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',

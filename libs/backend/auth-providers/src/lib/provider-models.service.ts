@@ -527,8 +527,10 @@ export class ProviderModelsService {
    *
    * Always persists to the scoped config key.
    * Mutates `this.authEnv` and `process.env` ONLY when `scope === 'mainAgent'`
-   * so that CLI sub-agent configurations cannot poison the main agent's
-   * runtime environment.
+   * AND `providerId` is the active main-agent provider
+   * ({@link resolveActiveProviderId}), so neither CLI sub-agent tiers nor the
+   * saved tiers of a connected-but-inactive provider change the running main
+   * agent. Activation applies saved tiers via {@link switchActiveProvider}.
    *
    * @param providerId - Provider ID
    * @param tier - Sonnet, Opus, or Haiku
@@ -544,7 +546,12 @@ export class ProviderModelsService {
     const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier, scope);
     await this.config.set(configKey, modelId);
-    if (scope === 'mainAgent') {
+    // The env is the RUNNING main agent's. A saved tier for a provider that is
+    // not the active one must not change it; it is applied by
+    // switchActiveProvider -> applyPersistedTiers when that provider is activated.
+    const appliesToRuntime =
+      scope === 'mainAgent' && providerId === this.resolveActiveProviderId();
+    if (appliesToRuntime) {
       this.authEnv[envVar as keyof AuthEnv] = modelId;
       process.env[envVar] = modelId;
       this.applyTierMetadata(providerId, tier, modelId);
@@ -555,7 +562,11 @@ export class ProviderModelsService {
       tier,
       modelId,
       scope,
-      envVar: scope === 'mainAgent' ? envVar : '(not set — cliAgent scope)',
+      envVar: appliesToRuntime
+        ? envVar
+        : scope === 'mainAgent'
+          ? '(not set — provider is not the active main-agent provider)'
+          : '(not set — cliAgent scope)',
     });
   }
 
@@ -605,8 +616,25 @@ export class ProviderModelsService {
     const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier, scope);
     await this.config.set(configKey, undefined);
-    if (scope === 'mainAgent') {
-      delete this.authEnv[envVar as keyof AuthEnv];
+    if (scope === 'mainAgent' && providerId === this.resolveActiveProviderId()) {
+      // Both env stores feed the next SDK launch (`process.env` is spread
+      // first), so fall back to the same default applyPersistedTiers would
+      // pick, or remove the tier and its metadata from both when none exists.
+      const fallback =
+        getAnthropicProvider(providerId)?.defaultTiers?.[tier] ??
+        this.getLiveDerivedTiers(providerId)[tier];
+      if (fallback) {
+        this.authEnv[envVar as keyof AuthEnv] = fallback;
+        process.env[envVar] = fallback;
+        this.applyTierMetadata(providerId, tier, fallback);
+      } else {
+        delete this.authEnv[envVar as keyof AuthEnv];
+        delete process.env[envVar];
+        for (const key of Object.values(TIER_METADATA_ENV_VAR_MAP[tier])) {
+          delete this.authEnv[key as keyof AuthEnv];
+          delete process.env[key];
+        }
+      }
     }
 
     this.logger.info('[ProviderModelsService] Cleared model tier', {

@@ -32,6 +32,7 @@ import {
   type InternalQueryHandle,
 } from '@ptah-extension/agent-sdk';
 import type { AuthVerifyDraftConnectionParams } from '@ptah-extension/shared';
+import { getProviderBaseUrl } from '@ptah-extension/shared';
 import type { CuratorProxyManager } from './curator-proxy-manager';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
@@ -403,14 +404,18 @@ interface ServiceHarness {
   getLiveDerivedTiers: jest.Mock;
 }
 
-function createServiceHarness(): ServiceHarness {
+function createServiceHarness(
+  seed: { credentials?: { apiKey?: string }; providerKeys?: Record<string, string> } = {},
+): ServiceHarness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: {} });
-  const authSecrets = createMockAuthSecretsService();
+  const authSecrets = createMockAuthSecretsService(seed);
 
   const getLiveDerivedTiers = jest.fn(() => ({}) as Record<string, never>);
   const providerModels = {
     getLiveDerivedTiers,
+    // Third-party draft envs layer the provider's main-agent tiers (read-only).
+    getModelTiers: jest.fn(() => ({ sonnet: null, opus: null, haiku: null })),
   } as unknown as ProviderModelsService;
 
   const proxyManager = {
@@ -472,6 +477,7 @@ function createServiceHarness(): ServiceHarness {
       providerModels,
       resolver,
       internalQuery,
+      authSecrets as unknown as IAuthSecretsService,
     ),
     authSecrets,
     config,
@@ -578,5 +584,158 @@ describe('DraftVerificationService.verify — a failed probe writes nothing (pin
     await expect(harness.service.verify(params)).rejects.toThrow(
       'auth:verifyDraftConnection: baseUrl must be a string',
     );
+  });
+});
+// TASK_2026_534 B2-1: Manage / Edit verifies the key the host already holds.
+describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
+  async function startAndCancel(
+    harness: ServiceHarness,
+    params: AuthVerifyDraftConnectionParams,
+  ): Promise<{ result: Awaited<ReturnType<DraftVerificationService['verify']>>; probeAuth: unknown }> {
+    const pending = harness.service.verify(params);
+    for (let spins = 0; spins < 50 && harness.execute.mock.calls.length === 0; spins++) {
+      await Promise.resolve();
+    }
+    const probeAuth = harness.execute.mock.calls[0]?.[0].auth;
+    harness.service.cancel({ probeId: params.probeId });
+    return { result: await pending, probeAuth };
+  }
+
+  it('probes a third-party provider with its stored key and writes nothing anywhere', async () => {
+    const harness = createServiceHarness({ providerKeys: { moonshot: 'sk-stored-moonshot' } });
+    const envBefore = { ...process.env };
+    const configBefore = harness.config.__snapshot();
+    const secretsBefore = [...harness.authSecrets.__dumpProviderKeys()];
+
+    const { result, probeAuth } = await startAndCancel(harness, {
+      probeId: 'probe-stored',
+      providerId: 'moonshot',
+      authMode: 'apiKey',
+      credential: { kind: 'stored' },
+    });
+
+    // The stored key reached ONLY the per-call override handed to the runner.
+    expect(harness.execute).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(probeAuth)).toContain('sk-stored-moonshot');
+    // It never comes back over the wire.
+    expect(JSON.stringify(result)).not.toContain('sk-stored-moonshot');
+    // Isolation: env, settings and secrets identical before/after.
+    expect(process.env).toEqual(envBefore);
+    expect(harness.config.__snapshot()).toEqual(configBefore);
+    expect([...harness.authSecrets.__dumpProviderKeys()]).toEqual(secretsBefore);
+    expectNothingWritten(harness);
+  });
+
+  it('reads the Anthropic apiKey credential for the direct Claude API', async () => {
+    const harness = createServiceHarness({ credentials: { apiKey: 'sk-ant-stored' } });
+    const { probeAuth } = await startAndCancel(harness, {
+      probeId: 'probe-stored-anthropic',
+      providerId: 'anthropic',
+      authMode: 'apiKey',
+      credential: { kind: 'stored' },
+    });
+    expect(JSON.stringify(probeAuth)).toContain('sk-ant-stored');
+    expect(harness.authSecrets.getProviderKey).not.toHaveBeenCalled();
+    expectNothingWritten(harness);
+  });
+
+  it('answers a typed no-stored-credential result instead of throwing', async () => {
+    const harness = createServiceHarness();
+    const result = await harness.service.verify({
+      probeId: 'probe-none',
+      providerId: 'moonshot',
+      authMode: 'apiKey',
+      credential: { kind: 'stored' },
+    });
+    expect(result).toEqual({
+      probeId: 'probe-none',
+      outcome: 'failed',
+      reason: 'no-stored-credential',
+      detail: 'No key is stored for this provider. Enter a key to verify.',
+      latencyMs: null,
+      modelUsed: null,
+      checkedAt: expect.any(String),
+    });
+    expect(harness.execute).not.toHaveBeenCalled();
+    expectNothingWritten(harness);
+  });
+
+  // Review round 2, N1: a stored key only travels to the endpoint it was saved for.
+  it.each([
+    ['a foreign base URL on a registry provider', {
+      providerId: 'moonshot', authMode: 'apiKey', baseUrl: 'https://provider-b.invalid',
+    }],
+    ['custom mode on a registry provider', {
+      providerId: 'moonshot', authMode: 'custom', baseUrl: 'https://provider-b.invalid',
+    }],
+    ['custom mode on the direct Claude API', {
+      providerId: 'anthropic', authMode: 'custom', baseUrl: 'https://provider-b.invalid',
+    }],
+    ['any base URL on the direct Claude API', {
+      providerId: 'anthropic', authMode: 'apiKey', baseUrl: 'https://api.anthropic.com',
+    }],
+  ] as const)('refuses %s before the stored key is read', async (_label, target) => {
+    const harness = createServiceHarness({
+      providerKeys: { moonshot: 'sk-stored-moonshot' },
+      credentials: { apiKey: 'sk-ant-stored' },
+    });
+    const result = await harness.service.verify({
+      probeId: 'probe-bound',
+      ...target,
+      credential: { kind: 'stored' },
+    });
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'stored-credential-mismatch' });
+    expect(harness.execute).not.toHaveBeenCalled();
+    expect(harness.authSecrets.getProviderKey).not.toHaveBeenCalled();
+    expect(harness.authSecrets.getCredential).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toMatch(/sk-(stored|ant)/);
+    expectNothingWritten(harness);
+  });
+
+  it('accepts the saved endpoint (trailing slash ignored) and probes only that endpoint', async () => {
+    const harness = createServiceHarness({ providerKeys: { moonshot: 'sk-stored-moonshot' } });
+    const { probeAuth } = await startAndCancel(harness, {
+      probeId: 'probe-saved-url',
+      providerId: 'moonshot',
+      authMode: 'apiKey',
+      baseUrl: 'https://api.moonshot.ai/anthropic',
+      credential: { kind: 'stored' },
+    });
+    const serialized = JSON.stringify(probeAuth);
+    expect(serialized).toContain('sk-stored-moonshot');
+    expect(serialized).toContain('https://api.moonshot.ai/anthropic/');
+    expect(serialized).not.toContain('provider-b.invalid');
+  });
+
+  // Round 3, N4: local modes only attach a key on the draft-URL branch, so the
+  // binding must keep the SAVED URL or the stored key silently drops out.
+  it.each(['local-native', 'local-proxy'] as const)(
+    'keeps the stored key for %s by probing the saved endpoint',
+    async (authMode) => {
+      const saved = getProviderBaseUrl('ollama-cloud');
+      const harness = createServiceHarness({ providerKeys: { 'ollama-cloud': 'sk-stored-ollama' } });
+      const { probeAuth } = await startAndCancel(harness, {
+        probeId: `probe-${authMode}`,
+        providerId: 'ollama-cloud',
+        authMode,
+        credential: { kind: 'stored' },
+      });
+      const serialized = JSON.stringify(probeAuth);
+      expect(serialized).toContain('sk-stored-ollama');
+      expect(serialized).toContain(saved);
+      expectNothingWritten(harness);
+    },
+  );
+
+  it('rejects a stored credential for modes that carry no key', async () => {
+    const harness = createServiceHarness({ providerKeys: { 'github-copilot': 'x' } });
+    await expect(
+      harness.service.verify({
+        probeId: 'probe-oauth',
+        providerId: 'github-copilot',
+        authMode: 'oauth',
+        credential: { kind: 'stored' },
+      }),
+    ).rejects.toThrow('key-carrying modes only');
   });
 });
