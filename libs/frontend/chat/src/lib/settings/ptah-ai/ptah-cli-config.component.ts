@@ -1,12 +1,38 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { ProvidersSettingsStateService, type ProvidersEditContext, type ProvidersSettingsPatch } from '@ptah-extension/core';
 import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
+import {
+  CLI_REASONING_EFFORT_VALUES,
+  PI_REASONING_EFFORT_VALUES,
+  type AgentListCliModelsResult,
+} from '@ptah-extension/shared';
 import { SettingScopeRowComponent } from '../providers/setting-scope-row.component';
 type DelegatedModelKey = 'codexModel' | 'copilotModel' | 'cursorModel' | 'antigravityModel' | 'opencodeModel' | 'piModel'
   | 'codexReasoningEffort' | 'copilotReasoningEffort' | 'piReasoningEffort';
+interface DelegatedOption { readonly value: string; readonly label: string; readonly disabled?: boolean }
+const EFFORT_LABELS: Readonly<Record<string, string>> = {
+  '': 'Provider default', off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
+};
+const effortOptions = (values: readonly string[]): readonly DelegatedOption[] =>
+  values.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }));
+/** Codex/Copilot: the host allowlist (agent:setConfig), = AgentSpawnEnvironment.mapEffortToCli (minimal..xhigh). */
+const CLI_EFFORT_OPTIONS = effortOptions(CLI_REASONING_EFFORT_VALUES);
+/** Pi: passed raw to `pi --thinking`, which takes off..max; the host rejects anything else. */
+const PI_EFFORT_OPTIONS = effortOptions(PI_REASONING_EFFORT_VALUES);
+/** Select value shown while a saved effort is unsupported; never saved. */
+const UNSUPPORTED_EFFORT = '__unsupported__';
+/** Delegated CLI name per setting; the key into agent:listCliModels. */
+const DELEGATED_CLI: Readonly<Record<DelegatedModelKey, keyof AgentListCliModelsResult>> = {
+  codexModel: 'codex', copilotModel: 'copilot', cursorModel: 'cursor', antigravityModel: 'antigravity', opencodeModel: 'opencode', piModel: 'pi',
+  codexReasoningEffort: 'codex', copilotReasoningEffort: 'copilot', piReasoningEffort: 'pi',
+};
 const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-muted bg-base-100 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
+
+function effortValues(key: DelegatedModelKey): readonly string[] {
+  return key === 'piReasoningEffort' ? PI_REASONING_EFFORT_VALUES : CLI_REASONING_EFFORT_VALUES;
+}
 
 /** The CLI instance manager, mounted only inside Providers. */
 @Component({ selector: 'ptah-cli-config', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -88,15 +114,27 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                 <p>{{ choice.name }}: {{ state.orchestration().data?.[choice.key] || 'Provider default' }}</p>
                 <ptah-setting-scope-row [fieldName]="choice.name" [scope]="state.scopeEntry('agentOrchestration.' + choice.key)?.scope ?? null" [disabled]="true" />
                 @if (delegatedDraft()?.key === choice.key) {
+                  <label [for]="'providers-' + choice.key">{{ choice.name }}</label>
+                  <select [id]="'providers-' + choice.key" [class]="field" [value]="delegatedDraft()?.value ?? ''" (change)="setDelegatedModel(choice.key, $event)"
+                    [disabled]="saving()">
+                    @for (option of delegatedOptions(choice.key); track option.value) {
+                      <option [value]="option.value" [disabled]="option.disabled ?? false" [selected]="option.value === (delegatedDraft()?.value ?? '')">{{ option.label }}</option>
+                    }
+                  </select>
+                  @if (delegatedDraft()?.value === unsupportedEffort) {
+                    <p role="alert" [attr.data-testid]="'invalid-effort-' + choice.key">
+                      The saved value "{{ state.orchestration().data?.[choice.key] }}" is not supported. Choose a supported value, or Provider default to reset it.
+                    </p>
+                  }
                   @if (choice.key.endsWith('Model')) {
-                    <ptah-provider-model-picker [fixedProvider]="delegatedProvider(choice.key)" [model]="delegatedDraft()?.value ?? ''" [label]="choice.name"
-                      [disabled]="saving()" (selectionChange)="delegatedDraft.set({ key: choice.key, value: $event.model })" />
-                  } @else {
-                    <label [for]="'providers-' + choice.key">{{ choice.name }}</label>
-                    <input [id]="'providers-' + choice.key" [class]="field" [value]="delegatedDraft()?.value ?? ''" (input)="setDelegatedModel(choice.key, $event)" />
+                    @if (state.delegatedModelOptions().status === 'loading') { <p role="status">Loading {{ choice.name }} list…</p> }
+                    @if (state.delegatedModelOptions().status === 'error') {
+                      <p role="alert">The model list could not be loaded. Retry, or keep the provider default.</p>
+                      <button type="button" [class]="control" (click)="state.refreshDelegatedModelOptions()">Retry {{ choice.name }} list</button>
+                    }
                   }
                   <p>Leave empty to use the provider default. Saved globally for delegated work.</p>
-                  <button type="button" [class]="control" (click)="saveDelegatedModel()" [disabled]="saving()">Save {{ choice.name }}</button>
+                  <button type="button" [class]="control" (click)="saveDelegatedModel()" [disabled]="saving() || delegatedDraft()?.value === unsupportedEffort">Save {{ choice.name }}</button>
                   <button type="button" [class]="control" (click)="delegatedDraft.set(null)" [disabled]="saving()">Cancel {{ choice.name }} edit</button>
                 } @else {
                   <button type="button" [class]="control" (click)="editDelegatedModel(choice.key)" [disabled]="saving()">Edit {{ choice.name }}</button>
@@ -109,7 +147,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
 `,
 })
 export class PtahCliConfigComponent implements OnDestroy {
-  readonly autoOpenProviderId = input<string>('');
   protected readonly state = inject(ProvidersSettingsStateService);
   protected readonly control = CONTROL;
   protected readonly field = FIELD;
@@ -118,7 +155,6 @@ export class PtahCliConfigComponent implements OnDestroy {
   private delegatedContext: ProvidersEditContext | null = null;
   private cliCreateContext: ProvidersEditContext | null = null;
   private cliModelContext: ProvidersEditContext | null = null;
-  private openedProvider = '';
   protected readonly delegatedDraft = signal<{ key: DelegatedModelKey; value: string } | null>(null);
   protected readonly delegatedModels: readonly { key: DelegatedModelKey; name: string }[] = [
     { key: 'codexModel', name: 'Codex model' }, { key: 'copilotModel', name: 'Copilot model' }, { key: 'cursorModel', name: 'Cursor model' },
@@ -138,14 +174,6 @@ export class PtahCliConfigComponent implements OnDestroy {
       (provider.authMode !== 'apiKey' || !!this.cliKey().trim()) && !this.saving();
   });
 
-  constructor() {
-    effect(() => {
-      const provider = this.autoOpenProviderId();
-      if (provider && provider !== this.openedProvider && this.canStartSetup()) {
-        this.openedProvider = provider; this.cliProvider.set(provider); this.beginCliCreate();
-      }
-    });
-  }
   ngOnDestroy(): void { this.cliKey.set(''); this.editKey.set(''); this.cursorKey.set(''); }
   protected readonly editId = signal<string | null>(null);
   protected readonly editName = signal('');
@@ -193,16 +221,34 @@ export class PtahCliConfigComponent implements OnDestroy {
     await this.state.saveSettings({ cli: [{ action: 'update', params: { id: draft.id, selectedModel: draft.model } }] }, this.cliModelContext);
     if (this.state.commit().status === 'saved' && this.state.cliModels().status === 'ready') this.cliModelDraft.set(null);
   }
+  protected readonly unsupportedEffort = UNSUPPORTED_EFFORT;
   protected editDelegatedModel(key: DelegatedModelKey): void {
     this.delegatedContext = this.state.reviewContext();
-    this.delegatedDraft.set({ key, value: this.state.orchestration().data?.[key] ?? '' });
+    const saved = this.state.orchestration().data?.[key] ?? '';
+    // An unsupported saved effort (e.g. from the old free-text field) is never offered as a choice.
+    const invalidEffort = key.endsWith('ReasoningEffort') && !effortValues(key).includes(saved);
+    this.delegatedDraft.set({ key, value: invalidEffort ? UNSUPPORTED_EFFORT : saved });
+    if (key.endsWith('Model') && this.state.delegatedModelOptions().status !== 'ready') void this.state.refreshDelegatedModelOptions();
   }
-  protected delegatedProvider(key: DelegatedModelKey): string {
-    return key === 'codexModel' ? 'openai-codex' : key === 'copilotModel' ? 'github-copilot' : key.replace(/Model$/, '');
+  /**
+   * Models: a saved id missing from the catalogue stays selectable, so opening the editor never changes it.
+   * Effort: only supported values; an unsupported saved value shows a disabled placeholder and a message.
+   */
+  protected delegatedOptions(key: DelegatedModelKey): readonly DelegatedOption[] {
+    if (key.endsWith('ReasoningEffort')) {
+      const options = key === 'piReasoningEffort' ? PI_EFFORT_OPTIONS : CLI_EFFORT_OPTIONS;
+      return this.delegatedDraft()?.value === UNSUPPORTED_EFFORT
+        ? [{ value: UNSUPPORTED_EFFORT, label: 'Unsupported saved value', disabled: true }, ...options]
+        : options;
+    }
+    const saved = this.state.orchestration().data?.[key] ?? '';
+    const options: readonly DelegatedOption[] = [{ value: '', label: 'Provider default' },
+      ...(this.state.delegatedModelOptions().data?.[DELEGATED_CLI[key]] ?? []).map((model) => ({ value: model.id, label: model.name || model.id }))];
+    return !saved || options.some((option) => option.value === saved) ? options : [...options, { value: saved, label: `${saved} (saved)` }];
   }
   protected setDelegatedModel(key: DelegatedModelKey, event: Event): void { this.delegatedDraft.set({ key, value: this.inputValue(event) }); }
   protected async saveDelegatedModel(): Promise<void> {
-    const draft = this.delegatedDraft(); if (!draft || !this.delegatedContext) return;
+    const draft = this.delegatedDraft(); if (!draft || !this.delegatedContext || draft.value === UNSUPPORTED_EFFORT) return;
     await this.state.saveSettings({ orchestration: { [draft.key]: draft.value.trim() } }, this.delegatedContext);
     if (this.state.commit().status === 'saved') this.delegatedDraft.set(null);
   }

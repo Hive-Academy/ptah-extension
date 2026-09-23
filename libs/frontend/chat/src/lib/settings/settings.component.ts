@@ -5,6 +5,8 @@ import {
   signal,
   OnInit,
   viewChild,
+  effect,
+  untracked,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -99,15 +101,13 @@ export class SettingsComponent implements OnInit {
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
-  /**
-   * Provider id carried by a deep-link into the settings page (e.g. the
-   * tribunal panel's "Configure" action). Forwarded to PtahCliConfigComponent
-   * so it auto-opens the add form pre-selected to that provider.
-   */
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
 
-
-
+  /**
+   * Provider id carried by a deep-link into the settings page (e.g. the
+   * tribunal panel's "Configure" action). Forwarded to ProvidersSettingsComponent,
+   * which opens the setup wizard for that provider.
+   */
   readonly requestedProviderId = signal<string | undefined>(undefined);
 
   readonly isElectron = this.vscodeService.isElectron;
@@ -116,14 +116,34 @@ export class SettingsComponent implements OnInit {
    * Initialize: Load auth status on component mount.
    * Auth status is loaded via AuthStateService.
    */
+  constructor() {
+    // A request raised while Settings is already open (e.g. Agent Orchestration's
+    // "Manage ... in Providers") never re-runs ngOnInit, so react to it here.
+    effect(() => {
+      if (this.appState.pendingSettingsTab()) untracked(() => this.applyPendingTab());
+    });
+  }
+
   async ngOnInit(): Promise<void> {
-    const pending = this.appState.consumePendingSettingsTab();
-    if (pending) {
-      this.setActiveTab(pending.providerId || pending.section ? 'providers' : pending.tab);
-      this.providersTarget.set(pending.section ?? (pending.tab === 'orchestration' && pending.providerId ? 'cli-agents' : 'main-agent'));
-      this.requestedProviderId.set(pending.providerId);
-    }
+    this.applyPendingTab();
     await this.authState.loadAuthStatus();
+  }
+
+  /**
+   * The Providers page opened the wizard for the deep-linked provider: consume
+   * the request (like `consumePendingSettingsTab`) so leaving and returning to
+   * the Providers tab does not reopen it.
+   */
+  consumeRequestedProvider(providerId: string): void {
+    if (this.requestedProviderId() === providerId) this.requestedProviderId.set(undefined);
+  }
+
+  private applyPendingTab(): void {
+    const pending = this.appState.consumePendingSettingsTab();
+    if (!pending) return;
+    this.setActiveTab(pending.providerId || pending.section ? 'providers' : pending.tab);
+    this.providersTarget.set(pending.section ?? (pending.tab === 'orchestration' && pending.providerId ? 'cli-agents' : 'main-agent'));
+    this.requestedProviderId.set(pending.providerId);
   }
 
   /**

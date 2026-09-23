@@ -1,6 +1,6 @@
 import {
   ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit,
-  afterRenderEffect, computed, inject, input, signal,
+  afterRenderEffect, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
 import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
@@ -80,7 +80,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                     @switch (route.resolvedModel.kind) {
                       @case ('model') { <p class="break-all">Model: {{ route.resolvedModel.id }}</p> }
                       @case ('tier') { <p>Model tier: {{ route.resolvedModel.tier }}</p> }
-                      @case ('unresolved') { <p>Model has not been resolved.</p> }
+                      @case ('unresolved') { <p>Default model (chosen by Claude)</p> }
                     }
                   } @else { <p>Choose a provider to start the main agent.</p> }
                 }
@@ -169,12 +169,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
               (signInRequested)="externalAction(connection.id, 'sign-in')" (retryRequested)="state.checkConnection()"
               (editConnectionRequested)="openWizard(connection.id)" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
               (installInstructionsRequested)="externalAction(connection.id, 'cli-login')" (checkConnectionRequested)="state.checkConnection()" />
-            @if (connection.authMode === 'oauth' || connection.authMode === 'cli') {
-              <div class="flex flex-wrap gap-2">
-                <button type="button" [class]="control" (click)="externalAction(connection.id, 'sign-in')">Sign in to {{ connection.name }}</button>
-                <button type="button" [class]="control" (click)="externalAction(connection.id, 'cli-check')">Check {{ connection.name }} sign-in</button>
-              </div>
-            }
           }
         </section>
 
@@ -182,6 +176,9 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           <section class="rounded-md border border-base-content-muted p-3 space-y-3" aria-label="Review main provider change">
             <h3 class="font-semibold">Use {{ providerName(id) }} for new main-agent requests.</h3>
             <p>Background consumers that inherit the main provider will follow this route. Existing requests keep their current route.</p>
+            @if (isUncheckable(id)) {
+              <p data-testid="activation-unchecked-note">Ptah cannot check this connection before use. If new requests fail, check that {{ providerName(id) }} is running and reachable.</p>
+            }
             <label for="providers-route-target">Save to</label>
             <select id="providers-route-target" [class]="field" [value]="saveTarget()" (change)="setTarget($event)">
               @for (target of state.writeScopes('authMethod'); track target) { <option [value]="target">{{ scopeLabel(target) }}</option> }
@@ -211,7 +208,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
             (setupProviderRequested)="openWizard($event)" (assignmentSaved)="state.refresh()" (timeoutSaved)="state.refreshJudging()" />
         </section>
 
-        <ptah-cli-config [autoOpenProviderId]="requestedProviderId()" />
+        <ptah-cli-config />
 
         <details #catalogDisclosure class="rounded-xl border border-base-300 bg-base-100" [open]="catalogOpen()">
           <summary data-focus="more-providers" class="min-h-9 min-w-6 p-3 font-semibold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content">More providers</summary>
@@ -253,18 +250,23 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
       </div>
     </div>
     @if (wizardOpen()) {
-      <ptah-provider-setup-wizard [open]="true" [deepLinkProviderId]="wizardProviderId()"
+      <!-- One wizard instance per setup session: a deep link applied right after a close must start fresh. -->
+      @for (session of [wizardSession()]; track session) {
+      <ptah-provider-setup-wizard [open]="true" [deepLinkProviderId]="wizardProviderId()" [existingCredentialPresent]="wizardCredentialStored()"
         [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
         [supportedSaveTargets]="globalTarget" [workspaceName]="workspaceName()" [mainRouteExists]="mainRouteExists()"
         [defaultsResolvable]="wizardDefaults()" [externalAuth]="wizardExternalAuth()" [externalMessage]="state.externalAuth().data?.message ?? null"
         [initialSetup]="state.connectionSetup().status === 'ready' ? state.connectionSetup().data : null" [contextChanged]="wizardContextChanged()" [commitDetail]="wizardCommitDetail()"
         (providerChanged)="selectWizardProvider($event)" (reviewContextRequested)="reviewWizardContext()" [commitState]="wizardCommitState()"
         (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction($event.providerId, $event.action)" />
+      }
     }
   `,
 })
 export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderId = input<string>('');
+  /** Emitted once the wizard was opened for {@link requestedProviderId}. */
+  readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -277,6 +279,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly catalogOpen = signal(false);
   protected readonly wizardOpen = signal(false);
   protected readonly wizardProviderId = signal('');
+  /** Incremented per openWizard: keys the wizard instance so every setup session starts from a clean draft. */
+  protected readonly wizardSession = signal(0);
   protected readonly wizardCommitState = signal<WizardCommitState>('idle');
   protected readonly modelDraft = signal<string | null>(null);
   protected readonly effortDraft = signal<EffortLevel | '' | null>(null);
@@ -297,6 +301,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private readonly wizardContext = signal<ProvidersEditContext | null>(null);
   private readonly selectedWizardProvider = signal('');
   protected readonly wizardDefaults = computed(() => this.state.connections().data?.find((entry) => entry.id === this.selectedWizardProvider())?.defaultsResolvable ?? false);
+  /** From auth:getApiKeyStatus (third-party) / auth:getAuthStatus.hasApiKey (Claude API), via connections. */
+  protected readonly wizardCredentialStored = computed(() => this.state.connections().data?.find((entry) => entry.id === this.selectedWizardProvider())?.hasKey === true);
   protected readonly wizardExternalAuth = computed(() => {
     const auth = this.state.externalAuth();
     if (auth.data?.providerId !== this.selectedWizardProvider()) return { signInState: 'idle' as const, accountLabel: null, cliInstalled: null };
@@ -312,6 +318,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return [result.saved.length ? 'Saved: ' + result.saved.join(', ') : '', result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '', result.unconfirmed.length ? 'Not confirmed: ' + result.unconfirmed.join(', ') : '', result.message].filter(Boolean).join('. ');
   });
   private returnFocus: HTMLElement | null = null;
+  /** Deep-linked provider handed to the open wizard and not yet accepted by it. */
+  private deepLinkAwaitingAcceptance: string | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly workspaceName = computed(() => this.state.scopes().data?.activePath?.split(/[\\/]/).filter(Boolean).pop() ?? null);
   protected readonly mainGroupKeys = computed(() => [...this.mainKeys,
@@ -352,6 +360,24 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   ]);
 
   constructor() {
+    // Deep link (e.g. Tribunal "Configure"): open setup for that provider once setup can start.
+    // - While the wizard is open (on any provider) a request stays PENDING and is applied when the
+    //   wizard closes; an open draft is never switched away from under the user.
+    // - The request is reported consumed only once the wizard has accepted the provider
+    //   (see selectWizardProvider), or when that wizard session is dismissed.
+    // - The guard is per request: when the parent clears the input, a fresh request for the same
+    //   provider opens again, while an unrelated re-render with the same request does not.
+    let openedFor = '';
+    effect(() => {
+      const provider = this.requestedProviderId();
+      if (!provider) { openedFor = ''; return; }
+      if (provider === openedFor || !this.canStartSetup() || this.wizardOpen()) return;
+      openedFor = provider;
+      untracked(() => {
+        this.deepLinkAwaitingAcceptance = provider;
+        this.openWizard(provider);
+      });
+    });
     afterRenderEffect(() => {
       if (this.focusTarget() !== this.lastInputFocus) {
         this.lastInputFocus = this.focusTarget(); this.localFocus.set(null); this.focusedTarget = null;
@@ -401,12 +427,17 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     if (this.state.route().status !== 'ready') return this.state.route().status === 'loading' ? 'checking' : 'check-unavailable';
     return this.state.route().data?.providers.find((provider) => provider.id === entry.id)?.status ?? 'not-checked';
   }
-  /** Per-provider probe verdict from the effective route. */
-  protected hasProbeEvidence(id: string): boolean {
+  /** Per-provider verdict from the effective route; null when the host cannot check it (skipped/unknown). */
+  protected hasProbeEvidence(id: string): boolean | null {
     const route = this.state.route();
     if (route.status !== 'ready') return false;
+    if (this.isUncheckable(id)) return null;
     const status = route.data?.providers.find((provider) => provider.id === id)?.status;
     return status === 'connected' || status === 'reachable';
+  }
+  protected isUncheckable(id: string): boolean {
+    const status = this.state.route().data?.providers.find((provider) => provider.id === id)?.status;
+    return status === 'skipped' || status === 'unknown';
   }
   protected isBlocked(id: string): boolean { return this.state.route().status === 'ready' && this.state.route().data?.driverProviderId === id && !this.state.route().data?.ready; }
   protected requestFocus(target: ProvidersSettingsFocusTarget): void {
@@ -418,6 +449,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardContext.set(this.state.reviewContext());
     this.returnFocus = this.element.nativeElement.ownerDocument.activeElement as HTMLElement | null;
     this.wizardProviderId.set(providerId);
+    this.wizardSession.update((session) => session + 1);
     this.wizardCommitState.set('idle');
     this.feedback.set(null);
     this.wizardOpen.set(true);
@@ -442,6 +474,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected selectWizardProvider(providerId: string): void {
     this.selectedWizardProvider.set(providerId);
     if (!providerId) return;
+    if (providerId === this.deepLinkAwaitingAcceptance) this.consumeDeepLink();
     void this.state.refreshConnectionSetup(providerId);
     const connection = this.state.connections().data?.find((entry) => entry.id === providerId);
     if (connection?.authMode === 'oauth' || connection?.authMode === 'cli') this.externalAction(providerId, 'cli-check');
@@ -451,7 +484,16 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardContext.set(this.state.reviewContext());
     this.wizardCommitState.set('idle');
   }
+  /** One-shot: the parent clears the request so a re-mounted page does not reopen it. */
+  private consumeDeepLink(): void {
+    const provider = this.deepLinkAwaitingAcceptance;
+    if (!provider) return;
+    this.deepLinkAwaitingAcceptance = null;
+    this.requestedProviderConsumed.emit(provider);
+  }
   protected closeWizard(): void {
+    // A deep link the wizard could not select (e.g. an unknown id) is still handled once dismissed.
+    this.consumeDeepLink();
     this.wizardOpen.set(false);
     this.wizardContext.set(null);
     this.feedback.set(this.wizardCommitState() === 'saved' ? 'Connection settings saved.' : 'Setup closed. External sign-in, if completed, remains available.');

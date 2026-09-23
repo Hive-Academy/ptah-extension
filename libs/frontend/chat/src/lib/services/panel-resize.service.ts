@@ -10,7 +10,7 @@
  *
  * Constraints:
  *   - MIN_WIDTH: 300px (usable agent card display)
- *   - MAX_WIDTH_RATIO: 60% of the *container* (prevents chat area collapse)
+ *   - MAX_WIDTH_RATIO: 75% of the *container* (prevents chat area collapse)
  *
  * Scope: provided by `ChatViewComponent` so each canvas tile owns its own
  * panel width. The root-level fallback serves standalone monitor panels.
@@ -19,7 +19,7 @@
 import { Injectable, signal } from '@angular/core';
 
 const MIN_WIDTH = 300;
-const MAX_WIDTH_RATIO = 0.6;
+const MAX_WIDTH_RATIO = 0.75;
 
 @Injectable({ providedIn: 'root' })
 export class PanelResizeService {

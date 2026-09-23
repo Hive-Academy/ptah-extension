@@ -69,16 +69,8 @@ const PRESETS: ReadonlyArray<{
         [disabled]="disabled()"
         [attr.aria-expanded]="isOpen()"
         [attr.aria-haspopup]="'true'"
-        [attr.aria-label]="
-          isSingleton()
-            ? 'Layout controls not applicable for a single session'
-            : 'Layout options'
-        "
-        [title]="
-          isSingleton()
-            ? 'Layout controls require multiple sessions'
-            : 'Layout options'
-        "
+        aria-label="Layout options"
+        title="Layout options"
         (click)="toggleOpen()"
       >
         <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
@@ -150,15 +142,15 @@ export class CanvasLayoutControlsComponent {
     const count = this.tileCount();
     return count !== null && count <= 1;
   });
-  readonly disabled = computed(() => this.isSingleton());
+  readonly disabled = computed(() => this.tileCount() === 0);
   readonly presetActionsDisabled = computed(
     () => this.locked() || this.isSingleton(),
   );
-  readonly lockActionDisabled = computed(() => this.isSingleton());
+  readonly lockActionDisabled = computed(() => this.disabled());
 
   constructor() {
     effect(() => {
-      if (this.isSingleton()) {
+      if (this.disabled()) {
         untracked(() => this.isOpen.set(false));
       }
     });
@@ -187,7 +179,7 @@ export class CanvasLayoutControlsComponent {
   }
 
   protected handleToggleLock(): void {
-    if (this.isSingleton()) return;
+    if (this.lockActionDisabled()) return;
     this.lockToggled.emit();
   }
 }

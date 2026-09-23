@@ -59,7 +59,31 @@ import type {
   SessionId,
   TabId,
 } from '@ptah-extension/shared';
+import {
+  CLI_REASONING_EFFORT_VALUES,
+  PI_REASONING_EFFORT_VALUES,
+} from '@ptah-extension/shared';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
+
+/**
+ * Host-boundary allowlist for reasoning-effort writes. Pi's value reaches
+ * `pi --thinking` unchanged, so an unsupported value must never be persisted.
+ * Returns the first invalid field, or null.
+ */
+function invalidReasoningEffort(params: AgentSetConfigParams): string | null {
+  const checks: ReadonlyArray<[keyof AgentSetConfigParams, readonly string[]]> = [
+    ['codexReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+    ['copilotReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+    ['piReasoningEffort', PI_REASONING_EFFORT_VALUES],
+  ];
+  for (const [field, allowed] of checks) {
+    const value = params[field];
+    if (value !== undefined && (typeof value !== 'string' || !allowed.includes(value))) {
+      return field;
+    }
+  }
+  return null;
+}
 
 @injectable()
 export class AgentRpcHandlers {
@@ -235,7 +259,18 @@ export class AgentRpcHandlers {
       { success: boolean; error?: string }
     >('agent:setConfig', async (params) => {
       try {
-        this.logger.debug('RPC: agent:setConfig called', { params });
+        // Field names only: params can carry credentials such as cursorApiKey.
+        this.logger.debug('RPC: agent:setConfig called', {
+          fields: Object.keys(params ?? {}),
+        });
+        // Validate before ANY write so a rejected request changes nothing.
+        const invalidEffort = invalidReasoningEffort(params);
+        if (invalidEffort) {
+          return {
+            success: false,
+            error: `Unsupported ${invalidEffort} value`,
+          };
+        }
         if (params.preferredAgentOrder !== undefined) {
           await this.setAgentCfg(
             'preferredAgentOrder',

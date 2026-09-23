@@ -63,13 +63,14 @@ test.describe('Canvas', () => {
     await tileShell.click();
     await expect(tileShell).toHaveAttribute('data-focused', 'true');
 
-    // Layout controls are disabled as inapplicable for singleton session
+    // A single tile keeps its width and can be locked, so layout controls stay
+    // available (only presets/reorder are inapplicable, inside the menu).
     await expect(
       page.locator('[data-testid="canvas-dock"]').getByRole('button', {
-        name: 'Layout controls not applicable for a single session',
+        name: 'Layout options',
         exact: true,
       }),
-    ).toBeDisabled();
+    ).toBeEnabled();
 
     // Navigate away to a different view and back — the tile must persist.
     await ui.goto('dashboard');

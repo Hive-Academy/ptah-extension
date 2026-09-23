@@ -1211,7 +1211,117 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('singleton session and 1->2->1 keep-alive', () => {
-    it('sets noMove and noResize on singleton items and applies singleton class', () => {
+    it.each([
+      ['third', 4],
+      ['half', 6],
+      ['two-thirds', 8],
+      ['full', 12],
+    ] as const)('applies the singleton menu span %s immediately', (span, w) => {
+      mount(['tab-1']);
+      const tile = fixture.debugElement.query(By.directive(CanvasTileStub))
+        .componentInstance as CanvasTileStub;
+      tile.spanRequested.emit(span);
+      flush();
+      expect(store.tiles()[0].width).toEqual({ kind: 'span', span });
+      expect(tile.widthIntent).toEqual({ kind: 'span', span });
+      expect(grid.engine.nodes[0]).toMatchObject({ x: 0, y: 0, w, h: 6 });
+    });
+
+    it.each([
+      [{ kind: 'auto', weight: 1 }, 12],
+      [{ kind: 'auto', weight: 5 }, 12],
+      [{ kind: 'span', span: 'third' }, 4],
+      [{ kind: 'span', span: 'half' }, 6],
+    ] as const)(
+      'restores persisted width %j without changing its intent',
+      (width, w) => {
+        jest
+          .spyOn(TestBed.inject(CanvasLayoutPersistenceService), 'load')
+          .mockReturnValue({
+            tiles: [{ tabId: 'tab-1', order: 0, width, rowBreakBefore: false }],
+            writable: true,
+            needsWrite: false,
+          });
+        mount(['tab-1']);
+        expect(store.tiles()[0].width).toEqual(width);
+        expect(grid.engine.nodes[0]).toMatchObject({ w, h: 6 });
+      },
+    );
+
+    it('commits a singleton edge resize and keeps the snapped span after reflow', () => {
+      mount(['tab-1']);
+      grid.engine.nodes[0].w = 7;
+      fireResizeStop();
+      grid.emitChange();
+      flush();
+      expect(resizeSpanSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        'tab-1',
+        'two-thirds',
+      );
+      expect(store.tiles()[0].width).toEqual({
+        kind: 'span',
+        span: 'two-thirds',
+      });
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 8, h: 6 });
+      expect(reorderSpy).not.toHaveBeenCalled();
+    });
+
+    it('fills a focused singleton and restores its span and resize on exit', () => {
+      mount(['tab-1']);
+      store.setTileSpan(WORKSPACE, 'tab-1', 'half');
+      store.toggleLayoutFocus(WORKSPACE, 'tab-1');
+      flush();
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
+      expect(grid.movable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        false,
+      );
+      expect(grid.resizable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        false,
+      );
+      fireResizeStop();
+      grid.emitChange();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      store.toggleLayoutFocus(WORKSPACE, 'tab-1');
+      flush();
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 6, h: 6 });
+      expect(grid.resizable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        true,
+      );
+    });
+
+    it('blocks singleton resize and menu writes under lock, then restores resize', () => {
+      mount(['tab-1']);
+      store.setTileSpan(WORKSPACE, 'tab-1', 'half');
+      flush();
+      store.setLayoutLocked(true);
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      const tile = fixture.debugElement.query(By.directive(CanvasTileStub))
+        .componentInstance as CanvasTileStub;
+      tile.spanRequested.emit('third');
+      fireResizeStop();
+      grid.emitChange();
+      expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'half' });
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(grid.resizable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        false,
+      );
+      store.setLayoutLocked(false);
+      fixture.componentRef.setInput('locked', false);
+      flush();
+      expect(grid.resizable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        true,
+      );
+    });
+
+    it('keeps a singleton full by default and enables resize without reorder', () => {
       mount(['tab-1']);
       const items = (
         fixture.componentInstance as unknown as {
@@ -1223,26 +1333,35 @@ describe('CanvasWorkspaceGridComponent', () => {
       ).items();
       expect(items).toHaveLength(1);
       expect(items[0].options.noMove).toBe(true);
-      expect(items[0].options.noResize).toBe(true);
+      expect(items[0].options.noResize).toBe(false);
+      expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
+      expect(grid.movable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        false,
+      );
+      expect(grid.resizable).toHaveBeenLastCalledWith(
+        grid.engine.nodes[0].el,
+        true,
+      );
 
       const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
       expect(gridstackEl.nativeElement.classList).toContain('singleton');
     });
 
-    it('expands a full singleton but keeps a compact singleton at two units', () => {
+    it('keeps full singleton height and compact singleton height at two units', () => {
       mount(['tab-1']);
       const gridstackEl = fixture.debugElement.query(By.css('gridstack'));
       expect(gridstackEl.nativeElement.classList).toContain('singleton');
-      expect(gridstackEl.nativeElement.classList).toContain(
-        'singleton-expanded',
+      expect(gridstackEl.nativeElement.classList).not.toContain(
+        'compact-singleton',
       );
       expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
 
       setViewMode('tab-1', 'compact');
 
       expect(gridstackEl.nativeElement.classList).toContain('singleton');
-      expect(gridstackEl.nativeElement.classList).not.toContain(
-        'singleton-expanded',
+      expect(gridstackEl.nativeElement.classList).toContain(
+        'compact-singleton',
       );
       expect(grid.engine.nodes[0]).toMatchObject({ x: 0, y: 0, w: 4, h: 2 });
       expect(
@@ -1264,16 +1383,16 @@ describe('CanvasWorkspaceGridComponent', () => {
       const shortHeight = height();
       setViewMode('tab-1', 'compact-tall');
       expect(height()).toBe(shortHeight * 1.5);
-      expect(gridstackEl.classList).not.toContain('singleton-expanded');
+      expect(gridstackEl.classList).toContain('compact-singleton');
       expect(grid.engine.nodes[0]).toMatchObject({ w: 4, h: 3 });
       store.toggleLayoutFocus(WORKSPACE, 'tab-1');
       flush();
-      expect(gridstackEl.classList).toContain('singleton-expanded');
+      expect(gridstackEl.classList).not.toContain('compact-singleton');
       expect(grid.engine.nodes[0]).toMatchObject({ w: 12, h: 6 });
       store.toggleLayoutFocus(WORKSPACE, 'tab-1');
       flush();
       expect(height()).toBe(shortHeight * 1.5);
-      expect(gridstackEl.classList).not.toContain('singleton-expanded');
+      expect(gridstackEl.classList).toContain('compact-singleton');
     });
 
     it('freezes compact singleton height while locked and follows height when unlocked', () => {
@@ -1300,13 +1419,13 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(compactHeight()).not.toBe(lockedHeight);
     });
 
-    it('suppresses gestures on a singleton session', () => {
+    it('suppresses reorder gestures on a singleton session', () => {
       mount(['tab-1']);
       gridStub().dragStartCB.emit({
         event: new Event('dragstart'),
         el: grid.engine.nodes[0].el,
       });
-      // onGestureStart aborts early when isSingleton is true
+      // There is no other tile to reorder against.
       expect(
         (fixture.componentInstance as unknown as { _gesture: unknown })
           ._gesture,
@@ -1325,7 +1444,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       ).items;
       const initialOptions = itemsFn()[0].options;
       expect(initialOptions.noMove).toBe(true);
-      expect(initialOptions.noResize).toBe(true);
+      expect(initialOptions.noResize).toBe(false);
 
       // 1 -> 2: Add second tile
       store.adoptTab('tab-2');
@@ -1350,7 +1469,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(items1Again).toHaveLength(1);
       expect(items1Again[0].options).toBe(initialOptions); // Still same reference
       expect(items1Again[0].options.noMove).toBe(true);
-      expect(items1Again[0].options.noResize).toBe(true);
+      expect(items1Again[0].options.noResize).toBe(false);
       expect(gridstackEl.nativeElement.classList).toContain('singleton');
     });
   });

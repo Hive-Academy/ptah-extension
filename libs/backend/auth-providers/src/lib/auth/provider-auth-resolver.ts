@@ -438,6 +438,11 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     return tiers;
   }
 
+  /** The host-side saved endpoint for a provider (user override, else registry). */
+  getSavedBaseUrl(providerId: string): string {
+    return this.resolveProviderBaseUrl(providerId);
+  }
+
   private resolveProviderBaseUrl(providerId: string): string {
     const override = this.config.get<string>(`provider.${providerId}.baseUrl`);
     if (typeof override === 'string' && override.trim().length > 0) {

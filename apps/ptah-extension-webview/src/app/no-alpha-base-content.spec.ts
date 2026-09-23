@@ -85,11 +85,6 @@ const DECORATIVE_EXCEPTIONS: ReadonlyMap<
     new Map([['text-base-content/20', 2]]),
   ],
   [
-    // `aria-hidden` GripVertical drag affordance.
-    'chat/src/lib/settings/ptah-ai/agent-orchestration-config.component.ts',
-    new Map([['text-base-content/20', 1]]),
-  ],
-  [
     // `aria-hidden` middot separating two metadata strings.
     'skill-synthesis-ui/src/lib/components/clones/clone-card.component.ts',
     new Map([['text-base-content/25', 1]]),

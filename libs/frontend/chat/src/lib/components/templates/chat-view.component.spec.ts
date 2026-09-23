@@ -1583,14 +1583,14 @@ describe('ChatViewComponent — panel resize coalescing and teardown (TASK_2026_
     spy.mockRestore();
   });
 
-  it('preserves the 300px/600px panel clamp', () => {
+  it('preserves the 300px/750px panel clamp', () => {
     const service = h.component.panelResizeService;
     service.setCustomWidth(400, 1000);
 
     startDrag(600);
-    moveTo(0); // width 1000 → max 600
+    moveTo(0); // width 1000 → max 750
     tickFrame();
-    expect(service.customWidth()).toBe(600);
+    expect(service.customWidth()).toBe(750);
 
     moveTo(950); // width 50 → min 300
     tickFrame();

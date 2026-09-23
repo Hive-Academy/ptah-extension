@@ -192,16 +192,15 @@ export interface AnthropicToolResultBlock {
   is_error?: boolean;
 }
 
-/** A message in an Anthropic Messages request */
+/** A message in the SDK's Messages wire format, including api_system turns. */
 export interface AnthropicMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string | AnthropicContentBlock[];
 }
 
 /** Anthropic system prompt — can be a string or array of content blocks */
 export type AnthropicSystemPrompt =
-  | string
-  | Array<{ type: 'text'; text: string; cache_control?: unknown }>;
+  string | Array<{ type: 'text'; text: string; cache_control?: unknown }>;
 
 /** Tool definition in Anthropic format */
 export interface AnthropicToolDefinition {
@@ -212,9 +211,7 @@ export interface AnthropicToolDefinition {
 
 /** Anthropic tool_choice specification */
 export type AnthropicToolChoice =
-  | { type: 'auto' }
-  | { type: 'any' }
-  | { type: 'tool'; name: string };
+  { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
 
 /** Anthropic Messages API request body (simplified — only fields we translate) */
 export interface AnthropicMessagesRequest {

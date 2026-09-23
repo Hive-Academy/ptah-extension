@@ -2003,4 +2003,45 @@ describe('AuthRpcHandlers', () => {
       expect(result.authMethodScope).toBe('global');
     });
   });
+
+  // TASK_2026_534 review #1: the route's driver must be the provider the
+  // runtime (ActiveProviderResolver) actually uses, never llm.defaultProvider.
+  describe('auth:getEffectiveRoute driver identity', () => {
+    function routeHarness(configSeed: Record<string, unknown>) {
+      const h = makeHarness({ configSeed, credentialsSeed: { apiKey: 'sk-ant-x' }, providerKeysSeed: { openrouter: 'or-key' } });
+      h.handlers.register();
+      // The route composes llm:getProviderStatus (registered by LlmRpcHandlers in the app).
+      // Report the same llm.defaultProvider the seed stores, as the real handler does,
+      // so a resolver that trusted it would pick that provider.
+      h.rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
+        defaultProvider: (configSeed['llm.defaultProvider'] as string | undefined) ?? 'openrouter',
+        providers: [
+          { name: 'anthropic', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
+          { name: 'openrouter', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
+        ],
+      }));
+      return h;
+    }
+    function runtimeProvider(h: Harness): string {
+      return new ActiveProviderResolver(h.scopeResolver as unknown as WorkspaceScopeResolver).resolveActiveAuth().providerId;
+    }
+
+    it('apiKey with a conflicting llm.defaultProvider reports direct Anthropic, like the runtime', async () => {
+      const h = routeHarness({ authMethod: 'apiKey', 'llm.defaultProvider': 'openrouter', anthropicProviderId: 'claude-cli' });
+      const route = await call<{ driverProviderId: string; ready: boolean }>(h, 'auth:getEffectiveRoute', { refresh: true });
+      expect(route.driverProviderId).toBe('anthropic');
+      expect(route.driverProviderId).toBe(runtimeProvider(h));
+      expect(route.ready).toBe(true);
+      // Nothing was written to hide the mismatch.
+      expect(h.scopeResolver.write).not.toHaveBeenCalled();
+      expect(h.configManager.set).not.toHaveBeenCalled();
+    });
+
+    it('thirdParty with no selector reports the runtime fallback provider', async () => {
+      const h = routeHarness({ authMethod: 'thirdParty', 'llm.defaultProvider': 'anthropic' });
+      const route = await call<{ driverProviderId: string }>(h, 'auth:getEffectiveRoute', { refresh: true });
+      expect(route.driverProviderId).toBe(runtimeProvider(h));
+      expect(route.driverProviderId).toBe('openrouter');
+    });
+  });
 });

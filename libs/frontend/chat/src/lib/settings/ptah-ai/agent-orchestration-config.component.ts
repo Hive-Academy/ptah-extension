@@ -11,11 +11,8 @@ import {
   LucideAngularModule,
   Terminal,
   RefreshCw,
-  ChevronRight,
   ArrowUp,
   ArrowDown,
-  GripVertical,
-  KeyRound,
 } from 'lucide-angular';
 import {
   AppStateManager,
@@ -120,11 +117,6 @@ import type {
                       [class.opacity-40]="agent.disabled"
                     >
                       <lucide-angular
-                        [img]="GripVerticalIcon"
-                        class="w-3 h-3 text-base-content/20 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <lucide-angular
                         [img]="TerminalIcon"
                         class="w-3 h-3 text-base-content-muted shrink-0"
                       />
@@ -224,17 +216,8 @@ import type {
                   class="border border-base-300/40 rounded bg-base-200/30 transition-opacity"
                   [class.opacity-40]="isCliDisabled(cli.cli)"
                 >
-                  <!-- Collapsed header row — always visible -->
-                  <div
-                    class="flex items-center justify-between p-2 cursor-pointer select-none"
-                    (click)="toggleCliExpand(cli.cli)"
-                  >
+                  <div class="flex items-center justify-between p-2">
                     <div class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="ChevronRightIcon"
-                        class="w-3 h-3 text-base-content-muted transition-transform duration-150"
-                        [class.rotate-90]="isCliExpanded(cli.cli)"
-                      />
                       <lucide-angular
                         [img]="TerminalIcon"
                         class="w-3.5 h-3.5"
@@ -248,10 +231,7 @@ import type {
                         }}</span>
                       }
                     </div>
-                    <div
-                      class="flex items-center gap-2"
-                      (click)="$event.stopPropagation()"
-                    >
+                    <div class="flex items-center gap-2">
                       @if (cli.installed) {
                         <span class="badge badge-success badge-xs gap-1">
                           @if (cli.cli === 'cursor') {
@@ -285,8 +265,33 @@ import type {
                     </div>
                   </div>
 
-                  @if (cli.cli === 'codex' || cli.cli === 'copilot') {
-                    <button type="button" class="btn btn-outline min-h-9" (click)="toggleAutoApprove(cli.cli)">Toggle {{ cli.cli }} automatic approval</button>
+                  @if (cli.cli === 'copilot') {
+                    <label class="flex items-center justify-between gap-2 px-2 pb-2">
+                      <span class="text-[10px] text-base-content-muted">Auto-approve Copilot tool calls</span>
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-xs toggle-success"
+                        [checked]="agentConfig()?.copilotAutoApprove ?? true"
+                        [disabled]="savingCopilotAutoApprove() || copilotAutoApproveUnconfirmed()"
+                        (change)="toggleCopilotAutoApprove($event)"
+                        aria-label="Auto-approve Copilot tool calls"
+                        data-testid="copilot-auto-approve"
+                      />
+                    </label>
+                    @if (copilotAutoApproveError(); as message) {
+                      <p class="px-2 pb-2 text-xs text-error" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
+                    }
+                    @if (copilotAutoApproveUnconfirmed()) {
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs mx-2 mb-2 min-h-9"
+                        [disabled]="savingCopilotAutoApprove()"
+                        (click)="recheckCopilotAutoApprove()"
+                        data-testid="copilot-auto-approve-recheck"
+                      >
+                        Check saved setting again
+                      </button>
+                    }
                   }
                   <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageProviders()">Manage provider, model and credentials in Providers</button>
                 </div>
@@ -315,9 +320,6 @@ import type {
               </div>
             }
           </div>
-
-          <!-- ═══ Section 3: Ptah CLI Agents (projected content) ═══ -->
-          <ng-content />
         }
       </div>
     </div>
@@ -330,17 +332,13 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   readonly TerminalIcon = Terminal;
   readonly RefreshCwIcon = RefreshCw;
-  readonly ChevronRightIcon = ChevronRight;
   readonly ArrowUpIcon = ArrowUp;
   readonly ArrowDownIcon = ArrowDown;
-  readonly GripVerticalIcon = GripVertical;
-  readonly KeyRoundIcon = KeyRound;
   readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
   readonly agentConfigLoading = signal(false);
   readonly agentConfigError = signal<string | null>(null);
   readonly isDetectingClis = signal(false);
-  readonly expandedClis = signal<Set<string>>(new Set());
-  /** System CLIs only (excludes ptah-cli entries shown via projected content) */
+  /** System CLIs only (Ptah CLI instances are managed on the Providers page) */
   readonly systemClis = computed(() => {
     const config = this.agentConfig();
     return config ? config.detectedClis.filter((c) => !c.ptahCliId) : [];
@@ -465,34 +463,115 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  async toggleAutoApprove(cli: 'codex' | 'copilot'): Promise<void> {
-    const key = cli === 'codex' ? 'codexAutoApprove' : 'copilotAutoApprove';
-    const current = this.agentConfig()?.[key] ?? true;
-    const newValue = !current;
-    const result = await this.rpcService.call('agent:setConfig', {
-      [key]: newValue,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, [key]: newValue } : c));
+  /** True while a Copilot auto-approve write is in flight; the toggle is disabled meanwhile. */
+  readonly savingCopilotAutoApprove = signal(false);
+  readonly copilotAutoApproveError = signal<string | null>(null);
+  /**
+   * True when a write's outcome is unknown AND the read-back failed: the saved
+   * value is unknown, so the toggle shows no value and accepts no writes until
+   * {@link recheckCopilotAutoApprove} reads it successfully.
+   */
+  readonly copilotAutoApproveUnconfirmed = signal(false);
+  private copilotToggle: HTMLInputElement | null = null;
+
+  /**
+   * Copilot only: AgentSpawnEnvironment.resolveAutoApprove reads
+   * `copilotAutoApprove` and ignores Codex, so Codex has no control here.
+   *
+   * agent:setConfig reports a persistence failure INSIDE a successful RPC
+   * envelope (`{ success: false }`), so both must succeed. Any other outcome
+   * (failed envelope, `success:false`, rejected call) is uncertain: the saved
+   * value is read back and the toggle shows that, with an error when the
+   * change did not take effect. When the read-back fails too, the setting is
+   * marked unconfirmed instead of guessing the pre-write value.
+   */
+  async toggleCopilotAutoApprove(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    this.copilotToggle = input;
+    const saved = this.agentConfig()?.copilotAutoApprove ?? true;
+    if (this.savingCopilotAutoApprove() || this.copilotAutoApproveUnconfirmed()) {
+      input.checked = saved;
+      return;
+    }
+    const next = !saved;
+    this.savingCopilotAutoApprove.set(true);
+    this.copilotAutoApproveError.set(null);
+    try {
+      let confirmed = false;
+      try {
+        const result = await this.rpcService.call('agent:setConfig', {
+          copilotAutoApprove: next,
+        });
+        confirmed = result.isSuccess() && result.data?.success === true;
+      } catch (error: unknown) {
+        // Outcome unknown: the write may or may not have happened. Read back below.
+        void error;
+      }
+      if (confirmed) {
+        this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: next } : c));
+        return;
+      }
+      const actual = await this.readCopilotAutoApprove();
+      if (actual === null) {
+        this.markCopilotAutoApproveUnconfirmed(input);
+        return;
+      }
+      this.showCopilotAutoApprove(input, actual);
+      if (actual !== next) {
+        this.copilotAutoApproveError.set(
+          'Could not save Copilot auto-approve. The saved setting is unchanged.',
+        );
+      }
+    } finally {
+      this.savingCopilotAutoApprove.set(false);
     }
   }
 
-  /** Toggle accordion expand/collapse for a CLI card */
-  toggleCliExpand(cliType: string): void {
-    this.expandedClis.update((set) => {
-      const next = new Set(set);
-      if (next.has(cliType)) {
-        next.delete(cliType);
-      } else {
-        next.add(cliType);
+  /** Re-read the saved value after an unconfirmed write; re-enables the toggle on success. */
+  async recheckCopilotAutoApprove(): Promise<void> {
+    if (this.savingCopilotAutoApprove()) return;
+    this.savingCopilotAutoApprove.set(true);
+    try {
+      const actual = await this.readCopilotAutoApprove();
+      if (actual === null) {
+        this.markCopilotAutoApproveUnconfirmed(this.copilotToggle);
+        return;
       }
-      return next;
-    });
+      if (this.copilotToggle) this.showCopilotAutoApprove(this.copilotToggle, actual);
+      else this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: actual } : c));
+      this.copilotAutoApproveUnconfirmed.set(false);
+      this.copilotAutoApproveError.set(null);
+    } finally {
+      this.savingCopilotAutoApprove.set(false);
+    }
   }
 
-  /** Check if a CLI card is expanded */
-  isCliExpanded(cliType: string): boolean {
-    return this.expandedClis().has(cliType);
+  private showCopilotAutoApprove(input: HTMLInputElement, value: boolean): void {
+    this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: value } : c));
+    // The binding value may not change, so set the element state directly.
+    input.indeterminate = false;
+    input.checked = value;
+  }
+
+  private markCopilotAutoApproveUnconfirmed(input: HTMLInputElement | null): void {
+    this.copilotAutoApproveUnconfirmed.set(true);
+    if (input) input.indeterminate = true;
+    this.copilotAutoApproveError.set(
+      'Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it.',
+    );
+  }
+
+  /** Persisted Copilot auto-approve, or null when it cannot be read. */
+  private async readCopilotAutoApprove(): Promise<boolean | null> {
+    try {
+      const result = await this.rpcService.call('agent:getConfig', undefined);
+      return result.isSuccess() && typeof result.data?.copilotAutoApprove === 'boolean'
+        ? result.data.copilotAutoApprove
+        : null;
+    } catch (error: unknown) {
+      void error;
+      return null;
+    }
   }
 
   /** Check if a CLI is disabled */

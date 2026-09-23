@@ -133,6 +133,46 @@ describe('resolveEffectiveAuthRoute — non-native providers are unchanged', () 
   });
 });
 
+describe('resolveEffectiveAuthRoute — driver identity matches ActiveProviderResolver (TASK_2026_534)', () => {
+  const connected: EffectiveRouteProvider[] = [
+    { id: 'anthropic', type: 'apiKey', status: 'connected' },
+    { id: 'openrouter', type: 'apiKey', status: 'connected' },
+    { id: 'claude-cli', type: 'cli', status: 'connected' },
+  ];
+
+  it('apiKey drives direct Anthropic even when llm.defaultProvider and a stale selector disagree', () => {
+    const result = resolveEffectiveAuthRoute(
+      config({
+        authMethod: 'apiKey',
+        defaultProvider: 'openrouter',
+        anthropicProviderId: 'claude-cli',
+      }),
+      connected,
+    );
+    // Runtime: active-provider-resolver.ts returns ANTHROPIC_DIRECT_PROVIDER_ID for apiKey.
+    expect(result.driverProviderId).toBe('anthropic');
+    expect(result.route).toBe('api-key');
+    expect(result.ready).toBe(true);
+  });
+
+  it('thirdParty without a selector falls back to DEFAULT_PROVIDER_ID, not llm.defaultProvider', () => {
+    const result = resolveEffectiveAuthRoute(
+      config({ authMethod: 'thirdParty', defaultProvider: 'anthropic', anthropicProviderId: null }),
+      connected,
+    );
+    expect(result.driverProviderId).toBe('openrouter');
+    expect(result.ready).toBe(true);
+  });
+
+  it('thirdParty with a selector drives that provider', () => {
+    const result = resolveEffectiveAuthRoute(
+      config({ authMethod: 'thirdParty', defaultProvider: 'openrouter', anthropicProviderId: 'claude-cli' }),
+      connected,
+    );
+    expect(result.driverProviderId).toBe('claude-cli');
+  });
+});
+
 describe('resolveEffectiveAuthRoute — raw un-normalised authMethod (pin 1)', () => {
   /**
    * The settings UI may hand the resolver a value exactly as the user or a
