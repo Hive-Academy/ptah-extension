@@ -16,9 +16,37 @@ import {
 import {
   ExecutionChatMessage,
   SessionId,
+  type SessionStatsEntry,
   type SessionTurnPhase,
   type SessionTurnState,
 } from '@ptah-extension/shared';
+
+/** A backend session snapshot (TASK_2026_533); `cost` scales every figure. */
+function sessionSnapshot(
+  sessionId: string,
+  revision: number,
+  cost: number,
+): SessionStatsEntry {
+  return {
+    sessionId,
+    model: 'claude-opus-4-7',
+    totalCost: cost,
+    knownCost: cost,
+    tokens: {
+      input: cost * 100,
+      output: cost * 10,
+      cacheRead: cost * 1000,
+      cacheCreation: cost,
+    },
+    tokenCount: cost * 1111,
+    messageCount: 0,
+    agentSessionCount: 1,
+    status: 'ok',
+    pricingCoverage: 'full',
+    scope: 'session',
+    revision,
+  };
+}
 
 // Production `TabManagerService.attachSession` and `applyResumingSession`
 // validate the incoming sessionId via `SessionId.from()` (UUID v4). Mint
@@ -36,6 +64,7 @@ import {
 } from './model-refresh-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
+import { TabId } from './identity/ids';
 
 describe('TabManagerService — intent-named mutators', () => {
   let service: TabManagerService;
@@ -710,21 +739,18 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.status).toBe('loaded');
     });
 
-    it('applyCompactionComplete resets messages + bumps count', () => {
+    it('applyCompactionComplete resets messages, bumps count and keeps the backend snapshot', () => {
       const id = service.createTab('done');
+      const snapshot = sessionSnapshot(SESS_X, 4, 1);
+      service.attachSession(id, SESS_X);
+      service.installSessionStats(id, snapshot);
       service.setMessages(id, [makeMessage('a', 'old')]);
-      service.applyCompactionComplete(id, {
-        preloadedStats: {
-          totalCost: 1,
-          tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
-          messageCount: 1,
-        },
-        compactionCount: 2,
-      });
+      service.applyCompactionComplete(id, { compactionCount: 2 });
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.messages).toEqual([]);
       expect(tab?.compactionCount).toBe(2);
-      expect(tab?.preloadedStats?.totalCost).toBe(1);
+      // Lifetime accounting survives compaction untouched.
+      expect(tab?.sessionStats).toBe(snapshot);
     });
   });
 
@@ -810,44 +836,175 @@ describe('TabManagerService — intent-named mutators', () => {
       ).toBe('claude');
     });
 
-    it('setLiveModelStatsAndUsageList writes both', () => {
-      const id = service.createTab('combo');
-      service.setLiveModelStatsAndUsageList(
-        id,
-        {
-          model: 'claude',
-          contextUsed: 1,
-          contextWindow: 2,
-          contextPercent: 50,
-        },
-        [
-          {
-            model: 'claude',
-            inputTokens: 1,
-            outputTokens: 1,
-            costUSD: 0,
-            contextWindow: 2,
-          },
-        ],
-      );
-      const tab = service.tabs().find((t) => t.id === id);
-      expect(tab?.modelUsageList?.length).toBe(1);
-      expect(tab?.liveModelStats?.contextWindow).toBe(2);
+    // TASK_2026_533: the tab installs the backend snapshot. It never adds.
+    it('installSessionStats assigns snapshots and ignores an older revision', () => {
+      const id = service.createTab('install');
+      service.attachSession(id, SESS_X);
+      const s10 = sessionSnapshot(SESS_X, 10, 10);
+      const s15 = sessionSnapshot(SESS_X, 15, 15);
+      const stats = (): SessionStatsEntry | null | undefined =>
+        service.tabs().find((t) => t.id === id)?.sessionStats;
+
+      service.installSessionStats(id, s10);
+      expect(stats()).toBe(s10);
+      service.installSessionStats(id, s15);
+      service.installSessionStats(id, s15);
+      expect(stats()).toBe(s15);
+      // A stale (older) snapshot within this backend lifetime cannot regress.
+      service.installSessionStats(id, s10);
+      expect(stats()).toBe(s15);
+      expect(stats()?.totalCost).toBe(15);
     });
 
-    it('setPreloadedStats and applyLoadedSessionStats install the snapshot', () => {
-      const id = service.createTab('preload');
-      const stats = {
-        totalCost: 0.5,
-        tokens: { input: 1, output: 2, cacheRead: 0, cacheCreation: 0 },
-        messageCount: 3,
-      };
-      service.setPreloadedStats(id, stats);
-      expect(service.tabs().find((t) => t.id === id)?.preloadedStats).toBe(
-        stats,
+    // Revision 1 of the review (Defect 1): an unrevisioned history aggregate
+    // must never replace a live snapshot once one has been accepted.
+    describe('revision floor', () => {
+      const unrevised = (cost: number): SessionStatsEntry => ({
+        ...sessionSnapshot(SESS_X, 0, cost),
+        revision: undefined,
+      });
+      const shown = (id: string): SessionStatsEntry | null | undefined =>
+        service.tabs().find((t) => t.id === id)?.sessionStats;
+
+      it('ignores an unrevisioned snapshot after a revisioned one: 15/$15 then $2 stays $15', () => {
+        const id = service.createTab('floor');
+        service.attachSession(id, SESS_X);
+        const live = sessionSnapshot(SESS_X, 15, 15);
+        service.installSessionStats(id, live);
+
+        service.installSessionStats(id, unrevised(2));
+
+        expect(shown(id)).toBe(live);
+      });
+
+      it('a delayed resume reply cannot overwrite a newer live snapshot', () => {
+        const id = service.createTab('resume race');
+        service.attachSession(id, SESS_X);
+        const live = sessionSnapshot(SESS_X, 15, 15);
+        service.installSessionStats(id, live);
+
+        service.applyLoadedSessionStats(id, unrevised(2), 'claude-opus-4-7');
+
+        expect(shown(id)).toBe(live);
+        expect(shown(id)?.totalCost).toBe(15);
+      });
+
+      it('installs unrevisioned history first, then the live snapshot: $2 then 1/$3 shows $3', () => {
+        const id = service.createTab('history first');
+        service.attachSession(id, SESS_X);
+        const history = unrevised(2);
+        service.installSessionStats(id, history);
+        expect(shown(id)).toBe(history);
+
+        const live = sessionSnapshot(SESS_X, 1, 3);
+        service.installSessionStats(id, live);
+
+        expect(shown(id)).toBe(live);
+      });
+
+      it('one broadcast reaches every tab bound to the session', () => {
+        const a = service.createTab('tile a');
+        const b = service.createTab('tile b');
+        service.attachSession(a, SESS_X);
+        service.attachSession(b, SESS_X);
+        const live = sessionSnapshot(SESS_X, 5, 5);
+
+        service.installSessionStats(a, live);
+        service.installSessionStats(b, live);
+
+        expect(shown(a)).toBe(live);
+        expect(shown(b)).toBe(live);
+      });
+    });
+
+    // Revision 1 of the review (Defect 3): malformed input is rejected
+    // atomically, never read as "no revision".
+    describe('malformed snapshots', () => {
+      it('rejects a string revision: 16/$16 then revision "9"/$9 stays $16', () => {
+        const id = service.createTab('string revision');
+        service.attachSession(id, SESS_X);
+        const accepted = sessionSnapshot(SESS_X, 16, 16);
+        service.installSessionStats(id, accepted);
+
+        service.installSessionStats(id, {
+          ...sessionSnapshot(SESS_X, 0, 9),
+          revision: '9',
+        } as unknown as SessionStatsEntry);
+
+        expect(service.tabs().find((t) => t.id === id)?.sessionStats).toBe(
+          accepted,
+        );
+      });
+
+      it('rejects malformed tokens even with no snapshot installed yet', () => {
+        const id = service.createTab('bad tokens');
+        service.attachSession(id, SESS_X);
+
+        service.installSessionStats(id, {
+          ...sessionSnapshot(SESS_X, 3, 3),
+          tokens: { input: 1, output: 'many', cacheRead: 0 },
+        } as unknown as SessionStatsEntry);
+
+        expect(
+          service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
+        ).toBeNull();
+      });
+    });
+
+    it('installSessionStats rejects a snapshot for a different session', () => {
+      const id = service.createTab('mismatch');
+      service.attachSession(id, SESS_X);
+      const own = sessionSnapshot(SESS_X, 1, 1);
+      service.installSessionStats(id, own);
+
+      service.installSessionStats(id, sessionSnapshot('other-session', 99, 99));
+
+      expect(service.tabs().find((t) => t.id === id)?.sessionStats).toBe(own);
+    });
+
+    it('never compares a restored snapshot revision with the restarted backend counter', () => {
+      // A tab restored from storage still carries the old process's snapshot
+      // (revision 50). The backend counter restarted with the process, so its
+      // first snapshot (revision 1) must install, not be dropped as stale.
+      const tabId = TabId.create();
+      localStorage.setItem(
+        'ptah.tabs',
+        JSON.stringify({
+          version: 2,
+          activeTabId: tabId,
+          tabs: [
+            {
+              id: tabId,
+              claudeSessionId: SESS_X,
+              name: 'restored',
+              title: 'restored',
+              order: 0,
+              status: 'loaded',
+              isDirty: false,
+              lastActivityAt: 0,
+              messages: [],
+              streamingState: null,
+              sessionStats: sessionSnapshot(SESS_X, 50, 5),
+            },
+          ],
+        }),
       );
-      service.applyLoadedSessionStats(id, stats, 'claude-3-5-sonnet');
+      service.loadTabState();
+      expect(service.tabs()[0]?.sessionStats?.revision).toBe(50);
+
+      const fresh = sessionSnapshot(SESS_X, 1, 6);
+      service.installSessionStats(tabId, fresh);
+
+      expect(service.tabs()[0]?.sessionStats).toBe(fresh);
+      localStorage.clear();
+    });
+
+    it('applyLoadedSessionStats installs the snapshot with its session model', () => {
+      const id = service.createTab('preload');
+      const snapshot = sessionSnapshot(SESS_X, 3, 0.5);
+      service.applyLoadedSessionStats(id, snapshot, 'claude-3-5-sonnet');
       const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.sessionStats).toBe(snapshot);
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
     });
 
@@ -857,11 +1014,7 @@ describe('TabManagerService — intent-named mutators', () => {
     // arrives.
     it('N6 — synthesizes liveModelStats from sessionModel on session resume', () => {
       const id = service.createTab('resume');
-      const stats = {
-        totalCost: 1.25,
-        tokens: { input: 100, output: 50, cacheRead: 10, cacheCreation: 0 },
-        messageCount: 8,
-      };
+      const stats = sessionSnapshot(SESS_X, 2, 1.25);
       // claude-opus-4-7 is a known model in the shared pricing registry
       // (1_000_000 token window — see pricing.utils.spec.ts).
       service.applyLoadedSessionStats(id, stats, 'claude-opus-4-7');
@@ -878,12 +1031,7 @@ describe('TabManagerService — intent-named mutators', () => {
 
     it('N6 — leaves liveModelStats null when sessionModel is null', () => {
       const id = service.createTab('resume-null-model');
-      const stats = {
-        totalCost: 0,
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
-        messageCount: 0,
-      };
-      service.applyLoadedSessionStats(id, stats, null);
+      service.applyLoadedSessionStats(id, sessionSnapshot(SESS_X, 2, 0), null);
 
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.sessionModel).toBeNull();

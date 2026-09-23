@@ -29,10 +29,7 @@ import {
   PermissionRequestCardComponent,
   QuestionCardComponent,
 } from '@ptah-extension/chat';
-import {
-  SessionStatsSummaryComponent,
-  type ModelUsageEntry,
-} from '@ptah-extension/chat-ui';
+import { SessionStatsSummaryComponent } from '@ptah-extension/chat-ui';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { AppStateManager } from '@ptah-extension/core';
@@ -401,10 +398,8 @@ function rankTranscriptKind(item: TranscriptItem): number {
               @if (sessionStats(); as stats) {
                 <div class="mb-3">
                   <ptah-session-stats-summary
-                    [messages]="[]"
-                    [preloadedStats]="stats.totals"
+                    [snapshot]="stats.snapshot"
                     [liveModelStats]="stats.live"
-                    [modelUsageList]="modelUsageList()"
                   />
                 </div>
               }
@@ -558,24 +553,15 @@ export class HarnessBuilderViewComponent implements OnInit {
   );
 
   /**
-   * Cost / tokens / context fill for this workflow's session.
+   * The backend session snapshot and context badge for this workflow's
+   * session.
    *
    * A workflow surface has no `TabState`, so these arrive through
-   * `SurfaceSessionStatsRegistry` rather than the tab path — but they are
-   * derived by the same code, so the panel and a chat tab report identical
-   * numbers for identical turns.
+   * `SurfaceSessionStatsRegistry` rather than the tab path. The snapshot is
+   * the same backend object a chat tab installs, bound as-is, so the panel and
+   * a chat tab report identical numbers.
    */
   protected readonly sessionStats = this.workflow.sessionStats;
-
-  /**
-   * `modelUsage` as the presentational component types it. The registry stores
-   * it readonly (nothing downstream may mutate a recorded turn); the component
-   * predates that and asks for a mutable array, so copy rather than cast.
-   */
-  protected readonly modelUsageList = computed<ModelUsageEntry[] | null>(() => {
-    const usage = this.sessionStats()?.modelUsage;
-    return usage ? usage.map((entry) => ({ ...entry })) : null;
-  });
 
   protected readonly executionNodes = computed(() => {
     const streamState = this.state.streamingState();

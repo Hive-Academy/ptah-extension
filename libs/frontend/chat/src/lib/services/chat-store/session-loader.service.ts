@@ -32,7 +32,10 @@ import {
   StreamingHandlerService,
   AgentMonitorStore,
 } from '@ptah-extension/chat-streaming';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  isValidSessionStatsSnapshot,
+} from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
   type ReplayClaim,
@@ -767,7 +770,7 @@ export class SessionLoaderService {
       // failure branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
-        this.applyResumeStats(resolvedTabId, stats, {
+        this.applyResumeStats(resolvedTabId, sessionId, stats, {
           preserveCompactionContextSeed:
             opts?.reason === 'compaction' && targetTabId != null,
         });
@@ -776,9 +779,10 @@ export class SessionLoaderService {
         resumeResult.success &&
         (events?.length ?? 0) > 0
       ) {
-        this.tabManager.setPreloadedStats(resolvedTabId, null);
+        // No snapshot in the reply: keep whatever accounting the tab already
+        // holds for this session (an empty payload never erases it) and clear
+        // only the context badge, which has no fresh frame to show.
         this.tabManager.setLiveModelStats(resolvedTabId, null);
-        this.tabManager.setModelUsageList(resolvedTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
         try {
@@ -844,12 +848,27 @@ export class SessionLoaderService {
     return target;
   }
 
-  /** Apply one persisted resume snapshot without treating lifetime totals as CTX. */
+  /**
+   * Install the resume reply's backend snapshot as-is (TASK_2026_533) and
+   * derive the context badge from its separate `contextSnapshot`. Lifetime
+   * totals are never treated as context fill, and rows are never rebuilt.
+   */
   private applyResumeStats(
     tabId: TabId,
+    sessionId: string,
     stats: NonNullable<ChatResumeResult['stats']>,
     options?: { preserveCompactionContextSeed?: boolean },
   ): void {
+    // The reply crosses the RPC boundary: its declared type is not a runtime
+    // guarantee. A malformed snapshot is rejected whole (accounting, model and
+    // context badge alike) and the tab keeps what it shows.
+    if (!isValidSessionStatsSnapshot(stats)) {
+      console.warn(
+        '[SessionLoaderService] chat:resume returned a malformed session snapshot; keeping the current one',
+        { sessionId },
+      );
+      return;
+    }
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
     // zero-valued live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
@@ -860,13 +879,6 @@ export class SessionLoaderService {
         : null;
 
     this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
-    this.tabManager.setModelUsageList(
-      tabId,
-      (stats.modelUsageList ?? []).map((entry) => ({
-        ...entry,
-        contextWindow: this.wireContextWindow(entry.contextWindow, entry.model),
-      })),
-    );
 
     // A targeted compaction reload reads immutable history, which may still
     // describe the pre-compaction generation. Its context snapshot must never
@@ -1314,11 +1326,10 @@ export class SessionLoaderService {
 
       const stats = result.data?.stats;
       if (stats) {
-        this.applyResumeStats(tabId, stats);
+        this.applyResumeStats(tabId, sessionId, stats);
       } else {
-        this.tabManager.setPreloadedStats(tabId, null);
+        // Keep the tab's snapshot; only the context badge is cleared.
         this.tabManager.setLiveModelStats(tabId, null);
-        this.tabManager.setModelUsageList(tabId, []);
       }
 
       const resumableSubagents = result.data?.resumableSubagents;

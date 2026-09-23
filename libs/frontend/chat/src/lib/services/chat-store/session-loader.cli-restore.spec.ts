@@ -86,9 +86,7 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
       applyResumingSession: jest.fn(),
       applyResumeFailure,
       applyLoadedSessionStats: jest.fn(),
-      setPreloadedStats: jest.fn(),
       setLiveModelStats: jest.fn(),
-      setModelUsageList: jest.fn(),
       markSessionActive: jest.fn(),
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) =>
         tabId === TAB

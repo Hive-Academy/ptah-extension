@@ -13,7 +13,8 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { SessionId } from '@ptah-extension/shared';
+import type { TabState } from '@ptah-extension/chat-types';
+import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
   MODEL_REFRESH_CONTROL,
@@ -37,6 +38,13 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       registerSessionForWorkspace: jest.fn(),
       unregisterSession: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      // Every tab in this spec lives in the active workspace.
+      findTabByIdAcrossWorkspaces: jest
+        .fn()
+        .mockImplementation((tabId: string, tabs: readonly TabState[]) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: '/ws' } : null;
+        }),
       getStorageKeyForWorkspace: jest.fn().mockReturnValue('ptah.tabs'),
       syncActiveWorkspaceState: jest.fn(),
       switchWorkspace: jest.fn().mockReturnValue(null),
@@ -163,47 +171,27 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   // ---------------------------------------------------------------------
   // applyCompactionComplete
   // Asserts the patch produced by `applyCompactionComplete` clears the
-  // live model stats / usage list and stamps the completion timestamp.
+  // live model stats, keeps the backend session snapshot and stamps the
+  // completion timestamp.
   // ---------------------------------------------------------------------
   describe('applyCompactionComplete (TASK_2026_109)', () => {
-    it('B1 — clears liveModelStats and modelUsageList', () => {
+    it('B1 — clears liveModelStats', () => {
       const tabId = service.createTab('compacting tab');
-      service.setLiveModelStatsAndUsageList(
-        tabId,
-        {
-          model: 'claude-sonnet-4-5',
-          contextUsed: 1234,
-          contextWindow: 200000,
-          contextPercent: 0.6,
-        },
-        [
-          {
-            model: 'claude-sonnet-4-5',
-            inputTokens: 100,
-            outputTokens: 50,
-            contextWindow: 200000,
-            costUSD: 0.5,
-          },
-        ],
-      );
+      service.setLiveModelStats(tabId, {
+        model: 'claude-sonnet-4-5',
+        contextUsed: 1234,
+        contextWindow: 200000,
+        contextPercent: 0.6,
+      });
 
-      // Sanity-check the pre-state so the post-clear assertions are meaningful.
+      // Sanity-check the pre-state so the post-clear assertion is meaningful.
       const before = service.tabs().find((t) => t.id === tabId);
       expect(before?.liveModelStats).not.toBeNull();
-      expect(before?.modelUsageList?.length).toBe(1);
 
-      service.applyCompactionComplete(tabId, {
-        preloadedStats: {
-          totalCost: 1.0,
-          tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
-          messageCount: 3,
-        },
-        compactionCount: 1,
-      });
+      service.applyCompactionComplete(tabId, { compactionCount: 1 });
 
       const after = service.tabs().find((t) => t.id === tabId);
       expect(after?.liveModelStats).toBeNull();
-      expect(after?.modelUsageList).toEqual([]);
     });
 
     it('seeds post-compaction context only for a tab with a known model', () => {
@@ -216,7 +204,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       });
 
       service.applyCompactionComplete(tabId, {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
@@ -241,7 +228,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         });
 
         service.applyCompactionComplete(tabId, {
-          preloadedStats: null,
           compactionCount: 1,
           postCompactionContextTokens,
         });
@@ -265,7 +251,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       });
 
       service.applyCompactionComplete(tabId, {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
@@ -290,7 +275,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       });
 
       service.applyCompactionComplete(tabId, {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
@@ -302,7 +286,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const tabId = service.createTab('compacting tab');
 
       service.applyCompactionComplete(tabId, {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
@@ -310,13 +293,19 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
     });
 
-    it('preserves cumulative preloaded stats while seeding only context', () => {
+    it('preserves the backend session snapshot while seeding only context', () => {
       const tabId = service.createTab('compacting tab');
-      const preloadedStats = {
+      const sessionStats: SessionStatsEntry = {
+        sessionId: 'session-1',
+        model: 'claude-sonnet-4-5',
         totalCost: 1.5,
         tokens: { input: 100, output: 50, cacheRead: 25, cacheCreation: 10 },
+        tokenCount: 185,
         messageCount: 3,
+        status: 'ok',
+        revision: 2,
       };
+      service.installSessionStats(tabId, sessionStats);
       service.setLiveModelStats(tabId, {
         model: 'claude-sonnet-4-5',
         contextUsed: 1234,
@@ -325,13 +314,12 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       });
 
       service.applyCompactionComplete(tabId, {
-        preloadedStats,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
 
       const tab = service.tabs().find((candidate) => candidate.id === tabId);
-      expect(tab?.preloadedStats).toEqual(preloadedStats);
+      expect(tab?.sessionStats).toBe(sessionStats);
       expect(tab?.liveModelStats?.contextUsed).toBe(1200);
     });
 
@@ -352,7 +340,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       });
 
       service.applyCompactionComplete(compactedTabId, {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: 1200,
       });
@@ -427,7 +414,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
 
       const t0 = Date.now();
       service.applyCompactionComplete(tabId, {
-        preloadedStats: null,
         compactionCount: 1,
       });
       const t1 = Date.now();

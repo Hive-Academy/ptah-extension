@@ -11,6 +11,7 @@ function entry(
 ): BackgroundAgentStripEntry {
   return {
     name: overrides.id,
+    origin: 'foreground',
     status: 'running',
     steerable: false,
     stoppable: false,
@@ -101,33 +102,51 @@ describe('BackgroundAgentStripComponent', () => {
   });
 
   describe('summary row', () => {
-    it('counts each status bucket and omits zero buckets', () => {
+    // TASK_2026_533: the strip lists a DIFFERENT population from the session
+    // AGENTS chip (the backend's lifetime count of unique subagents). It must
+    // name the population it shows instead of calling every entry an agent.
+    it('labels five completed background entries as five background', () => {
+      render(
+        ['a', 'b', 'c', 'd', 'e'].map((id) =>
+          entry({ id, origin: 'background', status: 'completed' }),
+        ),
+      );
+      expect(text('[data-test="agent-strip-summary"]')).toBe(
+        '5 background · 5 done',
+      );
+    });
+
+    it('labels both populations explicitly for mixed entries', () => {
+      render([
+        entry({ id: 'a', origin: 'background', status: 'background' }),
+        entry({ id: 'b', origin: 'background', status: 'completed' }),
+        entry({ id: 'c', origin: 'background', status: 'completed' }),
+        entry({ id: 'd', origin: 'foreground', status: 'running' }),
+        entry({ id: 'e', origin: 'foreground', status: 'running' }),
+      ]);
+      expect(text('[data-test="agent-strip-summary"]')).toBe(
+        '3 background · 2 foreground · 3 running · 2 done',
+      );
+    });
+
+    it('labels foreground-only entries as foreground', () => {
       render([
         entry({ id: 'a', status: 'running' }),
         entry({ id: 'b', status: 'running' }),
-        entry({ id: 'c', status: 'running' }),
-        entry({ id: 'd', status: 'background' }),
       ]);
       expect(text('[data-test="agent-strip-summary"]')).toBe(
-        '4 agents · 3 running · 1 background',
+        '2 foreground · 2 running',
       );
     });
 
     it('includes completed, failed and stopped counts when present', () => {
       render([
-        entry({ id: 'a', status: 'completed' }),
-        entry({ id: 'b', status: 'error' }),
-        entry({ id: 'c', status: 'stopped' }),
+        entry({ id: 'a', origin: 'background', status: 'completed' }),
+        entry({ id: 'b', origin: 'background', status: 'error' }),
+        entry({ id: 'c', origin: 'background', status: 'stopped' }),
       ]);
       expect(text('[data-test="agent-strip-summary"]')).toBe(
-        '3 agents · 1 done · 1 failed · 1 stopped',
-      );
-    });
-
-    it('uses the singular for one agent', () => {
-      render([entry({ id: 'a', status: 'background' })]);
-      expect(text('[data-test="agent-strip-summary"]')).toBe(
-        '1 agent · 1 background',
+        '3 background · 1 done · 1 failed · 1 stopped',
       );
     });
   });

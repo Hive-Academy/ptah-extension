@@ -175,6 +175,26 @@ describe('BackgroundAgentTrayComponent — entry mapping', () => {
     });
   });
 
+  describe('origin (TASK_2026_533)', () => {
+    it('marks active subagents foreground and background records background', () => {
+      const entries = entriesFor(
+        [
+          record('fg1', { agentType: 'tester' }),
+          record('b1', { taskId: 'task-1' }),
+        ],
+        [background('b1'), background('b2', { status: 'completed' })],
+      );
+      const origins = Object.fromEntries(entries.map((e) => [e.id, e.origin]));
+
+      expect(origins).toEqual({
+        fg1: 'foreground',
+        // A backgrounded subagent is its background record, not both.
+        b1: 'background',
+        b2: 'background',
+      });
+    });
+  });
+
   describe('background status', () => {
     it('shows a running background entry as background', () => {
       const [e] = entriesFor(

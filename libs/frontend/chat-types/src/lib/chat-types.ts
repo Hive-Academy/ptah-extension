@@ -10,6 +10,7 @@ import {
   SdkSessionCronSummary,
   SdkTerminalReason,
   GatewayPlatformId,
+  SessionStatsEntry,
 } from '@ptah-extension/shared';
 
 /**
@@ -609,24 +610,18 @@ export interface TabState {
   firstMessagePreamble?: string | null;
 
   /**
-   * Preloaded stats from backend (for old sessions loaded from JSONL).
-   * Used to display cost/tokens for historical sessions without recalculation.
+   * The backend's session-lifetime accounting snapshot (TASK_2026_533): cost,
+   * all four token classes, per-model rows and the agent count. Installed as-is
+   * from `chat:resume` and from every `session:stats` broadcast, never added to
+   * or rebuilt from messages. `null`/absent means unavailable.
    */
-  preloadedStats?: {
-    totalCost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheCreation: number;
-    };
-    messageCount: number;
-  } | null;
+  sessionStats?: SessionStatsEntry | null;
 
   /**
    * Live model stats from current session (updated after each turn completion).
    * Includes context window size for percentage calculation and model name.
-   * Used by SessionStatsSummaryComponent to display context usage.
+   * Used by SessionStatsSummaryComponent for the context badge only; it is not
+   * an accounting figure.
    */
   liveModelStats?: {
     /** Primary model name (first model in modelUsage list) */
@@ -740,19 +735,6 @@ export interface TabState {
    * persisted, for the same reason as the revision.
    */
   lastTurnStateSessionId?: string;
-
-  /**
-   * Full per-model usage breakdown for collapsible display.
-   * Contains all models used in the session with their individual stats.
-   */
-  modelUsageList?: Array<{
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    costUSD: number | null;
-    contextWindow: number;
-    cacheReadInputTokens?: number;
-  }> | null;
 
   /**
    * Whether this tab's session has been activated in the SDK during the

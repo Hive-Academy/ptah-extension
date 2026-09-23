@@ -9,7 +9,7 @@
  *   - contextUsed uses lastTurnContextTokens when present
  *   - contextUsed falls back to inputTokens + cacheReadInputTokens + outputTokens
  *   - contextPercent rounding to 1 decimal place
- *   - accumulates preloadedStats with new turn data
+ *   - installs the backend session snapshot (never adds footer fields)
  *   - clears compaction state via CompactionLifecycleService
  *   - calls streamingHandler.handleSessionStats and triggers auto-send
  *   - refreshes sidebar via SessionLoader.loadSessions
@@ -28,7 +28,7 @@ import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
 
 // Production `SessionStatsAggregatorService.handleSessionStats` validates the
 // inbound sessionId via `SessionId.from()` (UUID v4). Mint stable ids per run.
@@ -46,11 +46,37 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     claudeSessionId: SESS_1,
     queuedContent: null,
     queuedOptions: null,
-    preloadedStats: null,
+    sessionStats: null,
     liveModelStats: null,
-    modelUsageList: null,
     ...overrides,
   } as unknown as TabState;
+}
+
+/** A backend session snapshot (TASK_2026_533); `cost` scales every figure. */
+function makeSnapshot(
+  sessionId: string,
+  revision: number,
+  cost: number,
+): SessionStatsEntry {
+  return {
+    sessionId,
+    model: 'claude-opus-4-7',
+    totalCost: cost,
+    knownCost: cost,
+    tokens: {
+      input: cost * 100,
+      output: cost * 10,
+      cacheRead: cost * 1000,
+      cacheCreation: cost,
+    },
+    tokenCount: cost * 1111,
+    messageCount: 0,
+    agentSessionCount: 2,
+    status: 'ok',
+    pricingCoverage: 'full',
+    scope: 'session',
+    revision,
+  };
 }
 
 const baseStats = {
@@ -63,9 +89,8 @@ const baseStats = {
 describe('SessionStatsAggregatorService', () => {
   let service: SessionStatsAggregatorService;
   let tabs: TabState[];
-  let setLiveModelStatsAndUsageListMock: jest.Mock;
-  let setModelUsageListMock: jest.Mock;
-  let setPreloadedStatsMock: jest.Mock;
+  let setLiveModelStatsMock: jest.Mock;
+  let installSessionStatsMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
   let findAcrossWorkspacesMock: jest.Mock;
   let activeTabMock: jest.Mock;
@@ -79,9 +104,8 @@ describe('SessionStatsAggregatorService', () => {
 
   beforeEach(() => {
     tabs = [makeTab()];
-    setLiveModelStatsAndUsageListMock = jest.fn();
-    setModelUsageListMock = jest.fn();
-    setPreloadedStatsMock = jest.fn();
+    setLiveModelStatsMock = jest.fn();
+    installSessionStatsMock = jest.fn();
     // Service uses plural fan-out lookup.
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
@@ -99,9 +123,8 @@ describe('SessionStatsAggregatorService', () => {
       findTabsBySessionId: findTabsBySessionIdMock,
       findTabBySessionIdAcrossWorkspaces: findAcrossWorkspacesMock,
       activeTab: activeTabMock,
-      setLiveModelStatsAndUsageList: setLiveModelStatsAndUsageListMock,
-      setModelUsageList: setModelUsageListMock,
-      setPreloadedStats: setPreloadedStatsMock,
+      setLiveModelStats: setLiveModelStatsMock,
+      installSessionStats: installSessionStatsMock,
     } as unknown as TabManagerService;
     const streamingHandlerMock = {
       handleSessionStats: streamHandleStatsMock,
@@ -162,8 +185,8 @@ describe('SessionStatsAggregatorService', () => {
       { sessionId: SESS_UNKNOWN },
     );
     // None of the downstream side-effects fire — the event is fully dropped.
-    expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
-    expect(setPreloadedStatsMock).not.toHaveBeenCalled();
+    expect(setLiveModelStatsMock).not.toHaveBeenCalled();
+    expect(installSessionStatsMock).not.toHaveBeenCalled();
     expect(streamHandleStatsMock).not.toHaveBeenCalled();
     expect(loadSessionsMock).not.toHaveBeenCalled();
     expect(clearCompactionStateMock).not.toHaveBeenCalled();
@@ -198,10 +221,9 @@ describe('SessionStatsAggregatorService', () => {
 
       expect(findAcrossWorkspacesMock).toHaveBeenCalledWith(BG_SESSION);
       expect(clearCompactionStateMock).toHaveBeenCalledWith('bg-tab');
-      expect(setLiveModelStatsAndUsageListMock).toHaveBeenCalledWith(
+      expect(setLiveModelStatsMock).toHaveBeenCalledWith(
         'bg-tab',
         expect.objectContaining({ model: 'claude-fable-5' }),
-        expect.any(Array),
       );
       expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
       expect(warn).not.toHaveBeenCalledWith(
@@ -223,9 +245,11 @@ describe('SessionStatsAggregatorService', () => {
     findTabsBySessionIdMock.mockReturnValue([]);
     surfacesForSessionMock.mockReturnValue(['surface-1']);
 
+    const surfaceSnapshot = makeSnapshot(SESS_UNKNOWN, 1, 0.5);
     service.handleSessionStats({
       ...baseStats,
       sessionId: SESS_UNKNOWN,
+      sessionStats: surfaceSnapshot,
       modelUsage: [
         {
           model: 'claude-opus-5',
@@ -240,10 +264,10 @@ describe('SessionStatsAggregatorService', () => {
     });
 
     expect(warn).not.toHaveBeenCalled();
-    expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
+    expect(setLiveModelStatsMock).not.toHaveBeenCalled();
 
     const stats = surfaceStats.peek(SESS_UNKNOWN);
-    expect(stats?.totals.totalCost).toBeCloseTo(0.5);
+    expect(stats?.snapshot).toBe(surfaceSnapshot);
     expect(stats?.live).toEqual({
       model: 'claude-opus-5',
       contextUsed: 160,
@@ -287,7 +311,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { model: string }).model).toBe('opus');
     });
 
@@ -304,7 +328,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { model: string }).model).toBe('sonnet');
     });
   });
@@ -325,7 +349,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { contextUsed: number }).contextUsed).toBe(12345);
     });
 
@@ -343,7 +367,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { contextUsed: number }).contextUsed).toBe(175);
     });
 
@@ -361,7 +385,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       // 23456 / 100000 * 1000 = 234.56 → round = 235 / 10 = 23.5
       expect((liveStats as { contextPercent: number }).contextPercent).toBe(
         23.5,
@@ -369,108 +393,163 @@ describe('SessionStatsAggregatorService', () => {
     });
   });
 
-  it('accumulates preloadedStats with new turn data', () => {
-    tabs = [
-      makeTab({
-        preloadedStats: {
-          totalCost: 1.0,
-          tokens: {
-            input: 1000,
-            output: 500,
-            cacheRead: 100,
-            cacheCreation: 50,
-          },
-          messageCount: 5,
-        },
-      }),
-    ];
-    findTabsBySessionIdMock.mockImplementation((sid: string) =>
-      tabs.filter((t) => t.claudeSessionId === sid),
-    );
-    service.handleSessionStats(baseStats);
-    expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
-    const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
-      string,
-      NonNullable<TabState['preloadedStats']>,
-    ];
-    expect(stats.totalCost).toBeCloseTo(1.5);
-    expect(stats.tokens.input).toBe(1100);
-    expect(stats.tokens.output).toBe(550);
-    expect(stats.tokens.cacheRead).toBe(110);
-    expect(stats.tokens.cacheCreation).toBe(55);
-    expect(stats.messageCount).toBe(6);
-  });
+  // TASK_2026_533: the backend owns session accounting. Every SESSION_STATS
+  // carries its lifetime snapshot; the aggregator installs it as-is and never
+  // adds the per-turn footer fields to anything.
+  describe('backend session snapshot', () => {
+    const snapshot = (revision: number, cost: number): SessionStatsEntry =>
+      makeSnapshot(SESS_1, revision, cost);
 
-  it('does not touch preloadedStats when undefined (fresh session)', () => {
-    service.handleSessionStats(baseStats);
-    expect(setPreloadedStatsMock).not.toHaveBeenCalled();
-  });
+    it('installs snapshots 10 then 15 without addition for tabs and surfaces', () => {
+      const s10 = snapshot(10, 10);
+      const s15 = snapshot(15, 15);
+      const turns = [s10, s15, s15, s10];
 
-  describe('preloadedStats null-cost carry-over', () => {
-    function setupTab(prevCost: number | null): void {
-      tabs = [
-        makeTab({
-          preloadedStats: {
-            totalCost: prevCost,
-            tokens: {
-              input: 1000,
-              output: 500,
-              cacheRead: 100,
-              cacheCreation: 50,
-            },
-            messageCount: 5,
-          },
-        }),
-      ];
-      findTabsBySessionIdMock.mockImplementation((sid: string) =>
-        tabs.filter((t) => t.claudeSessionId === sid),
+      // Tab path.
+      for (const sessionStats of turns) {
+        service.handleSessionStats({ ...baseStats, sessionStats });
+      }
+      // Each write is the backend object itself: assignment, never a sum.
+      // The revision guard lives in TabManagerService.installSessionStats.
+      expect(installSessionStatsMock.mock.calls).toEqual(
+        turns.map((s) => ['tab-1', s]),
       );
-    }
+      // Footer fields reach the streaming handler unchanged.
+      expect(streamHandleStatsMock).toHaveBeenLastCalledWith({
+        ...baseStats,
+        sessionStats: s10,
+      });
 
-    it('makes a previously known total unknown when this turn has null cost', () => {
-      setupTab(1.25);
+      // Surface path (real registry): 10, 15, duplicate 15, then a stale 10.
+      findTabsBySessionIdMock.mockReturnValue([]);
+      surfacesForSessionMock.mockReturnValue(['surface-1']);
+      for (const sessionStats of turns) {
+        service.handleSessionStats({ ...baseStats, sessionStats });
+      }
+      expect(surfaceStats.peek(SESS_1)?.snapshot).toBe(s15);
+    });
+
+    it('never installs a snapshot that names a different session', () => {
+      const foreign = { ...snapshot(3, 3), sessionId: SESS_UNKNOWN };
+
+      service.handleSessionStats({ ...baseStats, sessionStats: foreign });
+
+      expect(installSessionStatsMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleSessionStats: session snapshot names a different session, ignoring it',
+        { sessionId: SESS_1, snapshotSessionId: SESS_UNKNOWN },
+      );
+    });
+
+    it('leaves the installed snapshot alone when a result carries none', () => {
+      service.handleSessionStats(baseStats);
+
+      expect(installSessionStatsMock).not.toHaveBeenCalled();
+    });
+
+    // Revision 1 of the review (Defect 2). A payload with no per-turn footer
+    // fields is a snapshot update, not a turn result. Forwarding it to
+    // StreamingHandlerService would overwrite a finalized message's footer
+    // (cost 7, tokens, duration 1000) and a streaming tab's pendingStats with
+    // `undefined`, so none of the turn-result side effects may run.
+    it('installs a snapshot-only payload and runs no footer, compaction, refresh or queue handling', () => {
+      streamHandleStatsMock.mockReturnValue({
+        tabId: 'tab-1',
+        queuedContent: 'queued message',
+      });
+      const sessionStats = snapshot(6, 7);
+
+      service.handleSessionStats({ sessionId: SESS_1, sessionStats });
+
+      expect(installSessionStatsMock).toHaveBeenCalledWith(
+        'tab-1',
+        sessionStats,
+      );
+      expect(streamHandleStatsMock).not.toHaveBeenCalled();
+      expect(clearCompactionStateMock).not.toHaveBeenCalled();
+      expect(loadSessionsMock).not.toHaveBeenCalled();
+      expect(sendQueuedMock).not.toHaveBeenCalled();
+      expect(setLiveModelStatsMock).not.toHaveBeenCalled();
+    });
+
+    it('records a snapshot-only payload for a surface without touching the footer path', () => {
+      findTabsBySessionIdMock.mockReturnValue([]);
+      surfacesForSessionMock.mockReturnValue(['surface-1']);
+      const sessionStats = snapshot(2, 2);
+
+      service.handleSessionStats({ sessionId: SESS_1, sessionStats });
+
+      expect(surfaceStats.peek(SESS_1)?.snapshot).toBe(sessionStats);
+      expect(streamHandleStatsMock).not.toHaveBeenCalled();
+    });
+
+    it('still treats a zero or null cost as a present footer field', () => {
+      const event = {
+        sessionId: SESS_1,
+        cost: null,
+        tokens: { input: 0, output: 0 },
+        duration: 0,
+        sessionStats: snapshot(3, 0),
+      };
+
+      service.handleSessionStats(event);
+
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(event);
+      expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
+    });
+
+    // Revision 1 of the review (Defect 3): validated at the boundary.
+    it('rejects a malformed snapshot with one warning and no payload contents', () => {
+      const malformed = {
+        ...snapshot(0, 9),
+        revision: '9',
+      } as unknown as SessionStatsEntry;
+
+      service.handleSessionStats({ ...baseStats, sessionStats: malformed });
+
+      expect(installSessionStatsMock).not.toHaveBeenCalled();
+      const rejections = warn.mock.calls.filter(
+        ([message]) =>
+          message ===
+          '[ChatStore] handleSessionStats: rejected a malformed session snapshot',
+      );
+      expect(rejections).toEqual([
+        [
+          '[ChatStore] handleSessionStats: rejected a malformed session snapshot',
+          { sessionId: SESS_1 },
+        ],
+      ]);
+      // The footer result itself is still a valid turn result.
+      expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps $16 on a surface when a revision "9" snapshot follows revision 16', () => {
+      findTabsBySessionIdMock.mockReturnValue([]);
+      surfacesForSessionMock.mockReturnValue(['surface-1']);
+      const accepted = snapshot(16, 16);
+      service.handleSessionStats({ ...baseStats, sessionStats: accepted });
+
       service.handleSessionStats({
         ...baseStats,
-        cost: null as unknown as number,
+        sessionStats: {
+          ...snapshot(0, 9),
+          revision: '9',
+        } as unknown as SessionStatsEntry,
       });
-      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
-        string,
-        NonNullable<TabState['preloadedStats']>,
-      ];
-      expect(stats.totalCost).toBeNull();
+
+      expect(surfaceStats.peek(SESS_1)?.snapshot).toBe(accepted);
     });
 
-    it('does not resurrect a null total when a later turn has known cost', () => {
-      setupTab(null);
-      service.handleSessionStats({ ...baseStats, cost: 0.5 });
-      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
-        string,
-        NonNullable<TabState['preloadedStats']>,
-      ];
-      expect(stats.totalCost).toBeNull();
-    });
-
-    it('keeps null total when both prev and turn are null', () => {
-      setupTab(null);
+    it('rejects malformed tokens', () => {
       service.handleSessionStats({
         ...baseStats,
-        cost: null as unknown as number,
+        sessionStats: {
+          ...snapshot(4, 4),
+          tokens: { input: 1, output: 1 },
+        } as unknown as SessionStatsEntry,
       });
-      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
-        string,
-        NonNullable<TabState['preloadedStats']>,
-      ];
-      expect(stats.totalCost).toBeNull();
-    });
 
-    it('sums numeric prev and numeric turn', () => {
-      setupTab(1.0);
-      service.handleSessionStats({ ...baseStats, cost: 0.25 });
-      const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
-        string,
-        NonNullable<TabState['preloadedStats']>,
-      ];
-      expect(stats.totalCost).toBeCloseTo(1.25);
+      expect(installSessionStatsMock).not.toHaveBeenCalled();
     });
   });
 
@@ -489,31 +568,18 @@ describe('SessionStatsAggregatorService', () => {
   });
 
   describe('SESSION_STATS arriving INSIDE the deleted 2s grace window now finalizes', () => {
-    it('merges stats and finalizes via streamingHandler even when lastCompactionAt is fresh (would have been dropped pre-fix)', () => {
-      tabs = [
-        makeTab({
-          lastCompactionAt: Date.now() - 100,
-          preloadedStats: {
-            totalCost: 1.0,
-            tokens: {
-              input: 1000,
-              output: 500,
-              cacheRead: 100,
-              cacheCreation: 50,
-            },
-            messageCount: 5,
-          },
-        }),
-      ];
+    it('installs the snapshot and finalizes via streamingHandler even when lastCompactionAt is fresh (would have been dropped pre-fix)', () => {
+      tabs = [makeTab({ lastCompactionAt: Date.now() - 100 })];
       findTabsBySessionIdMock.mockImplementation((sid: string) =>
         tabs.filter((t) => t.claudeSessionId === sid),
       );
+      const event = { ...baseStats, sessionStats: makeSnapshot(SESS_1, 5, 1) };
 
-      service.handleSessionStats(baseStats);
+      service.handleSessionStats(event);
 
       expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
-      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
-      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(installSessionStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(event);
       expect(warn).not.toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: dropped late event after compaction',
         expect.anything(),
@@ -528,9 +594,9 @@ describe('SessionStatsAggregatorService', () => {
   // `lastTurnContextTokens`, so the cumulative input + output + cacheRead
   // can climb past contextWindow and produce 1000%+ CTX badges.
   //
-  // The skip suppresses only the untrustworthy CONTEXT-FILL number — the
-  // per-model breakdown (and therefore the model name) is still published
-  // via setModelUsageList so the stats panel keeps showing the model.
+  // The skip suppresses only the untrustworthy CONTEXT-FILL number. The
+  // model name and per-model rows come from the backend session snapshot,
+  // which is installed independently.
   // ------------------------------------------------------------------
   describe('N2 — skip cumulative-fallback when cumulative > contextWindow', () => {
     it('suppresses the context-fill update but preserves the model breakdown when cumulative exceeds the window', () => {
@@ -547,12 +613,10 @@ describe('SessionStatsAggregatorService', () => {
         },
       ];
       service.handleSessionStats({ ...baseStats, modelUsage });
-      // 150k + 20k + 60k = 230k > 200k window → suppress context-fill, but
-      // still publish the per-model breakdown so the model badge renders.
-      expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
-      expect(setModelUsageListMock).toHaveBeenCalledWith('tab-1', modelUsage);
+      // 150k + 20k + 60k = 230k > 200k window → suppress context-fill.
+      expect(setLiveModelStatsMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
-        '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction); preserved per-model breakdown',
+        '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
         expect.any(Object),
       );
     });
@@ -572,8 +636,8 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
       // 50k + 5k + 10k = 65k ≤ 200k → publish.
-      expect(setLiveModelStatsAndUsageListMock).toHaveBeenCalledTimes(1);
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect(setLiveModelStatsMock).toHaveBeenCalledTimes(1);
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { contextUsed: number }).contextUsed).toBe(65_000);
     });
   });
@@ -581,42 +645,40 @@ describe('SessionStatsAggregatorService', () => {
   // ------------------------------------------------------------------
   // Regression: a long, single-model, resumed session never emits
   // `lastTurnContextTokens`, and its lone model carries the whole session's
-  // cumulative tokens — guaranteeing cumulative > contextWindow. Before the
-  // fix the skip branch was a no-op, so neither liveModelStats nor
-  // modelUsageList was set and the stats panel showed cost + tokens but NO
-  // model badge. Now the per-model breakdown is preserved so the model name
-  // renders even though the context-fill % is withheld.
+  // cumulative tokens — guaranteeing cumulative > contextWindow. The
+  // context-fill % is withheld, and the model badge renders from the backend
+  // session snapshot (`snapshot.model`), which is installed regardless.
   // ------------------------------------------------------------------
   describe('regression — single-model long session keeps the model badge', () => {
-    it('publishes the per-model breakdown (model name source) while withholding context-fill', () => {
-      const modelUsage = [
-        {
-          model: 'claude-opus-4-8',
-          inputTokens: 900_000,
-          outputTokens: 200_000,
-          cacheReadInputTokens: 1_000_000,
-          contextWindow: 200_000,
-          costUSD: 2.07,
-          // No lastTurnContextTokens — resumed session, no message_start seen.
-        },
-      ];
+    it('installs the snapshot (model name source) while withholding context-fill', () => {
+      const sessionStats = {
+        ...makeSnapshot(SESS_1, 8, 2.07),
+        model: 'claude-opus-4-8',
+      };
       service.handleSessionStats({
         ...baseStats,
         cost: 2.07,
-        modelUsage,
+        sessionStats,
+        modelUsage: [
+          {
+            model: 'claude-opus-4-8',
+            inputTokens: 900_000,
+            outputTokens: 200_000,
+            cacheReadInputTokens: 1_000_000,
+            contextWindow: 200_000,
+            costUSD: 2.07,
+            // No lastTurnContextTokens — resumed session, no message_start seen.
+          },
+        ],
       });
 
       // Context-fill is untrustworthy here → not published.
-      expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
-      // But the breakdown — which the UI uses to render the single-model
-      // badge via modelUsageList()[0].model — is preserved.
-      expect(setModelUsageListMock).toHaveBeenCalledTimes(1);
-      const [tabId, usageList] = setModelUsageListMock.mock.calls[0] as [
-        string,
-        typeof modelUsage,
-      ];
-      expect(tabId).toBe('tab-1');
-      expect(usageList[0].model).toBe('claude-opus-4-8');
+      expect(setLiveModelStatsMock).not.toHaveBeenCalled();
+      // The snapshot that names the model is installed as-is.
+      expect(installSessionStatsMock).toHaveBeenCalledWith(
+        'tab-1',
+        sessionStats,
+      );
     });
   });
 
@@ -661,7 +723,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       expect((liveStats as { model: string }).model).toBe('claude-opus-4');
     });
 
@@ -695,7 +757,7 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
       // sessionModel ("claude-opus-4") is not in modelUsage, so the
       // cost-based heuristic wins (haiku has the highest costUSD).
       expect((liveStats as { model: string }).model).toBe('claude-haiku');
@@ -713,59 +775,41 @@ describe('SessionStatsAggregatorService', () => {
   // (see streaming-handler.service.spec.ts → "Stop-observed guard"
   // describe block).
   describe('Phase 2 Batch 4 — SESSION_STATS demotion', () => {
-    it('SESSION_STATS arriving AFTER Stop merges stats and delegates to streamingHandler (no aggregator-side status mutation)', () => {
+    it('SESSION_STATS arriving AFTER Stop installs the snapshot and delegates to streamingHandler (no aggregator-side status mutation)', () => {
       tabs = [
         makeTab({
           status: 'loaded',
           lastTerminalReason: 'completed',
-          preloadedStats: {
-            totalCost: 1.0,
-            tokens: {
-              input: 1000,
-              output: 500,
-              cacheRead: 100,
-              cacheCreation: 50,
-            },
-            messageCount: 5,
-          },
         } as Partial<TabState>),
       ];
       findTabsBySessionIdMock.mockImplementation((sid: string) =>
         tabs.filter((t) => t.claudeSessionId === sid),
       );
 
-      service.handleSessionStats(baseStats);
+      const event = { ...baseStats, sessionStats: makeSnapshot(SESS_1, 4, 1) };
+      service.handleSessionStats(event);
 
-      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
-      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(installSessionStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(event);
       expect(tabs[0].status).toBe('loaded');
     });
 
-    it('SESSION_STATS arriving WITHOUT Stop still merges stats and delegates safety-net finalize via streamingHandler', () => {
+    it('SESSION_STATS arriving WITHOUT Stop still installs the snapshot and delegates safety-net finalize via streamingHandler', () => {
       tabs = [
         makeTab({
           status: 'streaming',
           lastTerminalReason: undefined,
-          preloadedStats: {
-            totalCost: 1.0,
-            tokens: {
-              input: 1000,
-              output: 500,
-              cacheRead: 100,
-              cacheCreation: 50,
-            },
-            messageCount: 5,
-          },
         } as Partial<TabState>),
       ];
       findTabsBySessionIdMock.mockImplementation((sid: string) =>
         tabs.filter((t) => t.claudeSessionId === sid),
       );
 
-      service.handleSessionStats(baseStats);
+      const event = { ...baseStats, sessionStats: makeSnapshot(SESS_1, 4, 1) };
+      service.handleSessionStats(event);
 
-      expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
-      expect(streamHandleStatsMock).toHaveBeenCalledWith(baseStats);
+      expect(installSessionStatsMock).toHaveBeenCalledTimes(1);
+      expect(streamHandleStatsMock).toHaveBeenCalledWith(event);
     });
   });
 
@@ -789,17 +833,17 @@ describe('SessionStatsAggregatorService', () => {
       ];
 
       service.handleSessionStats({ ...baseStats, modelUsage: tiedUsage });
-      const [, firstStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, firstStats] = setLiveModelStatsMock.mock.calls[0];
       const firstPick = (firstStats as { model: string }).model;
 
-      setLiveModelStatsAndUsageListMock.mockClear();
+      setLiveModelStatsMock.mockClear();
 
       // Reverse the order to prove ordering does not flip the result.
       service.handleSessionStats({
         ...baseStats,
         modelUsage: [...tiedUsage].reverse(),
       });
-      const [, secondStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const [, secondStats] = setLiveModelStatsMock.mock.calls[0];
       const secondPick = (secondStats as { model: string }).model;
 
       expect(firstPick).toBe(secondPick);

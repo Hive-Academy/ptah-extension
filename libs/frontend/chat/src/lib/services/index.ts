@@ -66,7 +66,6 @@ export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.ser
 export {
   TabManagerService,
   type LiveModelStatsPayload,
-  type PreloadedStatsPayload,
 } from '@ptah-extension/chat-state';
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 export { FileLinkRouterService } from './file-link-router.service';

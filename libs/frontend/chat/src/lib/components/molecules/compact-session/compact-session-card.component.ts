@@ -12,6 +12,7 @@ import {
   summarizeLive,
   type CompactSessionSummary,
   type CompactSummaryContext,
+  type CompactSummaryMetrics,
 } from '@ptah-extension/chat-ui';
 import {
   ConversationRegistry,
@@ -21,10 +22,9 @@ import {
 } from '@ptah-extension/chat-state';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import {
-  calculateSessionCostSummary,
-  type AskUserQuestionRequest,
-  type PermissionRequest,
+import type {
+  AskUserQuestionRequest,
+  PermissionRequest,
 } from '@ptah-extension/shared';
 
 /** Smart orchestration for the summary-only compact session card. */
@@ -102,25 +102,19 @@ export class CompactSessionCardComponent {
     };
   });
 
-  private readonly messages = computed(() => this.tab().messages);
-
-  private readonly calculatedMetrics = computed(() =>
-    calculateSessionCostSummary([...this.messages()]),
-  );
-
-  private readonly metrics = computed(() => {
+  /**
+   * The same backend session snapshot the full stats panel shows
+   * (TASK_2026_533). Missing figures stay unavailable: no message totals and
+   * no execution-tree agent counting as a fallback.
+   */
+  private readonly metrics = computed<CompactSummaryMetrics>(() => {
     const tab = this.tab();
-    const calculated = this.calculatedMetrics();
-    const tokens = tab.preloadedStats?.tokens ?? calculated.totalTokens;
+    const snapshot = tab.sessionStats ?? null;
     return {
       model: tab.liveModelStats?.model ?? tab.sessionModel ?? null,
-      tokens:
-        tokens.input +
-        tokens.output +
-        (tokens.cacheRead ?? 0) +
-        (tokens.cacheCreation ?? 0),
-      cost: tab.preloadedStats?.totalCost ?? calculated.totalCost,
-      agentCount: calculated.agentCount,
+      tokens: snapshot?.tokenCount ?? null,
+      cost: snapshot?.totalCost ?? null,
+      agentCount: snapshot?.agentSessionCount ?? 0,
       compactionCount: tab.compactionCount ?? 0,
     };
   });

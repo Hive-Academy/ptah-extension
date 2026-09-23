@@ -26,6 +26,7 @@ import {
   SessionTurnPhase,
   isTerminalTurnPhase,
   GatewayPlatformId,
+  type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -33,10 +34,11 @@ import {
   TabWorkspacePartitionService,
   TabLookupResult,
 } from './tab-workspace-partition.service';
+import { LiveModelStatsPayload } from './tab-state.types';
 import {
-  LiveModelStatsPayload,
-  PreloadedStatsPayload,
-} from './tab-state.types';
+  SessionStatsRevisionFloor,
+  isValidSessionStatsSnapshot,
+} from './session-stats-snapshot';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabId } from './identity/ids';
@@ -56,7 +58,7 @@ import {
   isGenuinelyNewFirstMessage,
 } from './session-identity';
 
-export type { LiveModelStatsPayload, PreloadedStatsPayload };
+export type { LiveModelStatsPayload };
 
 export type TerminalTurnClassification = 'success' | 'error';
 
@@ -283,6 +285,12 @@ export class TabManagerService {
   private readonly abortControllers = new Map<string, AbortController>();
 
   /**
+   * Revision floor per session for installed backend snapshots. Page-lifetime
+   * state on purpose — see `acceptSessionStats`.
+   */
+  private readonly sessionStatsFloor = new SessionStatsRevisionFloor();
+
+  /**
    * Panel-aware localStorage key prefix for tab state persistence.
    * Sidebar uses empty panelId (workspace-only key).
    * Editor panels use 'ptah.panel.{uuid}' panelId (namespaced key).
@@ -366,10 +374,10 @@ export class TabManagerService {
       null,
   );
 
-  /** Preloaded stats. Only changes on session load. */
-  readonly activeTabPreloadedStats = computed(
+  /** Backend session snapshot. Changes when a new snapshot is installed. */
+  readonly activeTabSessionStats = computed(
     () =>
-      this._tabs().find((t) => t.id === this._activeTabId())?.preloadedStats ??
+      this._tabs().find((t) => t.id === this._activeTabId())?.sessionStats ??
       null,
     { equal: (a, b) => a === b },
   );
@@ -378,14 +386,6 @@ export class TabManagerService {
   readonly activeTabLiveModelStats = computed(
     () =>
       this._tabs().find((t) => t.id === this._activeTabId())?.liveModelStats ??
-      null,
-    { equal: (a, b) => a === b },
-  );
-
-  /** Model usage list. Changes only at end of turn. */
-  readonly activeTabModelUsageList = computed(
-    () =>
-      this._tabs().find((t) => t.id === this._activeTabId())?.modelUsageList ??
       null,
     { equal: (a, b) => a === b },
   );
@@ -1016,9 +1016,8 @@ export class TabManagerService {
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
-      preloadedStats: null,
+      sessionStats: null,
       liveModelStats: null,
-      modelUsageList: undefined,
       hasLiveSession: false,
       compactionCount: 0,
       lastCompactionAt: null,
@@ -1896,15 +1895,15 @@ export class TabManagerService {
   }
 
   /**
-   * Apply the post-compaction reload state: clear messages, install the
-   * snapshot preloadedStats, increment compactionCount, reset streaming
-   * state machine, and drop any queued message so the next user input is
-   * sent fresh against the new compacted session.
+   * Apply the post-compaction reload state: clear messages, increment
+   * compactionCount, reset streaming state machine, and drop any queued
+   * message so the next user input is sent fresh against the new compacted
+   * session. The backend session snapshot (`sessionStats`) is lifetime
+   * accounting and is deliberately left untouched.
    */
   applyCompactionComplete(
     tabId: string,
     payload: {
-      preloadedStats: PreloadedStatsPayload | null | undefined;
       compactionCount: number;
       postCompactionContextTokens?: number;
     },
@@ -1918,7 +1917,6 @@ export class TabManagerService {
     this.updateTabInternal(tabId, {
       messages: [],
       olderHistoryCursor: undefined,
-      preloadedStats: payload.preloadedStats,
       compactionCount: payload.compactionCount,
       // Stamp completion time so late SESSION_STATS events produced for the
       // last pre-compaction turn can be filtered by the
@@ -1930,7 +1928,6 @@ export class TabManagerService {
       queuedContent: null,
       queuedOptions: null,
       liveModelStats,
-      modelUsageList: [],
     });
   }
 
@@ -2007,44 +2004,28 @@ export class TabManagerService {
   }
 
   /**
-   * Set both liveModelStats and modelUsageList in one write. Used by the
-   * SESSION_STATS aggregator when a turn finishes with a modelUsage payload.
+   * Install the backend's session snapshot on the tab (TASK_2026_533).
+   *
+   * Assignment only: the snapshot is the whole session's accounting, so it
+   * REPLACES whatever the tab showed and is never added to. It is dropped when
+   * it is malformed, names a different session than the tab is bound to, is
+   * older (lower `revision`) than one this page already accepted for the same
+   * session, or carries no revision after a revisioned one was accepted — a
+   * late broadcast or a delayed history read must not regress the panel.
    */
-  setLiveModelStatsAndUsageList(
-    tabId: string,
-    stats: LiveModelStatsPayload,
-    usageList: TabState['modelUsageList'],
-  ): void {
-    this.updateTabInternal(tabId, {
-      liveModelStats: stats,
-      modelUsageList: usageList,
-    });
-  }
-
-  /** Replace the modelUsageList for the tab. */
-  setModelUsageList(
-    tabId: string,
-    usageList: TabState['modelUsageList'],
-  ): void {
-    this.updateTabInternal(tabId, { modelUsageList: usageList });
-  }
-
-  /** Replace the preloadedStats snapshot for the tab. */
-  setPreloadedStats(
-    tabId: string,
-    stats: PreloadedStatsPayload | null | undefined,
-  ): void {
-    this.updateTabInternal(tabId, { preloadedStats: stats });
+  installSessionStats(tabId: string, snapshot: SessionStatsEntry): void {
+    if (!this.acceptSessionStats(tabId, snapshot)) return;
+    this.updateTabInternal(tabId, { sessionStats: snapshot });
   }
 
   /**
-   * Apply the loaded-session preloaded-stats payload: install both the
-   * stats snapshot and the originating sessionModel together so future
-   * `chat:continue` calls use the original session model.
+   * Apply a loaded session's resume payload: install the backend snapshot and
+   * the originating sessionModel together so future `chat:continue` calls use
+   * the original session model.
    */
   applyLoadedSessionStats(
     tabId: string,
-    stats: PreloadedStatsPayload,
+    stats: SessionStatsEntry,
     sessionModel: string | null,
   ): void {
     // Synthesize a best-effort `liveModelStats` snapshot from the loaded
@@ -2066,10 +2047,36 @@ export class TabManagerService {
         }
       : null;
     this.updateTabInternal(tabId, {
-      preloadedStats: stats,
+      ...(this.acceptSessionStats(tabId, stats) && { sessionStats: stats }),
       sessionModel,
       liveModelStats,
     });
+  }
+
+  /**
+   * Whether `snapshot` may replace the tab's current one.
+   *
+   * A malformed snapshot is rejected whole. A snapshot for another session
+   * than the tab is bound to is rejected. Ordering is decided by the
+   * per-session {@link sessionStatsFloor} (see `SessionStatsRevisionFloor`),
+   * which is page-lifetime state and never read from the persisted tab: a
+   * restored tab therefore accepts the restarted backend's first snapshot even
+   * though its stored snapshot carries a higher revision from the old process.
+   */
+  private acceptSessionStats(
+    tabId: string,
+    snapshot: SessionStatsEntry,
+  ): boolean {
+    if (!isValidSessionStatsSnapshot(snapshot)) return false;
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return false;
+    if (
+      tab.claudeSessionId !== null &&
+      tab.claudeSessionId !== snapshot.sessionId
+    ) {
+      return false;
+    }
+    return this.sessionStatsFloor.admit(snapshot);
   }
 
   // ----- Per-session config overrides (canvas tile context) -----
@@ -2129,9 +2136,8 @@ export class TabManagerService {
       streamingState: null,
       currentMessageId: null,
       queuedContent: null,
-      preloadedStats: null,
+      sessionStats: null,
       liveModelStats: null,
-      modelUsageList: [],
       compactionCount: 0,
     });
 

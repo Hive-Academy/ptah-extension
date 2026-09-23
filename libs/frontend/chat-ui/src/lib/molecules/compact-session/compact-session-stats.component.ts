@@ -21,9 +21,9 @@ import type { CompactSummaryMetrics } from './compact-session-summary';
           {{ model }}
         </span>
       }
-      <span class="shrink-0 tabular-nums"
-        >{{ formatTokens(metrics().tokens) }} tokens</span
-      >
+      <span class="shrink-0 tabular-nums">{{
+        formatTokens(metrics().tokens)
+      }}</span>
       <span class="shrink-0 tabular-nums">{{
         formatCost(metrics().cost)
       }}</span>
@@ -44,10 +44,12 @@ import type { CompactSummaryMetrics } from './compact-session-summary';
 export class CompactSessionStatsComponent {
   readonly metrics = input.required<CompactSummaryMetrics>();
 
-  protected formatTokens(count: number): string {
-    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-    return count.toString();
+  /** `1.3M tokens`; an unavailable total reads `Tokens —`, like cost. */
+  protected formatTokens(count: number | null): string {
+    if (count === null) return 'Tokens —';
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M tokens`;
+    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k tokens`;
+    return `${count} tokens`;
   }
 
   protected formatCost(cost: number | null): string {

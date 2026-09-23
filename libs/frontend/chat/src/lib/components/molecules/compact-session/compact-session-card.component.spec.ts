@@ -22,7 +22,7 @@ function tab(overrides: Partial<TabState> = {}): TabState {
     claudeSessionId: 'session-1',
     messages: [],
     streamingState: null,
-    preloadedStats: null,
+    sessionStats: null,
     liveModelStats: null,
     ...overrides,
   } as unknown as TabState;
@@ -245,26 +245,48 @@ describe(CompactSessionCardComponent.name, () => {
     expect(fixture.nativeElement.textContent).toContain('Compacting');
   });
 
-  it('does not rescan messages when an unrelated tab field changes', () => {
-    const messages: TabState['messages'] = [];
-    const fixture = render(tab({ messages }));
-    const calculatedMetrics = (
-      fixture.componentInstance as unknown as {
-        calculatedMetrics: () => unknown;
-      }
-    ).calculatedMetrics;
-    const initialMetrics = calculatedMetrics();
-
-    fixture.componentRef.setInput(
-      'tab',
-      tab({ messages, status: 'streaming' }),
+  // TASK_2026_533: the card shows the backend session snapshot, the same one
+  // the full stats panel shows. It never totals messages or counts tree nodes.
+  it('reads tokens, cost and agents from the backend snapshot', () => {
+    const fixture = render(
+      tab({
+        sessionStats: {
+          sessionId: 'session-1',
+          model: 'claude-opus-4-7',
+          totalCost: 38.18,
+          tokens: {
+            input: 15_200,
+            output: 396_700,
+            cacheRead: 14_388_100,
+            cacheCreation: 100_000,
+          },
+          tokenCount: 14_900_000,
+          messageCount: 0,
+          agentSessionCount: 9,
+          status: 'ok',
+          revision: 2,
+        },
+      }),
     );
-    fixture.detectChanges();
-    expect(calculatedMetrics()).toBe(initialMetrics);
+    const metrics = fixture.nativeElement.querySelector(
+      '[aria-label="Session metrics"]',
+    ).textContent as string;
 
-    fixture.componentRef.setInput('tab', tab({ messages: [...messages] }));
-    fixture.detectChanges();
-    expect(calculatedMetrics()).not.toBe(initialMetrics);
+    expect(metrics).toContain('14.9M tokens');
+    expect(metrics).toContain('$38.18');
+    expect(metrics).toContain('9 agents');
+  });
+
+  it('shows unavailable tokens and cost without a snapshot, never zeros', () => {
+    const fixture = render(tab({ sessionStats: null }));
+    const metrics = fixture.nativeElement.querySelector(
+      '[aria-label="Session metrics"]',
+    ).textContent as string;
+
+    expect(metrics).toContain('Tokens —');
+    expect(metrics).toContain('Cost —');
+    expect(metrics).not.toContain('0 tokens');
+    expect(metrics).not.toContain('agents');
   });
 
   it('uses stable session identity color and owning workspace label', () => {

@@ -68,7 +68,6 @@ export { SessionCostSummaryComponent } from './lib/molecules/session/session-cos
 export {
   SessionStatsSummaryComponent,
   type LiveModelStats,
-  type ModelUsageEntry,
 } from './lib/molecules/session/session-stats-summary.component';
 export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';

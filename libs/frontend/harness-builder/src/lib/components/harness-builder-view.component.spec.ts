@@ -25,6 +25,7 @@ import {
   Output,
   signal,
   ChangeDetectionStrategy,
+  type WritableSignal,
 } from '@angular/core';
 
 // `@ptah-extension/chat` transitively pulls in `ngx-markdown` -> `marked`, which
@@ -66,12 +67,18 @@ import {
   createEmptyStreamingState,
   type StreamingState,
 } from '@ptah-extension/chat-types';
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ModelStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
+import { SessionStatsSummaryComponent } from '@ptah-extension/chat-ui';
 import type {
   AskUserQuestionRequest,
   ExecutionNode,
   HarnessConfig,
   PermissionRequest,
+  SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
@@ -248,6 +255,11 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
           provide: ExecutionTreeBuilderService,
           useValue: { buildTree: jest.fn(() => []) },
         },
+        {
+          // The real stats summary renders below; it only reads model names.
+          provide: ModelStateService,
+          useValue: { availableModels: signal([]) },
+        },
       ],
     });
 
@@ -260,6 +272,7 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
           StubPermissionRequestCardComponent,
           StubQuestionCardComponent,
           StubHarnessConfigPreviewComponent,
+          SessionStatsSummaryComponent,
         ],
       },
     });
@@ -288,6 +301,72 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
       .queryAll(By.directive(StubQuestionCardComponent))
       .map((de) => de.componentInstance as StubQuestionCardComponent);
   }
+
+  describe('session stats panel (TASK_2026_533)', () => {
+    const snapshot: SessionStatsEntry = {
+      sessionId: 'sess-1',
+      model: 'claude-opus-4-7',
+      totalCost: 38.18,
+      knownCost: 38.18,
+      tokens: {
+        input: 15_200,
+        output: 396_700,
+        cacheRead: 14_388_100,
+        cacheCreation: 100_000,
+      },
+      tokenCount: 14_900_000,
+      messageCount: 0,
+      agentSessionCount: 9,
+      modelUsageList: [
+        {
+          model: 'claude-opus-4-7',
+          inputTokens: 15_200,
+          outputTokens: 396_700,
+          cacheRead: 14_388_100,
+          cacheCreation: 100_000,
+          costUSD: 38.18,
+        },
+      ],
+      status: 'ok',
+      pricingCoverage: 'full',
+      scope: 'session',
+      revision: 7,
+    };
+    const live = {
+      model: 'claude-opus-4-7',
+      contextUsed: 40_000,
+      contextWindow: 200_000,
+      contextPercent: 20,
+    };
+
+    it('binds stored snapshot and independent live context badge', () => {
+      const workflow = TestBed.inject(HarnessWorkflowService) as unknown as {
+        sessionStats: WritableSignal<SurfaceSessionStats | null>;
+      };
+      workflow.sessionStats.set({ live, snapshot });
+      fixture.detectChanges();
+
+      const panel = fixture.debugElement.query(
+        By.directive(SessionStatsSummaryComponent),
+      );
+      expect(panel).not.toBeNull();
+      const summary = panel.componentInstance as SessionStatsSummaryComponent;
+      // The stored backend object itself: no copied rows, no running totals.
+      expect(summary.snapshot()).toBe(snapshot);
+      expect(summary.liveModelStats()).toBe(live);
+
+      const chip = (id: string): string =>
+        (
+          (panel.nativeElement as HTMLElement).querySelector(
+            `[data-testid="${id}"]`,
+          )?.textContent ?? ''
+        ).trim();
+      expect(chip('stats-tokens')).toBe('14.9M');
+      expect(chip('stats-cost')).toBe('$38.18');
+      expect(chip('stats-agents')).toBe('9');
+      expect(chip('stats-context')).toBe('20%');
+    });
+  });
 
   it('renders the transcript (not the initializing spinner) once init resolves', () => {
     expect(

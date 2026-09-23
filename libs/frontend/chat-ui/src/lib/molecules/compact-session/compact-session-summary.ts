@@ -40,7 +40,8 @@ export interface CompactSummaryContent {
 
 export interface CompactSummaryMetrics {
   readonly model: string | null;
-  readonly tokens: number;
+  /** Session token total; `null` when unavailable (never shown as 0). */
+  readonly tokens: number | null;
   readonly cost: number | null;
   readonly agentCount: number;
   readonly compactionCount: number;
@@ -417,7 +418,7 @@ function buildSummary(
     content,
     metrics: {
       model: context.metrics?.model ?? null,
-      tokens: context.metrics?.tokens ?? 0,
+      tokens: context.metrics?.tokens ?? null,
       cost: context.metrics?.cost ?? null,
       agentCount: context.metrics?.agentCount ?? countAgents(semanticItems),
       compactionCount: context.metrics?.compactionCount ?? 0,
