@@ -82,3 +82,12 @@ export type {
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 export { registerVsCodeLmToolsServices } from './lib/di';
+
+// Surface delivery and state tokens
+export {
+  createDashboardBroadcast,
+  type DashboardSurfaceHost,
+  type DashboardPushType,
+} from './lib/code-execution/namespace-builders/dashboard-namespace.builder';
+export { VSCODE_LM_TOOLS_TOKENS } from './lib/di';
+export type { SurfacePushHostProvider } from './lib/surface/surface-push';

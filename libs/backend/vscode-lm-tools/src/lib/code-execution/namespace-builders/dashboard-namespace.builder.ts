@@ -25,7 +25,10 @@
 
 import { jsonUtf8Bytes } from '@ptah-extension/platform-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import type { DashboardSpecProposedPayload } from '@ptah-extension/shared';
+import type {
+  DashboardSpecProposedPayload,
+  MessagePayloadMap,
+} from '@ptah-extension/shared';
 import {
   DASHBOARD_LIMITS,
   describeDashboardLimits,
@@ -66,6 +69,11 @@ export type DashboardBroadcast = (
   payload: DashboardSpecProposedPayload,
 ) => Promise<DashboardDeliveryOutcome>;
 
+/** The validated v1 and v2 messages supported by surface delivery. */
+export type DashboardPushType =
+  | typeof MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED
+  | typeof MESSAGE_TYPES.SURFACE_UPDATED;
+
 /**
  * The slice of `WebviewManager` the delivery needs. Structural, so the
  * namespace never imports a VS Code type and this file stays testable with a
@@ -73,10 +81,10 @@ export type DashboardBroadcast = (
  */
 export interface DashboardSurfaceHost {
   getActiveWebviews(): readonly string[];
-  sendMessage(
+  sendMessage<T extends DashboardPushType>(
     viewType: string,
-    type: typeof MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED,
-    payload: DashboardSpecProposedPayload,
+    type: T,
+    payload: MessagePayloadMap[T],
   ): Promise<boolean>;
 }
 
@@ -112,25 +120,46 @@ export interface DashboardSurfaceHost {
 export function createDashboardBroadcast(
   getHost: () => DashboardSurfaceHost | undefined,
   logger: { debug(msg: string): void },
-): DashboardBroadcast {
+): <T extends DashboardPushType>(
+  type: T,
+  payload: MessagePayloadMap[T],
+) => Promise<DashboardDeliveryOutcome> {
   return async (type, payload) => {
-    const host = getHost();
-    if (!host) {
-      logger.debug(
-        '[Dashboard] no webview host registered; the tool result is the whole answer here',
-      );
-      return { status: 'no-surface' };
+    let host: DashboardSurfaceHost;
+    let surfaces: readonly string[];
+    try {
+      const resolvedHost = getHost();
+      if (!resolvedHost) {
+        logger.debug(
+          '[Dashboard] no webview host registered; the tool result is the whole answer here',
+        );
+        return { status: 'no-surface' };
+      }
+      host = resolvedHost;
+      surfaces = host.getActiveWebviews();
+    } catch (error: unknown) {
+      // Host lookup and enumeration can race disposal. Report the failure;
+      // there is no known surface count and no send has been attempted.
+      return {
+        status: 'failed',
+        delivered: 0,
+        surfaces: 0,
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
 
-    const surfaces = host.getActiveWebviews();
     if (surfaces.length === 0) {
       return { status: 'no-surface' };
     }
 
-    // `sendMessage` never rejects, so `Promise.all` is safe and every surface
-    // is attempted even when an earlier one fails.
+    // Defer each send so both synchronous throws and rejected promises count
+    // as non-delivery. Every surface is attempted, in push call order.
     const results = await Promise.all(
-      surfaces.map((viewType) => host.sendMessage(viewType, type, payload)),
+      surfaces.map((viewType) =>
+        Promise.resolve()
+          .then(() => host.sendMessage(viewType, type, payload))
+          .then((ok) => ok === true, () => false),
+      ),
     );
     const delivered = results.filter(Boolean).length;
 
