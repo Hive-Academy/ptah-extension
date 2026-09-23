@@ -708,7 +708,7 @@ Edge cases:
 - Acceptance (from Batch 3 review): the shell's tier must follow a real `ResizeObserver` report with no manual change detection — the shell spec resizes the host across 900 and 1400 and asserts rail/sidebar flips using `fixture.autoDetectChanges()` / zoneless scheduling, never an explicit `detectChanges()` after the resize (the `no NgZone.run` decision is otherwise unproven). Real-host proof is Task 25.1.
 - Reviewer: code-logic-reviewer (zero-RPC rule, keyboard scope)
 
-## Batch 12b: Workspace-scoped session MCP status (Revision 3, D-4) — COMPLETE (commit recorded in the next records commit)
+## Batch 12b: Workspace-scoped session MCP status (Revision 3, D-4) — COMPLETE (commit 93822fa60)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (small, but the spec migration needs judgement)
