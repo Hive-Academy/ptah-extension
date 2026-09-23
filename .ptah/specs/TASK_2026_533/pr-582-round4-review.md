@@ -1,0 +1,47 @@
+# Cross-side review — PR #582 round 4 (commit 33083fc35)
+
+## Verdict
+
+REVISE — F1 and F3 are each contradicted by a definition the lane did not touch, so the four findings are not fully resolved despite the touched files being internally correct.
+
+## Findings
+
+1. **F1 not fully resolved — `.claude/agents/ui-ux-designer.md:58-59` still tells the designer to list every tagged constraint, not only lane-proposed ones.**
+   Severity: Blocking.
+   Evidence: `.claude/agents/ui-ux-designer.md:58-59` reads "List all design constraints in `prototype/README.md` under `## Lane-introduced constraints` tagged `[user-requested]`, `[project-rule]`, or `[lane-proposed]`". The byte-identical instruction sits at `libs/backend/agent-generation/templates/agents/ui-ux-designer.template.md:84-85` (the template that generates the `.claude/agents` file — confirmed identical by direct diff of both regions).
+   This directly contradicts the fix applied in this same commit: `.claude/skills/ui-ux-designer/SKILL.md:130` now says the `## Lane-introduced constraints` list holds "only `[lane-proposed]` rules; or none", `.claude/skills/ui-ux-designer/PROTOTYPING.md:290-292` says "List only lane-proposed design rules... write `none` if there are none", and `.claude/skills/agent-lanes/SKILL.md:152` says "list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced."
+   The ui-ux-designer agent file is what actually executes the role — it is the more load-bearing of the two contradicting instructions, since the SKILL.md files are reference material the agent may or may not re-read verbatim. CodeRabbit's F1 asked to "align every other definition of that section"; this is a fourth definition the lane never found or touched.
+   Scenario: a ui-ux-designer lane follows its own agent file literally and writes `[project-rule]`-tagged rows into `## Lane-introduced constraints` in `prototype/README.md`, which the fixed `PROTOTYPING.md` and `SKILL.md` both say must not happen. A reviewer applying the fixed rule flags the deliverable as wrong even though the agent followed its own instructions correctly.
+   Fix: apply the same "list only lane-proposed; project rules keep their tag and cite their source" wording to `libs/backend/agent-generation/templates/agents/ui-ux-designer.template.md:84-85`, then mirror to `.claude/agents/ui-ux-designer.md:58-59` and regenerate `.codex`/`.opencode`.
+
+2. **Follow-on gap from #1: no section documents where project-rule constraints appear once `## Lane-introduced constraints` is lane-proposed-only.**
+   Severity: Serious.
+   Evidence: `.claude/skills/ui-ux-designer/PROTOTYPING.md:294-296` — the worked example table dropped both project-rule example rows (`Single primary action per card`, `Provider status shown as badge`) with no replacement section, leaving only the one `[lane-proposed]` row. `.claude/skills/ui-ux-designer/SKILL.md:130` (README.md contract) likewise now only names a `## Lane-introduced constraints` list restricted to `[lane-proposed]`; there is no second list, section, or cross-reference named for project-rule items. `agent-lanes/SKILL.md:152` says project rules "keep their tag and cite their source where they appear" but the "where" is never given — no file in this diff adds a place for them.
+   Scenario: at Gate 1.7 (`PROTOTYPING.md:310-319`, "Iteration Loop") the orchestrator presents "the prototype path, screenshots, `Lane-introduced constraints`, and parity mapping" to the user. A design that leans on a project rule (e.g. "status shown as badge, not a button") now has that fact visible nowhere in the presented artifact — the user cannot see project-rule provenance was honoured, only that it was not proposed by the lane.
+   Fix: name the actual destination for project-rule citations (e.g., inline next to the token/value it constrains, as PROTOTYPING.md already does for values — "name the source next to the value" — or a new `## Project rules applied` section) so check 2's "user still sees project-rule items somewhere" holds.
+
+3. **F3 not fully resolved — `.claude/skills/orchestration/SKILL.md:42` still restricts the no-prototype before/after path to a "UI BUGFIX".**
+   Severity: Blocking.
+   Evidence: `.claude/skills/orchestration/SKILL.md:42` (unchanged by this commit — not in the diff's file list) reads: "A UI BUGFIX that does not add or redesign a surface skips the designer and Gate 1.7; its completion requires before/after screenshots..." The plugin mirror `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/SKILL.md:42` has the identical unfixed text (mirrors match each other, but both are stale).
+   This is the file the round-3 report (`.ptah/specs/TASK_2026_533/pr-582-round3-lane-ag-report.md:12`) names as the original home of the "UI BUGFIX" wording ("Documented that a UI BUGFIX that does not add or redesign a surface skips the designer and Gate 1.7... | `orchestration/SKILL.md:42`"). Round 4 fixed the derived copies — `.claude/agents/team-leader.md:291` ("a UI change that adds or redesigns no surface"), `.claude/skills/orchestration/references/agent-catalog.md:125` (same broadened phrase), `.claude/agents/visual-reviewer.md:82-87` (same) — but never touched the source paragraph itself.
+   Scenario: an orchestrator reading `orchestration/SKILL.md:42` to decide whether a UI refactor (not a bugfix, but one that adds/redesigns no surface — e.g. a prop-drilling cleanup with no visual surface change) needs the designer/Gate-1.7 path will conclude it does, because the surviving text gates the skip on "BUGFIX". The same task handed to team-leader for its Mode 3 completion check will accept before/after screenshots instead of a prototype, because team-leader's copy was broadened. The two roles now disagree about whether Gate 1.7 was required for the same change.
+   Fix: apply the identical broadening ("any UI change that adds or redesigns no surface", not "UI BUGFIX") to `.claude/skills/orchestration/SKILL.md:42` and its plugin mirror `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/SKILL.md:42`.
+
+## Checks run
+
+- `git show 33083fc35 --stat` and full `git show 33083fc35` diff read in full (22 files, 194 insertions, 37 deletions).
+- `grep -rn "project-rule" .claude/ apps/.../ptah-core/skills/ libs/backend/agent-generation/templates/` — surfaced `.claude/agents/ui-ux-designer.md:59` and `libs/backend/agent-generation/templates/agents/ui-ux-designer.template.md:85` as untouched, contradicting definitions (Finding 1).
+- `grep -rn "adds or redesigns no surface\|does not add or redesign"` across `.claude`, plugin mirror, templates, `.codex`, `.opencode` — surfaced `.claude/skills/orchestration/SKILL.md:42` and its plugin mirror still gated on "UI BUGFIX" (Finding 3).
+- Byte-identity check (`diff -q`) for the five touched plugin-skill files against their `.claude/skills` counterparts: all `IDENTICAL`.
+- Region diff of the touched passages in `libs/backend/agent-generation/templates/agents/{team-leader,visual-reviewer}.template.md` against `.claude/agents/{team-leader,visual-reviewer}.md`: no differences — template bodies match.
+- `node scripts/regen-agents.mjs` (dry run, no `--write`): `WOULD CHANGE 0` — `.codex`/`.opencode` for team-leader and visual-reviewer already match what the transformers produce from `.claude/agents`.
+- `node scripts/generate-content-manifest.js`: recomputed hash `sha256:b5d3fc708c49db8ca5d629d1445d8f3b248556c01ae09b0bef21faa7fbb8fe7e` matches the committed `content-manifest.json` exactly; only `generatedAt` differed. Reverted the resulting working-tree change with `git checkout -- content-manifest.json` immediately after (no lasting modification).
+- Verified F2: `.ptah/specs/TASK_2026_533/pr-582-round3-lane-ag-report.md:10` now reads `` /\b(?:2\|two)\s+revise\s+rounds\b/i `` — the pipe is escaped and the table cell no longer splits. Confirmed correct.
+- Line-ending check: `git cat-file -p 33083fc35:<path> | od -An -tx1 | grep -c '^0d$'` for every file in `git diff 33083fc35~1 33083fc35 --name-only`, sampled `.claude/agents/team-leader.md`, `scripts/regen-agents.mjs`, `.ptah/specs/TASK_2026_533/pr-582-round4-lane-report.md`, `.codex/agents/visual-reviewer.toml`, `.opencode/agent/team-leader.md`, `content-manifest.json` — all 0x0D count = 0, pure LF. (An earlier `grep -cU $'\r'` run inside a `for` loop falsely reported CR bytes for every file; `od`-based byte inspection on the same git-blob content showed 0x0D count 0, so that loop result was a shell/tool artifact, not a real finding — noted so it is not mistaken for evidence.)
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/lane-rule-single-home.spec.ts` read in full: its `LANE_RULES` list (resume param/signal, default concurrency, revise cap, ptahCliId precedence, pasted `ptah_agent_list` row) does not match any text added in this diff, and its `SCANNED_SKILLS` (`agent-lanes`, `orchestration`, `tribunal`) does not cover `ui-ux-designer` or the agent template files — so the single-home spec cannot catch Finding 1, and the new visual-reviewer/team-leader before/after text does not trip it either.
+- `npx nx run-many -t test -p vscode-lm-tools --skip-nx-cache`: header `Running target test for project @ptah-extension/vscode-lm-tools:` (resolves to N=1 project as expected), result `Successfully ran target test for project @ptah-extension/vscode-lm-tools`. PASS.
+
+## Lane-introduced constraints
+
+none
+
