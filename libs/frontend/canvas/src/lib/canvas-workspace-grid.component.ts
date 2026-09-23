@@ -100,7 +100,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
     <gridstack
       [options]="gsOptions"
       [class.singleton]="isSingleton()"
-      [class.singleton-expanded]="isSingletonExpanded()"
+      [class.compact-singleton]="isCompactSingleton()"
       [style.--ptah-compact-singleton-height]="compactSingletonHeight()"
       (changeCB)="onGridChange()"
       (dragStartCB)="onGestureStart('drag', $event)"
@@ -146,24 +146,19 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         height: 100% !important;
       }
 
-      /* Only a full or layout-focused singleton fills the canvas; a compact
-         singleton keeps its projected tier height instead of stretching. */
-      gridstack.singleton-expanded > gridstack-item {
-        top: 0 !important;
-        left: 0 !important;
-        width: 100% !important;
+      /* Keep full-height singletons tall; Gridstack owns their chosen width. */
+      gridstack.singleton:not(.compact-singleton) > gridstack-item {
         height: 100% !important;
       }
 
       /* Gridstack 12's calculated compact inline height is not resolved by the
          Electron renderer, leaving the item at its content-driven full height.
          Publish the already-computed pixel height as a calculation-free CSS
-         variable for the only non-expanded singleton tier. */
-      gridstack.singleton:not(.singleton-expanded) > gridstack-item {
+         variable for compact singleton tiers. */
+      gridstack.compact-singleton > gridstack-item {
         height: var(--ptah-compact-singleton-height) !important;
       }
 
-      :host ::ng-deep gridstack.singleton .ui-resizable-handle,
       :host
         ::ng-deep
         gridstack-item.ui-resizable-disabled
@@ -256,12 +251,12 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       ),
   );
 
-  /** A singleton fills the canvas only when full or layout-focused. */
-  protected readonly isSingletonExpanded = computed(() => {
+  /** Compact height applies only outside the transient layout-focus overlay. */
+  protected readonly isCompactSingleton = computed(() => {
     if (!this.isSingleton()) return false;
-    if (this.layoutFocusTabId() !== null) return true;
+    if (this.layoutFocusTabId() !== null) return false;
     const constraints = this.viewConstraints();
-    return !(
+    return (
       constraints.length === 1 && isCompactViewMode(constraints[0].heightTier)
     );
   });
@@ -313,7 +308,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     for (const tabId of this.creationOptions.keys()) {
       if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
     }
-    const frozen = this.isSingleton() || this.layoutFocusTabId() !== null;
+    const frozen = this.locked() || this.layoutFocusTabId() !== null;
+    const noMove = frozen || this.isSingleton();
     const compactIds = this.compactTabIds();
     const firstId = firstByOrder(this.tiles());
     return this.tiles().map((tile) => {
@@ -329,13 +325,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           w: position.w,
           h: position.h,
           id: tile.tabId,
-          noMove: frozen,
+          noMove,
           noResize,
         };
         this.creationOptions.set(tile.tabId, options);
         this.metrics.increment('creationOptionWrites', 1, false);
       } else {
-        options.noMove = frozen;
+        options.noMove = noMove;
         options.noResize = noResize;
       }
       return {
@@ -421,10 +417,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       grid?.setStatic(locked);
     });
 
-    // For singleton session, suppress drag and resize handles on engine nodes
-    // without forcing locked=true. For multi-session, restore handles unless locked.
+    // A singleton has no reorder target, but still supports width resizing.
+    // Lock and layout focus pause both gestures for every tile count.
     effect(() => {
       const grid = this.gridComp()?.grid;
+      // Track these even before Gridstack attaches its engine to the child.
+      // In particular, locking skips geometry projection, so this effect must
+      // independently reapply node flags after setStatic changes them.
+      this.locked();
+      this.isSingleton();
+      this.layoutFocusTabId();
+      this.compactTabIds();
       if (!grid) return;
       this.applyNodeInteractionState(grid);
     });
@@ -458,7 +461,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (
       !this.visible() ||
       this.locked() ||
-      this.isSingleton() ||
+      (kind === 'drag' && this.isSingleton()) ||
       this.layoutFocusTabId() !== null
     ) {
       return;
@@ -799,15 +802,16 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     movable?: (el: HTMLElement, val: boolean) => void;
     resizable?: (el: HTMLElement, val: boolean) => void;
   }): void {
-    const movable =
-      !this.isSingleton() && !this.locked() && this.layoutFocusTabId() === null;
+    const interactive = !this.locked() && this.layoutFocusTabId() === null;
+    const movable = !this.isSingleton() && interactive;
     const compactIds = this.compactTabIds();
     for (const node of grid.engine?.nodes ?? []) {
       if (!node.el) continue;
       // Compact tiles stay movable but never resizable: their width is a
       // projection of the responsive capacity, not stored intent.
       const resizable =
-        movable && !(typeof node.id === 'string' && compactIds.has(node.id));
+        interactive &&
+        !(typeof node.id === 'string' && compactIds.has(node.id));
       grid.movable?.(node.el, movable);
       grid.resizable?.(node.el, resizable);
     }
