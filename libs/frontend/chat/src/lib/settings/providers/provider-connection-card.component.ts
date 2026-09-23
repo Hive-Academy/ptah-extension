@@ -351,6 +351,17 @@ export type ResolvedConnectionState =
                   >
                     Check connection
                   </button>
+                  @if (canActivateMain() && uncheckable()) {
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm min-h-9 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                      [attr.aria-label]="activateMainAriaLabel()"
+                      (click)="activateMainRequested.emit()"
+                      data-testid="btn-activate-main"
+                    >
+                      Use for main agent
+                    </button>
+                  }
                   @if (canManage()) {
                     <button
                       type="button"
@@ -373,6 +384,17 @@ export type ResolvedConnectionState =
                   >
                     Retry
                   </button>
+                  @if (canActivateMain() && uncheckable()) {
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm min-h-9 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                      [attr.aria-label]="activateMainAriaLabel()"
+                      (click)="activateMainRequested.emit()"
+                      data-testid="btn-activate-main"
+                    >
+                      Use for main agent
+                    </button>
+                  }
                   @if (canManage()) {
                     <button
                       type="button"
@@ -626,6 +648,14 @@ export class ProviderConnectionCardComponent {
 
     return raw as ResolvedConnectionState;
   });
+
+  /**
+   * The host cannot check this connection (`unknown`/`skipped`, e.g. local servers). Still shown as
+   * Not checked / Check unavailable, but main-agent activation is offered: not checkable is not failed.
+   */
+  protected readonly uncheckable = computed<boolean>(
+    () => this.status() === 'unknown' || this.status() === 'skipped',
+  );
 
   /** True when this is the selected main route but currently blocked/failing. */
   protected readonly isBlockedMain = computed<boolean>(() => {

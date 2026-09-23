@@ -576,12 +576,12 @@ describe('ProviderConsumerAssignmentsComponent', () => {
   });
 
   describe('4. Unavailable Provider and Draft Preservation', () => {
-    it('shows exact state-table copy for not-configured provider and preserves draft', async () => {
+    it('keeps an uncheckable (unknown/skipped) provider saveable with an advisory note and preserves draft', async () => {
       button(fixture, 'consumer-edit-archaeologist')?.click();
       fixture.detectChanges();
       await fixture.whenStable();
 
-      // Select 'openai' which has status 'unknown' in mock
+      // Select 'openai' which has status 'unknown' in mock: the host cannot check it, it has not failed.
       const providerSelect = query(
         fixture,
         'picker-archaeologist',
@@ -593,21 +593,27 @@ describe('ProviderConsumerAssignmentsComponent', () => {
 
       const alert = query(fixture, 'readiness-alert-archaeologist');
       const message = query(fixture, 'readiness-message-archaeologist');
-      const setupBtn = button(fixture, 'readiness-setup-archaeologist');
 
-      expect(alert).toBeTruthy();
-      expect(message?.textContent?.trim()).toBe('Set up OpenAI when you are ready.');
-      expect(setupBtn?.textContent?.trim()).toBe('Set up OpenAI');
+      expect(alert?.getAttribute('role')).toBe('status');
+      expect(message?.textContent?.trim()).toBe(
+        'Ptah cannot check OpenAI before use. If requests fail, check that it is running and reachable.',
+      );
+      expect(button(fixture, 'readiness-setup-archaeologist')).toBeNull();
 
       // The selection in the picker must NOT be discarded
       expect(providerSelect.value).toBe('openai');
 
-      // Save button must be disabled with explanatory message
-      const saveBtn = button(fixture, 'save-button-archaeologist');
-      expect(saveBtn?.disabled).toBe(true);
-      expect(query(fixture, 'save-disabled-reason-archaeologist')?.textContent?.trim()).toBe(
-        'Set up OpenAI when you are ready.',
-      );
+      // The note does not block saving.
+      expect(button(fixture, 'save-button-archaeologist')?.disabled).toBe(false);
+      expect(query(fixture, 'save-disabled-reason-archaeologist')).toBeNull();
+    });
+
+    it('allows "Follow main agent" to save when the active provider comes from the effective route', async () => {
+      button(fixture, 'consumer-edit-archaeologist')?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      // Empty provider = follow the main agent; activeProviderId is 'anthropic' in the mock.
+      expect(query(fixture, 'readiness-alert-archaeologist')).toBeNull();
     });
 
     it('emits setupProviderRequested with provider id when Set up button is clicked', async () => {
@@ -622,13 +628,14 @@ describe('ProviderConsumerAssignmentsComponent', () => {
         fixture,
         'picker-archaeologist',
       )?.querySelector('[data-testid="provider-model-picker-provider"]') as HTMLSelectElement;
-      providerSelect.value = 'openai';
+      providerSelect.value = 'ollama';
       providerSelect.dispatchEvent(new Event('change'));
       await fixture.whenStable();
       fixture.detectChanges();
 
+      expect(button(fixture, 'save-button-archaeologist')?.disabled).toBe(true);
       button(fixture, 'readiness-setup-archaeologist')?.click();
-      expect(setupSpy).toHaveBeenCalledWith('openai');
+      expect(setupSpy).toHaveBeenCalledWith('ollama');
     });
 
     it('renders needs-key readiness message for provider requiring key', async () => {

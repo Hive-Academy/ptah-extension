@@ -138,6 +138,10 @@ export interface ProviderWizardCommit {
   } | null;
   /** Tier mappings; `''` entries mean the provider default tier. */
   readonly tiers: ProviderWizardTierMappings;
+  /** Stored main-agent tiers as loaded into the Models step (`null` = unset). */
+  readonly tierSnapshot: { readonly everyday: string | null; readonly complex: string | null; readonly fast: string | null };
+  /** Tiers whose value differs from {@link tierSnapshot}; only these are saved. */
+  readonly editedTiers: readonly WizardTierKey[];
   readonly saveTo: SettingScope;
   readonly activation: WizardActivation;
 }
@@ -234,6 +238,10 @@ const PROBE_FAILURE_COPY: Readonly<
     'Connection check cancelled. Nothing was activated.',
   unclassified: () =>
     'The connection check failed. Retry or review the connection details.',
+  'no-stored-credential': () =>
+    'No key is stored for this provider. Use Replace key to enter one.',
+  'stored-credential-mismatch': () =>
+    'The endpoint changed, so the stored key cannot be used. Use Replace key to enter one.',
 };
 
 /** Monotonic probe id source; generation token of the draft probe. */
@@ -637,7 +645,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
               </h3>
               @switch (authMode()) {
                 @case ('apiKey') {
-                  <p class="text-xs">Verification requires entering the credential, even when a key is already stored. Use Replace key to enter it. Nothing is saved until you confirm.</p>
+                  <p class="text-xs">A stored key is verified on this machine without re-entering it. Nothing is saved until you confirm.</p>
                   @if (existingCredentialPresent() && !replacingKey()) {
                     <p
                       class="mt-3 text-sm text-base-content"
@@ -645,6 +653,14 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     >
                       Key stored
                     </p>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm mt-2 min-h-9 border-base-content-muted bg-base-100 text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                      (click)="verifyStoredKey()"
+                      data-testid="wizard-verify-stored-key"
+                    >
+                      Verify stored key
+                    </button>
                     <button
                       type="button"
                       class="btn btn-outline btn-sm mt-2 min-h-9 border-base-content-muted bg-base-100 text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -940,6 +956,11 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                   >
                     {{ showApiKey() ? 'Hide API key' : 'Show API key' }}
                   </button>
+                  @if (usesStoredKey()) {
+                    <p class="text-xs text-base-content-muted" data-testid="wizard-custom-stored-key">
+                      Key stored. Leave the key empty to verify the stored key.
+                    </p>
+                  }
                   <p class="text-xs text-base-content-muted" data-testid="wizard-custom-protocol-note">
                     Compatibility: {{ customProtocol() === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible' }}
                   </p>
@@ -1102,9 +1123,14 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
               >
                 Models
               </h3>
+              @if (!tiersApply()) {
+                <p class="mt-3 text-xs text-base-content-muted" data-testid="wizard-models-native">
+                  Claude chooses its own default models for this connection. No model mapping is needed.
+                </p>
+              } @else {
               <p class="mt-3 text-xs text-base-content-muted" data-testid="wizard-models-copy">
-                Choose the model this connection uses for each kind of work, or use the provider's
-                defaults.
+                Choose the model the main agent uses on this connection for each kind of work, or use
+                the provider's defaults. Saved choices apply when you use this provider for the main agent.
               </p>
               <div class="mt-3 space-y-4">
                 @for (tier of TIER_DEFS; track tier.key) {
@@ -1134,6 +1160,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                 >
                   Use provider defaults
                 </button>
+              }
               }
             </div>
           }
@@ -1172,13 +1199,15 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     {{ probeReviewLabel() }}
                   </dd>
                 </div>
-                @for (tier of TIER_DEFS; track tier.key) {
-                  <div class="flex gap-2">
-                    <dt class="w-40 shrink-0 text-xs text-base-content-muted">{{ tier.label }}</dt>
-                    <dd class="text-sm text-base-content" data-testid="wizard-review-tier">
-                      {{ tierReview(tier.key) }}
-                    </dd>
-                  </div>
+                @if (tiersApply()) {
+                  @for (tier of TIER_DEFS; track tier.key) {
+                    <div class="flex gap-2">
+                      <dt class="w-40 shrink-0 text-xs text-base-content-muted">{{ tier.label }}</dt>
+                      <dd class="text-sm text-base-content" data-testid="wizard-review-tier">
+                        {{ tierReview(tier.key) }}
+                      </dd>
+                    </div>
+                  }
                 }
               </dl>
 
@@ -1597,11 +1626,44 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   protected readonly cliInstalled = computed<boolean | null>(() => this.externalAuth().cliInstalled);
 
+  /**
+   * Manage / Edit with a stored key and nothing typed: the probe asks the host
+   * to use the stored key (`credential: { kind: 'stored' }`), so no re-entry.
+   */
+  protected readonly usesStoredKey = computed<boolean>(() => {
+    const mode = this.authMode();
+    return (
+      (mode === 'apiKey' || mode === 'custom') &&
+      this.existingCredentialPresent() &&
+      !this._replacingKey() &&
+      this._apiKeyDraft().trim().length === 0
+    );
+  });
+
+  /** Native Anthropic auth (Claude API, Claude CLI) keeps the SDK's default models: no tiers. */
+  protected readonly tiersApply = computed<boolean>(
+    () => this.selectionId() !== 'anthropic' && this.authMode() !== 'cli',
+  );
+
+  /** Stored main-agent tiers as loaded from `initialSetup`; compare-and-set baseline. */
+  private readonly _tierSnapshot = signal<Record<WizardTierKey, string | null>>({
+    everyday: null,
+    complex: null,
+    fast: null,
+  });
+
+  /** Per-tier dirty state: a tier is edited when it differs from the loaded snapshot. */
+  protected readonly editedTiers = computed<readonly WizardTierKey[]>(() => {
+    if (!this.tiersApply()) return [];
+    const snapshot = this._tierSnapshot();
+    return TIER_KEYS.filter((key) => this._tiers[key]() !== (snapshot[key] ?? ''));
+  });
+
   protected readonly credentialReady = computed<boolean>(() => {
     if (!this.selectionValid()) return false;
     switch (this.authMode()) {
       case 'apiKey':
-        return this._apiKeyDraft().trim().length > 0;
+        return this._apiKeyDraft().trim().length > 0 || this.usesStoredKey();
       case 'oauth':
         return this.signInState() === 'signed-in';
       case 'cli':
@@ -1610,7 +1672,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       case 'local-proxy':
         return this.baseUrlError() === null;
       case 'custom':
-        return this.baseUrlError() === null && this._apiKeyDraft().trim().length > 0;
+        return (
+          this.baseUrlError() === null &&
+          (this._apiKeyDraft().trim().length > 0 || this.usesStoredKey())
+        );
     }
   });
 
@@ -1665,7 +1730,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   });
 
   protected readonly modelsValid = computed<boolean>(() => {
-    if (this.defaultsResolvable()) return true;
+    if (!this.tiersApply() || this.defaultsResolvable()) return true;
     return TIER_KEYS.every((key) => this._tiers[key]().length > 0);
   });
 
@@ -1700,14 +1765,16 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   protected readonly savedCopy = computed<string>(() =>
     this._activation() === 'use-main-agent'
       ? `${this.displayName()} is now used for new main-agent requests.`
-      : `${this.displayName()} connected.`,
+      : this.editedTiers().length > 0
+        ? `${this.displayName()} connected. Model choices saved — they apply when you use this provider for the main agent.`
+        : `${this.displayName()} connected.`,
   );
 
   protected readonly credentialReviewLabel = computed<string>(() => {
     switch (this.authMode()) {
       case 'apiKey':
         if (this._apiKeyDraft().trim().length > 0) return 'Key entered for this setup';
-        return this.existingCredentialPresent() ? 'Enter the key to verify this draft' : 'No key entered';
+        return this.usesStoredKey() ? 'Stored key (unchanged)' : 'No key entered';
       case 'oauth':
       case 'cli':
         return this.signInState() === 'signed-in'
@@ -1721,7 +1788,11 @@ export class ProviderSetupWizardComponent implements OnDestroy {
           ? 'Key entered (optional)'
           : 'No API key required';
       case 'custom':
-        return this._apiKeyDraft().trim().length > 0 ? 'Key entered' : 'No key entered';
+        return this._apiKeyDraft().trim().length > 0
+          ? 'Key entered'
+          : this.usesStoredKey()
+            ? 'Stored key (unchanged)'
+            : 'No key entered';
     }
   });
 
@@ -1789,6 +1860,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
         this._customName.set(setup.customName); this._customProtocol.set(setup.customProtocol);
       }
       if (!this._baseUrlTouched()) this._baseUrlDraft.set(setup.baseUrl ?? this.selectedEntry()?.baseUrl ?? '');
+      this._tierSnapshot.set({ everyday: setup.tiers.sonnet, complex: setup.tiers.opus, fast: setup.tiers.haiku });
       this._tiers.everyday.set(setup.tiers.sonnet ?? '');
       this._tiers.complex.set(setup.tiers.opus ?? '');
       this._tiers.fast.set(setup.tiers.haiku ?? '');
@@ -1971,6 +2043,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this.stopElapsedTimer();
     this._elapsedSeconds.set(0);
     for (const key of TIER_KEYS) this._tiers[key].set('');
+    this._tierSnapshot.set({ everyday: null, complex: null, fast: null });
     this._saveTo.set('app');
     this._activation.set('connect-only');
     this._scopeTouched.set(false);
@@ -2063,6 +2136,13 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       });
   }
 
+  /** Manage / Edit: verify the key the host already stores, without re-entry. */
+  protected verifyStoredKey(): void {
+    if (!this.usesStoredKey() || this.probeChecking()) return;
+    this.goToStep('verify');
+    if (this._step() === 'verify') this.startProbe();
+  }
+
   protected onCancelProbe(): void {
     const probeId = this._probeId();
     if (!probeId || !this.probeChecking()) return;
@@ -2108,6 +2188,9 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       (mode === 'apiKey' || mode === 'custom' || this.supportsOptionalKey())
     ) {
       params.credential = { kind: 'apiKey', value: key };
+    } else if (this.usesStoredKey()) {
+      // The host reads the stored key itself; no secret crosses the boundary.
+      params.credential = { kind: 'stored' };
     }
     if (mode === 'local-native' || mode === 'local-proxy' || mode === 'custom') {
       params.baseUrl = this._baseUrlDraft().trim();
@@ -2179,8 +2262,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       customName: isCustom ? this._customName().trim() : null,
       customProtocol: isCustom ? this._customProtocol() : null,
       credential: key.length > 0 ? { kind: 'apiKey', value: key } : null,
-      existingKeyReused:
-        mode === 'apiKey' && this.existingCredentialPresent() && key.length === 0,
+      existingKeyReused: this.usesStoredKey(),
       baseUrl: needsBaseUrl ? this._baseUrlDraft().trim() : null,
       verified:
         result !== null && result.outcome === 'verified'
@@ -2191,11 +2273,15 @@ export class ProviderSetupWizardComponent implements OnDestroy {
               modelUsed: result.modelUsed,
             }
           : null,
-      tiers: {
-        everyday: this._tiers.everyday(),
-        complex: this._tiers.complex(),
-        fast: this._tiers.fast(),
-      },
+      tiers: this.tiersApply()
+        ? {
+            everyday: this._tiers.everyday(),
+            complex: this._tiers.complex(),
+            fast: this._tiers.fast(),
+          }
+        : { everyday: '', complex: '', fast: '' },
+      tierSnapshot: { ...this._tierSnapshot() },
+      editedTiers: this.editedTiers(),
       saveTo: this._saveTo(),
       activation: this._activation(),
     };
@@ -2265,6 +2351,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._elapsedSeconds.set(0);
     this.probeSettled = true;
     for (const key of TIER_KEYS) this._tiers[key].set('');
+    this._tierSnapshot.set({ everyday: null, complex: null, fast: null });
     this._saveTo.set('app');
     this._activation.set('connect-only');
     this._scopeTouched.set(false);

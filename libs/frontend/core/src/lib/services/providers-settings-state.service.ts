@@ -123,6 +123,10 @@ export interface ProvidersConnectionDraft {
   readonly baseUrl: string | null;
   readonly verified: { readonly probeId: string } | null;
   readonly tiers: { readonly everyday: string; readonly complex: string; readonly fast: string };
+  /** Stored main-agent tiers as the wizard loaded them; the compare-and-set baseline for edits. */
+  readonly tierSnapshot: { readonly everyday: string | null; readonly complex: string | null; readonly fast: string | null };
+  /** Tiers the user changed from the snapshot. Only these are written. */
+  readonly editedTiers: readonly ('everyday' | 'complex' | 'fast')[];
   readonly saveTo: SettingScope;
   readonly activation: 'connect-only' | 'use-main-agent';
 }
@@ -149,12 +153,21 @@ function section<T>() {
 type SectionStore<T> = ReturnType<typeof section<T>>;
 interface SaveOperation {
   readonly fields: readonly string[];
-  readonly write: () => Promise<boolean>;
+  /** `'conflict'`: nothing was written because the stored value changed since the draft was read. */
+  readonly write: () => Promise<boolean | 'conflict'>;
   readonly readBack?: () => Promise<boolean>;
   /** Connection creation must not activate an incomplete setup. */
   readonly dependsOnPrevious?: boolean;
 }
 const LOAD_ERROR = 'Could not load this section. Retry.';
+/** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
+const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
+/**
+ * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
+ * `anthropicProviderId` ('anthropic' is virtual and fails AuthSettingsSchema; the pre-#575 UI
+ * never sent one for either) and writes no main-agent tiers (those pin ANTHROPIC_DEFAULT_*_MODEL).
+ */
+const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
 const EMPTY_COMMIT: ProvidersSettingsCommit = {
   status: 'idle',
   saved: [],
@@ -220,7 +233,12 @@ export class ProvidersSettingsStateService {
   readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
   readonly externalAuth = this.view(this.externalAuthStore);
   readonly commit = this.commitState.asReadonly();
-  /** A scalar identity makes two active badges impossible. Unknown/skipped never qualify. */
+  /**
+   * A scalar identity makes two active badges impossible. Derived from the effective route
+   * (`driverProviderId` of a ready, resolved route). `auth:getEffectiveRoute` never reports
+   * probe timestamps, so they are not required. `unknown`/`skipped` (e.g. local servers)
+   * cannot be checked by the host and still qualify; a failing driver status never does.
+   */
   readonly activeProviderId = computed(() => {
     const state = this.route();
     const route = state.data;
@@ -229,23 +247,13 @@ export class ProvidersSettingsStateService {
       this.commit().status === 'saving' ||
       !route?.ready ||
       route.route === 'unresolved' ||
-      !route.lastSuccessfulProbeAt
-    )
-      return null;
-    const successAt = Date.parse(route.lastSuccessfulProbeAt);
-    if (
-      !Number.isFinite(successAt) ||
-      (route.lastFailedProbeAt &&
-        Date.parse(route.lastFailedProbeAt) >= successAt)
+      !route.driverProviderId
     )
       return null;
     const driver = route.providers.find(
       (provider) => provider.id === route.driverProviderId,
     );
-    return driver &&
-      (driver.status === 'connected' || driver.status === 'reachable')
-      ? driver.id
-      : null;
+    return driver && ACTIVATABLE_STATUSES.has(driver.status) ? driver.id : null;
   });
 
   constructor() {
@@ -311,7 +319,11 @@ export class ProvidersSettingsStateService {
     });
   }
 
-  /** Host catalogue and stored setup facts; never use the shipped default as configuration evidence. */
+  /**
+   * Host catalogue and stored setup facts; never use the shipped default as configuration evidence.
+   * Tiers are the MAIN-AGENT mapping: the wizard's Models step edits what the main agent uses on this
+   * connection. CLI sub-agent tiers (`cliAgent`) belong to the CLI agent editor, not to connection setup.
+   */
   private readonly setupStore = section<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
   readonly connectionSetup = this.view(this.setupStore);
   async refreshConnectionSetup(providerId: string): Promise<void> {
@@ -319,7 +331,7 @@ export class ProvidersSettingsStateService {
     await this.read(this.setupStore, async () => {
       const [endpoint, tiers] = await Promise.all([
         this.require('llm:getProviderBaseUrl', { provider: providerId }),
-        this.require('provider:getModelTiers', { providerId, scope: 'cliAgent' }),
+        this.require('provider:getModelTiers', { providerId, scope: 'mainAgent' }),
       ]);
       const custom = this.connections().data?.find((entry) => entry.id === providerId)?.custom
         ? (await this.require('provider:listCustomEntries', {})).entries.find((entry) => entry.id === providerId) : undefined;
@@ -327,6 +339,17 @@ export class ProvidersSettingsStateService {
         ...(custom ? { customName: custom.name, customProtocol: custom.lane } : {}),
       };
     });
+  }
+
+  /**
+   * Model lists for the delegated CLIs (codex, copilot, cursor, antigravity, opencode, pi). These are
+   * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
+   * Loaded on demand: the host may fetch remote catalogues.
+   */
+  private readonly delegatedModelsStore = section<RpcMethodResult<'agent:listCliModels'>>();
+  readonly delegatedModelOptions = this.view(this.delegatedModelsStore);
+  async refreshDelegatedModelOptions(): Promise<void> {
+    await this.read(this.delegatedModelsStore, () => this.require('agent:listCliModels', undefined));
   }
 
   private readonly cliTestStore = section<{ id: string; success: boolean }>();
@@ -350,18 +373,16 @@ export class ProvidersSettingsStateService {
       const validated = setCustomProviderEntries(custom.entries);
       const customIds = new Set(validated.accepted.map((entry) => entry.id));
       const entries = getAllAnthropicProviders();
-      const savedSetupIds = new Set(await Promise.all(entries.filter((entry) => entry.isLocal || entry.nativeAuth).map(async (entry) => {
-        if (entry.isLocal) {
-          const endpoint = await this.require('llm:getProviderBaseUrl', { provider: entry.id });
-          return endpoint.baseUrl ? entry.id : null;
-        }
-        const tiers = await this.require('provider:getModelTiers', { providerId: entry.id, scope: 'cliAgent' });
-        return tiers.sonnet || tiers.opus || tiers.haiku ? entry.id : null;
+      const savedSetupIds = new Set(await Promise.all(entries.filter((entry) => entry.isLocal).map(async (entry) => {
+        const endpoint = await this.require('llm:getProviderBaseUrl', { provider: entry.id });
+        return endpoint.baseUrl ? entry.id : null;
       })));
       const connections: ProvidersConnection[] = entries.map((entry): ProvidersConnection => {
         const host = status.providers.find((provider) => provider.provider === entry.id);
+        // Native CLI auth has no stored setup of its own; an installed CLI is the connection.
         const authenticated = entry.id === 'github-copilot' ? auth.copilotAuthenticated === true
-          : entry.id === 'openai-codex' ? auth.codexAuthenticated === true && !auth.codexTokenStale : false;
+          : entry.id === 'openai-codex' ? auth.codexAuthenticated === true && !auth.codexTokenStale
+          : entry.nativeAuth ? auth.claudeCliInstalled === true : false;
         return {
           id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true,
           configured: host?.hasApiKey === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
@@ -453,47 +474,79 @@ export class ProvidersSettingsStateService {
     }
     if (!custom && draft.baseUrl) operations.push({ fields: ['Connection endpoint'], dependsOnPrevious: true,
       write: async () => (await this.require('llm:setProviderBaseUrl', { provider: draft.providerId, baseUrl: draft.baseUrl ?? '' })).success });
+    // Native Anthropic auth keeps the SDK's own model defaults: no tiers are collected, validated or written.
+    const nativeAnthropic = NATIVE_ANTHROPIC_IDS.has(draft.providerId) || draft.authMode === 'cli';
     const tiers = Object.entries(mappings) as [RpcMethodParams<'provider:setModelTier'>['tier'], string][];
     const defaults = getAnthropicProvider(draft.providerId)?.defaultTiers;
-    if (tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
+    if (!nativeAnthropic && !custom && tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
       this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection models'], message: 'Choose explicit models where no provider default is available.' });
       return;
     }
-    for (const [tier, model] of tiers) operations.push({ fields: [`Connection ${tier} model`], dependsOnPrevious: true,
-      write: async () => (await this.require('provider:setModelTier', {
-        providerId: draft.providerId, tier, modelId: model || defaults?.[tier] || '', scope: 'cliAgent',
-      })).success });
+    // Main-agent tiers, for Connect only as well as activation: provider:setModelTier persists
+    // provider.<id>.mainAgent.modelTier.<tier> and changes the running env only when <id> is the active
+    // provider (ProviderModelsService.setModelTier). Only tiers the user EDITED in the wizard are sent;
+    // unchanged tiers are left to the host's fill-if-unset auto-map. No `cliAgent` writes: those are
+    // read by PtahCliRegistry.resolveEffectiveTiers for every CLI agent on this provider.
+    if (!nativeAnthropic && !custom) {
+      const wizardKey = { sonnet: 'everyday', opus: 'complex', haiku: 'fast' } as const;
+      for (const [tier, model] of tiers) {
+        const key = wizardKey[tier];
+        if (!draft.editedTiers.includes(key)) continue;
+        operations.push({ fields: [`Main agent ${tier} model`], dependsOnPrevious: true,
+          write: async () => {
+            // Compare-and-set: the edit was made against the snapshot the wizard loaded. If another
+            // window changed the stored value since, report a conflict instead of overwriting it.
+            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
+            if ((stored[tier] ?? null) !== (draft.tierSnapshot[key] ?? null)) return 'conflict';
+            if (!model) return (await this.require('provider:clearModelTier', { providerId: draft.providerId, tier, scope: 'mainAgent' })).success;
+            return (await this.require('provider:setModelTier', { providerId: draft.providerId, tier, modelId: model, scope: 'mainAgent' })).success;
+          },
+          readBack: async () => {
+            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
+            return (stored[tier] ?? '') === model;
+          } });
+      }
+    }
+    // Activate LAST. auth:saveSettings auto-maps UNSET tiers, so running it first would fill a tier the
+    // wizard snapshot saw as empty and turn the user's own edit into a false conflict. Writing the edits
+    // first is safe (an inactive provider's tiers never touch the running env), and a failed or
+    // conflicting tier write stops activation through dependsOnPrevious.
     if (draft.activation === 'use-main-agent') {
-      operations.push(...this.operations({ auth: { authMethod: draft.providerId === 'anthropic' ? 'apiKey' : draft.authMode === 'cli' ? 'claudeCli' : 'thirdParty',
-        ...(draft.providerId === 'anthropic' ? { anthropicApiKey: draft.credential?.value } : { anthropicProviderId: draft.providerId }), applyTo: draft.saveTo } }).map((operation) => ({ ...operation, dependsOnPrevious: true })));
-      for (const [tier, model] of tiers) operations.push({ fields: [`Main agent ${tier} model`], dependsOnPrevious: true,
-        write: async () => (await this.require('provider:setModelTier', { providerId: draft.providerId, tier,
-          modelId: model || defaults?.[tier] || '', scope: 'mainAgent' })).success });
+      operations.push(...this.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
+        draft.providerId === 'anthropic' ? draft.credential?.value : undefined) })
+        .map((operation) => ({ ...operation, dependsOnPrevious: true })));
     }
     await this.runCommit(operations, context, () => draft.activation !== 'use-main-agent' ||
-      (this.writeScopes('authMethod').includes(draft.saveTo) && this.writeScopes('anthropicProviderId').includes(draft.saveTo)));
+      this.authWritable(draft.saveTo, !nativeAnthropic));
   }
 
-  /** Copy the connection's saved model choices AFTER auth activation's host default mapping. */
+  /**
+   * Select an existing connection for the main agent. Tier mapping is left to `auth:saveSettings`,
+   * whose autoMapProviderTiers fills only UNSET main-agent tiers; the user's existing tiers stay.
+   */
   async activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<void> {
     if (this.commit().status === 'saving') return;
-    await this.refreshTiers({ providerId, scope: 'cliAgent' });
     const connection = this.connections().data?.find((entry) => entry.id === providerId);
-    const tiers = this.tiers();
-    if (!connection || this.connections().status !== 'ready' || tiers.status !== 'ready' || !tiers.data ||
-      this.tierRequest?.providerId !== providerId || this.tierRequest.scope !== 'cliAgent') {
+    if (!connection || this.connections().status !== 'ready') {
       this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Main agent connection'],
-        message: 'Refresh this connection and its model choices before activating it.' });
+        message: 'Refresh this connection before activating it.' });
       return;
     }
-    const mappings = (Object.entries(tiers.data) as [RpcMethodParams<'provider:setModelTier'>['tier'], string | null][])
-      .filter((entry): entry is [RpcMethodParams<'provider:setModelTier'>['tier'], string] => entry[1] !== null);
-    const operations = this.operations({ auth: {
-      authMethod: connection.authMode === 'cli' ? 'claudeCli' : providerId === 'anthropic' ? 'apiKey' : 'thirdParty',
-      anthropicProviderId: providerId, applyTo,
-    }, tiers: mappings.map(([tier, modelId]) => ({ providerId, tier, modelId, scope: 'mainAgent' })) });
-    await this.runCommit(operations.map((operation) => ({ ...operation, dependsOnPrevious: true })), context,
-      () => this.writeScopes('authMethod').includes(applyTo) && this.writeScopes('anthropicProviderId').includes(applyTo));
+    const auth = this.activationAuth(providerId, connection.authMode, applyTo);
+    await this.runCommit(this.operations({ auth }), context,
+      () => this.authWritable(applyTo, auth.anthropicProviderId !== undefined));
+  }
+
+  private activationAuth(providerId: string, authMode: ProvidersConnection['authMode'], applyTo: SettingScope,
+    anthropicApiKey?: string): AuthSaveSettingsParams {
+    if (providerId === 'anthropic') return { authMethod: 'apiKey', ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}), applyTo };
+    if (authMode === 'cli' || NATIVE_ANTHROPIC_IDS.has(providerId)) return { authMethod: 'claudeCli', applyTo };
+    return { authMethod: 'thirdParty', anthropicProviderId: providerId, applyTo };
+  }
+
+  private authWritable(target: SettingScope, withProvider: boolean): boolean {
+    return this.writeScopes('authMethod').includes(target) &&
+      (!withProvider || this.writeScopes('anthropicProviderId').includes(target));
   }
 
   /** Supply concrete provider/auth-key paths, never the allowlist's <...> families. */
@@ -981,7 +1034,8 @@ export class ProvidersSettingsStateService {
     }
     const saved: string[] = [],
       unsaved: string[] = [],
-      unconfirmed: string[] = [];
+      unconfirmed: string[] = [],
+      conflicted: string[] = [];
     for (const operation of operations) {
       if (operation.dependsOnPrevious && (unsaved.length || unconfirmed.length)) {
         unsaved.push(...operation.fields);
@@ -993,7 +1047,14 @@ export class ProvidersSettingsStateService {
       }
       let acknowledged = false;
       try {
-        acknowledged = await operation.write();
+        const outcome = await operation.write();
+        if (outcome === 'conflict') {
+          // Nothing was written: surface the conflict instead of overwriting a newer value.
+          conflicted.push(...operation.fields);
+          unsaved.push(...operation.fields);
+          continue;
+        }
+        acknowledged = outcome;
       } catch (error: unknown) {
         // RPC errors may contain credentials. Neither their message nor object enters UI state.
         void error;
@@ -1051,9 +1112,12 @@ export class ProvidersSettingsStateService {
       unsaved,
       unconfirmed,
       refreshFailed,
-      message: refreshFailed
-        ? 'Some settings could not be refreshed. Retry those sections.'
-        : null,
+      message: [
+        conflicted.length
+          ? `Changed elsewhere since setup opened, not overwritten: ${conflicted.join(', ')}. Reopen setup to review the current value.`
+          : '',
+        refreshFailed ? 'Some settings could not be refreshed. Retry those sections.' : '',
+      ].filter(Boolean).join(' ') || null,
     });
   }
 

@@ -281,7 +281,25 @@ describe('ProvidersSettingsStateService', () => {
     return { providerId: 'openrouter', displayName: 'OpenRouter', authMode: 'apiKey',
       customName: null, customProtocol: null, credential: { kind: 'apiKey', value: 'private-key' },
       baseUrl: null, verified: { probeId: 'draft-check' },
-      tiers: { everyday: 'one', complex: 'two', fast: 'three' }, saveTo: 'global', activation: 'connect-only', ...overrides };
+      tiers: { everyday: 'one', complex: 'two', fast: 'three' },
+      tierSnapshot: { everyday: 'one', complex: 'two', fast: 'three' }, editedTiers: [],
+      saveTo: 'global', activation: 'connect-only', ...overrides };
+  }
+  /** Host-side main-agent tier store behind provider:get/set/clearModelTier, so tests assert end state. */
+  function tierStore(initial: Record<'sonnet' | 'opus' | 'haiku', string | null>) {
+    const store = { ...initial };
+    handlers.set('provider:getModelTiers', async () => success({ ...store }));
+    handlers.set('provider:setModelTier', async (params) => {
+      const { tier, modelId, scope } = params as { tier: 'sonnet' | 'opus' | 'haiku'; modelId: string; scope: string };
+      if (scope !== 'mainAgent') throw new Error('unexpected scope ' + scope);
+      store[tier] = modelId;
+      return success({ success: true });
+    });
+    handlers.set('provider:clearModelTier', async (params) => {
+      store[(params as { tier: 'sonnet' | 'opus' | 'haiku' }).tier] = null;
+      return success({ success: true });
+    });
+    return store;
   }
   async function verifiedConnection() {
     handlers.set('auth:verifyDraftConnection', async () => success(probe('draft-check')));
@@ -311,6 +329,28 @@ describe('ProvidersSettingsStateService', () => {
     handlers.set('provider:getModelTiers', async () => success({ sonnet: 'saved-model', opus: null, haiku: null }));
     await service.refreshConnectionSetup('ollama');
     expect(service.connectionSetup().data).toEqual({ providerId: 'ollama', baseUrl: 'http://saved.example', tiers: { sonnet: 'saved-model', opus: null, haiku: null } });
+    // The wizard edits the main-agent mapping; CLI sub-agent tiers are not connection setup.
+    expect(call).toHaveBeenCalledWith('provider:getModelTiers', { providerId: 'ollama', scope: 'mainAgent' }, undefined);
+    expect(call).not.toHaveBeenCalledWith('provider:getModelTiers', expect.objectContaining({ scope: 'cliAgent' }), undefined);
+  });
+  it('treats an installed Claude CLI as a configured connection without reading CLI sub-agent tiers', async () => {
+    handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'apiKey', hasApiKey: false, claudeCliInstalled: true }));
+    await service.refreshConnections();
+    expect(service.connections().data?.find((entry) => entry.id === 'claude-cli')?.configured).toBe(true);
+    expect(call.mock.calls.some(([method]) => method === 'provider:getModelTiers')).toBe(false);
+    handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'apiKey', hasApiKey: false, claudeCliInstalled: false }));
+    await service.refreshConnections();
+    expect(service.connections().data?.find((entry) => entry.id === 'claude-cli')?.configured).toBe(false);
+  });
+  it('R3.11: loads delegated CLI model lists from agent:listCliModels on demand, never provider:listModels', async () => {
+    const lists = { codex: [], copilot: [], cursor: [{ id: 'cursor-fast', name: 'Cursor Fast' }], antigravity: [], opencode: [], pi: [] };
+    handlers.set('agent:listCliModels', async () => success(lists));
+    await service.open();
+    expect(call.mock.calls.some(([method]) => method === 'agent:listCliModels')).toBe(false);
+    await service.refreshDelegatedModelOptions();
+    expect(call).toHaveBeenCalledWith('agent:listCliModels', undefined, undefined);
+    expect(service.delegatedModelOptions().data).toEqual(lists);
+    expect(call.mock.calls.some(([method]) => method === 'provider:listModels')).toBe(false);
   });
 
   it('surfaces a real false cancellation acknowledgement and targets the requested probe', async () => {
@@ -342,18 +382,118 @@ describe('ProvidersSettingsStateService', () => {
     expect(JSON.stringify(service.connections())).not.toContain('raw credential');
   });
 
-  it('connects without writing main-route settings or main-agent tier mappings', async () => {
+  it('connects without writing main-route settings, main-agent tiers or CLI sub-agent tiers', async () => {
     const reviewed = await verifiedConnection(); call.mockClear();
     await service.connectProvider(connectionDraft(), reviewed);
     expect(service.commit().status).toBe('saved');
     expect(call).toHaveBeenCalledWith('auth:setApiKey', { provider: 'openrouter', apiKey: 'private-key' }, undefined);
     expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings' || method === 'llm:setApiKey')).toBe(false);
-    expect(call.mock.calls.filter(([method]) => method === 'provider:setModelTier').map(([, params]) => params)).toEqual([
-      { providerId: 'openrouter', tier: 'sonnet', modelId: 'one', scope: 'cliAgent' },
-      { providerId: 'openrouter', tier: 'opus', modelId: 'two', scope: 'cliAgent' },
-      { providerId: 'openrouter', tier: 'haiku', modelId: 'three', scope: 'cliAgent' },
-    ]);
+    // R1.4: provider.<id>.cliAgent.modelTier.* is read by PtahCliRegistry for every CLI agent on the provider.
+    expect(call.mock.calls.some(([method]) => method === 'provider:setModelTier')).toBe(false);
     expect(JSON.stringify(service.commit())).not.toContain('private-key');
+  });
+  it('R1.4: activating from setup writes no cliAgent tier', async () => {
+    const reviewed = await verifiedConnection();
+    handlers.set('auth:saveSettings', async () => success({ success: true })); call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent' }), reviewed);
+    const scopes = call.mock.calls.filter(([method]) => method === 'provider:setModelTier')
+      .map(([, params]) => (params as { scope: string }).scope);
+    expect(scopes).not.toContain('cliAgent');
+  });
+  it('review #4: sends only edited tiers; unchanged tiers keep a newer stored value', async () => {
+    const reviewed = await verifiedConnection();
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    // Another window changed sonnet to 'newer' after this wizard loaded 'one'.
+    const store = tierStore({ sonnet: 'newer', opus: 'two', haiku: null });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent',
+      tiers: { everyday: 'one', complex: 'edited-opus', fast: 'three' },
+      tierSnapshot: { everyday: 'one', complex: 'two', fast: null }, editedTiers: ['complex', 'fast'] }), reviewed);
+    expect(service.commit().status).toBe('saved');
+    expect(call).toHaveBeenCalledWith('auth:saveSettings', { authMethod: 'thirdParty', anthropicProviderId: 'openrouter', applyTo: 'global' }, undefined);
+    // The unedited sonnet tier kept the newer value; edits landed in the main-agent scope.
+    expect(store).toEqual({ sonnet: 'newer', opus: 'edited-opus', haiku: 'three' });
+  });
+  it('review #4: an edited tier whose stored value changed since setup opened is a conflict, not an overwrite', async () => {
+    const reviewed = await verifiedConnection();
+    const store = tierStore({ sonnet: 'changed-elsewhere', opus: null, haiku: null });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ tiers: { everyday: 'mine', complex: 'two', fast: 'three' },
+      tierSnapshot: { everyday: 'one', complex: null, fast: null }, editedTiers: ['everyday'] }), reviewed);
+    expect(store.sonnet).toBe('changed-elsewhere');
+    expect(call.mock.calls.some(([method]) => method === 'provider:setModelTier')).toBe(false);
+    expect(service.commit()).toMatchObject({ status: 'partial', unsaved: ['Main agent sonnet model'] });
+    expect(service.commit().message).toContain('Changed elsewhere since setup opened, not overwritten: Main agent sonnet model');
+  });
+  it('review round 2 N2: first activation keeps the chosen model; the host auto-map runs after the tier writes', async () => {
+    const reviewed = await verifiedConnection();
+    const store = tierStore({ sonnet: null, opus: null, haiku: null });
+    // The real auth:saveSettings runs autoMapProviderTiers, which fills every UNSET main-agent tier.
+    handlers.set('auth:saveSettings', async () => {
+      for (const tier of ['sonnet', 'opus', 'haiku'] as const) store[tier] ??= `default-${tier}`;
+      return success({ success: true });
+    });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent',
+      tiers: { everyday: 'chosen-sonnet', complex: 'unedited-opus', fast: 'unedited-haiku' },
+      tierSnapshot: { everyday: null, complex: null, fast: null }, editedTiers: ['everyday'] }), reviewed);
+    expect(service.commit().status).toBe('saved');
+    expect(store).toEqual({ sonnet: 'chosen-sonnet', opus: 'default-opus', haiku: 'default-haiku' });
+    const order = call.mock.calls.map(([method]) => method)
+      .filter((method) => method === 'provider:setModelTier' || method === 'auth:saveSettings');
+    expect(order).toEqual(['provider:setModelTier', 'auth:saveSettings']);
+  });
+  it('review round 2 N2: a conflicting tier write stops activation', async () => {
+    const reviewed = await verifiedConnection();
+    tierStore({ sonnet: 'changed-elsewhere', opus: null, haiku: null });
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent',
+      tiers: { everyday: 'mine', complex: 'two', fast: 'three' },
+      tierSnapshot: { everyday: null, complex: null, fast: null }, editedTiers: ['everyday'] }), reviewed);
+    expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
+    expect(service.commit().status).toBe('partial');
+  });
+  it('B2-2: Connect only persists edited tiers as main-agent tiers without selecting the provider', async () => {
+    const reviewed = await verifiedConnection();
+    await service.verifyDraft({ probeId: 'draft-check', providerId: 'moonshot', authMode: 'apiKey' });
+    const store = tierStore({ sonnet: null, opus: null, haiku: null });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ providerId: 'moonshot', tiers: { everyday: 'one', complex: '', fast: 'three' },
+      tierSnapshot: { everyday: null, complex: null, fast: null }, editedTiers: ['everyday', 'fast'] }), reviewed);
+    expect(service.commit().status).toBe('saved');
+    expect(store).toEqual({ sonnet: 'one', opus: null, haiku: 'three' });
+    expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
+    expect(call.mock.calls.filter(([method]) => method === 'provider:setModelTier')
+      .every(([, params]) => (params as { scope: string }).scope === 'mainAgent')).toBe(true);
+  });
+  it('B2-2: an edit back to the provider default clears the stored main-agent tier', async () => {
+    const reviewed = await verifiedConnection();
+    await service.verifyDraft({ probeId: 'draft-check', providerId: 'moonshot', authMode: 'apiKey' });
+    const store = tierStore({ sonnet: 'user-sonnet', opus: 'user-opus', haiku: 'user-haiku' });
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ providerId: 'moonshot', tiers: { everyday: '', complex: 'user-opus', fast: 'user-haiku' },
+      tierSnapshot: { everyday: 'user-sonnet', complex: 'user-opus', fast: 'user-haiku' }, editedTiers: ['everyday'] }), reviewed);
+    expect(service.commit().status).toBe('saved');
+    expect(store).toEqual({ sonnet: null, opus: 'user-opus', haiku: 'user-haiku' });
+  });
+  it.each(['claude-cli', 'anthropic'])('R1.1/R1.2: %s setup activation sends no provider id and writes no tiers', async (providerId) => {
+    const reviewed = await verifiedConnection();
+    await service.verifyDraft({ probeId: 'draft-check', providerId, authMode: providerId === 'anthropic' ? 'apiKey' : 'cli' });
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    // anthropicProviderId is not writable here: native auth must not need it.
+    scopeResponse = { activePath: '/workspace', entries: [entry('authMethod')] };
+    call.mockClear();
+    // Native auth collects no tiers: blank tiers are not blocked, and even a stray edit is not written.
+    await service.connectProvider(connectionDraft({ providerId, authMode: providerId === 'anthropic' ? 'apiKey' : 'cli',
+      credential: providerId === 'anthropic' ? { kind: 'apiKey', value: 'private-key' } : null, activation: 'use-main-agent',
+      tiers: { everyday: '', complex: '', fast: '' }, editedTiers: ['everyday'] }), reviewed);
+    expect(service.commit().status).toBe('saved');
+    const saved = call.mock.calls.find(([method]) => method === 'auth:saveSettings')?.[1];
+    expect(saved).toEqual(providerId === 'anthropic'
+      ? { authMethod: 'apiKey', anthropicApiKey: 'private-key', applyTo: 'global' }
+      : { authMethod: 'claudeCli', applyTo: 'global' });
+    expect(call.mock.calls.some(([method]) => method === 'provider:setModelTier')).toBe(false);
   });
   it('distinguishes a persisted local endpoint from a shipped endpoint default', async () => {
     handlers.set('llm:getProviderBaseUrl', async () => success({ baseUrl: null, defaultBaseUrl: 'http://localhost:11434' }));
@@ -372,20 +512,32 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.commit().unsaved).toContain('authMethod');
     expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
   });
-  it('activates before copying the saved connection models over host defaults', async () => {
+  it('R1.3: activates a third-party connection without copying any tier over the main-agent tiers', async () => {
     const reviewed = await verifiedConnection();
-    handlers.set('provider:getModelTiers', async () => success({ sonnet: 'one', opus: 'two', haiku: 'three' }));
+    handlers.set('provider:getModelTiers', async () => success({ sonnet: 'cli-one', opus: 'cli-two', haiku: 'cli-three' }));
     handlers.set('auth:saveSettings', async () => success({ success: true })); call.mockClear();
     await service.activateConnection('openrouter', 'global', reviewed);
-    const writes = call.mock.calls.filter(([method]) => method === 'auth:saveSettings' || method === 'provider:setModelTier');
-    expect(writes.map(([method]) => method)).toEqual(['auth:saveSettings', 'provider:setModelTier', 'provider:setModelTier', 'provider:setModelTier']);
-    expect(writes[1][1]).toEqual({ providerId: 'openrouter', tier: 'sonnet', modelId: 'one', scope: 'mainAgent' });
+    // auth:saveSettings -> autoMapProviderTiers fills only UNSET main-agent tiers on the host.
+    expect(call).toHaveBeenCalledWith('auth:saveSettings', { authMethod: 'thirdParty', anthropicProviderId: 'openrouter', applyTo: 'global' }, undefined);
+    expect(call.mock.calls.some(([method]) => method === 'provider:setModelTier')).toBe(false);
     expect(service.commit().status).toBe('saved');
   });
-  it('does not activate when the stored connection models could not be read', async () => {
+  it.each([
+    ['anthropic', { authMethod: 'apiKey', applyTo: 'global' }],
+    ['claude-cli', { authMethod: 'claudeCli', applyTo: 'global' }],
+  ])('R1.1/R1.2: activating %s sends no anthropicProviderId and writes no main-agent tier', async (providerId, expected) => {
     const reviewed = await verifiedConnection();
-    handlers.set('provider:getModelTiers', async () => { throw new Error('raw failure'); }); call.mockClear();
-    await service.activateConnection('openrouter', 'global', reviewed);
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    scopeResponse = { activePath: '/workspace', entries: [entry('authMethod')] };
+    call.mockClear();
+    await service.activateConnection(providerId, 'global', reviewed);
+    expect(call.mock.calls.filter(([method]) => method === 'auth:saveSettings').map(([, params]) => params)).toEqual([expected]);
+    expect(call.mock.calls.some(([method]) => method === 'provider:setModelTier')).toBe(false);
+    expect(service.commit().status).toBe('saved');
+  });
+  it('does not activate a connection that is not in the loaded catalogue', async () => {
+    const reviewed = await verifiedConnection(); call.mockClear();
+    await service.activateConnection('not-a-provider', 'global', reviewed);
     expect(service.commit().status).toBe('blocked');
     expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
   });
@@ -504,14 +656,12 @@ describe('ProvidersSettingsStateService', () => {
   });
 
   it.each([
-    'unknown',
-    'skipped',
     'unreachable',
     'needs-key',
     'unauthenticated',
     'not-installed',
     'missing',
-  ] as const)('never marks %s evidence active', async (status) => {
+  ] as const)('never marks a %s driver active', async (status) => {
     handlers.set('auth:getEffectiveRoute', async () =>
       success(route({ providers: [{ id: 'first', type: 'apiKey', status }] })),
     );
@@ -519,16 +669,27 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.activeProviderId()).toBeNull();
   });
 
-  it('requires positive inference evidence and rejects later failure or invalid timestamps', async () => {
+  it.each(['unknown', 'skipped'] as const)('R2.5: marks an uncheckable (%s) driver of a ready route active', async (status) => {
+    handlers.set('auth:getEffectiveRoute', async () =>
+      success(route({ providers: [{ id: 'first', type: 'local-native', status }] })),
+    );
+    await service.refreshRoute();
+    expect(service.activeProviderId()).toBe('first');
+  });
+
+  it('R2.5: derives the active provider from the effective route, which never carries probe timestamps', async () => {
+    // auth:getEffectiveRoute always returns null probe timestamps (auth-rpc.handlers.ts).
+    handlers.set('auth:getEffectiveRoute', async () =>
+      success(route({ lastSuccessfulProbeAt: null, lastFailedProbeAt: null })),
+    );
+    await service.refreshRoute();
+    expect(service.activeProviderId()).toBe('first');
     for (const overrides of [
-      { lastSuccessfulProbeAt: null },
-      { lastSuccessfulProbeAt: 'invalid' },
-      { lastFailedProbeAt: '2026-09-22T10:01:00Z' },
       { ready: false },
+      { route: 'unresolved' as const, driverProviderId: null },
+      { driverProviderId: 'not-in-catalogue' },
     ]) {
-      handlers.set('auth:getEffectiveRoute', async () =>
-        success(route(overrides)),
-      );
+      handlers.set('auth:getEffectiveRoute', async () => success(route({ lastSuccessfulProbeAt: null, ...overrides })));
       await service.refreshRoute();
       expect(service.activeProviderId()).toBeNull();
     }

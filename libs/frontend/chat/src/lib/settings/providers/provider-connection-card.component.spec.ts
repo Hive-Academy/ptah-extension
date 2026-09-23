@@ -417,7 +417,8 @@ describe('ProviderConnectionCardComponent', () => {
 
       const copy = query(fixture, 'status-copy');
       expect(copy?.textContent?.trim()).toBe('Connection has not been verified.');
-      expect(button(fixture, 'btn-activate-main')).toBeNull();
+      // Not checkable is not failed: activation stays available (TASK_2026_534 R2.5).
+      expect(button(fixture, 'btn-activate-main')).not.toBeNull();
     });
 
     it('maps "skipped" directly to Check unavailable (Could not check this connection. Retry.), NEVER Connected', () => {
@@ -435,6 +436,17 @@ describe('ProviderConnectionCardComponent', () => {
       expect(copy?.textContent?.trim()).toBe(
         'Could not check this connection. Retry.',
       );
+      // Local servers report `skipped`; they must stay activatable (TASK_2026_534 R2.5).
+      expect(button(fixture, 'btn-activate-main')).not.toBeNull();
+    });
+
+    it('does not offer activation for uncheckable status when activation is disabled', () => {
+      const fixture = createComponent({
+        providerId: 'ollama',
+        providerName: 'Ollama',
+        status: 'skipped',
+        canActivateMain: false,
+      });
       expect(button(fixture, 'btn-activate-main')).toBeNull();
     });
 

@@ -28,6 +28,7 @@ class ConsumerStub {
 class WizardStub {
   readonly open = input(false);
   readonly deepLinkProviderId = input('');
+  readonly existingCredentialPresent = input(false);
   readonly verifyDraftConnection = input.required<DraftVerifyConnectionFn>();
   readonly cancelDraftVerification = input.required<DraftCancelVerificationFn>();
   readonly supportedSaveTargets = input<readonly SettingScope[]>([]);
@@ -60,7 +61,8 @@ const connection = (id: string): ProvidersConnection => ({ id, name: id, authMod
 const draft: ProviderWizardCommit = { providerId: 'first', displayName: 'First', authMode: 'apiKey', customName: null,
   customProtocol: null, credential: { kind: 'apiKey', value: 'private-draft-key' }, existingKeyReused: false,
   baseUrl: null, verified: { probeId: 'probe', checkedAt: '2026-09-22T10:00:00Z', latencyMs: 1, modelUsed: 'one' },
-  tiers: { everyday: 'one', complex: 'two', fast: 'three' }, saveTo: 'global', activation: 'connect-only' };
+  tiers: { everyday: 'one', complex: 'two', fast: 'three' }, tierSnapshot: { everyday: null, complex: null, fast: null },
+  editedTiers: ['everyday', 'complex', 'fast'], saveTo: 'global', activation: 'connect-only' };
 
 class StateStub {
   readonly connectionSetup = signal(unloaded());
@@ -78,6 +80,8 @@ class StateStub {
   readonly mainSources = signal(ready({}));
   readonly orchestration = signal(ready({ codexModel: '', copilotModel: '', cursorModel: '', antigravityModel: '', opencodeModel: '', piModel: '' }));
   readonly externalAuth = signal<ProvidersSettingsSection<ProvidersExternalAuth>>(unloaded());
+  readonly delegatedModelOptions = signal(unloaded());
+  readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
   readonly verification = signal<ProvidersSettingsSection<AuthVerifyDraftConnectionResult>>(unloaded());
   readonly commit = signal<ProvidersSettingsCommit>(idle);
   // Deliberately stale even during loading: the coordinator must defend the rendering boundary.
@@ -185,11 +189,51 @@ describe('ProvidersSettingsComponent', () => {
     expect(element.textContent).toContain('Model tier: haiku');
     expect(element.textContent).not.toContain('Model: model-a');
 
-    // The unresolved arm: no model decision could be made for this route.
+    // The unresolved arm on a resolved route: the SDK's own `default` model, not an error.
     state.route.set(ready({ ...route, resolvedModel: { kind: 'unresolved' } }));
     await render();
-    expect(element.textContent).toContain('Model has not been resolved.');
+    expect(element.textContent).toContain('Default model (chosen by Claude)');
+    expect(element.textContent).not.toContain('Model has not been resolved.');
     expect(element.textContent).not.toContain('Model tier: haiku');
+  });
+  it('renders no duplicate sign-in row between connection cards', async () => {
+    state.route.set(ready({ ...route, providers: [...route.providers, { id: 'github-copilot', type: 'oauth', status: 'unauthenticated' }] }));
+    state.connections.set(ready([connection('first'), { ...connection('github-copilot'), name: 'Copilot', authMode: 'oauth', hasKey: false }]));
+    await render();
+    const labels = Array.from(element.querySelectorAll('button')).map((node) => node.textContent?.trim());
+    expect(labels).not.toContain('Sign in to Copilot');
+    expect(labels).not.toContain('Check Copilot sign-in');
+    // The card's own action remains.
+    expect(element.querySelectorAll('[data-testid="btn-sign-in"]')).toHaveLength(1);
+  });
+  it('tells the wizard whether the selected provider already has a stored key', async () => {
+    state.connections.set(ready([connection('first'), { ...connection('second'), hasKey: false }]));
+    await render(); button('Connect provider').click(); await render();
+    wizard().providerChanged.emit('first'); await render();
+    expect(wizard().existingCredentialPresent()).toBe(true);
+    wizard().providerChanged.emit('second'); await render();
+    expect(wizard().existingCredentialPresent()).toBe(false);
+  });
+  it('opens the setup wizard for a deep-linked provider once', async () => {
+    fixture.componentRef.setInput('requestedProviderId', 'second'); await render();
+    expect(wizard().deepLinkProviderId()).toBe('second');
+    wizard().closed.emit(); await render();
+    expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
+    // Not reopened by an unrelated render.
+    state.refresh(); await render();
+    expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
+  });
+  it('offers main-agent activation for an uncheckable local provider with a note', async () => {
+    state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'local-native', status: 'skipped' }] }));
+    await render();
+    const cards = Array.from(element.querySelectorAll('ptah-provider-connection-card'));
+    const second = cards.find((card) => card.textContent?.includes('second'));
+    const activate = second?.querySelector<HTMLButtonElement>('[data-testid="btn-activate-main"]');
+    expect(activate).toBeTruthy();
+    activate?.click(); await render();
+    expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
+    element.querySelector<HTMLButtonElement>('section[aria-label="Review main provider change"] button')?.click(); await render();
+    expect(state.activateConnection).toHaveBeenCalledWith('second', 'global', { scopeKey: 'workspace', activePath: '/workspace' });
   });
   it('keeps successful sections usable when another read fails and retries only that read', async () => {
     state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });

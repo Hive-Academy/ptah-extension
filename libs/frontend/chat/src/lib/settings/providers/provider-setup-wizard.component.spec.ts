@@ -321,12 +321,16 @@ describe('ProviderSetupWizardComponent', () => {
       );
     });
 
-    it('explains stored-key re-entry and keeps Continue disabled until it is entered', () => {
+    it('B2-1: offers Verify stored key and Replace key, and a stored key needs no re-entry', () => {
       const fixture = createComponent({ existingCredentialPresent: true });
       selectProvider(fixture, 'requesty'); click(fixture, 'wizard-continue');
       expect(query(fixture, 'wizard-key-stored')?.textContent?.trim()).toBe('Key stored');
-      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
+      expect(button(fixture, 'wizard-verify-stored-key')).not.toBeNull();
+      expect(button(fixture, 'wizard-replace-key')).not.toBeNull();
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      // Replacing switches to a typed key, which is then required.
       click(fixture, 'wizard-replace-key');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
       typeInto(fixture, 'wizard-api-key', 'sk-reentered');
       expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
     });
@@ -481,14 +485,23 @@ describe('ProviderSetupWizardComponent', () => {
       expect(params.probeId).toMatch(/^draft-probe-\d+$/);
     });
 
-    it('requires credential re-entry instead of probing a stored key', () => {
+    it('B2-1: verifies the stored key on the host and saves a models-only edit without re-entry', async () => {
       const verify = verifyEcho();
       const fixture = createComponent({ existingCredentialPresent: true }, verify);
       selectProvider(fixture, 'requesty'); click(fixture, 'wizard-continue');
-      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
-      expect(verify).not.toHaveBeenCalled();
-      click(fixture, 'wizard-replace-key'); typeInto(fixture, 'wizard-api-key', 'sk-reentered');
-      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      click(fixture, 'wizard-verify-stored-key');
+      expect(verify).toHaveBeenCalledTimes(1);
+      const params = verify.mock.calls[0][0] as AuthVerifyDraftConnectionParams;
+      // No secret crosses the boundary: the host reads its own stored key.
+      expect(params.credential).toEqual({ kind: 'stored' });
+      await Promise.resolve(); await Promise.resolve(); fixture.detectChanges();
+      expect(query(fixture, 'wizard-verify-success')).not.toBeNull();
+      click(fixture, 'wizard-continue'); click(fixture, 'wizard-continue');
+      const commits: ProviderWizardCommit[] = [];
+      fixture.componentInstance.commitRequested.subscribe((commit) => commits.push(commit));
+      expect(query(fixture, 'wizard-review-credential')?.textContent?.trim()).toBe('Stored key (unchanged)');
+      click(fixture, 'wizard-commit');
+      expect(commits[0]).toMatchObject({ credential: null, existingKeyReused: true, verified: { probeId: params.probeId } });
     });
 
     it('does not probe while the user types', () => {
@@ -853,12 +866,65 @@ describe('ProviderSetupWizardComponent', () => {
           modelUsed: 'test-model',
         },
         tiers: { everyday: '', complex: '', fast: '' },
+        tierSnapshot: { everyday: null, complex: null, fast: null },
+        editedTiers: [],
         saveTo: 'app',
         activation: 'use-main-agent',
       });
       expect(button(fixture, 'wizard-commit')?.textContent?.trim()).toBe(
         'Connect and use for main agent',
       );
+    });
+
+    it('review #4: records the loaded tier snapshot and marks only changed tiers as edited', async () => {
+      const verify = verifyEcho();
+      const fixture = createComponent({}, verify);
+      selectProvider(fixture, 'requesty');
+      fixture.componentRef.setInput('initialSetup', { providerId: 'requesty', baseUrl: null,
+        tiers: { sonnet: 'stored-sonnet', opus: 'stored-opus', haiku: null } });
+      fixture.detectChanges();
+      click(fixture, 'wizard-continue');
+      typeInto(fixture, 'wizard-api-key', 'sk-test-123');
+      click(fixture, 'wizard-continue'); click(fixture, 'wizard-verify-start');
+      await Promise.resolve(); await Promise.resolve(); fixture.detectChanges();
+      click(fixture, 'wizard-continue');
+      const wizard = fixture.componentInstance as unknown as {
+        onTierChange(key: 'everyday' | 'complex' | 'fast', selection: { provider: string; model: string }): void;
+      };
+      wizard.onTierChange('complex', { provider: 'requesty', model: 'edited-opus' });
+      wizard.onTierChange('fast', { provider: 'requesty', model: 'new-haiku' });
+      // Changed and then changed back: not an edit.
+      wizard.onTierChange('everyday', { provider: 'requesty', model: 'other' });
+      wizard.onTierChange('everyday', { provider: 'requesty', model: 'stored-sonnet' });
+      fixture.detectChanges();
+      click(fixture, 'wizard-continue');
+      const commits: ProviderWizardCommit[] = [];
+      fixture.componentInstance.commitRequested.subscribe((commit) => commits.push(commit));
+      click(fixture, 'wizard-commit');
+      expect(commits[0].tierSnapshot).toEqual({ everyday: 'stored-sonnet', complex: 'stored-opus', fast: null });
+      expect(commits[0].editedTiers).toEqual(['complex', 'fast']);
+      expect(commits[0].tiers).toEqual({ everyday: 'stored-sonnet', complex: 'edited-opus', fast: 'new-haiku' });
+    });
+
+    it('review #3: native Claude auth collects no tiers and keeps SDK defaults', async () => {
+      const verify = verifyEcho();
+      const fixture = createComponent({ defaultsResolvable: false }, verify);
+      selectProvider(fixture, 'anthropic');
+      click(fixture, 'wizard-continue');
+      typeInto(fixture, 'wizard-api-key', 'sk-ant-test');
+      click(fixture, 'wizard-continue'); click(fixture, 'wizard-verify-start');
+      await Promise.resolve(); await Promise.resolve(); fixture.detectChanges();
+      click(fixture, 'wizard-continue');
+      expect(query(fixture, 'wizard-models-native')?.textContent).toContain('default models');
+      expect(fixture.nativeElement.querySelector('ptah-provider-model-picker')).toBeNull();
+      // Not blocked by the explicit-model rule even though no provider defaults resolve.
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      click(fixture, 'wizard-continue');
+      expect(fixture.nativeElement.querySelectorAll('[data-testid="wizard-review-tier"]').length).toBe(0);
+      const commits: ProviderWizardCommit[] = [];
+      fixture.componentInstance.commitRequested.subscribe((commit) => commits.push(commit));
+      click(fixture, 'wizard-commit');
+      expect(commits[0]).toMatchObject({ tiers: { everyday: '', complex: '', fast: '' }, editedTiers: [] });
     });
 
     it('defaults the activation to connect-only when a main route already exists', async () => {

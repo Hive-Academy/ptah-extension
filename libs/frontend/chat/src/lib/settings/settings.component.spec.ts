@@ -123,6 +123,18 @@ describe('SettingsComponent deep-link', () => {
     const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
     expect(fixture.componentInstance.providersTarget()).toBe('memory-curator');
   });
+  it('R2.7: reacts to a pending tab raised while Settings is already open', async () => {
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.detectChanges();
+    // Agent Orchestration's "Manage provider, model and credentials in Providers".
+    appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
+    TestBed.tick();
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+    expect(fixture.componentInstance.providersTarget()).toBe('cli-agents');
+    expect(appState.pendingSettingsTab()).toBeNull();
+  });
   it('ngOnInit leaves the default tab when no pending target', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
