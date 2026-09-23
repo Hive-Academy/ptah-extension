@@ -32,15 +32,24 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
-  calculateMessageCost,
   getModelContextWindow,
-  pickPrimaryModel,
   isDirectAnthropic,
   registerProviderPricing,
   findModelPricing,
-  type ModelUsageEntry,
+  type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
+import { aggregateSessionUsage } from './session-stats/session-usage-aggregator';
+import {
+  SessionUsageLedgerBuilder,
+  type SessionUsageLedger,
+} from './session-stats/session-usage-ledger';
+import {
+  parseSavedCostState,
+  type SavedCostState,
+  type SessionStatsOwnerService,
+  type SessionStatsPrefix,
+} from './session-stats/session-stats-owner.service';
 import { isHiddenTranscriptRecord } from './message-transform/message-transform-helpers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
@@ -62,6 +71,7 @@ import {
 import type {
   SessionHistoryMessage,
   AgentSessionData,
+  UnreadableAgentMember,
 } from './helpers/history/history.types';
 
 const MAX_COMPACTION_RETRIES = 5;
@@ -100,6 +110,8 @@ type SessionEventData = {
   readonly events: FlatStreamEventUnion[];
   readonly mainMessages: SessionHistoryMessage[];
   readonly agentSessions: AgentSessionData[];
+  /** Member transcripts that could not be read (TASK_2026_533). */
+  readonly unreadableAgents: readonly UnreadableAgentMember[];
   readonly staleSnapshot?: true;
 };
 @injectable()
@@ -131,6 +143,9 @@ export class SessionHistoryReaderService {
     private readonly usageTracker: LiveUsageTracker,
     @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
     private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
+    /** Single authority for session stats; a history read seeds its prefix. */
+    @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
+    private readonly statsOwner: SessionStatsOwnerService,
   ) {
     this.readTiming = new SessionHistoryReadTiming(logger);
   }
@@ -177,32 +192,13 @@ export class SessionHistoryReaderService {
     options?: { checkCompactionBoundary?: boolean },
   ): Promise<{
     events: FlatStreamEventUnion[];
-    stats: {
-      totalCost: number | null;
-      tokens: {
-        input: number;
-        output: number;
-        cacheRead: number;
-        cacheCreation: number;
-      };
-      messageCount: number;
-      model?: string;
-      contextSnapshot?: {
-        model: string;
-        contextTokens: number;
-        contextWindow?: number;
-      };
-      /** Number of agent/subagent JSONL files found for this session */
-      agentSessionCount?: number;
-      /** Per-model token and cost breakdown for multi-model sessions */
-      modelUsageList?: Array<{
-        model: string;
-        inputTokens: number;
-        outputTokens: number;
-        costUSD: number | null;
-        contextWindow?: number;
-      }>;
-    } | null;
+    /**
+     * The session's lifetime accounting snapshot (TASK_2026_533): the stats
+     * owner's snapshot when the session already has a running owner,
+     * otherwise this transcript's aggregate. `null` when the transcript has
+     * no usage at all.
+     */
+    stats: SessionStatsEntry | null;
     staleSnapshot?: true;
   }> {
     const checkCompactionBoundary = options?.checkCompactionBoundary ?? false;
@@ -242,14 +238,19 @@ export class SessionHistoryReaderService {
               : undefined,
         };
       }
-      const { events, mainMessages, agentSessions } = loaded;
+      const { events, mainMessages, agentSessions, unreadableAgents } = loaded;
       staleSnapshot = loaded.staleSnapshot;
       if (isDirectAnthropic(this.authEnv)) {
         timing.begin('pricing');
         await this.hydrateMissingPricing(mainMessages, agentSessions);
       }
       timing.begin('project');
-      const stats = this.aggregateUsageStats(mainMessages, agentSessions);
+      const stats = this.publishHistoryStats(
+        sessionId,
+        mainMessages,
+        agentSessions,
+        unreadableAgents,
+      );
       this.seedLiveUsageBaseline(sessionId, mainMessages);
       timing.finish(false);
 
@@ -288,6 +289,109 @@ export class SessionHistoryReaderService {
             ? (staleSnapshot ?? true)
             : undefined,
       };
+    }
+  }
+
+  /**
+   * The fixed history prefix for a cold-resumed query run: the transcript's
+   * lifetime usage aggregate, its subagent identities and its last saved SDK
+   * `cost-state`. Reads the transcripts but replays nothing.
+   *
+   * Returns `null` when the transcript cannot be read (invalid id, no
+   * sessions directory, missing file, I/O failure) — the caller's owner then
+   * reports the prefix as unknown, never as an empty zero.
+   */
+  async readSessionUsagePrefix(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<SessionStatsPrefix | null> {
+    if (!this.isValidSessionId(sessionId)) {
+      this.logger.warn(
+        '[SessionHistoryReader] Invalid sessionId, skipping usage prefix read',
+        { sessionId },
+      );
+      return null;
+    }
+    try {
+      const sessionsDir =
+        await this.jsonlReader.findSessionsDirectory(workspacePath);
+      if (!sessionsDir) return null;
+      let mainMessages: SessionHistoryMessage[];
+      try {
+        mainMessages = await this.jsonlReader.readJsonlMessages(
+          path.join(sessionsDir, `${sessionId}.jsonl`),
+        );
+      } catch (error: unknown) {
+        if (!isMissingFileError(error)) throw error;
+        this.logger.warn(MISSING_SESSION_LOG, { sessionId });
+        return null;
+      }
+      const unreadableAgents: UnreadableAgentMember[] = [];
+      const agentSessions = await this.jsonlReader.loadAgentSessions(
+        sessionsDir,
+        sessionId,
+        (member) => unreadableAgents.push(member),
+      );
+      if (isDirectAnthropic(this.authEnv)) {
+        await this.hydrateMissingPricing(mainMessages, agentSessions);
+      }
+      return this.buildUsagePrefix(
+        sessionId,
+        mainMessages,
+        agentSessions,
+        unreadableAgents,
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionHistoryReader] Could not read the usage prefix for resume',
+        {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The main transcript's LAST `cost-state` entry — the raw SDK running
+   * totals a process about to start can restore from. Re-read before every
+   * later query run of an owner, so the restore candidate is what is on disk
+   * now; the owner's frozen prefix is never rebuilt from it.
+   *
+   * Streams the file and parses only `cost-state` lines. `null` when there is
+   * none, the last one is malformed, or the transcript cannot be read.
+   */
+  async readLastSavedCostState(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<SavedCostState | null> {
+    if (!this.isValidSessionId(sessionId)) return null;
+    try {
+      const sessionsDir =
+        await this.jsonlReader.findSessionsDirectory(workspacePath);
+      if (!sessionsDir) return null;
+      let last: SavedCostState | null = null;
+      await this.jsonlReader.projectJsonlLines(
+        path.join(sessionsDir, `${sessionId}.jsonl`),
+        (line) => {
+          if (!line.includes('"cost-state"')) return;
+          const raw = parseJsonObject(line);
+          if (raw?.['type'] === 'cost-state') {
+            last = parseSavedCostState(raw);
+          }
+        },
+      );
+      return last;
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionHistoryReader] Could not read the saved cost state for a new run',
+        {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
     }
   }
 
@@ -333,9 +437,11 @@ export class SessionHistoryReaderService {
     }
     if (!main) return null;
     const { messages: mainMessages, staleSnapshot } = main;
+    const unreadableAgents: UnreadableAgentMember[] = [];
     const agentSessions = await this.jsonlReader.loadAgentSessions(
       sessionsDir,
       sessionId,
+      (member) => unreadableAgents.push(member),
     );
     timing?.readDone(mainMessages.length, agentSessions.length);
     timing?.begin('project');
@@ -345,7 +451,13 @@ export class SessionHistoryReaderService {
       agentSessions,
     );
     timing?.events(events.length);
-    return { events, mainMessages, agentSessions, staleSnapshot };
+    return {
+      events,
+      mainMessages,
+      agentSessions,
+      unreadableAgents,
+      staleSnapshot,
+    };
   }
 
   /**
@@ -876,253 +988,173 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Aggregate usage stats from all session messages
+   * The resume stats for a transcript that was just read.
    *
-   * Kept in facade because:
-   * - Uses existing usage-extraction.utils (not history-specific)
-   * - Simple aggregation logic doesn't warrant a separate service
-   * - Needs access to both main messages and agent sessions
+   * A session with a live stats owner answers with the OWNER's snapshot: the
+   * transcript has grown by the owner's own runs, and counting it again would
+   * double-count. Any other session — one merely browsed — answers with this
+   * transcript's aggregate directly; browsing never creates an owner (an
+   * owner is created only when a query run is prepared). Either way the reply
+   * carries this read's context frame and backend-known context windows.
    */
-  private aggregateUsageStats(
-    mainMessages: SessionHistoryMessage[],
-    agentSessions: AgentSessionData[],
-  ): {
-    totalCost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheCreation: number;
+  private publishHistoryStats(
+    sessionId: string,
+    mainMessages: readonly SessionHistoryMessage[],
+    agentSessions: readonly AgentSessionData[],
+    unreadableAgents: readonly UnreadableAgentMember[],
+  ): SessionStatsEntry | null {
+    const snapshot =
+      this.statsOwner.snapshot(sessionId) ??
+      this.buildUsagePrefix(
+        sessionId,
+        mainMessages,
+        agentSessions,
+        unreadableAgents,
+      ).stats;
+    if (snapshot.status === 'empty') return null;
+    const contextSnapshot = this.extractContextSnapshot(mainMessages);
+    return {
+      ...snapshot,
+      ...(snapshot.modelUsageList && {
+        modelUsageList: snapshot.modelUsageList.map((row) => ({
+          ...row,
+          ...knownContextWindow(row.model),
+        })),
+      }),
+      ...(contextSnapshot && { contextSnapshot }),
     };
-    messageCount: number;
-    model?: string;
-    contextSnapshot?: {
-      model: string;
-      contextTokens: number;
-      contextWindow?: number;
-    };
-    agentSessionCount?: number;
-    modelUsageList?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      costUSD: number | null;
-      contextWindow?: number;
-    }>;
-  } | null {
-    let totalInput = 0;
-    let totalOutput = 0;
-    let totalCacheRead = 0;
-    let totalCacheCreation = 0;
-    let messageCount = 0;
-    let hasAnyUsage = false;
-    let detectedModel: string | undefined;
-    const perModelUsage = new Map<
-      string,
-      {
-        input: number;
-        output: number;
-        cost: number;
-        hasCostContribution: boolean;
-      }
-    >();
-    let contextSnapshot:
-      | {
-          model: string;
-          contextTokens: number;
-          contextWindow?: number;
-        }
-      | undefined;
-    // Carry the window on the wire so the renderer never reverse-resolves it
-    // from a name its bundled table cannot know (discovered proxy models).
-    const knownWindow = (model: string): { contextWindow?: number } => {
-      const contextWindow = getModelContextWindow(model);
-      return contextWindow > 0 ? { contextWindow } : {};
-    };
+  }
 
-    const accumulatePerModel = (
-      rawModel: string,
-      input: number,
-      output: number,
-      cacheRead: number,
-      cacheCreation: number,
-    ): string => {
-      const priced = this.modelResolver.resolveForCost(rawModel);
-      const resolvedModel = priced.modelId;
-      const modelKey = resolvedModel || rawModel || 'unknown';
-      const existing = perModelUsage.get(modelKey) || {
-        input: 0,
-        output: 0,
-        cost: 0,
-        hasCostContribution: false,
-      };
-      existing.input += input;
-      existing.output += output;
-      const contribution = calculateMessageCost(
-        resolvedModel,
-        {
-          input,
-          output,
-          cacheHit: cacheRead,
-          cacheCreation,
-        },
-        priced.pricing,
-      );
-      if (contribution !== null) {
-        existing.cost += contribution;
-        existing.hasCostContribution = true;
-      }
-      perModelUsage.set(modelKey, existing);
-      return modelKey;
-    };
-    let statsStartIndex = 0;
+  /**
+   * The transcript's lifetime usage as a stats-owner prefix.
+   *
+   * Parent and subagent transcripts go through the SAME ledger rules as the
+   * sessions list (one record per API message id, last counters win) and the
+   * same `aggregateSessionUsage`, with lifetime `session` scope: compaction
+   * shrinks the context, not what the session consumed. Each model is priced
+   * by its own id through the resolver's rate card. Subagent identity is the
+   * transcript file name, never the number of files. An owned member that
+   * could not be read keeps its file-name identity and makes the total
+   * unknown; a flat file of unknown owner only makes coverage partial.
+   */
+  private buildUsagePrefix(
+    sessionId: string,
+    mainMessages: readonly SessionHistoryMessage[],
+    agentSessions: readonly AgentSessionData[],
+    unreadableAgents: readonly UnreadableAgentMember[],
+  ): SessionStatsPrefix {
+    const subagentIds = [
+      ...agentSessions.map((agent) => agent.agentId),
+      ...unreadableAgents.flatMap((member) =>
+        member.owned && member.agentId !== null ? [member.agentId] : [],
+      ),
+    ];
+    const stats = aggregateSessionUsage(
+      {
+        sessionId,
+        parent: ledgerFromMessages(mainMessages),
+        subagents: agentSessions.map((agent) =>
+          ledgerFromMessages(agent.messages),
+        ),
+        unreadableSubagents: unreadableAgents.length,
+        subagentIds,
+        scope: { kind: 'session' },
+      },
+      (model) => this.modelResolver.resolveForCost(model).pricing,
+    );
+    let savedCostState: SavedCostState | null = null;
     for (let i = mainMessages.length - 1; i >= 0; i--) {
-      if (
-        mainMessages[i].type === 'system' &&
-        mainMessages[i].subtype === 'compact_boundary'
-      ) {
-        statsStartIndex = i + 1;
+      const costState = mainMessages[i].costState;
+      if (costState) {
+        savedCostState = parseSavedCostState(costState);
         break;
       }
     }
-    const effectiveStatsMessages =
-      statsStartIndex > 0 ? mainMessages.slice(statsStartIndex) : mainMessages;
+    return { stats, subagentIds, savedCostState };
+  }
+
+  /**
+   * The latest valid main-session context frame after the last compaction —
+   * the context gauge's figure, kept separate from lifetime accounting.
+   */
+  private extractContextSnapshot(
+    mainMessages: readonly SessionHistoryMessage[],
+  ): SessionStatsEntry['contextSnapshot'] {
+    let detectedModel: string | undefined;
     for (const msg of mainMessages) {
-      if (
-        !detectedModel &&
-        msg.type === 'system' &&
-        msg.subtype === 'init' &&
-        msg.model
-      ) {
+      if (msg.type === 'system' && msg.subtype === 'init' && msg.model) {
         detectedModel = String(msg.model);
         break;
       }
     }
-    for (const msg of effectiveStatsMessages) {
-      if (msg.usage) {
-        hasAnyUsage = true;
-        const tokens = extractTokenUsage(msg.usage);
-        if (tokens) {
-          totalInput += tokens.input;
-          totalOutput += tokens.output;
-          totalCacheRead += tokens.cacheRead ?? 0;
-          totalCacheCreation += tokens.cacheCreation ?? 0;
-          const msgModel =
-            msg.type === 'assistant'
-              ? msg.message?.model || detectedModel || ''
-              : detectedModel || '';
-          if (msgModel) {
-            const modelKey = accumulatePerModel(
-              msgModel,
-              tokens.input,
-              tokens.output,
-              tokens.cacheRead ?? 0,
-              tokens.cacheCreation ?? 0,
-            );
-            if (msg.type === 'assistant') {
-              contextSnapshot = {
-                model: modelKey,
-                contextTokens:
-                  tokens.input +
-                  (tokens.cacheRead ?? 0) +
-                  (tokens.cacheCreation ?? 0),
-                ...knownWindow(modelKey),
-              };
-            }
-          }
-        }
+    for (let i = mainMessages.length - 1; i >= 0; i--) {
+      const msg = mainMessages[i];
+      if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+        return undefined;
       }
-      if (msg.type === 'assistant') {
-        messageCount++;
-      }
+      if (msg.type !== 'assistant' || !msg.usage) continue;
+      const tokens = extractTokenUsage(msg.usage);
+      const rawModel = msg.message?.model || detectedModel || '';
+      if (!tokens || !rawModel) continue;
+      const modelKey =
+        this.modelResolver.resolveForCost(rawModel).modelId || rawModel;
+      return {
+        model: modelKey,
+        contextTokens:
+          tokens.input + (tokens.cacheRead ?? 0) + (tokens.cacheCreation ?? 0),
+        ...knownContextWindow(modelKey),
+      };
     }
-    for (const agent of agentSessions) {
-      for (const msg of agent.messages) {
-        if (msg.usage) {
-          hasAnyUsage = true;
-          const tokens = extractTokenUsage(msg.usage);
-          if (tokens) {
-            totalInput += tokens.input;
-            totalOutput += tokens.output;
-            totalCacheRead += tokens.cacheRead ?? 0;
-            totalCacheCreation += tokens.cacheCreation ?? 0;
-            const agentMsgModel =
-              msg.type === 'assistant'
-                ? msg.message?.model || detectedModel || ''
-                : detectedModel || '';
-            if (agentMsgModel) {
-              accumulatePerModel(
-                agentMsgModel,
-                tokens.input,
-                tokens.output,
-                tokens.cacheRead ?? 0,
-                tokens.cacheCreation ?? 0,
-              );
-            }
-          }
-        }
-      }
-    }
+    return undefined;
+  }
+}
 
-    if (!hasAnyUsage) {
-      return null;
-    }
-    const modelUsageList: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      costUSD: number | null;
-      contextWindow?: number;
-    }> = Array.from(perModelUsage.entries())
-      .map(([model, usage]) => ({
-        model,
-        inputTokens: usage.input,
-        outputTokens: usage.output,
-        costUSD: usage.hasCostContribution ? usage.cost : null,
-        ...knownWindow(model),
-      }))
-      .sort((a, b) => (b.costUSD ?? -1) - (a.costUSD ?? -1));
-    const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({
-      model: m.model,
-      totalCost: m.costUSD ?? 0,
-      tokens: { input: m.inputTokens, output: m.outputTokens },
-    }));
-    const primaryModel = pickPrimaryModel(primaryModelEntries) ?? detectedModel;
-    let totalCost: number | null;
-    if (modelUsageList.length > 0) {
-      const contributors = modelUsageList.filter((m) => m.costUSD !== null);
-      totalCost =
-        contributors.length > 0
-          ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
-          : null;
-    } else {
-      const priced = this.modelResolver.resolveForCost(detectedModel || '');
-      totalCost = calculateMessageCost(
-        priced.modelId,
-        {
-          input: totalInput,
-          output: totalOutput,
-          cacheHit: totalCacheRead,
-          cacheCreation: totalCacheCreation,
-        },
-        priced.pricing,
-      );
-    }
+/**
+ * Carry the window on the wire so the renderer never reverse-resolves it from
+ * a name its bundled table cannot know (discovered proxy models).
+ */
+function knownContextWindow(model: string): { contextWindow?: number } {
+  const contextWindow = getModelContextWindow(model);
+  return contextWindow > 0 ? { contextWindow } : {};
+}
 
-    return {
-      totalCost,
-      tokens: {
-        input: totalInput,
-        output: totalOutput,
-        cacheRead: totalCacheRead,
-        cacheCreation: totalCacheCreation,
+/**
+ * Project already-parsed transcript messages into a usage ledger through the
+ * shared builder, so resume and the sessions list count identically.
+ */
+function ledgerFromMessages(
+  messages: readonly SessionHistoryMessage[],
+): SessionUsageLedger {
+  const builder = new SessionUsageLedgerBuilder();
+  for (const msg of messages) {
+    builder.visitRecord({
+      type: msg.type,
+      subtype: msg.subtype,
+      sessionId: msg.sessionId,
+      timestamp: msg.timestamp,
+      model: msg.model,
+      message: {
+        role: msg.message?.role,
+        id: msg.message?.id,
+        model: msg.message?.model,
+        usage: msg.message?.usage ?? msg.usage,
       },
-      messageCount,
-      model: primaryModel,
-      ...(contextSnapshot && { contextSnapshot }),
-      agentSessionCount: agentSessions.length,
-      ...(modelUsageList.length > 0 && { modelUsageList }),
-    };
+    });
+  }
+  return builder.build();
+}
+
+/** A JSON object line, or `null` for anything else. Never throws. */
+function parseJsonObject(line: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(line);
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    // degradation-audit: optional-capability - a malformed line (commonly a
+    // half-flushed final line) is skipped, as every transcript reader does.
+    return null;
   }
 }
 

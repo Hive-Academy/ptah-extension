@@ -13,6 +13,7 @@ import type {
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
+import type { SessionStatsEntry } from './rpc/rpc-session.types';
 import type { PermissionLevel } from './model-autopilot.types';
 import type { ProviderProfile } from './provider-profile.types';
 
@@ -26,6 +27,14 @@ export type SessionIdResolvedCallback = (
   realSessionId: string,
 ) => void;
 
+/**
+ * One SDK `result`, as published on `session:stats`.
+ *
+ * `cost`, `tokens`, `duration` and `modelUsage` are the per-result footer and
+ * context-gauge fields and keep their historical meaning. `sessionStats` is
+ * the backend's authoritative session-lifetime snapshot (TASK_2026_533): the
+ * stats panel installs it as-is and never adds the footer fields up.
+ */
 export interface ResultStatsPayload {
   readonly sessionId: SessionId;
   readonly cost: number | null;
@@ -45,6 +54,11 @@ export interface ResultStatsPayload {
     readonly cacheReadInputTokens: number;
     readonly lastTurnContextTokens?: number;
   }>;
+  /**
+   * Session-lifetime accounting snapshot after this result was accepted.
+   * Absent when the backend had no snapshot to publish.
+   */
+  readonly sessionStats?: SessionStatsEntry;
 }
 
 export type ResultStatsCallback = (stats: ResultStatsPayload) => void;

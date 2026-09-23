@@ -153,6 +153,15 @@ export class SessionUsageLedgerBuilder {
       // half-flushed final line) is skipped, as every transcript reader does.
       return;
     }
+    this.visitRecord(raw);
+  }
+
+  /**
+   * Visit one already-parsed transcript record — for a caller that holds the
+   * parsed lines (the resume history read), so the same dedupe and boundary
+   * rules apply without re-serialising. Never throws.
+   */
+  visitRecord(raw: unknown): void {
     const parsed = ProjectedLineSchema.safeParse(raw);
     if (!parsed.success) return;
     const projected = parsed.data;

@@ -4,6 +4,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 import { SubagentHookHandler } from './subagent-hook-handler';
+import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import {
   SubagentStopCallbackRegistry,
   type SubagentStopPayload,
@@ -99,7 +100,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
     const input = {
@@ -140,7 +146,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
     const transcriptPath =
@@ -178,7 +189,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, 'C:\\ws', 'parent-sess-1');
 
     const transcriptPath =
@@ -210,7 +226,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
     const badPath = '/tmp/transcripts/not-a-uuid.jsonl';
@@ -246,7 +267,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register(() => {
       throw new Error('subscriber boom');
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
     const input = {
@@ -285,7 +311,12 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
 
     const input = {
@@ -331,7 +362,12 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStartCallback(handler, '/workspace', '');
 
     const result = await fn(startInput(), 'tu-1', {
@@ -354,7 +390,12 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStartCallback(handler, '/workspace', undefined);
 
     await fn(startInput(), 'tu-1', { signal: new AbortController().signal });
@@ -370,7 +411,12 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStartCallback(handler, '/workspace', 'closure-parent-sess');
 
     await fn(startInput({ session_id: '' }), 'tu-1', {
@@ -388,7 +434,12 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStartCallback(handler, '/workspace', '');
 
     const result = await fn(startInput({ session_id: '' }), 'tu-1', {
@@ -411,7 +462,12 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStartCallback(handler, '/workspace', 'closure-parent-sess');
 
     await fn(startInput(), undefined, {
@@ -452,7 +508,12 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', 'closure-parent-sess');
 
     await fn(stopInput({ session_id: '' }), 'tu-1', {
@@ -471,7 +532,12 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     stopRegistry.register((payload) => {
       captured.push(payload);
     });
-    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
     const fn = getStopCallback(handler, '/workspace', '');
 
     const result = await fn(stopInput({ session_id: '' }), 'tu-1', {
@@ -493,3 +559,60 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
 });
 
 // ---------------------------------------------------------------------------
+
+/**
+ * TASK_2026_533: the AGENTS chip counts unique subagent identities of the
+ * session. The hook is the live seam; the registry's `toolUseId` gate must
+ * not gate membership, and start + stop + aliases count once.
+ */
+describe('SubagentHookHandler — session agent identities (TASK_2026_533)', () => {
+  const PARENT = 'payload-parent-sess';
+
+  function setup() {
+    const logger = makeLogger();
+    const owner = new SessionStatsOwnerService();
+    owner.startNew(PARENT);
+    const handler = new SubagentHookHandler(
+      logger,
+      makeRegistry(null),
+      new SubagentStopCallbackRegistry(logger),
+      owner,
+    );
+    return {
+      owner,
+      start: getStartCallback(handler, '/workspace', PARENT),
+      stop: getStopCallback(handler, '/workspace', PARENT),
+    };
+  }
+
+  const signal = { signal: new AbortController().signal };
+
+  it('records the real agent id even when the start hook has no toolUseId', async () => {
+    const { owner, start } = setup();
+
+    await start(startInput({ agent_id: 'a1' }), undefined, signal);
+
+    expect(owner.snapshot(PARENT)?.agentSessionCount).toBe(1);
+  });
+
+  it('counts start, stop and alias of one agent once, and five agents as five', async () => {
+    const { owner, start, stop } = setup();
+
+    for (const id of ['a1', 'a2', 'a3', 'a4', 'a5']) {
+      await start(startInput({ agent_id: id }), `tu-${id}`, signal);
+    }
+    await stop(
+      {
+        hook_event_name: 'SubagentStop',
+        session_id: PARENT,
+        agent_id: 'agent-a1',
+        stop_hook_active: false,
+      } as unknown as HookInput,
+      'tu-a1',
+      signal,
+    );
+    await start(startInput({ agent_id: 'a5' }), 'tu-a5', signal);
+
+    expect(owner.snapshot(PARENT)?.agentSessionCount).toBe(5);
+  });
+});

@@ -188,8 +188,13 @@ export class SessionStatsReaderService {
         }),
       );
 
+      // Identity comes from the file NAME, so a member that could not be read
+      // still counts as an agent; only coverage records that it was unread.
+      const subagentIds = membership.owned.map((file) =>
+        path.basename(file.filePath),
+      );
       return aggregateSessionUsage(
-        { sessionId, parent, subagents, unreadableSubagents, scope },
+        { sessionId, parent, subagents, unreadableSubagents, subagentIds, scope },
         this.lookupPricing,
       );
     } catch (error: unknown) {

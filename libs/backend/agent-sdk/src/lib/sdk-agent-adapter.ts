@@ -35,6 +35,13 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { AuthRequiredError } from './errors';
 import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
+import type { SessionHistoryReaderService } from './session-history-reader.service';
+import type {
+  OwnerLease,
+  RunPreparation,
+  SessionStatsOwnerService,
+  SessionStatsPrefix,
+} from './session-stats/session-stats-owner.service';
 import {
   ModelInfo,
   type ForkSessionResult,
@@ -202,6 +209,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
      */
     @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
     private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
+    /**
+     * The single authority for session stats (TASK_2026_533). The adapter
+     * owns its lifecycle: a fixed history prefix before a run launches, the
+     * provisional → canonical id move, and release on deliberate end.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
+    private readonly statsOwner: SessionStatsOwnerService,
+    /** Reads a session's fixed history prefix and its last saved cost-state. */
+    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
+    private readonly historyReader: Pick<
+      SessionHistoryReaderService,
+      'readSessionUsagePrefix' | 'readLastSavedCostState'
+    >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
@@ -540,6 +560,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       });
     this.authManager.clearAuthentication();
     this.modelService.clearCache();
+    // Backend disposal ends every session; nothing may outlive it.
+    this.statsOwner.clearAll();
     this.initialized = false;
     this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
@@ -702,8 +724,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const { sdkQuery, initialModel, activityWatchdog, sessionToken } =
-      await this.sessionLifecycle.executeQuery({
+    const {
+      sdkQuery,
+      initialModel,
+      activityWatchdog,
+      sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+    } = await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: sessionConfigWithProfileModel,
         initialPrompt: config.prompt
@@ -726,12 +754,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
         mcpServersOverride,
         authEnvOverride: effectiveAuthEnv,
       });
+    // A brand-new session has a known-empty history and nothing saved to
+    // restore. It is keyed by the tab id until the SDK reports the canonical
+    // id (see createSessionIdCallback).
+    const statsLease = this.statsOwner.startNew(trackingId as string);
+    this.statsOwner.beginRun(
+      trackingId as string,
+      statsLease.generation,
+      sessionToken,
+      null,
+    );
 
     const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,
       resolvedSessionName,
       sessionToken,
+      statsLease.generation,
       config?.tabId,
     );
 
@@ -743,6 +782,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       sessionId: trackingId,
       initialModel,
+      runToken: sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+      statsGeneration: statsLease.generation,
       onSessionIdResolved: sessionIdCallback,
       onResultStats: this.wrapResultStatsForActivity(
         trackingId,
@@ -756,11 +799,79 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   endSession(sessionId: SessionId): void {
     this.flushPendingUserActivityFor(sessionId);
-    this.sessionLifecycle.endSession(sessionId).catch((err) => {
-      this.logger.warn(
-        '[SdkAgentAdapter] Error ending session',
-        err instanceof Error ? err : new Error(String(err)),
-      );
+    const statsLeases = this.captureStatsLeases(sessionId);
+    this.sessionLifecycle
+      .endSession(sessionId)
+      .then(() => this.releaseStatsOwners(statsLeases))
+      .catch((err) => {
+        this.logger.warn(
+          '[SdkAgentAdapter] Error ending session',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+  }
+
+  /**
+   * The stats owner(s) this teardown is ending, captured BEFORE it awaits:
+   * the owner under any key it may be held under now (the id the caller used,
+   * the record's tab id and canonical id), as an owner lease.
+   */
+  private captureStatsLeases(sessionId: SessionId): OwnerLease[] {
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    const leases = new Map<number, OwnerLease>();
+    for (const key of [sessionId as string, rec?.tabId, rec?.realSessionId]) {
+      if (typeof key !== 'string' || key.length === 0) continue;
+      const lease = this.statsOwner.leaseOf(key);
+      if (lease) leases.set(lease.generation, lease);
+    }
+    return [...leases.values()];
+  }
+
+  /**
+   * Release the owners a teardown captured — those exact owners, wherever
+   * they are keyed now: an init that rebound the provisional tab key to the
+   * canonical id while the teardown awaited does not let the owner escape.
+   * A replacement owner, or a newer run prepared on the same owner meanwhile,
+   * survives. A later resume rebuilds from the transcript.
+   */
+  private releaseStatsOwners(leases: readonly OwnerLease[]): void {
+    for (const lease of leases) {
+      this.statsOwner.release(lease);
+    }
+  }
+
+  /**
+   * Prepare session accounting for a run on an existing transcript, BEFORE
+   * the query starts: the owner's fixed prefix (read at most once) and the
+   * raw `cost-state` on disk now, which is what the new process can restore.
+   */
+  private async prepareStatsForRun(
+    sessionId: SessionId,
+    workspacePath: string | undefined,
+  ): Promise<RunPreparation> {
+    const root = (): string | null => {
+      const found = workspacePath || this.workspaceProvider.getWorkspaceRoot();
+      if (!found) {
+        this.logger.warn(
+          '[SdkAgentAdapter] No workspace to read session history from — session stats will report partial coverage',
+          { sessionId },
+        );
+      }
+      return found || null;
+    };
+    return this.statsOwner.prepareRun(sessionId as string, {
+      loadPrefix: async (): Promise<SessionStatsPrefix | null> => {
+        const dir = root();
+        return dir
+          ? this.historyReader.readSessionUsagePrefix(sessionId as string, dir)
+          : null;
+      },
+      loadSavedCostState: async () => {
+        const dir = root();
+        return dir
+          ? this.historyReader.readLastSavedCostState(sessionId as string, dir)
+          : null;
+      },
     });
   }
 
@@ -784,10 +895,18 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.info(
         `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
       );
+      // Same query, same run: the record's token and frozen accounting. The
+      // owner already holds this run, so nothing is reseeded; with no owner
+      // (released), the stream publishes nothing rather than recreating one.
       return this.streamTransformer.transform({
         sdkQuery: existingSession.query,
         sessionId,
         initialModel: existingSession.currentModel,
+        runToken: existingSession.token,
+        usageCostSource: existingSession.usageCostSource,
+        accountingAuthEnv: existingSession.accountingAuthEnv,
+        statsGeneration:
+          this.statsOwner.leaseOf(sessionId as string)?.generation ?? null,
         onSessionIdResolved: this.callbacks.getSessionIdResolved(),
         onResultStats: this.wrapResultStatsForActivity(
           sessionId,
@@ -844,8 +963,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
       hasSessionName: !!resolvedSessionName,
     });
 
-    const { sdkQuery, initialModel, activityWatchdog, sessionToken } =
-      await this.sessionLifecycle.executeQuery({
+    const statsRun = await this.prepareStatsForRun(
+      sessionId,
+      config?.projectPath,
+    );
+
+    const {
+      sdkQuery,
+      initialModel,
+      activityWatchdog,
+      sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+    } = await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
         resumeSessionId: sessionId as string,
@@ -859,6 +989,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
         includePartialMessages,
         authEnvOverride: effectiveAuthEnv,
       });
+    this.statsOwner.beginRun(
+      sessionId as string,
+      statsRun.generation,
+      sessionToken,
+      statsRun.candidate,
+    );
 
     const resumeCallback = async (
       tabId: string | undefined,
@@ -878,6 +1014,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
       }
+      // A fork reports a new id for the same run; the owner follows it.
+      this.statsOwner.rebind(
+        sessionId as string,
+        realSessionId,
+        statsRun.generation,
+      );
 
       await this.metadataStore.touch(realSessionId);
 
@@ -897,6 +1039,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       sessionId,
       initialModel,
+      runToken: sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+      statsGeneration: statsRun.generation,
       onSessionIdResolved: resumeCallback,
       onResultStats: this.wrapResultStatsForActivity(
         sessionId,
@@ -938,13 +1084,22 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (this.sessionLifecycle.getSessionToken(sessionId) === token) {
       this.flushPendingUserActivityFor(sessionId);
     }
-    return this.sessionLifecycle.endSessionIfTokenMatches(sessionId, token);
+    const statsLeases = this.captureStatsLeases(sessionId);
+    const ended = await this.sessionLifecycle.endSessionIfTokenMatches(
+      sessionId,
+      token,
+    );
+    if (ended) {
+      this.releaseStatsOwners(statsLeases);
+    }
+    return ended;
   }
 
   private createSessionIdCallback(
     workspaceId: string,
     sessionName: string,
     sessionToken: string,
+    statsGeneration: number,
     tabId?: string,
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
@@ -970,6 +1125,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
+      }
+      if (tabId) {
+        // Synchronously, before the first await: the SDK reports `init`
+        // before any `result`, so the run's first result finds its owner
+        // under the canonical id.
+        this.statsOwner.rebind(tabId, realSessionId, statsGeneration);
       }
 
       await this.metadataStore.create(realSessionId, workspaceId, sessionName);
@@ -1095,8 +1256,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { command: command.substring(0, 50) },
     );
 
-    const { sdkQuery, initialModel, activityWatchdog } =
-      await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
+    // The re-query resumes the same transcript: same owner, new run. Its
+    // restore candidate is read AFTER the previous query has ended (what that
+    // process left on disk) and before the new one starts.
+    const prepared: { run: RunPreparation | null } = { run: null };
+    const {
+      sdkQuery,
+      initialModel,
+      activityWatchdog,
+      sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+    } = await this.sessionLifecycle.executeSlashCommandQuery(
+      sessionId,
+      command,
+      {
         sessionConfig: config.sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
@@ -1105,7 +1279,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         pathToClaudeCodeExecutable:
           this.runtimeState.getCliJsPath() || undefined,
-      });
+        beforeRelaunch: async () => {
+          prepared.run = await this.prepareStatsForRun(
+            sessionId,
+            config.sessionConfig?.projectPath,
+          );
+        },
+      },
+    );
+    const preparedRun = prepared.run;
+    if (preparedRun) {
+      this.statsOwner.beginRun(
+        sessionId as string,
+        preparedRun.generation,
+        sessionToken,
+        preparedRun.candidate,
+      );
+    }
 
     this.notifyActivity(sessionId, 'user');
 
@@ -1113,6 +1303,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       sessionId,
       initialModel,
+      runToken: sessionToken,
+      usageCostSource,
+      accountingAuthEnv,
+      statsGeneration: preparedRun?.generation ?? null,
       onSessionIdResolved: this.callbacks.getSessionIdResolved(),
       onResultStats: this.wrapResultStatsForActivity(
         sessionId,
@@ -1134,7 +1328,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
     this.flushPendingUserActivityFor(sessionId);
+    const statsLeases = this.captureStatsLeases(sessionId);
     await this.sessionLifecycle.endSession(sessionId);
+    this.releaseStatsOwners(statsLeases);
   }
 
   async forkSession(
