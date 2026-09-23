@@ -127,6 +127,27 @@ export async function startAgentAdapterInitialization(
   }
 }
 
+/** Keep the bridge's renderer handle tied to the native window's lifetime. */
+export function createMainWindowHandleGetter(
+  getMainWindow: () =>
+    | (Pick<BrowserWindow, 'isDestroyed'> & {
+        webContents: Pick<BrowserWindow['webContents'], 'send' | 'isDestroyed'>;
+      })
+    | null,
+): ConstructorParameters<typeof IpcBridge>[1] {
+  return () => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return null;
+    return {
+      webContents: {
+        send: (channel: string, ...args: unknown[]) =>
+          win.webContents.send(channel, ...args),
+        isDestroyed: () => win.isDestroyed() || win.webContents.isDestroyed(),
+      },
+    };
+  };
+}
+
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
   coordinator: Pick<BootCoordinator, 'snapshot'>,
@@ -315,16 +336,10 @@ export async function bootstrapElectron(
   // one feeds a card that has always had an unresolved state.
   void startMembershipVerification(container);
 
-  const ipcBridge = new IpcBridge(container, () => {
-    const win = getMainWindow();
-    if (!win) return null;
-    return {
-      webContents: {
-        send: (channel: string, ...args: unknown[]) =>
-          win.webContents.send(channel, ...args),
-      },
-    };
-  });
+  const ipcBridge = new IpcBridge(
+    container,
+    createMainWindowHandleGetter(getMainWindow),
+  );
 
   try {
     ipcBridge.initialize();

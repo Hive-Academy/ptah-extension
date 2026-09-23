@@ -151,22 +151,43 @@ export class IpcBridge {
    *
    * @param message - The message object to send. Should include a `type` field
    *   matching MESSAGE_TYPES constants so MessageRouterService can dispatch it.
+   * @returns true when the event was handed to `webContents.send` or queued as
+   *   a batched stream event, and false when it was dropped (no window, or the
+   *   window's webContents is destroyed). Delivery-reporting callers
+   *   (`ElectronWebviewManagerAdapter.sendMessage`) read it; fire-and-forget
+   *   call sites ignore it.
    */
-  sendToRenderer(message: unknown): void {
+  sendToRenderer(message: unknown): boolean {
     const streamEvent = this.extractStreamEvent(message);
     if (streamEvent) {
       this.enqueueStreamEvent(streamEvent);
-      return;
+      return true;
     }
     this.flushStreamQueue();
     const win = this.resolveWindow(messageTypeOf(message));
     if (!win) {
-      return;
+      return false;
     }
     if (win.webContents.isDestroyed?.() === true) {
-      return;
+      return false;
     }
     win.webContents.send('to-renderer', message);
+    return true;
+  }
+
+  /**
+   * Whether the renderer window exists right now and is not destroyed.
+   *
+   * Unlike {@link resolveWindow} this is an enquiry, not a push, so it logs
+   * nothing — the "no renderer yet" boot state is expected here and would
+   * otherwise spam a debug line on every enumeration. Consumers
+   * (`ElectronWebviewManagerAdapter.getActiveWebviews`) use it to decide which
+   * surfaces to report, which is what lets `createDashboardBroadcast` answer
+   * `no-surface` instead of attempting a doomed send.
+   */
+  hasLiveRenderer(): boolean {
+    const win = this.getWindow();
+    return win !== null && win.webContents.isDestroyed?.() !== true;
   }
 
   /**

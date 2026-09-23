@@ -108,3 +108,17 @@ describe('CliWebviewManagerAdapter — batch unwrapping', () => {
     expect(chunks).toHaveLength(0);
   });
 });
+
+describe('CliWebviewManagerAdapter — surface enumeration (TASK_2026_538 Batch 2)', () => {
+  it('reports no surfaces: the CLI and TUI render none', () => {
+    const adapter = new CliWebviewManagerAdapter();
+
+    expect(adapter.getActiveWebviews()).toEqual([]);
+  });
+
+  it('never throws when asked for surfaces', () => {
+    const adapter = new CliWebviewManagerAdapter();
+
+    expect(() => adapter.getActiveWebviews()).not.toThrow();
+  });
+});
