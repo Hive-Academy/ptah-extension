@@ -16,15 +16,24 @@ Every UI task creates a self-contained static prototype directory inside the tas
 <taskFolder>/prototype/
 ├── index.html            # Main entry point (single screen or in-page tab/screen navigation)
 ├── [screen-name].html    # Optional per-screen HTML files for multi-page flows
-├── README.md             # How to open, screen/state list, interactive parts, constraints, parity mapping
+├── assets/               # Local copies of the built CSS/JS the prototype links (offline-capable)
+├── README.md             # How to open, screen/state list, interactive parts, assets/deviations, constraints, parity mapping
 └── screenshots/          # Static screenshot captures across themes and viewports
 ```
 
 ### Technical Constraints for Prototypes
-- **Zero build step**: Pure static HTML, CSS, and plain JavaScript. No bundlers, compilers, or Node runtimes required to view.
+- **Zero build step to view**: Pure static HTML, CSS, and plain JavaScript. Generate assets once at authoring time; opening `index.html` manually needs no bundler, compiler, or Node runtime. Automated browser captures use a local static server as described below.
 - **Zero backend**: Mock all data and interactions locally in client-side script. No API calls or database connections.
 - **Never imported**: The prototype lives solely in the task folder (`.ptah/specs/<TASK_FOLDER>/prototype/`) and is never imported or bundled by application code.
-- **Token and component fidelity**: Use the project's real design tokens and component library (e.g., Tailwind CSS + daisyUI themes from the project's configuration; a CDN build with matching theme names and color definitions is acceptable).
+- **Token and component fidelity**: Use the project's real design tokens and component library. Generate local CSS at authoring time using the project's own configuration with the prototype's HTML included in content scanning; store it in `prototype/assets/` and link it relatively so viewing works offline. The app's production CSS is not sufficient because it purges unused classes, including classes used only by the prototype. A CDN build is a fallback only, and must be disclosed with its reason under `## Deviations` in `README.md`.
+
+For example, in a Tailwind + daisyUI project, use the project's Tailwind/daisyUI configuration and CSS entry, adapting the CLI invocation to its installed tooling:
+
+```bash
+npx tailwindcss -c <project-tailwind-config> -i <project-css-entry> --content "<taskFolder>/prototype/**/*.html" -o <taskFolder>/prototype/assets/app.css
+```
+
+For other styling systems, use their project-native asset generation equivalent. Regenerate after changing the prototype's classes. Before capturing screenshots, confirm that the local stylesheet covers every class the prototype uses, including utilities and state classes, and that styling works without network access.
 
 ---
 
@@ -39,9 +48,15 @@ Below is a minimal, production-grade template demonstrating theme switching, con
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Prototype - TASK_TITLE</title>
-  <!-- Tailwind CSS + daisyUI CDN (defaults to standard dark/light themes out of the box) -->
+  <!-- Offline-first styling: generate assets/app.css with the project's own styling
+       configuration and CSS entry, scanning prototype/**/*.html (Tailwind/daisyUI example).
+       Production app CSS alone purges unused classes and is not sufficient.
+       Regenerate when prototype classes change; verify all classes are styled offline. -->
+  <link href="assets/app.css" rel="stylesheet" type="text/css" />
+  <!-- CDN fallback only — when used, name it as a deviation in prototype/README.md:
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
   <script src="https://cdn.tailwindcss.com"></script>
+  -->
   <style>
     /*
      * THEME FIDELITY INSTRUCTIONS:
@@ -82,7 +97,7 @@ Below is a minimal, production-grade template demonstrating theme switching, con
     <div class="flex items-center gap-2">
       <span class="font-bold">Prototype Controls:</span>
       <button id="themeToggle" class="btn btn-xs btn-outline">Toggle Theme (Dark / Light)</button>
-      <button id="widthToggle" class="btn btn-xs btn-outline">Toggle Viewport (Sidebar ≈400px / Wide)</button>
+      <button id="widthToggle" class="btn btn-xs btn-outline">Toggle Embedded Width (Sidebar ≈400px / Wide)</button>
     </div>
     <div class="flex items-center gap-2">
       <span>State:</span>
@@ -156,7 +171,8 @@ Below is a minimal, production-grade template demonstrating theme switching, con
       root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
     });
 
-    // Viewport toggle logic (sidebar ≈400px <-> wide)
+    // Embedded-width toggle logic (sidebar ≈400px <-> wide); a max-width container
+    // does not trigger viewport media queries — narrow-viewport checks need a real narrow window
     const container = document.getElementById('prototypeContainer');
     document.getElementById('widthToggle').addEventListener('click', () => {
       if (container.classList.contains('viewport-wide')) {
@@ -194,8 +210,9 @@ Every prototype must explicitly implement and showcase:
 | **Error** | Actionable error alert, retry affordance, clear failure explanation | Screenshot in screenshots/ |
 | **Dark Theme** | Primary dark theme (e.g. `dark` or project dark theme) validated for contrast | Screenshot in screenshots/ |
 | **Light Theme** | Primary light theme (e.g. `light` or project light theme) validated for contrast | Screenshot in screenshots/ |
-| **Narrow Width** | Sidebar width (≈400px), no horizontal overflow, wrapped actions | Screenshot in screenshots/ |
+| **Narrow Width** | Actual narrow browser viewport (≈400px window) so viewport media queries fire; no horizontal overflow, wrapped actions | Screenshot in screenshots/ |
 | **Wide Width** | Expanded desktop/editor width, balanced grid or flex spacing | Screenshot in screenshots/ |
+| **Embedded (Sidebar) Width** | Container toggle (`.viewport-sidebar`, ≈400px max-width) for sidebar embedding — a separate check; a max-width container does not trigger viewport media queries | Screenshot in screenshots/ |
 
 ---
 
@@ -214,14 +231,17 @@ When creating prototypes and design specifications, the designer must strictly a
 
 Screenshots provide immediate visual evidence for checkpoints and reviews without requiring the user to run a local web server:
 
-1. Use `ptah_browser_navigate` to open the file URL: `file:///<absolute-path-to-taskFolder>/prototype/index.html`.
-2. Capture screenshots across the state and viewport matrix using `ptah_browser_screenshot`:
+1. Serve `prototype/` over a local static server, for example `npx http-server <taskFolder>/prototype -p <port>`, and use `http://localhost:<port>/index.html`. The browser tool accepts only HTTP/HTTPS, so a `file:///` URL cannot be used for automated capture. Localhost access requires the `ptah.browser.allowLocalhost` setting; if it is unavailable, record the capture blocker in `README.md`.
+2. Open one browser session per viewport width: call `ptah_browser_close({})` before `ptah_browser_navigate({ url: "http://localhost:<port>/index.html", viewport: { width: 400, height: 900 } })` for narrow captures. Then close that session and reopen with `viewport: { width: 1440, height: 900 }` for wide captures. The viewport is set when the session is created; navigating again in an existing session does not resize it.
+3. Capture screenshots across the state and viewport matrix using `ptah_browser_screenshot({ saveTo: "<absolute-path-to-taskFolder>/prototype/screenshots/<name>.png" })`, selecting each required theme and state in its session. Capture narrow and wide separately so viewport media queries fire; use the `.viewport-sidebar` container toggle in the wide session for the separate embedded-width check:
    - `screenshots/dark-populated-wide.png`
-   - `screenshots/dark-populated-sidebar.png`
+   - `screenshots/dark-populated-narrow.png` (narrow browser viewport, ≈400px)
+   - `screenshots/dark-populated-sidebar.png` (embedded-width container toggle)
    - `screenshots/light-populated-wide.png`
    - `screenshots/dark-empty.png`
+   - `screenshots/dark-loading.png`
    - `screenshots/dark-error.png`
-3. If browser tools (`ptah_browser_*`) are unadvertised or unavailable in the harness, state this explicitly in `prototype/README.md` and instruct the user to view `index.html` directly in their browser.
+4. Close the capture session and stop the static server when finished. If browser tools (`ptah_browser_*`) are unadvertised or unavailable in the harness, state this explicitly in `prototype/README.md` and instruct the user to view `index.html` directly in their browser.
 
 ---
 
@@ -239,6 +259,19 @@ Open `index.html` directly in any web browser:
 file:///<absolute-path-to-taskFolder>/prototype/index.html
 ```
 
+Automated browser captures use a local static server because the tool accepts only HTTP/HTTPS:
+```bash
+npx http-server <taskFolder>/prototype -p <port>
+# Open http://localhost:<port>/index.html with localhost access enabled.
+```
+
+## Deviations
+
+- Local styling: `assets/app.css` (source: [project configuration, CSS entry and generation command scanning prototype HTML]).
+- CDN fallback: [none; or URL, reason local assets could not be generated, and network dependency].
+- Anything not built from project tokens/components: [none; or each deviation and its reason].
+- Capture limitations: [none; or unavailable browser tools/localhost access and missing evidence].
+
 ## Screens & States
 - **Screen 1**: [Description]
   - Populated state (default)
@@ -246,10 +279,10 @@ file:///<absolute-path-to-taskFolder>/prototype/index.html
   - Loading state
   - Error state
 - **Themes demonstrated**: Dark (`dark`), Light (`light`)
-- **Viewports demonstrated**: Sidebar (400px), Wide (desktop)
+- **Viewports demonstrated**: Narrow (≈400px actual browser viewport), Wide (desktop); Embedded (sidebar) width via container toggle (≈400px)
 
 ## Interactive Features
-- Viewport toggle (switch between 400px sidebar and wide desktop).
+- Embedded-width toggle (switch the container between ≈400px sidebar and wide desktop; does not trigger viewport media queries).
 - Theme switcher (switch between dark and light themes).
 - State dropdown (switch between populated, empty, loading, error).
 - Clickable modals, tabs, or accordions.

@@ -47,6 +47,9 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 | Demo video     | video-director                                     |
 | Infrastructure | devops-engineer                                    |
 
+These paths include the conditional inventory → design → Gate 1.7 steps in
+[SKILL.md](../SKILL.md#task-folder) before the next phase when UI is added/redesigned.
+
 ---
 
 ## Invocation
@@ -68,10 +71,15 @@ Task({
 });
 ```
 
+For `ui-ux-designer`, replace the single-deliverable line with **Deliverables** naming two
+absolute paths: `<absolute task folder>/design-spec.md` and `<absolute task folder>/prototype/`
+(including `README.md` and `screenshots/`). Require both outputs on disk and a separate
+`WROTE: <absolute path>` confirmation for each, plus the one-line headline.
+
 | Agent | `description` | Context lines | Deliverable | Instruction |
 | --- | --- | --- | --- | --- |
 | project-manager | Create requirements | `**User Request**: "<the user's words>"` | `task-description.md` | Analyze the request and write the requirements. |
-| software-architect | Design implementation | `**Requirements**: task-description.md in the task folder` | `implementation-plan.md` | Design the technical implementation plan. |
+| software-architect | Design implementation / inventory only | `**Requirements**: task-description.md (inventory-only: task.md + context.md)`<br>`**Mode**: plan or inventory-only` | `implementation-plan.md` (inventory-only: `parity-inventory.md`) | Design the technical implementation plan; inventory-only mode reads OLD code and writes only the parity inventory before design. |
 | team-leader | Decompose / verify / complete | `**MODE**: 1 - DECOMPOSITION` (or 2, 3) — see [team-leader-modes.md](team-leader-modes.md) | `batches.md` | Per mode. |
 | backend-developer, frontend-developer | Implement Batch N | `**Batch**: Batch N in batches.md (IN_PROGRESS)`<br>`**Plan**: implementation-plan.md` | code + report | Report each task's completion with evidence; do not edit batches.md; the team-leader records state. |
 | devops-engineer | Implement infrastructure | `**Plan**: implementation-plan.md` | code + report | Implement the infrastructure changes. |
@@ -85,10 +93,11 @@ Task({
 | technical-content-writer | Create content | `**Design System**: DESIGN-SYSTEM.md in your own skill directory`<br>`**Goal**: <what to write>` | `content-specification.md` | Write design-integrated content. |
 | video-director | Author showcase scene | `**Goal**: <feature or flow>`<br>`**App**: <what to launch, which URL>` | scene + render | Read the `video-showcase` skill first, then author, capture, render. |
 
-The designer owns `<taskFolder>/prototype/`. FEATURE UI and CREATIVE design flow through
-designer → prototype → Gate 1.7 before the architect or next creative phase; hand off the
-approved prototype as the visual source of truth. PM (architect when no PM) supplies the
-old-code parity inventory before design starts when an existing surface is replaced/redesigned.
+The designer owns `<taskFolder>/prototype/`. Any flow adding or redesigning UI runs
+designer → prototype → cross-side review → Gate 1.7 before the next phase of the flow (architect, team-leader, or content writer).
+Hand off the approved prototype as the visual source of truth. Complete the old-code parity
+inventory before design when required, using the inventory-only handoff in
+[SKILL.md](../SKILL.md#task-folder) for flows without a PM.
 
 ### Document review
 
@@ -122,8 +131,8 @@ the same path in `deliverables`.
 | Agent | Invoked when | Reads | Runs alongside |
 | --- | --- | --- | --- |
 | project-manager | FEATURE / DOCUMENTATION / DEVOPS phase 1, or unclear scope | request, `context.md` | — |
-| software-architect | After PM; REFACTORING / DEVOPS start; architectural decision needed | `task-description.md`, research | — |
-| team-leader | After architect (Mode 1), after each executor or reviewer (Mode 2), all batches done (Mode 3) | plan, `batches.md`, reports | — |
+| software-architect | After PM; REFACTORING / DEVOPS; architectural decision needed; inventory-only before design when required, plan after any required Gate 1.7 | `task-description.md`, research; inventory-only: `task.md`, `context.md`, OLD code | — |
+| team-leader | After architect (BUGFIX: after init/research and any required design gate) (Mode 1), after each executor or reviewer (Mode 2), all batches done (Mode 3) | plan (BUGFIX: `task.md`, `context.md`), `batches.md`, reports | — |
 | backend-developer | A batch of server-side work | `batches.md`, plan, project conventions | frontend-developer on a different batch |
 | frontend-developer | A batch of UI work | `batches.md`, plan, design spec | backend-developer on a different batch |
 | devops-engineer | DEVOPS implementation; pipelines, containers, publishing | plan, existing pipeline and container files | — |
@@ -133,7 +142,7 @@ the same path in `deliverables`.
 | visual-reviewer | UI batch evidence; Gate 3 `visual` for rendered UI | changed UI files, running app, approved prototype | tester, other reviewers |
 | researcher-expert | Technical unknowns, BUGFIX with unknown cause, RESEARCH | question, `context.md`, external docs | — |
 | modernization-detector | Final phase, after QA | `batches.md`, changed files | — |
-| ui-ux-designer | CREATIVE; FEATURE with added/redesigned UI | brand input, references, `context.md`, parity inventory | — (prototype + Gate 1.7 before architect/content) |
+| ui-ux-designer | CREATIVE; any flow with added/redesigned UI, after required inventory | brand input, references, `context.md`, parity inventory | — (prototype + Gate 1.7 before the next phase of the flow) |
 | technical-content-writer | CREATIVE after the design system exists; blogs, docs, scripts | `DESIGN-SYSTEM.md`, brief, source | other content-writer instances |
 | video-director | Demo, tour or showcase video | the flow to demo, a runnable app | — (capture owns the app) |
 

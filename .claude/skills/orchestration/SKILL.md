@@ -39,6 +39,8 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 | SAAS_INIT | discovery → PM → architect → team-leader |
 | CREATIVE | [designer → prototype → Gate 1.7] → content writer → frontend developer |
 
+Any flow adding or redesigning a UI surface inserts [designer → prototype → cross-side review → Gate 1.7] before the next phase of the flow (architect, team-leader, or content writer). Complete any required inventory first (Task folder below).
+
 ## Task folder
 
 - `/orchestrate TASK_YYYY_NNN[_xxxx]` → **continuation**: detect the phase from the folder
@@ -46,8 +48,11 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
 - `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
-  an existing surface. PM (or architect when no PM) writes it from the **OLD code before design
-  starts**. Columns: capability, where today (file:line), backing RPC/API, decision
+  an existing surface. PM writes it from the **OLD code before design starts**. In flows without
+  a PM (including BUGFIX and REFACTORING), the orchestrator first invokes software-architect in
+  **inventory-only mode** to write it before the designer. For flows with a plan, the architect's
+  plan phase runs after any required Gate 1.7 as usual; BUGFIX remains plan-free.
+  Columns: capability, where today (file:line), backing RPC/API, decision
   (keep/move/remove-proposed), new location, test that proves it. Record user approval for removals.
 - Status changes: `Edit` exactly the `status:` line of `task.md`. Never rewrite the carrier.
 
@@ -59,7 +64,7 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 | 0 Scope | Before PM, if the request is ambiguous | `AskUserQuestion` |
 | 1 Requirements | After `task-description.md` | **Plain message**, wait for `APPROVED` |
 | 1.5 Technical | Before architect, if several valid approaches | `AskUserQuestion` |
-| 1.7 Design | After `design-spec.md` and `prototype/`, before architect; mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED` |
+| 1.7 Design | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED` |
 | 2 Architecture | After `implementation-plan.md` | **Plain message**, wait for `APPROVED` |
 | 3 QA choice | After team-leader completion | `AskUserQuestion` |
 | SR Clarification | An agent returned `## Clarifications Needed` | Ask, then re-invoke with `## User Decisions` |
@@ -87,9 +92,9 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 
 - Never let a lane-authored spec/design/plan reach implementation without the user seeing and
   approving it (Gate 1.7 or 2).
-- Never delete a capability that is not an approved removal in `parity-inventory.md`.
-- Never present Gate 1, 1.7 or 2 without the cross-side review; if no other side exists, say the
-  review was same-side.
+- Never delete a capability that is not an approved removal in `parity-inventory.md` or the lane preserve list.
+- Never present Gate 1, 1.7 or 2 without the cross-side review; a same-side review states its
+  recorded reason (user pin, lanes disabled at Gate 0.1, or opposite side unavailable).
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
   reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
 - Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.

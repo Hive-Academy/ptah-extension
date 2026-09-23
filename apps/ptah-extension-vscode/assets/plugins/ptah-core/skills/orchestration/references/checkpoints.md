@@ -216,7 +216,7 @@ REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
 ## Cross-side review
 
-**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — <recorded reason: user pin, lanes disabled at Gate 0.1, or opposite side unavailable>"]
 **Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
 
 - [Open item the reviewer raised and the author did not resolve, with location; or none]
@@ -301,8 +301,8 @@ Before I create the architecture, I have a few technical questions:
 
 ### When to Present
 
-After `design-spec.md` and `<taskFolder>/prototype/` are ready, before the architect (or the
-next creative phase). **Mandatory whenever a designer ran or any UI surface is added/redesigned.**
+After `design-spec.md` and `<taskFolder>/prototype/` are ready, before the next phase of the flow
+(architect, team-leader, or content writer). **Mandatory whenever a designer ran or any UI surface is added/redesigned.**
 
 ### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
 
@@ -340,7 +340,7 @@ DESIGN READY FOR REVIEW — TASK_[ID]
 
 ## Cross-side review
 
-**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — <recorded reason: user pin, lanes disabled at Gate 0.1, or opposite side unavailable>"]
 **Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
 
 - [Open item the reviewer raised and the author did not resolve, with location; or none]
@@ -351,7 +351,7 @@ Please open the spec and prototype above and review the screenshots at your own 
 
 When ready, reply:
 
-- **"APPROVED"** — use this prototype as the visual source of truth; proceed to architect or the next creative phase
+- **"APPROVED"** — use this prototype as the visual source of truth; proceed to the next phase of the recorded flow (architect, team-leader, or content writer)
 - **Revisions / questions** — I'll revise and re-present
 ```
 
@@ -415,7 +415,7 @@ ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 
 ## Cross-side review
 
-**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — <recorded reason: user pin, lanes disabled at Gate 0.1, or opposite side unavailable>"]
 **Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
 
 - [Open item the reviewer raised and the author did not resolve, with location; or none]

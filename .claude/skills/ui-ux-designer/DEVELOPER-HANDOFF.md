@@ -353,13 +353,16 @@ Grid (2 columns desktop, 1 column mobile, 32px gap)
 Before implementation:
 
 - [ ] Inspect and interact with the approved prototype at `.ptah/specs/TASK_[ID]/prototype/index.html`
-- [ ] Verify implementation matches the approved prototype across all states and viewports
 - [ ] Confirm any required design deviations were escalated back to the designer rather than invented in code
 - [ ] Download all assets from design tool export URLs
 - [ ] Verify design system tokens in design system configuration
 - [ ] Review responsive breakpoint transformations
 - [ ] Understand motion specifications
 - [ ] Validate accessibility requirements
+
+After implementation:
+
+- [ ] Verify implementation matches the approved prototype across all states and viewports
 ````
 
 ---
