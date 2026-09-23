@@ -148,38 +148,102 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
    still measures >= 5.0:1) and let the spec confirm it. A theme missing from
    this list is safe but unmuted: the utility falls back to `var(--bc)`.
    ============================================================================ */
-[data-theme='acid'] { --bcm: 51.22539% 0 0; }
-[data-theme='aqua'] { --bcm: 89.751922% 0.025508 261.181674; }
-[data-theme='autumn'] { --bcm: 49.823638% 0 0; }
-[data-theme='black'] { --bcm: 58.480355% 0 0; }
-[data-theme='bumblebee'] { --bcm: 52% 0 0; }
-[data-theme='business'] { --bcm: 64.809638% 0 0; }
-[data-theme='cmyk'] { --bcm: 52% 0 0; }
-[data-theme='coffee'] { --bcm: 63.427702% 0.080513 59.85516; }
-[data-theme='corporate'] { --bcm: 53.433944% 0.018783 310.843373; }
-[data-theme='cupcake'] { --bcm: 53.259778% 0.041413 354.463901; }
-[data-theme='cyberpunk'] { --bcm: 49.1452% 0.09308 104.32; }
-[data-theme='dark'] { --bcm: 65.537861% 0.020546 262.216118; }
-[data-theme='dim'] { --bcm: 70.06154% 0.029339 233.121306; }
-[data-theme='dracula'] { --bcm: 70.177757% 0.013589 174.930522; }
-[data-theme='emerald'] { --bcm: 54.430434% 0.022665 291.44056; }
-[data-theme='fantasy'] { --bcm: 54.416259% 0.018687 294.86753; }
-[data-theme='forest'] { --bcm: 61.573653% 0.003925 17.911531; }
-[data-theme='garden'] { --bcm: 47.357784% 0.001864 17.270898; }
-[data-theme='halloween'] { --bcm: 65.111648% 0 0; }
-[data-theme='lemonade'] { --bcm: 51.3292% 0.0104 123.72; }
-[data-theme='light'] { --bcm: 54.416259% 0.018687 294.86753; }
-[data-theme='lofi'] { --bcm: 40% 0 0; }
-[data-theme='luxury'] { --bcm: 60.728735% 0.094705 40.211377; }
-[data-theme='night'] { --bcm: 62.507497% 0.018845 265.754875; }
-[data-theme='nord'] { --bcm: 50.944833% 0.018369 263.163395; }
-[data-theme='pastel'] { --bcm: 52% 0 0; }
-[data-theme='retro'] { --bcm: 48.662535% 0.015873 31.132774; }
-[data-theme='sunset'] { --bcm: 63.174474% 0.037278 243.196345; }
-[data-theme='synthwave'] { --bcm: 67.490532% 0.037693 295.949172; }
-[data-theme='valentine'] { --bcm: 51.274741% 0.067882 357.901888; }
-[data-theme='winter'] { --bcm: 54.458679% 0.042228 278.361426; }
-[data-theme='wireframe'] { --bcm: 52% 0 0; }
+[data-theme='acid'] {
+  --bcm: 51.22539% 0 0;
+}
+[data-theme='aqua'] {
+  --bcm: 89.751922% 0.025508 261.181674;
+}
+[data-theme='autumn'] {
+  --bcm: 49.823638% 0 0;
+}
+[data-theme='black'] {
+  --bcm: 58.480355% 0 0;
+}
+[data-theme='bumblebee'] {
+  --bcm: 52% 0 0;
+}
+[data-theme='business'] {
+  --bcm: 64.809638% 0 0;
+}
+[data-theme='cmyk'] {
+  --bcm: 52% 0 0;
+}
+[data-theme='coffee'] {
+  --bcm: 63.427702% 0.080513 59.85516;
+}
+[data-theme='corporate'] {
+  --bcm: 53.433944% 0.018783 310.843373;
+}
+[data-theme='cupcake'] {
+  --bcm: 53.259778% 0.041413 354.463901;
+}
+[data-theme='cyberpunk'] {
+  --bcm: 49.1452% 0.09308 104.32;
+}
+[data-theme='dark'] {
+  --bcm: 65.537861% 0.020546 262.216118;
+}
+[data-theme='dim'] {
+  --bcm: 70.06154% 0.029339 233.121306;
+}
+[data-theme='dracula'] {
+  --bcm: 70.177757% 0.013589 174.930522;
+}
+[data-theme='emerald'] {
+  --bcm: 54.430434% 0.022665 291.44056;
+}
+[data-theme='fantasy'] {
+  --bcm: 54.416259% 0.018687 294.86753;
+}
+[data-theme='forest'] {
+  --bcm: 61.573653% 0.003925 17.911531;
+}
+[data-theme='garden'] {
+  --bcm: 47.357784% 0.001864 17.270898;
+}
+[data-theme='halloween'] {
+  --bcm: 65.111648% 0 0;
+}
+[data-theme='lemonade'] {
+  --bcm: 51.3292% 0.0104 123.72;
+}
+[data-theme='light'] {
+  --bcm: 54.416259% 0.018687 294.86753;
+}
+[data-theme='lofi'] {
+  --bcm: 40% 0 0;
+}
+[data-theme='luxury'] {
+  --bcm: 60.728735% 0.094705 40.211377;
+}
+[data-theme='night'] {
+  --bcm: 62.507497% 0.018845 265.754875;
+}
+[data-theme='nord'] {
+  --bcm: 50.944833% 0.018369 263.163395;
+}
+[data-theme='pastel'] {
+  --bcm: 52% 0 0;
+}
+[data-theme='retro'] {
+  --bcm: 48.662535% 0.015873 31.132774;
+}
+[data-theme='sunset'] {
+  --bcm: 63.174474% 0.037278 243.196345;
+}
+[data-theme='synthwave'] {
+  --bcm: 67.490532% 0.037693 295.949172;
+}
+[data-theme='valentine'] {
+  --bcm: 51.274741% 0.067882 357.901888;
+}
+[data-theme='winter'] {
+  --bcm: 54.458679% 0.042228 278.361426;
+}
+[data-theme='wireframe'] {
+  --bcm: 52% 0 0;
+}
 
 /* Light theme overrides for glass morphism and decorative elements */
 [data-theme='anubis-light'] {
@@ -747,10 +811,15 @@ Enhanced typography, visual hierarchy, and reading comfort
 }
 
 /* Remove top margin on first heading in a block */
+/* The 'full' sanitizer wraps every render in .ptah-markdown-root (TASK_2026_532). */
 .prose > h1:first-child,
 .prose > h2:first-child,
 .prose > h3:first-child,
-.prose > h4:first-child {
+.prose > h4:first-child,
+.prose > .ptah-markdown-root > h1:first-child,
+.prose > .ptah-markdown-root > h2:first-child,
+.prose > .ptah-markdown-root > h3:first-child,
+.prose > .ptah-markdown-root > h4:first-child {
   margin-top: 0;
 }
 

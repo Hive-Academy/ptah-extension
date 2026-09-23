@@ -18,6 +18,7 @@ import { parseFileLinkHref } from './file-link-target';
 import {
   provideMarkdownRendering,
   __resetMemberPurifierForTests,
+  MARKDOWN_CONTAINMENT_ROOT_CLASS,
   type MarkdownRenderingConfig,
 } from './provide-markdown-rendering';
 
@@ -81,6 +82,24 @@ function presetConfig(extensions: 'full' | 'member'): CapturedMarkdownConfig {
   return providers[0][0].useValue;
 }
 
+/**
+ * The shipped 'full' sanitizer wraps every render in the containment root
+ * (TASK_2026_532). This asserts the wrapper on every call and hands back the
+ * inner HTML, so the policy tests below compare exactly what content became.
+ */
+const CONTAINMENT_ROOT_OPEN = `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}" style="contain: layout paint; isolation: isolate; overflow-x: auto;">`;
+
+function unwrapContainmentRoot(output: string): string {
+  expect(output.startsWith(CONTAINMENT_ROOT_OPEN)).toBe(true);
+  expect(output.endsWith('</div>')).toBe(true);
+  return output.slice(CONTAINMENT_ROOT_OPEN.length, -'</div>'.length);
+}
+
+function fullSanitizer(): (html: string) => string {
+  const sanitize = presetConfig('full').sanitize.useFactory();
+  return (html) => unwrapContainmentRoot(sanitize(html));
+}
+
 function memberConfig(): CapturedMarkdownConfig {
   return presetConfig('member');
 }
@@ -123,10 +142,13 @@ describe("the 'member' preset sanitizer (member-authored UGC)", () => {
     expect(out.toLowerCase()).not.toContain('onclick');
   });
 
-  it('rejects tags the permissive full preset allows', () => {
-    // These four are exactly why the member preset is an allowlist: the `'full'`
-    // deny-list permits every one of them, which is right for an AI diagram and
-    // wrong for a post another member wrote.
+  it('rejects tags even when the full preset allows them', () => {
+    // These are exactly why the member preset is an allowlist: the `'full'`
+    // preset permits SVG and custom elements for AI output, which is right
+    // for a diagram an agent drew and wrong for a post another member wrote.
+    // The two presets have since diverged further (TASK_2026_532): `'full'`
+    // now forbids `<style>` too, while still keeping `<details>`; member
+    // rejects both.
     const out = sanitize(
       '<svg><circle r="1" /></svg><details><summary>s</summary></details>' +
         '<style>body{display:none}</style><ptah-callout>x</ptah-callout>',
@@ -184,47 +206,18 @@ describe("the 'member' preset sanitizer (member-authored UGC)", () => {
 });
 
 /**
- * The permissive sanitizer is created inside provide-markdown-rendering and
- * is not directly exported — but its behavior IS the public contract we
- * inherited from the webview. We exercise DOMPurify with the same options
- * the helper installs to confirm the ruleset blocks XSS but allows the
- * markdown features the chat UI relies on.
+ * The permissive sanitizer's behaviour, exercised through the SHIPPED 'full'
+ * factory (not a hand-copied DOMPurify config — a copied config cannot notice
+ * the real FORBID_TAGS, FORBID_ATTR or the class/style hook drifting). These
+ * are the compatibility promises: XSS blocked, ordinary markdown features
+ * kept.
  */
-describe('permissive sanitizer behavior (DOMPurify configuration)', () => {
-  // Mirror the options inside createPermissiveSanitizer.
-  const sanitize = (html: string): string =>
-    DOMPurify.sanitize(html, {
-      FORBID_TAGS: [
-        'script',
-        'iframe',
-        'object',
-        'embed',
-        'form',
-        'input',
-        'textarea',
-        'select',
-        'button',
-      ],
-      FORBID_ATTR: [
-        'onerror',
-        'onload',
-        'onclick',
-        'onmouseover',
-        'onfocus',
-        'onblur',
-        'onsubmit',
-        'onchange',
-        'oninput',
-        'onkeydown',
-        'onkeyup',
-        'onkeypress',
-        'data-ptah-file-links',
-      ],
-      ALLOW_DATA_ATTR: true,
-      ALLOW_ARIA_ATTR: true,
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
-    });
+describe("permissive sanitizer behavior (the shipped 'full' factory)", () => {
+  let sanitize: (html: string) => string;
+
+  beforeEach(() => {
+    sanitize = fullSanitizer();
+  });
 
   it('strips <script> tags', () => {
     const out = sanitize('<p>Hi</p><script>alert(1)</script>');
@@ -310,7 +303,7 @@ describe("file links through the shipped 'full' pipeline", () => {
   let sanitize: (html: string) => string;
 
   beforeEach(() => {
-    sanitize = fullConfig().sanitize.useFactory();
+    sanitize = fullSanitizer();
   });
 
   it('keeps a Windows drive target in data-ptah-file-href', () => {
@@ -371,5 +364,345 @@ describe("file links through the shipped 'full' pipeline", () => {
     expect(raw).toBe('javascript:alert(1)');
     // ...so the parser, not the sanitizer, is what refuses it.
     expect(parseFileLinkHref(raw)).toBeNull();
+  });
+});
+
+/**
+ * Layer 2 of markdown containment, through the SHIPPED `'full'` pipeline
+ * (TASK_2026_532, review-lane-b defects 1–6): `class` is an allowlist of the
+ * tokens the pipeline itself emits, `style` rejects obfuscation and
+ * positioning declarations, and the popover/invoker and `<dialog>`
+ * affordances are gone. Layer 1 (the containment root) is asserted
+ * structurally in the next block; its layout effect is a browser guarantee
+ * jsdom cannot measure and was verified in a Chromium harness.
+ */
+describe("the 'full' preset containment root (TASK_2026_532)", () => {
+  const rawFull = (html: string): string =>
+    presetConfig('full').sanitize.useFactory()(html);
+
+  it('wraps the sanitized output in exactly one outermost root', () => {
+    const template = document.createElement('template');
+    template.innerHTML = rawFull('<p>a</p><p>b</p>');
+    expect(template.content.children).toHaveLength(1);
+    const root = template.content.firstElementChild as HTMLElement;
+    expect(root.className).toBe(MARKDOWN_CONTAINMENT_ROOT_CLASS);
+    expect(root.getAttribute('style')).toBe(
+      'contain: layout paint; isolation: isolate; overflow-x: auto;',
+    );
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('keeps unbalanced closing tags in content from ending the root early', () => {
+    const template = document.createElement('template');
+    template.innerHTML = rawFull('x</div></div><div data-probe>y</div>');
+    expect(template.content.children).toHaveLength(1);
+    expect(template.content.querySelector('[data-probe]')?.parentElement).toBe(
+      template.content.firstElementChild,
+    );
+  });
+
+  it('does not let content forge a root of its own', () => {
+    expect(
+      fullSanitizer()(
+        `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}">x</div>`,
+      ),
+    ).toBe('<div>x</div>');
+  });
+});
+
+describe("the 'full' preset class and style policy (TASK_2026_532)", () => {
+  let sanitize: (html: string) => string;
+
+  beforeEach(() => {
+    sanitize = fullSanitizer();
+  });
+
+  it('drops an overlay utility spelling entirely, keeping the element', () => {
+    const out = sanitize('<div class="fixed inset-0 z-50 flex">x</div>');
+    // By design `flex` goes too: the policy is an allowlist, and no utility
+    // class is emitted by the pipeline.
+    expect(out).not.toContain('class');
+    expect(out).toBe('<div>x</div>');
+  });
+
+  it('drops a purely utility class attribute with no allowed token', () => {
+    const out = sanitize('<p class="text-sm font-bold">x</p>');
+    expect(out).toBe('<p>x</p>');
+  });
+
+  it('keeps only the allowed tokens of a mixed class attribute', () => {
+    const out = sanitize(
+      '<div class="callout callout-note fixed modal">x</div>',
+    );
+    expect(out).toBe('<div class="callout callout-note">x</div>');
+  });
+
+  it('removes a <style> element and its declarations, keeping surrounding markup', () => {
+    // <style> injects global CSS into the whole webview — an escape the
+    // attribute hook cannot reach, because the declarations are element
+    // content. FORBID_TAGS drops the tag; `style` is in DOMPurify's default
+    // FORBID_CONTENTS, so the declarations go with it.
+    const out = sanitize(
+      '<p>before</p><style>body{display:none}</style><p>after</p>',
+    );
+    expect(out).not.toContain('<style');
+    expect(out).not.toContain('display:none');
+    expect(out).toContain('<p>before</p>');
+    expect(out).toContain('<p>after</p>');
+  });
+
+  it.each([
+    'fixed',
+    'inset-0',
+    'z-50',
+    'md:fixed',
+    'hover:z-50',
+    'dark:sticky',
+    'z-[999]',
+    'top-[0px]',
+    '-top-4',
+    '!fixed',
+    'md:!z-50',
+    '!-top-4',
+    // Review defect 6: `fixed-width` shares only the prefix of `fixed`. The
+    // allowlist drops it for the same reason as the utility itself — no
+    // deny-list parsing is involved anymore.
+    'fixed-width',
+  ])(
+    'drops the token %s from a class attribute, keeping an allowed neighbour',
+    (utility) => {
+      const out = sanitize(`<div class="${utility} callout">x</div>`);
+      expect(out).toContain('callout');
+      expect(out).not.toContain(utility);
+    },
+  );
+
+  it('drops the app overlay pair modal modal-open entirely', () => {
+    // Review defect 2: daisyUI ships unprefixed; its `.modal` is
+    // fixed/inset-0/z-999, and `modal-open` alone drives the global
+    // :root:has() rule that hides the root scrollbar.
+    const out = sanitize('<div class="modal modal-open">x</div>');
+    expect(out).not.toContain('modal');
+    expect(out).toBe('<div>x</div>');
+  });
+
+  it('drops modal-open alone, the driver of the root :has() rule', () => {
+    const out = sanitize('<p class="modal-open">innocent text</p>');
+    expect(out).toBe('<p>innocent text</p>');
+  });
+
+  it('keeps the classes the marked extensions emit', () => {
+    const out = sanitize(
+      '<div class="callout callout-note"><div class="prose-list-card">' +
+        '<code class="language-ts">x</code>' +
+        '<a href="#" class="ptah-file-link">f</a></div></div>',
+    );
+    expect(out).toContain('callout callout-note');
+    expect(out).toContain('prose-list-card');
+    expect(out).toContain('class="language-ts"');
+    expect(out).toContain('ptah-file-link');
+  });
+
+  it('drops a style attribute that declares positioning', () => {
+    const out = sanitize('<div style="position:fixed;top:0">x</div>');
+    expect(out).not.toContain('style');
+    expect(out).toContain('<div>x</div>');
+  });
+
+  it('drops a style attribute in mixed casing with padded declarations', () => {
+    const out = sanitize(
+      '<div style="POSITION : fixed ; Z-INDEX : 50">x</div>',
+    );
+    expect(out).not.toContain('style');
+  });
+
+  it('keeps a style attribute with no positioning declaration', () => {
+    const out = sanitize('<div style="color:red">x</div>');
+    expect(out).toContain('style="color:red"');
+  });
+
+  // Review defect 1: comments and backslash escapes smuggle `position`
+  // past any property-name check. All three spellings computed to
+  // `position: fixed` in the reviewer's Chromium harness.
+  const OBFUSCATED_POSITION_STYLES = [
+    '/**/position:fixed;/**/inset:0;background:red',
+    'position/**/:fixed;inset/**/:0;background:red',
+    '\\70 osition:fixed;\\69 nset:0;background:red',
+  ];
+
+  it.each(OBFUSCATED_POSITION_STYLES)(
+    'drops the obfuscated style %s on a div',
+    (style) => {
+      const out = sanitize(`<div style="${style}">x</div>`);
+      expect(out).not.toContain('style');
+      expect(out).toContain('<div>x</div>');
+    },
+  );
+
+  it.each(OBFUSCATED_POSITION_STYLES)(
+    'drops the obfuscated style %s on an svg',
+    (style) => {
+      const out = sanitize(
+        `<svg style="${style}"><rect width="1" height="1" /></svg>`,
+      );
+      expect(out).not.toContain('style');
+      expect(out).toContain('<svg');
+    },
+  );
+
+  it('strips the popover attribute, whose UA stylesheet positions the element', () => {
+    // Review defect 3: no `position` declaration anywhere — the browser
+    // stylesheet supplies fixed geometry once display is overridden.
+    const out = sanitize('<div popover style="display:block">x</div>');
+    expect(out.toLowerCase()).not.toContain('popover');
+    // display:block alone is inert and stays: the style policy only
+    // rejects positioning and obfuscation.
+    expect(out).toContain('display:block');
+  });
+
+  it('removes <dialog>, which carries UA out-of-flow geometry', () => {
+    const out = sanitize('<p>a</p><dialog open>d</dialog><p>b</p>');
+    expect(out).not.toContain('<dialog');
+    expect(out).toContain('<p>a</p>');
+    expect(out).toContain('<p>b</p>');
+  });
+
+  it('does not leak the hook onto the shared DOMPurify instance', () => {
+    // The hook is instance-global. If it had been added to the default export,
+    // every other DOMPurify user in the app would start losing classes. This
+    // is the counterpart of the member preset's non-leak assertion.
+    const viaDefault = DOMPurify.sanitize('<div class="fixed z-50">x</div>');
+    expect(viaDefault).toContain('fixed');
+    expect(viaDefault).toContain('z-50');
+  });
+
+  it('does not leak the hook onto the member preset', () => {
+    __resetMemberPurifierForTests();
+    const member = memberConfig().sanitize.useFactory()(
+      '<p class="fixed z-50">x</p>',
+    );
+    // The member instance has no containment hook; its allowlist is the only
+    // defence there, which is a separate contract from this task.
+    expect(member).toContain('fixed');
+    __resetMemberPurifierForTests();
+  });
+});
+
+/**
+ * The class allowlist is only safe if it keeps EVERY class the six marked
+ * extensions actually render. Each test here invokes the extension's real
+ * renderer through the shipped providers and sanitizes its output — the
+ * rendered markup, not a hand-written copy of it.
+ */
+describe("the 'full' preset keeps every extension's rendered output", () => {
+  let sanitize: (html: string) => string;
+
+  beforeEach(() => {
+    sanitize = fullSanitizer();
+  });
+
+  /** The single extension that registers a renderer method of this name. */
+  const rendererFor = (
+    name: string,
+  ): ((this: unknown, token: unknown) => string | false) => {
+    const found = (
+      presetConfig('full').markedExtensions as Array<{
+        useValue: MarkedExtension;
+      }>
+    )
+      .map(
+        (provider) =>
+          (provider.useValue.renderer ?? {}) as unknown as Record<
+            string,
+            unknown
+          >,
+      )
+      .map((renderer) => renderer[name])
+      .find((candidate) => typeof candidate === 'function');
+    if (!found) {
+      throw new Error(`no extension registers a '${name}' renderer`);
+    }
+    return found as (this: unknown, token: unknown) => string | false;
+  };
+
+  it('keeps the callout card classes', () => {
+    const raw = rendererFor('blockquote').call(
+      { parser: { parse: () => '<p>Body</p>' } },
+      { type: 'blockquote', calloutType: 'NOTE', tokens: [] },
+    );
+    expect(raw).not.toBe(false);
+    const out = sanitize(raw as string);
+    expect(out).toContain('callout callout-note');
+    expect(out).toContain('callout-header');
+    expect(out).toContain('callout-dot');
+    expect(out).toContain('callout-title');
+    expect(out).toContain('callout-body');
+  });
+
+  it('keeps the code-block header classes, including the collapsible path', () => {
+    const longText = Array.from({ length: 16 }, () => 'line').join('\n');
+    const raw = rendererFor('code').call(
+      {},
+      { type: 'code', raw: '', lang: 'ts', text: longText },
+    );
+    expect(raw).not.toBe(false);
+    const out = sanitize(raw as string);
+    expect(out).toContain('code-block-container');
+    expect(out).toContain('code-block-header');
+    expect(out).toContain('code-lang-badge');
+    expect(out).toContain('code-line-count');
+    expect(out).toContain('code-block-collapsible');
+    expect(out).toContain('code-block-toggle');
+    expect(out).toContain('language-ts');
+  });
+
+  it('keeps the decorative divider classes', () => {
+    const out = sanitize(rendererFor('hr').call({}, {}) as string);
+    expect(out).toContain('prose-divider');
+    expect(out).toContain('prose-divider-ornament');
+  });
+
+  it('keeps the enhanced heading classes', () => {
+    const parser = { parseInline: () => 'Title' };
+    const h1 = rendererFor('heading').call(
+      { parser },
+      { depth: 1, tokens: [] },
+    );
+    const h3 = rendererFor('heading').call(
+      { parser },
+      { depth: 3, tokens: [] },
+    );
+    const out = sanitize(`${h1 as string}${h3 as string}`);
+    expect(out).toContain('prose-heading-accented');
+    expect(out).toContain('prose-heading-dot');
+    expect(out).toContain('prose-heading-bordered');
+  });
+
+  it('keeps the list-card classes', () => {
+    const raw = rendererFor('list').call(
+      { parser: { parse: () => 'Item' } },
+      { ordered: true, start: 1, items: [{ tokens: [] }] },
+    );
+    expect(raw).not.toBe(false);
+    const out = sanitize(raw as string);
+    expect(out).toContain('prose-list-card');
+  });
+
+  it('keeps the file-link class', () => {
+    const raw = rendererFor('link').call(
+      { parser: { parseInline: () => 'open' } },
+      {
+        type: 'link',
+        raw: '',
+        href: 'C:\\x.ts:12:3',
+        title: null,
+        text: 'open',
+        tokens: [],
+      },
+    );
+    expect(raw).not.toBe(false);
+    const out = sanitize(raw as string);
+    expect(out).toContain('ptah-file-link');
+    expect(out).toContain('data-ptah-file-href');
   });
 });

@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
+import { fenceCodeBlock } from './code-fence';
 import {
   type ExecutionNode,
   isReadToolInput,
@@ -116,7 +117,7 @@ export class CodeOutputComponent {
 
     const language = this.detectLanguage();
     if (language === 'markdown') return str;
-    return '```' + language + '\n' + str + '\n```';
+    return fenceCodeBlock(str, language);
   });
 
   /**

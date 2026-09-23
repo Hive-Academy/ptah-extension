@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
+import { fenceCodeBlock } from './code-fence';
 import { ExpandableContentComponent } from '../../atoms/expandable-content.component';
 import { type ExecutionNode, isWriteToolInput } from '@ptah-extension/shared';
 
@@ -287,9 +288,9 @@ export class ToolInputDisplayComponent {
       if (language === 'markdown') {
         return content;
       }
-      return '```' + language + '\n' + content + '\n```';
+      return fenceCodeBlock(content, language);
     }
-    return '```\n' + content + '\n```';
+    return fenceCodeBlock(content, '');
   }
 
   /**

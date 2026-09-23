@@ -154,13 +154,12 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                 </div>
                 @if (segment.content) {
                   <div
-                    class="px-2 py-1 max-h-32 overflow-y-auto prose prose-xs prose-invert max-w-none agent-prose"
+                    class="px-2 py-1 max-h-32 overflow-y-auto"
                   >
-                    <markdown
-                      [data]="
-                        segment.content | surfaceMarkdown: surfaceActive()
-                      "
-                    />
+                    <pre
+                      class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
+                      >{{ segment.content }}</pre
+                    >
                   </div>
                 }
               </div>

@@ -79,6 +79,7 @@ export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt
 export { SetupStatusWidgetComponent } from './lib/molecules/setup-plugins/setup-status-widget.component';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
 export { CodeOutputComponent } from './lib/molecules/tool-execution/code-output.component';
+export { fenceCodeBlock } from './lib/molecules/tool-execution/code-fence';
 export { DiffDisplayComponent } from './lib/molecules/tool-execution/diff-display.component';
 export { TodoListDisplayComponent } from './lib/molecules/tool-execution/todo-list-display.component';
 export { ToolCallHeaderComponent } from './lib/molecules/tool-execution/tool-call-header.component';

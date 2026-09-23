@@ -17,6 +17,7 @@
  */
 
 import { Injectable } from '@angular/core';
+import { fenceCodeBlock } from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -36,6 +37,17 @@ import {
 
 /** Maximum recursion depth for nested agent tree building */
 const MAX_DEPTH = 10;
+
+/** Header label for a result segment that arrived with no matching tool call. */
+const ORPHAN_TOOL_LABELS: Record<
+  'tool-result' | 'tool-result-error' | 'command' | 'file-change',
+  string
+> = {
+  'tool-result': 'Tool result',
+  'tool-result-error': 'Tool result',
+  command: 'Command',
+  'file-change': 'File change',
+};
 
 /**
  * Memoization cache entry for the segment tree builder.
@@ -327,9 +339,12 @@ export class AgentMonitorTreeBuilderService {
             nodes.push(
               createExecutionNode({
                 id: `seg-orphan-${i}`,
-                type: 'text',
-                status: 'complete',
-                content: segment.content,
+                type: 'tool',
+                status:
+                  segment.type === 'tool-result-error' ? 'error' : 'complete',
+                toolName: segment.toolName || ORPHAN_TOOL_LABELS[segment.type],
+                toolOutput: segment.content,
+                content: null,
               }),
             );
           }
@@ -344,7 +359,7 @@ export class AgentMonitorTreeBuilderService {
               id: `seg-error-${i}`,
               type: 'text',
               status: 'complete',
-              content: segment.content,
+              content: fenceCodeBlock(segment.content, 'text'),
               error: segment.content,
             }),
           );
@@ -359,7 +374,7 @@ export class AgentMonitorTreeBuilderService {
               id: `seg-info-${i}`,
               type: 'text',
               status: 'complete',
-              content: segment.content,
+              content: fenceCodeBlock(segment.content, 'text'),
             }),
           );
           break;
