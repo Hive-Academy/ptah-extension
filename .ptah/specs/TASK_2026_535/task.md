@@ -42,8 +42,8 @@ blocks: [TASK_2026_536, TASK_2026_537]
 
 ### B. Lane outcome ledger (SQLite, new migration in `libs/backend/persistence-sqlite`)
 
-- Table `lane_runs`: `run_id` (primary key; `agent_id` nullable and indexed),
-  agent_id, parent_session_id, workspace_root, cli, ptah_cli_id,
+- Table `lane_runs`: `run_id` (primary key), agent_id (nullable, indexed),
+  parent_session_id, workspace_root, cli, ptah_cli_id,
   provider_id, model (resolved, not requested), model_tier, role, task_hash +
   task_excerpt, task_folder, started_at, completed_at, duration_ms, status,
   exit_code, verdict (including `role-conflict`, distinct from `no-deliverable`),

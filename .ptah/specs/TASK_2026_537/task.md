@@ -45,8 +45,10 @@ added in TASK_2026_533, and lets routing use evidence from TASK_2026_535/536.
      + kNN / logistic heads trained only on the training split defined in item 5
      (TASK_2026_536 dataset + `.ptah/specs/**/task.md` history). No network.
    - `typesafe` (opt-in, BYO key): one request with all questions over one `state`;
-     backoff on 429/529; timeout; falls back to `local`. Reject cross-origin
-     redirects; never send the key to a host other than the configured endpoint.
+     backoff on 429/529; timeout; falls back to `local`. The configured
+     endpoint must be `https:`; the adapter rejects a non-https URL before it
+     attaches the key. Reject cross-origin redirects; never send the key to a
+     host other than the configured endpoint.
    - `llm` fallback: existing internal query path with a JSON schema.
 3. **MCP tool** `ptah_task_classify` + RPC; orchestration pre-flight calls it.
    Flag → gate mapping enforced in code and in the plugin `orchestration` skill:
@@ -67,8 +69,14 @@ added in TASK_2026_533, and lets routing use evidence from TASK_2026_535/536.
    training and calibration. Record stable example/task ids, content hashes and
    split assignments in a versioned dataset manifest; keep examples from the
    same task in one split. Fit heads on training, tune thresholds on calibration,
-   then report accuracy / calibration per question and adapter on holdout;
-   the gate thresholds ship only with a passing holdout eval.
+   then report accuracy / calibration per question and adapter on holdout.
+   Ship criteria per gate-driving flag (`replacesExistingSurface`,
+   `touchesUiSurface`, `changesPersistedSettings`) on the holdout set: a
+   maximum false-negative rate — these flags gate safety steps, so the bound
+   is strict (e.g. recall ≥ 0.95) — and a calibration criterion (e.g.
+   expected calibration error ≤ 0.05). The exact numbers are confirmed at the
+   research gate. Thresholds do not ship until every gate-driving flag meets
+   them. Detecting TASK_2026_523 stays a required case.
 6. **Settings UI** (Providers → Intelligence, designed via Gate 1.7): adapter
    choice, BYO TypeSafe key, "send code context" toggle, thresholds.
 

@@ -16,9 +16,8 @@ blocks: []
 the key sits in the plain settings file. Every other provider key goes through
 `AuthSecretsService` (`libs/backend/vscode-core/src/services/auth-secrets.service.ts:263-279`,
 `ptah.auth.provider.<id>`). Found while fixing the debug-log leak of the same key
-in TASK_2026_534. The log leak is fixed in PR #581 (still open), not yet on main.
-This task depends on #581 and must be based on its branch,
-`fix/providers-runtime-regressions`.
+in TASK_2026_534. The log leak is fixed in PR #581, which is now merged.
+This task depends on #581 and must be based on main.
 
 ## Scope
 
@@ -29,9 +28,9 @@ This task depends on #581 and must be based on its branch,
    Find them with `ptah_lsp_references` / grep before changing.
 3. Migration: the VS Code extension, Electron desktop app and headless CLI each
    own registration in their composition root / settings bootstrap. Run once at
-   backend startup in each runtime; keep it idempotent. If the plain setting holds
-   a value and no secret exists, move it to the secret store, then delete the
-   plain setting. Never log the value.
+   backend startup in each runtime; keep it idempotent. If a secret already
+   exists, keep it and still delete the plain setting; copy the plain value to
+   the secret store only when no secret exists. Never log the value.
 4. Tests: write → secret store only (settings file untouched); migration moves
    and deletes; readers work from the secret; no logger call contains the key.
    Keep #581's regression test for the exact `agent:setConfig` log call (field
