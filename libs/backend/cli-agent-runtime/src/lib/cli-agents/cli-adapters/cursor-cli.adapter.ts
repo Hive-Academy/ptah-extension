@@ -7,16 +7,13 @@
  * event loop, AbortSignal → run.cancel().
  *
  * Auth: requires a Cursor API key. Resolved from CURSOR_API_KEY, falling back
- * to `provider.cursor.apiKey` in ~/.ptah/settings.json. Detection is gated on
- * key presence — without a key the adapter reports not-installed so Cursor
- * does not surface as an available CLI agent.
+ * to the injected resolver (backed by AuthSecretsService's provider secret for
+ * `cursor`). Detection is gated on key presence — without a key the adapter
+ * reports not-installed so Cursor does not surface as an available CLI agent.
  *
  * MCP: configured inline via the SDK's `mcpServers` option (no .cursor/mcp.json
  * file writes). Session resume: Agent.resume(agentId).
  */
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -164,36 +161,6 @@ async function getCursorSdk(): Promise<CursorSdkModule> {
   return mod;
 }
 
-/**
- * Resolve the Cursor API key.
- *
- * Order: CURSOR_API_KEY env var, then `provider.cursor.apiKey` in
- * ~/.ptah/settings.json. Resolved lazily (per call) so changes applied after
- * module load are honoured, mirroring CodexCliAdapter.getAuthPath().
- */
-function resolveCursorApiKey(): string | undefined {
-  const envKey = process.env['CURSOR_API_KEY'];
-  if (envKey && envKey.trim()) {
-    return envKey.trim();
-  }
-  try {
-    const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
-    const settingsPath = join(home, '.ptah', 'settings.json');
-    const raw = readFileSync(settingsPath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const provider = parsed['provider'] as Record<string, unknown> | undefined;
-    const cursor = provider?.['cursor'] as Record<string, unknown> | undefined;
-    const key = cursor?.['apiKey'];
-    return typeof key === 'string' && key.trim() ? key.trim() : undefined;
-    // degradation-audit: optional-capability - `~/.ptah/settings.json` may not
-    // exist yet, or may lack a cursor provider key; that is the ordinary "not
-    // configured" state, so a read/parse failure yields the same undefined as a
-    // key that was never set.
-  } catch {
-    return undefined;
-  }
-}
-
 export class CursorCliAdapter implements CliAdapter {
   readonly name = 'cursor' as const;
   readonly displayName = 'Cursor';
@@ -204,15 +171,46 @@ export class CursorCliAdapter implements CliAdapter {
   /**
    * @param logger - Optional; when supplied it receives the FULL SDK rejection
    *   text, which the stream deliberately no longer carries.
+   * @param resolveApiKey - Async source for the provider secret, supplied by
+   *   the owner (CliDetectionService wires it to AuthSecretsService's
+   *   `getProviderKey('cursor')`). The key is never read from disk here.
    */
-  constructor(private readonly logger?: Logger) {}
+  constructor(
+    private readonly logger?: Logger,
+    private readonly resolveApiKey?: () => Promise<string | undefined>,
+  ) {}
+
+  /**
+   * Resolve the Cursor API key.
+   *
+   * Order: CURSOR_API_KEY env var, then the injected resolver's secret.
+   * Resolved lazily (per call) so changes applied after construction are
+   * honoured, mirroring CodexCliAdapter.getAuthPath(). A resolver failure is
+   * the ordinary "not configured" state: the fixed-text log line deliberately
+   * carries no error detail, which may embed secret material.
+   */
+  private async resolveCursorApiKey(): Promise<string | undefined> {
+    const envKey = process.env['CURSOR_API_KEY'];
+    if (envKey && envKey.trim()) {
+      return envKey.trim();
+    }
+    try {
+      const key = this.resolveApiKey ? await this.resolveApiKey() : undefined;
+      return key && key.trim() ? key.trim() : undefined;
+    } catch {
+      this.logger?.debug(
+        '[CursorCliAdapter] Cursor API key resolver failed; treating as no key',
+      );
+      return undefined;
+    }
+  }
 
   /**
    * Detect Cursor availability. The SDK is bundled, so availability is gated
    * on API key presence rather than a binary on PATH.
    */
   async detect(): Promise<CliDetectionResult> {
-    const apiKey = resolveCursorApiKey();
+    const apiKey = await this.resolveCursorApiKey();
     if (!apiKey) {
       return {
         cli: 'cursor',
@@ -233,7 +231,7 @@ export class CursorCliAdapter implements CliAdapter {
    * startup to prime detection. Returns true when a key is resolvable.
    */
   async ensureTokensFresh(): Promise<boolean> {
-    return resolveCursorApiKey() !== undefined;
+    return (await this.resolveCursorApiKey()) !== undefined;
   }
 
   /**
@@ -260,7 +258,7 @@ export class CursorCliAdapter implements CliAdapter {
    * Falls back to a curated list when the API is unreachable or no key is set.
    */
   async listModels(): Promise<CliModelInfo[]> {
-    const apiKey = resolveCursorApiKey();
+    const apiKey = await this.resolveCursorApiKey();
     if (!apiKey) {
       return CursorCliAdapter.FALLBACK_MODELS;
     }
@@ -309,10 +307,10 @@ export class CursorCliAdapter implements CliAdapter {
     abortController.signal.addEventListener('abort', onAbort);
 
     const runTurn = async (prompt: string): Promise<number> => {
-      const apiKey = resolveCursorApiKey();
+      const apiKey = await this.resolveCursorApiKey();
       if (!apiKey) {
         const msg =
-          'Cursor API key not found. Set CURSOR_API_KEY or provider.cursor.apiKey in ~/.ptah/settings.json.';
+          'Cursor API key not found. Set CURSOR_API_KEY or save the key in Ptah settings (stored in the secrets store).';
         output.emit(`\n[Cursor SDK Error] ${msg}\n`);
         segment.emit({ type: 'error', content: msg });
         return 1;
