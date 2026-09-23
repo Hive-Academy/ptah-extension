@@ -1069,6 +1069,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     content: string,
     options?: AIMessageOptions,
   ): Promise<void> {
+    // Runs before admission, so a `require-idle` send that is then refused
+    // still counts as user activity for the activity listeners.
     this.notifyActivity(sessionId, 'user');
     return this.sessionLifecycle.sendMessage(
       sessionId,
@@ -1076,8 +1078,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
       options?.files,
       options?.images as { data: string; mediaType: string }[] | undefined,
       // Forwarded verbatim. The factory defaults an absent origin to
-      // `{ kind: 'human' }`, so an interactive turn is unaffected.
-      { origin: options?.origin },
+      // `{ kind: 'human' }`, and an absent admission holds a mid-turn
+      // message as before, so an interactive turn is unaffected.
+      { origin: options?.origin, admission: options?.admission },
     );
   }
 

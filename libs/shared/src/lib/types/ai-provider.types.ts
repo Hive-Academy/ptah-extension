@@ -98,6 +98,15 @@ export interface AIMessageOptions {
    * it, or the message renders as the user's own.
    */
   readonly origin?: AIMessageOrigin;
+  /**
+   * Admission rule for this message. Absent means today's behaviour for every
+   * existing caller: a message sent while a turn runs is held and runs as the
+   * next turn. `'require-idle'` admits the message only onto a live session
+   * with no turn in flight and nothing already queued, checked atomically just
+   * before the enqueue; otherwise the send throws a typed refusal (`busy` or
+   * `session-ended`) and nothing is queued.
+   */
+  readonly admission?: 'require-idle';
 }
 
 /**

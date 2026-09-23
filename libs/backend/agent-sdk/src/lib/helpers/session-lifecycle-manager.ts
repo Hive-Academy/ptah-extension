@@ -22,6 +22,7 @@ import {
   AISessionConfig,
   ISdkPermissionHandler,
   InlineImageAttachment,
+  type AIMessageOptions,
   type AuthEnv,
   type EffortLevel,
   type FlagEffortLevel,
@@ -523,15 +524,19 @@ export class SessionLifecycleManager {
    * @param content - Message content
    * @param files - Optional file attachments
    * @param images - Optional inline images (pasted/dropped)
-   * @param options - Provenance of the turn; absent means an interactive human
-   *   turn. See `SessionStreamPump.sendMessage`.
+   * @param options - Provenance of the turn (absent means an interactive human
+   *   turn) and its admission rule (absent means a mid-turn message is held).
+   *   Forwarded verbatim; see `SessionStreamPump.sendMessage`.
    */
   async sendMessage(
     sessionId: SessionId,
     content: string,
     files?: string[],
     images?: InlineImageAttachment[],
-    options?: { origin?: SDKMessageOrigin },
+    options?: {
+      origin?: SDKMessageOrigin;
+      admission?: AIMessageOptions['admission'];
+    },
   ): Promise<void> {
     return this._streamPump.sendMessage(
       sessionId,

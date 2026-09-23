@@ -14,6 +14,7 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AISessionConfig, SessionId } from '@ptah-extension/shared';
 
+import { SdkError, SessionAdmissionRefusedError } from '../../errors';
 import { SessionRegistry } from './session-registry.service';
 import { SessionStreamPump } from './session-stream-pump.service';
 import type { SdkMessageFactory } from '../sdk-message-factory';
@@ -161,5 +162,228 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
       'turn-2',
     );
     expect(h.registry.find(TAB as string)?.turnInFlight).toBe(true);
+  });
+});
+
+/**
+ * A message factory whose `createUserMessage` calls stay pending until the
+ * test releases them, so a race can be staged inside the pump's await.
+ */
+function makeDeferredMessageFactory(): {
+  factory: SdkMessageFactory;
+  createUserMessage: jest.Mock;
+  release: (index: number) => void;
+} {
+  const releases: Array<() => void> = [];
+  const createUserMessage = jest.fn(
+    ({ content }: { content: string }) =>
+      new Promise<SDKUserMessage>((resolve) => {
+        releases.push(() =>
+          resolve({
+            type: 'user',
+            message: { role: 'user', content },
+          } as unknown as SDKUserMessage),
+        );
+      }),
+  );
+  return {
+    factory: { createUserMessage } as unknown as SdkMessageFactory,
+    createUserMessage,
+    release: (index: number) => releases[index](),
+  };
+}
+
+function makeDeferredHarness(): Harness & {
+  createUserMessage: jest.Mock;
+  release: (index: number) => void;
+} {
+  const logger = makeLogger();
+  const registry = new SessionRegistry(logger);
+  const deferred = makeDeferredMessageFactory();
+  const pump = new SessionStreamPump(logger, registry, deferred.factory);
+  const abortController = new AbortController();
+  registry.register(TAB as string, {} as AISessionConfig, abortController);
+  const stream = pump.createUserMessageStream(TAB, abortController);
+  const iterator = stream[Symbol.asyncIterator]();
+  return {
+    registry,
+    pump,
+    abortController,
+    iterator,
+    createUserMessage: deferred.createUserMessage,
+    release: deferred.release,
+  };
+}
+
+/** Let pending microtasks (the pump's post-await continuation) run. */
+const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
+  it('admits a message onto a live, idle session and yields it', async () => {
+    const h = makeHarness();
+
+    await h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+
+    expect(textOf((await h.iterator.next()).value as SDKUserMessage)).toBe(
+      'submit',
+    );
+    expect(h.registry.find(TAB as string)?.turnInFlight).toBe(true);
+  });
+
+  it('refuses a missing session with reason session-ended', async () => {
+    const h = makeHarness();
+
+    const sent = h.pump.sendMessage(
+      'tab_missing' as SessionId,
+      'x',
+      undefined,
+      undefined,
+      { admission: 'require-idle' },
+    );
+
+    await expect(sent).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+  });
+
+  it('keeps the generic SdkError for a missing session without admission', async () => {
+    const h = makeHarness();
+
+    const sent = h.pump.sendMessage('tab_missing' as SessionId, 'x');
+
+    await expect(sent).rejects.toBeInstanceOf(SdkError);
+    await expect(sent).rejects.not.toBeInstanceOf(
+      SessionAdmissionRefusedError,
+    );
+  });
+
+  it('refuses busy up front while a turn is in flight, without building a message', async () => {
+    const h = makeDeferredHarness();
+
+    const first = h.pump.sendMessage(TAB, 'first');
+    h.release(0);
+    await first;
+    await h.iterator.next();
+
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).rejects.toMatchObject({ reason: 'busy' });
+    expect(h.createUserMessage).toHaveBeenCalledTimes(1);
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
+  });
+
+  it('refuses session-ended when the record is removed during the await, queue untouched', async () => {
+    const h = makeDeferredHarness();
+    const record = h.registry.find(TAB as string);
+    if (!record) throw new Error('record not registered');
+
+    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+    await flush();
+    h.registry.remove(record);
+    h.release(0);
+
+    await expect(sent).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    expect(record.messageQueue).toHaveLength(0);
+  });
+
+  it('refuses session-ended when the record is displaced by a re-registration during the await', async () => {
+    const h = makeDeferredHarness();
+    const record = h.registry.find(TAB as string);
+    if (!record) throw new Error('record not registered');
+
+    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+    await flush();
+    const replacement = h.registry.register(
+      TAB as string,
+      {} as AISessionConfig,
+      new AbortController(),
+    );
+    h.release(0);
+
+    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    expect(record.messageQueue).toHaveLength(0);
+    expect(replacement.messageQueue).toHaveLength(0);
+  });
+
+  it('refuses busy when a competing message is pushed during the await', async () => {
+    const h = makeDeferredHarness();
+
+    const submit = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+    const competing = h.pump.sendMessage(TAB, 'competing');
+    await flush();
+    h.release(1);
+    await competing;
+    h.release(0);
+
+    await expect(submit).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(submit).rejects.toMatchObject({ reason: 'busy' });
+    const queue = h.registry.find(TAB as string)?.messageQueue ?? [];
+    expect(queue.map(textOf)).toEqual(['competing']);
+  });
+
+  it('refuses busy when a competing message starts a turn during the await', async () => {
+    const h = makeDeferredHarness();
+
+    const submit = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+    const competing = h.pump.sendMessage(TAB, 'competing');
+    await flush();
+    h.release(1);
+    await competing;
+    // The iterator drains the competing message and claims the turn, so the
+    // queue is empty again but a turn is in flight.
+    expect(textOf((await h.iterator.next()).value as SDKUserMessage)).toBe(
+      'competing',
+    );
+    h.release(0);
+
+    await expect(submit).rejects.toMatchObject({ reason: 'busy' });
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
+  });
+
+  it('refuses when the session aborts during the await, pushing nothing', async () => {
+    const h = makeDeferredHarness();
+    const record = h.registry.find(TAB as string);
+    if (!record) throw new Error('record not registered');
+
+    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+      admission: 'require-idle',
+    });
+    await flush();
+    h.abortController.abort();
+    h.release(0);
+
+    await expect(sent).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    expect(record.messageQueue).toHaveLength(0);
+  });
+
+  it('without admission, holds a message sent mid-turn as before', async () => {
+    const h = makeDeferredHarness();
+
+    const first = h.pump.sendMessage(TAB, 'first');
+    h.release(0);
+    await first;
+    await h.iterator.next();
+
+    const followUp = h.pump.sendMessage(TAB, 'follow-up');
+    await flush();
+    h.release(1);
+    await expect(followUp).resolves.toBeUndefined();
+
+    const record = h.registry.find(TAB as string);
+    expect(record?.turnInFlight).toBe(true);
+    expect(record?.messageQueue.map(textOf)).toEqual(['follow-up']);
   });
 });
