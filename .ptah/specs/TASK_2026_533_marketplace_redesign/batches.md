@@ -3,7 +3,7 @@
 Total tasks: 63 | Batches: 29 | Complete: 10/29
 
 Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7d, 12. Nothing in progress (session close-out).
-Launchable next: 7c (ui) and 8 (marketplace), each in its own worktree based on the 7b commit.
+Launchable next: 7c (ui) and 8 (marketplace), each in its own worktree based on 1b8a2b813 or later.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -397,7 +397,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer (barrel, no duplicate left in live code)
 
-## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — COMPLETE
+## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — COMPLETE (commit 1b8a2b813)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
