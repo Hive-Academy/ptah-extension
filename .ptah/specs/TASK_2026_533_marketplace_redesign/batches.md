@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 3/29
+Total tasks: 63 | Batches: 29 | Complete: 4/29
 
-Wave A (Batches 1, 2, 3) is IN_PROGRESS together: they are a parallel group on
-three different Nx projects.
+Wave A (Batches 1, 2, 3) and Batch 7a are COMPLETE. Batches 4, 5, 7d are IN_PROGRESS;
+4+7d (both ui) run in separate worktrees. Batch 6 is launchable now.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -66,7 +66,12 @@ Agreed 2026-09-23:
 1. TASK_2026_540 merges to `main` FIRST; this branch rebases onto it before its final merge.
 2. 540 replaces the Thoth/Setup/Marketplace/Settings tabs in `electron-shell.component.ts` with one dropdown menu. Its "Marketplace" item opens the bare `marketplace` root, which the restore redirect (Task 17.1) handles.
 3. 540 replaces the per-workspace `_viewSlices` for those four surfaces with one GLOBAL, generic per-surface slot in `AppStateManager`. After the rebase, `marketplaceRoute: MarketplaceRoute | null` (added per-workspace in Batch 2) moves into 540's global Marketplace slot, and the per-workspace specs (`app-state.service.spec.ts`, `workspace-coordinator.service.spec.ts:511-540`) become global-state specs — Batch 18b.
-4. OPEN (answer pending from 540's architect): with the Electron Marketplace tab gone, if 540's menu button does not show the active surface, Batch 12 must render the breadcrumb header (without the back button) in Electron too. Batch 12 must not start its header task until the orchestrator relays the answer.
+4. RESOLVED (540 Gate 2): the Marketplace renders its header in BOTH hosts — mark + breadcrumb `Marketplace / <page>`; the back-to-chat button only when `!vscode.isElectron`; the Electron header is one slim row (implementation-plan.md C6 :365). Batch 12 is unblocked.
+5. `setCurrentView` no-op rule (`openMarketplace` while `!canSwitchViews()` is a no-op, plan :255): 540 does not change `setCurrentView` and applies the same rule to thoth/setup-hub/settings. No change to Batch 18.
+6. After 540 merges, a workspace switch while ANY configuration surface is open (marketplace and every child route) does NOT re-navigate; 540 sets `_settlementOwner` directly. Consequences: (a) the restore redirect is not reached on a workspace switch while the Marketplace is open — accepted; (b) the shell-scoped stores must reload on `WorkspaceScopeService.generation` because nothing re-creates them — acceptance added to Batches 5 and 6; (c) an open detail whose ref no longer exists after the reload must fall back to "Not found" (or close to the list) — acceptance added to Task 13.3 (and Task 16.3).
+7. Batch 18b target: `marketplaceRoute` goes into 540's global `_configurationSurfaces.perSurface.marketplace` (via `updateConfigurationSurfaceSlot('marketplace', { marketplaceRoute })` plus our own typed computed, or a dedicated marketplace slot interface); settlement recording goes through 540's private `recordSettledView(surface)`. 540 plan: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940\implementation-plan.md` ("Design decisions" 1-3, "Extension points").
+
+Plan defect for the architect (h1 ownership): implementation-plan.md:365 gives the shell header "an `<h1>` naming the surface", while :383 says "One `h1` per page, rendered by the page, not the shell", and :470 and :491 (connector detail focus, e2e migration) rely on the PAGE `h1`. Default applied in Batch 12 until the architect rules: the shell breadcrumb is a `<nav aria-label="Breadcrumb">` whose current item is plain text; the only `h1` is the page's. If the architect wants the shell `h1`, pages drop to `h2` and Tasks 15.2 and 19.1 change.
 
 Open item for the architect (from Batch 2, pinned by `surface-router.service.spec.ts:702` ("A3: a bare /marketplace navigation keeps the list but closes an open detail")): a bare `/marketplace` navigation (Electron menu/tab, `setCurrentView('marketplace')`) while a detail is open (`/marketplace/servers/claude-user:sentry`) closes the detail and keeps the list instance, because only the PAGE is remembered. Consistent with D2 "detail ids dropped", but user-visible; with 540's menu opening the bare root this path becomes common. Decision needed before Batch 17 (keep, or remember the detail ref too).
 
@@ -182,7 +187,7 @@ Edge cases:
 - Pre-commit fix (returned to the Batch 1 executor, not applied by team-leader): `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\connectors-surface.component.spec.ts:65-78` builds a `PtahConnector` literal without the now-required `brandSlug`; jest (isolatedModules) and `typecheck` (specs excluded) both miss it. Add `brandSlug` to the fixture and rerun `npx nx test @ptah-extension/marketplace`. The file is committed with Batch 1.
 - Edge cases: unquotable key, connector rows without a command
 
-## Batch 2: Core navigation API, additive (C1 minus DELETE and caller migration) — COMPLETE
+## Batch 2: Core navigation API, additive (C1 minus DELETE and caller migration) — COMPLETE (commit 742c7ab3e)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x1 (single self-contained prompt)
@@ -267,7 +272,7 @@ Edge cases:
 - Files exist; verification passes; A1 and R6 outcomes stated in the report
 - Reviewer: code-logic-reviewer
 
-## Batch 4: Brand-icon vendoring pipeline (C12) — PENDING
+## Batch 4: Brand-icon vendoring pipeline (C12) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: devops-engineer
@@ -276,7 +281,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 1
 - Verification: `npm run vendor:brand-icons` twice then `git diff --exit-code -- libs/frontend/ui/src/lib/native/brand-mark/brand-marks.generated.ts`; `npx nx run-many -t lint,typecheck -p @ptah-extension/ui`
 
-### Task 4.1: Script skeleton and A4 probe — PENDING
+### Task 4.1: Script skeleton and A4 probe — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\scripts\vendor-brand-icons.mjs`, `D:\projects\ptah-extension\package.json`, `D:\projects\ptah-extension\package-lock.json`
 - Plan reference: implementation-plan.md D6 (:209-236), C12 (:497-515)
@@ -285,7 +290,7 @@ Edge cases:
 - Validation notes: A4 — run on `github` (dark variant, 1024 viewBox) and assert the path bounding box lies inside the viewBox before continuing. `svgo@^4.1.0` added as a devDependency and a `vendor:brand-icons` script.
 - Implementation details: `npm install -D svgo@^4.1.0` updates the lockfile.
 
-### Task 4.2: Manifest and generated table (incl. mono and `PROVIDER_BRAND_ART`) — PENDING
+### Task 4.2: Manifest and generated table (incl. mono and `PROVIDER_BRAND_ART`) — IN_PROGRESS
 
 - Depends on: Task 4.1
 - Files: `D:\projects\ptah-extension\scripts\brand-icons.manifest.json`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-marks.generated.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\mark-artwork.ts` (type only)
@@ -295,7 +300,7 @@ Edge cases:
 - Validation notes: `github`, `vercel`, `openai` have `onDark`; `sentry`, `davinci-resolve` are `surface:'light'`; `anthropic`/`claude` have `mono`; ≤300 KB; byte-identical rerun. Rejection report goes in the batch report (for the PR description). From Batch 1: catalogue slugs with NO theSVG entry go to `MONOGRAM_SLUGS` — `klaviyo`, `zernio`, `context7`, `google-people`; `huggingface` was chosen over theSVG's colour `hugging-face` (keep `huggingface`; if its artwork is rejected, fall back per D6); non-trivial slugs to fetch: `apollodotio`, `mongodb`, `cloudflare-workers`, `gmail`; several entries share one slug (atlassian, asana, exa, hubspot, gmail, google-calendar, google-drive, google-docs, google-sheets) — fetch each slug once.
 - Implementation details: generated file is prettier-formatted and exempt from the 700-line cap. The artwork type it emits must match `MarkArtwork` defined in Task 7b.1 — define `MarkArtwork` in the generated file's import target agreed as `libs/frontend/ui/src/lib/native/brand-mark/mark-artwork.ts` (created here, 1 extra file, type only).
 
-### Task 4.3: Scanner and packaging check — PENDING
+### Task 4.3: Scanner and packaging check — IN_PROGRESS
 
 - Depends on: Task 4.2
 - Files: none new (verification only)
@@ -310,7 +315,7 @@ Edge cases:
 - Determinism check passes; ≤300 KB; A4 outcome stated; `PROVIDER_BRAND_ART` present and small
 - Reviewer: code-logic-reviewer (rejection rules, failure behaviour)
 
-## Batch 5: `MarketplaceInventoryStore` (C3) — PENDING
+## Batch 5: `MarketplaceInventoryStore` (C3) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (spec migration needs judgement)
@@ -319,7 +324,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 5.1: Inventory store with per-slice state and removal — PENDING
+### Task 5.1: Inventory store with per-slice state and removal — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.spec.ts`
 - Plan reference: implementation-plan.md D4, C3
@@ -331,10 +336,11 @@ Edge cases:
 
 ### Batch 5 verification
 
+- Acceptance (TASK_2026_540 item 6b): a workspace switch with the Marketplace open reloads the loaded slices WITHOUT any navigation (spec bumps `WorkspaceScopeService.generation` with no router event and asserts the reload; idle slices stay idle).
 - Store and spec exist; migrated assertions listed in the report against their source spec lines
 - Reviewer: code-logic-reviewer (failure isolation, stale generations, removal safety)
 
-## Batch 6: `ConnectorLinksStore` (C4) — PENDING
+## Batch 6: `ConnectorLinksStore` (C4) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -343,7 +349,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 7a (shared `normalizeMcpServerUrl`)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 6.1: Connector links store — PENDING
+### Task 6.1: Connector links store — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\connector-links.store.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\connector-links.store.spec.ts`
 - Plan reference: implementation-plan.md C4, C14 shared normalizers (:597)
@@ -354,9 +360,10 @@ Edge cases:
 
 ### Batch 6 verification
 
+- Acceptance (TASK_2026_540 item 6b): a workspace switch with the Marketplace open reloads the loaded slices WITHOUT any navigation (spec bumps `WorkspaceScopeService.generation` with no router event and asserts the reload; idle slices stay idle).
 - Reviewer: code-logic-reviewer (timers, races, partial failure)
 
-## Batch 7a: Shared MCP server identity normalizers (C14 part) — PENDING
+## Batch 7a: Shared MCP server identity normalizers (C14 part) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x1 (mechanical move)
@@ -365,7 +372,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared @ptah-extension/marketplace`
 
-### Task 7a.1: Move `normalizeServerKey` and `normalizeServerUrl` to shared — PENDING
+### Task 7a.1: Move `normalizeServerKey` and `normalizeServerUrl` to shared — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\shared\src\lib\utils\mcp-server-identity.ts`, `D:\projects\ptah-extension\libs\shared\src\lib\utils\mcp-server-identity.spec.ts`, `D:\projects\ptah-extension\libs\shared\src\lib\utils\index.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\mcp-connector-rows.ts`
 - Plan reference: implementation-plan.md C14 (:597, :611, :613-614)
@@ -453,7 +460,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer (resolution order, eager-bundle evidence)
 
-## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — PENDING
+## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x3 (one component each; team-leader adds the barrel lines)
@@ -462,7 +469,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1 (none technically; scheduled in Wave B)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/ui`
 
-### Task 7d.1: `CatalogCardComponent` — PENDING
+### Task 7d.1: `CatalogCardComponent` — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\catalog-card.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\index.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\index.ts`
 - Plan reference: implementation-plan.md C13 (:521-533)
@@ -471,7 +478,7 @@ Edge cases:
 - Validation notes: spec — slots render, clamp, `activated` only when interactive, no nested interactive element, no `innerHTML`.
 - Implementation details: `native/index.ts` gains `export * from './catalog-card';`.
 
-### Task 7d.2: `CatalogGridComponent` and `StorefrontPanelComponent` — PENDING
+### Task 7d.2: `CatalogGridComponent` and `StorefrontPanelComponent` — IN_PROGRESS
 
 - Depends on: Task 7d.1
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\catalog-grid.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\storefront-panel.component.ts` (+`.spec.ts`)
@@ -649,7 +656,7 @@ Edge cases:
 - Execution mode: sequential
 - Rationale: shell provides stores and layout that nav and status bar read.
 - Tasks: 2 | Depends on: Batches 2, 3, 5, 6
-- PENDING DECISION (External coordination item 4): whether the Electron host also renders the breadcrumb header (no back button). Task 12.1 implements the header rule the orchestrator relays; until then the plan C6 rule (no header in Electron) stands and the batch should not be launched.
+- Header rule RESOLVED (External coordination item 4, plan C6 :365): header in both hosts; back button only in VS Code; slim single row in Electron. h1 ownership default: see the h1 plan-defect note under External coordination.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
 ### Task 12.1: `MarketplaceShellComponent` — PENDING
@@ -657,8 +664,8 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-shell.component.ts`, `...\shell\marketplace-shell.component.html`, `...\shell\marketplace-shell.component.spec.ts` (all under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`)
 - Plan reference: implementation-plan.md C6
 - Pattern to follow: `marketplace-hub.component.ts:158-160` (`goBack`); `app-shell.component.html:30-49` (outlet wrapper)
-- Quality requirements: provides inventory store, links store, and `{ provide: MarketplaceLayout, useFactory: () => new MarketplaceLayout(inject(DestroyRef)) }` and calls `layout.observe(hostElement)` (Batch 3 deviation); header only when `!isElectron` (back button, mark, breadcrumb); `<main>` scroll owner with `container: ptah-mp-content / inline-size`; records remembered route on `NavigationEnd`; `/` focuses page search except inside editable fields; `data-testid="marketplace-shell"`.
-- Validation notes: spec — header present/absent per host; mounting the shell alone fires 0 RPC (spy); `/` handling; remembered route written; 400px compact render without horizontal overflow; migrate hub spec "keeps the Marketplace heading"/`goBack` assertions.
+- Quality requirements: provides inventory store, links store, and `{ provide: MarketplaceLayout, useFactory: () => new MarketplaceLayout(inject(DestroyRef)) }` and calls `layout.observe(hostElement)` (Batch 3 deviation); header in BOTH hosts (mark + breadcrumb `Marketplace / <page>`), back-to-chat button (`aria-label="Back to chat"`) only when `!isElectron`, Electron header one slim row with no duplicate navigation; `<main>` scroll owner with `container: ptah-mp-content / inline-size`; records remembered route on `NavigationEnd`; `/` focuses page search except inside editable fields; `data-testid="marketplace-shell"`.
+- Validation notes: spec — header present in Electron WITHOUT a back button, header present in VS Code WITH it; exactly one `h1` in the rendered page; mounting the shell alone fires 0 RPC (spy); `/` handling; remembered route written; 400px compact render without horizontal overflow; migrate hub spec "keeps the Marketplace heading"/`goBack` assertions.
 - Implementation details: pages own their `h1`.
 
 ### Task 12.2: `MarketplaceNavComponent` + `MarketplaceStatusBarComponent` — PENDING
@@ -711,7 +718,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C7 `ServerDetail`
 - Pattern to follow: `mcp-directory-browser.component.ts:380-425` (inline direct confirm); `native-tab-group.component.ts:136-151`
 - Quality requirements: `ptah-brand-mark` header, badges, lock banner with copy command; tabs Overview/Targets/Config (no Tools tab); env/header KEYS with masked values; Uninstall/Disconnect with inline `direct` confirm listing config paths; Reconnect via `authorize`.
-- Validation notes: unknown ref → "Not found" + link back; spec asserts no env/header value text in the DOM.
+- Validation notes: unknown ref → "Not found" + link back; spec asserts no env/header value text in the DOM. Acceptance (TASK_2026_540 item 6c): when the inventory reloads after a workspace switch and the open `serverRef` is no longer present (e.g. a project-scope server of the old workspace), the detail falls back to "Not found" with the link back (or closes to the list) — pinned by a spec.
 - Implementation details: frame-agnostic (drawer or docked).
 
 ### Batch 13 verification
@@ -815,7 +822,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C9 `SkillDetail`
 - Pattern to follow: Task 13.3
 - Quality requirements: name, description, source, version, path, skill/command counts, harness targets summary, actions; decodes `:skillRef` with `skill-ref.ts` (`MarketplaceSkillKind`).
-- Validation notes: external id with `/` decodes (R6 verified); unknown ref → "Not found".
+- Validation notes: external id with `/` decodes (R6 verified); unknown ref → "Not found". Same fallback when the ref disappears after a workspace-switch reload (TASK_2026_540 item 6c), pinned by a spec.
 - Implementation details: frame-agnostic.
 
 ### Batch 16 verification
@@ -920,7 +927,7 @@ Edge cases:
 
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`, `...\app-state.service.spec.ts`, `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\workspace-coordinator.service.spec.ts`; the marketplace shell/routes only if 540's slot API changes the call sites of `rememberMarketplaceRoute` / `marketplaceRoute`
 - Plan reference: External coordination items 1-3; implementation-plan.md D2 (`marketplaceRoute`)
-- Pattern to follow: 540's generic per-surface slot in `AppStateManager` (as merged on `main`)
+- Pattern to follow: 540's `_configurationSurfaces.perSurface.marketplace` slot — `updateConfigurationSurfaceSlot('marketplace', { marketplaceRoute })` plus a typed computed (or a dedicated marketplace slot interface); settlement through 540's private `recordSettledView(surface)`; see 540's implementation-plan.md "Design decisions" 1-3 and "Extension points" (path under External coordination item 7)
 - Quality requirements: `marketplaceRoute: MarketplaceRoute | null` stored in the global Marketplace slot, not the per-workspace `ViewSlice`; `marketplaceRoute`/`rememberMarketplaceRoute`/`openMarketplace` signatures unchanged for callers; the per-workspace specs (Batch 2 additions, `workspace-coordinator.service.spec.ts:511-540`) rewritten as global-state specs; no leftover per-workspace field.
 - Validation notes: the restore redirect (Task 17.1) still restores the remembered page after a workspace switch — now the same page for every workspace; state that behaviour change in the report.
 - Implementation details: replace in place; no compatibility shim.
