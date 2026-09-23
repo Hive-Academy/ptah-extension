@@ -22,7 +22,14 @@
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ISdkPermissionHandler, AuthEnv } from '@ptah-extension/shared';
-import { isDirectAnthropic } from '@ptah-extension/shared';
+import {
+  isDirectAnthropic,
+  getAllAnthropicProviders,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  type ContextCapacityRoute,
+} from '@ptah-extension/shared';
 import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
 
 import {
@@ -62,6 +69,56 @@ import type { IHarnessPreflight } from '../../harness/harness-preflight.port';
  */
 export function classifyUsageCostSource(authEnv: AuthEnv): UsageCostSource {
   return isDirectAnthropic(authEnv) ? 'reported' : 'unreported';
+}
+
+/** Capacity identity only: never infer authority from a hostname substring. */
+export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
+  if (isDirectAnthropic(authEnv)) {
+    return Object.freeze({ kind: 'native', providerId: 'anthropic' });
+  }
+  let providerId: string | null = null;
+  try {
+    const route = new URL(authEnv.ANTHROPIC_BASE_URL?.trim() ?? '');
+    if (
+      (route.protocol === 'http:' || route.protocol === 'https:') &&
+      !route.username &&
+      !route.password
+    ) {
+      const local = ['127.0.0.1', 'localhost', '[::1]'].includes(
+        route.hostname,
+      );
+      if (local && !route.search && !route.hash && route.pathname === '/') {
+        switch (authEnv.ANTHROPIC_AUTH_TOKEN) {
+          case COPILOT_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'github-copilot';
+            break;
+          case CODEX_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'openai-codex';
+            break;
+          case OPENROUTER_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'openrouter';
+            break;
+        }
+      }
+      if (!providerId) {
+        const matches = getAllAnthropicProviders().filter((provider) => {
+          if (!provider.baseUrl) return false;
+          try {
+            return new URL(provider.baseUrl).href === route.href;
+          } catch (error: unknown) {
+            // Invalid user-defined endpoints supply no capacity evidence.
+            void error;
+            return false;
+          }
+        });
+        if (matches.length === 1) providerId = matches[0].id;
+      }
+    }
+  } catch (error: unknown) {
+    // Invalid/custom routes remain usable by the query; capacity is unknown.
+    void error;
+  }
+  return Object.freeze({ kind: 'proxy', providerId });
 }
 
 export class SessionQueryExecutor {
@@ -149,6 +206,7 @@ export class SessionQueryExecutor {
         // A copy: the global env object is mutated in place on auth changes.
         authEnv: Object.freeze({ ...effectiveAuthEnv }),
       },
+      resolveCapacityRoute(effectiveAuthEnv),
     );
     const initialContent = initialPrompt?.content.trim() || '';
     // Every prompt is queued the same way — a slash command is NOT special-
@@ -297,9 +355,7 @@ export class SessionQueryExecutor {
         currentLevel === 'ask'
           ? 'default'
           : (PERMISSION_MODE_MAP[currentLevel] as
-              | 'default'
-              | 'acceptEdits'
-              | 'plan');
+              'default' | 'acceptEdits' | 'plan');
       const queryOptions = await this.queryOptionsBuilder.build({
         userMessageStream,
         abortController,
@@ -385,6 +441,7 @@ export class SessionQueryExecutor {
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,
         accountingAuthEnv: rec.accountingAuthEnv,
+        capacityRoute: rec.capacityRoute,
       };
     } catch (err) {
       if (rec) {

@@ -32,7 +32,8 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
-  getModelContextWindow,
+  resolveContextCapacity,
+  type ContextCapacity,
   isDirectAnthropic,
   registerProviderPricing,
   findModelPricing,
@@ -425,8 +426,7 @@ export class SessionHistoryReaderService {
       return null;
     }
     let main:
-      | { messages: SessionHistoryMessage[]; staleSnapshot?: true }
-      | undefined;
+      { messages: SessionHistoryMessage[]; staleSnapshot?: true } | undefined;
     try {
       main = await readMainMessages(
         path.join(sessionsDir, `${sessionId}.jsonl`),
@@ -1113,9 +1113,16 @@ export class SessionHistoryReaderService {
  * Carry the window on the wire so the renderer never reverse-resolves it from
  * a name its bundled table cannot know (discovered proxy models).
  */
-function knownContextWindow(model: string): { contextWindow?: number } {
-  const contextWindow = getModelContextWindow(model);
-  return contextWindow > 0 ? { contextWindow } : {};
+function knownContextWindow(model: string): {
+  contextWindow: number;
+  contextCapacity: ContextCapacity;
+} {
+  // Transcripts do not carry historical provider capacity evidence. Today's
+  // active provider or discovery registry cannot establish yesterday's route.
+  return {
+    contextWindow: 0,
+    contextCapacity: resolveContextCapacity({ model }),
+  };
 }
 
 /**

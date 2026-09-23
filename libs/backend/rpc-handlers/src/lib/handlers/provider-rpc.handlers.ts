@@ -152,16 +152,21 @@ export class ProviderRpcHandlers {
   }
 
   private registerAccountUsage(): void {
-    this.rpcHandler.registerMethod<ProviderGetAccountUsageParams, ProviderGetAccountUsageResult>(
-      'provider:getAccountUsage',
-      async (params) => {
-        const validated = ProviderGetAccountUsageSchema.parse(params);
-        if (validated.providerId !== CODEX_PROVIDER_ENTRY.id) {
-          return { status: 'provider-unsupported', providerId: validated.providerId };
-        }
-        return this.codexAccountUsage.getAccountUsage({ refresh: validated.refresh });
-      },
-    );
+    this.rpcHandler.registerMethod<
+      ProviderGetAccountUsageParams,
+      ProviderGetAccountUsageResult
+    >('provider:getAccountUsage', async (params) => {
+      const validated = ProviderGetAccountUsageSchema.parse(params);
+      if (validated.providerId !== CODEX_PROVIDER_ENTRY.id) {
+        return {
+          status: 'provider-unsupported',
+          providerId: validated.providerId,
+        };
+      }
+      return this.codexAccountUsage.getAccountUsage({
+        refresh: validated.refresh,
+      });
+    });
   }
 
   /**
@@ -188,6 +193,11 @@ export class ProviderRpcHandlers {
             name: this.formatCopilotModelName(m.id),
             description: '',
             contextLength: m.contextLength,
+            ...(typeof m.contextLength === 'number' &&
+            Number.isFinite(m.contextLength) &&
+            m.contextLength > 0
+              ? { contextLengthSource: 'provider' as const }
+              : {}),
             supportsToolUse: true,
           }));
         }
@@ -261,6 +271,8 @@ export class ProviderRpcHandlers {
   private registerCodexDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('openai-codex', async () => {
       try {
+        // This platform API lists all vendors. A matching model ID alone
+        // cannot establish capacity evidence for the Codex provider.
         const platformModels = await this.modelDiscovery.getCodexModels();
         const codexModelIds = new Set(
           (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
@@ -321,7 +333,8 @@ export class ProviderRpcHandlers {
    * 1. API key present → /v1/models API (returns specific model versions)
    * 2. SDK supportedModels() (works for all auth methods including CLI/OAuth)
    *
-   * Both paths populate contextLength dynamically from the pricing map.
+   * Both paths populate contextLength from the pricing map as a selection
+   * hint only. Neither supplies provider capacity evidence.
    * SdkModelService.getSupportedModels() provides its own static fallback
    * when all dynamic sources fail, so no hardcoded tier list is needed here.
    */

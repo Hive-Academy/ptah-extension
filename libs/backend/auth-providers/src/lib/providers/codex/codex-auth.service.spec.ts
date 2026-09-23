@@ -153,13 +153,41 @@ describe('CodexAuthService', () => {
     seedAuthFile({ openai_api_key: 'fake' });
     await service.isAuthenticated();
     expect(mockedReadFile).toHaveBeenCalledWith(
-      resolve('synthetic-auth-home', 'auth.json'), 'utf-8',
+      resolve('synthetic-auth-home', 'auth.json'),
+      'utf-8',
     );
     service.startWatchingAuthFile();
-    expect(mockedWatch).toHaveBeenCalledWith(resolve('synthetic-auth-home'), expect.any(Function));
+    expect(mockedWatch).toHaveBeenCalledWith(
+      resolve('synthetic-auth-home'),
+      expect.any(Function),
+    );
   });
 
   describe('isAuthenticated', () => {
+    it('declares capacity evidence only for positive provider model windows', async () => {
+      seedAuthFile({ openai_api_key: 'fixture-key' });
+      const fetchMock = jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              models: [200000, 0, -1, null].map((context_window, i) => ({
+                slug: `model-${i}`,
+                visibility: 'list',
+                context_window,
+              })),
+            }),
+          ),
+        );
+      try {
+        const models = await service.listModels();
+        expect(models[0]).toHaveProperty('contextLengthSource', 'provider');
+        for (const model of models.slice(1))
+          expect(model).not.toHaveProperty('contextLengthSource');
+      } finally {
+        fetchMock.mockRestore();
+      }
+    });
     it('returns true when openai_api_key (snake_case) is present', async () => {
       seedAuthFile({ openai_api_key: 'sk-live-abcd' });
       await expect(service.isAuthenticated()).resolves.toBe(true);

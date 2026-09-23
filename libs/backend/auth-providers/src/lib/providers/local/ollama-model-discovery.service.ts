@@ -76,6 +76,7 @@ interface OllamaShowResponse {
 /** Cached model metadata from /api/show */
 interface ModelMetadataCache {
   contextLength: number;
+  contextLengthSource?: 'provider';
   supportsToolUse: boolean;
   supportsThinking: boolean;
   supportsVision: boolean;
@@ -557,6 +558,9 @@ export class OllamaModelDiscoveryService {
       name: this.formatModelName(model.name),
       description: this.buildDescription(model, metadata),
       contextLength: metadata.contextLength,
+      ...(metadata.contextLengthSource === 'provider' && {
+        contextLengthSource: 'provider' as const,
+      }),
       supportsToolUse: metadata.supportsToolUse,
     };
   }
@@ -627,10 +631,13 @@ export class OllamaModelDiscoveryService {
     modelName: string,
   ): ModelMetadataCache {
     const modelinfo = response.modelinfo ?? {};
-    const contextLength =
-      (modelinfo['general.context_length'] as number) ??
-      (modelinfo['llama.context_length'] as number) ??
-      8192;
+    const reportedContextLength =
+      modelinfo['general.context_length'] ?? modelinfo['llama.context_length'];
+    const hasProviderCapacity =
+      typeof reportedContextLength === 'number' &&
+      Number.isFinite(reportedContextLength) &&
+      reportedContextLength > 0;
+    const contextLength = hasProviderCapacity ? reportedContextLength : 8192;
     const template = response.template ?? '';
     const families = response.details?.families ?? [];
     const supportsToolUse =
@@ -647,6 +654,7 @@ export class OllamaModelDiscoveryService {
 
     return {
       contextLength,
+      ...(hasProviderCapacity && { contextLengthSource: 'provider' as const }),
       supportsToolUse,
       supportsThinking,
       supportsVision,

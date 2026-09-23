@@ -4,6 +4,9 @@
  */
 
 import {
+  registerModelContextWindows,
+  getDiscoveredContextWindow,
+  resolveContextCapacity,
   calculateMessageCost,
   DEFAULT_MODEL_PRICING,
   findModelPricing,
@@ -25,6 +28,58 @@ function resetPricingMap(): void {
 }
 
 describe('pricing.utils', () => {
+  it("does not borrow another provider's context capacity for the same model", () => {
+    // The optional argument also lets this spec exercise the old API before the fix.
+    const register: (
+      entries: { id: string; contextLength: number }[],
+      provider?: string,
+    ) => void = registerModelContextWindows;
+    const lookup: (model: string, provider?: string) => number =
+      getDiscoveredContextWindow;
+    register(
+      [{ id: 'capacity-isolation-418', contextLength: 400000 }],
+      'openrouter',
+    );
+    expect(lookup('capacity-isolation-418', 'openai-codex')).toBe(0);
+    expect(lookup('capacity-isolation-418', 'openrouter')).toBe(400000);
+    expect(
+      resolveContextCapacity({
+        route: { kind: 'proxy', providerId: 'openai-codex' },
+        model: 'capacity-isolation-418',
+        sdkContextWindow: 200000,
+      }),
+    ).toMatchObject({ tokens: null, source: 'unknown' });
+    expect(
+      resolveContextCapacity({
+        route: { kind: 'native', providerId: 'anthropic' },
+        model: 'capacity-isolation-418',
+        sdkContextWindow: 1000000,
+      }),
+    ).toMatchObject({ tokens: 1000000, source: 'sdk-native' });
+    expect(
+      resolveContextCapacity({
+        route: { kind: 'proxy', providerId: 'openrouter' },
+        model: 'capacity-isolation-418',
+        sdkContextWindow: 200000,
+      }),
+    ).toMatchObject({ tokens: 400000, source: 'provider-catalog' });
+    register([{ id: 'unqualified-418', contextLength: 800000 }]);
+    expect(
+      resolveContextCapacity({
+        route: { kind: 'proxy', providerId: 'openrouter' },
+        model: 'unqualified-418',
+      }).tokens,
+    ).toBeNull();
+    for (const sdkContextWindow of [0, -1, NaN, Infinity]) {
+      expect(
+        resolveContextCapacity({
+          route: { kind: 'native', providerId: 'anthropic' },
+          model: 'invalid-window-418',
+          sdkContextWindow,
+        }).tokens,
+      ).toBeNull();
+    }
+  });
   beforeEach(() => {
     resetPricingMap();
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -360,15 +415,17 @@ describe('pricing.utils', () => {
       expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
     });
 
-    it('provider-prefixed and dotted aliases resolve', () => {
+    it('capacity ids remain exact without stripped, case or dotted aliases', () => {
       const mod = freshModule();
       mod.registerModelContextWindows([
         { id: 'OpenAI/GPT-5.6-Sol', contextLength: 400_000 },
       ]);
-      expect(mod.getModelContextWindow('openai/gpt-5.6-sol')).toBe(400_000);
-      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(400_000);
-      expect(mod.getModelContextWindow('gpt-5-6-sol')).toBe(400_000);
-      expect(mod.getModelContextWindow('GPT-5.6-SOL')).toBe(400_000);
+      expect(mod.getDiscoveredContextWindow('OpenAI/GPT-5.6-Sol')).toBe(
+        400_000,
+      );
+      expect(mod.getDiscoveredContextWindow('gpt-5.6-sol')).toBe(0);
+      expect(mod.getDiscoveredContextWindow('gpt-5-6-sol')).toBe(0);
+      expect(mod.getDiscoveredContextWindow('GPT-5.6-SOL')).toBe(0);
     });
 
     it('ignores 0, negative, NaN, Infinity', () => {

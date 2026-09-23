@@ -84,8 +84,29 @@ export class SystemMessageTransformer {
       (sdkMessage as SDKMessage & { uuid?: string }).uuid,
     );
 
+    const id = generateEventId();
+    const uuid = (sdkMessage as SDKMessage & { uuid?: string }).uuid;
+    const boundaryId = typeof uuid === 'string' && uuid.length > 0 ? uuid : id;
+    const { pre_tokens: preTokens, post_tokens: postTokens } =
+      sdkMessage.compact_metadata;
+    const measurement =
+      typeof preTokens === 'number' &&
+      Number.isFinite(preTokens) &&
+      preTokens >= 0 &&
+      typeof postTokens === 'number' &&
+      Number.isFinite(postTokens) &&
+      postTokens >= 0
+        ? {
+            source: 'sdk-compact-metadata' as const,
+            boundaryId,
+            preTokens,
+            postTokens,
+          }
+        : undefined;
     const compactionCompleteEvent: CompactionCompleteEvent = {
-      id: generateEventId(),
+      id,
+      boundaryId,
+      ...(measurement && { measurement }),
       eventType: 'compaction_complete',
       timestamp: Date.now(),
       sessionId: resolvedSessionId,

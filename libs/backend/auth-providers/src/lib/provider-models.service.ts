@@ -111,7 +111,9 @@ export class ProviderModelsService {
   /**
    * Register a dynamic model fetcher for a specific provider.
    * When registered, fetchModels() will call this instead of using staticModels.
-   * Falls back to staticModels if the fetcher throws.
+   * Falls back to staticModels if the fetcher throws. Capacity evidence must
+   * be declared by the fetcher at the provider response boundary; a positive
+   * selection hint alone does not establish provider provenance.
    */
   registerDynamicFetcher(
     providerId: string,
@@ -193,7 +195,7 @@ export class ProviderModelsService {
         typeof (m as ProviderModelInfo).name === 'string',
     );
     if (valid.length === 0) return null;
-    this.recordContextWindows(valid);
+    this.recordContextWindows(valid, providerId);
     return valid;
   }
 
@@ -205,9 +207,15 @@ export class ProviderModelsService {
    * called for `staticModels` — those are release-time literals, not the
    * provider's own answer.
    */
-  private recordContextWindows(models: readonly ProviderModelInfo[]): void {
+  private recordContextWindows(
+    models: readonly ProviderModelInfo[],
+    providerId: string,
+  ): void {
     registerModelContextWindows(
-      models.map((m) => ({ id: m.id, contextLength: m.contextLength })),
+      models
+        .filter((m) => m.contextLengthSource === 'provider')
+        .map((m) => ({ id: m.id, contextLength: m.contextLength })),
+      providerId,
     );
   }
 
@@ -280,10 +288,20 @@ export class ProviderModelsService {
           };
         }
 
-        const models = await dynamicFetcher();
+        const models = (await dynamicFetcher()).map(
+          ({ contextLengthSource, ...model }) => ({
+            ...model,
+            ...(contextLengthSource === 'provider' &&
+            typeof model.contextLength === 'number' &&
+            Number.isFinite(model.contextLength) &&
+            model.contextLength > 0
+              ? { contextLengthSource: 'provider' as const }
+              : {}),
+          }),
+        );
         if (models.length > 0) {
           this.modelCache.set(providerId, { models, timestamp: now });
-          this.recordContextWindows(models);
+          this.recordContextWindows(models, providerId);
           void this.persistCatalog(providerId, models);
 
           const filtered = toolUseOnly
@@ -295,7 +313,7 @@ export class ProviderModelsService {
             isStatic: false,
           };
         }
-      } catch (error) {
+      } catch (error: unknown) {
         this.logger.warn(
           '[ProviderModelsService] Dynamic fetcher failed, falling back to static models',
           {
@@ -326,7 +344,7 @@ export class ProviderModelsService {
           void this.persistCatalog(providerId, result.models);
         }
         return result;
-      } catch (error) {
+      } catch (error: unknown) {
         this.logger.warn(
           '[ProviderModelsService] Dynamic fetch failed, falling back to static models',
           {
@@ -447,7 +465,7 @@ export class ProviderModelsService {
       }
       const models = this.transformApiModels(data.data);
       this.feedPricingMap(models);
-      this.recordContextWindows(models);
+      this.recordContextWindows(models, providerId);
       this.modelCache.set(providerId, { models, timestamp: now });
 
       this.logger.info(
@@ -463,7 +481,7 @@ export class ProviderModelsService {
         : models;
 
       return { models: filtered, totalCount: models.length, isStatic: false };
-    } catch (error) {
+    } catch (error: unknown) {
       if (axios.isAxiosError(error) && error.response) {
         if (error.response.status === 401 || error.response.status === 403) {
           throw new SdkError(
@@ -1059,7 +1077,7 @@ export class ProviderModelsService {
       // carry `contextLength`. Feeding only the pricing map discarded every
       // provider-reported window until some other fetch path happened to run
       // (PR #493 review C).
-      this.recordContextWindows(cached.models);
+      this.recordContextWindows(cached.models, 'openrouter');
       return cached.models.filter((m) => m.inputCostPerToken !== undefined)
         .length;
     }
@@ -1093,7 +1111,7 @@ export class ProviderModelsService {
         });
 
         const pricedCount = this.feedPricingMap(models);
-        this.recordContextWindows(models);
+        this.recordContextWindows(models, 'openrouter');
 
         this.logger.info(
           '[ProviderModelsService] Pre-fetched pricing from OpenRouter',
@@ -1101,7 +1119,7 @@ export class ProviderModelsService {
         );
 
         return pricedCount;
-      } catch (error) {
+      } catch (error: unknown) {
         if (axios.isAxiosError(error) && error.response) {
           this.logger.warn(
             `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${error.response.status}`,
@@ -1139,6 +1157,10 @@ export class ProviderModelsService {
       name: model.name || model.id,
       description: model.description || '',
       contextLength: model.context_length || model.context_window || 0,
+      ...(Number.isFinite(model.context_length || model.context_window) &&
+      (model.context_length || model.context_window || 0) > 0
+        ? { contextLengthSource: 'provider' as const }
+        : {}),
       supportsToolUse: model.supported_parameters?.includes('tools') ?? false,
       inputCostPerToken: this.parsePricingField(model.pricing?.prompt),
       outputCostPerToken: this.parsePricingField(model.pricing?.completion),

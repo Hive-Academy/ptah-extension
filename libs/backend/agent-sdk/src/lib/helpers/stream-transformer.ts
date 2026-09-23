@@ -17,10 +17,10 @@ import {
   FlatStreamEventUnion,
   MessageTokenUsage,
   calculateMessageCost,
-  getDiscoveredContextWindow,
-  getModelContextWindow,
+  resolveContextCapacity,
+  type ContextCapacity,
+  type ContextCapacityRoute,
   AuthEnv,
-  isDirectAnthropic,
   type ModelPricing,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
@@ -63,32 +63,6 @@ export type SessionIdResolvedCallback = (
 ) => void;
 
 /**
- * The context window to publish for one model of a `result` message.
- *
- * Precedence, and the reason for each step:
- * 1. On a PROXY, a window provider discovery reported for this EXACT id. The
- *    CLI cannot know a non-Claude model's window and reports its generic
- *    200000 fallback, so the provider's own answer outranks it. Exact only —
- *    a fuzzy table match is not the provider answering (PR #493 review C).
- * 2. The SDK's own value, authoritative on direct Anthropic (`[1m]` and
- *    similar) and the best available on a proxy with nothing discovered.
- * 3. The general lookup (discovered → bundled table → Claude family regex),
- *    for the case where the SDK reported nothing at all.
- */
-function resolveResultContextWindow(params: {
-  readonly isDirect: boolean;
-  readonly discoveredContextWindow: number;
-  readonly sdkContextWindow: number;
-  readonly knownContextWindow: number;
-}): number {
-  if (!params.isDirect && params.discoveredContextWindow > 0) {
-    return params.discoveredContextWindow;
-  }
-  if (params.sdkContextWindow > 0) return params.sdkContextWindow;
-  return params.knownContextWindow;
-}
-
-/**
  * Model usage data from SDK result message
  * Contains context window size for percentage calculation
  */
@@ -101,6 +75,7 @@ export interface ResultModelUsage {
   outputTokens: number;
   /** Total context window size for this model */
   contextWindow: number;
+  contextCapacity?: ContextCapacity;
   /** Per-model cost in USD from SDK */
   costUSD: number | null;
   /** Cache read input tokens for this model (cumulative across all turns) */
@@ -144,6 +119,8 @@ export interface StreamTransformConfig {
   sdkQuery: AsyncIterable<SDKMessage>;
   sessionId: SessionId;
   initialModel: string;
+  /** Frozen effective route; absent legacy callers publish unknown capacity. */
+  capacityRoute?: ContextCapacityRoute;
   /**
    * `SessionRecord.token` of the query this stream reads — the identity of
    * the query RUN for session accounting. Results carrying the same token
@@ -322,6 +299,7 @@ export class StreamTransformer {
       runToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
       statsGeneration,
     } = config;
     const logger = this.logger;
@@ -475,10 +453,6 @@ export class StreamTransformer {
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
               onTurnEnd?.();
-              // Context-window precedence only (see resolveResultContextWindow).
-              // Cost authority is NOT re-derived here: it is `usageCostSource`,
-              // frozen when the query was created (TASK_2026_533).
-              const isDirectRoute = isDirectAnthropic(authEnv);
               const reported = usageCostSource === 'reported';
               // Footer/context rows, labelled by the resolved pricing id as
               // they always were.
@@ -536,32 +510,18 @@ export class StreamTransformer {
                     costUSD,
                     ...(!reported && { pricing: rate }),
                   });
-                  const knownContextWindow =
-                    getModelContextWindow(resolvedModel);
                   const trackedContext = lastTurnContextByModel.get(model);
-                  // On a proxy the CLI cannot know a non-Claude model's
-                  // window and reports its generic 200000 fallback, so a
-                  // window the PROVIDER ITSELF reported for this exact id
-                  // wins there. It must be the EXACT discovered value, never
-                  // `getModelContextWindow`: that falls through to the
-                  // bundled pricing table's partial matching, so an
-                  // undiscovered `gpt-4o-ultra` resolved to `gpt-4o`'s
-                  // 128000 and overrode the SDK for a model nobody
-                  // registered (PR #493 review C). Direct Anthropic keeps
-                  // the SDK value, authoritative for `[1m]` and similar.
-                  const discoveredContextWindow =
-                    getDiscoveredContextWindow(resolvedModel);
-                  const contextWindow = resolveResultContextWindow({
-                    isDirect: isDirectRoute,
-                    discoveredContextWindow,
+                  const contextCapacity = resolveContextCapacity({
+                    route: capacityRoute,
+                    model: resolvedModel,
                     sdkContextWindow: usage.contextWindow,
-                    knownContextWindow,
                   });
                   modelUsageList.push({
                     model: resolvedModel,
                     inputTokens: usage.inputTokens,
                     outputTokens: usage.outputTokens,
-                    contextWindow,
+                    contextWindow: contextCapacity.tokens ?? 0,
+                    contextCapacity,
                     costUSD: reported ? usage.costUSD : costUSD,
                     cacheReadInputTokens: cacheRead,
                     lastTurnContextTokens: trackedContext
@@ -634,22 +594,23 @@ export class StreamTransformer {
               if (statsGeneration === null) {
                 // No owner was prepared for this stream: nothing to publish.
               } else if (runModels.length > 0) {
-                const { outcome, snapshot, firstRejection } = statsOwner.replaceRun(
-                  effectiveSessionId,
-                  statsGeneration,
-                  runToken,
-                  {
-                    models: runModels,
-                    totalCost:
-                      typeof totalCost === 'number' ? totalCost : null,
-                    costSource: usageCostSource,
-                    isErrorResult:
-                      sdkMessage.subtype !== 'success' || sdkMessage.is_error,
-                    // Per turn; the owner adds it only when it accepts the
-                    // result, and validates it.
-                    durationMs: sdkMessage.duration_ms,
-                  },
-                );
+                const { outcome, snapshot, firstRejection } =
+                  statsOwner.replaceRun(
+                    effectiveSessionId,
+                    statsGeneration,
+                    runToken,
+                    {
+                      models: runModels,
+                      totalCost:
+                        typeof totalCost === 'number' ? totalCost : null,
+                      costSource: usageCostSource,
+                      isErrorResult:
+                        sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                      // Per turn; the owner adds it only when it accepts the
+                      // result, and validates it.
+                      durationMs: sdkMessage.duration_ms,
+                    },
+                  );
                 if (outcome === 'rejected-invalid') {
                   logger.warn(
                     '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',

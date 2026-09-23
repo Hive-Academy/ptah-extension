@@ -1,3 +1,4 @@
+import type { ContextCapacity } from '../../utils/pricing.utils';
 /**
  * Session RPC Type Definitions
  *
@@ -235,8 +236,9 @@ export interface SessionStatsEntry {
     readonly cacheCreation?: number;
     /** `null` when this model's price is unknown. */
     readonly costUSD: number | null;
-    /** Backend-known context window; absent when unknown. */
+    /** Capacity projection; zero or absent when unknown. See contextCapacity for evidence. */
     readonly contextWindow?: number;
+    readonly contextCapacity?: ContextCapacity;
   }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
@@ -274,8 +276,9 @@ export interface SessionStatsEntry {
   readonly contextSnapshot?: {
     readonly model: string;
     readonly contextTokens: number;
-    /** Backend-known context window; absent when unknown. */
+    /** Capacity projection; zero or absent when unknown. See contextCapacity for evidence. */
     readonly contextWindow?: number;
+    readonly contextCapacity?: ContextCapacity;
   };
 }
 

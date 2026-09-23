@@ -89,6 +89,67 @@ describe('SystemMessageTransformer', () => {
   });
 
   describe('compact_boundary', () => {
+    it('emits a measurement only for a complete same-boundary SDK pair', () => {
+      for (const [pre, post] of [
+        [1000, 600],
+        [0, 0],
+        [600, 1000],
+        [undefined, 600],
+        [1000, undefined],
+        [NaN, 600],
+        [1000, -1],
+        [Infinity, 600],
+      ]) {
+        const events = transformer.transformCompactBoundary(
+          {
+            uuid: 'boundary-418',
+            session_id: 'sess-418',
+            compact_metadata: {
+              trigger: 'auto',
+              pre_tokens: pre,
+              post_tokens: post,
+            },
+          } as never,
+          state,
+          makeHelpers(),
+        );
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          eventType: 'compaction_complete',
+          boundaryId: 'boundary-418',
+        });
+        if (
+          typeof pre === 'number' &&
+          Number.isFinite(pre) &&
+          pre >= 0 &&
+          typeof post === 'number' &&
+          Number.isFinite(post) &&
+          post >= 0
+        ) {
+          expect(events[0]).toHaveProperty('measurement', {
+            source: 'sdk-compact-metadata',
+            boundaryId: 'boundary-418',
+            preTokens: pre,
+            postTokens: post,
+          });
+        } else {
+          expect(events[0]).not.toHaveProperty('measurement');
+        }
+      }
+      const [event] = transformer.transformCompactBoundary(
+        {
+          compact_metadata: {
+            trigger: 'auto',
+            pre_tokens: 1000,
+            post_tokens: 600,
+          },
+        } as never,
+        state,
+        makeHelpers(['sess-418']),
+      );
+      expect(event).toHaveProperty('boundaryId', event.id);
+      expect(event).toHaveProperty('measurement.boundaryId', event.id);
+    });
     it('emits compaction_complete with sessionId resolved from active lifecycle ids', () => {
       const helpers = makeHelpers(['active-sess']);
       const msg = {

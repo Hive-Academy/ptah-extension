@@ -305,6 +305,32 @@ describe('CopilotAuthService', () => {
   // -------------------------------------------------------------------------
 
   describe('login()', () => {
+    it('declares capacity evidence only for positive provider model windows', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('fixture-token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      const { service } = makeService();
+      await service.login();
+      const fetchMock = jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              data: [200000, 0, -1, null].map((context_window, i) => ({
+                id: `model-${i}`,
+                context_window,
+              })),
+            }),
+          ),
+        );
+      try {
+        const models = await service.listModels();
+        expect(models[0]).toHaveProperty('contextLengthSource', 'provider');
+        for (const model of models.slice(1))
+          expect(model).not.toHaveProperty('contextLengthSource');
+      } finally {
+        fetchMock.mockRestore();
+      }
+    });
     it('succeeds via file-based auth without invoking the device code flow', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
       mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());

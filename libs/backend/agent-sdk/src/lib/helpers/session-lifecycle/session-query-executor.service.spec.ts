@@ -38,6 +38,7 @@ import type { SessionEndCallbackRegistry } from '../session-end-callback-registr
 import {
   SessionQueryExecutor,
   classifyUsageCostSource,
+  resolveCapacityRoute,
 } from './session-query-executor.service';
 import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
@@ -210,6 +211,50 @@ function makeConfig(
 // ---------------------------------------------------------------------------
 
 describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () => {
+  it('freezes the exact effective profile capacity route on the query record', async () => {
+    const { executor, registry } = makeHarness('ask');
+    const authEnvOverride = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+    };
+    const result = await executor.executeQuery(
+      makeConfig('capacity-profile', { authEnvOverride }),
+    );
+    authEnvOverride.ANTHROPIC_AUTH_TOKEN = 'openrouter-proxy-token';
+    expect(result.capacityRoute).toEqual({
+      kind: 'proxy',
+      providerId: 'openai-codex',
+    });
+    expect(registry.find('capacity-profile')?.capacityRoute).toBe(
+      result.capacityRoute,
+    );
+    expect(Object.isFrozen(result.capacityRoute)).toBe(true);
+  });
+
+  it('rejects route substrings and remote proxy-token impersonation for capacity', () => {
+    expect(resolveCapacityRoute({})).toEqual({
+      kind: 'native',
+      providerId: 'anthropic',
+    });
+    expect(
+      resolveCapacityRoute({
+        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
+      }),
+    ).toEqual({ kind: 'proxy', providerId: 'openrouter' });
+    for (const url of [
+      'https://api.anthropic.com.evil.test',
+      'https://evil.test/openrouter.ai',
+      'https://openrouter.ai/api/v1/custom',
+      'not-a-url',
+    ]) {
+      expect(
+        resolveCapacityRoute({
+          ANTHROPIC_BASE_URL: url,
+          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        }),
+      ).toEqual({ kind: 'proxy', providerId: null });
+    }
+  });
   it('config.permissionLevel = "yolo" seeds rec.permissionLevel and maps to SDK permissionMode "default" (never bypassPermissions)', async () => {
     const { executor, registry, buildSpy } = makeHarness('ask');
 
