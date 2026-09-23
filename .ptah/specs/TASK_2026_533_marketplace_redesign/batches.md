@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 11/30
+Total tasks: 65 | Batches: 30 | Complete: 12/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 12.
-In progress: 8 (marketplace, own worktree).
-Batch 12b (Revision 3, D-4) runs after 8 is committed, in parallel with 9 (own worktree), and must be COMPLETE before 13-16 start.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 12.
+In progress: none.
+Next launchable: Batch 9 ∥ Batch 12b, each in its own worktree based on TASK_WT HEAD (both marketplace, file-disjoint). 12b must be COMPLETE before 13-16 start.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -98,7 +98,7 @@ Assumptions:
 - A2 A `RedirectFunction` runs in an injection context and can `inject(AppStateManager)` — VERIFIED PASS in Batch 2 (Task 2.3; spec `surface-router.service.spec.ts:625-647`).
 - A3 `navigateByUrl('/marketplace')` while on `/marketplace/servers` redirects to the remembered route and reuses the active components — VERIFIED PASS in Batch 2 (Task 2.3; result `navigated`, zero re-creations). Router-level caveat (an open detail closes on a bare `navigateToSurface`) is handled at the user path by the C1 `setCurrentView` no-op rule, Task 18.2.
 - A4 svgo 4 custom-plugin shape `{ name, fn: () => ({ element: { enter } }) }` — unverified; checked in Task 4.1 before the manifest is filled.
-- A5 Which CLIs receive OAuth/Smithery session overrides (`mcpServersOverride` consumers found in `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, `session-query-executor.service.ts`) — unverified; checked in Task 8.3 before `coverage.ts` renders anything other than "Ptah sessions".
+- A5 Which CLIs receive OAuth/Smithery session overrides — VERIFIED in Batch 8 (Task 8.3): only Ptah's own Claude Agent SDK session receives them. Producer `ChatSessionService.buildMcpServersOverride` (`libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:339-368`), sole call site `chat:start` (`:536`) → `sdkAdapter.startChatSession` (`:571`) → `sdk-query-options-builder.ts` `options.mcpServers`. `coverage.ts` renders one merged "Ptah sessions" cell.
 - R6 The router percent-encodes `/` inside a single `:skillRef` segment — VERIFIED PASS in Batch 3 (Task 3.2 probe, 4/4); no base64url fallback.
 - `ui` has `"sideEffects": false` (`libs/frontend/ui/package.json:11`), so `BRAND_MARKS` stays out of the eager bundle when only lazy code references it — verified by the R7 comparison (Batches 7c, 7d, 17, 24, 25).
 - D-4 (Revision 3) Every session the user can run in the active workspace, including canvas tiles and hidden Tribunal tabs, has a `TabState` in `TabManagerService.tabs()` — unverified, not blocking (a session with no tab only loses its connector rows, never gains a wrong one); checked in Task 12b.1.
@@ -513,7 +513,7 @@ Edge cases:
 - 8 files; ui green; R7 comparison deferred to 7c (the pieces are not consumed eagerly until Batch 24)
 - Reviewer: code-style-reviewer (a11y structure, token use)
 
-## Batch 8: View-model mappers (C5 remainder) — PENDING
+## Batch 8: View-model mappers (C5 remainder) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x2 (filtering / attention+coverage) after Task 8.1 lands
@@ -522,7 +522,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 1, 3, 7b
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 8.1: `provider-row` mapper with masked config — PENDING
+### Task 8.1: `provider-row` mapper with masked config — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.spec.ts`
 - Plan reference: implementation-plan.md C5 (:333 brand revision), `provider-row` responsibilities
@@ -532,7 +532,7 @@ Edge cases:
 - Validation notes: R3. Unknown status → `unknown` with raw text. Spec includes a type-level assertion (`// @ts-expect-error` on assigning a value field).
 - Implementation details: pure.
 
-### Task 8.2: `provider-filtering` — PENDING
+### Task 8.2: `provider-filtering` — COMPLETE
 
 - Depends on: Task 8.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-filtering.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-filtering.spec.ts`
@@ -542,7 +542,7 @@ Edge cases:
 - Validation notes: table-driven spec.
 - Implementation details: pure.
 
-### Task 8.3: `attention` and `coverage` (A5 first) — PENDING
+### Task 8.3: `attention` and `coverage` (A5 first) — COMPLETE
 
 - Depends on: Task 8.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\attention.ts`, `...\data\attention.spec.ts`, `...\data\coverage.ts`, `...\data\coverage.spec.ts` (under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`)
@@ -556,6 +556,10 @@ Edge cases:
 
 - A5 outcome stated with file:line
 - Reviewer: code-logic-reviewer (status honesty, masking)
+- Result: 8 new files in `libs/frontend/marketplace/src/lib/data/` (`provider-row`, `provider-filtering`, `attention`, `coverage` + specs; `provider-row.ts` 643 lines); `lint,typecheck,test -p @ptah-extension/marketplace` green in TASK_WT (1 project, 27 suites, 719 tests); `marketplace-inventory.store.ts` still 699 lines. Review: logic NEEDS_REVISION 7/10, then APPROVED 9/10 (S-1 session ownership, M-1 shape-based secret masking). Report: `batch-8-report.md` (untracked).
+- A5 outcome: only Ptah's own Claude Agent SDK session receives OAuth/Smithery overrides (`chat-session.service.ts:339-368`, `:536`, `:571`); one merged "Ptah sessions" coverage cell.
+- Accepted deviations (BINDING on Batches 10 and 13): `ProviderRow` carries no raw `InstalledServerGroup` — pages look the group up in `store.installed()` by `row.ref`; the `manage-link` removal (claude.ai connector rows) has a `reason` but no `href` — Batch 13/15 decides the link target; `ProviderStatus` includes `failed`, `needs-input` and `unknown` (raw text in `statusText`), which Batch 9's `StatusPill` and Batch 10's filters must render; session status only reaches the row that owns the name, and when ownership is ambiguous no row gets it.
+- Follow-ups: export the MCP target order from chat-ui and drop `provider-row.ts` `TARGET_RANK` (M-2); pass the SDK status `scope` through `SessionMcpServerEntry` (`session-mcp-status.ts:51-56,120`) to resolve the ambiguous user/project case (shared/backend, outside this task); `resumeSession` gets no `mcpServersOverride` (backend, outside this task). Batch 12b must stub `TabManagerService` in `provider-row.spec.ts` (it builds the real store).
 
 ## Batch 9: Marketplace UI kit I — row primitives (C8 part) — PENDING
 
