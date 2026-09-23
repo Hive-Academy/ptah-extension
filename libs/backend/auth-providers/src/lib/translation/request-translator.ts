@@ -131,6 +131,16 @@ export function translateMessages(
       result.push(...translateUserMessage(msg));
     } else if (msg.role === 'assistant') {
       result.push(...translateAssistantMessage(msg));
+    } else if (msg.role === 'system') {
+      // Keep SDK api_system instructions at their original conversation position.
+      const content =
+        typeof msg.content === 'string'
+          ? msg.content
+          : msg.content.filter(
+              (block): block is AnthropicTextBlock => block.type === 'text',
+            );
+      const systemMessage = translateSystemPrompt(content);
+      if (systemMessage) result.push(systemMessage);
     }
   }
 

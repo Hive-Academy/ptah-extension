@@ -35,9 +35,7 @@ import type { TranslateOptions } from './request-translator';
 
 /** Content part within a Responses API input message */
 export type ResponsesContentPart =
-  | ResponsesInputTextPart
-  | ResponsesInputImagePart
-  | ResponsesOutputTextPart;
+  ResponsesInputTextPart | ResponsesInputImagePart | ResponsesOutputTextPart;
 
 /** Input text content part */
 export interface ResponsesInputTextPart {
@@ -229,6 +227,16 @@ export function translateMessagesToResponsesInput(
       result.push(...translateUserMessageToResponses(msg));
     } else if (msg.role === 'assistant') {
       result.push(...translateAssistantMessageToResponses(msg));
+    } else if (msg.role === 'system') {
+      // Match the top-level system-to-developer mapping without reordering turns.
+      const content =
+        typeof msg.content === 'string'
+          ? msg.content
+          : msg.content.filter(
+              (block): block is AnthropicTextBlock => block.type === 'text',
+            );
+      const systemMessage = translateSystemToDeveloper(content);
+      if (systemMessage) result.push(systemMessage);
     }
   }
 

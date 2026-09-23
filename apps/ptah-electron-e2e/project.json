@@ -38,6 +38,22 @@
         ]
       }
     },
+    "showcase:lane-review": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer-dev", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "parallel": false,
+        "commands": [
+          "node apps/ptah-electron-e2e/scripts/clean-recordings.mjs",
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "npx playwright test --config=apps/ptah-electron-e2e/showcase.config.ts lane-console-review.scene.ts",
+          "node apps/ptah-electron-e2e/scripts/transcode.mjs"
+        ]
+      }
+    },
     "e2e:nightly": {
       "executor": "nx:run-commands",
       "dependsOn": [

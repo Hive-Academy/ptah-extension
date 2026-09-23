@@ -33,7 +33,7 @@ import {
   DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgClass } from '@angular/common';
+import { NgClass, NgTemplateOutlet } from '@angular/common';
 import {
   LucideAngularModule,
   X,
@@ -42,6 +42,8 @@ import {
   Workflow,
   ChevronDown,
   ChevronRight,
+  Columns,
+  Square,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -63,6 +65,10 @@ import {
   groupAgentsByWorkflowRun,
   type WorkflowRunGroup,
 } from './agent-monitor-panel.grouping';
+
+import { AgentLaneGridComponent } from './agent-monitor/agent-lane-grid.component';
+import { laneColumnCount } from './agent-monitor/agent-lane-layout';
+import { WorkflowPermissionPresenterService } from './agent-monitor/workflow-permission-presenter.service';
 
 // Re-export the pure grouping API alongside the component for consumers that
 // import from the component barrel. The implementation lives in
@@ -88,6 +94,7 @@ interface WorkflowTileVM {
   readonly workflowRunId: string;
   readonly workflowName?: string;
   readonly totalTokens?: number;
+  readonly permissionCount: number;
 }
 
 /** Map a raw lifecycle status onto the tile's status-dot bucket. */
@@ -120,6 +127,7 @@ function agentToTile(a: MonitoredAgent): WorkflowTileVM {
     workflowRunId: a.workflowRunId as string,
     workflowName: a.workflowName,
     totalTokens: undefined,
+    permissionCount: a.permissionQueue.length,
   };
 }
 
@@ -134,6 +142,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     workflowRunId: r.workflowRunId as string,
     workflowName: r.workflowName,
     totalTokens: r.totalTokens,
+    permissionCount: 0,
   };
 }
 
@@ -155,8 +164,11 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     '[class.z-20]': 'effectiveOpen() && isOverlay()',
     '[class.bg-base-200]': 'effectiveOpen() && isOverlay()',
   },
+  providers: [WorkflowPermissionPresenterService],
   imports: [
     NgClass,
+    NgTemplateOutlet,
+    AgentLaneGridComponent,
     LucideAngularModule,
     AgentCardComponent,
     AgentContinueInputComponent,
@@ -166,6 +178,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   styles: `
     .agent-panel-open {
       width: 360px;
+      max-width: 100%;
     }
     @media (min-width: 1280px) {
       .agent-panel-open {
@@ -180,7 +193,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   `,
   template: `
     <aside
-      class="flex flex-col border-base-content/5 overflow-hidden h-full"
+      class="flex flex-col min-w-0 border-base-content/5 overflow-hidden h-full"
       [class.bg-base-200]="!isOverlay()"
       [class.border-l]="!isOverlay()"
       [class.agent-panel-open]="effectiveOpen() && !isOverlay()"
@@ -188,12 +201,13 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
       [class.w-0]="!effectiveOpen()"
       [class.transition-all]="!resizeService.dragging()"
       [class.duration-300]="!resizeService.dragging()"
-      [style.width.px]="effectiveOpen() && !isOverlay() ? resizeService.customWidth() : null"
+      [style.width.px]="
+        effectiveOpen() && !isOverlay() ? resizeService.customWidth() : null
+      "
     >
       <!-- Header -->
       <div
-        class="flex items-center justify-between px-2.5 py-1.5 border-b border-base-content/10 flex-shrink-0"
-        [style.min-width]="isOverlay() ? '0' : '300px'"
+        class="flex flex-wrap min-w-0 items-center justify-between px-2.5 py-1.5 border-b border-base-content/10 flex-shrink-0"
       >
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Agents</span>
@@ -202,6 +216,26 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
           }
         </div>
         <div class="flex items-center gap-1">
+          @if (laneCapacity() >= 2 || forceSingle()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs btn-square"
+              [title]="
+                forceSingle() ? 'Show agents side by side' : 'Show one agent'
+              "
+              [attr.aria-label]="
+                forceSingle() ? 'Show agents side by side' : 'Show one agent'
+              "
+              [attr.aria-pressed]="forceSingle()"
+              (click)="forceSingle.set(!forceSingle())"
+            >
+              <lucide-angular
+                [img]="forceSingle() ? SquareIcon : ColumnsIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+            </button>
+          }
           @if (effectiveAgents().length > 0 && !effectiveHasRunning()) {
             <button
               class="btn btn-ghost btn-xs btn-square"
@@ -233,8 +267,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
       <!-- Agent Tiles Bar -->
       @if (totalCount() > 0) {
         <div
-          class="flex flex-col border-b border-base-content/5 flex-shrink-0"
-          [style.min-width]="isOverlay() ? '0' : '300px'"
+          class="flex flex-col min-w-0 overflow-hidden border-b border-base-content/5 flex-shrink-0"
         >
           <!-- Workflow run groups (collapsible), rendered above standalone tiles.
                Tiles come from BOTH sources: CLI MonitoredAgents that carry a run
@@ -314,6 +347,16 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                       <span class="text-xs font-medium truncate max-w-[120px]">
                         {{ tile.name }}
                       </span>
+                      @if (tile.permissionCount > 0) {
+                        <span
+                          class="badge badge-xs badge-warning animate-pulse"
+                          [attr.aria-label]="
+                            tile.permissionCount + ' pending permissions'
+                          "
+                        >
+                          {{ tile.permissionCount }}
+                        </span>
+                      }
                       @if (tile.totalTokens !== undefined) {
                         <span
                           class="text-[10px] text-base-content-muted font-mono"
@@ -336,11 +379,20 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                   type="button"
                   class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all shrink-0 cursor-pointer"
                   [ngClass]="
-                    agent.agentId === selectedAgentId()
+                    (
+                      lanesMode()
+                        ? laneGrid()?.shownIds()?.includes(agent.agentId)
+                        : agent.agentId === selectedAgentId()
+                    )
                       ? 'border-primary bg-primary/10 shadow-sm'
                       : 'border-base-300 bg-base-100 hover:border-primary/30 hover:bg-primary/5'
                   "
-                  (click)="selectAgent(agent.agentId)"
+                  (click)="pickStandalone(agent.agentId)"
+                  [attr.aria-pressed]="
+                    lanesMode()
+                      ? !!laneGrid()?.shownIds()?.includes(agent.agentId)
+                      : agent.agentId === selectedAgentId()
+                  "
                   [title]="agent.task"
                 >
                   <!-- Status dot -->
@@ -373,101 +425,121 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
         </div>
       }
 
-      <!-- Selected Agent Detail -->
-      <div
-        #agentScroll
-        class="flex-1 overflow-y-auto min-h-0"
-        style="min-width: 300px"
-        (scroll)="onScroll()"
-      >
-        <div #agentScrollContent>
-          @if (selectedWorkflowSubagent(); as sub) {
-            <!-- Workflow subagent detail = its saved transcript. A SubagentRecord
-                 has no MonitoredAgent shape (no card / permissions / continue),
-                 so we render the shared transcript viewer instead. -->
-            <div class="p-1.5">
-              <ptah-subagent-transcript-viewer
-                [agentName]="sub.teammateName || sub.description || 'Subagent'"
-                [messages]="transcriptMessages()"
-                [loading]="transcriptLoading()"
-                [error]="transcriptError()"
-                (refresh)="reloadTranscript()"
-                (closed)="deselect()"
-              />
-            </div>
-          } @else if (effectiveSelectedAgent(); as agent) {
-            <!-- Permission requests for selected agent -->
-            @if (agent.permissionQueue.length > 0) {
-              <div class="border-b border-warning/30">
-                @for (perm of agent.permissionQueue; track perm.requestId) {
-                  <div
-                    class="bg-warning/10 px-2.5 py-1.5 flex flex-col gap-1 border-b border-warning/10 last:border-b-0"
+      <ng-template #agentDetail let-agent>
+        <!-- Permission requests for selected agent -->
+        @if (agent.permissionQueue.length > 0) {
+          <div class="border-b border-warning/30">
+            @for (perm of agent.permissionQueue; track perm.requestId) {
+              <div
+                class="bg-warning/10 px-2.5 py-1.5 flex flex-col gap-1 border-b border-warning/10 last:border-b-0"
+              >
+                <div class="flex items-center gap-2">
+                  <lucide-angular
+                    [img]="ShieldAlertIcon"
+                    class="w-3.5 h-3.5 text-warning flex-shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span class="badge badge-xs badge-warning">Permission</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <code
+                    class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
                   >
-                    <div class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="ShieldAlertIcon"
-                        class="w-3.5 h-3.5 text-warning flex-shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span class="badge badge-xs badge-warning"
-                        >Permission</span
-                      >
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <code
-                        class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
-                      >
-                        {{ perm.toolName }}
-                      </code>
-                      @if (perm.toolArgs) {
-                        <span
-                          class="text-[10px] text-base-content-muted font-mono truncate"
-                        >
-                          {{ perm.toolArgs }}
-                        </span>
-                      }
-                    </div>
-                    <div class="flex gap-2">
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-success"
-                        (click)="allowPermission(agent.agentId, perm)"
-                      >
-                        Allow
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-error btn-outline"
-                        (click)="denyPermission(agent.agentId, perm)"
-                      >
-                        Deny
-                      </button>
-                    </div>
-                  </div>
-                }
+                    {{ perm.toolName }}
+                  </code>
+                  @if (perm.toolArgs) {
+                    <span
+                      class="text-[10px] text-base-content-muted font-mono truncate"
+                    >
+                      {{ perm.toolArgs }}
+                    </span>
+                  }
+                </div>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-success"
+                    (click)="allowPermission(agent.agentId, perm)"
+                  >
+                    Allow
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-error btn-outline"
+                    (click)="denyPermission(agent.agentId, perm)"
+                  >
+                    Deny
+                  </button>
+                </div>
               </div>
             }
+          </div>
+        }
 
-            <!-- Agent card (auto-expanded on selection) -->
-            <div class="p-1.5">
-              <ptah-agent-card
-                class="block h-full"
-                [agent]="agent"
-                (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
-              />
-            </div>
+        <!-- Agent card (auto-expanded on selection) -->
+        <div class="p-1.5">
+          <ptah-agent-card
+            class="block h-full"
+            [agent]="agent"
+            (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
+          />
+        </div>
 
-            <ptah-agent-continue-input [agent]="agent" />
-          } @else {
-            <div
-              class="flex flex-col items-center justify-center h-32 text-center"
-            >
-              <span class="text-sm text-base-content-muted">No agents</span>
-              <span class="text-xs text-base-content-muted mt-1"
-                >Agents will appear here when spawned</span
-              >
-            </div>
-          }
+        <ptah-agent-continue-input [agent]="agent" />
+      </ng-template>
+      <div #panelBody class="flex-1 min-h-0 min-w-0 overflow-hidden">
+        @if (lanesMode()) {
+          <ptah-agent-lane-grid
+            [agents]="standaloneAgents()"
+            [capacity]="laneCapacity()"
+            [width]="bodyWidth()"
+            [detailTemplate]="agentDetail"
+            [style.display]="showLaneGrid() ? null : 'none'"
+            (expandAgent)="expandLaneAgent($event)"
+          />
+        }
+        <!-- Selected Agent Detail -->
+        <div
+          #agentScroll
+          class="h-full overflow-y-auto min-h-0 min-w-0"
+          [style.display]="showLaneGrid() ? 'none' : null"
+          (scroll)="onScroll()"
+        >
+          <div #agentScrollContent>
+            @if (!showLaneGrid()) {
+              @if (selectedWorkflowSubagent(); as sub) {
+                <!-- Workflow subagent detail = its saved transcript. A SubagentRecord
+                 has no MonitoredAgent shape (no card / permissions / continue),
+                 so we render the shared transcript viewer instead. -->
+                <div class="p-1.5">
+                  <ptah-subagent-transcript-viewer
+                    [agentName]="
+                      sub.teammateName || sub.description || 'Subagent'
+                    "
+                    [messages]="transcriptMessages()"
+                    [loading]="transcriptLoading()"
+                    [error]="transcriptError()"
+                    (refresh)="reloadTranscript()"
+                    (closed)="deselect()"
+                  />
+                </div>
+              } @else if (effectiveSelectedAgent(); as agent) {
+                <ng-container
+                  [ngTemplateOutlet]="agentDetail"
+                  [ngTemplateOutletContext]="{ $implicit: agent }"
+                />
+              } @else {
+                <div
+                  class="flex flex-col items-center justify-center h-32 text-center"
+                >
+                  <span class="text-sm text-base-content-muted">No agents</span>
+                  <span class="text-xs text-base-content-muted mt-1"
+                    >Agents will appear here when spawned</span
+                  >
+                </div>
+              }
+            }
+          </div>
         </div>
       </div>
     </aside>
@@ -478,7 +550,12 @@ export class AgentMonitorPanelComponent {
   protected readonly resizeService = inject(PanelResizeService);
   private readonly vscode = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
+  private readonly workflowPermissions = inject(
+    WorkflowPermissionPresenterService,
+  );
 
+  readonly ColumnsIcon = Columns;
+  readonly SquareIcon = Square;
   readonly XIcon = X;
   readonly Trash2Icon = Trash2;
   readonly ShieldAlertIcon = ShieldAlert;
@@ -525,7 +602,28 @@ export class AgentMonitorPanelComponent {
   });
 
   readonly selectedAgentId = signal<string | null>(null);
+  readonly forceSingle = signal(false);
+  private readonly workflowDetailPicked = signal(false);
+  readonly bodyWidth = signal(0);
+  readonly laneGrid = viewChild(AgentLaneGridComponent);
+  private readonly panelBody = viewChild<ElementRef<HTMLElement>>('panelBody');
+  readonly laneCapacity = computed(() =>
+    laneColumnCount(this.bodyWidth(), this.standaloneAgents().length),
+  );
+  readonly lanesMode = computed(
+    () => !this.forceSingle() && this.laneCapacity() >= 2,
+  );
+  readonly showLaneGrid = computed(
+    () =>
+      this.lanesMode() &&
+      !(
+        this.workflowDetailPicked() &&
+        (this.selectedWorkflowSubagent() ||
+          this.explicitSelectedAgent()?.workflowRunId)
+      ),
+  );
   private prevAgentIds = new Set<string>();
+  private seenLanePermissions = new Set<string>();
 
   private readonly _scroll = viewChild<ElementRef<HTMLElement>>('agentScroll');
   private readonly _scrollContent =
@@ -638,6 +736,14 @@ export class AgentMonitorPanelComponent {
     );
   });
 
+  /** Exact selection only; a removed selection must not open a fallback workflow. */
+  private readonly explicitSelectedAgent = computed<MonitoredAgent | null>(
+    () =>
+      this.effectiveAgents().find(
+        (agent) => agent.agentId === this.selectedAgentId(),
+      ) ?? null,
+  );
+
   /**
    * The selected CLI MonitoredAgent, falling back to the first agent. Returns
    * null when the selection points at a workflow subagent (so it can't hijack
@@ -671,6 +777,17 @@ export class AgentMonitorPanelComponent {
   private _lastTranscriptKey: string | null = null;
 
   constructor() {
+    afterNextRender(() => {
+      const body = this.panelBody()?.nativeElement;
+      if (!body || typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries.find((item) => item.target === body);
+        if (entry) this.bodyWidth.set(entry.contentRect.width);
+      });
+      this.bodyWidth.set(body.clientWidth);
+      observer.observe(body);
+      this.destroyRef.onDestroy(() => observer.disconnect());
+    });
     afterRenderEffect(() => {
       const closeButton = this._closeButton();
       if (this.effectiveOpen() && this.isOverlay() && closeButton) {
@@ -683,27 +800,88 @@ export class AgentMonitorPanelComponent {
       const currentIds = new Set(keys);
       const selectedId = untracked(() => this.selectedAgentId());
 
+      if (untracked(() => this.lanesMode())) {
+        this.prevAgentIds = currentIds;
+        return;
+      }
+
       const newIds = keys.filter((id) => !this.prevAgentIds.has(id));
 
       if (newIds.length > 0) {
-        this.selectAgent(newIds[0]);
+        this.autoSelectAgent(newIds[0]);
       } else if (selectedId && !currentIds.has(selectedId)) {
         if (keys.length > 0) {
-          this.selectAgent(keys[0]);
+          this.autoSelectAgent(keys[0]);
         } else {
           this.selectedAgentId.set(null);
         }
       } else if (!selectedId && keys.length > 0) {
-        this.selectAgent(keys[0]);
+        this.autoSelectAgent(keys[0]);
       }
 
       this.prevAgentIds = currentIds;
     });
     effect(() => {
       const perms = this.effectivePermissions();
-      if (perms.length > 0) {
-        this.selectAgent(perms[0].agentId);
-      }
+      const lanesMode = this.lanesMode();
+      const grid = this.laneGrid();
+      const agents = this.effectiveAgents();
+      // A parent effect can run before the grid receives this tick's new agents.
+      // Track its input so a rejected pick retries after those bindings update.
+      const gridAgentIds = new Set(
+        grid?.agents().map((agent) => agent.agentId),
+      );
+      untracked(() => {
+        if (!lanesMode) {
+          this.seenLanePermissions.clear();
+          if (perms.length > 0) this.autoSelectAgent(perms[0].agentId);
+          return;
+        }
+        // Keep shownIds untracked: a previously surfaced request must not undo
+        // a user's subsequent column removal or choice of workflow detail.
+        const pending = new Set<string>();
+        for (const permissionAgent of perms) {
+          const agent = agents.find(
+            (item) => item.agentId === permissionAgent.agentId,
+          );
+          if (!agent || agent.workflowRunId) continue;
+          for (const request of permissionAgent.permissionQueue) {
+            const key = `${agent.agentId}:${request.requestId}`;
+            if (this.seenLanePermissions.has(key)) {
+              pending.add(key);
+              continue;
+            }
+            if (grid && gridAgentIds.has(agent.agentId)) {
+              if (!grid.shownIds().includes(agent.agentId))
+                grid.pick(agent.agentId);
+              // A pick can be rejected while the child is catching up. Leave it
+              // unseen until it is actually present, then deduplicate updates.
+              if (grid.shownIds().includes(agent.agentId)) pending.add(key);
+            }
+          }
+        }
+        this.seenLanePermissions = pending;
+        const nextWorkflow = this.workflowPermissions.nextAgent(
+          agents,
+          this.showLaneGrid()
+            ? null
+            : (this.explicitSelectedAgent()?.agentId ?? null),
+        );
+        if (nextWorkflow) {
+          if (
+            this.showLaneGrid() ||
+            this.explicitSelectedAgent()?.agentId !== nextWorkflow
+          ) {
+            this.applyAgentSelection(nextWorkflow);
+          }
+          if (
+            !this.showLaneGrid() &&
+            this.explicitSelectedAgent()?.agentId === nextWorkflow
+          ) {
+            this.workflowPermissions.markShown(nextWorkflow);
+          }
+        }
+      });
     });
 
     // Load the transcript when the selected workflow subagent's identity
@@ -729,7 +907,8 @@ export class AgentMonitorPanelComponent {
     afterNextRender(() => {
       const container = this._scroll()?.nativeElement;
       const content = this._scrollContent()?.nativeElement;
-      if (!container || !content) return;
+      if (!container || !content || typeof ResizeObserver === 'undefined')
+        return;
       this.resizeObserver = new ResizeObserver(() => {
         if (this.pinnedToBottom) {
           container.scrollTop = container.scrollHeight;
@@ -748,8 +927,30 @@ export class AgentMonitorPanelComponent {
     this.pinnedToBottom = distance < AgentMonitorPanelComponent.NEAR_BOTTOM_PX;
   }
 
+  pickStandalone(agentId: string): void {
+    this.selectAgent(agentId);
+    if (this.lanesMode()) this.laneGrid()?.pick(agentId);
+  }
+
+  expandLaneAgent(agentId: string): void {
+    const agent = this.effectiveAgents().find(
+      (item) => item.agentId === agentId,
+    );
+    if (agent && !agent.expanded) this.store.toggleAgentExpanded(agentId);
+  }
+
   selectAgent(agentId: string): void {
+    if (this.selectedAgentId() !== agentId)
+      this.workflowPermissions.onUserNavigation();
+    this.applyAgentSelection(agentId);
+  }
+
+  private applyAgentSelection(agentId: string): void {
     this.selectedAgentId.set(agentId);
+    this.workflowDetailPicked.set(
+      !!this.explicitSelectedAgent()?.workflowRunId ||
+        !!this.selectedWorkflowSubagent(),
+    );
     // Switching/auto-selecting an agent re-follows its latest output.
     this.pinnedToBottom = true;
     // Expand only applies to CLI MonitoredAgents; workflow subagent keys won't
@@ -760,6 +961,11 @@ export class AgentMonitorPanelComponent {
     }
   }
 
+  private autoSelectAgent(agentId: string): void {
+    this.applyAgentSelection(agentId);
+    this.workflowDetailPicked.set(false);
+  }
+
   /** Re-fetch the currently selected workflow subagent's transcript. */
   reloadTranscript(): void {
     void this.loadTranscriptFor(this.selectedWorkflowSubagent());
@@ -767,6 +973,8 @@ export class AgentMonitorPanelComponent {
 
   /** Close the transcript view — land back on a standalone agent or clear. */
   deselect(): void {
+    this.workflowPermissions.onUserNavigation();
+    this.workflowDetailPicked.set(false);
     const first = this.standaloneAgents()[0];
     this.selectedAgentId.set(first ? first.agentId : null);
   }

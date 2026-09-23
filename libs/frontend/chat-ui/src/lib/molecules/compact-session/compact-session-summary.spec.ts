@@ -45,6 +45,16 @@ function message(root: ExecutionNode): ExecutionChatMessage {
   };
 }
 
+function userMessage(): ExecutionChatMessage {
+  return {
+    id: 'latest-prompt',
+    role: 'user',
+    timestamp: 20,
+    streamingState: null,
+    rawContent: 'Continue with the next task.',
+  };
+}
+
 function summarizeToolOutput(output: string): string {
   const state = createEmptyStreamingState();
   state.events.set('result', {
@@ -207,6 +217,201 @@ describe('compact-session-summary', () => {
     expect(
       summarizeFinalized([], context({ terminalReason })).status.text,
     ).toBe(expected);
+  });
+
+  it.each([
+    'prompt_too_long',
+    'image_error',
+    'model_error',
+    'api_error',
+    'malformed_tool_use_exhausted',
+    'tool_deferred_unavailable',
+    'structured_output_retry_exhausted',
+    'turn_setup_failed',
+  ] as const)(
+    'tones only the latest turn prose as an error for %s',
+    (terminalReason) => {
+      const summary = summarizeFinalized(
+        [
+          message(node({ id: 'ok-turn', content: 'Plan agreed.' })),
+          userMessage(),
+          message(
+            node({
+              id: 'error-turn',
+              content: 'API Error: 400 Invalid Messages request',
+            }),
+          ),
+        ],
+        context({ terminalReason }),
+      );
+
+      const errorMark = summary.marks.find(
+        (mark) => mark.id === 'prose:error-turn',
+      );
+      expect(errorMark?.tone).toBe('error');
+      expect(
+        summary.marks.find((mark) => mark.id === 'prose:ok-turn')?.tone,
+      ).toBe('success');
+      // The ERR filter counts marks by this exact tone, so one error tone is
+      // one ERR row.
+      expect(
+        summary.marks.filter((mark) => mark.tone === 'error'),
+      ).toHaveLength(1);
+      expect(summary.content.kind).toBe('error');
+      expect(summary.content.text).toBe(
+        'API Error: 400 Invalid Messages request',
+      );
+      expect(summary.status.tone).toBe('error');
+    },
+  );
+
+  it.each([
+    'completed',
+    'aborted_streaming',
+    'aborted_tools',
+    'blocking_limit',
+    'rapid_refill_breaker',
+    'max_turns',
+    'budget_exhausted',
+    'stop_hook_prevented',
+    'hook_stopped',
+    'tool_deferred',
+    'background_requested',
+  ] as const)(
+    'keeps normal final prose on the success tone for %s',
+    (terminalReason) => {
+      const summary = summarizeFinalized(
+        [message(node({ id: 'done-turn', content: 'All tests passed.' }))],
+        context({ terminalReason }),
+      );
+
+      expect(
+        summary.marks.find((mark) => mark.id === 'prose:done-turn')?.tone,
+      ).toBe('success');
+      expect(
+        summary.marks.filter((mark) => mark.tone === 'error'),
+      ).toHaveLength(0);
+      expect(summary.content.kind).toBe('prose');
+    },
+  );
+
+  it.each([undefined, 30])(
+    'adds one terminal error when the latest turn has no prose (endTime=%s)',
+    (endTime) => {
+      const messages = [
+        message(
+          node({ id: 'ok-turn', content: 'All tests passed.', endTime: 10 }),
+        ),
+        userMessage(),
+        // A failed turn can have a finalized root but no assistant text.
+        message(node({ type: 'message', status: 'error', endTime })),
+      ];
+      const summary = summarizeFinalized(
+        messages,
+        context({ terminalReason: 'api_error' }),
+      );
+
+      expect(
+        summary.marks.find((mark) => mark.id === 'prose:ok-turn'),
+      ).toMatchObject({ tone: 'success', text: 'All tests passed.' });
+      expect(summary.marks.filter((mark) => mark.kind === 'terminal')).toEqual([
+        expect.objectContaining({
+          tone: 'error',
+          label: summary.status.text,
+          timestamp: endTime ?? 10,
+        }),
+      ]);
+      expect(
+        summary.marks.filter((mark) => mark.tone === 'error'),
+      ).toHaveLength(1);
+      expect(summary.content).toMatchObject({
+        kind: 'error',
+        text: 'Needs attention',
+      });
+      // Recomputing the pure summary neither mutates history nor accumulates rows.
+      expect(
+        summarizeFinalized(messages, context({ terminalReason: 'api_error' })),
+      ).toEqual(summary);
+    },
+  );
+
+  it('preserves the latest user boundary after bounded history drops older items', () => {
+    const earlier = Array.from({ length: 60 }, (_, index) =>
+      message(
+        node({
+          id: `old-${index}`,
+          content: 'Earlier success',
+          endTime: index,
+        }),
+      ),
+    );
+    const summary = summarizeFinalized(
+      [...earlier, userMessage()],
+      context({ terminalReason: 'api_error' }),
+    );
+
+    expect(
+      summary.marks
+        .filter((mark) => mark.kind === 'prose')
+        .every((mark) => mark.tone === 'success'),
+    ).toBe(true);
+    expect(summary.marks.filter((mark) => mark.tone === 'error')).toHaveLength(
+      1,
+    );
+    expect(
+      summary.marks.find((mark) => mark.kind === 'terminal')?.timestamp,
+    ).toBe(59);
+    expect(summary.content).toMatchObject({
+      kind: 'error',
+      text: 'Needs attention',
+    });
+  });
+
+  it('reuses a live terminal mark for a failure without prose', () => {
+    const state = createEmptyStreamingState();
+    state.events.set('complete', {
+      id: 'complete',
+      eventType: 'message_complete',
+      timestamp: 42,
+      messageId: 'message',
+    });
+    const summary = summarizeLive(
+      state,
+      context({ terminalReason: 'api_error' }),
+    );
+
+    expect(summary.marks).toEqual([
+      expect.objectContaining({
+        id: 'terminal:message',
+        kind: 'terminal',
+        tone: 'error',
+        timestamp: 42,
+        label: 'Needs attention',
+      }),
+    ]);
+    expect(summary.content).toMatchObject({
+      kind: 'error',
+      text: 'Needs attention',
+    });
+  });
+
+  it('represents a failure even when no stream or marks are available', () => {
+    const summary = summarizeLive(
+      null,
+      context({ terminalReason: 'turn_setup_failed' }),
+    );
+
+    expect(summary.marks).toEqual([
+      expect.objectContaining({
+        kind: 'terminal',
+        tone: 'error',
+        timestamp: 0,
+      }),
+    ]);
+    expect(summary.content).toMatchObject({
+      kind: 'error',
+      text: 'Needs attention',
+    });
   });
 
   it('keeps a null terminal reason in the idle state', () => {

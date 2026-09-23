@@ -10,19 +10,10 @@ import type {
 import { generateAgentColor } from '../../utils/agent-color.utils';
 
 export type CompactSummaryStatusTone =
-  | 'idle'
-  | 'live'
-  | 'success'
-  | 'warning'
-  | 'error';
+  'idle' | 'live' | 'success' | 'warning' | 'error';
 
 export type CompactSemanticMarkKind =
-  | 'tool'
-  | 'agent'
-  | 'prose'
-  | 'prompt'
-  | 'compaction'
-  | 'terminal';
+  'tool' | 'agent' | 'prose' | 'prompt' | 'compaction' | 'terminal';
 
 export interface CompactSemanticMark {
   readonly id: string;
@@ -41,12 +32,7 @@ export interface CompactSemanticMark {
 
 export interface CompactSummaryContent {
   readonly kind:
-    | 'question'
-    | 'permission'
-    | 'error'
-    | 'prose'
-    | 'result'
-    | 'idle';
+    'question' | 'permission' | 'error' | 'prose' | 'result' | 'idle';
   readonly text: string;
   readonly additionalPromptCount: number;
   readonly actionable: boolean;
@@ -118,11 +104,25 @@ export function summarizeFinalized(
   context: CompactSummaryContext,
 ): CompactSessionSummary {
   const items: SemanticItem[] = [];
+  let latestTurnStart = 0;
+  let terminalTime: number | undefined;
   for (const message of messages) {
+    if (message.role === 'user') {
+      latestTurnStart = items.length;
+      terminalTime = undefined;
+      continue;
+    }
     if (!message.streamingState) continue;
     collectFinalizedNode(message.streamingState, items, context.workspacePath);
+    terminalTime = message.streamingState.endTime;
   }
-  return buildSummary(items.slice(-MAX_ITEMS), context);
+  const omitted = Math.max(0, items.length - MAX_ITEMS);
+  return buildSummary(
+    items.slice(omitted),
+    context,
+    Math.max(0, latestTurnStart - omitted),
+    terminalTime,
+  );
 }
 
 function liveItems(
@@ -291,10 +291,71 @@ function collectFinalizedNode(
   }
 }
 
+// Badge error tones also cover limits and deliberate stops. Only genuine
+// failures may change assistant prose into an error result.
+const FAILURE_REASONS: ReadonlySet<SdkTerminalReason> = new Set([
+  'prompt_too_long',
+  'image_error',
+  'model_error',
+  'api_error',
+  'malformed_tool_use_exhausted',
+  'tool_deferred_unavailable',
+  'structured_output_retry_exhausted',
+  'turn_setup_failed',
+]);
+
+function markFailedTurn(
+  items: readonly SemanticItem[],
+  context: CompactSummaryContext,
+  latestTurnStart: number,
+  terminalTime?: number,
+): readonly SemanticItem[] {
+  const reason = context.terminalReason;
+  const status = terminalStatus(reason);
+  if (!reason || !FAILURE_REASONS.has(reason) || !status) return items;
+  for (let index = items.length - 1; index >= latestTurnStart; index -= 1) {
+    if (items[index].kind === 'prose') {
+      return [
+        ...items.slice(0, index),
+        { ...items[index], tone: 'error', contentKind: 'error' },
+        ...items.slice(index + 1),
+      ];
+    }
+  }
+  // Live message_complete already supplies a terminal mark. Reuse it instead
+  // of adding a second row; finalized trees do not otherwise emit terminals.
+  const terminalIndex = items.findIndex(
+    (item, index) => index >= latestTurnStart && item.kind === 'terminal',
+  );
+  const existing = items[terminalIndex];
+  const label = status.text;
+  const terminal: SemanticItem = {
+    id: existing?.id ?? 'terminal:failure',
+    kind: 'terminal',
+    tone: 'error',
+    label,
+    text: label,
+    contentKind: 'error',
+    timestamp:
+      terminalTime ??
+      existing?.timestamp ??
+      Math.max(0, ...items.map((item) => item.timestamp)),
+  };
+  return [...items.filter((_, index) => index !== terminalIndex), terminal];
+}
+
 function buildSummary(
   items: readonly SemanticItem[],
   context: CompactSummaryContext,
+  latestTurnStart = 0,
+  terminalTime?: number,
 ): CompactSessionSummary {
+  const semanticItems = markFailedTurn(
+    items,
+    context,
+    latestTurnStart,
+    terminalTime,
+  );
   const questions = [...(context.questions ?? [])].sort(
     (a, b) => a.timestamp - b.timestamp,
   );
@@ -328,7 +389,7 @@ function buildSummary(
         },
       ]
     : [];
-  const marks = [...items, ...promptMarks, ...compactionMarks]
+  const marks = [...semanticItems, ...promptMarks, ...compactionMarks]
     .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
     .slice(-MAX_MARKS)
     .map(({ id, kind, tone, label, timestamp, text }) => ({
@@ -340,10 +401,10 @@ function buildSummary(
       text,
     }));
 
-  const content = selectContent(questions, permissions, items, context);
+  const content = selectContent(questions, permissions, semanticItems, context);
   const status = selectStatus(
     questions.length + permissions.length,
-    items,
+    semanticItems,
     context,
   );
   return {
@@ -358,7 +419,7 @@ function buildSummary(
       model: context.metrics?.model ?? null,
       tokens: context.metrics?.tokens ?? 0,
       cost: context.metrics?.cost ?? null,
-      agentCount: context.metrics?.agentCount ?? countAgents(items),
+      agentCount: context.metrics?.agentCount ?? countAgents(semanticItems),
       compactionCount: context.metrics?.compactionCount ?? 0,
     },
   };

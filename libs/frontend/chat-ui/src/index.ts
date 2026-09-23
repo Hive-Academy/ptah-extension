@@ -15,6 +15,10 @@ export { ExpandableContentComponent } from './lib/atoms/expandable-content.compo
 export { FilePathLinkComponent } from './lib/atoms/file-path-link.component';
 export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
+export {
+  SplitHandleComponent,
+  type SplitHandleOrientation,
+} from './lib/atoms/split-handle.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
 export { ThemeToggleComponent } from './lib/atoms/theme-toggle.component';
