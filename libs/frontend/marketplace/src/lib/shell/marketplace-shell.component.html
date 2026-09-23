@@ -1,0 +1,85 @@
+<div class="flex h-full w-full min-w-0 flex-col bg-base-100">
+  <!--
+    Header, in BOTH hosts (plan C6, TASK_2026_540 Gate 2). One row: back
+    button (VS Code only), mark, breadcrumb. No <h1> here — each page renders
+    its own single <h1>.
+  -->
+  <header
+    data-testid="marketplace-header"
+    class="flex min-w-0 shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3"
+    [class.h-12]="showBack()"
+    [class.h-10]="!showBack()"
+  >
+    @if (showBack()) {
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-circle shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        aria-label="Back to chat"
+        title="Back to chat"
+        data-testid="marketplace-back"
+        (click)="goBack()"
+      >
+        <lucide-angular
+          [img]="ArrowLeftIcon"
+          class="h-4 w-4"
+          aria-hidden="true"
+        />
+      </button>
+    }
+    <div
+      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10"
+      aria-hidden="true"
+    >
+      <lucide-angular [img]="StoreIcon" class="h-4 w-4 text-primary" />
+    </div>
+    <nav
+      aria-label="Breadcrumb"
+      class="min-w-0 flex-1"
+      data-testid="marketplace-breadcrumb"
+    >
+      <ol class="flex min-w-0 items-center gap-1.5 text-sm">
+        @if (pageLabel(); as label) {
+          <li class="shrink-0">
+            <a
+              [routerLink]="overviewLink"
+              class="rounded-sm text-base-content-muted transition-colors duration-150 hover:text-base-content motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              >Marketplace</a
+            >
+          </li>
+          <li class="flex min-w-0 items-center gap-1.5">
+            <span class="text-base-content-muted" aria-hidden="true">/</span>
+            <span
+              class="truncate font-semibold text-base-content"
+              aria-current="page"
+              >{{ label }}</span
+            >
+          </li>
+        } @else {
+          <li class="min-w-0">
+            <span
+              class="truncate font-semibold text-base-content"
+              aria-current="page"
+              >Marketplace</span
+            >
+          </li>
+        }
+      </ol>
+    </nav>
+  </header>
+
+  <div class="flex min-h-0 min-w-0 flex-1">
+    <ptah-marketplace-nav [compact]="compact()" [route]="route()" />
+    <!-- The scroll owner and the ptah-mp-content container (plan D3). -->
+    <main
+      #main
+      data-testid="marketplace-content"
+      class="mp-content min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+    >
+      <router-outlet />
+    </main>
+  </div>
+
+  @if (!compact()) {
+    <ptah-marketplace-status-bar />
+  }
+</div>

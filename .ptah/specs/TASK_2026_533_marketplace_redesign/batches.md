@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 8/29
+Total tasks: 63 | Batches: 29 | Complete: 9/29
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7d. IN_PROGRESS: Batch 12 (marketplace, main checkout)
-and Batch 7b (ui, own worktree based on the Batch 4 commit).
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7d, 12. IN_PROGRESS: Batch 7b (ui, own worktree, in review).
+Next after 7b: 7c (ui) and 8 (marketplace); after 8: 9.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -54,6 +54,9 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
 - Batch 7d decisions (binding on Batches 11, 13, 15, 16, 20-24): the card input is `heading` (not `title`); loading tiles use `<ptah-catalog-card-skeleton>`; consumers put `role="listitem"` on each `ptah-catalog-grid` child; Batches 24 and 25 verify the `@container` columns (1/2/3/4 at 480/800/1200) and the card compact trigger in a real browser, including 2 columns in the dashboard `max-w-2xl` dialog.
 - Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 699 lines (cap 700). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
 - Batch 4 outcome (binding on 7b, 7c, 17, 25): the vendoring script also writes `libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt` (theSVG MIT, pinned SHA, trademark note, the 10 marks needing attribution: Angular CC-BY-4.0, SonarQube LGPL-3.0, Attio, Pipedrive, Monday.com, Apollo.io, Exa, Firecrawl, Slack, Tavily; AI vendors covered generically, never named). A scanner-token guard fails the run on any banned token. The notices ship in the VSIX (build-esbuild assets) and Electron (build-main assets + `electron-builder.yml` extraResources). `scripts/brand-icons/rejection-report.md` is kept, not shipped. Any edit to the manifest or script must be followed by `npm run vendor:brand-icons -- --check`.
+- Batch 12 contract (BINDING on Batches 10, 13, 14, 15, 16): (1) each page renders its search field inside `<main>` as `input[type="search"]` or `[role="searchbox"]` so the shell's `/` shortcut finds it; when the field is not shown it is hidden with the `hidden` attribute or `inert`, never only a CSS class (the shell's `pageSearch()` checks only `[hidden]`/`[inert]`); (2) each page renders exactly one `<h1>`; (3) the status bar lists ↑↓ / Enter / Esc hints — pages from Batch 13 on must implement those keys, or the batch that lands a page without them trims the hints.
+- Batch 12 files for later batches: `shell/marketplace-route-url.ts` exports `MARKETPLACE_SURFACE`, `marketplaceRouteLink` and `marketplaceRouteOfUrl` (use these for in-marketplace links; do not import the shell or nav from pages); `shell/marketplace-nav-counts.ts` holds the zero-RPC nav counts. Batch 17 wires the shell as the `''` route component.
+- Batch 7b contract (BINDING): `CLI_TARGET_BRANDS` is a discriminated union `{ kind: 'brand'; brandSlug } | { kind: 'provider-mark'; providerId: 'opencode' }`; `vscode` stays a monogram. Batch 9 (TargetMarks) handles both kinds. Batch 7c imports `PROVIDER_BRAND_ART` directly from `brand-marks.generated.ts` (it is not re-exported by the barrel).
 - Batch 1 facts for Batch 4: monogram slugs `klaviyo`, `zernio`, `context7`,
   `google-people`; `huggingface` chosen over `hugging-face` (see Task 4.2).
 - Commit convention (from `git log`): Conventional Commits,
@@ -278,7 +281,7 @@ Edge cases:
 - Files exist; verification passes; A1 and R6 outcomes stated in the report
 - Reviewer: code-logic-reviewer
 
-## Batch 4: Brand-icon vendoring pipeline (C12) — COMPLETE
+## Batch 4: Brand-icon vendoring pipeline (C12) — COMPLETE (commit 71ecac2a7)
 
 - Recommended executor: frontend-developer
 - Fallback executor: devops-engineer
@@ -449,7 +452,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\provider-mark\provider-mark.component.ts`, `...\provider-mark\provider-mark.component.spec.ts`, `...\provider-mark\provider-marks.data.ts`, `...\provider-mark\provider-marks.data.spec.ts` (all under `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\`)
 - Plan reference: implementation-plan.md C14 (:587-596, :608-609), R1 follow-through (:743)
 - Pattern to follow: `provider-mark.component.ts:52-58` (resolution rule), `provider-marks.data.ts:22-24` (one-record edit)
-- Quality requirements: selector and inputs (`providerId`, `fallback`) unchanged; template is `<ptah-mark-svg paint="mono">`; resolution `PROVIDER_BRAND_SLUGS` → `PROVIDER_BRAND_ART` (never `BRAND_MARKS`) → `PROVIDER_MARKS` stroke artwork → lucide fallback; the lucide pins at `provider-marks.data.ts:105-106` removed; remaining records re-typed to `MarkArtwork` (`kind:'stroke'`); licensing doc comment `:27-32` updated to cite R1.
+- Quality requirements: selector and inputs (`providerId`, `fallback`) unchanged; template is `<ptah-mark-svg paint="mono">`; resolution `PROVIDER_BRAND_SLUGS` → `PROVIDER_BRAND_ART` (never `BRAND_MARKS`) — imported directly from `../brand-mark/brand-marks.generated` (not re-exported by the barrel) → `PROVIDER_MARKS` stroke artwork → lucide fallback; the lucide pins at `provider-marks.data.ts:105-106` removed; remaining records re-typed to `MarkArtwork` (`kind:'stroke'`); licensing doc comment `:27-32` updated to cite R1.
 - Validation notes: existing specs updated only where anthropic/claude-cli now render vendored artwork; `libs/frontend/chat/.../provider-setup-wizard.component.spec.ts:1025` and `provider-connection-card` consumers stay green.
 - Implementation details: no new inputs.
 
@@ -558,7 +561,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\status-pill.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\target-marks.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`StatusPill`, `TargetMarks`)
 - Pattern to follow: `libs/frontend/ui/src/lib/native/brand-mark/brand-mark.component.ts` (Batch 7b)
-- Quality requirements: icon + text (never colour alone); overlapping CLI marks via `ptah-brand-mark` + `CLI_TARGET_BRANDS` from `@ptah-extension/ui`, sr-only label list; no theme input.
+- Quality requirements: icon + text (never colour alone); overlapping CLI marks via `ptah-brand-mark` + `CLI_TARGET_BRANDS` from `@ptah-extension/ui`, sr-only label list; no theme input. `CLI_TARGET_BRANDS` entries are either `{kind:'brand'}` (render `ptah-brand-mark`) or `{kind:'provider-mark', providerId:'opencode'}` (render `ptah-provider-mark`); `vscode` renders a monogram.
 - Validation notes: unknown status renders neutral with raw text.
 - Implementation details: inputs/outputs only.
 
@@ -657,7 +660,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer
 
-## Batch 12: Shell, nav and status bar (C6) — IN_PROGRESS
+## Batch 12: Shell, nav and status bar (C6) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -667,7 +670,7 @@ Edge cases:
 - Header rule RESOLVED (External coordination item 4, plan C6 :365): header in both hosts; back button only in VS Code; slim single row in Electron. h1 ownership DECIDED: shell breadcrumb `<nav aria-label="Breadcrumb">` with no `h1`; each page owns its single `h1`.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 12.1: `MarketplaceShellComponent` — IN_PROGRESS
+### Task 12.1: `MarketplaceShellComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-shell.component.ts`, `...\shell\marketplace-shell.component.html`, `...\shell\marketplace-shell.component.spec.ts` (all under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`)
 - Plan reference: implementation-plan.md C6
@@ -676,7 +679,7 @@ Edge cases:
 - Validation notes: spec — header present in Electron WITHOUT a back button, header present in VS Code WITH it; exactly one `h1` in the rendered page; mounting the shell alone fires 0 RPC (spy); `/` handling; remembered route written; 400px compact render without horizontal overflow; migrate hub spec "keeps the Marketplace heading"/`goBack` assertions.
 - Implementation details: pages own their `h1`.
 
-### Task 12.2: `MarketplaceNavComponent` + `MarketplaceStatusBarComponent` — IN_PROGRESS
+### Task 12.2: `MarketplaceNavComponent` + `MarketplaceStatusBarComponent` — COMPLETE
 
 - Depends on: Task 12.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-nav.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-status-bar.component.ts` (+`.spec.ts`, added — the plan lists none)
@@ -1137,5 +1140,6 @@ Edge cases:
 
 ### Batch 25 verification
 
+- Open risk carried here: a flaky marketplace test failed once in the Batch 6 verification run (first seen at `connector-links.store.spec.ts:1081`); not reproduced in 12+ later runs incl. `--randomize`; the exact spec is unconfirmed. A Jest "worker process has failed to exit gracefully" warning appears on every marketplace run regardless of pass/fail. Batch 25 runs the marketplace suite repeatedly (e.g. 10x with `--randomize`) and chases the open handle with `--detectOpenHandles`.
 - Real-host tier check (from Batch 3 review): in a real host build, resize the container across 900 and 1400 WITHOUT any manual change detection and assert the tier flips (rail ↔ sidebar, drawer ↔ docked detail). Belongs in `marketplace-routes.e2e.spec.ts` (Task 25.1).
 - Reviewer: visual-reviewer (rendered interface parity), after senior-tester's run is green
