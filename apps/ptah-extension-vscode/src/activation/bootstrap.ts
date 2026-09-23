@@ -20,7 +20,10 @@ import {
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
-import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import {
+  registerRpcSurface,
+  runCursorApiKeyMigration,
+} from '@ptah-extension/rpc-handlers';
 import type { CommandManager } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
 import { registerSetupAgentsCommand } from '../commands/setup-agents-command';
@@ -103,6 +106,7 @@ export async function bootstrapVscode(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
+    await runCursorApiKeyMigration(diContainer);
     // Publish user-defined providers to the shared registry cache BEFORE
     // anything resolves a provider by id — until this runs,
     // getAnthropicProvider() knows only the built-ins.

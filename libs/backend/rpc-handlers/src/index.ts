@@ -91,6 +91,7 @@ export type {
 export * from './lib/host-profile';
 export * from './lib/verify-and-report';
 export { migrateCursorApiKeyToSecrets } from './lib/migrations/cursor-api-key-migration';
+export { runCursorApiKeyMigration } from './lib/migrations/run-cursor-api-key-migration';
 export {
   registerSharedRpcHandlers,
   activateSessionLifecycleNotifier,

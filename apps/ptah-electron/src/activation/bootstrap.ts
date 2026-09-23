@@ -28,7 +28,10 @@ import {
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
-import { activateSessionLifecycleNotifier } from '@ptah-extension/rpc-handlers';
+import {
+  activateSessionLifecycleNotifier,
+  runCursorApiKeyMigration,
+} from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
@@ -212,6 +215,7 @@ export async function bootstrapElectron(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
+    await runCursorApiKeyMigration(container);
     // Publish user-defined providers to the shared registry cache BEFORE
     // anything resolves a provider by id — until this runs,
     // getAnthropicProvider() knows only the built-ins.
