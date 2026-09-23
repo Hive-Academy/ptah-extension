@@ -13,6 +13,14 @@ export {
 } from './lib/marketplace/marketplace-section';
 
 export {
+  type MarketplaceRoute,
+  type MarketplaceServerSource,
+  type MarketplaceSkillSource,
+  marketplaceRouteCommands,
+  marketplaceRouteFromSegments,
+} from './lib/marketplace/marketplace-route';
+
+export {
   SESSION_DATA_PROVIDER,
   type ISessionDataProvider,
 } from './lib/tokens/session-data.token';

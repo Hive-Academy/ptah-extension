@@ -26,6 +26,9 @@
  *   - The same slice also carries the in-surface pointers `thothActiveTab` and
  *     `marketplaceActiveProvider`, so neither survives a workspace switch
  *     (TASK_2026_228).
+ *   - `marketplaceRoute` — the Marketplace page memory — lives in that slice
+ *     too, with the same per-workspace isolation; `openMarketplace` navigates
+ *     to a page under the `canSwitchViews` guard (TASK_2026_533).
  *   - Global configuration surfaces (TASK_2026_540): thoth / setup-hub /
  *     marketplace / settings are recorded in one NOT-workspace-partitioned
  *     state written only by the constructor effect; slices refuse them; a
@@ -66,6 +69,7 @@ import {
   makeSignalStoreHarness,
   provideSurfaceRouterTesting,
   settleSurfaceNavigation as settle,
+  surfaceTestRoutes,
 } from '../../testing';
 
 interface AppStoreState {
@@ -1232,6 +1236,214 @@ describe('AppStateManager', () => {
 
       expect(service.thothActiveTab()).toBe('cron');
       expect(service.marketplaceActiveProvider()).toBe('skills-sh');
+    });
+  });
+
+  describe('marketplace route memory (TASK_2026_533)', () => {
+    it('remembers nothing until a Marketplace page settles', () => {
+      const service = createService();
+      expect(service.marketplaceRoute()).toBeNull();
+    });
+
+    it("does NOT carry the previous workspace's Marketplace page onto a never-visited workspace", () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.rememberMarketplaceRoute({ page: 'servers', source: 'smithery' });
+      expect(service.marketplaceRoute()).toEqual({
+        page: 'servers',
+        source: 'smithery',
+      });
+
+      service.switchWorkspace('/ws/b');
+
+      // B's installed servers are not A's; restoring A's page would show B's
+      // inventory under A's selection.
+      expect(service.marketplaceRoute()).toBeNull();
+    });
+
+    it('restores each workspace page on return (A→B→A)', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.rememberMarketplaceRoute({ page: 'skills', source: 'community' });
+
+      service.switchWorkspace('/ws/b');
+      service.rememberMarketplaceRoute({ page: 'connectors' });
+
+      service.switchWorkspace('/ws/a');
+      expect(service.marketplaceRoute()).toEqual({
+        page: 'skills',
+        source: 'community',
+      });
+
+      service.switchWorkspace('/ws/b');
+      expect(service.marketplaceRoute()).toEqual({ page: 'connectors' });
+    });
+
+    it('keeps the page independent of the view pointer and the old provider field in the same slice', async () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      await settle();
+      service.rememberMarketplaceRoute({ page: 'servers' });
+      service.setMarketplaceActiveProvider('apps:smithery');
+
+      // Every navigation rewrites the slice through the constructor effect —
+      // the page memory must survive that, not be reset by it.
+      service.setCurrentView('thoth');
+      await settle();
+      service.setCurrentView('marketplace');
+      await settle();
+      service.closeView('thoth');
+      await settle();
+
+      expect(service.marketplaceRoute()).toEqual({ page: 'servers' });
+      expect(service.marketplaceActiveProvider()).toBe('apps:smithery');
+      expect(service.currentView()).toBe('marketplace');
+    });
+
+    it('carries a page remembered before the first workspace arrives onto that workspace', () => {
+      const service = createService();
+      service.rememberMarketplaceRoute({ page: 'overview' });
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.marketplaceRoute()).toEqual({ page: 'overview' });
+    });
+
+    it('removeWorkspaceState drops the page so a re-added workspace starts from none', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.rememberMarketplaceRoute({ page: 'connectors' });
+      service.switchWorkspace('/ws/b');
+
+      service.removeWorkspaceState('/ws/a');
+      service.switchWorkspace('/ws/a');
+
+      expect(service.marketplaceRoute()).toBeNull();
+    });
+
+    it('switching to the already-active workspace leaves the page alone', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.rememberMarketplaceRoute({ page: 'skills' });
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.marketplaceRoute()).toEqual({ page: 'skills' });
+    });
+
+    it('re-remembering the same page keeps the stored value, so readers are not re-notified', () => {
+      const service = createService();
+      service.rememberMarketplaceRoute({ page: 'servers', source: 'registry' });
+      const stored = service.marketplaceRoute();
+
+      service.rememberMarketplaceRoute({ page: 'servers', source: 'registry' });
+
+      expect(service.marketplaceRoute()).toBe(stored);
+    });
+
+    it('replaces the page when only the source differs', () => {
+      const service = createService();
+      service.rememberMarketplaceRoute({ page: 'servers', source: 'registry' });
+
+      service.rememberMarketplaceRoute({ page: 'servers' });
+
+      expect(service.marketplaceRoute()).toEqual({ page: 'servers' });
+    });
+  });
+
+  describe('openMarketplace (TASK_2026_533)', () => {
+    /**
+     * The shared testing table gives `marketplace` no children, so a sub-path
+     * would fall through to the wildcard. A catch-all child stands in for the
+     * Marketplace route tree, which lives in the marketplace library.
+     */
+    function withMarketplaceChildren(): Router {
+      const router = TestBed.inject(Router);
+      router.resetConfig(
+        surfaceTestRoutes().map((route) =>
+          route.path === 'marketplace'
+            ? { path: 'marketplace', children: [{ path: '**', children: [] }] }
+            : route,
+        ),
+      );
+      return router;
+    }
+
+    it.each([
+      [{ page: 'overview' } as const, '/marketplace/overview'],
+      [{ page: 'connectors' } as const, '/marketplace/connectors'],
+      [
+        { page: 'servers', source: 'smithery' } as const,
+        '/marketplace/servers/smithery',
+      ],
+      [
+        { page: 'skills', source: 'ptah-plugins' } as const,
+        '/marketplace/skills/ptah-plugins',
+      ],
+      [{ page: 'skills' } as const, '/marketplace/skills'],
+    ])('opens %j at %s', async (route, url) => {
+      const service = createService();
+      const router = withMarketplaceChildren();
+
+      service.openMarketplace(route);
+      await settle();
+
+      expect(router.url).toBe(url);
+      expect(service.currentView()).toBe('marketplace');
+      expect(service.openViews()).toContain('marketplace');
+    });
+
+    it('does not write the page memory ahead of the Marketplace recording it', async () => {
+      // The shell records the settled page. Writing the TARGET here would be
+      // an optimistic mirror of the location (TASK_2026_317).
+      const service = createService();
+      withMarketplaceChildren();
+
+      service.openMarketplace({ page: 'servers', source: 'smithery' });
+      await settle();
+
+      expect(service.marketplaceRoute()).toBeNull();
+    });
+
+    it('is a no-op while loading', async () => {
+      const service = createService();
+      const router = withMarketplaceChildren();
+      service.setLoading(true);
+
+      service.openMarketplace({ page: 'connectors' });
+      await settle();
+
+      expect(service.currentView()).toBe('chat');
+      expect(router.url).not.toContain('marketplace');
+    });
+
+    it('is a no-op when disconnected', async () => {
+      const service = createService();
+      const router = withMarketplaceChildren();
+      service.setConnected(false);
+
+      service.openMarketplace({ page: 'connectors' });
+      await settle();
+
+      expect(service.currentView()).toBe('chat');
+      expect(router.url).not.toContain('marketplace');
+    });
+
+    it('records the settled surface against the workspace that asked', async () => {
+      const service = createService();
+      withMarketplaceChildren();
+      service.switchWorkspace('/ws/a');
+      await settle();
+
+      service.openMarketplace({ page: 'overview' });
+      await settle();
+      service.switchWorkspace('/ws/b');
+      await settle();
+      expect(service.currentView()).toBe('chat');
+
+      service.switchWorkspace('/ws/a');
+      await settle();
+      expect(service.currentView()).toBe('marketplace');
     });
   });
 

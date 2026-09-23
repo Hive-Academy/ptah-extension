@@ -1,6 +1,6 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 2/29
+Total tasks: 63 | Batches: 29 | Complete: 3/29
 
 Wave A (Batches 1, 2, 3) is IN_PROGRESS together: they are a parallel group on
 three different Nx projects.
@@ -68,7 +68,7 @@ Agreed 2026-09-23:
 3. 540 replaces the per-workspace `_viewSlices` for those four surfaces with one GLOBAL, generic per-surface slot in `AppStateManager`. After the rebase, `marketplaceRoute: MarketplaceRoute | null` (added per-workspace in Batch 2) moves into 540's global Marketplace slot, and the per-workspace specs (`app-state.service.spec.ts`, `workspace-coordinator.service.spec.ts:511-540`) become global-state specs — Batch 18b.
 4. OPEN (answer pending from 540's architect): with the Electron Marketplace tab gone, if 540's menu button does not show the active surface, Batch 12 must render the breadcrumb header (without the back button) in Electron too. Batch 12 must not start its header task until the orchestrator relays the answer.
 
-Open item for the architect (from Batch 2, pinned by `surface-router.service.spec.ts:683-697`): a bare `/marketplace` navigation (Electron menu/tab, `setCurrentView('marketplace')`) while a detail is open (`/marketplace/servers/claude-user:sentry`) closes the detail and keeps the list instance, because only the PAGE is remembered. Consistent with D2 "detail ids dropped", but user-visible; with 540's menu opening the bare root this path becomes common. Decision needed before Batch 17 (keep, or remember the detail ref too).
+Open item for the architect (from Batch 2, pinned by `surface-router.service.spec.ts:702` ("A3: a bare /marketplace navigation keeps the list but closes an open detail")): a bare `/marketplace` navigation (Electron menu/tab, `setCurrentView('marketplace')`) while a detail is open (`/marketplace/servers/claude-user:sentry`) closes the detail and keeps the list instance, because only the PAGE is remembered. Consistent with D2 "detail ids dropped", but user-visible; with 540's menu opening the bare root this path becomes common. Decision needed before Batch 17 (keep, or remember the detail ref too).
 
 ## Plan validation
 
@@ -182,7 +182,7 @@ Edge cases:
 - Pre-commit fix (returned to the Batch 1 executor, not applied by team-leader): `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\connectors-surface.component.spec.ts:65-78` builds a `PtahConnector` literal without the now-required `brandSlug`; jest (isolatedModules) and `typecheck` (specs excluded) both miss it. Add `brandSlug` to the fixture and rerun `npx nx test @ptah-extension/marketplace`. The file is committed with Batch 1.
 - Edge cases: unquotable key, connector rows without a command
 
-## Batch 2: Core navigation API, additive (C1 minus DELETE and caller migration) — IN_PROGRESS
+## Batch 2: Core navigation API, additive (C1 minus DELETE and caller migration) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x1 (single self-contained prompt)
@@ -191,7 +191,7 @@ Edge cases:
 - Tasks: 3 | Depends on: none
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core` then `npx nx run-many -t typecheck -p @ptah-extension/chat @ptah-extension/marketplace`
 
-### Task 2.1: `MarketplaceRoute` model and mappers — IMPLEMENTED
+### Task 2.1: `MarketplaceRoute` model and mappers — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\marketplace\marketplace-route.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\lib\marketplace\marketplace-route.spec.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\index.ts`
 - Plan reference: implementation-plan.md:113-148 (D2 table at :131-143)
@@ -200,7 +200,7 @@ Edge cases:
 - Validation notes: spec walks the D2 table row by row, including the retired ids from `marketplace-state.service.spec.ts:99-120` (→ null → overview). Old exports (`encodeMarketplaceTarget`, `parseMarketplaceTarget`, types) STAY exported until Batch 18.
 - Implementation details: add named exports to `core/src/index.ts` next to `:6-13`.
 
-### Task 2.2: `navigateToSurface(id, subPath)` and AppStateManager route memory — IMPLEMENTED
+### Task 2.2: `navigateToSurface(id, subPath)` and AppStateManager route memory — COMPLETE
 
 - Depends on: Task 2.1
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\routing\surface-router.service.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\lib\routing\surface-router.service.spec.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.spec.ts`
@@ -210,7 +210,7 @@ Edge cases:
 - Validation notes: ADD the new `marketplaceRoute` slice field beside `marketplaceActiveProvider` — the old field and setter stay until Batch 18 because `marketplace-state.service.ts:47,95,119` still reads them. Specs: sub-path `navigated` / `already-there` / `failed`; per-workspace isolation of `marketplaceRoute` mirroring `app-state.service.spec.ts:880-967`.
 - Implementation details: default `subPath = []` keeps every existing caller unchanged.
 
-### Task 2.3: Probe A2 and A3 with a real router — IMPLEMENTED
+### Task 2.3: Probe A2 and A3 with a real router — COMPLETE
 
 - Depends on: Task 2.2
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\routing\surface-router.service.spec.ts` (same file as 2.2; new `describe`)
@@ -226,7 +226,7 @@ Edge cases:
 - A2 and A3 results stated explicitly in the report
 - Reviewer: code-logic-reviewer (router result semantics, guard)
 
-## Batch 3: Ref codecs and layout tier (C5 part) — COMPLETE
+## Batch 3: Ref codecs and layout tier (C5 part) — COMPLETE (commit 11d3878e5)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x2 (codecs / layout)
