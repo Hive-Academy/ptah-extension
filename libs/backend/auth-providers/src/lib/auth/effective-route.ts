@@ -19,6 +19,8 @@
  */
 
 import {
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
   resolveStrategy,
   type EffectiveRouteProvider,
@@ -34,6 +36,10 @@ export type {
 /** Auth-related config slice the resolver consumes. */
 export interface EffectiveRouteConfig {
   authMethod: string | null;
+  /**
+   * `llm.defaultProvider`, reported by `ptah doctor`. NOT used for the driver
+   * identity: the main-agent runtime (ActiveProviderResolver) ignores it.
+   */
   defaultProvider: string | null;
   anthropicProviderId: string | null;
 }
@@ -79,27 +85,19 @@ export function resolveEffectiveAuthRoute(
     return t.length > 0 ? t : null;
   };
 
-  let driverProviderId: string | null = null;
+  // Driver identity follows the runtime contract (`ActiveProviderResolver`):
+  // apiKey always drives the direct Anthropic provider and thirdParty without a
+  // selector falls back to DEFAULT_PROVIDER_ID. `config.defaultProvider`
+  // (`llm.defaultProvider`) is an unrelated LLM-panel setting the runtime never
+  // consults for the main agent, so it must not pick the driver here either.
+  let driverProviderId: string;
   if (legacy === 'claudeCli') {
     driverProviderId = 'claude-cli';
   } else if (legacy === 'thirdParty') {
     driverProviderId =
-      normalize(config.anthropicProviderId) ??
-      normalize(config.defaultProvider);
-  } else if (legacy === 'apiKey') {
-    driverProviderId = normalize(config.defaultProvider) ?? 'anthropic';
-  }
-
-  if (driverProviderId === null) {
-    blockers.push(
-      'no provider selected — choose a provider and configure its credentials',
-    );
-    return {
-      route: 'unresolved',
-      ready: false,
-      blockers,
-      driverProviderId: null,
-    };
+      normalize(config.anthropicProviderId) ?? DEFAULT_PROVIDER_ID;
+  } else {
+    driverProviderId = ANTHROPIC_DIRECT_PROVIDER_ID;
   }
 
   const driver = providers.find((p) => p.id === driverProviderId);
@@ -122,9 +120,7 @@ export function resolveEffectiveAuthRoute(
   });
 
   if (!driver) {
-    blockers.push(
-      `driver provider '${driverProviderId ?? '(none)'}' not found in registry`,
-    );
+    blockers.push(`driver provider '${driverProviderId}' not found in registry`);
   } else {
     if (driver.status === 'needs-key') {
       blockers.push(`provider '${driver.id}' has no API key configured`);

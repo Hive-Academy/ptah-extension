@@ -2,6 +2,8 @@ import {
   Component,
   Input,
   NgModule,
+  input,
+  output,
   ChangeDetectionStrategy,
   signal,
   CUSTOM_ELEMENTS_SCHEMA,
@@ -123,6 +125,18 @@ describe('SettingsComponent deep-link', () => {
     const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
     expect(fixture.componentInstance.providersTarget()).toBe('memory-curator');
   });
+  it('R2.7: reacts to a pending tab raised while Settings is already open', async () => {
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.detectChanges();
+    // Agent Orchestration's "Manage provider, model and credentials in Providers".
+    appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
+    TestBed.tick();
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+    expect(fixture.componentInstance.providersTarget()).toBe('cli-agents');
+    expect(appState.pendingSettingsTab()).toBeNull();
+  });
   it('ngOnInit leaves the default tab when no pending target', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
@@ -221,5 +235,84 @@ describe('SettingsComponent security copy', () => {
         '[data-testid="builtin-provider-security-copy"]',
       ),
     ).toBeNull();
+  });
+});
+
+/**
+ * PR 581: the deep-linked provider request is one-shot. The Providers page is
+ * destroyed when another tab is shown, so a request that stayed set would
+ * reopen the wizard every time the user came back to Providers.
+ */
+describe('SettingsComponent deep-linked provider request', () => {
+  const opened: string[] = [];
+
+  /** Stands in for ProvidersSettingsComponent's deep-link contract (spec'd in its own suite). */
+  @Component({
+    selector: 'ptah-providers-settings',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: '',
+  })
+  class ProvidersPageStub {
+    readonly focusTarget = input<unknown>(null);
+    readonly requestedProviderId = input<string>('');
+    readonly requestedProviderConsumed = output<string>();
+    constructor() {
+      queueMicrotask(() => {
+        const id = this.requestedProviderId();
+        if (id) {
+          opened.push(id);
+          this.requestedProviderConsumed.emit(id);
+        }
+      });
+    }
+  }
+
+  const authStateStub = {
+    isLoading: signal(false),
+    hasAnyCredential: signal(false),
+    showProviderModels: signal(false),
+    effectiveProviderId: signal('openrouter'),
+    hasProviderCredential: signal(false),
+    isCustomProviderSelected: signal(false),
+    selectedCustomHost: signal<string | null>(null),
+    loadAuthStatus: jest.fn().mockResolvedValue(undefined),
+  };
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    opened.length = 0;
+  });
+
+  it('opens the wizard once and does not reopen it after leaving and returning to Providers', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateStub },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, {
+      set: { imports: [ProvidersPageStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    const appState = TestBed.inject(AppStateManager);
+    appState.requestSettingsTab({ tab: 'orchestration', providerId: 'openrouter' });
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(opened).toEqual(['openrouter']);
+    expect(fixture.componentInstance.requestedProviderId()).toBeUndefined();
+
+    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.detectChanges();
+    fixture.componentInstance.setActiveTab('providers');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(opened).toEqual(['openrouter']);
   });
 });

@@ -28,6 +28,7 @@ class ConsumerStub {
 class WizardStub {
   readonly open = input(false);
   readonly deepLinkProviderId = input('');
+  readonly existingCredentialPresent = input(false);
   readonly verifyDraftConnection = input.required<DraftVerifyConnectionFn>();
   readonly cancelDraftVerification = input.required<DraftCancelVerificationFn>();
   readonly supportedSaveTargets = input<readonly SettingScope[]>([]);
@@ -60,7 +61,8 @@ const connection = (id: string): ProvidersConnection => ({ id, name: id, authMod
 const draft: ProviderWizardCommit = { providerId: 'first', displayName: 'First', authMode: 'apiKey', customName: null,
   customProtocol: null, credential: { kind: 'apiKey', value: 'private-draft-key' }, existingKeyReused: false,
   baseUrl: null, verified: { probeId: 'probe', checkedAt: '2026-09-22T10:00:00Z', latencyMs: 1, modelUsed: 'one' },
-  tiers: { everyday: 'one', complex: 'two', fast: 'three' }, saveTo: 'global', activation: 'connect-only' };
+  tiers: { everyday: 'one', complex: 'two', fast: 'three' }, tierSnapshot: { everyday: null, complex: null, fast: null },
+  editedTiers: ['everyday', 'complex', 'fast'], saveTo: 'global', activation: 'connect-only' };
 
 class StateStub {
   readonly connectionSetup = signal(unloaded());
@@ -78,6 +80,8 @@ class StateStub {
   readonly mainSources = signal(ready({}));
   readonly orchestration = signal(ready({ codexModel: '', copilotModel: '', cursorModel: '', antigravityModel: '', opencodeModel: '', piModel: '' }));
   readonly externalAuth = signal<ProvidersSettingsSection<ProvidersExternalAuth>>(unloaded());
+  readonly delegatedModelOptions = signal(unloaded());
+  readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
   readonly verification = signal<ProvidersSettingsSection<AuthVerifyDraftConnectionResult>>(unloaded());
   readonly commit = signal<ProvidersSettingsCommit>(idle);
   // Deliberately stale even during loading: the coordinator must defend the rendering boundary.
@@ -185,11 +189,58 @@ describe('ProvidersSettingsComponent', () => {
     expect(element.textContent).toContain('Model tier: haiku');
     expect(element.textContent).not.toContain('Model: model-a');
 
-    // The unresolved arm: no model decision could be made for this route.
+    // The unresolved arm on a resolved route: the SDK's own `default` model, not an error.
     state.route.set(ready({ ...route, resolvedModel: { kind: 'unresolved' } }));
     await render();
-    expect(element.textContent).toContain('Model has not been resolved.');
+    expect(element.textContent).toContain('Default model (chosen by Claude)');
+    expect(element.textContent).not.toContain('Model has not been resolved.');
     expect(element.textContent).not.toContain('Model tier: haiku');
+  });
+  it('renders no duplicate sign-in row between connection cards', async () => {
+    state.route.set(ready({ ...route, providers: [...route.providers, { id: 'github-copilot', type: 'oauth', status: 'unauthenticated' }] }));
+    state.connections.set(ready([connection('first'), { ...connection('github-copilot'), name: 'Copilot', authMode: 'oauth', hasKey: false }]));
+    await render();
+    const labels = Array.from(element.querySelectorAll('button')).map((node) => node.textContent?.trim());
+    expect(labels).not.toContain('Sign in to Copilot');
+    expect(labels).not.toContain('Check Copilot sign-in');
+    // The card's own action remains.
+    expect(element.querySelectorAll('[data-testid="btn-sign-in"]')).toHaveLength(1);
+  });
+  it('tells the wizard whether the selected provider already has a stored key', async () => {
+    state.connections.set(ready([connection('first'), { ...connection('second'), hasKey: false }]));
+    await render(); button('Connect provider').click(); await render();
+    wizard().providerChanged.emit('first'); await render();
+    expect(wizard().existingCredentialPresent()).toBe(true);
+    wizard().providerChanged.emit('second'); await render();
+    expect(wizard().existingCredentialPresent()).toBe(false);
+  });
+  it('opens the setup wizard for a deep-linked provider once', async () => {
+    const consumed: string[] = [];
+    fixture.componentInstance.requestedProviderConsumed.subscribe((id) => consumed.push(id));
+    fixture.componentRef.setInput('requestedProviderId', 'second'); await render();
+    expect(wizard().deepLinkProviderId()).toBe('second');
+    // Not consumed until the wizard accepts the provider (the stub does not select on its own).
+    expect(consumed).toEqual([]);
+    wizard().providerChanged.emit('second'); await render();
+    // PR 581: the page reports the request as consumed so the parent can clear it.
+    expect(consumed).toEqual(['second']);
+    wizard().closed.emit(); await render();
+    expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
+    // Not reopened by an unrelated render.
+    state.refresh(); await render();
+    expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
+  });
+  it('offers main-agent activation for an uncheckable local provider with a note', async () => {
+    state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'local-native', status: 'skipped' }] }));
+    await render();
+    const cards = Array.from(element.querySelectorAll('ptah-provider-connection-card'));
+    const second = cards.find((card) => card.textContent?.includes('second'));
+    const activate = second?.querySelector<HTMLButtonElement>('[data-testid="btn-activate-main"]');
+    expect(activate).toBeTruthy();
+    activate?.click(); await render();
+    expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
+    element.querySelector<HTMLButtonElement>('section[aria-label="Review main provider change"] button')?.click(); await render();
+    expect(state.activateConnection).toHaveBeenCalledWith('second', 'global', { scopeKey: 'workspace', activePath: '/workspace' });
   });
   it('keeps successful sections usable when another read fails and retries only that read', async () => {
     state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
@@ -297,5 +348,94 @@ describe('ProvidersSettingsComponent', () => {
       expect(node.classList.contains('min-h-9')).toBe(true);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
+  });
+});
+
+/**
+ * PR 581 review round 1: deep links against the REAL page and the REAL wizard,
+ * with a host that clears the request on consumption exactly as SettingsComponent does.
+ */
+describe('ProvidersSettingsComponent deep links with the real wizard', () => {
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, imports: [ProvidersSettingsComponent],
+    template: `<ptah-providers-settings [requestedProviderId]="requested()" (requestedProviderConsumed)="consume($event)" />` })
+  class Host {
+    readonly requested = signal('');
+    readonly consumed: string[] = [];
+    consume(id: string): void {
+      this.consumed.push(id);
+      // SettingsComponent.consumeRequestedProvider
+      if (this.requested() === id) this.requested.set('');
+    }
+  }
+
+  let fixture: ComponentFixture<Host>;
+  let host: Host;
+  let state: StateStub;
+  beforeEach(async () => {
+    state = new StateStub();
+    await TestBed.configureTestingModule({ imports: [Host], providers: [
+      { provide: ProvidersSettingsStateService, useValue: state },
+      { provide: ClaudeRpcService, useValue: { call: jest.fn(async () => new RpcResult(true, { models: [] })) } },
+    ] }).overrideComponent(ProvidersSettingsComponent, {
+      remove: { imports: [ProviderConsumerAssignmentsComponent] },
+      add: { imports: [ConsumerStub] },
+    }).compileComponents();
+    fixture = TestBed.createComponent(Host);
+    host = fixture.componentInstance;
+  });
+  afterEach(() => { fixture.destroy(); TestBed.resetTestingModule(); });
+
+  async function render() {
+    for (let i = 0; i < 3; i++) { fixture.detectChanges(); await fixture.whenStable(); }
+  }
+  function realWizard(): ProviderSetupWizardComponent | null {
+    return fixture.debugElement.query(By.directive(ProviderSetupWizardComponent))?.componentInstance ?? null;
+  }
+  function selectedProvider(): string | null {
+    const radio = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[name="wizard-provider"]:checked');
+    return radio?.value ?? null;
+  }
+  async function discardWizard() {
+    const wizard = realWizard();
+    if (!wizard) throw new Error('wizard not open');
+    // Cancel with a draft (the selection) asks for review; confirm the discard.
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="wizard-cancel"]')?.click(); await render();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="wizard-discard-confirm"]')?.click(); await render();
+  }
+
+  it('keeps a different request pending while the wizard is open and applies it on close — never merely acknowledged', async () => {
+    host.requested.set('openrouter'); await render();
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.consumed).toEqual(['openrouter']);
+    expect(host.requested()).toBe('');
+
+    host.requested.set('requesty'); await render();
+    // The open draft for OpenRouter is not switched away, and B is still pending in the parent.
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.requested()).toBe('requesty');
+    expect(host.consumed).toEqual(['openrouter']);
+
+    await discardWizard();
+    // Closing applies the pending request: the wizard reopens on Requesty and only then consumes it.
+    expect(realWizard()).not.toBeNull();
+    expect(selectedProvider()).toBe('requesty');
+    expect(host.consumed).toEqual(['openrouter', 'requesty']);
+    expect(host.requested()).toBe('');
+  });
+
+  it('opens again for a fresh request for the same provider, but not on an unrelated re-render', async () => {
+    host.requested.set('openrouter'); await render();
+    expect(host.requested()).toBe('');
+    await discardWizard();
+    expect(realWizard()).toBeNull();
+
+    // Unrelated re-render: nothing opens.
+    state.refresh(); state.commit.set({ ...idle }); await render();
+    expect(realWizard()).toBeNull();
+
+    host.requested.set('openrouter'); await render();
+    expect(realWizard()).not.toBeNull();
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.consumed).toEqual(['openrouter', 'openrouter']);
   });
 });

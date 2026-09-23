@@ -296,7 +296,7 @@ function makeRow(
                   @if (draftProviderReadiness(); as readiness) {
                     <div
                       class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-base-content-muted bg-base-100 p-2 text-xs"
-                      role="alert"
+                      [attr.role]="readiness.blocking ? 'alert' : 'status'"
                       [attr.data-testid]="'readiness-alert-' + row.id"
                     >
                       <div class="flex items-center gap-2">
@@ -337,7 +337,7 @@ function makeRow(
                       [attr.data-testid]="'cancel-button-' + row.id"
                     >Cancel</button>
 
-                    @if (isSaveDisabled(row.id) && draftProviderReadiness(); as readiness) {
+                    @if (isSaveDisabled(row.id) && draftProviderReadiness()?.blocking && draftProviderReadiness(); as readiness) {
                       <span class="text-xs text-base-content-muted" [attr.data-testid]="'save-disabled-reason-' + row.id">
                         {{ readiness.message }}
                       </span>
@@ -622,10 +622,12 @@ export class ProviderConsumerAssignmentsComponent {
     return [r1, r2, r3, r4, r5, r6];
   });
 
+  /** `blocking: false` is an advisory note: saving stays allowed. */
   protected readonly draftProviderReadiness = computed<{
     message: string;
     setupProviderId: string | null;
     providerDisplayName: string;
+    blocking: boolean;
   } | null>(() => {
     const activeId = this.activeEditId();
     if (!activeId) return null;
@@ -639,6 +641,7 @@ export class ProviderConsumerAssignmentsComponent {
           message: 'Choose a provider to start the main agent.',
           setupProviderId: '',
           providerDisplayName: 'main provider',
+          blocking: true,
         };
       }
       return null;
@@ -650,6 +653,15 @@ export class ProviderConsumerAssignmentsComponent {
 
     if (entry && (entry.status === 'connected' || entry.status === 'reachable')) {
       return null;
+    }
+    // Local servers are `skipped` and some sign-ins `unknown`: the host cannot check them. Not a failure.
+    if (entry && (entry.status === 'skipped' || entry.status === 'unknown')) {
+      return {
+        message: `Ptah cannot check ${displayName} before use. If requests fail, check that it is running and reachable.`,
+        setupProviderId: null,
+        providerDisplayName: displayName,
+        blocking: false,
+      };
     }
 
     const status = entry?.status ?? 'not-configured';
@@ -669,14 +681,12 @@ export class ProviderConsumerAssignmentsComponent {
         break;
       case 'not-configured':
       case 'missing':
-      case 'unknown':
-      case 'skipped':
       default:
         message = `Set up ${displayName} when you are ready.`;
         break;
     }
 
-    return { message, setupProviderId: providerId, providerDisplayName: displayName };
+    return { message, setupProviderId: providerId, providerDisplayName: displayName, blocking: true };
   });
 
   protected toggleEdit(id: BackgroundConsumerId): void {
@@ -705,7 +715,7 @@ export class ProviderConsumerAssignmentsComponent {
   }
 
   protected isSaveDisabled(id: BackgroundConsumerId): boolean {
-    if (this.isCommitting() || this.disabled() || this.draftProviderReadiness() !== null) return true;
+    if (this.isCommitting() || this.disabled() || this.draftProviderReadiness()?.blocking) return true;
     const row = this.rows().find((r) => r.id === id);
     if (!row) return true;
     const draft = this.currentDraft();

@@ -108,7 +108,8 @@
           </p>
         </div>
       }
-      <ptah-providers-settings [focusTarget]="providersTarget()" [requestedProviderId]="requestedProviderId() ?? ''" />
+      <ptah-providers-settings [focusTarget]="providersTarget()" [requestedProviderId]="requestedProviderId() ?? ''"
+        (requestedProviderConsumed)="consumeRequestedProvider($event)" />
     }
 
     <!-- ============================================ -->

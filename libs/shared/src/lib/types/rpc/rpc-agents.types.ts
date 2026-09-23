@@ -145,6 +145,34 @@ export interface AgentListCliModelsResult {
   pi: CliModelOption[];
 }
 
+/**
+ * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot
+ * (`AgentSpawnEnvironment.mapEffortToCli` allowlist). `''` = CLI default.
+ */
+export const CLI_REASONING_EFFORT_VALUES = [
+  '',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const;
+
+/**
+ * Reasoning-effort values `agent:setConfig` accepts for Pi. Passed raw to
+ * `pi --thinking`, so the host must reject anything else. `''` = CLI default.
+ */
+export const PI_REASONING_EFFORT_VALUES = [
+  '',
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
   /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */

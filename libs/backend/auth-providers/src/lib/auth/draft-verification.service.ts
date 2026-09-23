@@ -38,7 +38,11 @@
 import os from 'node:os';
 
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type IAuthSecretsService,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import {
   InternalQueryService,
   SDK_TOKENS,
@@ -50,7 +54,10 @@ import {
   type OneShotAuthOverride,
   type QueryNetworkVerdict,
 } from '@ptah-extension/agent-sdk';
-import { getAnthropicProvider } from '@ptah-extension/shared';
+import {
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  getAnthropicProvider,
+} from '@ptah-extension/shared';
 import type {
   AuthVerifyDraftConnectionParams,
   AuthVerifyDraftConnectionResult,
@@ -96,6 +103,25 @@ const DRAFT_AUTH_MODES: readonly string[] = [
   'local-proxy',
   'custom',
 ];
+
+/** Modes whose credential is a stored provider key (`credential.kind === 'stored'`). */
+const STORED_KEY_AUTH_MODES: readonly string[] = [
+  'apiKey',
+  'local-native',
+  'local-proxy',
+  'custom',
+];
+
+/** Compare endpoints ignoring case of the origin and trailing slashes. */
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.origin.toLowerCase()}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}`;
+  } catch {
+    return trimmed;
+  }
+}
 
 /** One in-flight probe. Deleted as soon as its `verify` settles. */
 interface DraftProbeEntry {
@@ -216,6 +242,8 @@ export class DraftVerificationService {
     private readonly resolver: ProviderAuthResolver,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQuery: InternalQueryService,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
   ) {}
 
   /**
@@ -226,7 +254,13 @@ export class DraftVerificationService {
   async verify(
     params: AuthVerifyDraftConnectionParams,
   ): Promise<AuthVerifyDraftConnectionResult> {
-    const { probeId, draft, timeoutMs } = this.normalizeParams(params);
+    const {
+      probeId,
+      draft: parsedDraft,
+      timeoutMs,
+      useStoredCredential,
+    } = this.normalizeParams(params);
+    let draft = parsedDraft;
 
     this.pruneExpiredEntries();
 
@@ -266,6 +300,42 @@ export class DraftVerificationService {
       let override: OneShotAuthOverride;
       let model: string | null = null;
       try {
+        if (useStoredCredential) {
+          // A stored key may only travel to the destination it was saved for.
+          // Bind mode and endpoint to host-side config BEFORE the key is read;
+          // a changed endpoint needs a typed key, never the stored one.
+          const bound = this.bindStoredDraft(draft);
+          if (!bound) {
+            this.logger.info('Draft probe: stored credential rejected for this destination', {
+              probeId,
+              providerId: draft.providerId,
+              authMode: draft.authMode,
+            });
+            return this.finish(probeId, {
+              outcome: 'failed',
+              reason: 'stored-credential-mismatch',
+              detail: 'The stored key can only be verified against its saved endpoint. Enter a key to verify a changed connection.',
+              latencyMs: null,
+              modelUsed: null,
+            });
+          }
+          draft = bound;
+          // The stored key is read here, on the host, and joins the draft
+          // exactly like a typed key: it lives only in this call's override
+          // env, is never logged, never echoed in `detail`, never written.
+          const stored = (await this.readStoredKey(draft.providerId))?.trim();
+          if (!stored) {
+            this.logger.info('Draft probe: no stored credential', { probeId });
+            return this.finish(probeId, {
+              outcome: 'failed',
+              reason: 'no-stored-credential',
+              detail: 'No key is stored for this provider. Enter a key to verify.',
+              latencyMs: null,
+              modelUsed: null,
+            });
+          }
+          draft = { ...draft, credential: { kind: 'apiKey', value: stored } };
+        }
         override = await this.resolver.buildDraftOverride(draft);
         model = this.resolveProbeModel(draft.providerId, params.model);
       } catch (error: unknown) {
@@ -424,11 +494,49 @@ export class DraftVerificationService {
     return { cancelled: true };
   }
 
+  /** The key the host already holds for `providerId`; Anthropic-direct uses the apiKey credential. */
+  /**
+   * Rebuild a stored-credential draft from host-side config, or `null` when the
+   * caller asked for a destination the key was not saved for. Direct Anthropic
+   * is `apiKey` only; `custom` is allowed only for a saved custom entry; a
+   * caller-supplied base URL must equal the saved one and is then replaced by it.
+   */
+  private bindStoredDraft(draft: DraftConnectionInput): DraftConnectionInput | null {
+    const { providerId, authMode } = draft;
+    const isDirectAnthropic = providerId === ANTHROPIC_DIRECT_PROVIDER_ID;
+    const provider = isDirectAnthropic ? undefined : getAnthropicProvider(providerId);
+    if (isDirectAnthropic) {
+      return authMode === 'apiKey' && draft.baseUrl === undefined
+        ? { providerId, authMode }
+        : null;
+    }
+    if (!provider) return null;
+    if (authMode === 'custom' && !provider.isCustom) return null;
+    const saved = this.resolver.getSavedBaseUrl(providerId);
+    const requested = draft.baseUrl?.trim();
+    if (requested !== undefined && normalizeUrl(requested) !== normalizeUrl(saved)) {
+      return null;
+    }
+    // `custom` and the local modes only carry a key on their draft-URL branch
+    // (ProviderAuthResolver.buildDraftOverride), so they keep the SAVED URL;
+    // `apiKey` resolves the saved URL itself.
+    return authMode === 'apiKey'
+      ? { providerId, authMode }
+      : { providerId, authMode, baseUrl: saved };
+  }
+
+  private readStoredKey(providerId: string): Promise<string | undefined> {
+    return providerId === ANTHROPIC_DIRECT_PROVIDER_ID
+      ? this.authSecrets.getCredential('apiKey')
+      : this.authSecrets.getProviderKey(providerId);
+  }
+
   /** Validate the wire payload and shape the resolver's input. */
   private normalizeParams(params: AuthVerifyDraftConnectionParams): {
     readonly probeId: string;
     readonly draft: DraftConnectionInput;
     readonly timeoutMs: number;
+    readonly useStoredCredential: boolean;
   } {
     const probeId = requireNonEmptyString(params.probeId, 'probeId');
     const providerId = requireNonEmptyString(params.providerId, 'providerId');
@@ -440,16 +548,26 @@ export class DraftVerificationService {
         `auth:verifyDraftConnection: authMode must be one of ${DRAFT_AUTH_MODES.join(', ')}`,
       );
     }
-    const credential = params.credential;
-    if (
-      credential !== undefined &&
-      (typeof credential !== 'object' ||
-        credential === null ||
-        credential.kind !== 'apiKey' ||
-        typeof credential.value !== 'string')
-    ) {
+    const credential: unknown = params.credential;
+    const useStoredCredential =
+      typeof credential === 'object' &&
+      credential !== null &&
+      (credential as { kind?: unknown }).kind === 'stored';
+    const typedCredential =
+      typeof credential === 'object' &&
+      credential !== null &&
+      (credential as { kind?: unknown }).kind === 'apiKey' &&
+      typeof (credential as { value?: unknown }).value === 'string'
+        ? { kind: 'apiKey' as const, value: (credential as { value: string }).value }
+        : undefined;
+    if (credential !== undefined && !useStoredCredential && !typedCredential) {
       throw new Error(
-        'auth:verifyDraftConnection: credential must be an apiKey credential',
+        'auth:verifyDraftConnection: credential must be an apiKey or stored credential',
+      );
+    }
+    if (useStoredCredential && !STORED_KEY_AUTH_MODES.includes(params.authMode)) {
+      throw new Error(
+        'auth:verifyDraftConnection: a stored credential applies to key-carrying modes only',
       );
     }
     if (
@@ -468,10 +586,15 @@ export class DraftVerificationService {
     const draft: DraftConnectionInput = {
       providerId,
       authMode: params.authMode,
-      ...(credential !== undefined ? { credential } : {}),
+      ...(typedCredential !== undefined ? { credential: typedCredential } : {}),
       ...(params.baseUrl !== undefined ? { baseUrl: params.baseUrl } : {}),
     };
-    return { probeId, draft, timeoutMs: clampTimeoutMs(params.timeoutMs) };
+    return {
+      probeId,
+      draft,
+      timeoutMs: clampTimeoutMs(params.timeoutMs),
+      useStoredCredential,
+    };
   }
 
   /**
@@ -557,6 +680,11 @@ export class DraftVerificationService {
     switch (reason) {
       case 'cancelled':
         return 'The probe was cancelled.';
+      // Assigned before the probe starts; listed for exhaustiveness.
+      case 'no-stored-credential':
+        return 'No key is stored for this provider. Enter a key to verify.';
+      case 'stored-credential-mismatch':
+        return 'The stored key can only be verified against its saved endpoint. Enter a key to verify a changed connection.';
       case 'credential-rejected':
         return 'The provider rejected the credential (HTTP 401).';
       case 'permission-denied':
