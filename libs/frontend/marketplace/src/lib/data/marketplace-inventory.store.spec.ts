@@ -24,7 +24,9 @@
  * `ClaudeRpcService` is mocked per method. `PluginCatalogService` is stubbed to
  * the four members the store reads; its own caching is covered in `core`.
  * `WorkspaceScopeService` and `SessionMcpStatusRegistry` are the real root
- * services.
+ * services. `TabManagerService` is a stub whose writable `tabs` is the active
+ * workspace's tab set (plan Revision 3, D-4): the real one needs
+ * `MODEL_REFRESH_CONTROL`, which has no default provider.
  */
 
 import {
@@ -44,7 +46,10 @@ import {
   PluginCatalogService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
-import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
+import {
+  SessionMcpStatusRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import type { InstalledServerGroup } from '@ptah-extension/chat-ui';
 import type {
   ExternalPluginListing,
@@ -204,6 +209,12 @@ interface RpcCall {
   params: unknown;
 }
 
+/** The two `TabState` fields the session scoping reads. */
+interface TabStub {
+  readonly id: string;
+  readonly claudeSessionId: string | null;
+}
+
 const ALL_SLICES: readonly InventorySliceId[] = [
   'installed',
   'plugins',
@@ -217,6 +228,7 @@ describe('MarketplaceInventoryStore', () => {
   let store: MarketplaceInventoryStore;
   let scope: WorkspaceScopeService;
   let mcpStatus: SessionMcpStatusRegistry;
+  let tabs: ReturnType<typeof signal<readonly TabStub[]>>;
   let responders: Map<string, () => unknown>;
   let calls: RpcCall[];
   let enabledPlugins: ReturnType<typeof signal<readonly PluginInfo[]>>;
@@ -269,6 +281,7 @@ describe('MarketplaceInventoryStore', () => {
     ensureLoaded = jest.fn().mockResolvedValue(undefined);
     refresh = jest.fn().mockResolvedValue(undefined);
     clearCache = jest.fn();
+    tabs = signal<readonly TabStub[]>([]);
 
     responders.set('mcpDirectory:listInstalled', () => ok({ servers: [] }));
     responders.set('skillsSh:listInstalled', () => ok({ skills: [] }));
@@ -282,6 +295,7 @@ describe('MarketplaceInventoryStore', () => {
         MarketplaceInventoryStore,
         { provide: ClaudeRpcService, useValue: rpcMock },
         { provide: CommandDiscoveryFacade, useValue: { clearCache } },
+        { provide: TabManagerService, useValue: { tabs } },
         {
           provide: PluginCatalogService,
           useValue: {
@@ -582,11 +596,22 @@ describe('MarketplaceInventoryStore', () => {
   // ── Migrated: connector rows (hub spec + connected-surface spec) ───────────
 
   describe('claude.ai connector rows', () => {
-    const report = (sessionId: string, names: readonly string[]): void => {
-      mcpStatus.record(sessionId, {
+    const record = (key: string, names: readonly string[]): void => {
+      mcpStatus.record(key, {
         servers: names.map((name) => ({ name, status: 'connected' as const })),
         notices: [],
       });
+    };
+
+    /** A session of the ACTIVE workspace: its tab is open, then it reports. */
+    const report = (sessionId: string, names: readonly string[]): void => {
+      if (!tabs().some((tab) => tab.claudeSessionId === sessionId)) {
+        tabs.update((open) => [
+          ...open,
+          { id: `tab-${sessionId}`, claudeSessionId: sessionId },
+        ]);
+      }
+      record(sessionId, names);
     };
 
     // marketplace-hub.component.spec.ts:157
@@ -700,6 +725,88 @@ describe('MarketplaceInventoryStore', () => {
       void store.ensure('installed');
       expect(store.installed().state).toBe('loading');
       expect(store.installed().data).toEqual([]);
+    });
+
+    // ── Revision 3, D-4: only sessions of the active workspace count ────────
+
+    // Spec 8
+    it('ignores a newer session that has no tab in the active workspace', async () => {
+      report('session-a', ['Gmail']);
+      record('background-session', ['Canva', 'b-project-server']);
+
+      await store.ensure('installed');
+      await settle();
+
+      expect(keysOf()).toEqual(['Gmail']);
+      expect(store.newestSessionStatus()?.servers.map((s) => s.name)).toEqual([
+        'Gmail',
+      ]);
+    });
+
+    // Spec 9
+    it("never labels workspace A's project server a connector in B", async () => {
+      responders.set('mcpDirectory:listInstalled', () =>
+        ok({ servers: [diskServer('a-project-server')] }),
+      );
+      report('session-a', ['a-project-server']);
+      await store.ensure('installed');
+      await settle();
+      expect(groupFor('a-project-server').origin).toBe('harness-config');
+
+      responders.set('mcpDirectory:listInstalled', () =>
+        ok({ servers: [diskServer('b-server')] }),
+      );
+      // The coordinator swaps the tab set in the same fan-out as the switch.
+      scope.switchTo('/workspace/b');
+      tabs.set([]);
+      TestBed.tick();
+      await settle();
+
+      expect(store.installed().state).toBe('ready');
+      expect(keysOf()).toEqual(['b-server']);
+      expect(
+        store
+          .installed()
+          .data.filter((group) => group.origin === 'claude-connector'),
+      ).toEqual([]);
+      expect(store.newestSessionStatus()).toBeNull();
+    });
+
+    // Spec 10
+    it('adds connector rows once a session of B reports, without a new read', async () => {
+      report('session-a', ['Gmail']);
+      await store.ensure('installed');
+      await settle();
+
+      scope.switchTo('/workspace/b');
+      tabs.set([]);
+      TestBed.tick();
+      await settle();
+      expect(keysOf()).toEqual([]);
+      calls.length = 0;
+
+      // A fresh B tab streams under its tabId before the SDK id is known.
+      tabs.set([{ id: 'tab-b', claudeSessionId: null }]);
+      record('tab-b', ['Canva']);
+
+      expect(keysOf()).toEqual(['Canva']);
+      expect(groupFor('Canva').origin).toBe('claude-connector');
+      expect(calls).toEqual([]);
+    });
+
+    // Accepted behaviour change (plan Revision 3): a closed tab's session.
+    it("drops a session's connector rows when its tab closes", async () => {
+      report('session-a', ['Gmail']);
+      await store.ensure('installed');
+      await settle();
+      expect(keysOf()).toEqual(['Gmail']);
+      calls.length = 0;
+
+      tabs.set([]);
+
+      expect(keysOf()).toEqual([]);
+      expect(store.newestSessionStatus()).toBeNull();
+      expect(calls).toEqual([]);
     });
   });
 

@@ -20,10 +20,7 @@ import {
   removeInstalledGroup,
   type InstalledServerGroup,
 } from '@ptah-extension/chat-ui';
-import {
-  SessionMcpStatusRegistry,
-  type SessionMcpStatus,
-} from '@ptah-extension/chat-state';
+import type { SessionMcpStatus } from '@ptah-extension/chat-state';
 import type {
   ExternalPluginListing,
   InstalledMcpServer,
@@ -33,6 +30,7 @@ import type {
 import { toConnectorRows } from '../mcp-connector-rows';
 import { encodeServerRef } from './server-ref';
 import { encodeSkillRef } from './skill-ref';
+import { injectWorkspaceSessionStatus } from './workspace-session-status';
 
 // ── Public model ──────────────────────────────────────────────────────────────
 
@@ -244,12 +242,11 @@ function cell<T>(empty: T): SliceCell<T> {
  *
  * ## Workspace switches without navigation
  *
- * TASK_2026_540 keeps configuration surfaces on screen across a workspace
- * switch, so nothing re-creates this store. It therefore follows
- * `WorkspaceScopeService.generation` itself: a bump discards the previous
- * workspace's rows and reloads every non-idle slice. A load that started under
- * the previous workspace is dropped on arrival even if the reload has not been
- * scheduled yet.
+ * TASK_2026_540 re-creates the routed shell, and so this store, on a switch.
+ * `WorkspaceScopeService.generation` stays a second guard: a bump discards the
+ * previous workspace's rows and reloads every non-idle slice, and a load that
+ * started under the previous workspace is dropped on arrival. Session rows
+ * come only from the active workspace's tabs ({@link newestSessionStatus}).
  *
  * Status decoration (live OAuth/Smithery state) is NOT read here: it comes from
  * `ConnectorLinksStore.statusFor` (plan C4), so no decoration read can add,
@@ -265,7 +262,6 @@ export class MarketplaceInventoryStore {
   private readonly catalog = inject(PluginCatalogService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly scope = inject(WorkspaceScopeService);
-  private readonly mcpStatus = inject(SessionMcpStatusRegistry);
 
   private readonly cells: { [K in InventorySliceId]: SliceCell<SliceData[K]> } =
     {
@@ -295,23 +291,16 @@ export class MarketplaceInventoryStore {
   }
 
   /**
-   * The newest session's MCP picture, or `null` when no session ever reported.
-   *
-   * The Marketplace owns no session, so it reads the MOST RECENTLY RECORDED one:
-   * `SessionMcpStatusRegistry.record` re-inserts a session on every write, so
-   * the last key is the newest report — the connector picture most likely to
-   * match a turn started right now.
+   * The MCP picture of the newest session OF THE ACTIVE WORKSPACE (keyed by the
+   * id or SDK id of an open tab), or `null` when none reported. The Marketplace
+   * owns no session; see `workspace-session-status.ts` for the membership rule.
    */
   public readonly newestSessionStatus: Signal<SessionMcpStatus | null> =
-    computed(() => {
-      const sessions = this.mcpStatus.sessions();
-      const newest = sessions[sessions.length - 1];
-      return newest ? this.mcpStatus.peek(newest) : null;
-    });
+    injectWorkspaceSessionStatus();
 
   /**
    * Installed MCP servers, grouped per origin + key, with the claude.ai account
-   * connectors of the newest session appended.
+   * connectors of {@link newestSessionStatus} (active workspace only) appended.
    *
    * The connector rows are re-derived against THIS slice's own read on every
    * change of either input, so a session that reports later re-derives the rows

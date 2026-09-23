@@ -24,6 +24,7 @@ import {
   PluginCatalogService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { MarketplaceShellComponent } from './marketplace-shell.component';
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,10 @@ describe('MarketplaceShellComponent', () => {
         },
         { provide: AppStateManager, useValue: appState },
         { provide: VSCodeService, useValue: { isElectron } },
+        // The shell provides the real inventory store, which scopes the
+        // session picture to these tabs; the real service needs
+        // `MODEL_REFRESH_CONTROL`, which has no default provider.
+        { provide: TabManagerService, useValue: { tabs: signal([]) } },
       ],
     });
   };

@@ -14,7 +14,10 @@ import {
   CommandDiscoveryFacade,
   PluginCatalogService,
 } from '@ptah-extension/core';
-import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
+import {
+  SessionMcpStatusRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   groupInstalledServers,
   type InstalledServerGroup,
@@ -821,6 +824,13 @@ describe('R3 acceptance — listInstalled secrets never reach the view model', (
         {
           provide: CommandDiscoveryFacade,
           useValue: { clearCache: jest.fn() },
+        },
+        // `session-1` is a session of the active workspace (Revision 3, D-4).
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([{ id: 'tab-1', claudeSessionId: 'session-1' }]),
+          },
         },
         {
           provide: PluginCatalogService,

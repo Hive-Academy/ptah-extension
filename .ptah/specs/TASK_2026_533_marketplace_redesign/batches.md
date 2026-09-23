@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 12/30
+Total tasks: 65 | Batches: 30 | Complete: 13/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 12.
-In progress: none.
-Next launchable: Batch 9 ∥ Batch 12b, each in its own worktree based on TASK_WT HEAD (both marketplace, file-disjoint). 12b must be COMPLETE before 13-16 start.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 12, 12b.
+In progress: Batch 9 (executor worktree `task533-b9`, under review).
+Next launchable: none until Batch 9 is committed; then Batches 10 ∥ 11 (after 9), and 13 ∥ 15 ∥ 16 once their other dependencies (9, 10, 11) are COMPLETE — 12b no longer gates them.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -57,7 +57,7 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
   store the route — the shell records it on `NavigationEnd` (Batch 12); the
   sub-path is dropped when `navigateToSurface` falls back to another surface.
 - Batch 7d decisions (binding on Batches 11, 13, 15, 16, 20-24): the card input is `heading` (not `title`); loading tiles use `<ptah-catalog-card-skeleton>`; consumers put `role="listitem"` on each `ptah-catalog-grid` child; Batches 24 and 25 verify the `@container` columns (1/2/3/4 at 480/800/1200) and the card compact trigger in a real browser, including 2 columns in the dashboard `max-w-2xl` dialog.
-- Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 699 lines (cap 700). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
+- Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 688 lines after Batch 12b (was 699; cap 700 still applies). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
 - Batch 4 outcome (binding on 7b, 7c, 17, 25): the vendoring script also writes `libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt` (theSVG MIT, pinned SHA, trademark note, the 10 marks needing attribution: Angular CC-BY-4.0, SonarQube LGPL-3.0, Attio, Pipedrive, Monday.com, Apollo.io, Exa, Firecrawl, Slack, Tavily; AI vendors covered generically, never named). A scanner-token guard fails the run on any banned token. The notices ship in the VSIX (build-esbuild assets) and Electron (build-main assets + `electron-builder.yml` extraResources). `scripts/brand-icons/rejection-report.md` is kept, not shipped. Any edit to the manifest or script must be followed by `npm run vendor:brand-icons -- --check`.
 - Batch 12 contract (BINDING on Batches 10, 13, 14, 15, 16): (1) each page renders its search field inside `<main>` as `input[type="search"]` or `[role="searchbox"]` so the shell's `/` shortcut finds it; when the field is not shown it is hidden with the `hidden` attribute or `inert`, never only a CSS class (the shell's `pageSearch()` checks only `[hidden]`/`[inert]`); (2) each page renders exactly one `<h1>`; (3) the status bar lists ↑↓ / Enter / Esc hints — pages from Batch 13 on must implement those keys, or the batch that lands a page without them trims the hints.
 - Batch 7b contract, resolvers (BINDING on Batches 8, 20, 21, 22): `resolveBrandSlug` no longer exists. Installed rows (Batch 8 provider-row, Custom URL connected-servers list) use `resolveInstalledBrandSlug({ serverKey, serverUrl? })` (catalogue URL → normalized key → alias → last `/` segment → null). Discovery listings (Smithery and Registry results, Custom URL suggestions) use `resolveListingBrandSlug({ registryName?, remoteUrls })`: a vendor mark only on an exact catalogue-URL match or an allowlisted namespace in `LISTING_NAMESPACE_BRANDS` (seed `io.github.getsentry` → `sentry`), else null (monogram), so look-alike listings never borrow a vendor mark. The input types are distinct (`never` fields) so cross-use does not compile.
@@ -708,7 +708,7 @@ Edge cases:
 - Acceptance (from Batch 3 review): the shell's tier must follow a real `ResizeObserver` report with no manual change detection — the shell spec resizes the host across 900 and 1400 and asserts rail/sidebar flips using `fixture.autoDetectChanges()` / zoneless scheduling, never an explicit `detectChanges()` after the resize (the `no NgZone.run` decision is otherwise unproven). Real-host proof is Task 25.1.
 - Reviewer: code-logic-reviewer (zero-RPC rule, keyboard scope)
 
-## Batch 12b: Workspace-scoped session MCP status (Revision 3, D-4) — PENDING
+## Batch 12b: Workspace-scoped session MCP status (Revision 3, D-4) — COMPLETE (commit recorded in the next records commit)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (small, but the spec migration needs judgement)
@@ -719,7 +719,7 @@ Edge cases:
 - Plan reference: implementation-plan.md "## Revision 3 — D-4 connector-row workspace scope" (:783-911)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`, plus `(Get-Content D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts).Count` ≤ 699
 
-### Task 12b.1: `injectWorkspaceSessionStatus` collaborator — PENDING
+### Task 12b.1: `injectWorkspaceSessionStatus` collaborator — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\workspace-session-status.ts`, CREATE `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\workspace-session-status.spec.ts`
 - Plan reference: implementation-plan.md D-4.1 (:826-837), specs 1-7 (:868-876), failure table (:853-864)
@@ -728,7 +728,7 @@ Edge cases:
 - Validation notes: specs 1-7 with the real root registry and a `TabManagerService` stub `{ tabs: signal([...]) }`. Spec 6 is the reference-stability case (same key set in a new array → `toBe` the same object; a new `record` for the chosen key → a new object). Assumption check (plan :822): read the `_tabs.update` sites at `tab-manager.service.ts:791`, `:843`, `:2326` and the Tribunal hidden-tab creation path; state in the report which session kinds have a `TabState` in `tabs()` (a kind without one only degrades to "no session").
 - Implementation details: imports from `@ptah-extension/chat-state` only (already a marketplace dependency); no core, shared or backend change.
 
-### Task 12b.2: Store rewiring and real-store spec migration — PENDING
+### Task 12b.2: Store rewiring and real-store spec migration — COMPLETE
 
 - Depends on: Task 12b.1
 - Files: MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts` (must not grow; ≤699 lines), MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.spec.ts`, MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-shell.component.spec.ts`, MODIFY Batch 8's real-store acceptance spec `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.spec.ts` (or wherever Batch 8's committed spec that constructs the real store lives; Grep the lib for `MarketplaceInventoryStore` in `*.spec.ts` and stub every spec that builds the REAL store)
@@ -744,6 +744,8 @@ Edge cases:
 - `marketplace-inventory.store.ts` line count ≤ 699; no `SessionMcpStatusRegistry` reference in it; `newestSessionStatus` name and type unchanged
 - Specs 1-11 present and green; the tab-coverage assumption outcome stated with file:line
 - Reviewer: code-logic-reviewer (membership keys, reference stability, switch ordering, degrade path)
+- Result: 6 files — created `data/workspace-session-status.ts` (71 lines) + `.spec.ts`; modified `data/marketplace-inventory.store.ts` (688 lines, no `SessionMcpStatusRegistry` reference, `newestSessionStatus` name and type unchanged), `data/marketplace-inventory.store.spec.ts`, `data/provider-row.spec.ts`, `shell/marketplace-shell.component.spec.ts`. `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project). Review: logic APPROVED 9/10 (`code-logic-review-batch-12b.md`); the D-4 tab-coverage assumption (canvas tiles, Tribunal tabs have a `TabState`) verified by the reviewer against source. Report `batch-12b-report.md` (untracked).
+- Follow-up (optional, minor): add one spec literally named "rapid A → B → A" to `workspace-session-status.spec.ts` for traceability against the plan's Revision 3 failure table; the property is already covered by spec 4 and store cases 9-10.
 
 ## Batch 13: Installed servers list and server detail (C7 part) — PENDING
 
