@@ -164,7 +164,7 @@ Lint warnings in touched files, compared with HEAD using `git show HEAD:<file> |
 ## Open issues
 
 1. `messageCount` counts transcript assistant messages from the prefix only. Live runs add 0, because an SDK result has no reliable per-run assistant-message count.
-2. `durationMs` is not populated; the SDK's `duration_ms` scope was not verified. The frontend should show the duration as unknown rather than derive it.
+2. Resolved in the durationMs follow-up (below): `durationMs` is filled for sessions started in this process and `null` for resumed sessions.
 3. Resolved in Revision 1 (F6): `loadAgentSessions` now reports unreadable members.
 4. Legacy "warmup" agent files, which the replay layer filters out, still count as identities in both the list and resume paths.
 5. Resolved in Revision 1 (F7): browsing no longer creates owners. The cost is that activating a resume reads the transcript twice: once for `chat:resume` and once for the owner prefix.
@@ -248,3 +248,38 @@ Command: `npx nx run-many -t test,typecheck,lint -p @ptah-extension/shared,@ptah
 | @ptah-extension/shared | 65 suites; 1796 passed | pass | 0 errors, 3 warnings (existing) |
 | @ptah-extension/agent-sdk | 119 suites passed, 2 skipped; 2151 passed, 3 skipped | pass | 0 errors, 47 warnings (unchanged from Revision 1) |
 | @ptah-extension/cli-agent-runtime | 64 suites; 1018 passed, 1 skipped | pass | 0 errors, 42 warnings (existing) |
+
+## Follow-up: durationMs
+
+This is an uncommitted change on top of `f00c30d44`. No frontend files and no TASK_2026_418 files were touched.
+
+**Why:** Batch B moved the stats panel to the snapshot, and `SessionStatsEntry.durationMs` was never filled. The Time chip (for example "25m 2s") therefore disappeared on live sessions.
+
+**Rule** (`session-stats-owner.service.ts`):
+- `RunUsageResult.durationMs` carries the SDK result's `duration_ms`, which is per turn. `stream-transformer.ts` passes `sdkMessage.duration_ms`, the same value the footer `duration` uses.
+- `replaceRun` adds it to the run's `durationMs` only when the outcome is `accepted` and the value is finite and non-negative. `duplicate`, `rejected-invalid`, `rejected-non-monotonic`, `ignored-error` and `stale-owner` add nothing.
+- The snapshot's `durationMs` = `prefixDurationMs` + the sum of run durations, and only while the prefix duration is known:
+  - `startNew` (brand-new session): known `0`.
+  - `prepareRun` (history prefix): unknown, so the snapshot's `durationMs` is `null` and the panel hides the Time chip, as it did for resumed sessions before this task.
+- Duration is never derived from JSONL timestamps.
+
+**Failing specs first** (the type-only field was added first, so these compiled and failed on behaviour). The pre-fix failure for all five was `durationMs` `undefined`.
+- New session, results with 1000 then 1500 accepted: expected 2500 (and 0 before any result).
+- Duplicate (700), rejected (900), invalid (800) and zeroed error (600) results: expected to stay at 2500.
+- An accepted result with an invalid duration (−5, NaN): the result is accepted, and the duration stays at 1000.
+- Resumed session with a history prefix: `null` even after accepted results (the cost of 13 is still correct).
+- Stale-owner result (5000): no change; the replacement owner shows only its own 300.
+
+All five pass after the fix. The transformer spec also pins that two accepted results with `duration_ms` 100 publish 100, then 200.
+
+**Verification:** `npx nx run-many -t test,typecheck,lint -p @ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime --skip-nx-cache`. Exit code 0.
+
+| Project | test | typecheck | lint |
+| --- | --- | --- | --- |
+| @ptah-extension/shared | 1796 passed | pass | 0 errors, 3 warnings (unchanged) |
+| @ptah-extension/agent-sdk | 2156 passed, 3 skipped | pass | 0 errors, 47 warnings (unchanged) |
+| @ptah-extension/cli-agent-runtime | 1018 passed, 1 skipped | pass | 0 errors, 42 warnings (unchanged) |
+
+**Files changed:**
+- `libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts` and its spec
+- `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts` and its spec

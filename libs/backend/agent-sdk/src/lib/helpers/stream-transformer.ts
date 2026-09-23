@@ -645,6 +645,9 @@ export class StreamTransformer {
                     costSource: usageCostSource,
                     isErrorResult:
                       sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                    // Per turn; the owner adds it only when it accepts the
+                    // result, and validates it.
+                    durationMs: sdkMessage.duration_ms,
                   },
                 );
                 if (outcome === 'rejected-invalid') {

@@ -171,6 +171,11 @@ export interface RunUsageResult {
    * placeholder (sdk.d.ts: "may carry zeroed values") and is ignored.
    */
   readonly isErrorResult?: boolean;
+  /**
+   * The SDK result's `duration_ms` — per TURN, not cumulative. Added to the
+   * run's duration only when the result is accepted.
+   */
+  readonly durationMs?: number;
 }
 
 /**
@@ -337,6 +342,8 @@ interface RunState {
   incomplete: boolean;
   /** A non-monotonic rejection was already reported for this run. */
   rejectionReported: boolean;
+  /** Sum of the per-turn `duration_ms` of the results this run accepted. */
+  durationMs: number;
 }
 
 interface OwnerState {
@@ -344,6 +351,12 @@ interface OwnerState {
   epoch: number;
   /** Transcript prefix; `null` while unknown (not read yet, or unreadable). */
   prefix: SessionStatsReadEntry | null;
+  /**
+   * Wall time the prefix already covers: `0` for a brand-new session,
+   * `null` (unknown) for a transcript prefix — never derived from JSONL
+   * timestamps. While unknown, the snapshot's `durationMs` is `null`.
+   */
+  readonly prefixDurationMs: number | null;
   /** The single in-flight prefix read, shared by concurrent launches. */
   pending: Promise<SessionStatsPrefix | null> | null;
   /** Runs in preparation order. */
@@ -369,7 +382,7 @@ export class SessionStatsOwnerService {
    * key, because a new session on that key is new.
    */
   startNew(sessionKey: string): OwnerLease {
-    const state = this.createState(emptySessionStats(sessionKey));
+    const state = this.createState(emptySessionStats(sessionKey), 0);
     this.states.set(sessionKey, state);
     this.touch(state);
     return { generation: state.generation, epoch: state.epoch };
@@ -391,7 +404,7 @@ export class SessionStatsOwnerService {
   ): Promise<RunPreparation> {
     let state = this.states.get(sessionId);
     if (!state) {
-      state = this.createState(null);
+      state = this.createState(null, null);
       this.states.set(sessionId, state);
       state.pending = this.loadPrefixOnce(state, loaders.loadPrefix);
     }
@@ -464,6 +477,14 @@ export class SessionStatsOwnerService {
     const outcome = applyResult(run, result);
     let firstRejection = false;
     if (outcome === 'accepted') {
+      // `duration_ms` is per turn: only a result the run accepted adds its
+      // turn. A duplicate, rejected or ignored result adds nothing.
+      if (
+        result.durationMs !== undefined &&
+        isFiniteNonNegative(result.durationMs)
+      ) {
+        run.durationMs += result.durationMs;
+      }
       this.touch(state);
     } else if (outcome === 'rejected-non-monotonic' && !run.rejectionReported) {
       run.rejectionReported = true;
@@ -572,11 +593,15 @@ export class SessionStatsOwnerService {
     })();
   }
 
-  private createState(prefix: SessionStatsReadEntry | null): OwnerState {
+  private createState(
+    prefix: SessionStatsReadEntry | null,
+    prefixDurationMs: number | null,
+  ): OwnerState {
     return {
       generation: ++this.generationCounter,
       epoch: ++this.epochCounter,
       prefix,
+      prefixDurationMs,
       pending: null,
       runs: new Map(),
       agentIds: new Set(),
@@ -600,8 +625,10 @@ export class SessionStatsOwnerService {
         : { ...state.prefix, sessionId },
     ];
     let incomplete = false;
+    let runDurationMs = 0;
     for (const run of state.runs.values()) {
       incomplete ||= run.incomplete;
+      runDurationMs += run.durationMs;
       if (run.current) {
         contributions.push(
           runContribution(
@@ -629,6 +656,10 @@ export class SessionStatsOwnerService {
             ? ('partial' as const)
             : merged.pricingCoverage,
       }),
+      durationMs:
+        state.prefixDurationMs === null
+          ? null
+          : state.prefixDurationMs + runDurationMs,
       revision: state.revision,
     });
     state.published = snapshot;
@@ -643,6 +674,7 @@ function createRun(candidate: SavedCostState | null): RunState {
     current: null,
     incomplete: false,
     rejectionReported: false,
+    durationMs: 0,
   };
 }
 

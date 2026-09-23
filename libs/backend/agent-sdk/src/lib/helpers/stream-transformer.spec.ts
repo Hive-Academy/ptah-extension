@@ -2112,6 +2112,10 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
     expect(payloads.map((p) => p.cost)).toEqual([10, 15]);
     expect(payloads.map((p) => p.sessionStats?.totalCost)).toEqual([10, 15]);
     expect(payloads[1].sessionStats?.tokens.input).toBe(150);
+    // Each result's `duration_ms` (100) is one turn: accepted turns add up.
+    expect(payloads.map((p) => p.sessionStats?.durationMs)).toEqual([
+      100, 200,
+    ]);
   });
 
   it('preserves the accepted snapshot on an empty result and still ends the turn', async () => {

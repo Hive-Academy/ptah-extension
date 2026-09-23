@@ -655,6 +655,102 @@ describe('SessionStatsOwnerService', () => {
   });
 
   // Review F5: owner generations and run epochs across async teardown.
+  // Follow-up: the Time chip. SDK `duration_ms` is per turn, so a run adds it
+  // only for results it accepts; the snapshot knows the session duration only
+  // when the prefix duration is known (0 for a brand-new session).
+  describe('durationMs', () => {
+    const timed = (
+      cost: number,
+      input: number,
+      durationMs: number,
+    ): RunUsageResult => ({ ...run(cost, [{ input }]), durationMs });
+
+    it('sums accepted turn durations for a new session: 1000 + 1500 = 2500', () => {
+      const { owner, gen } = fresh();
+      expect(owner.snapshot(SESSION)?.durationMs).toBe(0);
+
+      owner.replaceRun(SESSION, gen, 'run-1', timed(1, 10, 1000));
+      const second = owner.replaceRun(
+        SESSION,
+        gen,
+        'run-1',
+        timed(2, 20, 1500),
+      );
+
+      expect(second.snapshot?.durationMs).toBe(2500);
+    });
+
+    it('adds nothing for duplicate, rejected, invalid or zeroed error results', () => {
+      const { owner, gen } = fresh();
+      const offer = (r: RunUsageResult) =>
+        owner.replaceRun(SESSION, gen, 'run-1', r);
+      offer(timed(1, 10, 1000));
+      offer(timed(2, 20, 1500));
+
+      expect(offer(timed(2, 20, 700)).outcome).toBe('duplicate');
+      expect(offer(timed(3, 5, 900)).outcome).toBe('rejected-non-monotonic');
+      expect(
+        offer({ ...run(Number.NaN, [{ input: 30 }]), durationMs: 800 }).outcome,
+      ).toBe('rejected-invalid');
+      expect(
+        offer({
+          ...run(0, [{ input: 0, output: 0, costUSD: 0 }], {
+            isErrorResult: true,
+          }),
+          durationMs: 600,
+        }).outcome,
+      ).toBe('ignored-error');
+
+      expect(owner.snapshot(SESSION)?.durationMs).toBe(2500);
+    });
+
+    it('does not add an accepted result whose duration is invalid', () => {
+      const { owner, gen } = fresh();
+      owner.replaceRun(SESSION, gen, 'run-1', timed(1, 10, 1000));
+      const accepted = owner.replaceRun(
+        SESSION,
+        gen,
+        'run-1',
+        timed(2, 20, -5),
+      );
+
+      expect(accepted.outcome).toBe('accepted');
+      expect(accepted.snapshot?.durationMs).toBe(1000);
+      expect(
+        owner.replaceRun(SESSION, gen, 'run-1', timed(3, 30, Number.NaN))
+          .snapshot?.durationMs,
+      ).toBe(1000);
+    });
+
+    it('is null for a resumed session even after accepted results', async () => {
+      const owner = new SessionStatsOwnerService();
+      const prep = await owner.prepareRun(SESSION, loaders(prefix(10)));
+      owner.beginRun(SESSION, prep.generation, 'run-1', prep.candidate);
+
+      const snapshot = owner.replaceRun(
+        SESSION,
+        prep.generation,
+        'run-1',
+        timed(3, 30, 1000),
+      ).snapshot;
+
+      expect(snapshot?.totalCost).toBe(13);
+      expect(snapshot?.durationMs).toBeNull();
+    });
+
+    it('a stale-owner result changes nothing', () => {
+      const { owner, gen } = fresh();
+      owner.replaceRun(SESSION, gen, 'run-1', timed(1, 10, 1000));
+      const { generation: replacement } = owner.startNew(SESSION);
+
+      expect(
+        owner.replaceRun(SESSION, gen, 'run-1', timed(2, 20, 5000)).outcome,
+      ).toBe('stale-owner');
+      owner.replaceRun(SESSION, replacement, 'run-1', timed(1, 10, 300));
+      expect(owner.snapshot(SESSION)?.durationMs).toBe(300);
+    });
+  });
+
   describe('owner generations (review F5)', () => {
     it('a late result after release cannot resurrect the owner; the next prepareRun seeds normally', async () => {
       const { owner, gen } = fresh();
