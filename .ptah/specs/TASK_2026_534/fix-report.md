@@ -385,3 +385,128 @@ equal to the saved one.
 Test: `draft-verification.service.spec.ts` › "keeps the stored key for %s by probing
 the saved endpoint" (local-native, local-proxy; real `ollama-cloud` entry).
 Mutation check: old binding → 2 fail. `auth-providers` typecheck/test/lint pass.
+
+## PR 581 review comments
+
+I read the current code first (after the rebase and the round-2 changes to `bindStoredDraft`, `clearModelTier` and `connectProvider`) and checked each comment against it. Nothing is committed. `apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts` is the coordinator's CI fix and was left untouched.
+
+### Verification
+
+`npx nx run-many -t typecheck,test,lint -p auth-providers rpc-handlers chat core ptah-extension-webview --output-style=static` reported "Successfully ran targets typecheck, test, lint for 5 projects".
+
+| Project | Tests passed | Skipped |
+| --- | --- | --- |
+| auth-providers | 885 | 0 |
+| rpc-handlers | 3149 | 4 |
+| core | 871 | 0 |
+| chat | 1524 | 2 |
+| ptah-extension-webview | 196 | 0 |
+
+- **Lint:** 0 errors in every project. Running eslint on only the changed `.ts` files gives 2 `max-lines` warnings (`provider-models.service.ts`, `provider-setup-wizard.component.ts`); both files were already over the limit.
+- **Line endings:** all changed files are LF (`git ls-files --eol`).
+
+### 1. MAJOR: `clearModelTier` must also clear the legacy key. Valid; done.
+- **Why it was valid:** mainAgent reads fall back to the legacy unscoped key `provider.<id>.modelTier.<tier>` (`getLegacyTierConfigKey`, `provider-models.service.ts:218-223`, used by `getPersistedTierValue` for `scope==='mainAgent'`). Clearing only `provider.<id>.mainAgent.modelTier.<tier>` let `getModelTiers` and `applyPersistedTiers` bring back a tier the user had cleared.
+- **Change:** for `scope==='mainAgent'`, `clearModelTier` also sets the legacy key to `undefined` when it holds a value (`provider-models.service.ts:620-628`). `cliAgent` never reads or writes it.
+- **Write-path trace:**
+  - `provider:clearModelTier` → `ProviderModelsService.clearModelTier` → `config.set('provider.<id>.mainAgent.modelTier.<tier>', undefined)`, then `config.set('provider.<id>.modelTier.<tier>', undefined)`.
+  - Then the existing env handling runs, for the active provider only: fall back to the default, or delete the tier from `authEnv` and `process.env`.
+  - Readers: `getPersistedTierValue` → `getModelTiers` → `applyPersistedTiers`. `applyPersistedTiers` runs from `switchActiveProvider` on auth reset.
+- **Tests (`provider-models.service.spec.ts` › "clearModelTier — legacy fallback key"):**
+  - `clears the legacy key so getModelTiers and applyPersistedTiers do not restore the tier`: with a legacy value, after the clear `getModelTiers(...).haiku` is `null`, and after `switchActiveProvider('openrouter')` the `ANTHROPIC_DEFAULT_HAIKU_MODEL` env var is unset.
+  - `cliAgent clears never touch the legacy mainAgent key`
+- **Mutation check:** without the legacy clear, the first test fails (1 failed).
+
+### 2. MINOR: the thirdParty effective-route test could not fail against the old resolver. Partly valid; tightened.
+- **Finding:** `auth:getEffectiveRoute` reads `llm.defaultProvider` from `configManager.get` (`auth-rpc.handlers.ts:389`), not from the `llm:getProviderStatus` payload. So the seeded `'llm.defaultProvider': 'anthropic'` already reached the resolver, and the test could already fail. The hardcoded `defaultProvider: 'openrouter'` in the mock was inconsistent with the seed, though.
+- **Change:** the mock now returns `configSeed['llm.defaultProvider'] ?? 'openrouter'` and keeps `anthropic` in the catalog (`auth-rpc.handlers.spec.ts:2014-2018`).
+- **Mutation check:** I temporarily restored the pre-fix identity rule in `effective-route.ts` (`apiKey → defaultProvider ?? anthropic`, `thirdParty → selector ?? defaultProvider`). Both driver-identity tests failed (2 failed). After restoring the file, `git diff` on `effective-route.ts` is empty and both tests pass.
+
+### 3. MINOR: stored key for local modes with an optional key. Partly valid; done, with a limit.
+- **Finding:** in today's registry the only entry with `supportsOptionalApiKey` is `ollama-cloud`. It has `isLocal: false` and `authType: 'none'`, so the wizard's `deriveAuthMode` treats it as `'apiKey'`, and the stored-key path already covered it. No registry provider currently reaches the local-native/local-proxy optional-key branch. I implemented it anyway so the wizard matches the host's `bindStoredDraft`.
+- **Change** (`provider-setup-wizard.component.ts`):
+  - `usesStoredKey` (`:1645`) is now also true for `local-native` / `local-proxy` when `supportsOptionalKey()`, with the same existing-credential, not-replacing and empty-draft conditions as before.
+  - For every mode that sends a URL (custom and local), it additionally requires the draft URL to equal the endpoint the draft started from (`_loadedBaseUrl`, `:1468`, taken from `initialSetup.baseUrl`, else the registry default). So the wizard never sends `{kind:'stored'}` together with a different caller URL. An edited URL means a new destination, which needs a typed key; the host independently rejects such a request as `stored-credential-mismatch`.
+  - Both local credential blocks show "Key stored. Leave the key empty to verify the stored key." (`:849`, `:910`).
+  - `credentialReviewLabel` shows "Stored key (unchanged)" for local modes (`:1808`).
+- **Test (wizard spec):** `PR 581: Ollama Cloud (optional key) verifies its stored key without re-entry and sends no URL`. It asserts the params `{providerId:'ollama-cloud', credential:{kind:'stored'}}`, that no `baseUrl` is sent, and the review label.
+- **Limit:** because `ollama-cloud` resolves to apiKey mode, this test also passed before the change. The new local branch and the URL guard have no wizard-level test, because no registry entry reaches that branch. The host-side guard has its own tests (`draft-verification.service.spec.ts`, from round 2).
+
+### 4. MAJOR: Copilot auto-approve fell back to the pre-write value when the read-back failed. Valid; done.
+- **Change** (`agent-orchestration-config.component.ts`):
+  - When the write outcome is uncertain AND the `agent:getConfig` read-back fails, the component no longer shows `actual ?? saved`. It calls `markCopilotAutoApproveUnconfirmed` (`:516`, `:556`): `copilotAutoApproveUnconfirmed` (`:474`) is set, the checkbox shows no value (`indeterminate`), the toggle is disabled (`:275`), and `toggleCopilotAutoApprove` refuses writes while unconfirmed.
+  - A "Check saved setting again" button (`:289`, `recheckCopilotAutoApprove` at `:531`) re-reads `agent:getConfig`. On success it shows the saved value, re-enables the toggle and clears the error; on failure it stays blocked.
+  - The "Re-detect to check it" copy is gone (`redetectClis` does not reload this setting). The message is now "Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it."
+- **Trace:** unchanged from round 1 (`agent:setConfig` → `agentOrchestration.copilotAutoApprove` → `resolveAutoApprove`). The re-check only reads.
+- **Test:** `PR 581: marks the setting unconfirmed when the read-back also fails, blocks writes, and recovers on a re-check`. The write returns `{success:false}` inside a successful envelope and the read returns a failed envelope. The test asserts `indeterminate`, the disabled toggle, the new copy, that a second toggle attempt sends no `agent:setConfig`, that a failed re-check stays blocked, and that a successful re-check shows `true`, re-enables the toggle and clears the error.
+
+### 5. MAJOR: a deep-linked provider reopened the wizard after returning to the Providers tab. Valid; done.
+- **Why it was valid:** the Providers page is inside `@if (activeSettingsTab() === 'claude-auth')`, so switching tabs destroys it. On return, a new instance saw the same `requestedProviderId` and opened the wizard again.
+- **Change:**
+  - `ProvidersSettingsComponent` emits `requestedProviderConsumed` right after it opens the wizard for the request (`providers-settings.component.ts:266`, `:365`).
+  - `SettingsComponent.consumeRequestedProvider` (`settings.component.ts:137`, wired in `settings.component.html:112`) clears `requestedProviderId`. This is the same one-shot pattern as `consumePendingSettingsTab`.
+- **Tests:**
+  - `settings.component.spec.ts` › "deep-linked provider request" › `opens the wizard once and does not reopen it after leaving and returning to Providers` (a stub page implements the child's contract).
+  - `providers-settings.component.spec.ts` › `opens the setup wizard for a deep-linked provider once` now also asserts the `requestedProviderConsumed` emission.
+- **Mutation check:** removing the `(requestedProviderConsumed)` binding makes the settings test fail (1 failed).
+
+### Files changed
+- `libs/backend/auth-providers/src/lib/provider-models.service.ts` and its `.spec.ts`
+- `libs/backend/rpc-handlers/src/lib/handlers/auth-rpc.handlers.spec.ts`
+- `libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts` and its `.spec.ts`
+- `libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts` and its `.spec.ts`
+- `libs/frontend/chat/src/lib/settings/ptah-ai/agent-orchestration-config.component.ts` and its `.spec.ts`
+- `libs/frontend/chat/src/lib/settings/settings.component.ts`, `.html` and `.spec.ts`
+
+## PR 581 review round 1
+
+This round answers `pr-581-comments-review.md` › "Numbered defects and remaining gaps", defects 1–3. Items 1, 2 and 4 and the CI fix are closed and were not touched. Nothing is committed. `P` = `libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts`, `W` = `libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts`.
+
+### Verification
+
+`npx nx run-many -t typecheck,test,lint -p chat ptah-extension-webview --output-style=static` reported "Successfully ran targets typecheck, test, lint for 2 projects".
+- **chat:** 1532 tests passed, 2 skipped.
+- **ptah-extension-webview:** 196 tests passed.
+- **Lint:** 0 errors. On the touched files the only warning is the existing `max-lines` warning on `W`.
+- **Other projects:** none were touched in this round. The new spec file is LF.
+
+### Defect 1 (P2): a different deep link while the wizard was open was acknowledged but never applied. Fixed.
+- **Chosen behaviour:** keep the request pending, and apply it when the wizard closes. An open draft is never switched away from under the user, so unsaved edits are never at risk. I did not implement "switch when there are no unsaved edits".
+- **Change:**
+  - The deep-link effect (`P:370-381`) does nothing while `wizardOpen()` is true (`P:374`). The request stays in the parent. Because the effect reads `wizardOpen()`, closing the wizard re-runs it and opens the pending provider.
+  - Consumption is no longer emitted when the wizard is opened. The requested id is kept in `deepLinkAwaitingAcceptance` (`P:377`) and reported consumed only when the wizard actually selects it: `selectWizardProvider` runs on the wizard's `providerChanged` (`P:477`, `consumeDeepLink` at `P:488`).
+  - A deep link the wizard cannot select (for example an unknown id) is reported consumed when that wizard session is dismissed (`P:496`), so it is not replayed forever.
+  - The wizard is keyed per session (`@for (session of [wizardSession()]; track session)`, `P:254`, `wizardSession` at `P:283`, incremented in `openWizard`). A request applied right after a close therefore gets a fresh wizard. Without this key, Angular kept the old instance and its old selection, because close and reopen happen in the same change-detection pass.
+- **Test (real page + real wizard; the host clears the request exactly like `SettingsComponent.consumeRequestedProvider`):** `providers-settings.component.spec.ts` › "deep links with the real wizard" › `keeps a different request pending while the wizard is open and applies it on close — never merely acknowledged` (`:406`).
+  - Request A: A is selected, consumed and cleared.
+  - Request B while A is open: A is still selected, B is still pending in the host, and B is not consumed.
+  - Discard the wizard: a new wizard opens with B selected, and only then is B consumed and cleared.
+- **Mutation checks (each fails this test):**
+  - Without the `wizardOpen()` guard: 1 failed.
+  - Without the per-session key: 1 failed.
+
+### Defect 2 (P2): a fresh request for the same provider was ignored. Fixed.
+- **Change:** when the input becomes empty (the parent cleared it after consumption), the per-request guard `openedFor` resets (`P:373`). A fresh request for the same provider then opens again. An unrelated re-render while the same request is still set does not open anything.
+- **Test:** `opens again for a fresh request for the same provider, but not on an unrelated re-render` (`:426`): request A, consumed, discard, then an unrelated re-render opens nothing, then a fresh request for A opens with A selected (consumed twice).
+- **Mutation check:** without the reset, 1 failed.
+- The existing stub test `opens the setup wizard for a deep-linked provider once` now also asserts that nothing is consumed until the wizard reports the selection.
+
+### Defect 3 (P2 coverage): the stored-key test could not detect removal of the local branch. Fixed, plus one behaviour fix.
+- **Behaviour fix:** `_loadedBaseUrl` (`W:1472`) is now `null` until `initialSetup` arrives, instead of holding the registry default. So before the saved endpoint is known, no stored-key probe is offered for URL-carrying modes (`W:1664`). Previously the registry default was compared, which could not prove the draft URL matched a saved override.
+- **Tests:** new file `libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.stored-key.spec.ts`. It mocks the shared registry with three synthetic entries: `fixture-local` (local-native, optional key), `fixture-proxy` (local-proxy, optional key), and a custom endpoint `my-endpoint`.
+  - `%s: probes the stored key against the SAVED endpoint and reviews it as unchanged`, for local and proxy: the stored-key hint shows, the params are `{credential:{kind:'stored'}, baseUrl: <saved>}`, and the review reads "Stored key (unchanged)".
+  - `%s: an edited URL is a new destination — no stored-key request is sent`, for local and proxy: no hint, and the params carry no credential and the new URL.
+  - `compares against the saved override, not the registry default, when setup loads late`:
+    - Before setup, the draft shows the registry default, no hint appears, and no stored credential is sent.
+    - After setup arrives, the draft follows the saved override and the hint appears.
+    - Typing the registry default back withdraws the stored key.
+  - `custom endpoint: the stored key follows the saved URL and is withdrawn when the URL is edited`: a stored probe goes to the saved URL. After editing the URL the hint disappears and Continue is disabled (custom needs a key).
+- **Mutation checks against this file:**
+  - Local eligibility branch removed: 3 failed.
+  - URL guard removed: 4 failed.
+  - Late-setup guard replaced by the old registry-default comparison: 1 failed.
+
+### Files changed in this round
+- `P` and `providers-settings.component.spec.ts`
+- `W`
+- `provider-setup-wizard.stored-key.spec.ts` (new)
