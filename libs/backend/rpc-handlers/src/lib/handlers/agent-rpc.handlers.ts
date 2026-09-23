@@ -318,10 +318,16 @@ export class AgentRpcHandlers {
         }
         if (params.cursorApiKey !== undefined) {
           const value = params.cursorApiKey.trim();
-          if (value) {
-            await this.authSecrets.setProviderKey('cursor', value);
-          } else {
-            await this.authSecrets.deleteProviderKey('cursor');
+          try {
+            if (value) {
+              await this.authSecrets.setProviderKey('cursor', value);
+            } else {
+              await this.authSecrets.deleteProviderKey('cursor');
+            }
+          } catch {
+            // Secret-store errors can carry credentials; discard their details.
+            this.logger.error('RPC: agent:setConfig Cursor API key update failed');
+            return { success: false, error: 'Failed to update the Cursor API key' };
           }
           await this.workspace.setConfiguration(
             'ptah',
@@ -390,11 +396,6 @@ export class AgentRpcHandlers {
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };
       } catch (error: unknown) {
-        // Storage failures can contain credentials; never forward those details.
-        if (params?.cursorApiKey !== undefined) {
-          this.logger.error('RPC: agent:setConfig failed');
-          return { success: false, error: 'Failed to update agent configuration' };
-        }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(

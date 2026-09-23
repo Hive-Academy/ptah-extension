@@ -67,15 +67,36 @@ describe('migrateCursorApiKeyToSecrets', () => {
     expect(h.logger.info).toHaveBeenCalledWith('cleared');
   });
 
-  it.each(['', ' \t ', null, 42])(
-    'returns none without writes for %p',
+  it.each([''])('returns none without writes for %p', async (plain) => {
+    const h = makeHarness(plain);
+    expect(await h.migrate()).toBe('none');
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+    expect(h.secrets.hasProviderKey).not.toHaveBeenCalled();
+    expect(h.secrets.setProviderKey).not.toHaveBeenCalled();
+    expect(h.secrets.deleteProviderKey).not.toHaveBeenCalled();
+  });
+
+  it.each([' \t ', null, 42, false, { invalid: KEY }])(
+    'clears invalid plain value %p without touching secrets',
     async (plain) => {
-      const h = makeHarness(plain);
-      expect(await h.migrate()).toBe('none');
-      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      const h = makeHarness(plain, 'existing-secret');
+      expect(await h.migrate()).toBe('cleared');
+      expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        SETTING,
+        undefined,
+      );
+      expect(h.settings.has(SETTING)).toBe(false);
       expect(h.secrets.hasProviderKey).not.toHaveBeenCalled();
       expect(h.secrets.setProviderKey).not.toHaveBeenCalled();
       expect(h.secrets.deleteProviderKey).not.toHaveBeenCalled();
+      expect(h.storedSecrets.get('cursor')).toBe('existing-secret');
+      const calls = Object.values(h.logger).flatMap((fn) =>
+        jest.isMockFunction(fn) ? fn.mock.calls : [],
+      );
+      expect(calls).toEqual([['cleared']]);
+      expect(await h.migrate()).toBe('none');
+      expect(h.workspace.setConfiguration).toHaveBeenCalledTimes(1);
     },
   );
 

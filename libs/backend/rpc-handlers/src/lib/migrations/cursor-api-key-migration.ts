@@ -11,18 +11,21 @@ export async function migrateCursorApiKeyToSecrets(
     'ptah',
     'provider.cursor.apiKey',
   );
-  if (typeof legacyValue !== 'string' || !legacyValue.trim()) {
+  if (legacyValue === undefined || legacyValue === '') {
     return 'none';
   }
 
-  const exists = await secrets.hasProviderKey('cursor');
-  if (!exists) {
-    // Keep the plain value available for a retry if secret storage fails.
-    await secrets.setProviderKey('cursor', legacyValue.trim());
+  let outcome: 'migrated' | 'cleared' = 'cleared';
+  if (typeof legacyValue === 'string' && legacyValue.trim()) {
+    const exists = await secrets.hasProviderKey('cursor');
+    if (!exists) {
+      // Keep the plain value available for a retry if secret storage fails.
+      await secrets.setProviderKey('cursor', legacyValue.trim());
+      outcome = 'migrated';
+    }
   }
   // File-based settings omit undefined values when serializing settings.json.
   await workspace.setConfiguration('ptah', 'provider.cursor.apiKey', undefined);
-  const outcome = exists ? 'cleared' : 'migrated';
   logger.info(outcome);
   return outcome;
 }

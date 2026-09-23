@@ -233,24 +233,58 @@ describe('agent:setConfig Cursor secrets', () => {
     expect(h.authSecrets.deleteProviderKey).not.toHaveBeenCalled();
   });
 
-  it('keeps the plain copy and hides credential-bearing storage errors', async () => {
-    const h = makeHarness();
-    const key = 'cursor-sensitive-test-key';
-    h.settings.set('ptah.provider.cursor.apiKey', key);
-    h.authSecrets.setProviderKey.mockRejectedValue(new Error(key));
-    const result = await h.setConfig({ cursorApiKey: key });
-    expect(result).toEqual({
-      success: false,
-      error: 'Failed to update agent configuration',
-    });
-    expect(h.settings.get('ptah.provider.cursor.apiKey')).toBe(key);
-    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
-    for (const fn of Object.values(h.logger)) {
-      if (jest.isMockFunction(fn)) {
-        for (const call of fn.mock.calls)
-          expect(call.map(String).join(' ')).not.toContain(key);
+  it.each(['setProviderKey', 'deleteProviderKey'] as const)(
+    'keeps the plain copy and hides credential-bearing %s errors',
+    async (operation) => {
+      const h = makeHarness();
+      const key = 'cursor-sensitive-test-key';
+      h.settings.set('ptah.provider.cursor.apiKey', key);
+      h.authSecrets[operation].mockRejectedValue(new Error(key));
+      const result = await h.setConfig({
+        cursorApiKey: operation === 'setProviderKey' ? key : '',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Failed to update the Cursor API key',
+      });
+      expect(h.settings.get('ptah.provider.cursor.apiKey')).toBe(key);
+      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: agent:setConfig Cursor API key update failed',
+      );
+      for (const fn of Object.values(h.logger)) {
+        if (jest.isMockFunction(fn)) {
+          for (const call of fn.mock.calls)
+            expect(call.map(String).join(' ')).not.toContain(key);
+        }
       }
-    }
+    },
+  );
+
+  it('preserves unrelated field errors in a request that also updates the Cursor key', async () => {
+    const h = makeHarness();
+    const error = new Error('Cannot persist workflows.disabled');
+    h.workspace.setConfiguration.mockImplementation(async (_section, key) => {
+      if (key === 'workflows.disabled') throw error;
+    });
+    const result = await h.setConfig({
+      cursorApiKey: 'cursor-test-key',
+      workflowsDisabled: true,
+    });
+    expect(h.authSecrets.setProviderKey).toHaveBeenCalledWith(
+      'cursor',
+      'cursor-test-key',
+    );
+    expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'provider.cursor.apiKey',
+      undefined,
+    );
+    expect(result).toEqual({ success: false, error: error.message });
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: agent:setConfig failed',
+      error,
+    );
   });
 });
 
