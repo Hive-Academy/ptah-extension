@@ -258,6 +258,7 @@ Structure:
 - Approved prototype: [path to prototype/index.html, or "None"]
 - Fidelity assessment: MATCHES / DEVIATES / NOT APPLICABLE
 - Deviations observed: [differences in layout, components, or styling between build and prototype]
+- Before/after comparison (no prototype): [for a no-prototype review, one entry per dark and light before/after screenshot pair (paths) with its comparison result, written even when there are no regressions]
 
 ## Viewport results
 

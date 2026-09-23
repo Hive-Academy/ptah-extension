@@ -9,14 +9,23 @@ const { OpencodeAgentTransformer } = await jiti.import(join(T, 'opencode-agent-t
 const { CodexAgentTransformer } = await jiti.import(join(T, 'codex-agent-transformer.ts'));
 const write = process.argv.includes('--write');
 const changed = [];
+const skipped = [];
 for (const file of readdirSync(join(root, '.claude/agents')).filter((f) => f.endsWith('.md'))) {
   const agentId = file.replace(/\.md$/, '');
   const content = readFileSync(join(root, '.claude/agents', file), 'utf8');
   for (const t of [new OpencodeAgentTransformer(), new CodexAgentTransformer()]) {
     const rel = t.relPathFor(agentId);
     const out = t.transform({ agentId, content });
-    let cur = ''; try { cur = readFileSync(join(root, rel), 'utf8'); } catch {}
-    if (cur !== out) { changed.push(rel); if (write) writeFileSync(join(root, rel), out); }
+    let cur = null; try { cur = readFileSync(join(root, rel), 'utf8'); } catch {}
+    if (cur !== out) {
+      if (cur !== null && !t.isPtahOutput(cur)) {
+        skipped.push(rel);
+      } else {
+        changed.push(rel);
+        if (write) writeFileSync(join(root, rel), out);
+      }
+    }
   }
 }
 console.log((write ? 'WROTE ' : 'WOULD CHANGE ') + changed.length + '\n' + changed.join('\n'));
+if (skipped.length) console.log('SKIPPED (not Ptah output) ' + skipped.length + '\n' + skipped.join('\n'));
