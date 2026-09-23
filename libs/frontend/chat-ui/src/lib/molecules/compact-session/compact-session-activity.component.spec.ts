@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -131,7 +133,7 @@ describe(CompactSessionActivityComponent.name, () => {
     expect(emitted).toHaveBeenCalledTimes(1);
   });
 
-  it('renders label and text on a feed row, with the label always present', () => {
+  it('shows the mark detail as the primary row text with label and detail as its title', () => {
     const fixture = render(
       summary({
         marks: [
@@ -144,10 +146,16 @@ describe(CompactSessionActivityComponent.name, () => {
         ],
       }),
     );
-    const root = fixture.nativeElement as HTMLElement;
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
 
-    expect(root.textContent).toContain('Bash failed');
-    expect(root.textContent).toContain('Exit code 1: 3 test suites failed');
+    expect(line.textContent).toContain('Exit code 1: 3 test suites failed');
+    expect(line.getAttribute('title')).toBe(
+      'Bash failed — Exit code 1: 3 test suites failed',
+    );
+    // The label moved out of the visible text; the detail is the description.
+    expect(line.textContent).not.toContain('Bash failed');
   });
 
   it('renders no detail element and no empty row for a mark with no text', () => {
@@ -269,11 +277,13 @@ describe(CompactSessionActivityComponent.name, () => {
         ],
       }),
     );
-    const textContent = fixture.nativeElement.textContent;
-    expect(textContent).toContain('Tool started: read_file');
-    expect(textContent).toContain('Target File File Lines foo.ts 42');
-    expect(textContent).not.toContain('## Target File');
-    expect(textContent).not.toContain('|---|---|');
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+    expect(line.getAttribute('title')).toContain('Tool started: read_file');
+    expect(line.textContent).toContain('Target File File Lines foo.ts 42');
+    expect(line.textContent).not.toContain('## Target File');
+    expect(line.textContent).not.toContain('|---|---|');
   });
 
   it('filters marks locally using ALL, ERR, and WARN filter chips and updates aria-pressed', () => {
@@ -508,5 +518,265 @@ describe(CompactSessionActivityComponent.name, () => {
     expect(detailText).not.toContain('`');
     expect(detailText.length).toBeLessThanOrEqual(600);
     expect(detailText).toContain('x');
+  });
+
+  it('codes badge colour by mark kind while the glyph still codes tone', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({ id: 'k-tool', kind: 'tool', tone: 'success', label: 'Tool' }),
+          mark({
+            id: 'k-agent',
+            kind: 'agent',
+            tone: 'success',
+            label: 'Agent',
+          }),
+          mark({ id: 'k-prose', kind: 'prose', tone: 'live', label: 'Prose' }),
+          mark({ id: 'k-ask', kind: 'prompt', tone: 'warning', label: 'Ask' }),
+          mark({
+            id: 'k-comp',
+            kind: 'compaction',
+            tone: 'warning',
+            label: 'Comp',
+          }),
+          mark({
+            id: 'k-term',
+            kind: 'terminal',
+            tone: 'success',
+            label: 'Term',
+          }),
+          mark({ id: 'k-err', kind: 'tool', tone: 'error', label: 'Failed' }),
+        ],
+      }),
+    );
+    const badges = [
+      ...fixture.nativeElement.querySelectorAll(
+        '[data-zone="feed"] .cs-row-line span.inline-flex',
+      ),
+    ] as HTMLElement[];
+
+    expect(badges).toHaveLength(7);
+    // Badge colour comes from the mark kind.
+    expect(badges[0].className).toContain('text-info');
+    expect(badges[1].className).toContain('text-secondary');
+    expect(badges[2].className).toContain('text-primary');
+    expect(badges[3].className).toContain('text-warning');
+    expect(badges[4].className).toContain('text-warning');
+    expect(badges[5].className).toContain('text-error');
+    // An error-tone mark always gets an error badge, whatever its kind.
+    expect(badges[6].className).toContain('text-error');
+    expect(badges[6].className).not.toContain('text-info');
+    // Tone stays dual-coded through the glyph, and badges align in one column.
+    expect(badges[0].textContent).toContain('✓');
+    expect(badges[6].textContent).toContain('✖');
+    for (const badge of badges) {
+      expect(badge.className).toContain('min-w-[60px]');
+      expect(badge.className).toContain('justify-center');
+    }
+  });
+
+  it('shortens deep path tokens in the row text while keeping the words around them', () => {
+    const longPath =
+      'Reading .claude-worktrees/feat-task-494-apps-page-98c5a1802772/libs/backend/vscode-core/src/lib/logger.ts';
+    const fixture = render(
+      summary({ marks: [mark({ id: 'p1', text: longPath })] }),
+    );
+    const row = fixture.componentInstance.feedRows()[0];
+
+    expect(row.text).toBe('Reading …/lib/logger.ts');
+    expect(row.text.length).toBeLessThanOrEqual(120);
+    // The full un-shortened line stays available in the row tooltip.
+    expect(row.title).toContain(longPath);
+  });
+
+  it('falls back to a single column for a stacked body without a handle', () => {
+    const source = readFileSync(
+      join(__dirname, 'compact-session-activity.component.ts'),
+      'utf8',
+    );
+    // The stacked 600px container query is the last block in the styles; its
+    // no-handle rule must override the two-column base rule.
+    const stackedStart = source.lastIndexOf('@container (max-width: 600px)');
+    const ruleStart = source.indexOf('.cs-body.cs-no-handle', stackedStart);
+    const noHandleRule = source.slice(
+      ruleStart,
+      source.indexOf('}', ruleStart),
+    );
+
+    expect(noHandleRule).toContain('grid-template-rows');
+    expect(noHandleRule).toContain('grid-template-columns: 1fr');
+  });
+
+  it('expands one row detail at a time and collapses on repeat activation', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({ id: 'a', label: 'Tool completed', text: 'Detail A' }),
+          mark({ id: 'b', label: 'Tool completed', text: 'Detail B' }),
+        ],
+      }),
+    );
+    const lines = [
+      ...fixture.nativeElement.querySelectorAll(
+        '[data-zone="feed"] .cs-row-line',
+      ),
+    ] as HTMLElement[];
+
+    lines[0].click();
+    fixture.detectChanges();
+    let details = fixture.nativeElement.querySelectorAll('.cs-row-detail');
+    expect(details).toHaveLength(1);
+    expect(details[0].textContent).toContain('Detail A');
+    expect(lines[0].getAttribute('aria-expanded')).toBe('true');
+
+    lines[1].click();
+    fixture.detectChanges();
+    details = fixture.nativeElement.querySelectorAll('.cs-row-detail');
+    expect(details).toHaveLength(1);
+    expect(details[0].textContent).toContain('Detail B');
+    expect(lines[0].getAttribute('aria-expanded')).toBe('false');
+
+    lines[1].click();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+    expect(lines[1].getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('expands a row via the Enter and Space keys', () => {
+    const fixture = render(
+      summary({ marks: [mark({ id: 'a', text: 'Detail A' })] }),
+    );
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+
+    line.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(1);
+
+    line.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+  });
+
+  it('keeps a row without detail non-interactive', () => {
+    const fixture = render(summary());
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+
+    expect(line.getAttribute('role')).toBeNull();
+    expect(line.getAttribute('tabindex')).toBeNull();
+    line.click();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+  });
+
+  it('drives the recap split through clamped custom properties and resets them', () => {
+    const fixture = render(summary());
+    const component = fixture.componentInstance;
+    const body = fixture.nativeElement.querySelector('.cs-body') as HTMLElement;
+
+    component.onSplitSizeChange(250);
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBe(250);
+    expect(body.style.getPropertyValue('--cs-recap-w')).toBe('250px');
+
+    // Clamped to the max (fallback body width 640 - feed minimum 280).
+    component.onSplitSizeChange(5000);
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBe(360);
+    expect(body.style.getPropertyValue('--cs-recap-w')).toBe('360px');
+
+    // Clamped to the min.
+    component.onSplitSizeChange(10);
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBe(200);
+
+    // Reset (split-handle double-click) restores the CSS default sizing.
+    component.onSplitReset();
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBeNull();
+    expect(component.recapHeight()).toBeNull();
+    expect(body.style.getPropertyValue('--cs-recap-w')).toBe('');
+  });
+
+  it('re-clamps the stored recap width when the tile shrinks', () => {
+    const fixture = render(summary());
+    const component = fixture.componentInstance;
+    const body = fixture.nativeElement.querySelector('.cs-body') as HTMLElement;
+
+    component.onSplitSizeChange(300);
+    fixture.detectChanges();
+    expect(body.style.getPropertyValue('--cs-recap-w')).toBe('300px');
+
+    // A wider body first: side-by-side max is width - 280.
+    component.bodySize.set({ width: 700, height: 400 });
+    fixture.detectChanges();
+    component.onSplitSizeChange(5000);
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBe(700 - 280);
+
+    // The tile shrinks: the stored size is re-clamped at read time.
+    component.bodySize.set({ width: 640, height: 400 });
+    fixture.detectChanges();
+    expect(component.recapWidth()).toBe(700 - 280);
+    expect(body.style.getPropertyValue('--cs-recap-w')).toBe(`${640 - 280}px`);
+  });
+
+  it('switches the handle orientation at the same 600px breakpoint as the CSS', () => {
+    const fixture = render(summary());
+    const component = fixture.componentInstance;
+    const separator = () =>
+      fixture.nativeElement.querySelector('[role="separator"]');
+
+    expect(component.isStacked()).toBe(false);
+    expect(separator()?.getAttribute('aria-orientation')).toBe('vertical');
+
+    component.bodySize.set({ width: 600, height: 400 });
+    fixture.detectChanges();
+    expect(component.isStacked()).toBe(true);
+    expect(separator()?.getAttribute('aria-orientation')).toBe('horizontal');
+
+    // Stacked resizing drives the recap height with its own min/max.
+    component.onSplitSizeChange(20);
+    fixture.detectChanges();
+    expect(component.recapHeight()).toBe(72);
+    expect(component.handleMax()).toBe(400 - 96);
+
+    component.bodySize.set({ width: 601, height: 400 });
+    fixture.detectChanges();
+    expect(component.isStacked()).toBe(false);
+    expect(separator()?.getAttribute('aria-orientation')).toBe('vertical');
+  });
+
+  it('hides the split handle when there is no room to resize', () => {
+    const fixture = render(summary());
+    const component = fixture.componentInstance;
+    const body = fixture.nativeElement.querySelector('.cs-body') as HTMLElement;
+
+    component.bodySize.set({ width: 500, height: 150 });
+    fixture.detectChanges();
+    expect(component.handleVisible()).toBe(false);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="cs-split-handle"]'),
+    ).toBeNull();
+    expect(body.classList.contains('cs-no-handle')).toBe(true);
+
+    component.bodySize.set({ width: 900, height: 500 });
+    fixture.detectChanges();
+    expect(component.handleVisible()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="cs-split-handle"]'),
+    ).not.toBeNull();
+    expect(body.classList.contains('cs-no-handle')).toBe(false);
   });
 });
