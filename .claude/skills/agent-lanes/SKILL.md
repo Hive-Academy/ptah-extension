@@ -72,6 +72,9 @@ A lane shares none of your context and cannot ask the user anything. Every `task
    own throwaway worktree and says so.
 8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
    in the deliverable and stop.
+9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
+   can do today (or pass `parity-inventory.md` in `files`). Every item stays, moves, or is listed
+   under `## Proposed Removals` for user approval — never removed silently.
 
 Say the output format ("markdown table", "numbered defects with `file:line`"). A lane that is not
 told where to write dumps its answer into the reply and skips the file.
@@ -144,7 +147,10 @@ Lane output is evidence, not proof.
 | --- | --- |
 | Research, surveys, summaries | Spot-check claims against the code |
 | Scaffolding, stubs | Read it in full — only the files the lane edited |
-| Code that will ship | Review by a lane from a **different family**, or by you line by line |
+| Decision artifacts (spec, design, plan) | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list each rule the user did not ask for under `## Lane-introduced constraints`. The user approves the artifact at orchestration Gate 1.7 or 2 before any lane builds from it. |
+| Code that deletes or replaces a surface | Check `parity-inventory.md` row by row; a missing, unapproved capability blocks the batch. |
+| UI code | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype and shown to the user before merge. |
+| Code that will ship | Review by a lane from a **different family**, or by you line by line. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended. |
 
 - **Independence**: a lane never reviews its own work. Same family on another model is allowed
   when the user asks for it; state in the summary that the review was same-family (weaker signal).
@@ -152,7 +158,8 @@ Lane output is evidence, not proof.
   `file:line`. Drop any defect without a location before relaying it.
 - **Revise cap**: 2 revise rounds. Not converged → stop and finish it yourself, or report the open
   defects honestly. Announce the cap before the first round.
-- **Proof** is the project's typecheck, tests and lint. A lane's `PASS` is an opinion; run them —
+- **Code checks** are the project's typecheck, tests and lint; UI also needs rendered evidence.
+  A lane's `PASS` is an opinion; run them —
   scoped to the projects the lane changed (`npx nx run-many -t typecheck,test,lint -p <project>`),
   never workspace-wide. Tail or filter the output; never paste a full log into the thread.
 

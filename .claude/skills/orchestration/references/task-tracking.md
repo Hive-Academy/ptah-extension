@@ -111,7 +111,9 @@ never track status in any other file.
     context.md                     user intent, strategy, lane roster
     task-description.md            project-manager
     research-report.md             researcher-expert
-    visual-design-specification.md ui-ux-designer
+    parity-inventory.md            project-manager (required when replacing a surface)
+    design-spec.md                 ui-ux-designer
+    prototype/                     ui-ux-designer (README.md, screenshots/) — Gate 1.7
     implementation-plan.md         software-architect
     batches.md                     team-leader (former name tasks.md is still read)
     test-report.md                 senior-tester
@@ -136,7 +138,7 @@ Read `task.md` for status and `Glob` the folder. The furthest row that matches d
 | no `task.md` | Stop — invalid folder; create the carrier first |
 | `task.md` / `context.md` only | project-manager |
 | `task-description.md` | Gate 1 if not approved, else next agent |
-| `visual-design-specification.md` | software-architect |
+| `design-spec.md` + `prototype/` | Gate 1.7 if not approved, else software-architect |
 | `implementation-plan.md` | Gate 2 if not approved, else team-leader Mode 1 |
 | `batches.md`, a batch not COMPLETE | team-leader Mode 2 |
 | `batches.md`, every batch COMPLETE | team-leader Mode 3, then Gate 3 |

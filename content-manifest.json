@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:69d9a799d58f37c2c58e4c6cdb48ce596b029f44ebe5e29403dc97ed64514747",
-  "generatedAt": "2026-09-22T16:07:00.266Z",
+  "contentHash": "sha256:dfc11e43fb022968736fe4851096cf5d2a6421b13d074e0eddc9c8c655ed46b3",
+  "generatedAt": "2026-09-23T14:40:50.758Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -89,6 +89,7 @@
       "ptah-core/skills/ui-ux-designer/DEVELOPER-HANDOFF.md",
       "ptah-core/skills/ui-ux-designer/LAYOUT-PATTERNS.md",
       "ptah-core/skills/ui-ux-designer/NICHE-DISCOVERY.md",
+      "ptah-core/skills/ui-ux-designer/PROTOTYPING.md",
       "ptah-core/skills/ui-ux-designer/REFERENCE-LIBRARY.md",
       "ptah-core/skills/ui-ux-designer/SKILL.md",
       "ptah-dotnet/.claude-plugin/plugin.json",

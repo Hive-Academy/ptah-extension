@@ -8,14 +8,14 @@ Detailed workflow diagrams and guidance for all 8 task type workflows. Which pha
 
 | Strategy      | Complexity     | Primary Agents                       | User Checkpoints                      |
 | ------------- | -------------- | ------------------------------------ | ------------------------------------- |
-| FEATURE       | Full           | PM, Architect, Team-Leader, Devs, QA | Scope, Requirements, Architecture, QA |
+| FEATURE       | Full           | PM, [Designer], Architect, Team-Leader, Devs, QA | Scope, Requirements, Design (1.7), Architecture, QA |
 | BUGFIX        | Streamlined    | Team-Leader, Devs, QA                | QA                                    |
 | REFACTORING   | Focused        | Architect, Team-Leader, Devs, QA     | Architecture, QA                      |
 | DOCUMENTATION | Minimal        | PM, Developer, Style Reviewer        | Requirements                          |
 | RESEARCH      | Investigation  | Researcher                           | None                                  |
 | DEVOPS        | Infrastructure | PM, Architect, DevOps Engineer, QA   | Requirements, Architecture, QA        |
 | SAAS_INIT     | Full+Discovery | PM, Architect, Team-Leader, Devs     | Scope, PRD, Architecture, Batches     |
-| CREATIVE      | Design-first   | ui-ux-designer, content-writer, Dev  | Design system check                   |
+| CREATIVE      | Design-first   | ui-ux-designer, content-writer, Dev  | Design system check, Design (1.7)     |
 
 ---
 
@@ -38,7 +38,9 @@ Phase 1: project-manager --> Creates task-description.md
 Phase 2: [IF technical unknowns] researcher-expert --> Creates research-report.md
          |
          v
-Phase 3: [IF UI/UX work] ui-ux-designer --> Creates visual-design-specification.md
+Phase 3: [IF UI/UX work] ui-ux-designer --> Creates design-spec.md + prototype/
+         |
+         GATE 1.7: USER VALIDATES ("APPROVED" or revisions)
          |
          v
 Phase 3.5: [IF multiple valid approaches] TECHNICAL CLARIFICATION
@@ -65,6 +67,11 @@ Phase 7: User handles git (commits already created)
          v
 Phase 8: modernization-detector --> Creates future-enhancements.md
 ```
+
+Before design starts on an existing surface being replaced, consolidated, rebuilt or redesigned,
+PM (architect when no PM) writes `parity-inventory.md` from the old code. The designer owns
+`design-spec.md` and `<taskFolder>/prototype/`, including `README.md` and `screenshots/`;
+revise them until Gate 1.7 is approved, then pass the approved prototype to the architect.
 
 ### Conditional Agent Triggers
 
@@ -353,6 +360,10 @@ Developers reference these skills during implementation:
 ## Creative Workflows
 
 Creative workflows follow a **design-first principle** with specific agent sequencing.
+Whenever a designer ran or a UI surface is added/redesigned, the designer owns `design-spec.md`
+and `<taskFolder>/prototype/` (with `README.md` and `screenshots/`). Run Gate 1.7 before
+content/implementation; an existing design system does not waive it. For an existing surface,
+PM (architect when no PM) inventories the old code in `parity-inventory.md` before design starts.
 
 ### Design-First Dependency Chain
 
@@ -364,6 +375,8 @@ Creative workflows follow a **design-first principle** with specific agent seque
 |     +-- ui-ux-designer creates if missing                     |
 |         +-- Output: DESIGN-SYSTEM.md, in the                  |
 |                     technical-content-writer skill's own dir  |
+|                                                               |
+|  1.7 DESIGNER -> PROTOTYPE -> GATE 1.7 (APPROVED)              |
 |                                                               |
 |  2. CONTENT GENERATION (Depends on #1)                        |
 |     +-- technical-content-writer uses design system           |
@@ -389,10 +402,12 @@ if NOT exists(design_system_path):
     -> Invoke ui-ux-designer FIRST
     -> "Create design system for this project"
     -> Wait for completion
+    -> Designer creates design-spec.md + prototype/; run Gate 1.7
     -> Then invoke technical-content-writer
 
 if exists(design_system_path):
-    -> Invoke technical-content-writer directly
+    -> For added/redesigned UI: designer -> prototype -> Gate 1.7
+    -> Then invoke technical-content-writer
     -> Content will use existing design system
 ```
 
@@ -425,6 +440,10 @@ Orchestrator:
      - Agent creates DESIGN-SYSTEM.md
      - Wait for completion
 
+  2.5. Invoke ui-ux-designer for design-spec.md + prototype/ (even if design system exists)
+       - Include prototype/README.md and prototype/screenshots/
+       - Present Gate 1.7; revise until APPROVED
+
   3. Invoke technical-content-writer:
      Task("Create landing page content", subagent_type="technical-content-writer")
      - Agent loads LANDING-PAGES.md skill
@@ -433,6 +452,7 @@ Orchestrator:
 
   4. Deliver combined output:
      - Design system (if created)
+     - Approved design-spec.md and prototype/
      - Content specification with visual specs
      - Asset generation briefs
 ```
@@ -465,14 +485,16 @@ Orchestrator:
      - Agent loads NICHE-DISCOVERY.md
      - Agent loads DESIGN-SYSTEM-BUILDER.md
      - Agent guides through discovery questions
-     - Agent creates complete design system
+     - Agent creates complete design system, design-spec.md and prototype/
+  2. Present Gate 1.7; revise until APPROVED
 ```
 
 ### Parallel vs Sequential Execution
 
 **Sequential (Default for Creative)**:
 
-- Design system MUST complete before content
+- Design system MUST complete before content; if a designer ran or UI is added/redesigned,
+  designer → prototype → Gate 1.7 approval also precedes content
 - Content informs implementation
 
 **Parallel (When Design Exists)**:
@@ -482,9 +504,9 @@ Orchestrator:
 
 ```
 # Sequential (design missing)
-ui-ux-designer --> technical-content-writer --> frontend-developer
+ui-ux-designer --> prototype --> Gate 1.7 --> technical-content-writer --> frontend-developer
 
-# Parallel (design exists)
+# Parallel (design exists; Gate 1.7 approved for added/redesigned UI)
 +-> technical-content-writer (landing page)
 +-> technical-content-writer (blog post)
 +-> technical-content-writer (video script)
@@ -495,7 +517,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 | Agent                    | Output File                                                  | Purpose                           |
 | ------------------------ | ------------------------------------------------------------ | --------------------------------- |
 | ui-ux-designer           | `DESIGN-SYSTEM.md` in the technical-content-writer skill dir | Design tokens, colors, typography |
-| ui-ux-designer           | `.ptah/specs/TASK_[ID]/visual-design-specification.md`       | Page-specific visual specs        |
+| ui-ux-designer           | `.ptah/specs/TASK_[ID]/design-spec.md` + `prototype/`         | Visual spec + prototype for Gate 1.7        |
 | technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`             | Content with design integration   |
 | technical-content-writer | `docs/content/*.md`                                          | Final content files               |
 
@@ -507,6 +529,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 ## Design Handoff for Content
 
 **Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
+**Approved Prototype**: `<taskFolder>/prototype/` (Gate 1.7; README.md + screenshots/)
 **Aesthetic**: [Name - e.g., "Sacred Tech"]
 **Key Colors**: [Primary accent, backgrounds]
 **Typography**: [Display + body fonts]
@@ -526,11 +549,12 @@ Content writer should:
 
 **Content Spec**: .ptah/specs/TASK\_[ID]/content-specification.md
 **Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
+**Approved Prototype**: `<taskFolder>/prototype/` (Gate 1.7)
 **Assets Needed**: [List from asset briefs]
 
 Developer should:
 
-- Implement content following visual specs
+- Implement content following visual specs and the approved prototype; return deviations to the designer
 - Use design system tokens exactly
 - Generate/source assets from briefs
 ```

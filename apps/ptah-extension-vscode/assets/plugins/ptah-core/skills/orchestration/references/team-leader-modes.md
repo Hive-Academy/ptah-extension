@@ -27,6 +27,16 @@ Task({
 });
 ```
 
+## Completion checks
+
+Mode 3 verifies `parity-inventory.md` row by row: each capability stays, moves with its proving
+test, or has a user-approved removal. A missing, unapproved capability blocks completion.
+UI batches require visual-reviewer screenshots in dark + light themes against the approved
+`<taskFolder>/prototype/`, shown to the user before merge; typecheck/test/lint alone do not suffice.
+For changed persisted settings/config/storage writes, require a **write-path trace** to each
+runtime reader (key, scope, value format, side effects such as env vars), confirming unchanged or
+intended behaviour. Missing evidence goes back for verification before `TASK COMPLETE`.
+
 ## Acting on a return
 
 Every return ends with a `### Next action:` line. Do what it says; the heading tells you which case

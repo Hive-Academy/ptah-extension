@@ -241,7 +241,7 @@ When creating landing page content, follow this design-integrated workflow:
 Read(DESIGN-SYSTEM.md)
 
 # Check for project-specific design specs
-Glob(.ptah/specs/TASK_*/visual-design-specification.md)
+Glob(.ptah/specs/TASK_*/{design-spec,visual-design-specification}.md)
 Read(.ptah/specs/TASK_2026_072/context.md)
 ```
 

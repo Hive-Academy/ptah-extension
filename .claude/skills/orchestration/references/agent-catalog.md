@@ -33,7 +33,7 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 
 | Request        | Agent path                                         |
 | -------------- | -------------------------------------------------- |
-| Implement X    | project-manager → architect → team-leader → dev    |
+| Implement X    | project-manager → [designer → prototype → Gate 1.7] → architect → team-leader → dev    |
 | Fix bug        | team-leader → dev → test → review                  |
 | Research X     | researcher-expert → architect                      |
 | Review style   | code-style-reviewer                                |
@@ -41,8 +41,8 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 | Review visual  | visual-reviewer                                    |
 | Test X         | senior-tester                                      |
 | Architecture   | software-architect                                 |
-| Landing page   | ui-ux-designer → technical-content-writer          |
-| Brand / visual | ui-ux-designer                                     |
+| Landing page   | ui-ux-designer → prototype → Gate 1.7 → technical-content-writer          |
+| Brand / visual | ui-ux-designer → prototype → Gate 1.7             |
 | Content        | technical-content-writer                           |
 | Demo video     | video-director                                     |
 | Infrastructure | devops-engineer                                    |
@@ -81,9 +81,14 @@ Task({
 | visual-reviewer | Visual review | `**Changes**: batches.md (frontend files)`<br>`**Base URL**: <running app URL>` | `visual-review.md` + `screenshots/` | Run the visual review checklist below. |
 | researcher-expert | Research X | `**Research Question**: "<the question>"` | `research-report.md` | Compare the options, recommend one. |
 | modernization-detector | Analyze future improvements | `**Changes**: batches.md` | `future-enhancements.md` | Find follow-up improvements and tech debt. |
-| ui-ux-designer | Create design system | `**Goal**: <what to design>` | `visual-design-specification.md` | Run niche discovery, build the design system. |
+| ui-ux-designer | Create design and prototype | `**Goal**: <what to design>`<br>`**Parity**: parity-inventory.md when required` | `design-spec.md` + `prototype/` | Run niche discovery, build the design system and prototype (README.md + screenshots/); disclose lane-introduced constraints; revise until Gate 1.7 is approved. |
 | technical-content-writer | Create content | `**Design System**: DESIGN-SYSTEM.md in your own skill directory`<br>`**Goal**: <what to write>` | `content-specification.md` | Write design-integrated content. |
 | video-director | Author showcase scene | `**Goal**: <feature or flow>`<br>`**App**: <what to launch, which URL>` | scene + render | Read the `video-showcase` skill first, then author, capture, render. |
+
+The designer owns `<taskFolder>/prototype/`. FEATURE UI and CREATIVE design flow through
+designer → prototype → Gate 1.7 before the architect or next creative phase; hand off the
+approved prototype as the visual source of truth. PM (architect when no PM) supplies the
+old-code parity inventory before design starts when an existing surface is replaced/redesigned.
 
 **Visual review checklist** (spell it out in the visual-reviewer prompt):
 
@@ -93,6 +98,7 @@ Task({
 4. Check color contrast ratios.
 5. Check touch target sizes.
 6. Test responsive behavior between the breakpoints.
+7. Compare dark + light theme screenshots with the approved `<taskFolder>/prototype/`; show evidence to the user before merge.
 
 ---
 
@@ -109,10 +115,10 @@ Task({
 | senior-tester | Gate 3 `tester` / `all` | `batches.md`, plan, changed files | reviewers |
 | code-style-reviewer | Gate 3 `style` / `reviewers` / `all`; DOCUMENTATION final check | changed files, style rules | tester, other reviewers |
 | code-logic-reviewer | Gate 3 `logic` / `reviewers` / `all`; team-leader `NEEDS REVIEW` | changed files, plan | tester, other reviewers |
-| visual-reviewer | Gate 3 `visual` for rendered UI | changed UI files, running app | tester, other reviewers |
+| visual-reviewer | UI batch evidence; Gate 3 `visual` for rendered UI | changed UI files, running app, approved prototype | tester, other reviewers |
 | researcher-expert | Technical unknowns, BUGFIX with unknown cause, RESEARCH | question, `context.md`, external docs | — |
 | modernization-detector | Final phase, after QA | `batches.md`, changed files | — |
-| ui-ux-designer | CREATIVE; FEATURE with new UI | brand input, references, `context.md` | — (design before content) |
+| ui-ux-designer | CREATIVE; FEATURE with added/redesigned UI | brand input, references, `context.md`, parity inventory | — (prototype + Gate 1.7 before architect/content) |
 | technical-content-writer | CREATIVE after the design system exists; blogs, docs, scripts | `DESIGN-SYSTEM.md`, brief, source | other content-writer instances |
 | video-director | Demo, tour or showcase video | the flow to demo, a runnable app | — (capture owns the app) |
 

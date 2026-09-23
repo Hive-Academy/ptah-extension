@@ -28,6 +28,7 @@ For detailed patterns and workflows, see:
 - [REFERENCE-LIBRARY.md](REFERENCE-LIBRARY.md) - Curated aesthetic references and modern design patterns
 - [LAYOUT-PATTERNS.md](LAYOUT-PATTERNS.md) - Content-driven layout selection (Spotlight, Card Grid, Hybrid, Comparison)
 - [DEVELOPER-HANDOFF.md](DEVELOPER-HANDOFF.md) - Design specs, workflow phases, handoff documents, and return format
+- [PROTOTYPING.md](PROTOTYPING.md) - Interactive static prototypes for user confirmation (Gate 1.7), folder layout, and prototype rules
 
 ---
 
@@ -116,6 +117,31 @@ design_system:
 
 ---
 
+## Prototype for User Confirmation
+
+The UI/UX designer **owns building an interactive, clickable prototype** for user confirmation before any implementation code is written.
+
+### Why the Designer Owns the Prototype
+A lane-written design specification must never reach implementation without the user seeing and interacting with it first. The designer creates a self-contained static prototype that becomes the single visual source of truth across design, implementation, and visual review.
+
+### Prototype Deliverable
+For any screen, landing page, or UI surface, deliver `<taskFolder>/prototype/`:
+- `index.html`: Self-contained static HTML (one file per screen or in-page navigation), plain JavaScript allowed. Zero build step, zero backend, never imported by the application.
+- `README.md`: Instructions to open, screen/state list, interactive features, a `## Lane-introduced constraints` list (tagged `[user-requested]`, `[project-rule]`, `[lane-proposed]`), and parity cross-references to `parity-inventory.md`.
+- `screenshots/`: Static screenshots of the prototype across themes and viewports, captured via `ptah_browser_screenshot` when available.
+
+### Prototyping Rules
+- **Component & token reuse**: Always use the project's real design tokens and component library (e.g. Tailwind + daisyUI themes from `apps/ptah-extension-webview/tailwind.config.js`; CDN equivalent acceptable). Prefer existing components over custom markup.
+- **Never ban project components wholesale**: Do not ban components like badges, tooltips, or primary buttons. Solve accessibility via tokens and contrast tuning. Any proposed ban requires empirical evidence and explicit user approval.
+- **Status is not a button**: Status indicators and secondary information are hints, badges, or tooltips — never action buttons.
+- **One primary action per surface**: Ensure exactly one prominent primary action per surface; secondary actions use ghost/outline variants.
+- **State coverage**: Explicitly provide populated, empty, loading, error, dark theme, light theme, narrow width (≈400px sidebar), and wide width.
+
+### Iteration & Orchestration Gate 1.7
+Iterate and refine the prototype based on user feedback until the user explicitly replies **`APPROVED`** at Gate 1.7. Frontend implementation only begins after this gate passes. See [PROTOTYPING.md](PROTOTYPING.md) for full layout patterns and templates.
+
+---
+
 ## Output Format
 
 When completing design work, deliver:
@@ -130,14 +156,15 @@ When completing design work, deliver:
 - **Influences**: [Reference sites analyzed]
 - **Unique Element**: [Theme/metaphor]
 
-### 2. Design System
+### 2. Design System & Design Specification
 
-[Full design system specification]
+[Full design system and visual design specification]
 
-- Save to: `DESIGN-SYSTEM.md` inside the `technical-content-writer` skill's own
+- Save design system to: `DESIGN-SYSTEM.md` inside the `technical-content-writer` skill's own
   directory (its sibling files live there). Locate that directory via the Skill
   tool / plugin root — never write to a workspace-relative `.claude/` path,
   which differs per host and install method.
+- Save design specification to: `.ptah/specs/<TASK_FOLDER>/design-spec.md`
 
 ### 3. Asset Generation Briefs
 
@@ -150,6 +177,10 @@ When completing design work, deliver:
 ### 5. Reference Gallery
 
 [Links to inspiration, patterns discovered]
+
+### 6. Clickable Prototype
+
+[Self-contained static prototype at `.ptah/specs/<TASK_FOLDER>/prototype/` with README.md and screenshots/]
 ```
 
 ---
@@ -201,7 +232,8 @@ mood: 'Dark and dramatic'
 
 - DESIGN-SYSTEM.md with complete token library
 - LANDING-PAGES.md with section templates
-- Task folder with visual specification document
+- Task folder with design-spec.md
+
 
 ---
 

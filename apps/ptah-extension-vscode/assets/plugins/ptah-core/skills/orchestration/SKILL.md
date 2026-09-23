@@ -29,14 +29,14 @@ it, and verify what comes back. You never implement directly.
 
 | Type | Flow |
 | --- | --- |
-| FEATURE | PM → [research] → [designer] → architect → team-leader → QA |
+| FEATURE | PM → [research] → [designer → prototype → Gate 1.7] → architect → team-leader → QA |
 | BUGFIX | [research] → team-leader → QA |
 | REFACTORING | architect → team-leader → QA |
 | DOCUMENTATION | PM → developer → style reviewer |
 | RESEARCH | researcher → [switch to FEATURE] |
 | DEVOPS | PM → architect → devops-engineer → QA |
 | SAAS_INIT | discovery → PM → architect → team-leader |
-| CREATIVE | [designer] → content writer → frontend developer |
+| CREATIVE | [designer → prototype → Gate 1.7] → content writer → frontend developer |
 
 ## Task folder
 
@@ -44,6 +44,10 @@ it, and verify what comes back. You never implement directly.
   contents ([task-tracking.md § Continuation](references/task-tracking.md#continuation)).
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
+- `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
+  an existing surface. PM (or architect when no PM) writes it from the **OLD code before design
+  starts**. Columns: capability, where today (file:line), backing RPC/API, decision
+  (keep/move/remove-proposed), new location, test that proves it. Record user approval for removals.
 - Status changes: `Edit` exactly the `status:` line of `task.md`. Never rewrite the carrier.
 
 ## Gates (all yours — subagents and lanes cannot reach the user)
@@ -54,6 +58,7 @@ it, and verify what comes back. You never implement directly.
 | 0 Scope | Before PM, if the request is ambiguous | `AskUserQuestion` |
 | 1 Requirements | After `task-description.md` | **Plain message**, wait for `APPROVED` |
 | 1.5 Technical | Before architect, if several valid approaches | `AskUserQuestion` |
+| 1.7 Design | After `design-spec.md` and `prototype/`, before architect; mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED` |
 | 2 Architecture | After `implementation-plan.md` | **Plain message**, wait for `APPROVED` |
 | 3 QA choice | After team-leader completion | `AskUserQuestion` |
 | SR Clarification | An agent returned `## Clarifications Needed` | Ask, then re-invoke with `## User Decisions` |
@@ -73,6 +78,9 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 
 ## Never
 
+- Never let a lane-authored spec/design/plan reach implementation without the user seeing and
+  approving it (Gate 1.7 or 2).
+- Never delete a capability that is not an approved removal in `parity-inventory.md`.
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
   reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
 - Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.

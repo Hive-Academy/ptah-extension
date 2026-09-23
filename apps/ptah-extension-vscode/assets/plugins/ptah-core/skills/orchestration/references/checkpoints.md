@@ -5,7 +5,7 @@ This reference documents all user validation checkpoints in the orchestration wo
 > **Critical rules**:
 >
 > 1. All checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
-> 2. **Document review checkpoints (1, 2) use plain text messages, not `AskUserQuestion`.** PM and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision. Pre-deliverable choice checkpoints (0, 0.1, 1.5, 3) still use `AskUserQuestion` because they ARE structured option-picks.
+> 2. **Document review checkpoints (1, 1.7, 2) use plain text messages, not `AskUserQuestion`.** PM, Designer and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision. Pre-deliverable choice checkpoints (0, 0.1, 1.5, 3) still use `AskUserQuestion` because they ARE structured option-picks.
 > 3. If the `AskUserQuestion` tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer before proceeding. The checkpoint itself is never skipped — the presentation may degrade, the question may not.
 
 ---
@@ -18,11 +18,12 @@ This reference documents all user validation checkpoints in the orchestration wo
 | **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests      | `AskUserQuestion` | Answers or "use your judgment"               |
 | **1**      | Requirements Validation | After PM          | Review task-description.md      | **Plain message** | "APPROVED" or feedback                       |
 | **1.5**    | Technical Clarification | Before Architect  | Technical preferences           | `AskUserQuestion` | Answers or "use your judgment"               |
+| **1.7**    | Design Validation       | After design + prototype, before Architect | Approve design and rendered states | **Plain message** | "APPROVED" or revisions |
 | **2**      | Architecture Validation | After Architect   | Review implementation-plan.md   | **Plain message** | "APPROVED" or feedback                       |
 | **3**      | QA Choice               | After Development | Select QA agents                | `AskUserQuestion` | tester/style/logic/visual/reviewers/all/skip |
 | **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | `AskUserQuestion` | Answers re-injected into subagent prompt     |
 
-**Why 1 and 2 are plain messages**: they ask the user to review a generated document on disk. Forcing an `AskUserQuestion` modal pre-commits the user to "APPROVED" or "revise" before they've had a chance to actually open and read the file. Plain text gives them room to validate the doc first.
+**Why 1, 1.7 and 2 are plain messages**: they ask the user to review a generated document on disk. Forcing an `AskUserQuestion` modal pre-commits the user to "APPROVED" or "revise" before they've had a chance to actually open and read the file. Plain text gives them room to validate the doc first.
 
 ---
 
@@ -182,13 +183,21 @@ REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
 - [Exclusion 1]
 
+## Lane-introduced constraints
+
+- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+
+## Parity deltas
+
+- [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
+
 ---
 
 Please open the document above and review it at your own pace.
 
 When ready, reply:
 
-- **"APPROVED"** — proceed to architecture phase
+- **"APPROVED"** — proceed to design and Gate 1.7 if required, then architecture
 - **Feedback / questions** — I'll revise and re-present
 ```
 
@@ -196,7 +205,7 @@ When ready, reply:
 
 | Response          | Action                                                         |
 | ----------------- | -------------------------------------------------------------- |
-| "APPROVED"        | Proceed to Checkpoint 1.5 or Architect                         |
+| "APPROVED"        | Proceed to required design/Gate 1.7, Checkpoint 1.5 or Architect                         |
 | Feedback provided | Re-invoke project-manager with feedback, re-present checkpoint |
 | Questions asked   | Answer questions, re-present checkpoint                        |
 
@@ -258,6 +267,67 @@ Before I create the architecture, I have a few technical questions:
 
 ---
 
+## Checkpoint 1.7: Design Validation
+
+### When to Present
+
+After `design-spec.md` and `<taskFolder>/prototype/` are ready, before the architect (or the
+next creative phase). **Mandatory whenever a designer ran or any UI surface is added/redesigned.**
+
+### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
+
+Show the spec, prototype and screenshots in a regular chat message. Diff the spec's rules against
+the user's request and disclose additions below. Stop and wait for `APPROVED` before proceeding.
+
+### Template
+
+```markdown
+---
+DESIGN READY FOR REVIEW — TASK_[ID]
+---
+
+📄 **Document**: `<taskFolder>/design-spec.md`
+**Authored by**: [lane/agent that wrote the spec]
+**Prototype**: `<taskFolder>/prototype/`
+**How to open**: [exact entry file/instructions from `prototype/README.md`]
+**Screenshots**: [links to `prototype/screenshots/`, including dark + light themes]
+
+## Design Summary
+
+[2–4 line summary extracted from design-spec.md]
+
+## Screens and States
+
+- [Screen and its populated, empty, loading, error states; themes and widths from README.md]
+
+## Lane-introduced constraints
+
+- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+
+## Parity deltas
+
+- [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
+
+---
+
+Please open the spec and prototype above and review the screenshots at your own pace.
+
+When ready, reply:
+
+- **"APPROVED"** — use this prototype as the visual source of truth; proceed to architect or the next creative phase
+- **Revisions / questions** — I'll revise and re-present
+```
+
+### Response Handling
+
+| Response          | Action                                                         |
+| ----------------- | -------------------------------------------------------------- |
+| "APPROVED"        | Record approval and any approved parity removals; proceed       |
+| Revisions provided | Re-invoke designer with feedback, re-present spec and prototype |
+| Questions asked   | Answer questions, re-present checkpoint                         |
+
+---
+
 ## Checkpoint 2: Architecture Validation
 
 ### When to Present
@@ -298,6 +368,14 @@ ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 | path/to/file1.ts | CREATE | [purpose] |
 | path/to/file2.ts | MODIFY | [purpose] |
 
+## Lane-introduced constraints
+
+- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+
+## Parity deltas
+
+- [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
+
 ## Estimated Complexity
 
 [Simple | Medium | Complex] — [N] files, [B] batches expected
@@ -327,7 +405,8 @@ When ready, reply:
 
 ### When to Present
 
-After team-leader MODE 3 confirms all development complete
+After team-leader MODE 3 confirms all development complete. This choice does not waive the
+required UI evidence against the approved prototype or parity/write-path completion checks.
 
 ### Template
 
@@ -488,6 +567,12 @@ New Task Start
      │
      v
 [Checkpoint 1.5: Technical Clarification]  ←─ Optional
+     │
+     v
+  Designer → design-spec.md + prototype/ (when required)
+     │
+     v
+[Checkpoint 1.7: Design Validation]  ←─ Required if designer ran or UI added/redesigned
      │
      v
   Software Architect
