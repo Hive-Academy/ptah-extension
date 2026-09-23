@@ -62,6 +62,16 @@ blocks: [TASK_2026_536, TASK_2026_537]
   in the cost announcement and summary. No model names in skill text.
 - Mirror to `.claude/skills`, regenerate `content-manifest.json`.
 
+### D. Role contract vs declared deliverables (found in TASK_2026_534)
+- A `code-logic-reviewer` lane refused the declared deliverable
+  `code-logic-review-r2.md` because its role contract names
+  `code-logic-review.md`, overwrote its round-1 review, and the completion signal
+  reported `no-deliverable` for work that was done. The declared `deliverables`
+  must win over a role's default file name (tell the lane so in the role
+  preamble), or `ptah_agent_spawn` must reject the conflict at spawn time. A
+  role must never silently overwrite an earlier deliverable; append or version.
+- Record the conflict in `lane_runs` so scorecards do not count it as a failure.
+
 ## Out of scope
 UI for the ledger; judging trajectories (TASK_2026_536); classification (TASK_2026_537).
 

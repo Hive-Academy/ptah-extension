@@ -30,7 +30,7 @@ there, in this authority order (highest first):
 1. `context.md` — user intent and the settled plan in the user's own words.
 2. `task-description.md` — formal requirements and acceptance criteria.
 3. `research-report.md` — evidence gathered by researcher-expert.
-4. `visual-design-specification.md`, `design-handoff.md`,
+4. `design-spec.md`, `design-handoff.md`,
    `design-assets-inventory.md` — present only for UI work.
 5. `implementation-plan.md` — a previous version of your own deliverable.
 

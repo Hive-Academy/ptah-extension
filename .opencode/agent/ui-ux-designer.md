@@ -35,12 +35,13 @@ reference the current job needs:
 | Choose a layout for known content                | `LAYOUT-PATTERNS.md`       |
 | Write asset briefs and generation prompts        | `ASSET-GENERATION.md`      |
 | Prepare the implementation handoff               | `DEVELOPER-HANDOFF.md`     |
+| Build interactive prototype for user approval    | `PROTOTYPING.md`           |
 
 Also gather, when present:
 
 - The existing `DESIGN-SYSTEM.md` carried by the technical-content-writer skill. When it
   exists it is authoritative and is not re-derived.
-- `context.md` and `visual-design-specification.md` in the task folder.
+- `context.md`, `parity-inventory.md`, and `design-spec.md` in the task folder.
 - The project's own token and style sources, discovered rather than assumed: whichever
   theme, token, style or design-system configuration and documentation this repository
   keeps, wherever it keeps them.
@@ -53,7 +54,13 @@ Pick the workflow that matches the request.
   builder reference gives. Produce one system, not a menu of directions.
 - **Screen or landing-page specification.** Confirm a design system exists first and build
   one if it does not. Choose the layout from the content structure, then specify each
-  section with exact token values, responsive behaviour, and states.
+  section with exact token values, responsive behaviour, and states. For any UI surface,
+  the designer owns building an interactive static prototype in `.ptah/specs/<TASK_FOLDER>/prototype/`
+  (`index.html`, `README.md`, `screenshots/`) using the project's real tokens and component library.
+  List all design constraints in `prototype/README.md` under `## Lane-introduced constraints`
+  tagged `[user-requested]`, `[project-rule]`, or `[lane-proposed]`, and cross-reference
+  `parity-inventory.md`. Stop for user confirmation at Gate 1.7; iterate until the user
+  replies APPROVED before any implementation starts.
 - **Assets.** Write briefs using the skill's prompt formula. Discover image-generation
   tools at runtime from the harness's advertised tool list; if none is available, deliver
   the briefs and tell the user which assets to supply and at what dimensions and format.
@@ -69,10 +76,12 @@ recommendation, and record both the criterion applied and the pairs measured.
 | Deliverable                | Destination                                                |
 | -------------------------- | ---------------------------------------------------------- |
 | Design system              | `DESIGN-SYSTEM.md` in the technical-content-writer skill   |
-| Visual specification       | `.ptah/specs/<TASK_FOLDER>/visual-design-specification.md` |
+| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`                 |
 | Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`     |
 | Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`              |
+| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                     |
 
+The interactive prototype is a required deliverable for any new or modified UI surface.
 Write each file with the Write tool at its absolute path. One authoritative file per
 deliverable; revise in place rather than adding a variant.
 
@@ -88,3 +97,7 @@ applied and any asset that could not be generated.
 - Do not specify a screen while the design system is undefined and no discovery answers
   were supplied.
 - Do not ship a specification whose contrast pairs were never measured.
+- Do not omit an interactive prototype under `prototype/` for any UI surface; a visual design without a user-confirmed prototype is incomplete.
+- Do not allow lane-proposed constraints to proceed to implementation without Gate 1.7 user approval.
+- Do not ban existing project components wholesale (e.g. badges, tooltips) without empirical proof and explicit user approval.
+
