@@ -1,6 +1,6 @@
 # Batches - TASK_2026_540_0940
 
-Total tasks: 23 | Batches: 7 | Complete: 1/7
+Total tasks: 23 | Batches: 7 | Complete: 2/7
 
 Worktree root (every path below is under it): `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu`
 Task folder: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940`
@@ -177,7 +177,7 @@ Edge cases:
   - The production guard that prevents resurrection (`openViewInActiveSlice` refusal) was traced by both reviewers.
   - If a later task makes slice presence observable (a public API or persistence), that task adds the membership assertion.
 
-## Batch 2: Core — SurfaceRouterService outlet remount — IMPLEMENTED
+## Batch 2: Core — SurfaceRouterService outlet remount — COMPLETE (commit 378e97f82)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -188,7 +188,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core`
 - Reviewers: internal code-logic-reviewer (batch-2-internal-review.md) + Glm lane ("Batch 2" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 2.1: `remountActiveSurface()` — IMPLEMENTED
+### Task 2.1: `remountActiveSurface()` — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\routing\surface-router.service.ts` (MODIFY)
 - Plan reference: override 1 (implementation-plan.md:9-24); plan-review.md:242-266 (R2-1 fix), :288-295 (R2-3)
@@ -197,7 +197,7 @@ Edge cases:
 - Validation notes: RA.
 - Implementation details: `private readonly outletContexts = inject(ChildrenOutletContexts)`. `remountActiveSurface()`: `const ctx = this.outletContexts.getContext(PRIMARY_OUTLET)`. If `!ctx?.outlet?.isActivated || !ctx.route`, return. Otherwise capture `route = ctx.route` and `injector = ctx.injector` BEFORE `ctx.outlet.deactivate()`, then call `ctx.outlet.activateWith(route, injector)`. The JSDoc states: what it is for (the switch-while-open remount), that it re-creates only the routed component at the same URL, that child outlets re-activate from retained contexts, why there is no navigation, and that callers must not call it synchronously inside `switchWorkspace` (the `workspaceInfo` timing, `electron-layout.service.ts:486-503`).
 
-### Task 2.2: Remount spec — IMPLEMENTED
+### Task 2.2: Remount spec — COMPLETE
 
 - Depends on: Task 2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\routing\surface-router.service.spec.ts` (MODIFY — add a `describe('remountActiveSurface')`)
@@ -243,7 +243,7 @@ Edge cases:
   not the ordering itself; the order is kept as a defensive pattern. Recorded as addressed in code, not pinned by a test.
 - Carried forward: the reviewer's call-site instructions are folded into Task 4.1.
 
-## Batch 3: Chat — GlobalConfigMenuComponent — IN_PROGRESS
+## Batch 3: Chat — GlobalConfigMenuComponent — IMPLEMENTED
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -254,7 +254,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 - Reviewers: internal code-logic-reviewer (batch-3-internal-review.md) + Glm lane ("Batch 3" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 3.1: GlobalConfigMenuComponent — IN_PROGRESS
+### Task 3.1: GlobalConfigMenuComponent — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\molecules\global-config-menu.component.ts` (CREATE)
 - Plan reference: implementation-plan.md:369-395 (Decisions 3, 4), :417-426 (Component 1), :454 (Data flow 1), :509 (the ordering fact for 533); plan-review.md:187-194 (instruction 4)
@@ -263,7 +263,7 @@ Edge cases:
 - Validation notes: menu edge cases in the list above.
 - Implementation details: selector `ptah-global-config-menu`; `isOpen = signal(false)`. Items in order: thoth ("Thoth", title "Thoth — agentic platform", `RadioTower`), setup-hub ("Setup hub", `Wrench`), marketplace ("Marketplace", `Store`), settings ("Settings", `Settings`). The trigger icon is `SlidersHorizontal`: confirm it is exported by `lucide-angular` (grep `node_modules/lucide-angular`) before use. Trigger: `type="button"`, `data-test="config-menu-trigger"`, `aria-label="Configuration"`, `[attr.aria-expanded]`, `(click)` toggle, and a highlight (`text-primary` / `bg-base-300`) when `openConfigurationSurface() !== null`. Panel `content` div: `(keydown.escape)` closes and refocuses the trigger; `(keydown.arrowdown)` / `(keydown.arrowup)` roving focus with `preventDefault()` and wrap. Items: `type="button"`, `data-test="config-menu-item-<id>"`, `[attr.aria-current]` = `'true'` or `null`, plus a highlight class. `selectItem(id, trigger)`: close, refocus the trigger, then for thoth only and only when `!thothFirstRunDismissed()` call `dismissThothFirstRun()`, then `setCurrentView(id)`, and no other navigation method. `(closed)` sets `isOpen` false; `(opened)` focuses the first item.
 
-### Task 3.2: Menu spec — IN_PROGRESS
+### Task 3.2: Menu spec — IMPLEMENTED
 
 - Depends on: Task 3.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\molecules\global-config-menu.component.spec.ts` (CREATE)
@@ -276,6 +276,30 @@ Edge cases:
 - Both files exist with real logic
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat` passes, including the untouched `workspace-coordinator.service.spec.ts` (assumption)
 - Both review verdicts accepting
+
+### Batch 3 outcome
+
+- Executor: `codex` (`batch-3-report.md`). New files: `global-config-menu.component.ts` and `global-config-menu.component.spec.ts` only.
+- Team-leader check on disk (`global-config-menu.component.ts:1-160`):
+  - Standalone and OnPush; `inject(AppStateManager)`; imports only `@ptah-extension/core`, `@ptah-extension/ui` and `lucide-angular`.
+  - `[panelRole]="null"`; the trigger has `data-test="config-menu-trigger"`, `aria-label="Configuration"`, `aria-expanded` and the highlight on `openConfigurationSurface()`.
+  - Items are in order Thoth, Setup hub, Marketplace, Settings, with `data-test="config-menu-item-<id>"` and `aria-current` set to `'true'` or `null`.
+  - Escape and arrow-key roving (with wrap and `preventDefault`) are on the panel.
+  - `selectItem` closes and refocuses the trigger, then dismisses the Thoth hint when not yet dismissed (`:155-157`), then calls `setCurrentView` (`:158`). No other navigation.
+  - The trigger glyph is `SlidersHorizontal`.
+- Orchestrator verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat --skip-nx-cache` PASS. That run includes the untouched `workspace-coordinator.service.spec.ts`, so the assumption holds (verified).
+- Review: internal code-logic-reviewer ACCEPT 9/10 (`batch-3-internal-review.md`), 0 blocking, 0 major. It confirms 16 spec executions, and that the ordering checks use `invocationCallOrder` inside mock implementations.
+  - MINOR 1 — ACCEPTED as shipped. The backdrop close also refocuses the trigger (`:33`), which goes beyond the literal
+    wording of implementation-plan.md:468 ("Escape and item click additionally return focus"). Reasons: the backdrop is
+    `fixed inset-0 z-40`, so the click cannot have moved focus to another control; without the refocus, focus would fall
+    to `body`, which is the problem plan-review finding 11 set out to avoid; and no criterion (6, 7) requires the
+    narrower behaviour. The spec (`:203-210`) pins the shipped behaviour as intended. Plan wording :468 is superseded on
+    this point; this entry is the record, so later reviewers should not re-flag it.
+  - MINOR 2 — ACCEPTED, informational. If Floating UI positioning never resolves, `(opened)` never fires. That is a
+    pre-existing property of `NativeDropdownComponent` shared with the `background-agent-strip` precedent, not a Batch 3
+    defect. Belongs to any later task that hardens the primitive.
+- Glm verdict: MISSING (Ollama 429, not retried). Codex implemented this batch, so the internal verdict is the gate.
+- Carried forward: the reviewer's "Instructions for Batch 4" are folded into Task 4.1.
 
 ## Batch 4: Chat — Electron shell: tab set, menu mount, three-branch gate, remount effect — PENDING
 
@@ -306,6 +330,16 @@ Edge cases:
      swallow silently.
   4. The outlet's `(activate)`/`(deactivate)` outputs also fire on every remount. Do not bind them on the outlet
      expecting navigation-only semantics.
+  The Batch 3 reviewer's mounting instructions (`batch-3-internal-review.md:184-207`) are also binding:
+  5. Import with `import { GlobalConfigMenuComponent } from '../molecules/global-config-menu.component';` (the same
+     sibling-folder relative import `app-shell.component.ts:36` uses) and add it to `imports`. No barrel edit.
+  6. Mount `<ptah-global-config-menu />` inside the existing `no-drag` global-actions cluster, immediately left of
+     `<ptah-theme-toggle />`.
+  7. Do NOT duplicate in the shell anything the menu already owns: the `canSwitchViews()` gate, the order of dismissing
+     the Thoth hint before navigating, and focus return on backdrop, Escape and item. The shell's job is mounting, the
+     three-branch gate, the back button, the tab row, and the remount/focus effect. Do not edit
+     `global-config-menu.component.*` (outside this batch); its backdrop-refocus behaviour is accepted (Batch 3 outcome).
+  8. Specs select the menu only by `data-test="config-menu-trigger"` / `data-test="config-menu-item-<id>"`.
 - Implementation details:
   - Tab row, in order: Chat (`onCanvasTab()`, label "Chat", `title="Chat"`, `LayoutGrid`), then the comment `<!-- Apps tab (TASK_2026_494) renders between Chat and Tasks -->`, Tasks, Tribunal, Analytics (`openDashboard()`, label "Analytics", `title="Analytics"`, `BarChart3`). Keep `role="tablist"`, the `electron-tabs` class, `role="tab"`, `aria-selected`, and the `:122` gate.
   - Delete the Thoth, Setup, Marketplace and Settings tab buttons; the `openSettings`, `openThoth`, `openSetupHub` and `openMarketplace` handlers; and the unused icon fields and lucide imports (`Settings`, `Wrench`, `Store`, `RadioTower`, `Zap`, `Bot`, `GitBranch`, `Sparkles`). Keep only what the template still uses.
