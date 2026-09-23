@@ -1,9 +1,14 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 10/29
+Total tasks: 65 | Batches: 30 | Complete: 10/30
 
 Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7d, 12. Nothing in progress (session close-out).
 Launchable next: 7c (ui) and 8 (marketplace), each in its own worktree based on 1b8a2b813 or later.
+Batch 12b (Revision 3, D-4) runs after 8 is committed, in parallel with 9 (own worktree), and must be COMPLETE before 13-16 start.
+
+Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
+scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
+changes its files.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -83,8 +88,6 @@ DECIDED (h1 ownership, plan C6 :365 and C7): the shell renders a breadcrumb `<na
 
 DECIDED (bare /marketplace with an open detail, plan C1 :256-272): `AppStateManager.setCurrentView(view)` returns without navigating when `normalizeView(view) === currentView()`, `surfaceRouter.pendingSurface() === null` and `_settlementOwner === _activeWorkspacePath()`, so a bare Marketplace click keeps an open detail in place; `openMarketplace(route)` still navigates. Lands in Task 18.2 with four `app-state.service.spec.ts` cases. TASK_2026_540 accepts the rule for its surfaces and does not change `setCurrentView`. The router-level probe `surface-router.service.spec.ts:702` stays as is.
 
-Still OPEN for the architect: connector-rows workspace scope (risk table row "Stale claude.ai connector rows"), needed before Batch 14.
-
 ## Plan validation
 
 Status: PASSED WITH RISKS
@@ -98,6 +101,7 @@ Assumptions:
 - A5 Which CLIs receive OAuth/Smithery session overrides (`mcpServersOverride` consumers found in `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, `session-query-executor.service.ts`) — unverified; checked in Task 8.3 before `coverage.ts` renders anything other than "Ptah sessions".
 - R6 The router percent-encodes `/` inside a single `:skillRef` segment — VERIFIED PASS in Batch 3 (Task 3.2 probe, 4/4); no base64url fallback.
 - `ui` has `"sideEffects": false` (`libs/frontend/ui/package.json:11`), so `BRAND_MARKS` stays out of the eager bundle when only lazy code references it — verified by the R7 comparison (Batches 7c, 7d, 17, 24, 25).
+- D-4 (Revision 3) Every session the user can run in the active workspace, including canvas tiles and hidden Tribunal tabs, has a `TabState` in `TabManagerService.tabs()` — unverified, not blocking (a session with no tab only loses its connector rows, never gains a wrong one); checked in Task 12b.1.
 - `scripts/` is outside the VSIX (`apps/ptah-extension-vscode/.vscodeignore`), so `scripts/brand-icons.manifest.json` may name AI vendors — verified in Task 4.3.
 - Tailwind content globs cover libs through `createGlobPatternsForDependencies` (`apps/ptah-extension-webview/tailwind.config.js:6-9`) — verified.
 
@@ -115,7 +119,7 @@ Assumptions:
 | Env/header values reach the webview (R3)                                                                                                                                                                                                                                                                                                | MEDIUM   | `ConfigSummary` type carries keys only (Task 8.1); Task 13.3 spec asserts no value renders. Backend redaction out of scope.                                                                               |
 | Brand vendoring needs network access to jsDelivr at the pinned SHA                                                                                                                                                                                                                                                                      | MEDIUM   | Task 4.2 aborts non-zero and writes nothing on any fetch failure; no placeholder table may be committed.                                                                                                  |
 | Hub spec assertions have no migration destination in the plan (`marketplace-hub.component.spec.ts:157-253`)                                                                                                                                                                                                                             | MEDIUM   | Assigned to Task 5.1 (connector rows, newest session, degrade) and Task 17.1 (one surface mounted, zero RPC when unselected).                                                                             |
-| Stale claude.ai connector rows after a non-navigating workspace switch (TASK_2026_540): rows come from the newest `SessionMcpStatusRegistry` session, keyed by session id, not workspace (inherited from `marketplace-hub.component.ts`); the previous workspace's connector rows can show until a session of the new workspace reports | MEDIUM   | ARCHITECT DECISION needed before Batch 14: filter sessions by workspace (if the registry can expose it) or hide connector rows until a session for the active workspace reports. Found in Batch 5 review. |
+| Stale claude.ai connector rows after a non-navigating workspace switch (TASK_2026_540): rows come from the newest `SessionMcpStatusRegistry` session, keyed by session id, not workspace (inherited from `marketplace-hub.component.ts`); the previous workspace's connector rows can show until a session of the new workspace reports | MEDIUM   | RESOLVED by D-4 (implementation-plan.md Revision 3), implemented in Batch 12b: the session picture is the newest registry session whose key is a `tab.id` or `tab.claudeSessionId` in `TabManagerService.tabs()` (active workspace), else `null`. Found in Batch 5 review. |
 | Overview adds two reads (R5)                                                                                                                                                                                                                                                                                                            | LOW      | Accepted; Task 14.1 RPC-set spec pins the exact list.                                                                                                                                                     |
 
 Edge cases:
@@ -137,6 +141,7 @@ Edge cases:
 - Registry names like `io.github.user/server` resolve on the last `/` segment — Task 7b.3
 - Missing `onDark` artwork on a dark theme shows `art` — Task 7b.2
 - Workspace switch reloads non-idle slices and keeps per-workspace remembered route — Task 2.2, Task 5.1
+- Session of another workspace is newest in the registry; switch A → B mid-load; rapid A → B → A; tabId-then-UUID keys; tab closed; no workspace (empty `tabs()`) — Tasks 12b.1, 12b.2 (plan Revision 3 failure table)
 
 ## Parallel groups (run order)
 
@@ -146,9 +151,9 @@ Edge cases:
 | B    | 4 ∥ 5 ∥ 7a ∥ 7d            | All after 1. 4 and 7d are ui (worktree); 5 and 7a both touch marketplace (worktree; 7a edits `mcp-connector-rows.ts`, 5 only imports it).        |
 | C    | 6 ∥ 7b                     | 6 after 7a. 7b after 4, 7a, 7d (shares `native/index.ts` with 7d).                                                                               |
 | D    | 7c ∥ 8 ∥ 12                | 7c after 7b (ui). 8 after 1, 3, 7b. 12 after 2, 3, 5, 6. 8 ∥ 12 marketplace → worktree.                                                          |
-| E    | 9                          | After 8 (and 7b). CLI lanes x3.                                                                                                                  |
+| E    | 9 ∥ 12b                    | 9 after 8 (and 7b). CLI lanes x3. 12b after 5, 12 AND 8 (orchestrator override: 12b adds the `TabManagerService` stub to Batch 8's real-store spec); may also run beside 10/11 if 9 finishes first. 9 ∥ 12b marketplace → worktree (file-disjoint). |
 | F    | 10 ∥ 11                    | After 9 (11 also after 7d). Same project → worktree.                                                                                             |
-| G    | 13 ∥ 15 ∥ 16, then 14      | 13 after 5, 6, 8, 9, 10; 15 after 6, 8, 11, 7d; 16 after 5, 9, 11; 14 after 13, 11. Same project → worktree.                                     |
+| G    | 13 ∥ 15 ∥ 16, then 14      | ALL after 12b. 13 after 5, 6, 8, 9, 10; 15 after 6, 8, 11, 7d; 16 after 5, 9, 11; 14 after 13, 11. Same project → worktree. Page specs that build the REAL `MarketplaceInventoryStore` provide the `TabManagerService` stub `{ tabs: signal([...]) }`; specs that stub the store set `newestSessionStatus` directly (plan Revision 3 D-4.3). |
 | H    | 17, then 18 ∥ 19, then 18b | 17 after 12-16. 18 (core, chat) ∥ 19 (electron e2e). 18b after 18 once TASK_2026_540 is on `main` and the branch is rebased (or folded into 18). |
 | I    | 20 ∥ 21 ∥ 22 ∥ 23 ∥ 24     | After 17 and 7d. 20 ∥ 21 marketplace → worktree; 22 ∥ 23 ∥ 24 chat-ui → worktree.                                                                |
 | J    | 25                         | After everything. Reviewer: visual-reviewer (parity).                                                                                            |
@@ -696,13 +701,51 @@ Edge cases:
 - Acceptance (from Batch 3 review): the shell's tier must follow a real `ResizeObserver` report with no manual change detection — the shell spec resizes the host across 900 and 1400 and asserts rail/sidebar flips using `fixture.autoDetectChanges()` / zoneless scheduling, never an explicit `detectChanges()` after the resize (the `no NgZone.run` decision is otherwise unproven). Real-host proof is Task 25.1.
 - Reviewer: code-logic-reviewer (zero-RPC rule, keyboard scope)
 
+## Batch 12b: Workspace-scoped session MCP status (Revision 3, D-4) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: none (small, but the spec migration needs judgement)
+- Execution mode: sequential
+- Rationale: Task 12b.2 rewires the store onto the collaborator from Task 12b.1 and migrates every real-store spec; one executor keeps the membership rule and the spec stubs consistent.
+- Tasks: 2 | Depends on: Batches 5, 12 AND 8 (orchestrator override of the plan's "5 and 12": Batch 8's `provider-row.spec.ts` acceptance spec builds the real `MarketplaceInventoryStore`, which injects `TabManagerService` after 12b, so 12b must add the stub there too)
+- Must be COMPLETE before Batches 13, 14, 15 and 16 start. May run in parallel with Batch 9 (separate worktree; file-disjoint).
+- Plan reference: implementation-plan.md "## Revision 3 — D-4 connector-row workspace scope" (:783-911)
+- Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`, plus `(Get-Content D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts).Count` ≤ 699
+
+### Task 12b.1: `injectWorkspaceSessionStatus` collaborator — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\workspace-session-status.ts`, CREATE `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\workspace-session-status.spec.ts`
+- Plan reference: implementation-plan.md D-4.1 (:826-837), specs 1-7 (:868-876), failure table (:853-864)
+- Pattern to follow: `libs/frontend/marketplace/src/lib/shell/marketplace-nav-counts.ts:38-64` (`injectMarketplaceNavCounts`, injection-context helper); `mcp-status-chip.component.ts:209-216`, `:228-230` (session resolved through both keys)
+- Quality requirements: pure `newestWorkspaceSessionKey(recordedKeys: readonly string[], memberKeys: ReadonlySet<string>): string | null` walks from the end; `injectWorkspaceSessionStatus(): Signal<SessionMcpStatus | null>` injects `SessionMcpStatusRegistry` and `TabManagerService`; inner `computed` member set = every `tab.id` plus non-null `tab.claudeSessionId`, with an `equal` that compares set CONTENTS; outer `computed` returns `registry.peek(key)` unchanged (no spread, no copy). No I/O, no RPC, never throws. Not exported from the lib barrel.
+- Validation notes: specs 1-7 with the real root registry and a `TabManagerService` stub `{ tabs: signal([...]) }`. Spec 6 is the reference-stability case (same key set in a new array → `toBe` the same object; a new `record` for the chosen key → a new object). Assumption check (plan :822): read the `_tabs.update` sites at `tab-manager.service.ts:791`, `:843`, `:2326` and the Tribunal hidden-tab creation path; state in the report which session kinds have a `TabState` in `tabs()` (a kind without one only degrades to "no session").
+- Implementation details: imports from `@ptah-extension/chat-state` only (already a marketplace dependency); no core, shared or backend change.
+
+### Task 12b.2: Store rewiring and real-store spec migration — PENDING
+
+- Depends on: Task 12b.1
+- Files: MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts` (must not grow; ≤699 lines), MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.spec.ts`, MODIFY `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\shell\marketplace-shell.component.spec.ts`, MODIFY Batch 8's real-store acceptance spec `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.spec.ts` (or wherever Batch 8's committed spec that constructs the real store lives; Grep the lib for `MarketplaceInventoryStore` in `*.spec.ts` and stub every spec that builds the REAL store)
+- Plan reference: implementation-plan.md D-4.2 (:839-844), D-4.3 (:846-851), store specs 8-11 (:878-883), shell spec (:885)
+- Pattern to follow: existing providers block `marketplace-inventory.store.spec.ts:280-294`; `report()` helper `:585-590`
+- Quality requirements: replace the `SessionMcpStatusRegistry` import/field with `import type { SessionMcpStatus }` plus the collaborator import; `newestSessionStatus = injectWorkspaceSessionStatus()` keeps its public name and type `Signal<SessionMcpStatus | null>`; `installed` code unchanged; rewrite in the same or fewer lines the `newestSessionStatus` doc ("the newest session OF THE ACTIVE WORKSPACE"), the `installed` doc (:312-320) and the class note (:245-253: the TASK_2026_540 remount re-creates the store; the generation effect stays as a second guard). Store spec: `{ provide: TabManagerService, useValue: { tabs } }` with a writable `tabs` signal; `report()` also adds a tab whose `claudeSessionId` is the session id; new cases 8 (non-member newer session ignored), 9 (mislabel regression: A's `a-project-server` never becomes a B `claude-connector` row), 10 (B session reports after switch → connector rows with no new `listInstalled`). Shell spec and Batch 8 real-store spec: stub `{ tabs: signal([]) }` (or tabs the spec needs), assertions unchanged.
+- Validation notes: case 11 — the report lists every migrated assertion (store spec :593-679, :682) against its source line and shows it green. Grep proof that `marketplace-inventory.store.ts` no longer references `SessionMcpStatusRegistry`. Line count stated in the report. `marketplace-hub.component.ts` and `connected-surface.component.ts` are NOT touched (deleted in Batch 17). Nav, nav-counts and status-bar specs stub the store and need no change.
+- Implementation details: consumer-side scoping only; no shared, backend or chat-state contract change.
+
+### Batch 12b verification
+
+- 2 files created, 3+ modified (incl. Batch 8's real-store spec); `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace` green (output tailed)
+- `marketplace-inventory.store.ts` line count ≤ 699; no `SessionMcpStatusRegistry` reference in it; `newestSessionStatus` name and type unchanged
+- Specs 1-11 present and green; the tab-coverage assumption outcome stated with file:line
+- Reviewer: code-logic-reviewer (membership keys, reference stability, switch ordering, degrade path)
+
 ## Batch 13: Installed servers list and server detail (C7 part) — PENDING
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: list view owns the detail placement the detail component renders into.
-- Tasks: 3 | Depends on: Batches 5, 6, 8, 9, 10
+- Tasks: 3 | Depends on: Batches 5, 6, 8, 9, 10, 12b
+- Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
 ### Task 13.1: `ProviderListViewComponent` — PENDING
@@ -721,7 +764,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C7 `InstalledServersPage`
 - Pattern to follow: Task 13.1
 - Quality requirements: ensures `installed` + links only; origin filter chips (filters, not navigation); page `h1`.
-- Validation notes: RPC-set spec: exactly `listInstalled` + link reads.
+- Validation notes: RPC-set spec: exactly `listInstalled` + link reads. Connector rows and the 'live in last session' KPI come only from sessions of the active workspace (Revision 3); a spec with no active-workspace session shows neither.
 - Implementation details: thin page over the list view.
 
 ### Task 13.3: `ServerDetailComponent` — PENDING
@@ -744,7 +787,8 @@ Edge cases:
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: Overview composes the Batch 13 list view.
-- Tasks: 2 | Depends on: Batches 11, 13
+- Tasks: 2 | Depends on: Batches 11, 12b, 13
+- Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
 ### Task 14.1: `OverviewPageComponent` — PENDING
@@ -753,7 +797,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C7 `OverviewPage`, performance requirements (Overview RPC list)
 - Pattern to follow: `screenshots/v1-overview-1440.png`, `v3-overview-1440.png`
 - Quality requirements: header with Refresh + "Add connection"; 4 KPI cards from real sources; needs-attention and matrix at regular+ only; provider list; ensures exactly the listed slices, links and `harness.refresh()` if `health()===null`.
-- Validation notes: RPC-set spec pins the plan's Overview list (R5); per-slice error isolation; no activity timeline/sparklines.
+- Validation notes: RPC-set spec pins the plan's Overview list (R5); per-slice error isolation; no activity timeline/sparklines. Connector rows and the 'live in last session' KPI come only from sessions of the active workspace (Revision 3); a spec with no active-workspace session shows neither.
 - Implementation details: pure mappers only, no RPC shapes in the page.
 
 ### Task 14.2: `ServerSourceHostComponent` — PENDING
@@ -775,7 +819,8 @@ Edge cases:
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: detail placement (drawer vs full page) is owned by the page.
-- Tasks: 2 | Depends on: Batches 6, 7d, 8, 11
+- Tasks: 2 | Depends on: Batches 6, 7d, 8, 11, 12b
+- Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
 ### Task 15.1: `ConnectorsPageComponent` — PENDING
@@ -808,7 +853,8 @@ Edge cases:
 - Fallback executor: none
 - Execution mode: sequential
 - Rationale: installed list owns the detail placement.
-- Tasks: 3 | Depends on: Batches 5, 9, 11
+- Tasks: 3 | Depends on: Batches 5, 9, 11, 12b
+- Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
 ### Task 16.1: `SkillsSectionHeaderComponent` + `SkillSourceHostComponent` — PENDING
