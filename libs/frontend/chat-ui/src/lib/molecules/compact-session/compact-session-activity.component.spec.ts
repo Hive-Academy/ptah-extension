@@ -644,6 +644,85 @@ describe(CompactSessionActivityComponent.name, () => {
     expect(lines[1].getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('stops holding auto-follow when the expanded row leaves the rendered feed', () => {
+    const fixture = render(
+      summary({ marks: [mark({ id: 'ok', text: 'Detail A' })] }),
+    );
+    const component = fixture.componentInstance;
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+    line.click();
+    fixture.detectChanges();
+    expect(component.activeExpandedMarkId()).toBe('ok');
+
+    // The summary replaces the mark set: the expanded row is gone, so the
+    // stale id must not latch the auto-scroll guard or the aria state.
+    fixture.componentRef.setInput(
+      'summary',
+      summary({
+        marks: [
+          mark({ id: 'bad', tone: 'error', text: 'Detail B' }),
+          mark({ id: 'live', tone: 'live', text: 'Detail C' }),
+        ],
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(component.expandedMarkId()).toBe('ok');
+    expect(component.activeExpandedMarkId()).toBeNull();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+  });
+
+  it('collapses the expanded row on a filter switch and does not re-open it on return', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({ id: 'ok', text: 'Detail A' }),
+          mark({ id: 'bad', tone: 'error', text: 'Detail B' }),
+        ],
+      }),
+    );
+    const component = fixture.componentInstance;
+    const lines = [
+      ...fixture.nativeElement.querySelectorAll('.cs-row-line'),
+    ] as HTMLElement[];
+    const errBtn = fixture.nativeElement.querySelectorAll(
+      '.cs-filter-chips button',
+    )[1] as HTMLButtonElement;
+
+    lines[0].click();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(1);
+
+    // The error filter hides the expanded row; the feed may follow again.
+    errBtn.click();
+    fixture.detectChanges();
+    expect(component.expandedMarkId()).toBeNull();
+    expect(component.activeExpandedMarkId()).toBeNull();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+
+    // Switching back to all does not re-open the previous expansion.
+    const allBtn = fixture.nativeElement.querySelectorAll(
+      '.cs-filter-chips button',
+    )[0] as HTMLButtonElement;
+    allBtn.click();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.cs-row-detail'),
+    ).toHaveLength(0);
+    const restoredLine = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+    expect(restoredLine.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('expands a row via the Enter and Space keys', () => {
     const fixture = render(
       summary({ marks: [mark({ id: 'a', text: 'Detail A' })] }),

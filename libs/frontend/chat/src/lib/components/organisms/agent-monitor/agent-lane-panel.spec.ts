@@ -73,6 +73,24 @@ function agent(id: string, startedAt = 1): MonitoredAgent {
   };
 }
 
+function blockedAgent(id: string): MonitoredAgent {
+  return {
+    ...agent(id),
+    permissionQueue: [
+      {
+        requestId: `req-${id}`,
+        agentId: id,
+        kind: 'read',
+        description: 'Read file',
+        timestamp: 1,
+        timeoutAt: 0,
+        toolName: 'read',
+        toolArgs: 'file',
+      },
+    ],
+  };
+}
+
 describe('agent panel lanes', () => {
   const originalObserver = globalThis.ResizeObserver;
   let postMessage: jest.Mock;
@@ -202,6 +220,51 @@ describe('agent panel lanes', () => {
     fixture.componentInstance.selectAgent('sub');
     fixture.detectChanges();
     expect(fixture.componentInstance.showLaneGrid()).toBe(false);
+  });
+
+  it('keeps lanes visible when a picked standalone disappears ahead of a fallback workflow', () => {
+    const workflow = { ...agent('workflow'), workflowRunId: 'run' };
+    const fixture = create(650, [
+      workflow,
+      agent('a', 3),
+      agent('b', 2),
+      agent('c', 1),
+    ]);
+    fixture.componentInstance.pickStandalone('a');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('embeddedAgents', [
+      workflow,
+      agent('b', 2),
+      agent('c', 1),
+    ]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedAgentId()).toBe('a');
+    expect(fixture.componentInstance.effectiveSelectedAgent()?.agentId).toBe(
+      'workflow',
+    );
+    expect(fixture.componentInstance.showLaneGrid()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('ptah-agent-lane-grid').style.display,
+    ).not.toBe('none');
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-agent-card'),
+    ).toHaveLength(2);
+  });
+
+  it('does not substitute another workflow when an explicitly selected workflow disappears', () => {
+    const fallback = { ...agent('fallback'), workflowRunId: 'run' };
+    const selected = { ...agent('selected'), workflowRunId: 'run' };
+    const fixture = create(650, [fallback, selected, agent('a'), agent('b')]);
+    fixture.componentInstance.selectAgent('selected');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.showLaneGrid()).toBe(false);
+    fixture.componentRef.setInput('embeddedAgents', [
+      fallback,
+      agent('a'),
+      agent('b'),
+    ]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.showLaneGrid()).toBe(true);
   });
 
   it('does not use workflow agents to reach the two-lane threshold', () => {
@@ -359,6 +422,83 @@ describe('agent panel lanes', () => {
       },
     ]);
     fixture.detectChanges();
+    expect(grid.shownIds()).toContain('c');
+  });
+
+  it.each([false, true])(
+    'opens workflow permission controls in the full body (new agent: %s)',
+    (newAgent) => {
+      const workflow = { ...blockedAgent('workflow'), workflowRunId: 'run' };
+      const standalone = [agent('a', 3), agent('b', 2)];
+      const fixture = create(
+        650,
+        newAgent
+          ? standalone
+          : [...standalone, { ...workflow, permissionQueue: [] }],
+      );
+      fixture.componentRef.setInput('embeddedAgents', [
+        ...standalone,
+        workflow,
+      ]);
+      pendingPermissions.set([workflow]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.selectedAgentId()).toBe('workflow');
+      expect(fixture.componentInstance.showLaneGrid()).toBe(false);
+      expect(
+        fixture.nativeElement.querySelector('ptah-agent-lane-grid').style
+          .display,
+      ).toBe('none');
+      const allow: HTMLButtonElement =
+        fixture.nativeElement.querySelector('.btn-success');
+      expect(allow.closest('ptah-agent-lane-grid')).toBeNull();
+      allow.click();
+      expect(clearPermission).toHaveBeenCalledWith('workflow', 'req-workflow');
+      // Re-emitting an already surfaced workflow request must not steal detail again.
+      fixture.componentInstance.pickStandalone('a');
+      pendingPermissions.set([{ ...workflow }]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.showLaneGrid()).toBe(true);
+    },
+  );
+
+  it('picks a new standalone and its permission into the grid in the same tick', () => {
+    const fixture = create(650, [agent('a', 3), agent('b', 2)]);
+    const blocked = blockedAgent('new');
+    fixture.componentRef.setInput('embeddedAgents', [
+      agent('a', 3),
+      agent('b', 2),
+      blocked,
+    ]);
+    pendingPermissions.set([blocked]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.showLaneGrid()).toBe(true);
+    expect(fixture.componentInstance.laneGrid()?.shownIds()).toContain('new');
+    expect(
+      fixture.nativeElement.querySelector('[data-lane-id="new"] .btn-success'),
+    ).not.toBeNull();
+  });
+
+  it('retries the same request on the next run if the first standalone pick was rejected', () => {
+    const fixture = create();
+    const grid = fixture.componentInstance.laneGrid();
+    if (!grid) throw new Error('Expected the lane grid to be rendered');
+    const blocked = blockedAgent('c');
+    fixture.componentRef.setInput('embeddedAgents', [
+      agent('a', 3),
+      agent('b', 2),
+      blocked,
+    ]);
+    fixture.detectChanges();
+    const pick = jest
+      .spyOn(grid, 'pick')
+      .mockImplementationOnce(() => undefined);
+    pendingPermissions.set([blocked]);
+    fixture.detectChanges();
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(grid.shownIds()).not.toContain('c');
+    pendingPermissions.set([{ ...blocked }]);
+    fixture.detectChanges();
+    expect(pick).toHaveBeenCalledTimes(2);
     expect(grid.shownIds()).toContain('c');
   });
 

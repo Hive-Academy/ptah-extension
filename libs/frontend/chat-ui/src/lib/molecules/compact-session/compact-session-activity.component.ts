@@ -620,7 +620,7 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
                     [attr.tabindex]="row.detail !== null ? 0 : null"
                     [attr.aria-expanded]="
                       row.detail !== null
-                        ? expandedMarkId() === row.mark.id
+                        ? activeExpandedMarkId() === row.mark.id
                         : null
                     "
                     [attr.aria-controls]="
@@ -649,10 +649,11 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
                     </span>
                   </div>
                   @if (
-                    row.detail !== null && expandedMarkId() === row.mark.id
+                    row.detail !== null &&
+                    activeExpandedMarkId() === row.mark.id
                   ) {
                     <div
-                      class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content/70"
+                      class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content-muted"
                       [attr.id]="row.mark.id + '-detail'"
                     >
                       {{ row.detail }}
@@ -766,6 +767,18 @@ export class CompactSessionActivityComponent {
       };
     }),
   );
+
+  /**
+   * The expanded id as long as its row is actually rendered with a detail:
+   * a filter change or a marks change can remove the row, and a stale id
+   * must not keep the auto-follow guard or the aria state latched.
+   */
+  readonly activeExpandedMarkId = computed<string | null>(() => {
+    const id = this.expandedMarkId();
+    if (id === null) return null;
+    const row = this.feedRows().find((candidate) => candidate.mark.id === id);
+    return row && row.detail !== null ? id : null;
+  });
 
   /** Newest agent-kind mark, read from the full mark set. */
   readonly latestAgentMark = computed<CompactSemanticMark | null>(() => {
@@ -900,8 +913,9 @@ export class CompactSessionActivityComponent {
 
     afterRenderEffect(() => {
       this.filteredMarks();
-      // Never auto-scroll while a row is expanded: the user is reading it.
-      if (this.expandedMarkId() !== null) return;
+      // Never auto-scroll while an expanded row is on screen: the user is
+      // reading it. A row hidden by the filter must not hold the feed.
+      if (this.activeExpandedMarkId() !== null) return;
       const el = this.feedListRef()?.nativeElement;
       if (el && !this.isUserScrolledUp) {
         el.scrollTop = el.scrollHeight;
@@ -951,6 +965,8 @@ export class CompactSessionActivityComponent {
 
   protected setFilter(filter: FeedFilter): void {
     this.activeFilter.set(filter);
+    // A filter switch navigates away from whatever was expanded.
+    this.expandedMarkId.set(null);
     this.isUserScrolledUp = false;
     const el = this.feedListRef()?.nativeElement;
     if (el) {

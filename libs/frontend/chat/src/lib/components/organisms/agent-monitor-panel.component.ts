@@ -601,7 +601,7 @@ export class AgentMonitorPanelComponent {
       !(
         this.workflowDetailPicked() &&
         (this.selectedWorkflowSubagent() ||
-          this.effectiveSelectedAgent()?.workflowRunId)
+          this.explicitSelectedAgent()?.workflowRunId)
       ),
   );
   private prevAgentIds = new Set<string>();
@@ -718,6 +718,14 @@ export class AgentMonitorPanelComponent {
     );
   });
 
+  /** Exact selection only; a removed selection must not open a fallback workflow. */
+  private readonly explicitSelectedAgent = computed<MonitoredAgent | null>(
+    () =>
+      this.effectiveAgents().find(
+        (agent) => agent.agentId === this.selectedAgentId(),
+      ) ?? null,
+  );
+
   /**
    * The selected CLI MonitoredAgent, falling back to the first agent. Returns
    * null when the selection points at a workflow subagent (so it can't hijack
@@ -799,25 +807,41 @@ export class AgentMonitorPanelComponent {
       const perms = this.effectivePermissions();
       const lanesMode = this.lanesMode();
       const grid = this.laneGrid();
+      const agents = this.effectiveAgents();
+      // A parent effect can run before the grid receives this tick's new agents.
+      // Track its input so a rejected pick retries after those bindings update.
+      const gridAgentIds = new Set(
+        grid?.agents().map((agent) => agent.agentId),
+      );
       untracked(() => {
         if (!lanesMode) {
           this.seenLanePermissions.clear();
           if (perms.length > 0) this.autoSelectAgent(perms[0].agentId);
           return;
         }
-        // Wait for the grid query before consuming new requests. Reads of shownIds
-        // stay untracked so removing a column does not immediately restore it.
-        if (!grid) return;
+        // Keep shownIds untracked: a previously surfaced request must not undo
+        // a user's subsequent column removal or choice of workflow detail.
         const pending = new Set<string>();
-        for (const agent of perms) {
-          for (const request of agent.permissionQueue) {
+        for (const permissionAgent of perms) {
+          const agent = agents.find(
+            (item) => item.agentId === permissionAgent.agentId,
+          );
+          if (!agent) continue;
+          for (const request of permissionAgent.permissionQueue) {
             const key = `${agent.agentId}:${request.requestId}`;
-            pending.add(key);
-            if (
-              !this.seenLanePermissions.has(key) &&
-              !grid.shownIds().includes(agent.agentId)
-            ) {
-              grid.pick(agent.agentId);
+            if (this.seenLanePermissions.has(key)) {
+              pending.add(key);
+              continue;
+            }
+            if (agent.workflowRunId) {
+              this.selectAgent(agent.agentId);
+              pending.add(key);
+            } else if (grid && gridAgentIds.has(agent.agentId)) {
+              if (!grid.shownIds().includes(agent.agentId))
+                grid.pick(agent.agentId);
+              // A pick can be rejected while the child is catching up. Leave it
+              // unseen until it is actually present, then deduplicate updates.
+              if (grid.shownIds().includes(agent.agentId)) pending.add(key);
             }
           }
         }
@@ -882,7 +906,10 @@ export class AgentMonitorPanelComponent {
 
   selectAgent(agentId: string): void {
     this.selectedAgentId.set(agentId);
-    this.workflowDetailPicked.set(true);
+    this.workflowDetailPicked.set(
+      !!this.explicitSelectedAgent()?.workflowRunId ||
+        !!this.selectedWorkflowSubagent(),
+    );
     // Switching/auto-selecting an agent re-follows its latest output.
     this.pinnedToBottom = true;
     // Expand only applies to CLI MonitoredAgents; workflow subagent keys won't
