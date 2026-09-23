@@ -35,12 +35,12 @@ Runs before Gates 1, 1.7 and 2, for initial artifacts and for every revision of 
    (routing and fallback: agent-lanes §6; invocation: [agent-catalog.md § Document review](agent-catalog.md#document-review)).
    The initial review is round 0.
 2. REVISE → send the numbered findings to the original author, then return the changed artifact to
-   the same reviewer. One revise round = one author revision + one reviewer recheck. At most two
-   automatic rounds per artifact.
+   the same reviewer. One revise round = one author revision + one reviewer recheck, within the
+   agent-lanes §6 revise cap.
 3. The review file records author, reviewer, both execution sides, the reviewed revision, the
    completed round count, the verdict and unresolved items. Resume these records; continuation alone
    never resets the count. Record the user's gate decision against that revision in `context.md`.
-4. Reviewer APPROVED → present the gate. Still REVISE after round 2 → stop revising and present the
+4. Reviewer APPROVED → present the gate. Still REVISE when the cap is exhausted → stop revising and present the
    gate with the verdict and every open item. The reviewer's verdict never counts as user approval;
    nothing is implemented while approval is pending.
 5. A user-requested revision gets a fresh review before the gate is shown again; that review alone
@@ -450,7 +450,9 @@ When ready, reply:
 ### When to Present
 
 After team-leader MODE 3 confirms all development complete. This choice does not waive the
-required UI evidence against the approved prototype or parity/write-path completion checks.
+required UI evidence against the approved prototype (or — for a UI change with no added/redesigned
+surface and so no prototype — before/after screenshots [dark + light] of the affected screen, the
+"before" taken from the base commit before the fix lands) or parity/write-path completion checks.
 
 ### Template
 

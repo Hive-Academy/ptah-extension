@@ -70,7 +70,8 @@ A lane shares none of your context and cannot ask the user anything. Every `task
    lane can say what it decided and what it left undone.
 7. **Git**: never commit, push or run history-changing git — unless the workflow gives the lane its
    own throwaway worktree and says so. Never run git commands that discard working-tree changes
-   (`restore`, `checkout -- <path>`, `stash`, `reset`, `clean`); a change the lane did not make belongs to another writer — report it, never revert it.
+   (`restore`, `checkout -- <path>`, `stash`, `reset`, `clean`); a change the lane did not make
+   belongs to another writer — report it, never revert it.
 8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
    in the deliverable and stop.
 9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
@@ -150,7 +151,7 @@ Lane output is evidence, not proof.
 | Scaffolding, stubs | Read it in full — only the files the lane edited |
 | Decision artifacts (spec, design, plan) | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list each rule the user did not ask for under `## Lane-introduced constraints`. A cross-side review (below) runs first; then the user approves the artifact at orchestration Gate 1, 1.7 or 2 before any lane builds from it. |
 | Code that deletes, replaces or consolidates a surface | Check the supplied preserve list or `parity-inventory.md` item by item; a missing, unapproved capability blocks the batch. Proposed removals require explicit user approval before the batch is accepted. |
-| UI code | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype and shown to the user before merge. |
+| UI code | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype (or — for a UI change with no added/redesigned surface and so no prototype — before/after screenshots of the affected screen, the "before" taken from the base commit before the fix lands) and shown to the user before merge. |
 | Code that will ship | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended. |
 
 - **Independence**: the author never reviews its own work. Same-family review is allowed when

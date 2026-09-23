@@ -292,7 +292,9 @@ Perform mandatory completion checks:
    and light themes and verify fidelity against the approved prototype in `prototype/`.
    For a UI BUGFIX that does not add or redesign a surface (skipping the designer
    and Gate 1.7), completion requires before/after screenshots (dark + light) of
-   the affected screen instead of a prototype.
+   the affected screen instead of a prototype — capture the before screenshots
+   from the base commit (or before the first batch / before the fix lands) with
+   the visual-reviewer.
 3. **Write-path trace**: When code changes what gets written to persisted settings,
    configuration, or storage, trace each write to its runtime reader (key, scope,
    value format, side effects such as environment variables) and confirm runtime
@@ -360,8 +362,10 @@ Each variant gives when it is returned, the facts it carries, and the next actio
   passed review before its commit; row-by-row parity verification against
   parity-inventory.md or the lane preserve list ("N/A" only when no surface was
   replaced, consolidated, rebuilt or redesigned — otherwise a missing inventory is a blocker, not
-  "N/A"); visual-reviewer evidence against the approved
-  prototype (for UI tasks); write-path trace confirmation (for settings/storage
+  "N/A"); visual-reviewer evidence against the approved prototype (or — for a UI
+  change with no added/redesigned surface and so no prototype — before/after
+  screenshots [dark + light] of the affected screen, the "before" taken from the
+  base commit before the fix lands); write-path trace confirmation (for settings/storage
   writes); a Validation risk / Resolution table. Next: orchestrator selects QA
   from tester, style review, logic review, visual review for rendered interface
   work, all applicable reviews, or skip. Recommend one and say why; do not ask
@@ -430,7 +434,9 @@ it is in.
   or redesigned without verifying parity-inventory.md or the lane preserve list
   capability by capability; an unapproved dropped capability is a regression blocker.
 - Do not accept UI work or declare completion on typecheck/test/lint alone; rendered
-  visual evidence against the approved prototype across dark and light themes is
-  mandatory.
+  visual evidence against the approved prototype (or — for a UI change with no
+  added/redesigned surface and so no prototype — before/after screenshots [dark + light]
+  of the affected screen, the "before" taken from the base commit before the fix lands)
+  across dark and light themes is mandatory.
 - Do not complete a task that changes persisted settings, configuration, or storage
   without tracing each write path to its runtime reader.

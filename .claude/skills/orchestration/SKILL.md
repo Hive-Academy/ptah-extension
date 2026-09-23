@@ -39,7 +39,7 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 | SAAS_INIT | discovery → PM → architect → team-leader |
 | CREATIVE | [designer → prototype → Gate 1.7] → content writer → frontend developer |
 
-Any flow adding or redesigning a UI surface inserts [designer → prototype → cross-side review → Gate 1.7] before the next phase of the flow (architect, team-leader, or content writer). Complete any required inventory first (Task folder below). A UI BUGFIX that does not add or redesign a surface skips the designer and Gate 1.7; its completion requires before/after screenshots (dark + light) of the affected screen instead of a prototype.
+Any flow adding or redesigning a UI surface inserts [designer → prototype → cross-side review → Gate 1.7] before the next phase of the flow (architect, team-leader, or content writer). Complete any required inventory first (Task folder below). A UI BUGFIX that does not add or redesign a surface skips the designer and Gate 1.7; its completion requires before/after screenshots (dark + light) of the affected screen instead of a prototype — capture the before screenshots from the base commit (or before the first batch / before the fix lands) with the visual-reviewer.
 
 ## Task folder
 
