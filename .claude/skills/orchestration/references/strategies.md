@@ -2,6 +2,12 @@
 
 Detailed workflow diagrams and guidance for all 8 task type workflows. Which phases or batches may run on CLI lanes: [lane-assignment.md](lane-assignment.md).
 
+Every document gate below runs `author → independent document review → bounded revision → user gate`
+([checkpoints.md § Cross-side review protocol](checkpoints.md#cross-side-review-protocol)), for initial
+artifacts and revisions alike. Include the reviews in the announced agent sequence. Every
+implementation also gets the required shipping-code review before batch acceptance, or before
+completion and git in flows without team-leader; Gate 3 `skip` does not waive it.
+
 ---
 
 ## Strategy Overview
@@ -32,6 +38,8 @@ Phase 0.5: [IF ambiguous request] SCOPE CLARIFICATION
            v
 Phase 1: project-manager --> Creates task-description.md
          |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         |
          USER VALIDATES ("APPROVED" or feedback)
          |
          v
@@ -39,6 +47,8 @@ Phase 2: [IF technical unknowns] researcher-expert --> Creates research-report.m
          |
          v
 Phase 3: [IF UI/UX work] ui-ux-designer --> Creates design-spec.md + prototype/
+         |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
          |
          GATE 1.7: USER VALIDATES ("APPROVED" or revisions)
          |
@@ -50,6 +60,8 @@ Phase 3.5: [IF multiple valid approaches] TECHNICAL CLARIFICATION
            |
            v
 Phase 4: software-architect --> Creates implementation-plan.md
+         |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -113,6 +125,8 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 ```
 software-architect --> Creates implementation-plan.md
          |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         |
          USER VALIDATES ("APPROVED" or feedback)
          |
          v
@@ -142,6 +156,8 @@ The architect designs HOW to refactor; no scope discovery needed.
 
 ```
 project-manager --> Creates task-description.md
+         |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -195,10 +211,14 @@ If research concludes implementation is needed:
 ```
 Phase 1: project-manager --> Creates task-description.md
          |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         |
          USER VALIDATES ("APPROVED" or feedback)
          |
          v
 Phase 2: software-architect --> Creates implementation-plan.md
+         |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -267,6 +287,8 @@ Phase 1: project-manager + [saas-discovery-prompt]
              - Integration patterns
              - MVP scope
          |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         |
          USER VALIDATES ("APPROVED" or feedback)
          |
          v
@@ -276,6 +298,8 @@ Phase 2: software-architect + [saas-architecture-skills]
              - Complete library structure
              - Module boundary rules
              - Batch breakdown
+         |
+         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -442,7 +466,7 @@ Orchestrator:
 
   2.5. Invoke ui-ux-designer for design-spec.md + prototype/ (even if design system exists)
        - Include prototype/README.md and prototype/screenshots/
-       - Present Gate 1.7; revise until APPROVED
+       - Run the independent document review, then present Gate 1.7; revise per the review protocol until APPROVED
 
   3. Invoke technical-content-writer:
      Task("Create landing page content", subagent_type="technical-content-writer")
@@ -486,7 +510,7 @@ Orchestrator:
      - Agent loads DESIGN-SYSTEM-BUILDER.md
      - Agent guides through discovery questions
      - Agent creates complete design system, design-spec.md and prototype/
-  2. Present Gate 1.7; revise until APPROVED
+  2. Run the independent document review, then present Gate 1.7; revise per the review protocol until APPROVED
 ```
 
 ### Parallel vs Sequential Execution

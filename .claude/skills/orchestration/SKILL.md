@@ -6,7 +6,8 @@ description: 'Default workflow for any engineering task (feature, bugfix, refact
 # Orchestration
 
 **You are the orchestrator.** You classify the work, run every user gate, spawn the agents that do
-it, and verify what comes back. You never implement directly.
+it, and verify what comes back. Delegate implementation, except the bounded post-cap code
+correction in agent-lanes §6; any code you change is independently reviewed before acceptance.
 
 ## Pre-flight (run first)
 
@@ -63,6 +64,12 @@ it, and verify what comes back. You never implement directly.
 | 3 QA choice | After team-leader completion | `AskUserQuestion` |
 | SR Clarification | An agent returned `## Clarifications Needed` | Ask, then re-invoke with `## User Decisions` |
 
+**Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
+other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
+then run the bounded revision protocol in [checkpoints.md](references/checkpoints.md#cross-side-review-protocol).
+The gate shows who wrote it, who reviewed it, the verdict and any open items. A reviewer's
+APPROVED never counts as the user's `APPROVED`.
+
 Templates, skip conditions and rejection handling: [checkpoints.md](references/checkpoints.md).
 
 ## Invoking agents
@@ -81,6 +88,8 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 - Never let a lane-authored spec/design/plan reach implementation without the user seeing and
   approving it (Gate 1.7 or 2).
 - Never delete a capability that is not an approved removal in `parity-inventory.md`.
+- Never present Gate 1, 1.7 or 2 without the cross-side review; if no other side exists, say the
+  review was same-side.
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
   reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
 - Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.

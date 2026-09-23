@@ -90,6 +90,21 @@ designer → prototype → Gate 1.7 before the architect or next creative phase;
 approved prototype as the visual source of truth. PM (architect when no PM) supplies the
 old-code parity inventory before design starts when an existing surface is replaced/redesigned.
 
+### Document review
+
+You invoke the reviewer after the author returns ([checkpoints.md § Cross-side review protocol](checkpoints.md#cross-side-review-protocol)).
+It is not a code-logic-reviewer invocation: use a role only if its output contract allows
+`<artifact-stem>-review.md`; otherwise a generic subagent, or a CLI lane without `role`, with the
+contract below. If the chosen side cannot supply one, use the agent-lanes §6 fallback.
+
+Supply absolute paths to the artifact, the user's exact request, project rules, prior approved
+artifacts and `parity-inventory.md` when it applies; for a design, `prototype/` and its screenshots.
+Read-only on source and artifacts; write only `<artifact-stem>-review.md`. Require: APPROVED /
+REVISE; each requirement traced to the artifact section that meets it (a missing one cites its
+source); lane-introduced constraints; parity deltas; feasibility evidence; numbered findings with
+`file:line`; the review-state fields; `WROTE: <absolute path>` plus a headline. A CLI lane declares
+the same path in `deliverables`.
+
 **Visual review checklist** (spell it out in the visual-reviewer prompt):
 
 1. Test six viewports: 320, 375, 768, 1024, 1366, 1920.

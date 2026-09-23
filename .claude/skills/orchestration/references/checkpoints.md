@@ -27,6 +27,29 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 ---
 
+## Cross-side review protocol
+
+Runs before Gates 1, 1.7 and 2, for initial artifacts and for every revision of them.
+
+1. When the author returns, invoke an independent reviewer on the other execution side
+   (routing and fallback: agent-lanes §6; invocation: [agent-catalog.md § Document review](agent-catalog.md#document-review)).
+   The initial review is round 0.
+2. REVISE → send the numbered findings to the original author, then return the changed artifact to
+   the same reviewer. One revise round = one author revision + one reviewer recheck. At most two
+   automatic rounds per artifact.
+3. The review file records author, reviewer, both execution sides, the reviewed revision, the
+   completed round count, the verdict and unresolved items. Resume these records; continuation alone
+   never resets the count. Record the user's gate decision against that revision in `context.md`.
+4. Reviewer APPROVED → present the gate. Still REVISE after round 2 → stop revising and present the
+   gate with the verdict and every open item. The reviewer's verdict never counts as user approval;
+   nothing is implemented while approval is pending.
+5. A user-requested revision gets a fresh review before the gate is shown again; that review alone
+   does not reset the round count. A new automatic budget needs the user's explicit go-ahead or a
+   user-requested scope change: keep the prior round history, record the reason, start again at
+   round 0. Questions that change nothing need no review.
+
+---
+
 ## Checkpoint 0.1: CLI Agent Discovery
 
 ### When to Present
@@ -35,7 +58,7 @@ At the very start of orchestration, before any sub-agent is invoked.
 
 ### Trigger Conditions
 
-Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)).
+Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)). Tell the user that required document reviews run before each user gate — one initial review per artifact, at most two author/reviewer revision pairs — and that with lanes disabled, fresh subagents perform disclosed same-side reviews.
 
 ### Skip Conditions
 
@@ -191,6 +214,13 @@ REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
 - [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
 
+## Cross-side review
+
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
+
+- [Open item the reviewer raised and the author did not resolve, with location; or none]
+
 ---
 
 Please open the document above and review it at your own pace.
@@ -308,6 +338,13 @@ DESIGN READY FOR REVIEW — TASK_[ID]
 
 - [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
 
+## Cross-side review
+
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
+
+- [Open item the reviewer raised and the author did not resolve, with location; or none]
+
 ---
 
 Please open the spec and prototype above and review the screenshots at your own pace.
@@ -376,6 +413,13 @@ ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 
 - [`parity-inventory.md`: kept/moved capabilities, proposed removals needing approval; or not applicable]
 
+## Cross-side review
+
+**Written by**: [side + lane/agent] · **Reviewed by**: [other side + lane/agent, or "same-side — no other side available"]
+**Reviewer verdict**: [APPROVED | REVISE — automatic revision cap reached] · **Completed revise rounds**: [0–2] · **Reviewed revision**: [revision] — 📄 `<taskFolder>/<artifact-stem>-review.md`
+
+- [Open item the reviewer raised and the author did not resolve, with location; or none]
+
 ## Estimated Complexity
 
 [Simple | Medium | Complex] — [N] files, [B] batches expected
@@ -437,6 +481,9 @@ Options:
 ```
 
 Parallel invocations for `reviewers` and `all`: [agent-catalog.md § Parallel QA](agent-catalog.md#parallel-qa).
+
+Gate 3 selects ADDITIONAL QA. `skip` never waives the required shipping-code review (agent-lanes §6),
+which runs before batch acceptance, or before completion and git in flows without team-leader.
 
 ### Response Handling
 
@@ -523,7 +570,8 @@ When user provides feedback instead of "APPROVED":
    - Previous output reference
    - User feedback as revision instructions
 3. Agent produces revised output
-4. Re-present validation checkpoint with new output
+4. Refresh the independent review for the changed artifact (Cross-side review protocol), then
+   re-present the checkpoint with its current verdict and open items
 5. Repeat until "APPROVED" or user requests different approach
 ```
 

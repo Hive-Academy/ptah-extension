@@ -37,6 +37,12 @@ For changed persisted settings/config/storage writes, require a **write-path tra
 runtime reader (key, scope, value format, side effects such as env vars), confirming unchanged or
 intended behaviour. Missing evidence goes back for verification before `TASK COMPLETE`.
 
+Mode 1 receives the plan, document reviews and recorded user gate decisions the selected flow
+requires (including open items the user accepted); missing or stale required evidence is a blocker
+for you. Mode 3 checks that this evidence still applies and that every batch has its required
+shipping-code review; it never commissions another document review. When a flow legitimately skips
+an artifact, its approval and review are not required either (BUGFIX enters Mode 1 right after init).
+
 ## Acting on a return
 
 Every return ends with a `### Next action:` line. Do what it says; the heading tells you which case
@@ -45,9 +51,9 @@ you are in.
 | Return heading | Your action |
 | --- | --- |
 | `DECOMPOSITION COMPLETE` | Spawn Batch 1's executor (below) |
-| `DECOMPOSITION BLOCKED` | Re-invoke software-architect with the blocking issues, then Gate 2 again |
+| `DECOMPOSITION BLOCKED` | Re-invoke software-architect with the blocking issues, refresh the document review, then Gate 2 again |
 | `BATCH [N] PARTIAL FAILURE` | Re-invoke the same executor for the missing tasks only |
-| `NEEDS REVIEW` | Spawn the named reviewer (usually code-logic-reviewer), then re-invoke Mode 2 with its verdict |
+| `NEEDS REVIEW` | Pick the reviewer's execution side per agent-lanes §6, invoke the named code-review role, then re-invoke Mode 2 with `code-logic-review.md` and its verdict |
 | `BATCH [N] NOT ACCEPTED` | Re-invoke the same executor with the listed issues, then Mode 2 again |
 | `BATCH [N] COMPLETE` | Spawn the next batch's executor |
 | `ALL BATCHES COMPLETE` | Invoke Mode 3 |

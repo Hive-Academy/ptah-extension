@@ -147,17 +147,31 @@ Lane output is evidence, not proof.
 | --- | --- |
 | Research, surveys, summaries | Spot-check claims against the code |
 | Scaffolding, stubs | Read it in full — only the files the lane edited |
-| Decision artifacts (spec, design, plan) | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list each rule the user did not ask for under `## Lane-introduced constraints`. The user approves the artifact at orchestration Gate 1.7 or 2 before any lane builds from it. |
+| Decision artifacts (spec, design, plan) | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list each rule the user did not ask for under `## Lane-introduced constraints`. A cross-side review (below) runs first; then the user approves the artifact at orchestration Gate 1, 1.7 or 2 before any lane builds from it. |
 | Code that deletes or replaces a surface | Check `parity-inventory.md` row by row; a missing, unapproved capability blocks the batch. |
 | UI code | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype and shown to the user before merge. |
-| Code that will ship | Review by a lane from a **different family**, or by you line by line. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended. |
+| Code that will ship | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended. |
 
-- **Independence**: a lane never reviews its own work. Same family on another model is allowed
-  when the user asks for it; state in the summary that the review was same-family (weaker signal).
+- **Independence**: the author never reviews its own work. Same-family review is allowed when
+  the user asks for it or when the fallback below is necessary; label it weaker evidence.
+- **Cross-side review**: *side* is the execution mode — in-process (orchestrator or subagent) or
+  CLI lane; *family* is the model family. A different CLI family is still the same side. The
+  orchestrator assigns the reviewer: in-process author → a CLI lane; CLI author → a subagent.
+  Opposite side unavailable, lanes disabled at Gate 0.1, or the user explicitly pins a same-side
+  reviewer → an independent reviewer on that side, reason disclosed; prefer another family unless
+  one is pinned. Never silently replace a pinned reviewer. No independent reviewer can run →
+  report the blocker; never claim a review. Applies to every decision artifact
+  (`task-description.md`, `design-spec.md` + `prototype/`, `implementation-plan.md`) and all
+  shipping code. Document reviews write `<artifact-stem>-review.md` (APPROVED / REVISE); code
+  reviews keep `code-logic-review.md`, and an existing eligible review is not duplicated.
+  Invocation and the review protocol: orchestration `agent-catalog.md` and `checkpoints.md`.
+  The review informs the user's gate and never replaces it.
 - **Defects** go back to the original lane (resume per §5) as a numbered list, each with
   `file:line`. Drop any defect without a location before relaying it.
-- **Revise cap**: 2 revise rounds. Not converged → stop and finish it yourself, or report the open
-  defects honestly. Announce the cap before the first round.
+- **Revise cap**: at most 2 author/reviewer revision pairs after the initial review; announce it
+  first. At exhaustion, a document goes to its user gate with every open item. For code, report the
+  open defects or make ONE bounded correction, then have the changed code independently reviewed;
+  if that review finds defects, report them and stop — never reset the cap or claim completion.
 - **Code checks** are the project's typecheck, tests and lint; UI also needs rendered evidence.
   A lane's `PASS` is an opinion; run them —
   scoped to the projects the lane changed (`npx nx run-many -t typecheck,test,lint -p <project>`),
@@ -192,7 +206,8 @@ the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with t
 ## 8. Cost
 
 Every spawn, resume, message turn and review round is a real paid call. Before spending, announce
-the lanes, the number of rounds and the resulting call count.
+the lanes, the number of rounds and the resulting call count — including required document
+reviews: one initial review per artifact plus up to two author/reviewer pairs.
 
 Inside a lane, **cost ≈ requests × context**: every tool call is one request that resends the
 whole thread, so a lane's bill grows with its call count times its accumulated context. Measured
