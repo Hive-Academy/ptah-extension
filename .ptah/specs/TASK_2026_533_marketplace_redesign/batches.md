@@ -1,6 +1,6 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 1/29
+Total tasks: 63 | Batches: 29 | Complete: 2/29
 
 Wave A (Batches 1, 2, 3) is IN_PROGRESS together: they are a parallel group on
 three different Nx projects.
@@ -137,7 +137,7 @@ Edge cases:
 | I    | 20 ∥ 21 ∥ 22 ∥ 23 ∥ 24     | After 17 and 7d. 20 ∥ 21 marketplace → worktree; 22 ∥ 23 ∥ 24 chat-ui → worktree.                                                                |
 | J    | 25                         | After everything. Reviewer: visual-reviewer (parity).                                                                                            |
 
-## Batch 1: Contracts (C2) — COMPLETE
+## Batch 1: Contracts (C2) — COMPLETE (commit 6acdafbd0)
 
 - Recommended executor: backend-developer
 - Fallback executor: frontend-developer
@@ -226,7 +226,7 @@ Edge cases:
 - A2 and A3 results stated explicitly in the report
 - Reviewer: code-logic-reviewer (router result semantics, guard)
 
-## Batch 3: Ref codecs and layout tier (C5 part) — IN_PROGRESS
+## Batch 3: Ref codecs and layout tier (C5 part) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x2 (codecs / layout)
@@ -235,7 +235,7 @@ Edge cases:
 - Tasks: 3 | Depends on: none
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 3.1: `server-ref` codec — IMPLEMENTED
+### Task 3.1: `server-ref` codec — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\server-ref.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\server-ref.spec.ts`
 - Plan reference: implementation-plan.md:103, :302
@@ -244,7 +244,7 @@ Edge cases:
 - Validation notes: keys containing `:` round-trip; all `McpServerOrigin` values covered.
 - Implementation details: encode/decode pair, table-driven spec.
 
-### Task 3.2: `skill-ref` codec plus R6 router probe — IMPLEMENTED
+### Task 3.2: `skill-ref` codec plus R6 router probe — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\skill-ref.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\skill-ref.spec.ts`
 - Plan reference: implementation-plan.md:103, :302, :624 (R6)
@@ -253,7 +253,7 @@ Edge cases:
 - Validation notes: R6 probe — navigate with commands `['skills', ref]` where ref contains `/`, assert a single segment is matched and the decoded param equals the input. If it fails, switch the tail to base64url (plan R6 fallback) and say so.
 - Implementation details: pure codec plus one RouterTestingHarness spec block.
 
-### Task 3.3: `MarketplaceLayout` tier signal plus A1 probe — IMPLEMENTED
+### Task 3.3: `MarketplaceLayout` tier signal plus A1 probe — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\layout\marketplace-layout.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\layout\marketplace-layout.spec.ts`
 - Plan reference: implementation-plan.md:150-165 (D3), :318, :110 (A1)
@@ -673,6 +673,7 @@ Edge cases:
 
 ### Batch 12 verification
 
+- Acceptance (from Batch 3 review): the shell's tier must follow a real `ResizeObserver` report with no manual change detection — the shell spec resizes the host across 900 and 1400 and asserts rail/sidebar flips using `fixture.autoDetectChanges()` / zoneless scheduling, never an explicit `detectChanges()` after the resize (the `no NgZone.run` decision is otherwise unproven). Real-host proof is Task 25.1.
 - Reviewer: code-logic-reviewer (zero-RPC rule, keyboard scope)
 
 ## Batch 13: Installed servers list and server detail (C7 part) — PENDING
@@ -1119,4 +1120,5 @@ Edge cases:
 
 ### Batch 25 verification
 
+- Real-host tier check (from Batch 3 review): in a real host build, resize the container across 900 and 1400 WITHOUT any manual change detection and assert the tier flips (rail ↔ sidebar, drawer ↔ docked detail). Belongs in `marketplace-routes.e2e.spec.ts` (Task 25.1).
 - Reviewer: visual-reviewer (rendered interface parity), after senior-tester's run is green
