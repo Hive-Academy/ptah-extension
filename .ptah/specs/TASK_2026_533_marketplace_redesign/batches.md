@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 7/29
+Total tasks: 63 | Batches: 29 | Complete: 8/29
 
-Complete: Batches 1, 2, 3, 5, 6, 7a, 7d. IN_PROGRESS: Batch 4 (ui, in review) and Batch 12
-(marketplace). They are in different projects.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7d. IN_PROGRESS: Batch 12 (marketplace, main checkout)
+and Batch 7b (ui, own worktree based on the Batch 4 commit).
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -53,6 +53,7 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
   sub-path is dropped when `navigateToSurface` falls back to another surface.
 - Batch 7d decisions (binding on Batches 11, 13, 15, 16, 20-24): the card input is `heading` (not `title`); loading tiles use `<ptah-catalog-card-skeleton>`; consumers put `role="listitem"` on each `ptah-catalog-grid` child; Batches 24 and 25 verify the `@container` columns (1/2/3/4 at 480/800/1200) and the card compact trigger in a real browser, including 2 columns in the dashboard `max-w-2xl` dialog.
 - Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 699 lines (cap 700). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
+- Batch 4 outcome (binding on 7b, 7c, 17, 25): the vendoring script also writes `libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt` (theSVG MIT, pinned SHA, trademark note, the 10 marks needing attribution: Angular CC-BY-4.0, SonarQube LGPL-3.0, Attio, Pipedrive, Monday.com, Apollo.io, Exa, Firecrawl, Slack, Tavily; AI vendors covered generically, never named). A scanner-token guard fails the run on any banned token. The notices ship in the VSIX (build-esbuild assets) and Electron (build-main assets + `electron-builder.yml` extraResources). `scripts/brand-icons/rejection-report.md` is kept, not shipped. Any edit to the manifest or script must be followed by `npm run vendor:brand-icons -- --check`.
 - Batch 1 facts for Batch 4: monogram slugs `klaviyo`, `zernio`, `context7`,
   `google-people`; `huggingface` chosen over `hugging-face` (see Task 4.2).
 - Commit convention (from `git log`): Conventional Commits,
@@ -277,7 +278,7 @@ Edge cases:
 - Files exist; verification passes; A1 and R6 outcomes stated in the report
 - Reviewer: code-logic-reviewer
 
-## Batch 4: Brand-icon vendoring pipeline (C12) — IN_PROGRESS
+## Batch 4: Brand-icon vendoring pipeline (C12) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: devops-engineer
@@ -286,7 +287,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 1
 - Verification: `npm run vendor:brand-icons` twice then `git diff --exit-code -- libs/frontend/ui/src/lib/native/brand-mark/brand-marks.generated.ts`; `npx nx run-many -t lint,typecheck -p @ptah-extension/ui`
 
-### Task 4.1: Script skeleton and A4 probe — IN_PROGRESS
+### Task 4.1: Script skeleton and A4 probe — COMPLETE
 
 - Files: `D:\projects\ptah-extension\scripts\vendor-brand-icons.mjs`, `D:\projects\ptah-extension\package.json`, `D:\projects\ptah-extension\package-lock.json`
 - Plan reference: implementation-plan.md D6 (:209-236), C12 (:497-515)
@@ -295,7 +296,7 @@ Edge cases:
 - Validation notes: A4 — run on `github` (dark variant, 1024 viewBox) and assert the path bounding box lies inside the viewBox before continuing. `svgo@^4.1.0` added as a devDependency and a `vendor:brand-icons` script.
 - Implementation details: `npm install -D svgo@^4.1.0` updates the lockfile.
 
-### Task 4.2: Manifest and generated table (incl. mono and `PROVIDER_BRAND_ART`) — IN_PROGRESS
+### Task 4.2: Manifest and generated table (incl. mono and `PROVIDER_BRAND_ART`) — COMPLETE
 
 - Depends on: Task 4.1
 - Files: `D:\projects\ptah-extension\scripts\brand-icons.manifest.json`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-marks.generated.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\mark-artwork.ts` (type only)
@@ -305,7 +306,7 @@ Edge cases:
 - Validation notes: `github`, `vercel`, `openai` have `onDark`; `sentry`, `davinci-resolve` are `surface:'light'`; `anthropic`/`claude` have `mono`; ≤300 KB; byte-identical rerun. Rejection report goes in the batch report (for the PR description). From Batch 1: catalogue slugs with NO theSVG entry go to `MONOGRAM_SLUGS` — `klaviyo`, `zernio`, `context7`, `google-people`; `huggingface` was chosen over theSVG's colour `hugging-face` (keep `huggingface`; if its artwork is rejected, fall back per D6); non-trivial slugs to fetch: `apollodotio`, `mongodb`, `cloudflare-workers`, `gmail`; several entries share one slug (atlassian, asana, exa, hubspot, gmail, google-calendar, google-drive, google-docs, google-sheets) — fetch each slug once.
 - Implementation details: generated file is prettier-formatted and exempt from the 700-line cap. The artwork type it emits must match `MarkArtwork` defined in Task 7b.1 — define `MarkArtwork` in the generated file's import target agreed as `libs/frontend/ui/src/lib/native/brand-mark/mark-artwork.ts` (created here, 1 extra file, type only).
 
-### Task 4.3: Scanner and packaging check — IN_PROGRESS
+### Task 4.3: Scanner and packaging check — COMPLETE
 
 - Depends on: Task 4.2
 - Files: none new (verification only)
@@ -345,7 +346,7 @@ Edge cases:
 - Store and spec exist; migrated assertions listed in the report against their source spec lines
 - Reviewer: code-logic-reviewer (failure isolation, stale generations, removal safety)
 
-## Batch 6: `ConnectorLinksStore` (C4) — COMPLETE
+## Batch 6: `ConnectorLinksStore` (C4) — COMPLETE (commit d398a9561)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -391,7 +392,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer (barrel, no duplicate left in live code)
 
-## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — PENDING
+## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -400,7 +401,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 4, 7a, 7d
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/ui`
 
-### Task 7b.1: `MarkSvgComponent` and `MonogramTileComponent` — PENDING
+### Task 7b.1: `MarkSvgComponent` and `MonogramTileComponent` — IN_PROGRESS
 
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\mark-svg.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\monogram-tile.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C14 (:572-576), D6 tile and monogram rules
@@ -409,7 +410,7 @@ Edge cases:
 - Validation notes: specs — brand vs mono paint, fill vs stroke kind; deterministic tint; no `innerHTML`.
 - Implementation details: `MarkArtwork` type from `mark-artwork.ts` (Task 4.2).
 
-### Task 7b.2: `BrandMarkComponent` — PENDING
+### Task 7b.2: `BrandMarkComponent` — IN_PROGRESS
 
 - Depends on: Task 7b.1
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-mark.component.ts` (+`.spec.ts`)
@@ -419,7 +420,7 @@ Edge cases:
 - Validation notes: spec sets `data-theme-mode` on `document.documentElement`; light tile; monogram fallback; missing `onDark` shows `art`.
 - Implementation details: renders through `ptah-mark-svg`.
 
-### Task 7b.3: `brand-slugs.ts` and barrels — PENDING
+### Task 7b.3: `brand-slugs.ts` and barrels — IN_PROGRESS
 
 - Depends on: Task 7b.2
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-slugs.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\index.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\index.ts`

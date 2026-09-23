@@ -1,0 +1,108 @@
+{
+  "$comment": "Input for scripts/vendor-brand-icons.mjs (npm run vendor:brand-icons). Lists every brand slug the webview renders. Variant availability comes from theSVG's own index at the pinned commit; 'unindexed' declares it for a folder the index does not list. 'groups' records which ui table uses the slug: catalogue (PTAH_CONNECTORS brandSlug), known-server (KNOWN_SERVER_BRANDS), cli (CLI_TARGET_BRANDS), provider (PROVIDER_BRAND_SLUGS, emitted into PROVIDER_BRAND_ART). 'monogram' opts a slug out of fetching and states why. This file lives in scripts/, which is never packaged into the VSIX.",
+  "source": {
+    "repository": "glincker/thesvg",
+    "commit": "20c10d8dd10bbce6de90101f50599d5686061cfa",
+    "pinnedOn": "2026-09-23",
+    "mirrors": [
+      "https://raw.githubusercontent.com/glincker/thesvg/{commit}/{path}",
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@{commit}/{path}"
+    ]
+  },
+  "output": "libs/frontend/ui/src/lib/native/brand-mark/brand-marks.generated.ts",
+  "notices": "libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt",
+  "report": "scripts/brand-icons/rejection-report.md",
+  "icons": [
+    { "slug": "airtable", "groups": ["catalogue"] },
+    { "slug": "amplitude", "groups": ["catalogue"] },
+    { "slug": "angular", "groups": ["known-server"] },
+    { "slug": "anthropic", "groups": ["provider"], "emitMono": true },
+    { "slug": "apollodotio", "groups": ["catalogue"] },
+    { "slug": "asana", "groups": ["catalogue"] },
+    { "slug": "atlassian", "groups": ["catalogue"] },
+    { "slug": "attio", "groups": ["catalogue"] },
+    { "slug": "box", "groups": ["catalogue"] },
+    { "slug": "canva", "groups": ["catalogue"] },
+    { "slug": "claude", "groups": ["cli", "provider"], "emitMono": true },
+    { "slug": "clickup", "groups": ["catalogue"] },
+    { "slug": "cloudflare", "groups": ["catalogue"] },
+    { "slug": "cloudflare-workers", "groups": ["catalogue"] },
+    {
+      "slug": "context7",
+      "groups": ["catalogue"],
+      "monogram": "no theSVG entry at the pinned commit"
+    },
+    { "slug": "cursor", "groups": ["cli"] },
+    { "slug": "daisyui", "groups": ["known-server"] },
+    { "slug": "datadog", "groups": ["catalogue"] },
+    { "slug": "davinci-resolve", "groups": ["known-server"] },
+    { "slug": "dropbox", "groups": ["catalogue"] },
+    { "slug": "exa", "groups": ["catalogue"] },
+    { "slug": "figma", "groups": ["catalogue"] },
+    { "slug": "firecrawl", "groups": ["known-server"] },
+    { "slug": "github", "groups": ["catalogue"] },
+    { "slug": "github-copilot", "groups": ["cli"] },
+    { "slug": "gitlab", "groups": ["catalogue"] },
+    { "slug": "gmail", "groups": ["catalogue"] },
+    { "slug": "google", "groups": ["cli"] },
+    { "slug": "google-bigquery", "groups": ["catalogue"] },
+    { "slug": "google-calendar", "groups": ["catalogue"] },
+    { "slug": "google-chat", "groups": ["catalogue"] },
+    { "slug": "google-chrome", "groups": ["known-server"] },
+    { "slug": "google-docs", "groups": ["catalogue"] },
+    { "slug": "google-drive", "groups": ["catalogue"] },
+    {
+      "slug": "google-people",
+      "groups": ["catalogue"],
+      "monogram": "no theSVG entry at the pinned commit"
+    },
+    { "slug": "google-sheets", "groups": ["catalogue"] },
+    { "slug": "google-slides", "groups": ["catalogue"] },
+    { "slug": "hubspot", "groups": ["catalogue"] },
+    {
+      "slug": "huggingface",
+      "groups": ["catalogue"],
+      "unindexed": {
+        "variants": ["default", "mono"],
+        "note": "public/icons/huggingface/ exists at the pinned commit but the index lists it only as an alias of 'hugging-face'; this folder holds the flat-colour mark chosen in Batch 1"
+      }
+    },
+    { "slug": "intercom", "groups": ["catalogue"] },
+    {
+      "slug": "klaviyo",
+      "groups": ["catalogue"],
+      "monogram": "no theSVG entry at the pinned commit"
+    },
+    { "slug": "linear", "groups": ["catalogue"] },
+    { "slug": "mixpanel", "groups": ["catalogue"] },
+    { "slug": "monday", "groups": ["catalogue"] },
+    { "slug": "mongodb", "groups": ["catalogue"] },
+    { "slug": "neon", "groups": ["catalogue"] },
+    { "slug": "nodedotjs", "groups": ["known-server"] },
+    { "slug": "notion", "groups": ["catalogue"] },
+    { "slug": "openai", "groups": ["cli"] },
+    { "slug": "pagerduty", "groups": ["catalogue"] },
+    { "slug": "paypal", "groups": ["catalogue"] },
+    { "slug": "pipedream", "groups": ["catalogue"] },
+    { "slug": "pipedrive", "groups": ["catalogue"] },
+    { "slug": "planetscale", "groups": ["catalogue"] },
+    { "slug": "sentry", "groups": ["catalogue", "known-server"] },
+    { "slug": "shopify", "groups": ["catalogue", "known-server"] },
+    { "slug": "slack", "groups": ["catalogue"] },
+    { "slug": "sonarqube", "groups": ["known-server"] },
+    { "slug": "stripe", "groups": ["catalogue"] },
+    { "slug": "supabase", "groups": ["catalogue"] },
+    { "slug": "tavily", "groups": ["catalogue"] },
+    { "slug": "todoist", "groups": ["catalogue"] },
+    { "slug": "trello", "groups": ["catalogue"] },
+    { "slug": "vercel", "groups": ["catalogue"] },
+    { "slug": "visual-studio-code", "groups": ["cli"] },
+    { "slug": "webflow", "groups": ["catalogue"] },
+    { "slug": "zapier", "groups": ["catalogue"] },
+    {
+      "slug": "zernio",
+      "groups": ["catalogue"],
+      "monogram": "no theSVG entry at the pinned commit"
+    }
+  ]
+}
