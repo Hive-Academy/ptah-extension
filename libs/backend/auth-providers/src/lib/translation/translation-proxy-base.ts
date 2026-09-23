@@ -83,7 +83,22 @@ const messagesEnvelopeSchema = z
             z.array(z.object({ type: z.string() }).passthrough()),
           ]),
         })
-        .passthrough(),
+        .passthrough()
+        .superRefine((message, context) => {
+          if (message.role !== 'system' || !Array.isArray(message.content))
+            return;
+          // BetaMessageParam allows non-text blocks (including tool directives).
+          // Only text blocks require text; keep other roles and extensions open.
+          message.content.forEach((block, index) => {
+            if (block.type === 'text' && typeof block['text'] !== 'string') {
+              context.addIssue({
+                code: 'custom',
+                path: ['content', index, 'text'],
+                message: 'System text blocks require string text',
+              });
+            }
+          });
+        }),
     ),
     stream: z.boolean().optional(),
   })

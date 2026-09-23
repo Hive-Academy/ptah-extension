@@ -498,6 +498,108 @@ describe('TranslationProxyBase SDK message envelope', () => {
     },
   );
 
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['number', 42],
+    ['boolean', true],
+    ['array', ['private-message']],
+    ['object', { secret: 'private-token' }],
+  ])(
+    'rejects %s text in system blocks with a field-only error',
+    async (_label, text) => {
+      const h = await startProxy();
+      try {
+        const result = await request(`${h.url}/v1/messages?beta=true`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ...JSON.parse(MESSAGES_BODY),
+            messages: [
+              { role: 'user', content: 'private-message' },
+              {
+                role: 'system',
+                content: [
+                  { type: 'text', text: 'valid instructions' },
+                  { type: 'text', text },
+                  { type: 'text', text },
+                ],
+              },
+            ],
+          }),
+        });
+        expect(result.status).toBe(400);
+        expect(JSON.parse(result.body)).toEqual({
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message:
+              'Invalid Messages request: invalid fields: messages.content.text',
+          },
+        });
+        expect(result.body).not.toContain('private-');
+        expect(h.proxy.normalizeModelIdMock).not.toHaveBeenCalled();
+        expect(h.proxy.getHeadersMock).not.toHaveBeenCalled();
+        expect(h.proxy.getApiEndpointMock).not.toHaveBeenCalled();
+      } finally {
+        await h.stop();
+      }
+    },
+  );
+
+  it('preserves non-text system directives and unchanged user/assistant block validation', async () => {
+    let received: unknown;
+    const upstream = await startUpstream((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        received = JSON.parse(Buffer.concat(chunks).toString());
+        res.setHeader('content-type', 'application/json');
+        res.end('{}');
+      });
+    });
+    const h = await startProxy();
+    h.proxy.protocol = 'messages';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    const body = {
+      ...JSON.parse(MESSAGES_BODY),
+      messages: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'tool_addition',
+              tool: { type: 'tool_reference', name: 'lookup' },
+            },
+            {
+              type: 'tool_removal',
+              tool: { type: 'tool_reference', name: 'lookup' },
+            },
+          ],
+        },
+        ...(['user', 'assistant'] as const).map((role) => ({
+          role,
+          content: [
+            { type: 'text' },
+            { type: 'text', text: null },
+            { type: 'provider-extension', payload: { untouched: true } },
+          ],
+        })),
+      ],
+    };
+    try {
+      const result = await request(`${h.url}/v1/messages?beta=true`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: NATIVE_HEADERS,
+      });
+      expect(result.status).toBe(200);
+      expect(received).toEqual(body);
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
   it.each(['null', '[]'])(
     'names body for an invalid root: %s',
     async (body) => {
