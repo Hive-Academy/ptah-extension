@@ -639,7 +639,14 @@ describe('CanvasTileComponent layout menu contract', () => {
       expect(choices.map((choice) => choice.textContent?.trim())).toEqual([
         'Full',
         'Compact',
-        'Compact tall',
+        'Tall',
+      ]);
+      expect(
+        choices.map((choice) => choice.getAttribute('aria-label')),
+      ).toEqual([
+        'Set tile height to Full',
+        'Set tile height to Compact',
+        'Set tile height to Compact tall',
       ]);
       expect(
         choices.map((choice) => choice.getAttribute('aria-checked')),
@@ -727,5 +734,93 @@ describe('CanvasTileComponent layout menu contract', () => {
     expect(tabManager.toggleTabViewMode).toHaveBeenCalledTimes(1);
     expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
     expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('marks the checked span and view mode with a visible active class', () => {
+    const fixture = setup();
+    fixture.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
+    fixture.detectChanges();
+    const spans = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-span]'),
+    ) as HTMLButtonElement[];
+    const activeSpans = spans.filter((button) =>
+      button.classList.contains('btn-primary'),
+    );
+    expect(activeSpans.map((button) => button.dataset['span'])).toEqual([
+      'half',
+    ]);
+    const heights = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-view-mode]'),
+    ) as HTMLButtonElement[];
+    const activeHeights = heights.filter((button) =>
+      button.classList.contains('btn-primary'),
+    );
+    expect(activeHeights.map((button) => button.dataset['viewMode'])).toEqual([
+      'full',
+    ]);
+  });
+
+  it('navigates Left/Right within the width group and wraps at the edges', () => {
+    const fixture = setup();
+    fixture.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
+    fixture.detectChanges();
+    const widths = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-span]'),
+    ) as HTMLButtonElement[];
+    widths[1].focus();
+    widths[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(widths[2]);
+    widths[2].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(widths[1]);
+    // Wrap: past the last width stays inside the width group.
+    widths[3].focus();
+    widths[3].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(widths[0]);
+    // Horizontal arrows never leave the group: from the first width, Left
+    // wraps to the last width instead of reaching the height section.
+    widths[0].focus();
+    widths[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(widths[3]);
+  });
+
+  it('shows the Layout locked hint instead of silently disabled width buttons', () => {
+    const unlocked = setup();
+    unlocked.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
+    unlocked.detectChanges();
+    expect(
+      unlocked.nativeElement.querySelector(
+        '[data-testid="layout-locked-hint"]',
+      ),
+    ).toBeNull();
+
+    const locked = setup(true);
+    locked.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
+    locked.detectChanges();
+    const hint = locked.nativeElement.querySelector(
+      '[data-testid="layout-locked-hint"]',
+    );
+    expect(hint?.textContent?.trim()).toBe('Layout locked');
+    const spans = Array.from(
+      locked.nativeElement.querySelectorAll('[data-span]'),
+    ) as HTMLButtonElement[];
+    expect(spans.every((button) => button.disabled)).toBe(true);
+    // The hint line itself is not a focusable menu item.
+    expect(hint?.matches('[data-layout-item]')).toBe(false);
   });
 });

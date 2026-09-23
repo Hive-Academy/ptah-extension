@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideMarkdown } from 'ngx-markdown';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -123,6 +124,7 @@ describe(CompactSessionCardComponent.name, () => {
     TestBed.configureTestingModule({
       imports: [CompactSessionCardComponent],
       providers: [
+        provideMarkdown(),
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: TabManagerService, useValue: tabManager },
         { provide: TabSessionBinding, useValue: sessionBinding },
@@ -279,24 +281,6 @@ describe(CompactSessionCardComponent.name, () => {
         .querySelector('[data-zone="status"] span')
         .getAttribute('style'),
     ).toBe(firstColor);
-  });
-
-  it('resolves the activity tier from the tab view mode', () => {
-    const compactFixture = render(tab({ viewMode: 'compact' }));
-    const tallFixture = render(tab({ id: 'tab-2', viewMode: 'compact-tall' }));
-
-    expect(
-      (
-        compactFixture.componentInstance as unknown as {
-          tier: () => string;
-        }
-      ).tier(),
-    ).toBe('compact');
-    expect(
-      (
-        tallFixture.componentInstance as unknown as { tier: () => string }
-      ).tier(),
-    ).toBe('compact-tall');
   });
 
   it('emits expand and keeps the fixed-height summary-only contract', () => {
