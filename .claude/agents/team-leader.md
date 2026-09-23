@@ -288,8 +288,8 @@ Perform mandatory completion checks:
 2. **Rendered visual evidence**: For UI tasks, typecheck, test, and lint are not
    proof. Confirm that rendered visual-reviewer screenshots exist for both dark
    and light themes and verify fidelity against the approved prototype in `prototype/`.
-   For a UI BUGFIX that does not add or redesign a surface (skipping the designer
-   and Gate 1.7), completion requires before/after screenshots (dark + light) of
+   For a UI change that adds or redesigns no surface, so no prototype is required,
+   completion requires before/after screenshots (dark + light) of
    the affected screen instead of a prototype — capture the before screenshots
    from the base commit (or before the first batch / before the fix lands) with
    the visual-reviewer.

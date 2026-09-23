@@ -288,15 +288,11 @@ npx http-server <taskFolder>/prototype -p <port>
 - Clickable modals, tabs, or accordions.
 
 ## Lane-introduced constraints
-List every design rule, boundary, or constraint present in the design, tagged by origin:
-- `[user-requested]`: Explicitly requested by the user prompt or issue.
-- `[project-rule]`: Mandated by project architecture, design system, or coding guidelines.
+List only lane-proposed design rules, boundaries, or constraints; write `none` if there are none.
 - `[lane-proposed]`: Introduced by the agent/lane. **Requires explicit user approval at Gate 1.7.**
 
 | Constraint | Tag | Rationale |
 | --- | --- | --- |
-| Single primary action per card | `[project-rule]` | Visual hierarchy standard |
-| Provider status shown as badge | `[project-rule]` | Status info must not be action buttons |
 | Collapsible advanced settings | `[lane-proposed]` | Keeps initial view uncluttered; pending approval |
 
 ## Parity Mapping

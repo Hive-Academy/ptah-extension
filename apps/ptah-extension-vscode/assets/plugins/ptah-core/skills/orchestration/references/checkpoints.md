@@ -208,7 +208,7 @@ REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
 ## Lane-introduced constraints
 
-- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+- [lane-proposed] [Rule introduced by the lane + source; or none]
 
 ## Parity deltas
 
@@ -332,7 +332,7 @@ DESIGN READY FOR REVIEW — TASK_[ID]
 
 ## Lane-introduced constraints
 
-- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+- [lane-proposed] [Rule introduced by the lane + source; or none]
 
 ## Parity deltas
 
@@ -407,7 +407,7 @@ ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 
 ## Lane-introduced constraints
 
-- [Rule not requested by the user + source; tag rules: user-requested / project-rule / lane-proposed; or none]
+- [lane-proposed] [Rule introduced by the lane + source; or none]
 
 ## Parity deltas
 
