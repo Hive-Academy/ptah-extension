@@ -8,7 +8,7 @@
  * Codex adapter's structured mapping than to Antigravity's heuristic classifier.
  *
  * Non-interactive run:  opencode run --format json --auto --model <provider/model>
- *                                   [--session <id>] "<prompt>"
+ *                                   [--standalone] [--session <id>] "<prompt>"
  *
  * Notes:
  * - **The working directory is the spawn's `cwd`, and there is no flag for it.**
@@ -31,10 +31,15 @@
  *   shot; `tool: "bash"` becomes a `command` segment with an exit code.
  * - MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var:
  *   an inline JSON string carrying the `mcp.ptah` remote entry, passed to the
- *   child at spawn time. opencode deep-merges it (remeda `mergeDeep`, highest
- *   precedence) on top of the untouched shared project config — so two agents in
- *   the same working dir never race over a shared file, and there is nothing to
- *   clean up after the run.
+ *   child at spawn time. It only reaches the session when that process runs the
+ *   session itself. opencode 2.x `run` instead attaches to ONE shared background
+ *   service (measured on 2.0.12: a single `role=server` in opencode.log served
+ *   every worktree), which never sees the child's env — so the lane had no
+ *   `ptah_*` tools and could not report. `--standalone` makes `run` start a
+ *   private server from the child's own env; we pass it whenever `run --help`
+ *   lists it (1.x has no such flag, and 2.x rejects unknown flags). With the env
+ *   honoured, opencode deep-merges it (highest precedence) over the untouched
+ *   project config, so agents in one working dir never race over a shared file.
  * - Windows: `resolveCliPath('opencode')` + cross-spawn (`.cmd` wrapper) is the
  *   primary path. Upstream issues report the generated `.ps1` wrapper shelling
  *   out to `/bin/sh.exe`; as a fallback we resolve the bundled native binary
@@ -237,6 +242,9 @@ export class OpencodeCliAdapter implements CliAdapter {
    *   rival-CLI launch (TASK_2026_367).
    */
   constructor(private readonly spawner?: IProcessSpawner) {}
+
+  /** `run --help` probe result per binary; see `supportsStandalone`. */
+  private readonly standaloneSupport = new Map<string, Promise<boolean>>();
 
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -483,6 +491,31 @@ export class OpencodeCliAdapter implements CliAdapter {
   }
 
   /**
+   * Whether this binary's `opencode run` accepts `--standalone` (see the header).
+   * Probed from `run --help` (stdout, ~2.7 s on 2.0.12) rather than the version,
+   * because an unknown flag makes 2.x exit 1 before any output. Cached per binary;
+   * a timed-out or failed spawn is not cached, so the next run probes again.
+   */
+  private supportsStandalone(binary: string): Promise<boolean> {
+    let probe = this.standaloneSupport.get(binary);
+    if (!probe) {
+      probe = this.probeCommandOnce(binary, ['run', '--help']).then(
+        (outcome) => {
+          if (outcome.timedOut || outcome.errored) {
+            this.standaloneSupport.delete(binary);
+          }
+          return (
+            outcome.exitCode === 0 &&
+            /^\s*--standalone\b/m.test(stripAnsiCodes(outcome.stdout))
+          );
+        },
+      );
+      this.standaloneSupport.set(binary, probe);
+    }
+    return probe;
+  }
+
+  /**
    * Build the inline `OPENCODE_CONFIG_CONTENT` JSON registering the Ptah MCP
    * server as a remote endpoint. opencode deep-merges this per-process at the
    * highest precedence, so it never touches the shared project config on disk.
@@ -521,24 +554,6 @@ export class OpencodeCliAdapter implements CliAdapter {
     // the newly-appended delta (mirrors Codex's emitTextDelta).
     const textTracker = new Map<string, string>();
 
-    const args: string[] = ['run', '--format', 'json'];
-    if (options.autoApprove !== false) {
-      args.push('--auto');
-    }
-    if (options.model) {
-      args.push('--model', options.model);
-    }
-    // No working-directory flag: `opencode run` takes it from the spawn's cwd,
-    // which is set below. See the note at the top of this file.
-    if (options.resumeSessionId) {
-      args.push('--session', options.resumeSessionId);
-    }
-    // Prompt is a positional arg; keep it LAST.
-    args.push(taskPrompt);
-
-    const output = createBufferedEmitter<string>();
-    const segment = createBufferedEmitter<CliOutputSegment>();
-
     // Primary: detected binary path (the `.cmd` shim on Windows). We always
     // attempt native-binary resolution (passing the detected path as a hint) and
     // prefer the bundled native `.exe` when it exists — mirroring
@@ -550,6 +565,27 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (native) {
       binary = native;
     }
+
+    const args: string[] = ['run', '--format', 'json'];
+    if (options.autoApprove !== false) {
+      args.push('--auto');
+    }
+    if (options.model) {
+      args.push('--model', options.model);
+    }
+    if (await this.supportsStandalone(binary)) {
+      args.push('--standalone');
+    }
+    // No working-directory flag: `opencode run` takes it from the spawn's cwd,
+    // which is set below. See the note at the top of this file.
+    if (options.resumeSessionId) {
+      args.push('--session', options.resumeSessionId);
+    }
+    // Prompt is a positional arg; keep it LAST.
+    args.push(taskPrompt);
+
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
 
     const env: NodeJS.ProcessEnv = {};
     if (options.mcpPort) {

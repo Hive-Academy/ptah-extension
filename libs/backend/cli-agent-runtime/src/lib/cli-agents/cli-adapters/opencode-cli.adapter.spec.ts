@@ -76,9 +76,27 @@ function createFakeChild(): FakeChildControls {
 let currentChild: FakeChildControls | null = null;
 
 const mockSpawnCli = jest.fn();
+/** Receives the `run --help` probes, so `mockSpawnCli` sees only real spawns. */
+const mockHelpProbe = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
 const mockKillProcessTree = jest.fn();
+
+/** `opencode run --help` flag lines as printed by opencode 2.0.12. */
+const V2_RUN_HELP = [
+  '  --standalone            Run with a private server instead of the background service',
+  '  --print-logs            Print logs to stderr (server logs require --standalone)',
+].join('\n');
+
+/** A probe child that prints `stdout`, then closes with `code`. */
+function helpProbeChild(stdout: string, code = 0): FakeChildControls['child'] {
+  const fake = createFakeChild();
+  setImmediate(() => {
+    fake.stdout.write(stdout);
+    setImmediate(() => fake.emitClose(code));
+  });
+  return fake.child;
+}
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -86,7 +104,10 @@ jest.mock('./cli-adapter.utils', () => {
   );
   return {
     ...actual,
-    spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
+    spawnCli: (...args: unknown[]) =>
+      (args[1] as string[]).includes('--help')
+        ? mockHelpProbe(...args)
+        : mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
   };
@@ -157,6 +178,7 @@ describe('OpencodeCliAdapter', () => {
       currentChild = createFakeChild();
       return currentChild.child;
     });
+    mockHelpProbe.mockImplementation(() => helpProbeChild(V2_RUN_HELP));
     // Keep the Windows native-binary fallback inert: no candidate exists.
     mockExistsSync.mockReturnValue(false);
     // Default: no opencode.json on disk.
@@ -466,6 +488,72 @@ describe('OpencodeCliAdapter', () => {
 
       const [binaryArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(binaryArg).toBe('C:/opencode/bin/opencode.exe');
+    });
+  });
+
+  /**
+   * opencode 2.x `run` attaches to a shared background service unless it gets
+   * `--standalone`, and that service never sees OPENCODE_CONFIG_CONTENT — the
+   * lane then has no Ptah MCP tools. 1.x has no such flag, and 2.x exits 1 on
+   * an unknown flag, so the flag follows what `run --help` lists.
+   */
+  describe('runSdk() — --standalone', () => {
+    const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
+
+    async function runArgs(
+      options: CliCommandOptions = baseOptions,
+    ): Promise<string[]> {
+      const handle = await adapter.runSdk(options);
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+      const calls = mockSpawnCli.mock.calls;
+      return calls[calls.length - 1][1] as string[];
+    }
+
+    it('passes --standalone before the prompt when run --help lists it', async () => {
+      const args = await runArgs({ ...baseOptions, mcpPort: 51820 });
+
+      expect(mockHelpProbe).toHaveBeenCalledWith('opencode', ['run', '--help'], {
+        spawner: undefined,
+      });
+      expect(args).toContain('--standalone');
+      expect(args.indexOf('--standalone')).toBeLessThan(args.length - 1);
+      expect(args[args.length - 1]).toContain('Do the thing');
+    });
+
+    it('omits --standalone when run --help does not list it (opencode 1.x)', async () => {
+      mockHelpProbe.mockImplementation(() =>
+        helpProbeChild('  --print-logs  Print logs to stderr\n'),
+      );
+
+      expect(await runArgs()).not.toContain('--standalone');
+    });
+
+    it('omits --standalone when the help probe exits non-zero', async () => {
+      mockHelpProbe.mockImplementation(() => helpProbeChild(V2_RUN_HELP, 1));
+
+      expect(await runArgs()).not.toContain('--standalone');
+    });
+
+    it('probes once per binary across runs', async () => {
+      await runArgs();
+      await runArgs();
+
+      expect(mockHelpProbe).toHaveBeenCalledTimes(1);
+      expect(mockSpawnCli.mock.calls[1][1]).toContain('--standalone');
+    });
+
+    it('probes again after a failed probe spawn', async () => {
+      mockHelpProbe.mockImplementationOnce(() => {
+        const fake = createFakeChild();
+        setImmediate(() => fake.emitError(new Error('ENOENT')));
+        return fake.child;
+      });
+
+      expect(await runArgs()).not.toContain('--standalone');
+      expect(await runArgs()).toContain('--standalone');
+      expect(mockHelpProbe).toHaveBeenCalledTimes(2);
     });
   });
 
