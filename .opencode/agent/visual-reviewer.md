@@ -81,7 +81,6 @@ Compare across both dark and light themes, and narrow (≈400px) vs wide viewpor
 - Verify layout structure, action hierarchy (single primary action), and spacing.
 - Record any visual or structural deviation from the approved prototype as a defect.
 
-
 ### Viewport sweep
 
 Resize, re-snapshot and screenshot at each width. A finding names the widths it affects.
@@ -271,4 +270,3 @@ severity. Nothing else.
 - Do not soften a severity because the fix looks small.
 - Do not review a UI surface without comparing against the approved prototype in `prototype/` when one was produced.
 - Do not approve a build that introduces unapproved visual deviations or component bans not present in the approved prototype.
-

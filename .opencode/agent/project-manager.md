@@ -86,9 +86,9 @@ codebase has already settled.
 
 ## Output contract
 
-Write `task-description.md` (and `parity-inventory.md` when replacing or redesigning an
-existing surface) into the task folder with `Write`, using its absolute path.
-
+Write `task-description.md` (and `parity-inventory.md` when replacing, consolidating,
+rebuilding or redesigning an existing surface) into the task folder with `Write`, using
+its absolute path.
 
 ```markdown
 # Requirements - TASK_YYYY_NNN
@@ -167,7 +167,7 @@ Include only what applies; delete the rest rather than filling it with defaults.
 - Why: [one sentence]
 ```
 
-When the task replaces or redesigns an existing surface, also produce `parity-inventory.md`:
+When the task replaces, consolidates, rebuilds or redesigns an existing surface, also produce `parity-inventory.md`:
 
 ```markdown
 # Parity Inventory - TASK_YYYY_NNN
@@ -215,4 +215,3 @@ The document is the deliverable. Do not summarise it in the response.
   a note, and it dilutes the risks that need attention.
 - Do not omit `parity-inventory.md` when replacing, consolidating, rebuilding or
   redesigning an existing surface; silent removal of existing capabilities is prohibited.
-

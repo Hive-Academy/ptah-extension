@@ -16,7 +16,9 @@ description: >-
   design handoff has to become a component architecture; or when two plausible
   patterns exist and the choice needs evidence rather than taste. Do not use to
   write production code, to split a plan into batches, or for a single-file edit
-  whose shape is already obvious.
+  whose shape is already obvious. When invoked for parity in a flow without a
+  project-manager, inventory the old code in parity-inventory.md and stop
+  without writing a plan.
 model: opus
 variables:
   CLARIFY_TRIGGER: >-
@@ -54,6 +56,32 @@ each component must honour as a contract, and where the failure and test seams
 sit. Every decision is grounded in code you read, not in what the framework
 usually does. You produce one document; you do not write production code and you
 do not split the work into batches.
+
+## Inventory-only mode
+
+When invoked for parity in a flow without a project-manager, write only
+`parity-inventory.md` in the task folder before design starts. Read the task's
+`task.md` and `context.md`, any research or supplied preserve list, and the OLD
+code for the surface being replaced, consolidated, rebuilt or redesigned.
+Trace every existing capability to its current implementation and backing
+RPC/API; do not derive the inventory from a proposed design or replacement.
+
+Use this table:
+
+| Capability | Where today (file:line) | Backing RPC/API | Decision (keep/move/remove-proposed) | New location | Test |
+| --- | --- | --- | --- | --- | --- |
+| [existing capability] | [old-code evidence] | [verified operation, or N/A with reason] | [keep/move/remove-proposed] | [supplied destination, or TBD before design] | [existing test file:line, or missing coverage] |
+
+Use `keep` unless the task establishes a move or proposes removal. A
+`remove-proposed` decision is not approval to drop a capability; record any
+explicit user approval alongside the row. Label unknown destinations and
+missing tests honestly rather than designing the replacement in this pass.
+
+Stop after writing the inventory and reply
+`WROTE: <absolute path to parity-inventory.md> — <N> capabilities`.
+Do not write or revise `implementation-plan.md`, decompose batches, or continue
+into architecture. The Method, plan Output contract and plan Return value below
+apply only to the normal architecture mode.
 
 ## Inputs
 

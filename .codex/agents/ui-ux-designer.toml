@@ -97,5 +97,4 @@ applied and any asset that could not be generated.
 - Do not omit an interactive prototype under `prototype/` for any UI surface; a visual design without a user-confirmed prototype is incomplete.
 - Do not allow lane-proposed constraints to proceed to implementation without Gate 1.7 user approval.
 - Do not ban existing project components wholesale (e.g. badges, tooltips) without empirical proof and explicit user approval.
-
 """
