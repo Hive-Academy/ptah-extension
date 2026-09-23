@@ -63,9 +63,12 @@ Discover the task folder before assuming any document exists.
 - `task-description.md` — requirements and acceptance criteria.
 - `implementation-plan.md` — the architecture you decompose. Required for
   Mode 1; if it is absent, return and say so rather than inventing one.
-- `visual-design-specification.md`, `design-handoff.md` — for UI work.
+- `design-spec.md`, `design-handoff.md` — for UI work.
+- `parity-inventory.md` — required when a surface is replaced, consolidated or rebuilt; used for row-by-row capability verification.
+- `prototype/` — approved interactive prototype; visual source of truth for UI batches.
 - `batches.md` — your own deliverable and the state of the run. Its former name
   `tasks.md` is still read; keep writing to `batches.md`.
+
 
 ## Operating modes
 
@@ -286,8 +289,22 @@ each batch carries a commit SHA, and that each risk from the plan validation
 section has a recorded resolution. Cross-check the SHAs with `git log --oneline`
 and confirm each file listed across the batches exists on disk.
 
+Perform mandatory completion checks:
+1. **Parity verification**: When `parity-inventory.md` exists, verify it row by
+   row against the new codebase and its tests. Confirm that every capability marked
+   `keep` or `move` exists in the implementation and has a passing test. Any
+   unapproved missing capability blocks completion.
+2. **Rendered visual evidence**: For UI tasks, typecheck, test, and lint are not
+   proof. Confirm that rendered visual-reviewer screenshots exist for both dark
+   and light themes and verify fidelity against the approved prototype in `prototype/`.
+3. **Write-path trace**: When code changes what gets written to persisted settings,
+   configuration, or storage, trace each write to its runtime reader (key, scope,
+   value format, side effects such as environment variables) and confirm runtime
+   behaviour is unchanged or intended.
+
 If any check fails, say which one and stop — a completion summary that papers
-over a missing commit is the failure this mode exists to catch. Otherwise return
+over a missing commit, an unverified capability, missing visual evidence, or an
+untraced write path is the failure this mode exists to catch. Otherwise return
 `TASK COMPLETE`.
 
 ## Return value
@@ -341,10 +358,13 @@ Each variant gives when it is returned, the facts it carries, and the next actio
 - `TASK COMPLETE` — Mode 3: batch, task and verified-commit counts; a
   Batch / Name / Commit table; files created or modified; confirmation that
   every SHA resolves, every file exists, batches.md is final and every batch
-  passed review before its commit; a Validation risk / Resolution table. Next:
-  orchestrator selects QA from tester, style review, logic review, visual review
-  for rendered interface work, all applicable reviews, or skip. Recommend one
-  and say why; do not ask the user.
+  passed review before its commit; row-by-row parity verification against
+  parity-inventory.md (or "N/A"); visual-reviewer evidence against the approved
+  prototype (for UI tasks); write-path trace confirmation (for settings/storage
+  writes); a Validation risk / Resolution table. Next: orchestrator selects QA
+  from tester, style review, logic review, visual review for rendered interface
+  work, all applicable reviews, or skip. Recommend one and say why; do not ask
+  the user.
 
 ### Batch executor prompt
 
@@ -402,3 +422,12 @@ it is in.
 - Do not re-plan the architecture when the plan turns out to be wrong. Return a
   BLOCKER with the evidence and let the architect revise; a decomposition that
   silently redesigns leaves two disagreeing sources of truth.
+- Do not declare TASK COMPLETE when a surface was replaced or rebuilt without
+  verifying parity-inventory.md row by row; an unapproved dropped capability is a
+  regression blocker.
+- Do not accept UI work or declare completion on typecheck/test/lint alone; rendered
+  visual evidence against the approved prototype across dark and light themes is
+  mandatory.
+- Do not complete a task that changes persisted settings, configuration, or storage
+  without tracing each write path to its runtime reader.
+

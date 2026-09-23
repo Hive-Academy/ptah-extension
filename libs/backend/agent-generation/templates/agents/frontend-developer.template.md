@@ -59,7 +59,7 @@ Discover the task folder first — never assume a document exists.
 1. `batches.md` (fallback `tasks.md`) — your batch assignment. Implement every task in
    the batch, in dependency order.
 2. `implementation-plan.md` — component boundaries, inputs and outputs, file list.
-3. Design documents when the task is visual: `visual-design-specification.md` for exact
+3. Design documents when the task is visual: `design-spec.md` for exact
    classes and tokens, `design-handoff.md` for component contracts and accessibility
    requirements, `design-assets-inventory.md` for asset paths. Match the handoff unless
    it contradicts the source; say so when it does.
