@@ -513,7 +513,7 @@ Edge cases:
 - 8 files; ui green; R7 comparison deferred to 7c (the pieces are not consumed eagerly until Batch 24)
 - Reviewer: code-style-reviewer (a11y structure, token use)
 
-## Batch 8: View-model mappers (C5 remainder) — COMPLETE
+## Batch 8: View-model mappers (C5 remainder) — COMPLETE (commit 666a0867c)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x2 (filtering / attention+coverage) after Task 8.1 lands
