@@ -6,7 +6,8 @@ description: 'Default workflow for any engineering task (feature, bugfix, refact
 # Orchestration
 
 **You are the orchestrator.** You classify the work, run every user gate, spawn the agents that do
-it, and verify what comes back. You never implement directly.
+it, and verify what comes back. Delegate implementation, except the bounded post-cap code
+correction in agent-lanes §6; any code you change is independently reviewed before acceptance.
 
 ## Pre-flight (run first)
 
@@ -29,14 +30,16 @@ it, and verify what comes back. You never implement directly.
 
 | Type | Flow |
 | --- | --- |
-| FEATURE | PM → [research] → [designer] → architect → team-leader → QA |
+| FEATURE | PM → [research] → [designer → prototype → Gate 1.7] → architect → team-leader → QA |
 | BUGFIX | [research] → team-leader → QA |
 | REFACTORING | architect → team-leader → QA |
 | DOCUMENTATION | PM → developer → style reviewer |
 | RESEARCH | researcher → [switch to FEATURE] |
 | DEVOPS | PM → architect → devops-engineer → QA |
 | SAAS_INIT | discovery → PM → architect → team-leader |
-| CREATIVE | [designer] → content writer → frontend developer |
+| CREATIVE | [designer → prototype → Gate 1.7] → content writer → frontend developer |
+
+Any flow adding or redesigning a UI surface inserts [designer → prototype → cross-side review → Gate 1.7] before the next phase of the flow (architect, team-leader, or content writer). Complete any required inventory first (Task folder below). A UI BUGFIX that does not add or redesign a surface skips the designer and Gate 1.7; its completion requires before/after screenshots (dark + light) of the affected screen instead of a prototype — capture the before screenshots from the base commit (or before the first batch / before the fix lands) with the visual-reviewer.
 
 ## Task folder
 
@@ -44,6 +47,13 @@ it, and verify what comes back. You never implement directly.
   contents ([task-tracking.md § Continuation](references/task-tracking.md#continuation)).
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
+- `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
+  an existing surface. PM writes it from the **OLD code before design starts**. In flows without
+  a PM (including BUGFIX and REFACTORING), the orchestrator first invokes software-architect in
+  **inventory-only mode** to write it before the designer. For flows with a plan, the architect's
+  plan phase runs after any required Gate 1.7 as usual; BUGFIX remains plan-free.
+  Columns: capability, where today (file:line), backing RPC/API, decision
+  (keep/move/remove-proposed), new location, test that proves it. Record user approval for removals.
 - Status changes: `Edit` exactly the `status:` line of `task.md`. Never rewrite the carrier.
 
 ## Gates (all yours — subagents and lanes cannot reach the user)
@@ -54,9 +64,16 @@ it, and verify what comes back. You never implement directly.
 | 0 Scope | Before PM, if the request is ambiguous | `AskUserQuestion` |
 | 1 Requirements | After `task-description.md` | **Plain message**, wait for `APPROVED` |
 | 1.5 Technical | Before architect, if several valid approaches | `AskUserQuestion` |
+| 1.7 Design | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED` |
 | 2 Architecture | After `implementation-plan.md` | **Plain message**, wait for `APPROVED` |
 | 3 QA choice | After team-leader completion | `AskUserQuestion` |
 | SR Clarification | An agent returned `## Clarifications Needed` | Ask, then re-invoke with `## User Decisions` |
+
+**Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
+other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
+then run the bounded revision protocol in [checkpoints.md](references/checkpoints.md#cross-side-review-protocol).
+The gate shows who wrote it, who reviewed it, the verdict and any open items. A reviewer's
+APPROVED never counts as the user's `APPROVED`.
 
 Templates, skip conditions and rejection handling: [checkpoints.md](references/checkpoints.md).
 
@@ -73,6 +90,11 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 
 ## Never
 
+- Never let a lane-authored spec/design/plan reach implementation without the user seeing and
+  approving it (Gate 1.7 or 2).
+- Never delete a capability that is not an approved removal in `parity-inventory.md` or the lane preserve list.
+- Never present Gate 1, 1.7 or 2 without the cross-side review; a same-side review states its
+  recorded reason (user pin, lanes disabled at Gate 0.1, or opposite side unavailable).
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
   reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
 - Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.

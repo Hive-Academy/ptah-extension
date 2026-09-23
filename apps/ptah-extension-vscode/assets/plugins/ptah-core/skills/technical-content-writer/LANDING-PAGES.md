@@ -64,7 +64,7 @@ Grep("<feature>", .ptah/specs/registry.md)
 Read(.ptah/specs/TASK_XXXX/context.md)
 
 # 3. Check design specs
-Read(.ptah/specs/TASK_2026_072/visual-design-specification.md)
+Read(.ptah/specs/TASK_2026_072/design-spec.md)
 Read(.ptah/specs/TASK_2026_072/context.md)
 
 # 4. Review design assets

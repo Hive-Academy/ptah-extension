@@ -73,11 +73,19 @@ codebase has already settled.
 8. Name the stakeholders who will actually notice this change and what each one
    needs from it. Name only risks specific to this change, with a mitigation
    that is an action rather than a wish.
+9. When the task replaces, consolidates, rebuilds or redesigns an existing surface,
+   write `parity-inventory.md` in the task folder from the old code before design
+   starts. Document every capability of the existing surface, where it lives today
+   (`file:line`), its backing RPC/API, decision (`keep` / `move` / `remove-proposed`),
+   new location, and the test that proves it. Every existing capability must stay,
+   move, or be explicitly listed under `## Proposed Removals` for user approval —
+   never removed silently.
 
 ## Output contract
 
-Write `task-description.md` into the task folder with `Write`, using its
-absolute path.
+Write `task-description.md` (and `parity-inventory.md` when replacing, consolidating,
+rebuilding or redesigning an existing surface) into the task folder with `Write`, using
+its absolute path.
 
 ```markdown
 # Requirements - TASK_YYYY_NNN
@@ -156,13 +164,28 @@ Include only what applies; delete the rest rather than filling it with defaults.
 - Why: [one sentence]
 ```
 
+When the task replaces, consolidates, rebuilds or redesigns an existing surface, also produce `parity-inventory.md`:
+
+```markdown
+# Parity Inventory - TASK_YYYY_NNN
+
+Surface replaced/rebuilt: [Surface name and location]
+
+| Capability | Where today (file:line) | Backing RPC / API | Decision (keep / move / remove-proposed) | New location | Test that proves it |
+| ---------- | ----------------------- | ----------------- | ---------------------------------------- | ------------ | ------------------- |
+
+## Proposed Removals
+
+- [capability]: [reason for proposed removal — requires explicit user approval]
+```
+
 Before writing, confirm that every criterion is checkable by someone who was not
 in the conversation, that the scope boundary is explicit, and that no
 requirement describes a solution the architect has not chosen yet.
 
 ## Return value
 
-Reply with one line and nothing else:
+Reply with one line per written file and nothing else:
 
 `WROTE: <absolute path> — <N> requirements`
 
@@ -187,4 +210,6 @@ The document is the deliverable. Do not summarise it in the response.
   diff.
 - Do not carry a risk you cannot act on. A risk with no owner and no action is
   a note, and it dilutes the risks that need attention.
+- Do not omit `parity-inventory.md` when replacing, consolidating, rebuilding or
+  redesigning an existing surface; silent removal of existing capabilities is prohibited.
 """

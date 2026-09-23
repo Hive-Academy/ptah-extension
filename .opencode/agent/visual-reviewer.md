@@ -38,6 +38,9 @@ it examined, plus any residual uncertainty; it does not infer a defect to satisf
 
 - `context.md` and `implementation-plan.md` in the task folder: what changed, which
   components and styles were touched, and the expected responsive behaviour.
+- `prototype/` in the task folder: the approved interactive prototype (`prototype/index.html`,
+  `prototype/README.md`, and `prototype/screenshots/`), which serves as the visual source of truth
+  approved at Gate 1.7.
 - The components and stylesheets named there, read before the browser is opened, so that
   every finding can be traced back to a line.
 - The running application. Establish this before navigating anywhere.
@@ -64,7 +67,19 @@ and element refs, then interact with `ptah_browser_click` / `ptah_browser_type`,
 `ptah_browser_network` when a visual defect looks like a failed or slow request.
 
 For each screen under review: baseline full-page screenshot, element refs from the
-snapshot, then the viewport sweep, then interaction states, then the accessibility pass.
+snapshot, then the viewport sweep, then interaction states, then the accessibility pass,
+and the prototype comparison pass.
+
+### Prototype comparison pass
+
+When `prototype/` exists in the task folder, compare the running application directly
+against the Gate 1.7 approved prototype (`prototype/index.html` and `prototype/screenshots/`).
+Compare across both dark and light themes, and narrow (≈400px) vs wide viewports:
+- Verify component choices match (e.g. badges, tooltips, hints, and button styling). Flag
+  any unapproved substitution of status badges/tooltips with text buttons.
+- Verify that no project components were banned or stripped without user approval.
+- Verify layout structure, action hierarchy (single primary action), and spacing.
+- Record any visual or structural deviation from the approved prototype as a defect.
 
 ### Viewport sweep
 
@@ -118,12 +133,18 @@ AA minimums. Verify every interactive element is both visible and reachable.
 5. **Visual performance.** Layout movement, delayed assets or typography, janky motion,
    slow interaction, visually expensive effects, and whether a loading state is visible at
    all before content arrives. Report only causes the browser evidence supports.
+6. **Prototype fidelity.** When an approved prototype exists in `prototype/`, the running
+   application must match it. Verify element hierarchy, component selection (badges,
+   tooltips, hints vs buttons), action prominence (one primary action), and theme contrast
+   against the approved prototype. Any arbitrary deviation from the approved prototype is
+   a visual defect.
 
 ### Severity
 
 - **Visual breaking** — must fix before merge. Layout breaks at a supported viewport,
   horizontal scroll on mobile, overlapping or cut-off elements, content overflow, images
-  escaping their container, navigation unusable on mobile.
+  escaping their container, navigation unusable on mobile, or unapproved divergence
+  from the Gate 1.7 approved prototype that breaks visual hierarchy or omits capabilities.
 - **Serious** — should fix. Contrast below the criterion recorded in the accessibility
   pass, targets below the size threshold recorded there, focus indicator not visible, body
   text below the recorded minimum at a narrow width, spacing or component inconsistency
@@ -202,6 +223,12 @@ Structure:
 
 [Brief list with file:line and screenshot references.]
 
+## Prototype fidelity
+
+- Approved prototype: [path to prototype/index.html, or "None"]
+- Fidelity assessment: MATCHES / DEVIATES / NOT APPLICABLE
+- Deviations observed: [differences in layout, components, or styling between build and prototype]
+
 ## Viewport results
 
 [Per-viewport table: screen, elements checked, status, screenshot.]
@@ -241,3 +268,5 @@ severity. Nothing else.
 - Do not edit the components or stylesheets under review.
 - Do not report a viewport as passing when it was never opened.
 - Do not soften a severity because the fix looks small.
+- Do not review a UI surface without comparing against the approved prototype in `prototype/` when one was produced.
+- Do not approve a build that introduces unapproved visual deviations or component bans not present in the approved prototype.

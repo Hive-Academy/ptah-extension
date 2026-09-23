@@ -8,10 +8,10 @@ Complete workflow for creating production-ready design specifications, developer
 
 ## Design Specification Template
 
-### Visual Design Specification Document Structure
+### Design Specification Document Structure
 
 ```markdown
-# Visual Design Specification - TASK\_[ID]
+# Design Specification - TASK\_[ID]
 
 ## Design Investigation Summary
 
@@ -336,6 +336,12 @@ Grid (2 columns desktop, 1 column mobile, 32px gap)
 - Icons: [Download URLs]
 - Diagrams: [Download URL]
 
+## Approved Prototype Reference
+
+**Approved prototype**: `.ptah/specs/TASK_[ID]/prototype/index.html` (confirmed at Gate 1.7)
+- **Visual Source of Truth**: Frontend implementation must match the approved prototype across all viewports and states (populated, empty, loading, error, dark, and light).
+- **Deviations Policy**: Implementation must not alter layout hierarchy, invent constraints, or ban project components (such as badges, tooltips, or primary buttons). Any deviation or unforeseen requirement must be referred back to the ui-ux-designer for prototype revision; developers do not invent alternative UI patterns.
+
 ## Motion Specifications
 
 **Scroll Animations**: Fade-in with translateY(40px to 0)
@@ -346,11 +352,17 @@ Grid (2 columns desktop, 1 column mobile, 32px gap)
 
 Before implementation:
 
+- [ ] Inspect and interact with the approved prototype at `.ptah/specs/TASK_[ID]/prototype/index.html`
+- [ ] Confirm any required design deviations were escalated back to the designer rather than invented in code
 - [ ] Download all assets from design tool export URLs
 - [ ] Verify design system tokens in design system configuration
 - [ ] Review responsive breakpoint transformations
 - [ ] Understand motion specifications
 - [ ] Validate accessibility requirements
+
+After implementation:
+
+- [ ] Verify implementation matches the approved prototype across all states and viewports
 ````
 
 ---
@@ -399,19 +411,29 @@ Before implementation:
 
 8. **Generate Production Assets**: Use available design tools to create and export assets, or provide detailed written specifications
 
+9. **Build Interactive Prototype (Gate 1.7)**:
+   - Create `<taskFolder>/prototype/index.html` using the project's design tokens and components (see `PROTOTYPING.md`)
+   - Write `prototype/README.md` with open instructions, lane-introduced constraints, and parity mapping
+   - Capture screenshots in `prototype/screenshots/` (via `ptah_browser_screenshot`)
+   - Submit for user confirmation at Gate 1.7 and iterate until `APPROVED`
+
 ### Phase 4: Developer Handoff (30 minutes)
 
-9. **Create Design Handoff Document**:
-   - Component structure specifications with design token references
-   - Asset download URLs or written specifications
-   - Implementation checklist
-   - Accessibility validation
+10. **Create Design Handoff Document**:
+    - Reference approved prototype location and approval status
+    - Component structure specifications with design token references
+    - Asset download URLs or written specifications
+    - Implementation checklist and deviations policy
+    - Accessibility validation
 
-10. **Document in Task Folder**:
+11. **Document in Task Folder**:
 
     ```bash
-    Write(.ptah/specs/TASK_[ID]/visual-design-specification.md)
+    Write(.ptah/specs/TASK_[ID]/prototype/index.html)
+    Write(.ptah/specs/TASK_[ID]/prototype/README.md)
+    Write(.ptah/specs/TASK_[ID]/design-spec.md)
     Write(.ptah/specs/TASK_[ID]/design-assets-inventory.md)
+    Write(.ptah/specs/TASK_[ID]/design-handoff.md)
     ```
 
 ---
@@ -419,7 +441,7 @@ Before implementation:
 ## Professional Return Format
 
 ```markdown
-## VISUAL DESIGN SPECIFICATION COMPLETE - TASK\_[ID]
+## DESIGN SPEC COMPLETE - TASK\_[ID]
 
 ### Design Investigation Summary
 
@@ -460,7 +482,9 @@ Before implementation:
 
 **Design Specification Documents**:
 
-- .ptah/specs/TASK\_[ID]/visual-design-specification.md (Complete visual blueprint)
+- .ptah/specs/TASK\_[ID]/prototype/index.html (Interactive prototype approved at Gate 1.7)
+- .ptah/specs/TASK\_[ID]/prototype/README.md (Prototype guide, constraints, parity mapping)
+- .ptah/specs/TASK\_[ID]/design-spec.md (Complete visual blueprint)
 - .ptah/specs/TASK\_[ID]/design-assets-inventory.md (All design assets with URLs)
 - .ptah/specs/TASK\_[ID]/design-handoff.md (Developer implementation guide)
 
@@ -479,14 +503,16 @@ Before implementation:
 **Critical Success Factors**:
 
 1. **Follow Design System Exactly**: All design tokens specified in design-handoff.md
-2. **Download Design Assets**: All export URLs provided in design-assets-inventory.md
-3. **Responsive Transformations**: Layout specifications for mobile, tablet, desktop
-4. **Motion Implementation**: CSS transitions specified in motion-specifications section
-5. **Accessibility Validation**: WCAG 2.1 AA requirements documented
+2. **Match Approved Prototype**: Implementation must match `.ptah/specs/TASK_[ID]/prototype/` across all states and viewports. Deviations must be escalated to the designer.
+3. **Download Design Assets**: All export URLs provided in design-assets-inventory.md
+4. **Responsive Transformations**: Layout specifications for mobile, tablet, desktop
+5. **Motion Implementation**: CSS transitions specified in motion-specifications section
+6. **Accessibility Validation**: WCAG 2.1 AA requirements documented
 
 **Quality Assurance**:
 
 - All designs grounded in project design system
+- Working interactive prototype confirmed at Gate 1.7
 - All assets production-ready
 - All specifications implementable with project's styling system
 - Zero generic templates or placeholder designs
@@ -500,6 +526,7 @@ Before implementation:
 
 - NEVER create designs without reading design system first
 - NEVER use generic UI kit templates or placeholder designs
+- NEVER ban existing project components wholesale (badges, tooltips) without empirical proof and user approval
 - NEVER ignore accessibility requirements (WCAG 2.1 AA)
 - NEVER skip available design tool integration for asset generation
 - NEVER provide vague specifications ("make it look nice")
@@ -507,6 +534,9 @@ Before implementation:
 **Process Violations**:
 
 - NEVER skip design system token extraction
+- NEVER skip building an interactive prototype for user confirmation at Gate 1.7
+- NEVER hand off a design without an approved prototype in `.ptah/specs/TASK_[ID]/prototype/`
+- NEVER allow developers to silently alter layout hierarchy or omit components without designer revision
 - NEVER create versioned designs (Design_V1, Design_V2)
 - NEVER ignore user requirements or business needs
 - NEVER skip developer handoff documentation

@@ -38,8 +38,13 @@ Discover the task folder before assuming any document exists.
 - `context.md` — user intent.
 - `task-description.md` — requirements and acceptance criteria.
 - `implementation-plan.md` — the architecture you decompose. Required for
-  Mode 1; if it is absent, return and say so rather than inventing one.
-- `visual-design-specification.md`, `design-handoff.md` — for UI work.
+  Mode 1 in flows that produce a plan; BUGFIX tasks are plan-free — decompose
+  from `task.md`, `context.md` and `research-report.md` when present. If the
+  plan is absent from a flow that produces one, return and say so rather than
+  inventing one.
+- `design-spec.md`, `design-handoff.md` — for UI work.
+- `parity-inventory.md` or the lane preserve list — required when a surface is replaced, consolidated, rebuilt or redesigned; used for capability-by-capability verification.
+- `prototype/` — approved interactive prototype; visual source of truth for UI batches.
 - `batches.md` — your own deliverable and the state of the run. Its former name
   `tasks.md` is still read; keep writing to `batches.md`.
 
@@ -60,26 +65,29 @@ you are in.
 ### Read and validate
 
 Read `implementation-plan.md`, `task-description.md` and `context.md`, plus the
-design documents when the work is visual. Then check what already exists on disk
-for every file the plan names: a file that is already there turns "create X"
-into "extend X", and a plan that assumes a blank slate will otherwise overwrite
-working code.
+design documents when the work is visual. For a BUGFIX there is no plan:
+decompose from `task.md`, `context.md` and `research-report.md` when present.
+Then check what already exists on disk for every file the plan or, for a BUGFIX,
+the bug report and context name (including `research-report.md` when present): a file
+that is already there turns "create X" into "extend X", and a plan that assumes
+a blank slate will otherwise overwrite working code.
 
-Stress-test the plan before you decompose it. For each component, answer:
+Stress-test the plan or, for a BUGFIX, the bug report, context and available
+research before decomposition. Use those inputs to answer for each component:
 
 1. Do the data contracts on both sides of each boundary actually match — same
    field names, same types, same nullability, set by the same code path? Open
    the producer and the consumer and compare.
-2. What happens if events arrive in an order the plan did not consider?
-3. What does each dependency do when it fails, and does the plan say?
-4. Which inputs or states did the plan not name?
+2. What happens if events arrive in an order those inputs did not consider?
+3. What does each dependency do when it fails, and do those inputs say?
+4. Which inputs or states were not named?
 5. If the new path fails at runtime, what is left for the user?
 
 Classify each finding:
 
 | Category   | Action                                                                                |
 | ---------- | ------------------------------------------------------------------------------------- |
-| BLOCKER    | Stop. Return to the orchestrator and ask for an architect revision.                   |
+| BLOCKER    | Stop. Return numbered blockers with evidence to the orchestrator. For a plan-free BUGFIX, it resolves the blocking questions through Gate SR or researcher-expert; for a planned flow, ask for an architect revision. |
 | RISK       | Add a mitigation task to the batch, and note it on the affected task.                 |
 | ASSUMPTION | Record it in `batches.md` and add a verification step to the task that depends on it. |
 | OK         | Proceed.                                                                              |
@@ -158,9 +166,9 @@ Edge cases:
 ### Task 1.1: [description] — PENDING
 
 - File: [absolute path]
-- Plan reference: implementation-plan.md:[line range]
+- Plan reference: implementation-plan.md:[line range] (for BUGFIX: task.md, context.md, research-report.md when present, and the reproduction)
 - Pattern to follow: [existing file:line]
-- Quality requirements: [from the plan]
+- Quality requirements: [from the plan; for BUGFIX: from task.md, context.md, and the reproduction]
 - Validation notes: [risks or assumptions this task must handle]
 - Implementation details: [key imports, registration or wiring step, the core
   logic in one sentence]
@@ -262,8 +270,37 @@ each batch carries a commit SHA, and that each risk from the plan validation
 section has a recorded resolution. Cross-check the SHAs with `git log --oneline`
 and confirm each file listed across the batches exists on disk.
 
+Perform mandatory completion checks:
+1. **Parity verification**: First decide whether the task replaces, consolidates,
+   rebuilds or redesigns an existing surface. If it does, `parity-inventory.md` (or
+   the lane preserve list) is required — a missing inventory is a blocker, not
+   "N/A". First compare the inventory or preserve list against the OLD surface at
+   the base commit (its routes, commands, RPC calls, user-facing actions) and
+   treat any capability found there but absent from the list as a blocker; only
+   then verify rows against the build. For `parity-inventory.md`, every
+   capability marked `keep` or `move` must exist in the build with a passing
+   test, and every `remove-proposed` decision needs recorded user approval. For a
+   preserve list, check every listed capability: it must be present in the build
+   with a passing test or listed under an approved `## Proposed Removals` section
+   with recorded user approval for that removal. Do not require inventory
+   decision markers in a preserve list. Any unapproved missing capability blocks
+   completion.
+2. **Rendered visual evidence**: For UI tasks, typecheck, test, and lint are not
+   proof. Confirm that rendered visual-reviewer screenshots exist for both dark
+   and light themes and verify fidelity against the approved prototype in `prototype/`.
+   For a UI BUGFIX that does not add or redesign a surface (skipping the designer
+   and Gate 1.7), completion requires before/after screenshots (dark + light) of
+   the affected screen instead of a prototype — capture the before screenshots
+   from the base commit (or before the first batch / before the fix lands) with
+   the visual-reviewer.
+3. **Write-path trace**: When code changes what gets written to persisted settings,
+   configuration, or storage, trace each write to its runtime reader (key, scope,
+   value format, side effects such as environment variables) and confirm runtime
+   behaviour is unchanged or intended.
+
 If any check fails, say which one and stop — a completion summary that papers
-over a missing commit is the failure this mode exists to catch. Otherwise return
+over a missing commit, an unverified capability, missing visual evidence, or an
+untraced write path is the failure this mode exists to catch. Otherwise return
 `TASK COMPLETE`.
 
 ## Return value
@@ -292,9 +329,12 @@ Each variant gives when it is returned, the facts it carries, and the next actio
   count; validation result with risk and assumption counts. Next: orchestrator
   runs Batch 1 with the batch executor prompt below.
 - `DECOMPOSITION BLOCKED` — Mode 1, a BLOCKER: each issue numbered, with the
-  problem, `file:line` evidence and what it prevents. Next: orchestrator invokes
-  software-architect to revise implementation-plan.md; no batch starts until the
-  plan changes.
+  problem, `file:line` evidence, what it prevents and the blocking questions.
+  Next for a plan-free BUGFIX: return to the orchestrator for Gate SR with those
+  questions or researcher-expert; do not route to software-architect or Gate 2.
+  For a planned flow, the orchestrator invokes software-architect to revise
+  implementation-plan.md and repeats Gate 2. No batch starts until the blockers
+  are resolved in the flow's inputs.
 - `BATCH [N] PARTIAL FAILURE` — Mode 2 step 2: files found of files expected;
   each missing task and its path. Next: orchestrator re-invokes the executor for
   the missing tasks only.
@@ -317,10 +357,17 @@ Each variant gives when it is returned, the facts it carries, and the next actio
 - `TASK COMPLETE` — Mode 3: batch, task and verified-commit counts; a
   Batch / Name / Commit table; files created or modified; confirmation that
   every SHA resolves, every file exists, batches.md is final and every batch
-  passed review before its commit; a Validation risk / Resolution table. Next:
-  orchestrator selects QA from tester, style review, logic review, visual review
-  for rendered interface work, all applicable reviews, or skip. Recommend one
-  and say why; do not ask the user.
+  passed review before its commit; row-by-row parity verification against
+  parity-inventory.md or the lane preserve list ("N/A" only when no surface was
+  replaced, consolidated, rebuilt or redesigned — otherwise a missing inventory is a blocker, not
+  "N/A"); visual-reviewer evidence against the approved prototype (or — for a UI
+  change with no added/redesigned surface and so no prototype — before/after
+  screenshots [dark + light] of the affected screen, the "before" taken from the
+  base commit before the fix lands); write-path trace confirmation (for settings/storage
+  writes); a Validation risk / Resolution table. Next: orchestrator selects QA
+  from tester, style review, logic review, visual review for rendered interface
+  work, all applicable reviews, or skip. Recommend one and say why; do not ask
+  the user.
 
 ### Batch executor prompt
 
@@ -337,8 +384,9 @@ with:
     <absolute path>.
 
     1. Read batches.md and find Batch [N], marked IN_PROGRESS.
-    2. Read implementation-plan.md for context, and the plan validation section
-       for the risks and assumptions this batch carries.
+    2. Read implementation-plan.md for context (for a BUGFIX: task.md, context.md,
+       research-report.md when present, and the reproduction instead of the plan),
+       and the plan validation section for the risks and assumptions this batch carries.
     3. Implement every task in Batch [N], in order, with real code — no stubs,
        placeholders or TODO markers.
     4. Handle the edge cases listed in the validation section.
@@ -376,5 +424,17 @@ it is in.
 - Do not mark a batch COMPLETE when a validation risk it was meant to carry is
   still unaddressed. Downgrade it to FAILED and say which risk.
 - Do not re-plan the architecture when the plan turns out to be wrong. Return a
-  BLOCKER with the evidence and let the architect revise; a decomposition that
+  BLOCKER with the evidence to the orchestrator: in a planned flow, let the
+  architect revise; in a plan-free BUGFIX, use Gate SR with the blocking questions
+  or researcher-expert, never software-architect/Gate 2. A decomposition that
   silently redesigns leaves two disagreeing sources of truth.
+- Do not declare TASK COMPLETE when a surface was replaced, consolidated, rebuilt
+  or redesigned without verifying parity-inventory.md or the lane preserve list
+  capability by capability; an unapproved dropped capability is a regression blocker.
+- Do not accept UI work or declare completion on typecheck/test/lint alone; rendered
+  visual evidence against the approved prototype (or — for a UI change with no
+  added/redesigned surface and so no prototype — before/after screenshots [dark + light]
+  of the affected screen, the "before" taken from the base commit before the fix lands)
+  across dark and light themes is mandatory.
+- Do not complete a task that changes persisted settings, configuration, or storage
+  without tracing each write path to its runtime reader.

@@ -111,8 +111,13 @@ never track status in any other file.
     context.md                     user intent, strategy, lane roster
     task-description.md            project-manager
     research-report.md             researcher-expert
-    visual-design-specification.md ui-ux-designer
+    parity-inventory.md            project-manager (no PM: software-architect, inventory-only; see SKILL.md)
+    design-spec.md                 ui-ux-designer
+    prototype/                     ui-ux-designer (README.md, screenshots/) — Gate 1.7
     implementation-plan.md         software-architect
+    task-description-review.md     document reviews (other execution side than the author);
+    design-spec-review.md          each records author, reviewer, revision, rounds, verdict
+    implementation-plan-review.md
     batches.md                     team-leader (former name tasks.md is still read)
     test-report.md                 senior-tester
     code-style-review.md           code-style-reviewer
@@ -129,18 +134,24 @@ header. If it disagrees with a carrier, the carrier is right; regenerate.
 
 ## Continuation
 
-Read `task.md` for status and `Glob` the folder. The furthest row that matches decides:
+Read `task.md` for status and `Glob` the folder. First check the document reviews and user gates the
+selected flow requires, in order (1, 1.7, 2), and resume the earliest unfinished one — a review or
+approval applies only to the artifact revision it names, and a document-review file never matches
+the QA row. Before the next phase, complete any required inventory and design steps in
+[SKILL.md](../SKILL.md#task-folder). Otherwise the furthest row that matches decides:
 
 | Present | Next action |
 | --- | --- |
 | no `task.md` | Stop — invalid folder; create the carrier first |
-| `task.md` / `context.md` only | project-manager |
-| `task-description.md` | Gate 1 if not approved, else next agent |
-| `visual-design-specification.md` | software-architect |
-| `implementation-plan.md` | Gate 2 if not approved, else team-leader Mode 1 |
+| `task.md` / `context.md` only | Follow the strategy in `context.md`: BUGFIX → researcher-expert if research is planned, otherwise team-leader Mode 1 (plan-free); REFACTORING → software-architect; other types → their recorded first phase. Complete required inventory/design before implementation planning or decomposition. |
+| `task-description.md` | Resume document review and Gate 1 for the current revision; continue only after recorded user approval |
+| `research-report.md` (no later artifact) | Follow the strategy in `context.md`: BUGFIX → team-leader Mode 1 (plan-free); FEATURE → software-architect; other types → their recorded next phase. Complete required inventory/design first. |
+| `parity-inventory.md` (no later artifact) | Run any planned research first, then resume required designer → prototype → document review → Gate 1.7, then the next phase recorded in `context.md`; without a design phase, continue the recorded flow (BUGFIX → team-leader Mode 1, plan-free). |
+| `design-spec.md` + `prototype/` | Resume document review and Gate 1.7 for the current revision; after approval, select the next phase from the task type/strategy recorded in `context.md` (CREATIVE → technical-content-writer; BUGFIX → team-leader Mode 1; flows with architecture → software-architect) |
+| `implementation-plan.md` | Resume document review and Gate 2 for the current revision; then team-leader Mode 1 |
 | `batches.md`, a batch not COMPLETE | team-leader Mode 2 |
 | `batches.md`, every batch COMPLETE | team-leader Mode 3, then Gate 3 |
-| review / test reports | Continue the chosen QA, or finish |
+| QA reports (`test-report.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`) | After the document gates and batch work: continue the chosen QA, or finish |
 | `future-enhancements.md` | Workflow already complete |
 
 ## Status vocabularies

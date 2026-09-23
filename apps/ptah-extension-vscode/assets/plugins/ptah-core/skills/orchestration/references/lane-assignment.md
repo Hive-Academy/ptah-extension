@@ -28,7 +28,8 @@ Discovered lanes: <the ptah_agent_list rows>
 Run lanes per the agent-lanes skill. You own the synthesis: verify lane output before it enters your deliverable.
 ```
 
-For `disabled`, add nothing and never spawn a lane.
+For `disabled`, add nothing and never spawn a lane. Required reviews then use the disclosed same-side
+fallback (agent-lanes §6); in `auto`, required reviews count as useful lane work.
 
 ## Batches on lanes
 
@@ -57,14 +58,20 @@ independent and file-disjoint. You spawn and merge them: [team-leader-modes.md](
 - Git commits, and anything that asks the user.
 - visual-reviewer work — it needs browser tools lanes do not have.
 - ui-ux-designer work — it needs interactive discovery with the user.
-- Security-critical review decisions and cross-cutting architecture judgement.
+- Final security-critical decisions and cross-cutting architecture approval. A lane may supply
+  advisory document-review findings; you present them at the user gate. A review that needs
+  evidence or tools the lane lacks states that limit and uses the agent-lanes §6 fallback instead of
+  asserting approval. Design document review checks the spec, prototype and supplied evidence; it
+  does not replace the browser-based visual review of the built UI.
 
 ---
 
 ## Assigning phases to lanes
 
 Any phase can run on a lane instead of a subagent: PM, architect, a batch, a review. When every
-phase is a lane, the whole task runs on external vendors with no subagents — a relay. A whole-phase
+authoring phase is a lane, the whole task runs on external vendors — a relay. Reviews still use the
+opposite execution side unless a disclosed fallback or a user-pinned same-side reviewer applies
+(agent-lanes §6). A whole-phase
 lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verification per batch) and the
 per-lane tool-call ceiling (agent-lanes §8): an implement phase larger than one batch is spawned as
 several sequential lanes, each with its own file list, not one long lane.
@@ -74,7 +81,8 @@ several sequential lanes, each with its own file list, not one long lane.
 | Plan | `task-description.md` | A strong-reasoning lane |
 | Architecture | `implementation-plan.md` | A strong-reasoning lane |
 | Implement | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | The strongest coding lane listed |
-| Review | `code-logic-review.md` | A lane from a **different family** than the implementer |
+| Review | `code-logic-review.md` | The opposite execution side from the implementer, with the disclosed fallback in agent-lanes §6 |
+| Document review | `<artifact-stem>-review.md` per plan, design and architecture artifact | The opposite execution side from the author, with the disclosed fallback in agent-lanes §6 |
 
 ### The roster
 
@@ -93,7 +101,9 @@ Worked example (vendor names are illustrations):
 | Implement | Ollama Cloud GLM | `{ ptahCliId: '<listed id>', model: '<listed glm id>' }` | code + report |
 | Review | Codex, another model | `{ cli: 'codex', model: '<another listed id>' }` | `code-logic-review.md` |
 
-The review lane did not implement, and GPT reviews GLM, so independence holds by family.
+This pinned example uses an independent, same-side CLI review: disclose that override — a different
+family does not make it cross-side. Without a pin or an unavailable opposite side, route CLI-authored
+work to a subagent reviewer.
 
 ### Constraints that survive pinning
 
@@ -102,14 +112,18 @@ The review lane did not implement, and GPT reviews GLM, so independence holds by
    before the next phase. A lane returning `## Clarifications Needed` goes through Gate SR.
 3. A phase you write in-process, because no suitable lane exists, is labelled as not an outside
    opinion in the summary.
+4. Every plan, design and architecture artifact gets a cross-side document review before its gate
+   (agent-lanes §6). A pinned roster that names no reviewer still gets one; the writer never
+   reviews its own artifact.
 
 ### Flow
 
 1. Create the task folder ([task-tracking.md](task-tracking.md#new-task)), or use the one the
    prompt says already exists.
 2. Announce the roster, phase count and call count; get the go-ahead — this writes code.
-3. For each phase in order: spawn with the prior phase's artifact as an absolute input path, run
-   the gate, then pass the new artifact on.
+3. For each phase in order: invoke the author with the prior approved artifact as an absolute input
+   path, run the required independent review, present the user gate, then pass the approved
+   artifact on.
 4. Implement runs in place on the active branch. Use a worktree only if you fan one phase out to
    several lanes; say so and the added cost.
 5. When the implement phase is the risky one, run implement + review as the `tribunal` skill's

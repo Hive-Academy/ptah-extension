@@ -48,7 +48,7 @@ verification — a capability that has no code behind it does not get written ab
 ## Inputs
 
 - The task folder. Discover what exists before reading; `context.md`,
-  `task-description.md` and `visual-design-specification.md` are the usual carriers of the
+  `task-description.md` and `design-spec.md` are the usual carriers of the
   brief and the visual direction.
 - The `DESIGN-SYSTEM.md` carried by the technical-content-writer skill, whenever the
   content has a visual dimension. When it exists, use its exact colours, type and spacing

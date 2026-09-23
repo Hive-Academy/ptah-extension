@@ -33,7 +33,7 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 
 | Request        | Agent path                                         |
 | -------------- | -------------------------------------------------- |
-| Implement X    | project-manager → architect → team-leader → dev    |
+| Implement X    | project-manager → [designer → prototype → Gate 1.7] → architect → team-leader → dev    |
 | Fix bug        | team-leader → dev → test → review                  |
 | Research X     | researcher-expert → architect                      |
 | Review style   | code-style-reviewer                                |
@@ -41,11 +41,14 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 | Review visual  | visual-reviewer                                    |
 | Test X         | senior-tester                                      |
 | Architecture   | software-architect                                 |
-| Landing page   | ui-ux-designer → technical-content-writer          |
-| Brand / visual | ui-ux-designer                                     |
+| Landing page   | ui-ux-designer → prototype → Gate 1.7 → technical-content-writer          |
+| Brand / visual | ui-ux-designer → prototype → Gate 1.7             |
 | Content        | technical-content-writer                           |
 | Demo video     | video-director                                     |
 | Infrastructure | devops-engineer                                    |
+
+These paths include the conditional inventory → design → Gate 1.7 steps in
+[SKILL.md](../SKILL.md#task-folder) before the next phase when UI is added/redesigned.
 
 ---
 
@@ -68,22 +71,48 @@ Task({
 });
 ```
 
+For `ui-ux-designer`, replace the single-deliverable line with **Deliverables** naming two
+absolute paths: `<absolute task folder>/design-spec.md` and `<absolute task folder>/prototype/`
+(including `README.md` and `screenshots/`). Require both outputs on disk and a separate
+`WROTE: <absolute path>` confirmation for each, plus the one-line headline.
+
 | Agent | `description` | Context lines | Deliverable | Instruction |
 | --- | --- | --- | --- | --- |
 | project-manager | Create requirements | `**User Request**: "<the user's words>"` | `task-description.md` | Analyze the request and write the requirements. |
-| software-architect | Design implementation | `**Requirements**: task-description.md in the task folder` | `implementation-plan.md` | Design the technical implementation plan. |
+| software-architect | Design implementation / inventory only | `**Requirements**: task-description.md (inventory-only: task.md + context.md)`<br>`**Mode**: plan or inventory-only` | `implementation-plan.md` (inventory-only: `parity-inventory.md`) | Design the technical implementation plan; inventory-only mode reads OLD code and writes only the parity inventory before design. |
 | team-leader | Decompose / verify / complete | `**MODE**: 1 - DECOMPOSITION` (or 2, 3) — see [team-leader-modes.md](team-leader-modes.md) | `batches.md` | Per mode. |
-| backend-developer, frontend-developer | Implement Batch N | `**Batch**: Batch N in batches.md (IN_PROGRESS)`<br>`**Plan**: implementation-plan.md` | code + report | Report each task's completion with evidence; do not edit batches.md; the team-leader records state. |
+| backend-developer, frontend-developer | Implement Batch N | `**Batch**: Batch N in batches.md (IN_PROGRESS)`<br>`**Plan**: implementation-plan.md, or for a BUGFIX task.md + context.md (+ research-report.md)` | code + report | Report each task's completion with evidence; do not edit batches.md; the team-leader records state. |
 | devops-engineer | Implement infrastructure | `**Plan**: implementation-plan.md` | code + report | Implement the infrastructure changes. |
-| senior-tester | Test implementation | `**Changes**: batches.md`<br>`**Plan**: implementation-plan.md` | `test-report.md` | Write and run the tests; record the results. |
+| senior-tester | Test implementation | `**Changes**: batches.md`<br>`**Plan**: implementation-plan.md, or for a BUGFIX task.md + context.md (+ research-report.md)` | `test-report.md` | Write and run the tests; record the results. |
 | code-style-reviewer | Review code style | `**Changes**: batches.md` | `code-style-review.md` | Review for style, patterns and consistency. |
-| code-logic-reviewer | Review code logic | `**Changes**: batches.md`<br>`**Plan**: implementation-plan.md` | `code-logic-review.md` | Review for logic completeness and correctness. |
+| code-logic-reviewer | Review code logic | `**Changes**: batches.md`<br>`**Plan**: implementation-plan.md, or for a BUGFIX task.md + context.md (+ research-report.md)` | `code-logic-review.md` | Review for logic completeness and correctness. |
 | visual-reviewer | Visual review | `**Changes**: batches.md (frontend files)`<br>`**Base URL**: <running app URL>` | `visual-review.md` + `screenshots/` | Run the visual review checklist below. |
 | researcher-expert | Research X | `**Research Question**: "<the question>"` | `research-report.md` | Compare the options, recommend one. |
 | modernization-detector | Analyze future improvements | `**Changes**: batches.md` | `future-enhancements.md` | Find follow-up improvements and tech debt. |
-| ui-ux-designer | Create design system | `**Goal**: <what to design>` | `visual-design-specification.md` | Run niche discovery, build the design system. |
+| ui-ux-designer | Create design and prototype | `**Goal**: <what to design>`<br>`**Parity**: parity-inventory.md when required` | `design-spec.md` + `prototype/` | Run niche discovery, build the design system and prototype (README.md + screenshots/); disclose lane-introduced constraints; revise until Gate 1.7 is approved. |
 | technical-content-writer | Create content | `**Design System**: DESIGN-SYSTEM.md in your own skill directory`<br>`**Goal**: <what to write>` | `content-specification.md` | Write design-integrated content. |
 | video-director | Author showcase scene | `**Goal**: <feature or flow>`<br>`**App**: <what to launch, which URL>` | scene + render | Read the `video-showcase` skill first, then author, capture, render. |
+
+The designer owns `<taskFolder>/prototype/`. Any flow adding or redesigning UI runs
+designer → prototype → cross-side review → Gate 1.7 before the next phase of the flow (architect, team-leader, or content writer).
+Hand off the approved prototype as the visual source of truth. Complete the old-code parity
+inventory before design when required, using the inventory-only handoff in
+[SKILL.md](../SKILL.md#task-folder) for flows without a PM.
+
+### Document review
+
+You invoke the reviewer after the author returns ([checkpoints.md § Cross-side review protocol](checkpoints.md#cross-side-review-protocol)).
+It is not a code-logic-reviewer invocation: use a role only if its output contract allows
+`<artifact-stem>-review.md`; otherwise a generic subagent, or a CLI lane without `role`, with the
+contract below. If the chosen side cannot supply one, use the agent-lanes §6 fallback.
+
+Supply absolute paths to the artifact, the user's exact request, project rules, prior approved
+artifacts and `parity-inventory.md` when it applies; for a design, `prototype/` and its screenshots.
+Read-only on source and artifacts; write only `<artifact-stem>-review.md`. Require: APPROVED /
+REVISE; each requirement traced to the artifact section that meets it (a missing one cites its
+source); lane-introduced constraints; parity deltas; feasibility evidence; numbered findings with
+`file:line`; the review-state fields; `WROTE: <absolute path>` plus a headline. A CLI lane declares
+the same path in `deliverables`.
 
 **Visual review checklist** (spell it out in the visual-reviewer prompt):
 
@@ -93,6 +122,7 @@ Task({
 4. Check color contrast ratios.
 5. Check touch target sizes.
 6. Test responsive behavior between the breakpoints.
+7. Compare dark + light theme screenshots with the approved `<taskFolder>/prototype/`; show evidence to the user before merge.
 
 ---
 
@@ -101,18 +131,18 @@ Task({
 | Agent | Invoked when | Reads | Runs alongside |
 | --- | --- | --- | --- |
 | project-manager | FEATURE / DOCUMENTATION / DEVOPS phase 1, or unclear scope | request, `context.md` | — |
-| software-architect | After PM; REFACTORING / DEVOPS start; architectural decision needed | `task-description.md`, research | — |
-| team-leader | After architect (Mode 1), after each executor or reviewer (Mode 2), all batches done (Mode 3) | plan, `batches.md`, reports | — |
+| software-architect | After PM; REFACTORING / DEVOPS; architectural decision needed; inventory-only before design when required, plan after any required Gate 1.7 | `task-description.md`, research; inventory-only: `task.md`, `context.md`, OLD code | — |
+| team-leader | After architect (BUGFIX: after init/research and any required design gate) (Mode 1), after each executor or reviewer (Mode 2), all batches done (Mode 3) | plan (BUGFIX: `task.md`, `context.md`), `batches.md`, reports | — |
 | backend-developer | A batch of server-side work | `batches.md`, plan, project conventions | frontend-developer on a different batch |
 | frontend-developer | A batch of UI work | `batches.md`, plan, design spec | backend-developer on a different batch |
 | devops-engineer | DEVOPS implementation; pipelines, containers, publishing | plan, existing pipeline and container files | — |
 | senior-tester | Gate 3 `tester` / `all` | `batches.md`, plan, changed files | reviewers |
 | code-style-reviewer | Gate 3 `style` / `reviewers` / `all`; DOCUMENTATION final check | changed files, style rules | tester, other reviewers |
 | code-logic-reviewer | Gate 3 `logic` / `reviewers` / `all`; team-leader `NEEDS REVIEW` | changed files, plan | tester, other reviewers |
-| visual-reviewer | Gate 3 `visual` for rendered UI | changed UI files, running app | tester, other reviewers |
+| visual-reviewer | UI batch evidence; Gate 3 `visual` for rendered UI | changed UI files, running app, approved prototype | tester, other reviewers |
 | researcher-expert | Technical unknowns, BUGFIX with unknown cause, RESEARCH | question, `context.md`, external docs | — |
 | modernization-detector | Final phase, after QA | `batches.md`, changed files | — |
-| ui-ux-designer | CREATIVE; FEATURE with new UI | brand input, references, `context.md` | — (design before content) |
+| ui-ux-designer | CREATIVE; any flow with added/redesigned UI, after required inventory | brand input, references, `context.md`, parity inventory | — (prototype + Gate 1.7 before the next phase of the flow) |
 | technical-content-writer | CREATIVE after the design system exists; blogs, docs, scripts | `DESIGN-SYSTEM.md`, brief, source | other content-writer instances |
 | video-director | Demo, tour or showcase video | the flow to demo, a runnable app | — (capture owns the app) |
 
