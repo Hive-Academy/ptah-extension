@@ -31,6 +31,7 @@ export * from './popover';
 export * from './autocomplete';
 export * from './form';
 export * from './card';
+export * from './catalog-card';
 export * from './tab-group';
 export * from './drawer';
 export * from './provider-model-picker';

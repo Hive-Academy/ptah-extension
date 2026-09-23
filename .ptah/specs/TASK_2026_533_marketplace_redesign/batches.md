@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 4/29
+Total tasks: 63 | Batches: 29 | Complete: 5/29
 
-Wave A (Batches 1, 2, 3) and Batch 7a are COMPLETE. Batches 4, 5, 7d are IN_PROGRESS;
-4+7d (both ui) run in separate worktrees. Batch 6 is launchable now.
+Wave A (Batches 1, 2, 3), 7a and 7d are COMPLETE. Batches 4, 5, 6 are IN_PROGRESS
+(5 and 6 are both marketplace: separate worktrees).
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -51,6 +51,7 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
   `connectors` and `skills` now parse as real pages; `openMarketplace` does NOT
   store the route — the shell records it on `NavigationEnd` (Batch 12); the
   sub-path is dropped when `navigateToSurface` falls back to another surface.
+- Batch 7d decisions (binding on Batches 11, 13, 15, 16, 20-24): the card input is `heading` (not `title`); loading tiles use `<ptah-catalog-card-skeleton>`; consumers put `role="listitem"` on each `ptah-catalog-grid` child; Batches 24 and 25 verify the `@container` columns (1/2/3/4 at 480/800/1200) and the card compact trigger in a real browser, including 2 columns in the dashboard `max-w-2xl` dialog.
 - Batch 1 facts for Batch 4: monogram slugs `klaviyo`, `zernio`, `context7`,
   `google-people`; `huggingface` chosen over `hugging-face` (see Task 4.2).
 - Commit convention (from `git log`): Conventional Commits,
@@ -91,21 +92,22 @@ Assumptions:
 - `scripts/` is outside the VSIX (`apps/ptah-extension-vscode/.vscodeignore`), so `scripts/brand-icons.manifest.json` may name AI vendors — verified in Task 4.3.
 - Tailwind content globs cover libs through `createGlobPatternsForDependencies` (`apps/ptah-extension-webview/tailwind.config.js:6-9`) — verified.
 
-| Risk                                                                                                                                                                                                    | Severity | Mitigation                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R7 Eager-bundle leak of brand artwork through `ProviderMarkComponent` (eager chat settings) and `PluginCatalogPanelComponent` (eager dashboard)                                                         | HIGH     | Card takes the mark as a slot (Task 7d.1); plugin cards use `ptah-monogram-tile`; `ProviderMark` reads only `PROVIDER_BRAND_ART` (Task 7c.1); initial-chunk comparison in Batches 7c, 7d, 17, 24, 25. |
-| D-3 Chat callers migrated before the route tree exists would hit `app.routes.ts:156` `'**' → chat`                                                                                                      | HIGH     | Caller migration moved to Batch 18 (after Batch 17).                                                                                                                                                  |
-| `ProviderMarkComponent` convergence could change chat settings rendering                                                                                                                                | MEDIUM   | Selector and inputs frozen; `provider-setup-wizard.component.spec.ts:1025` and the chat project's tests run in Batch 7c.                                                                              |
-| Same-project parallel batches share one working tree                                                                                                                                                    | MEDIUM   | Worktree isolation for same-project parallel groups (see defaults).                                                                                                                                   |
-| Six restyled views already exceed the 700-line soft cap (smithery 1544, plugin-catalog-panel 1186, external-marketplaces 961, oauth-surface 921, mcp-directory-browser 881, skill-sh-browser 742)       | MEDIUM   | C13 net-line rule in Batches 20-24 (numstat per file; Registry and skills.sh end ≤700).                                                                                                               |
-| Ptah Plugins restyle applies everywhere, including the dashboard picker (D-2b)                                                                                                                          | MEDIUM   | Task 24.1: 2-column layout in the `max-w-2xl` dialog with no overflow, one new `ptah-catalog-card` assertion in `skill-selection-card.spec.ts`, dashboard in the verification command.                |
-| Electron e2e depends on `external-plugin-*`, `external-install`, `external-installed-*`, `external-consent*`, `marketplace-source`, `marketplace-add` test ids (`external-marketplace.spec.ts:100-485`) | MEDIUM   | Task 21.1 keeps every `data-testid`; Batch 21 runs the Electron marketplace spec.                                                                                                                     |
-| Intermediate commit between Batches 17 and 18: chat deep links still write the old slice and land on overview/remembered route                                                                          | LOW      | Feature branch only; Batch 18 follows immediately.                                                                                                                                                    |
-| `removalFixCommand` quoting puts a broken command on the clipboard (R4)                                                                                                                                 | MEDIUM   | Task 1.2 quoting spec (whitespace, metacharacters, omit when unquotable).                                                                                                                             |
-| Env/header values reach the webview (R3)                                                                                                                                                                | MEDIUM   | `ConfigSummary` type carries keys only (Task 8.1); Task 13.3 spec asserts no value renders. Backend redaction out of scope.                                                                           |
-| Brand vendoring needs network access to jsDelivr at the pinned SHA                                                                                                                                      | MEDIUM   | Task 4.2 aborts non-zero and writes nothing on any fetch failure; no placeholder table may be committed.                                                                                              |
-| Hub spec assertions have no migration destination in the plan (`marketplace-hub.component.spec.ts:157-253`)                                                                                             | MEDIUM   | Assigned to Task 5.1 (connector rows, newest session, degrade) and Task 17.1 (one surface mounted, zero RPC when unselected).                                                                         |
-| Overview adds two reads (R5)                                                                                                                                                                            | LOW      | Accepted; Task 14.1 RPC-set spec pins the exact list.                                                                                                                                                 |
+| Risk                                                                                                                                                                                                                                                                                                                                    | Severity | Mitigation                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R7 Eager-bundle leak of brand artwork through `ProviderMarkComponent` (eager chat settings) and `PluginCatalogPanelComponent` (eager dashboard)                                                                                                                                                                                         | HIGH     | Card takes the mark as a slot (Task 7d.1); plugin cards use `ptah-monogram-tile`; `ProviderMark` reads only `PROVIDER_BRAND_ART` (Task 7c.1); initial-chunk comparison in Batches 7c, 7d, 17, 24, 25.     |
+| D-3 Chat callers migrated before the route tree exists would hit `app.routes.ts:156` `'**' → chat`                                                                                                                                                                                                                                      | HIGH     | Caller migration moved to Batch 18 (after Batch 17).                                                                                                                                                      |
+| `ProviderMarkComponent` convergence could change chat settings rendering                                                                                                                                                                                                                                                                | MEDIUM   | Selector and inputs frozen; `provider-setup-wizard.component.spec.ts:1025` and the chat project's tests run in Batch 7c.                                                                                  |
+| Same-project parallel batches share one working tree                                                                                                                                                                                                                                                                                    | MEDIUM   | Worktree isolation for same-project parallel groups (see defaults).                                                                                                                                       |
+| Six restyled views already exceed the 700-line soft cap (smithery 1544, plugin-catalog-panel 1186, external-marketplaces 961, oauth-surface 921, mcp-directory-browser 881, skill-sh-browser 742)                                                                                                                                       | MEDIUM   | C13 net-line rule in Batches 20-24 (numstat per file; Registry and skills.sh end ≤700).                                                                                                                   |
+| Ptah Plugins restyle applies everywhere, including the dashboard picker (D-2b)                                                                                                                                                                                                                                                          | MEDIUM   | Task 24.1: 2-column layout in the `max-w-2xl` dialog with no overflow, one new `ptah-catalog-card` assertion in `skill-selection-card.spec.ts`, dashboard in the verification command.                    |
+| Electron e2e depends on `external-plugin-*`, `external-install`, `external-installed-*`, `external-consent*`, `marketplace-source`, `marketplace-add` test ids (`external-marketplace.spec.ts:100-485`)                                                                                                                                 | MEDIUM   | Task 21.1 keeps every `data-testid`; Batch 21 runs the Electron marketplace spec.                                                                                                                         |
+| Intermediate commit between Batches 17 and 18: chat deep links still write the old slice and land on overview/remembered route                                                                                                                                                                                                          | LOW      | Feature branch only; Batch 18 follows immediately.                                                                                                                                                        |
+| `removalFixCommand` quoting puts a broken command on the clipboard (R4)                                                                                                                                                                                                                                                                 | MEDIUM   | Task 1.2 quoting spec (whitespace, metacharacters, omit when unquotable).                                                                                                                                 |
+| Env/header values reach the webview (R3)                                                                                                                                                                                                                                                                                                | MEDIUM   | `ConfigSummary` type carries keys only (Task 8.1); Task 13.3 spec asserts no value renders. Backend redaction out of scope.                                                                               |
+| Brand vendoring needs network access to jsDelivr at the pinned SHA                                                                                                                                                                                                                                                                      | MEDIUM   | Task 4.2 aborts non-zero and writes nothing on any fetch failure; no placeholder table may be committed.                                                                                                  |
+| Hub spec assertions have no migration destination in the plan (`marketplace-hub.component.spec.ts:157-253`)                                                                                                                                                                                                                             | MEDIUM   | Assigned to Task 5.1 (connector rows, newest session, degrade) and Task 17.1 (one surface mounted, zero RPC when unselected).                                                                             |
+| Stale claude.ai connector rows after a non-navigating workspace switch (TASK_2026_540): rows come from the newest `SessionMcpStatusRegistry` session, keyed by session id, not workspace (inherited from `marketplace-hub.component.ts`); the previous workspace's connector rows can show until a session of the new workspace reports | MEDIUM   | ARCHITECT DECISION needed before Batch 14: filter sessions by workspace (if the registry can expose it) or hide connector rows until a session for the active workspace reports. Found in Batch 5 review. |
+| Overview adds two reads (R5)                                                                                                                                                                                                                                                                                                            | LOW      | Accepted; Task 14.1 RPC-set spec pins the exact list.                                                                                                                                                     |
 
 Edge cases:
 
@@ -363,7 +365,7 @@ Edge cases:
 - Acceptance (TASK_2026_540 item 6b): a workspace switch with the Marketplace open reloads the loaded slices WITHOUT any navigation (spec bumps `WorkspaceScopeService.generation` with no router event and asserts the reload; idle slices stay idle).
 - Reviewer: code-logic-reviewer (timers, races, partial failure)
 
-## Batch 7a: Shared MCP server identity normalizers (C14 part) — COMPLETE
+## Batch 7a: Shared MCP server identity normalizers (C14 part) — COMPLETE (commit 1d01377b8)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x1 (mechanical move)
@@ -460,7 +462,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer (resolution order, eager-bundle evidence)
 
-## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — IN_PROGRESS
+## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x3 (one component each; team-leader adds the barrel lines)
@@ -469,7 +471,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1 (none technically; scheduled in Wave B)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/ui`
 
-### Task 7d.1: `CatalogCardComponent` — IN_PROGRESS
+### Task 7d.1: `CatalogCardComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\catalog-card.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\index.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\index.ts`
 - Plan reference: implementation-plan.md C13 (:521-533)
@@ -478,7 +480,7 @@ Edge cases:
 - Validation notes: spec — slots render, clamp, `activated` only when interactive, no nested interactive element, no `innerHTML`.
 - Implementation details: `native/index.ts` gains `export * from './catalog-card';`.
 
-### Task 7d.2: `CatalogGridComponent` and `StorefrontPanelComponent` — IN_PROGRESS
+### Task 7d.2: `CatalogGridComponent` and `StorefrontPanelComponent` — COMPLETE
 
 - Depends on: Task 7d.1
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\catalog-grid.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\catalog-card\storefront-panel.component.ts` (+`.spec.ts`)
@@ -508,6 +510,7 @@ Edge cases:
 - Plan reference: implementation-plan.md C5 (:333 brand revision), `provider-row` responsibilities
 - Pattern to follow: `installed-mcp-groups.ts:32-45` (`TARGET_LABELS`), `mcp-install.service.ts:95-101` (origin labels)
 - Quality requirements: `brand` from `resolveBrandSlug({ serverKey, serverUrl })` imported from `@ptah-extension/ui` (no local resolver); status precedence session → OAuth → Smithery → `configured`, never `connected` without a live source; removal `uninstall|disconnect|confirm-direct|blocked{reason,fixCommand?}|manage-link`; `ConfigSummary` has no field that could hold an env/header value.
+- Acceptance (Batch 5 review, moderate): the store's `installed()` exposes raw `config.env`/`config.headers`; masking happens here. Add a spec that runs a REAL `mcpDirectory:listInstalled`-shaped response carrying env and header secrets through store → mapper → view model and asserts no secret value appears in any view-model string.
 - Validation notes: R3. Unknown status → `unknown` with raw text. Spec includes a type-level assertion (`// @ts-expect-error` on assigning a value field).
 - Implementation details: pure.
 
