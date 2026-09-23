@@ -26,6 +26,10 @@
     "./mcp-apps-contracts": {
       "types": "./src/mcp-apps-contracts/index.ts",
       "default": "./src/mcp-apps-contracts/index.ts"
+    },
+    "./mcp-apps-contracts/surface": {
+      "types": "./src/mcp-apps-contracts/surface.index.ts",
+      "default": "./src/mcp-apps-contracts/surface.index.ts"
     }
   },
   "peerDependencies": {

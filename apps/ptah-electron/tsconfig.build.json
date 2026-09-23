@@ -38,6 +38,9 @@
       "@ptah-extension/shared/mcp-apps-contracts": [
         "../../libs/shared/src/mcp-apps-contracts/index.ts"
       ],
+      "@ptah-extension/shared/mcp-apps-contracts/surface": [
+        "../../libs/shared/src/mcp-apps-contracts/surface.index.ts"
+      ],
       "@ptah-extension/vscode-core": [
         "../../libs/backend/vscode-core/src/index.ts"
       ],
