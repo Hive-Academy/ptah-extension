@@ -1,6 +1,6 @@
 # Batches - TASK_2026_540_0940
 
-Total tasks: 23 | Batches: 7 | Complete: 4/7
+Total tasks: 23 | Batches: 7 | Complete: 6/7
 
 Worktree root (every path below is under it): `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu`
 Task folder: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940`
@@ -19,6 +19,15 @@ are folded into the tasks below. This file replaces the revision-1 decomposition
   NOT implement; otherwise the internal review is the gate and the missing Glm verdict is recorded on the batch.
 - Execution-order deviation (orchestrator): Batch 2 and Batch 3 were started before Batch 1 was committed. Both depend
   only on Batch 1's exports, which are verified. Each batch is still committed on its own, in batch order.
+- Glm became available again after Batch 3. Batches 2 and 3 received Glm verdicts after their commits (recorded in their
+  outcomes). From Batch 4 on, both reviews are required again before commit.
+- Batches 6 and 7 may run as two parallel `codex` lanes (team-leader decision at Batch 5):
+  - Why it is allowed: the file lists are disjoint, neither batch depends on the other, both only read the committed
+    `_harness/config-menu.ts`, and neither touches a shared registry or configuration file.
+  - Two conditions: (1) both run `ptah-electron-e2e` typecheck and lint, so each lane may see the other's half-edited
+    files; a lane attributes any failure by file and never edits outside its own list. (2) Batch 7's residual sweep can
+    see Batch 6's files mid-edit, so the team-leader re-runs the sweep and the guard greps after both land.
+  - Commits stay in order: Batch 6, then Batch 7.
 - (Original default, Batch 1 only) Implement: one CLI lane per batch, `opencode` with model `opencode-go/kimi-k3` (messaging: none). The lane runs the batch's
   tasks in order. Lane limits: 40 tool calls, 1200000 ms inactivity timeout. `deliverables` = the batch's files plus
   `batch-N-report.md` in the task folder. The report file is the lane's only account of its work.
@@ -446,7 +455,7 @@ Edge cases:
   4. Fresh data after a switch on all four surfaces (RD, RJ).
   5. macOS title bar and backdrop (criterion 8, RG).
 
-## Batch 5: E2e — menu helper, driver rename, Thoth-entry scenes — IMPLEMENTED
+## Batch 5: E2e — menu helper, driver rename, Thoth-entry scenes — COMPLETE (commit 5584cdb80)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -457,37 +466,37 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e`
 - Reviewers: internal code-logic-reviewer (batch-5-internal-review.md) + Glm lane ("Batch 5" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 5.1: Shared configuration-menu helper — IMPLEMENTED
+### Task 5.1: Shared configuration-menu helper — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\_harness\config-menu.ts` (CREATE)
 - Plan reference: implementation-plan.md:406-411, :492; plan-review.md:206-209 (instruction 7)
 - Pattern to follow: `_harness/prewarm.ts` (guarded raw actions, `:15-25` rules); `import type { Director } from './director'` (as `thoth-tour.scene.ts:2` does).
 - Implementation details: `export type ConfigSurfaceId = 'thoth' | 'setup-hub' | 'marketplace' | 'settings'`. `openConfigSurface(page, director, id)` uses `director.click` on `[data-test="config-menu-trigger"]`, waits for `[data-test="config-menu-item-<id>"]`, and `director.click`s it, so the camera beat is recorded. `openConfigSurfaceSilently(page, id)` does the same with raw clicks, visibility-guarded and error-swallowing. `activeConfigSurface(page)` returns the id carrying `aria-current="true"`, or null; it opens the menu silently and closes it with Escape. Selectors are `data-test` only, never labels.
 
-### Task 5.2: Prewarm through the menu, with restore — IMPLEMENTED
+### Task 5.2: Prewarm through the menu, with restore — COMPLETE
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\_harness\prewarm.ts` (MODIFY)
 - Implementation details: `prewarmThoth` enters Thoth via `openConfigSurfaceSilently(page, 'thoth')`. Before entering, capture both `activeNavTitle` and `activeConfigSurface`. On exit, restore by tab title when one was captured; otherwise, if a configuration surface was captured, restore it through the menu (`activeNavTitle` returns null for configuration surfaces, `:32-39`). `prewarmNavSurface` keeps working for the remaining tabs; update its doc comment. Keep the SILENT / GUARDED / NON-DESTRUCTIVE rules.
 
-### Task 5.3: UI driver Chat rename — IMPLEMENTED
+### Task 5.3: UI driver Chat rename — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\support\ui-driver.ts` (MODIFY)
 - Implementation details: `:325-328` becomes `getByRole('tab', { name: 'Chat' })` `.or(locator('[title="Chat"]'))`; update the comment at `:320-323`. Nothing else.
 
-### Task 5.4: thoth-tour scene — IMPLEMENTED
+### Task 5.4: thoth-tour scene — COMPLETE
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\thoth-tour.scene.ts` (MODIFY)
 - Implementation details: `goToThoth` (`:105-126`) calls `openConfigSurface(page, director, 'thoth')` in place of the candidate loop (`:106-122`); keep the `#thoth-tab-memory` wait; update the doc comment.
 
-### Task 5.5: skills-tour scene — IMPLEMENTED
+### Task 5.5: skills-tour scene — COMPLETE
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\skills-tour.scene.ts` (MODIFY)
 - Implementation details: replace the Thoth tab candidate block (`:68-70`) with `openConfigSurface(page, director, 'thoth')`; keep the following waits.
 
-### Task 5.6: memory-recall scene — IMPLEMENTED
+### Task 5.6: memory-recall scene — COMPLETE
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\memory-recall.scene.ts` (MODIFY)
@@ -529,7 +538,7 @@ Edge cases:
   - Glm: ACCEPT 9/10 (`batch-5-glm-review.md`), 2 MINOR, both FIXED in revision 1: the welcome-origin restore, and the
     open menu no longer toggled shut (`config-menu.ts:17, 42`).
 
-## Batch 6: E2e — remaining configuration-surface scenes — PENDING
+## Batch 6: E2e — remaining configuration-surface scenes — COMPLETE (commit 48862a1d0)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -544,23 +553,23 @@ In each file, replace the removed top-nav tab candidates with `openConfigSurface
 `./_harness/config-menu`. Keep every following wait and narration beat, and update doc comments that describe reaching
 the surface through a top-nav tab.
 
-### Task 6.1: gateway-tour (thoth) — PENDING
+### Task 6.1: gateway-tour (thoth) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\gateway-tour.scene.ts` (MODIFY) — block at `:86`
 
-### Task 6.2: cron-tour (thoth) — PENDING
+### Task 6.2: cron-tour (thoth) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\cron-tour.scene.ts` (MODIFY) — block at `:64-66`
 
-### Task 6.3: setup-wizard-tour (setup-hub) — PENDING
+### Task 6.3: setup-wizard-tour (setup-hub) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\setup-wizard-tour.scene.ts` (MODIFY) — block at `:49-50`
 
-### Task 6.4: settings-tour (settings) — PENDING
+### Task 6.4: settings-tour (settings) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\settings-tour.scene.ts` (MODIFY) — block at `:85-87`, doc comment `:32`
 
-### Task 6.5: marketplace-tour (marketplace) — PENDING
+### Task 6.5: marketplace-tour (marketplace) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\marketplace-tour.scene.ts` (MODIFY) — block at `:97-99`, doc comment `:31`
 - Validation notes: `:115` and `:136` select the hub's own section tabs (`hub(page).getByRole('tab', …)`) — leave them unchanged.
@@ -571,31 +580,49 @@ the surface through a top-nav tab.
 - `npx nx run-many -t typecheck,lint -p ptah-electron-e2e` passes
 - Both review verdicts accepting
 
-## Batch 7: E2e — renamed-tab scenes, residual sweep, branch guard greps — PENDING
+### Batch 6 outcome
+
+- Executor: `codex` (`batch-6-report.md`, including "Revision 1"). It ran in parallel with Batch 7, as allowed.
+- Team-leader check on disk: each file replaces its top-nav candidate block with one
+  `openConfigSurface(page, director, id)` call. The ids are thoth, thoth, setup-hub, settings and marketplace. Candidate
+  helpers left without callers (`clickFirstVisible` in marketplace-tour, `firstVisible` in setup-wizard-tour) and unused
+  imports are removed. marketplace-tour's inner hub section tabs are untouched.
+- Orchestrator verification after revision 1: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e --skip-nx-cache` PASS.
+- Reviews (`batch-6-7-internal-review.md` and `batch-6-7-glm-review.md`, section "Batch 6"):
+  - Internal code-logic-reviewer ACCEPT 9/10. One MINOR (stale JSDoc, `gateway-tour:80-84`), fixed in revision 1
+    (comment-only).
+  - Glm ACCEPT 9/10.
+    - MINOR 1: the same JSDoc, fixed.
+    - MINOR 2: a missing menu item now fails the scene loudly where the old candidate loop skipped silently. ACCEPTED:
+      a showcase scene should fail rather than silently record the wrong surface.
+- Commit note: following the orchestrator's staging split, this commit carries the five scenes and `batch-6-report.md`.
+  The combined review files and this `batches.md` entry are committed with Batch 7.
+
+## Batch 7: E2e — renamed-tab scenes, residual sweep, branch guard greps — IMPLEMENTED
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
 - Execution mode: sequential
-- Rationale: three label renames. The batch runs last so its sweep sees every earlier edit, and it carries the branch-wide guard greps.
-- Tasks: 3 | Depends on: Batch 4 (labels); ordered after Batch 6
+- Rationale: three label renames plus the branch-wide guard greps. It may run in PARALLEL with Batch 6 (team-leader decision at Batch 5, see Execution defaults); it is committed after Batch 6.
+- Tasks: 3 | Depends on: Batch 4 (labels). Parallel with Batch 6; committed after it
 - Deliverables: the three scene files below, `batch-7-report.md`
 - Scoped verification: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e`
 - Reviewers: internal code-logic-reviewer (batch-7-internal-review.md) + Glm lane ("Batch 7" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 7.1: canvas-orchestra scene — PENDING
+### Task 7.1: canvas-orchestra scene — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\canvas-orchestra.scene.ts` (MODIFY)
 - Implementation details: `:44-45` `name: 'Canvas'` becomes `name: 'Chat'`, and any `[title="Orchestra Canvas"]` becomes `[title="Chat"]`. Narration and headings are unchanged.
 
-### Task 7.2: chat-code-edit scene — PENDING
+### Task 7.2: chat-code-edit scene — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\chat-code-edit.scene.ts` (MODIFY)
 - Implementation details: `:179-181` Canvas becomes Chat and `[title="Orchestra Canvas"]` becomes `[title="Chat"]`; change the doc comment at `:15` only where it names the tab.
 
-### Task 7.3: dashboard-tour scene and residual sweep — PENDING
+### Task 7.3: dashboard-tour scene and residual sweep — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\dashboard-tour.scene.ts` (MODIFY)
-- Implementation details: `:53-56` Dashboard becomes Analytics (`name: 'Analytics'`, `[title="Analytics"]`). Then grep `apps/ptah-electron-e2e/src` and `libs/frontend/webview-e2e-harness/src` for `name: 'Canvas'`, `name: 'Dashboard'`, `title="Orchestra Canvas"`, `title="Session Analytics"`, and a top-nav `getByRole('tab', { name: 'Thoth' | 'Setup' | 'Settings' | 'Marketplace' })`. List every hit in `batch-7-report.md`. The canvas headings `landing-page-tour.scene.ts:242` and `specs/git/hunk-revert-top-layer.spec.ts:199` are expected and stay. Report other hits; do not edit them.
+- Implementation details: `:53-56` Dashboard becomes Analytics (`name: 'Analytics'`, `[title="Analytics"]`). Then grep `apps/ptah-electron-e2e/src` and `libs/frontend/webview-e2e-harness/src` for `name: 'Canvas'`, `name: 'Dashboard'`, `title="Orchestra Canvas"`, `title="Session Analytics"`, and a top-nav `getByRole('tab', { name: 'Thoth' | 'Setup' | 'Settings' | 'Marketplace' })`. List every hit in `batch-7-report.md`. The canvas headings `landing-page-tour.scene.ts:242` and `specs/git/hunk-revert-top-layer.spec.ts:199` are expected and stay. When run in parallel with Batch 6, hits in Batch 6's five files are expected and only listed; the team-leader re-runs the sweep after both commits. Report other hits; do not edit them.
 
 ### Batch 7 verification
 
@@ -606,6 +633,30 @@ the surface through a top-nav tab.
   - `git diff --name-only origin/main` lists neither `webview-surface.types.ts` nor `app.routes.ts` (criterion 20)
   - `git diff --name-only origin/main` lists no `app-shell.component.*` (user decision 1)
 - Both review verdicts accepting
+
+### Batch 7 outcome
+
+- Executor: `codex` (`batch-7-report.md`, including "Revision 1"), run in parallel with Batch 6.
+- Team-leader check on disk:
+  - canvas-orchestra: `'Canvas'` → `'Chat'` (tab and button), comment reworded.
+  - chat-code-edit: `'Canvas'` → `'Chat'` and `[title="Orchestra Canvas"]` → `[title="Chat"]`; the doc comment now names the
+    "Chat" tab.
+  - dashboard-tour: `'Dashboard'` → `'Analytics'` in the tab, button, aria-label and title selectors.
+  - Narration, scripts and on-screen headings are unchanged.
+- Orchestrator verification after revision 1: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e --skip-nx-cache` PASS.
+- Team-leader guard greps (after the Batch 6 commit, branch plus working tree, `.ptah` excluded):
+  - `git diff origin/main -U0 | grep '^+' | grep -E 'class\.hidden|retain: *true'`: EMPTY (criterion 21).
+  - `git diff --name-only origin/main | grep -E 'webview-surface\.types|app\.routes|app-shell\.component'`: EMPTY
+    (criteria 19, 20).
+  - Residual sweep (`git grep` over `apps/ptah-electron-e2e/src` and `libs/frontend/webview-e2e-harness/src` for
+    `name: 'Canvas'|'Dashboard'`, `title="Orchestra Canvas"|"Session Analytics"`, and top-nav
+    `getByRole('tab', { name: 'Thoth'|'Setup'|'Settings'|'Marketplace' })`): no hits.
+- Reviews (section "Batch 7" of the combined files):
+  - Internal code-logic-reviewer ACCEPT 9/10, no findings.
+  - Glm ACCEPT 9/10.
+    - MINOR 1 (comment drift, `canvas-orchestra:41-42`): FIXED in revision 1 (comment-only).
+    - MINOR 2 (the `[title="Canvas"]`-style fallbacks can never match): ACCEPTED, harmless fallbacks.
+    - MINOR 3 (report line numbers): FIXED with a report note in revision 1.
 
 ## Completion gate (Mode 3)
 
