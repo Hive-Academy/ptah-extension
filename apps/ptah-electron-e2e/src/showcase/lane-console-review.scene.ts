@@ -38,8 +38,12 @@ async function visible(locator: Locator): Promise<boolean> {
 }
 
 // Local copies of the canvas-orchestra navigation/create/send/cleanup patterns.
+// The shell keeps one canvas per workspace mounted but hidden, so every
+// canvas-level locator is narrowed to the visible (active-workspace) copy.
 async function goToCanvas(page: Page, director: Director): Promise<void> {
-  const grid = page.locator('[data-testid="canvas-grid"]');
+  const grid = page
+    .locator('[data-testid="canvas-grid"]')
+    .filter({ visible: true });
   if (!(await visible(grid))) {
     await director.click(
       page.getByRole('button', {
@@ -52,31 +56,38 @@ async function goToCanvas(page: Page, director: Director): Promise<void> {
 }
 
 async function createTile(page: Page, director: Director): Promise<void> {
-  const fab = page.locator('[title="Add new session tile"]').first();
-  await director.click(
-    (await visible(fab))
-      ? fab
-      : page
-          .getByRole('button', { name: 'Create new session', exact: true })
-          .first(),
-  );
-  await director.type(
-    page.locator('input[placeholder*="session name" i]:visible').last(),
-    'lane-review',
-  );
-  await director.click(
-    page.getByRole('button', { name: 'Create', exact: true }),
-  );
+  // Wait for the app to finish booting: either the dock's New Session button
+  // (tiles exist) or the empty-state New Session CTA (no tiles yet).
+  const newSession = page
+    .locator('[title="Add new session tile"]')
+    .or(page.getByRole('button', { name: 'Create new session', exact: true }))
+    .filter({ visible: true })
+    .first();
+  await newSession.waitFor({ state: 'visible', timeout: 90_000 });
+  await director.click(newSession);
+
+  const nameInput = page
+    .locator('input[placeholder*="session name" i]')
+    .filter({ visible: true })
+    .last();
+  await nameInput.waitFor({ state: 'visible', timeout: 15_000 });
+  await director.type(nameInput, 'lane-review');
+
+  const create = page
+    .getByRole('button', { name: 'Create', exact: true })
+    .filter({ visible: true })
+    .first();
+  await create.waitFor({ state: 'visible', timeout: 15_000 });
+  await director.click(create);
 }
 
 async function sendPromptToTile(
   director: Director,
   tile: Locator,
 ): Promise<void> {
-  await director.type(
-    tile.locator('ptah-chat-input textarea[role="combobox"]'),
-    PROMPT,
-  );
+  const input = tile.locator('ptah-chat-input textarea[role="combobox"]');
+  await input.waitFor({ state: 'visible', timeout: 30_000 });
+  await director.type(input, PROMPT);
   await director.click(tile.locator('[data-testid="chat-send-btn"]'));
 }
 
@@ -86,6 +97,7 @@ function reviewTile(page: Page): Locator {
     .filter({
       has: page.locator('.tile-header span', { hasText: /^lane-review$/ }),
     })
+    .filter({ visible: true })
     .first();
 }
 
@@ -180,6 +192,12 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
   page,
   director,
 }, testInfo) => {
+  // Manual mode: record while a person drives the app; ends when the window closes.
+  if (process.env['PTAH_LANE_REVIEW_MANUAL'] === '1') {
+    test.setTimeout(0);
+    await page.waitForEvent('close', { timeout: 0 });
+    return;
+  }
   test.setTimeout(20 * 60_000);
   page.setDefaultTimeout(8_000);
   const tile = reviewTile(page);
