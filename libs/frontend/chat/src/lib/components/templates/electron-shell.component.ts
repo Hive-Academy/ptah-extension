@@ -2,12 +2,11 @@
  * Electron Shell Component
  *
  * Top-level layout for the Electron desktop application.
- * Uses a single workspace gate before showing the main app:
- *   1. Workspace gate — users without a folder open see the open-folder page
- *   2. Main app — users with a workspace get the 3-panel layout
+ * Shows the welcome page or a configuration surface before a workspace opens.
+ * With a workspace, the main app uses the 3-panel layout.
  *
  * 3-panel layout:
- *   - Global navbar: Logo, theme toggle, settings, git toggle
+ *   - Global navbar: Logo, configuration menu, theme toggle, notifications
  *   - Workspace sidebar (left) — folder list
  *   - Chat panel (center) — reuses AppShellComponent entirely
  *   - Git dock (right, toggleable) — git status, source control, diff view
@@ -23,20 +22,18 @@ import {
   effect,
   untracked,
   Type,
+  ElementRef,
+  viewChild,
+  afterNextRender,
+  Injector,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
 import {
   LucideAngularModule,
-  Settings,
   BarChart3,
-  Zap,
-  Bot,
-  GitBranch,
-  Sparkles,
+  ArrowLeft,
   LayoutGrid,
-  Wrench,
-  Store,
-  RadioTower,
   Scale,
   ClipboardList,
 } from 'lucide-angular';
@@ -44,10 +41,12 @@ import {
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
+  SurfaceRouterService,
   NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
+import { GlobalConfigMenuComponent } from '../molecules/global-config-menu.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
   SidebarTabComponent,
@@ -67,6 +66,8 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
     SidebarTabComponent,
     ElectronResizeHandleComponent,
     NgComponentOutlet,
+    RouterOutlet,
+    GlobalConfigMenuComponent,
     ThemeToggleComponent,
     LucideAngularModule,
     NotificationCenterComponent,
@@ -126,51 +127,19 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
               class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'chat'"
               [attr.aria-selected]="appState.currentView() === 'chat'"
-              title="Orchestra Canvas"
+              title="Chat"
               (click)="onCanvasTab()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
-              Canvas
+              Chat
             </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'analytics'"
-              [attr.aria-selected]="appState.currentView() === 'analytics'"
-              title="Session Analytics"
-              (click)="openDashboard()"
-            >
-              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              Dashboard
-            </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'thoth'"
-              [attr.aria-selected]="appState.currentView() === 'thoth'"
-              title="Thoth — agentic platform"
-              (click)="openThoth()"
-            >
-              <lucide-angular [img]="RadioTowerIcon" class="w-3.5 h-3.5" />
-              Thoth
-            </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'tribunal'"
-              [attr.aria-selected]="appState.currentView() === 'tribunal'"
-              title="Tribunal — multi-vendor panel"
-              (click)="openTribunal()"
-            >
-              <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
-              Tribunal
-            </button>
+            <!-- Apps tab (TASK_2026_494) renders between Chat and Tasks -->
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'tasks'"
               [attr.aria-selected]="appState.currentView() === 'tasks'"
-              title="Tasks — .ptah/specs board"
+              title="Tasks"
               (click)="openTasks()"
             >
               <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
@@ -179,35 +148,24 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'setup-hub'"
-              [attr.aria-selected]="appState.currentView() === 'setup-hub'"
-              title="Setup Hub"
-              (click)="openSetupHub()"
+              [class.tab-active]="appState.currentView() === 'tribunal'"
+              [attr.aria-selected]="appState.currentView() === 'tribunal'"
+              title="Tribunal"
+              (click)="openTribunal()"
             >
-              <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
-              Setup
+              <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
+              Tribunal
             </button>
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'marketplace'"
-              [attr.aria-selected]="appState.currentView() === 'marketplace'"
-              title="Marketplace"
-              (click)="openMarketplace()"
+              [class.tab-active]="appState.currentView() === 'analytics'"
+              [attr.aria-selected]="appState.currentView() === 'analytics'"
+              title="Analytics"
+              (click)="openDashboard()"
             >
-              <lucide-angular [img]="StoreIcon" class="w-3.5 h-3.5" />
-              Marketplace
-            </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.currentView() === 'settings'"
-              [attr.aria-selected]="appState.currentView() === 'settings'"
-              title="Settings"
-              (click)="openSettings()"
-            >
-              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-              Settings
+              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+              Analytics
             </button>
           </div>
         }
@@ -215,25 +173,45 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
         <!-- Spacer (right) -->
         <div class="flex-1"></div>
 
-        <!-- Global actions — theme only (navigation moved to pills).
+        <!-- Global actions: configuration, theme and notifications.
              The back-office activity ticker never sits in this row: an
              arriving message would resize this cluster and shift the tab
              strip (TASK_2026_405). It lives in the canvas dock row instead,
              pinned to that row's free left edge. -->
         <div class="flex items-center gap-0.5 no-drag">
-          <!-- Theme toggle (always available) -->
+          @if (
+            !layout.hasWorkspaceFolders() &&
+            appState.openConfigurationSurface() !== null
+          ) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-square"
+              aria-label="Back to welcome"
+              data-test="config-back-to-welcome"
+              (click)="appState.setCurrentView('chat')"
+            >
+              <lucide-angular
+                [img]="ArrowLeftIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            </button>
+          }
+          <ptah-global-config-menu />
           <ptah-theme-toggle />
           <ptah-notification-center />
         </div>
       </div>
 
-      <!-- Content: Workspace gate → 3-panel layout -->
-      <!-- Gate 1: Workspace check (need a folder open to use the app) -->
-      @if (!layout.hasWorkspaceFolders()) {
+      <!-- Content: welcome, pre-workspace configuration, or workspace layout. -->
+      @if (
+        !layout.hasWorkspaceFolders() &&
+        appState.openConfigurationSurface() === null
+      ) {
         <ptah-electron-welcome class="flex-1" />
-      }
-      <!-- Gate 2: Workspace with folder — show main app -->
-      @else {
+      } @else if (!layout.hasWorkspaceFolders()) {
+        <div class="h-full w-full"><router-outlet /></div>
+      } @else {
         <!-- 3-Panel Content Area -->
         <div class="flex flex-1 overflow-hidden">
           <!-- Workspace sidebar (toggleable) -->
@@ -260,7 +238,12 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
           }
 
           <!-- Chat panel (reuses entire AppShellComponent) -->
-          <div class="flex-1 min-w-[400px] overflow-hidden">
+          <div
+            #configurationSurfaceHost
+            data-test="configuration-surface-host"
+            tabindex="-1"
+            class="flex-1 min-w-[400px] overflow-hidden outline-none"
+          >
             <ptah-app-shell class="h-full w-full" />
           </div>
 
@@ -319,6 +302,11 @@ export class ElectronShellComponent {
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
+  private readonly surfaceRouter = inject(SurfaceRouterService);
+  private readonly injector = inject(Injector);
+  private readonly configurationSurfaceHost = viewChild<
+    ElementRef<HTMLElement>
+  >('configurationSurfaceHost');
 
   /** Lazily loaded GitDockComponent — keeps xterm/monaco out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);
@@ -339,6 +327,30 @@ export class ElectronShellComponent {
     // layout was removed. Force grid mode so a returning user with a persisted
     // 'single' layoutMode still lands on the canvas.
     this.appState.setLayoutMode('grid');
+
+    let lastHandledTick = this.appState.configurationSurfaceRemountTick();
+    effect(() => {
+      const tick = this.appState.configurationSurfaceRemountTick();
+      if (tick === lastHandledTick) return;
+      lastHandledTick = tick;
+      if (tick === 0) return;
+      untracked(() => {
+        if (this.surfaceRouter.pendingSurface() !== null) return;
+        const host = this.configurationSurfaceHost()?.nativeElement;
+        const active = document.activeElement;
+        const wasInside = !!host && !!active && host.contains(active);
+        this.surfaceRouter.remountActiveSurface();
+        afterNextRender(
+          () => {
+            const renderedHost = this.configurationSurfaceHost()?.nativeElement;
+            if (active === document.body || !active?.isConnected || wasInside) {
+              renderedHost?.focus();
+            }
+          },
+          { injector: this.injector },
+        );
+      });
+    });
 
     effect(() => {
       if (
@@ -363,16 +375,9 @@ export class ElectronShellComponent {
   protected retryDockLoad(): void {
     this.dockLoadFailed.set(false);
   }
-  readonly SettingsIcon = Settings;
   readonly BarChart3Icon = BarChart3;
-  readonly ZapIcon = Zap;
-  readonly BotIcon = Bot;
-  readonly GitBranchIcon = GitBranch;
-  readonly SparklesIcon = Sparkles;
+  readonly ArrowLeftIcon = ArrowLeft;
   readonly LayoutGridIcon = LayoutGrid;
-  readonly WrenchIcon = Wrench;
-  readonly StoreIcon = Store;
-  readonly RadioTowerIcon = RadioTower;
   readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -383,27 +388,8 @@ export class ElectronShellComponent {
     this.appState.setCurrentView('chat');
   }
 
-  openSettings(): void {
-    this.appState.setCurrentView('settings');
-  }
-
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
-  }
-
-  openThoth(): void {
-    if (!this.appState.thothFirstRunDismissed()) {
-      this.appState.dismissThothFirstRun();
-    }
-    this.appState.setCurrentView('thoth');
-  }
-
-  openSetupHub(): void {
-    this.appState.setCurrentView('setup-hub');
-  }
-
-  openMarketplace(): void {
-    this.appState.setCurrentView('marketplace');
   }
 
   openTribunal(): void {

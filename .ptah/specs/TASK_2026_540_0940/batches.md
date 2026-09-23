@@ -1,6 +1,6 @@
 # Batches - TASK_2026_540_0940
 
-Total tasks: 23 | Batches: 7 | Complete: 2/7
+Total tasks: 23 | Batches: 7 | Complete: 3/7
 
 Worktree root (every path below is under it): `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu`
 Task folder: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940`
@@ -77,12 +77,13 @@ Assumptions:
 | --- | --- | --- |
 | RA. `remountActiveSurface()` relies on `OutletContext` (`outlet`, `route`, `injector`) plus `deactivate`/`activateWith`. They are public, but a misuse (for example capturing `ctx.route` after `deactivate`) throws or re-creates nothing. | MEDIUM | Task 2.1 captures `route` and `injector` BEFORE `deactivate()`. Task 2.2 pins a new instance, the same URL, no `NavigationStart`, the child-route variant, and the no-op cases (no outlet, not activated). |
 | RB. First folder opened while the bare outlet shows a surface: the stay-branch tick bump and the gate flip (branch 2 → 3) land in the same pass. The shell effect may remount the bare-outlet component moments before the flip re-creates it again inside `ptah-app-shell`. That is churn, not breakage (plan-review re-review, "Rest of revision 2"). | LOW | Task 4.3 pins the flip: the routed surface stays and no error is thrown. |
-| RC. Finding-4 race. A code-workspace navigation started under the outgoing workspace lands after the stay-branch, before the next change detection. The shell effect then remounts that surface (tasks, tribunal and analytics are component routes; chat is component-less, so nothing happens there). The surface is re-created against the new workspace: harmless, and consistent with the stamp finding 4 accepts. | LOW | Reviewers of Batch 1 and Batch 4 confirm; Task 1.2 pins the stamp. No extra guard: adding one would be a design change. |
+| RC. Finding-4 race. A code-workspace navigation started under the outgoing workspace lands after the stay-branch, before the next change detection. The shell effect then remounts that surface (tasks, tribunal and analytics are component routes; chat is component-less, so nothing happens there). The surface is re-created against the new workspace: harmless, and consistent with the stamp finding 4 accepts. | LOW | Reviewers of Batch 1 and Batch 4 confirm; Task 1.2 pins the stamp. Narrowed since Batch 2: the shell effect skips or defers the remount while `pendingSurface()` is non-null (Task 4.1 rule 1, Task 4.3 case 11), so a navigation still in flight is never remounted early. |
 | RD. A2 (plan): a re-created surface can still show stale data because of a service-level cache in its lib (for example `providers-settings-state.service.ts:1060-1065`). | MEDIUM | Manual fresh-data spot check on all four surfaces (Batch 4 verification). A stale pane becomes a separate batch owned by that pane's lib, raised to the orchestrator; it is not fixed inside this run. |
 | RE. Focus theft after a remount (R2-4). | LOW | Task 4.1 moves focus only when `document.activeElement` is `body`, is disconnected, or was inside the host before the remount; `outline-none` on the host. Pinned in Task 4.3. |
 | RF. The shell now injects `SurfaceRouterService`, and its specs override `imports: []`. The activity-placement spec may need a `SurfaceRouterService` stub, and the gate spec needs a real `RouterOutlet` or `provideRouter([])` (R2 "Rest"). | LOW | Tasks 4.2 and 4.3. |
 | RG. macOS: the dropdown backdrop (`fixed inset-0`, `native-dropdown.component.ts:223-228`) overlies the `titlebar-drag` navbar while the menu is open (finding 11). | LOW | Manual check (Batch 4 verification). A drag region blocked only while the menu is open is accepted by the plan. |
 | RH. The Electron Playwright suites are not run per batch (`ptah-electron-e2e` batches run lint and typecheck only). | MEDIUM | Completion gate: the Electron e2e run, recommended to QA. The harness e2e run is in Batch 4. |
+| RJ. A tick bump that arrives while a navigation is in flight skips the remount (Task 4.1 rule 1). If that navigation is then cancelled or fails, the configuration surface stays on screen with the component built before the switch (possibly stale data, as in RD) until the user navigates. | LOW | Accepted (team-leader decision at Batch 4). The window is the debounce between a workspace click and a surface click. Covered by the RD manual fresh-data check; a later task can add deferral if it shows up. |
 | RI. Scenes lose tab-driven camera beats (plan risk). | LOW | Task 5.1's Director-driven helper keeps a recorded click on the trigger and the item; prewarm stays silent. |
 
 Edge cases:
@@ -237,13 +238,17 @@ Edge cases:
     - MINOR: the report overstated the evidence for RA. FIXED in revision 1.
     - MINOR: no `loadChildren` test. ACCEPTED; it belongs to TASK_2026_533 once its marketplace `loadChildren` route
       lands, because the mechanism does not vary by eager or lazy route (the reviewer confirmed this in the Router source).
-  - Glm verdict: MISSING (Ollama 429, not retried). Codex implemented this batch, so it cannot stand in. The internal
-    verdict is the gate.
+  - Glm verdict (received after commit, `batch-2-3-glm-review.md`): ACCEPT 9/10, 3 MINOR, all ACCEPTED with no new commit
+    (orchestrator decision, team-leader concurs):
+    - The JSDoc does not say that errors from the re-created component propagate. Batch 4 Task 4.1 rule 3 carries this
+      at the call site.
+    - The `(activate)`/`(deactivate)` claim is not pinned by a test. It is documentation only, and no listener exists.
+    - The capture order is defensive, not load-bearing. This is the same point as the internal RA note above.
 - RA: the capture-before-deactivate order is implemented. As the reviewer notes, today's tests prove the outcome but
   not the ordering itself; the order is kept as a defensive pattern. Recorded as addressed in code, not pinned by a test.
 - Carried forward: the reviewer's call-site instructions are folded into Task 4.1.
 
-## Batch 3: Chat — GlobalConfigMenuComponent — IMPLEMENTED
+## Batch 3: Chat — GlobalConfigMenuComponent — COMPLETE (commit a8f8e2c69)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -254,7 +259,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 - Reviewers: internal code-logic-reviewer (batch-3-internal-review.md) + Glm lane ("Batch 3" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 3.1: GlobalConfigMenuComponent — IMPLEMENTED
+### Task 3.1: GlobalConfigMenuComponent — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\molecules\global-config-menu.component.ts` (CREATE)
 - Plan reference: implementation-plan.md:369-395 (Decisions 3, 4), :417-426 (Component 1), :454 (Data flow 1), :509 (the ordering fact for 533); plan-review.md:187-194 (instruction 4)
@@ -263,7 +268,7 @@ Edge cases:
 - Validation notes: menu edge cases in the list above.
 - Implementation details: selector `ptah-global-config-menu`; `isOpen = signal(false)`. Items in order: thoth ("Thoth", title "Thoth — agentic platform", `RadioTower`), setup-hub ("Setup hub", `Wrench`), marketplace ("Marketplace", `Store`), settings ("Settings", `Settings`). The trigger icon is `SlidersHorizontal`: confirm it is exported by `lucide-angular` (grep `node_modules/lucide-angular`) before use. Trigger: `type="button"`, `data-test="config-menu-trigger"`, `aria-label="Configuration"`, `[attr.aria-expanded]`, `(click)` toggle, and a highlight (`text-primary` / `bg-base-300`) when `openConfigurationSurface() !== null`. Panel `content` div: `(keydown.escape)` closes and refocuses the trigger; `(keydown.arrowdown)` / `(keydown.arrowup)` roving focus with `preventDefault()` and wrap. Items: `type="button"`, `data-test="config-menu-item-<id>"`, `[attr.aria-current]` = `'true'` or `null`, plus a highlight class. `selectItem(id, trigger)`: close, refocus the trigger, then for thoth only and only when `!thothFirstRunDismissed()` call `dismissThothFirstRun()`, then `setCurrentView(id)`, and no other navigation method. `(closed)` sets `isOpen` false; `(opened)` focuses the first item.
 
-### Task 3.2: Menu spec — IMPLEMENTED
+### Task 3.2: Menu spec — COMPLETE
 
 - Depends on: Task 3.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\molecules\global-config-menu.component.spec.ts` (CREATE)
@@ -298,10 +303,15 @@ Edge cases:
   - MINOR 2 — ACCEPTED, informational. If Floating UI positioning never resolves, `(opened)` never fires. That is a
     pre-existing property of `NativeDropdownComponent` shared with the `background-agent-strip` precedent, not a Batch 3
     defect. Belongs to any later task that hardens the primitive.
-- Glm verdict: MISSING (Ollama 429, not retried). Codex implemented this batch, so the internal verdict is the gate.
+- Glm verdict (received after commit, `batch-2-3-glm-review.md`): ACCEPT 9/10, 3 MINOR, pattern-level, all ACCEPTED with no
+  new commit (orchestrator decision, team-leader concurs):
+  - The arrow keys do nothing until `(opened)` fires. This is the same inherited primitive property as MINOR 2.
+  - There is no `aria-haspopup` on the trigger. `panelRole` is null (a panel of action buttons, not a menu role), which
+    matches the precedent and criterion 6. A candidate for a later accessibility pass.
+  - One spec branch cannot be reached behind the backdrop. This concerns test coverage only.
 - Carried forward: the reviewer's "Instructions for Batch 4" are folded into Task 4.1.
 
-## Batch 4: Chat — Electron shell: tab set, menu mount, three-branch gate, remount effect — PENDING
+## Batch 4: Chat — Electron shell: tab set, menu mount, three-branch gate, remount effect — IMPLEMENTED
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -312,7 +322,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`, then the harness e2e `npx nx run @ptah-extension/webview-e2e-harness:e2e` (scenarios boot-progress and activity-ticker both mount `ElectronShellComponent`)
 - Reviewers: internal code-logic-reviewer (batch-4-internal-review.md) + Glm lane ("Batch 4" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 4.1: ElectronShellComponent — PENDING
+### Task 4.1: ElectronShellComponent — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.component.ts` (MODIFY)
 - Plan reference: implementation-plan.md:288-320 (Decision 2 items 1-4), :437-444 (Component 3), :511 (Apps slot); overrides 1, 3, 6 (:9-28, :34-36); plan-review.md:195-200 (instruction 5), :297-305 (R2-4)
@@ -320,9 +330,12 @@ Edge cases:
 - Quality requirements: criteria 4, 5, 8-13, 19-21. No edits to `app-shell.component.*`, `app.routes.ts` or `webview-surface.types.ts`. No `[class.hidden]`. No keyed `@for` around `ptah-app-shell` (override 1 replaces Decision 2 item 5).
 - Validation notes: RB, RC, RE. Gate-flip edge cases. The Batch 2 reviewer's call-site instructions are binding
   (`batch-2-internal-review.md:138-143`):
-  1. Never call `remountActiveSurface()` unconditionally from the tick effect. First check `surfaceRouter.pendingSurface()`.
-     If it is non-null (a navigation is in flight), skip this tick's remount or defer it until the navigation settles
-     (for example, re-check on the next `NavigationEnd` / `currentSurface()` change). A spec case in Task 4.3 pins the skip.
+  1. Never call `remountActiveSurface()` unconditionally from the tick effect. First check `surfaceRouter.pendingSurface()`
+     (read inside `untracked`). If it is non-null (a navigation is in flight), SKIP this tick's remount; do not defer.
+     Team-leader decision: a navigation that lands after the switch constructs its component against the new workspace
+     anyway, so a deferred remount would only rebuild it a second time. The residual case (the in-flight navigation is
+     cancelled or fails, and the configuration surface stays with data from before the switch) is accepted as risk RJ.
+     Task 4.3 case 11 pins the skip.
   2. Call it only from the effect, inside `untracked`, reading the tick just to trigger it. Never call it inside
      `AppStateManager.switchWorkspace` (`workspaceInfo` is set after the coordinator returns, `electron-layout.service.ts:486-503`).
   3. `remountActiveSurface()` does not catch errors thrown by the re-created component's constructor or `ngOnInit`. Do not
@@ -346,23 +359,23 @@ Edge cases:
   - Mount `<ptah-global-config-menu />` in the `no-drag` cluster, immediately left of `<ptah-theme-toggle />` (relative import `../molecules/global-config-menu.component`).
   - Three-branch gate (plan :294-310): welcome when `!hasWorkspaceFolders() && openConfigurationSurface() === null`; `@else if (!hasWorkspaceFolders())` renders `<div class="h-full w-full"><router-outlet /></div>`; `@else` renders the existing 3-panel area. Add `RouterOutlet` to `imports`.
   - Center panel (`:263-265`): keep `ptah-app-shell` un-keyed. Give its wrapper `tabindex="-1"`, `outline-none` and `#configurationSurfaceHost`, read through a `viewChild` signal.
-  - Effect (override 1 + 3): read `appState.configurationSurfaceRemountTick()`, skip `0`, and in `untracked`: record `const active = document.activeElement` and `const wasInside = host?.contains(active)`, call `surfaceRouter.remountActiveSurface()` (inject `SurfaceRouterService` from `@ptah-extension/core`), then in a `queueMicrotask` focus the host only if `active === document.body`, or `!active?.isConnected`, or `wasInside`. Never call the remount synchronously from anything but this effect.
+  - Effect (override 1 + 3): read `appState.configurationSurfaceRemountTick()`, skip `0`, and in `untracked`: return if `surfaceRouter.pendingSurface() !== null` (rule 1); then record `const active = document.activeElement` and `const wasInside = host?.contains(active)`, call `surfaceRouter.remountActiveSurface()` (inject `SurfaceRouterService` from `@ptah-extension/core`), then in a `queueMicrotask` focus the host only if `active === document.body`, or `!active?.isConnected`, or `wasInside`. Never call the remount synchronously from anything but this effect.
   - "Back to welcome" icon button in the `no-drag` cluster, rendered only when `!hasWorkspaceFolders() && openConfigurationSurface() !== null`: `type="button"`, `aria-label="Back to welcome"`, `data-test="config-back-to-welcome"`, `(click)` → `appState.setCurrentView('chat')`.
 
-### Task 4.2: activity-placement spec stub — PENDING
+### Task 4.2: activity-placement spec stub — IMPLEMENTED
 
 - Depends on: Task 4.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.activity-placement.spec.ts` (MODIFY)
 - Plan reference: override 4 (implementation-plan.md:29-30); plan-review.md:307-311 (R2-5)
 - Validation notes: RF. There is NO tab-count re-pin; the three cases at `:130, 135, 142` stay as they are.
-- Implementation details: extend `appStateStub` (`:86-92`) with `openConfigurationSurface` (a signal, `null`) and `configurationSurfaceRemountTick` (a signal, `0`), and make `layoutStub.hasWorkspaceFolders` a writable signal (`true`). If the shell's new `SurfaceRouterService` injection fails under this TestBed, add a `{ provide: SurfaceRouterService, useValue: { remountActiveSurface: jest.fn() } }` stub. Nothing else.
+- Implementation details: extend `appStateStub` (`:86-92`) with `openConfigurationSurface` (a signal, `null`) and `configurationSurfaceRemountTick` (a signal, `0`), and make `layoutStub.hasWorkspaceFolders` a writable signal (`true`). The shell now injects `SurfaceRouterService`, so add a `{ provide: SurfaceRouterService, useValue: { remountActiveSurface: jest.fn(), pendingSurface: () => null } }` stub. Nothing else.
 
-### Task 4.3: config-gate spec — PENDING
+### Task 4.3: config-gate spec — IMPLEMENTED
 
 - Depends on: Task 4.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.config-gate.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:485 (Test plan, gate spec, apart from the keyed-`@for` wording, which override 1 replaces); overrides 3 and 6
-- Pattern to follow: `electron-shell.activity-placement.spec.ts:69-128` (stubs, TestBed), with signal-backed stubs. Branch 2 needs a real `RouterOutlet`: keep the real import in the override (for example `set: { imports: [RouterOutlet], schemas: [CUSTOM_ELEMENTS_SCHEMA] }`) and provide `provideRouter([])` or small test routes. Stub `SurfaceRouterService.remountActiveSurface` with `jest.fn()`.
+- Pattern to follow: `electron-shell.activity-placement.spec.ts:69-128` (stubs, TestBed), with signal-backed stubs. Branch 2 needs a real `RouterOutlet`: keep the real import in the override (for example `set: { imports: [RouterOutlet], schemas: [CUSTOM_ELEMENTS_SCHEMA] }`) and provide `provideRouter([])` or small test routes. Stub `SurfaceRouterService` with `{ remountActiveSurface: jest.fn(), pendingSurface: jest.fn(() => null) }`.
 - Implementation details — cases:
   1. No workspace and `openConfigurationSurface` null: `ptah-electron-welcome` renders; no `router-outlet`, no `ptah-app-shell`.
   2. No workspace and `'settings'` open: one `router-outlet`; no `ptah-app-shell`, no `ptah-electron-welcome`; the back button shows.
@@ -374,7 +387,7 @@ Edge cases:
   8. Setup hub non-configuration target with no workspace (finding 6): `openConfigurationSurface` back to null gives the welcome screen (designed behaviour, pinned).
   9. Tick bump from 0 to 1 calls `remountActiveSurface` exactly once; tick 0 never calls it.
   10. Focus (RE): with focus on `body` the host receives focus after the bump; with focus on a live control outside the host (for example a navbar button) focus stays there.
-  11. Pending navigation (Batch 2 reviewer instruction 1): with `pendingSurface()` stubbed non-null, a tick bump does NOT call `remountActiveSurface`. If the implementation defers rather than skips, assert that the deferred call runs once after the navigation settles.
+  11. Pending navigation (Batch 2 reviewer instruction 1): with `pendingSurface()` stubbed to return `'tasks'`, a tick bump does NOT call `remountActiveSurface`. With it back to `null`, the next tick bump calls it once.
 
 ### Batch 4 verification
 
@@ -387,6 +400,51 @@ Edge cases:
   with no auth) keeps the welcome screen; close the last workspace while on Settings; open the first folder while on a
   configuration surface; switch workspaces on each of the four surfaces for the fresh-data check (RD); macOS trigger,
   items and backdrop over the title bar (criterion 8, RG)
+
+### Batch 4 outcome
+
+- Executor: `codex` (`batch-4-report.md`, including "Revision 1"). Files: `electron-shell.component.ts`,
+  `electron-shell.activity-placement.spec.ts`, `electron-shell.config-gate.spec.ts` (new).
+- Team-leader check on disk (`electron-shell.component.ts`):
+  - Tab row `:123-171`: Chat, the Apps-slot comment, Tasks, Tribunal, Analytics, with `role="tablist"`, `.electron-tabs`,
+    `role="tab"` and `aria-selected` kept. The Tasks and Tribunal titles were shortened to "Tasks" and "Tribunal" to match
+    gate case 3. Nothing selects the old long titles apart from `app-shell.component.html` (VS Code path, untouched).
+  - The four configuration tabs, their handlers and the unused icons are gone.
+  - `no-drag` cluster `:181-203`: the back button (`data-test="config-back-to-welcome"`, shown with no workspace and a
+    surface open), then `<ptah-global-config-menu />` left of the theme toggle.
+  - Three-branch gate `:207-297`, with a bare `<router-outlet />` in branch 2.
+  - Un-keyed `ptah-app-shell` in a `tabindex="-1"` `outline-none` host with `data-test="configuration-surface-host"`.
+  - Effect `:331-353`: tracks the tick only, holds `lastHandledTick` from construction, skips `0`, runs `untracked`,
+    returns while `pendingSurface()` is non-null, calls `remountActiveSurface()`, then focuses after `afterNextRender`
+    under the three conditions.
+  - Binding rules 1-8 were honoured (no remount elsewhere, no outlet `(activate)`/`(deactivate)` bindings, no menu
+    logic duplicated).
+  - The activity-placement spec diff is the stub extension only. The gate spec covers cases 1-11 plus the revision-1
+    cases (15 tests). No `.skip`, `.only`, `as any` or `@ts-ignore`.
+  - Guards: `app-shell.component.*`, `app.routes.ts` and `webview-surface.types.ts` are untouched. No added line has
+    `class.hidden` or `retain: true`.
+- Orchestrator verification after revision 1 (all `--skip-nx-cache`):
+  - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat` PASS.
+  - `npx nx build ptah-extension-webview` PASS (fresh worktree dist).
+  - `npx nx run @ptah-extension/webview-e2e-harness:e2e`: 71 passed, against the worktree dist. The lane's earlier
+    harness run used the main checkout's bundle and does not count.
+  - ESLint on the changed files: 0 errors, 6 warnings (`no-non-null-assertion`, spec files only).
+- Reviews:
+  - Internal code-logic-reviewer: APPROVE 8/10 (`batch-4-internal-review.md`), 2 MODERATE, both FIXED in revision 1:
+    - Focus after the 2 → 3 flip now uses `afterNextRender` and re-reads the host, with a spec case.
+    - Real route activation in the bare outlet now has a spec case.
+  - Glm: ACCEPT 9/10 (`batch-4-glm-review.md`), 3 MINOR:
+    - MINOR 1 (no remount on construction with a non-zero tick) FIXED: `lastHandledTick` `:331-336`, plus spec case 3 → 4.
+    - MINOR 2 (host selector) FIXED: `data-test="configuration-surface-host"`.
+    - MINOR 3 ACCEPTED: "Back to welcome" does nothing while `canSwitchViews()` is false, the same accepted behaviour as
+      the menu and the removed tabs.
+- Manual checks: NOT RUN, all five CARRIED TO QA. This session has no interactive Electron window, and the machine is
+  Windows, so no macOS. The orchestrator tells the user at Gate 3. The checks:
+  1. No folder open: Settings, then "Back to welcome", including with no auth.
+  2. Close the last workspace while on Settings.
+  3. Open the first folder while on a configuration surface.
+  4. Fresh data after a switch on all four surfaces (RD, RJ).
+  5. macOS title bar and backdrop (criterion 8, RG).
 
 ## Batch 5: E2e — menu helper, driver rename, Thoth-entry scenes — PENDING
 
