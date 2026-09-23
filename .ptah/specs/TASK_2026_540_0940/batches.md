@@ -1,6 +1,6 @@
 # Batches - TASK_2026_540_0940
 
-Total tasks: 23 | Batches: 7 | Complete: 3/7
+Total tasks: 23 | Batches: 7 | Complete: 4/7
 
 Worktree root (every path below is under it): `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu`
 Task folder: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940`
@@ -311,7 +311,7 @@ Edge cases:
   - One spec branch cannot be reached behind the backdrop. This concerns test coverage only.
 - Carried forward: the reviewer's "Instructions for Batch 4" are folded into Task 4.1.
 
-## Batch 4: Chat — Electron shell: tab set, menu mount, three-branch gate, remount effect — IMPLEMENTED
+## Batch 4: Chat — Electron shell: tab set, menu mount, three-branch gate, remount effect — COMPLETE (commit c4454b5d3)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -322,7 +322,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`, then the harness e2e `npx nx run @ptah-extension/webview-e2e-harness:e2e` (scenarios boot-progress and activity-ticker both mount `ElectronShellComponent`)
 - Reviewers: internal code-logic-reviewer (batch-4-internal-review.md) + Glm lane ("Batch 4" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 4.1: ElectronShellComponent — IMPLEMENTED
+### Task 4.1: ElectronShellComponent — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.component.ts` (MODIFY)
 - Plan reference: implementation-plan.md:288-320 (Decision 2 items 1-4), :437-444 (Component 3), :511 (Apps slot); overrides 1, 3, 6 (:9-28, :34-36); plan-review.md:195-200 (instruction 5), :297-305 (R2-4)
@@ -362,7 +362,7 @@ Edge cases:
   - Effect (override 1 + 3): read `appState.configurationSurfaceRemountTick()`, skip `0`, and in `untracked`: return if `surfaceRouter.pendingSurface() !== null` (rule 1); then record `const active = document.activeElement` and `const wasInside = host?.contains(active)`, call `surfaceRouter.remountActiveSurface()` (inject `SurfaceRouterService` from `@ptah-extension/core`), then in a `queueMicrotask` focus the host only if `active === document.body`, or `!active?.isConnected`, or `wasInside`. Never call the remount synchronously from anything but this effect.
   - "Back to welcome" icon button in the `no-drag` cluster, rendered only when `!hasWorkspaceFolders() && openConfigurationSurface() !== null`: `type="button"`, `aria-label="Back to welcome"`, `data-test="config-back-to-welcome"`, `(click)` → `appState.setCurrentView('chat')`.
 
-### Task 4.2: activity-placement spec stub — IMPLEMENTED
+### Task 4.2: activity-placement spec stub — COMPLETE
 
 - Depends on: Task 4.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.activity-placement.spec.ts` (MODIFY)
@@ -370,7 +370,7 @@ Edge cases:
 - Validation notes: RF. There is NO tab-count re-pin; the three cases at `:130, 135, 142` stay as they are.
 - Implementation details: extend `appStateStub` (`:86-92`) with `openConfigurationSurface` (a signal, `null`) and `configurationSurfaceRemountTick` (a signal, `0`), and make `layoutStub.hasWorkspaceFolders` a writable signal (`true`). The shell now injects `SurfaceRouterService`, so add a `{ provide: SurfaceRouterService, useValue: { remountActiveSurface: jest.fn(), pendingSurface: () => null } }` stub. Nothing else.
 
-### Task 4.3: config-gate spec — IMPLEMENTED
+### Task 4.3: config-gate spec — COMPLETE
 
 - Depends on: Task 4.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\chat\src\lib\components\templates\electron-shell.config-gate.spec.ts` (CREATE)
@@ -446,7 +446,7 @@ Edge cases:
   4. Fresh data after a switch on all four surfaces (RD, RJ).
   5. macOS title bar and backdrop (criterion 8, RG).
 
-## Batch 5: E2e — menu helper, driver rename, Thoth-entry scenes — PENDING
+## Batch 5: E2e — menu helper, driver rename, Thoth-entry scenes — IMPLEMENTED
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -457,37 +457,37 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e`
 - Reviewers: internal code-logic-reviewer (batch-5-internal-review.md) + Glm lane ("Batch 5" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 5.1: Shared configuration-menu helper — PENDING
+### Task 5.1: Shared configuration-menu helper — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\_harness\config-menu.ts` (CREATE)
 - Plan reference: implementation-plan.md:406-411, :492; plan-review.md:206-209 (instruction 7)
 - Pattern to follow: `_harness/prewarm.ts` (guarded raw actions, `:15-25` rules); `import type { Director } from './director'` (as `thoth-tour.scene.ts:2` does).
 - Implementation details: `export type ConfigSurfaceId = 'thoth' | 'setup-hub' | 'marketplace' | 'settings'`. `openConfigSurface(page, director, id)` uses `director.click` on `[data-test="config-menu-trigger"]`, waits for `[data-test="config-menu-item-<id>"]`, and `director.click`s it, so the camera beat is recorded. `openConfigSurfaceSilently(page, id)` does the same with raw clicks, visibility-guarded and error-swallowing. `activeConfigSurface(page)` returns the id carrying `aria-current="true"`, or null; it opens the menu silently and closes it with Escape. Selectors are `data-test` only, never labels.
 
-### Task 5.2: Prewarm through the menu, with restore — PENDING
+### Task 5.2: Prewarm through the menu, with restore — IMPLEMENTED
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\_harness\prewarm.ts` (MODIFY)
 - Implementation details: `prewarmThoth` enters Thoth via `openConfigSurfaceSilently(page, 'thoth')`. Before entering, capture both `activeNavTitle` and `activeConfigSurface`. On exit, restore by tab title when one was captured; otherwise, if a configuration surface was captured, restore it through the menu (`activeNavTitle` returns null for configuration surfaces, `:32-39`). `prewarmNavSurface` keeps working for the remaining tabs; update its doc comment. Keep the SILENT / GUARDED / NON-DESTRUCTIVE rules.
 
-### Task 5.3: UI driver Chat rename — PENDING
+### Task 5.3: UI driver Chat rename — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\support\ui-driver.ts` (MODIFY)
 - Implementation details: `:325-328` becomes `getByRole('tab', { name: 'Chat' })` `.or(locator('[title="Chat"]'))`; update the comment at `:320-323`. Nothing else.
 
-### Task 5.4: thoth-tour scene — PENDING
+### Task 5.4: thoth-tour scene — IMPLEMENTED
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\thoth-tour.scene.ts` (MODIFY)
 - Implementation details: `goToThoth` (`:105-126`) calls `openConfigSurface(page, director, 'thoth')` in place of the candidate loop (`:106-122`); keep the `#thoth-tab-memory` wait; update the doc comment.
 
-### Task 5.5: skills-tour scene — PENDING
+### Task 5.5: skills-tour scene — IMPLEMENTED
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\skills-tour.scene.ts` (MODIFY)
 - Implementation details: replace the Thoth tab candidate block (`:68-70`) with `openConfigSurface(page, director, 'thoth')`; keep the following waits.
 
-### Task 5.6: memory-recall scene — PENDING
+### Task 5.6: memory-recall scene — IMPLEMENTED
 
 - Depends on: Task 5.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\memory-recall.scene.ts` (MODIFY)
@@ -498,6 +498,36 @@ Edge cases:
 - Six files contain the work; no `getByRole('tab', { name: 'Thoth' })` remains in them
 - `npx nx run-many -t typecheck,lint -p ptah-electron-e2e` passes
 - Both review verdicts accepting
+
+### Batch 5 outcome
+
+- Executor: `codex` (`batch-5-report.md`, including "Revision 1"). Six files as listed; `config-menu.ts` is new.
+- Team-leader check on disk:
+  - `config-menu.ts`: `data-test` selectors only.
+    - `openConfigSurface` uses `director.click` for the camera beats and clicks the trigger only when the item is not
+      already visible (`:16-21`).
+    - `openConfigSurfaceSilently` and `activeConfigSurface` are raw, visibility-guarded and error-swallowing, and close
+      the menu in `finally`.
+    - `activeConfigSurface` documents its null semantics (`:68-72`).
+  - `prewarm.ts`: enters Thoth through the menu (`:102`) and restores in order: tab title, then configuration surface,
+    then the welcome origin through `[data-test="config-back-to-welcome"]` (`:119-128`). The restore contract (`:82-90`)
+    is scoped to those three origins. The SILENT / GUARDED / NON-DESTRUCTIVE rules are kept.
+  - The three scenes replace their Thoth candidate loops with `openConfigSurface(page, director, 'thoth')`.
+    `ui-driver.ts` changes Canvas → Chat and `[title="Orchestra Canvas"]` → `[title="Chat"]`. No other logic changed.
+- Orchestrator verification after revision 1: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e --skip-nx-cache`
+  PASS. Live scene playback was not run (it needs a built Electron app): CARRIED TO QA.
+- Reviews:
+  - Internal code-logic-reviewer: ACCEPT WITH FIXES 7/10 (`batch-5-internal-review.md`).
+    - SERIOUS (no restore path for untracked origins) FIXED in revision 1. The welcome origin is now restored. Other
+      untracked origins (setup-wizard, harness-builder) stay on Thoth by the documented contract (`prewarm.ts:86-89`),
+      which is the reviewer's second offered fix ("explicitly scope and document the restore contract").
+      Team-leader verified this on disk; the fix has not been re-reviewed by the reviewer.
+    - MODERATE (null conflates "none" and "detection failed") FIXED by documentation (`config-menu.ts:68-72`,
+      `prewarm.ts:88-89`). The return type is unchanged, per the reviewer's own note that it is not independently actionable.
+    - MINOR (close/open race stranding a recorded scene) MITIGATED in revision 1: `openConfigSurface` skips the trigger
+      click when the item is already visible (`config-menu.ts:17`), so a menu left open is no longer toggled shut.
+  - Glm: ACCEPT 9/10 (`batch-5-glm-review.md`), 2 MINOR, both FIXED in revision 1: the welcome-origin restore, and the
+    open menu no longer toggled shut (`config-menu.ts:17, 42`).
 
 ## Batch 6: E2e — remaining configuration-surface scenes — PENDING
 

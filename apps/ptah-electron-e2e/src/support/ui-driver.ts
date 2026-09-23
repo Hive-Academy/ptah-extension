@@ -317,14 +317,13 @@ export class UiDriver {
   public async goto(view: ElectronView): Promise<void> {
     await this.syncWorkspace();
     if (view === 'chat' || view === 'canvas') {
-      // Electron has a single chat surface: the Orchestra Canvas. The old
-      // single-chat "Chat" tab was removed, so both 'chat' and 'canvas' land on
-      // the canvas grid. For 'chat' we additionally ensure one tile is open with
-      // a visible chat input (a tile hosts the full chat surface).
+      // Electron's Chat tab hosts the canvas grid, so both 'chat' and 'canvas'
+      // land on that surface. For 'chat' we additionally ensure one tile is open
+      // with a visible chat input (a tile hosts the full chat surface).
       await this.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
       const tab = this.page
-        .getByRole('tab', { name: 'Canvas' })
-        .or(this.page.locator('[title="Orchestra Canvas"]'))
+        .getByRole('tab', { name: 'Chat' })
+        .or(this.page.locator('[title="Chat"]'))
         .first();
       await tab.waitFor({ state: 'visible' });
       await tab.click({ force: true });
