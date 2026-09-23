@@ -103,7 +103,7 @@ export interface AgentOrchestrationConfig {
   opencodeModel?: string;
   /** Per-CLI model: Pi model (empty string = CLI default). Format is `provider/model`, e.g. `openai/gpt-4o`. */
   piModel?: string;
-  /** Whether a Cursor API key is configured (CURSOR_API_KEY or provider.cursor.apiKey). The raw key is never returned to the UI. */
+  /** Whether a Cursor API key is configured (CURSOR_API_KEY or secrets store entry ptah.auth.provider.cursor). The raw key is never returned to the UI. */
   cursorApiKeyConfigured: boolean;
   /** Codex reasoning effort (empty string = SDK default) */
   codexReasoningEffort: string;
@@ -191,7 +191,7 @@ export interface AgentSetConfigParams {
   opencodeModel?: string;
   /** Pi model override (empty string = CLI default). Format is `provider/model`. */
   piModel?: string;
-  /** Cursor API key. Written to provider.cursor.apiKey in ~/.ptah/settings.json. Empty string clears it. */
+  /** Cursor API key. Written to the secrets store as ptah.auth.provider.cursor. Empty string clears it. */
   cursorApiKey?: string;
   /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
   codexAutoApprove?: boolean;

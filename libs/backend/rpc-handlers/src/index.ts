@@ -90,6 +90,7 @@ export type {
 } from '@ptah-extension/platform-core';
 export * from './lib/host-profile';
 export * from './lib/verify-and-report';
+export { migrateCursorApiKeyToSecrets } from './lib/migrations/cursor-api-key-migration';
 export {
   registerSharedRpcHandlers,
   activateSessionLifecycleNotifier,

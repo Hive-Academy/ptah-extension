@@ -16,7 +16,11 @@
 
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  IAuthSecretsService,
+  Logger,
+  RpcHandler,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -124,6 +128,8 @@ export class AgentRpcHandlers {
     private readonly codexAuthService: CodexAuthService,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly runtimeContainer: DependencyContainer,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
   ) {}
 
   register(): void {
@@ -191,7 +197,7 @@ export class AgentRpcHandlers {
             antigravityModel: this.getAgentCfg<string>('antigravityModel', ''),
             opencodeModel: this.getAgentCfg<string>('opencodeModel', ''),
             piModel: this.getAgentCfg<string>('piModel', ''),
-            cursorApiKeyConfigured: this.isCursorApiKeyConfigured(),
+            cursorApiKeyConfigured: await this.isCursorApiKeyConfigured(),
             codexAutoApprove: this.getAgentCfg<boolean>(
               'codexAutoApprove',
               true,
@@ -264,6 +270,12 @@ export class AgentRpcHandlers {
           fields: Object.keys(params ?? {}),
         });
         // Validate before ANY write so a rejected request changes nothing.
+        if (
+          params.cursorApiKey !== undefined &&
+          typeof params.cursorApiKey !== 'string'
+        ) {
+          return { success: false, error: 'Unsupported cursorApiKey value' };
+        }
         const invalidEffort = invalidReasoningEffort(params);
         if (invalidEffort) {
           return {
@@ -305,10 +317,16 @@ export class AgentRpcHandlers {
           await this.setAgentCfg('piModel', params.piModel);
         }
         if (params.cursorApiKey !== undefined) {
+          const value = params.cursorApiKey.trim();
+          if (value) {
+            await this.authSecrets.setProviderKey('cursor', value);
+          } else {
+            await this.authSecrets.deleteProviderKey('cursor');
+          }
           await this.workspace.setConfiguration(
             'ptah',
             'provider.cursor.apiKey',
-            params.cursorApiKey,
+            undefined,
           );
           this.cliDetection.invalidateCache();
         }
@@ -371,7 +389,12 @@ export class AgentRpcHandlers {
         }
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };
-      } catch (error) {
+      } catch (error: unknown) {
+        // Storage failures can contain credentials; never forward those details.
+        if (params?.cursorApiKey !== undefined) {
+          this.logger.error('RPC: agent:setConfig failed');
+          return { success: false, error: 'Failed to update agent configuration' };
+        }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -1020,20 +1043,15 @@ export class AgentRpcHandlers {
 
   /**
    * Whether a Cursor API key is resolvable — either CURSOR_API_KEY in the
-   * environment or `provider.cursor.apiKey` in ~/.ptah/settings.json. Mirrors
+   * environment or `ptah.auth.provider.cursor` in the secrets store. Mirrors
    * the resolution order in CursorCliAdapter; the raw key is never returned.
    */
-  private isCursorApiKeyConfigured(): boolean {
+  private async isCursorApiKeyConfigured(): Promise<boolean> {
     const envKey = process.env['CURSOR_API_KEY'];
     if (envKey && envKey.trim()) {
       return true;
     }
-    const fileKey = this.workspace.getConfiguration<string>(
-      'ptah',
-      'provider.cursor.apiKey',
-      '',
-    );
-    return !!fileKey && fileKey.trim().length > 0;
+    return this.authSecrets.hasProviderKey('cursor');
   }
 
   /**
