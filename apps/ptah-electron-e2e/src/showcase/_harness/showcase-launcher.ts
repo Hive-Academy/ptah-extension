@@ -84,8 +84,7 @@ export function resolveElectronEntry(): string {
 function resolveResolution(opts: ShowcaseLaunchOptions): ShowcaseRes {
   const fromOpt = opts.resolution;
   const fromEnv = process.env['PTAH_SHOWCASE_RES'] as
-    | ShowcaseResolution
-    | undefined;
+    ShowcaseResolution | undefined;
   const key = fromOpt ?? fromEnv ?? '1080p';
   return RES_TABLE[key] ?? RES_TABLE['1080p'];
 }
@@ -121,6 +120,9 @@ export async function launchShowcase(
   // Intentionally NOT PTAH_E2E — this is a real run, not a mocked test.
 
   const args = [entry];
+  // bootstrapElectron reads the first non-flag argument after the entry.
+  const workspace = process.env['PTAH_SHOWCASE_WORKSPACE'];
+  if (workspace) args.push(path.resolve(workspace));
   // Reuse the authenticated default profile unless a dedicated showcase
   // profile is requested. Omitting --user-data-dir lets Electron use the same
   // default dir as `nx serve`, which is where the auth/provider keys live.
