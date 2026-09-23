@@ -43,7 +43,7 @@ async function visible(locator: Locator): Promise<boolean> {
 async function goToCanvas(page: Page, director: Director): Promise<void> {
   const grid = page
     .locator('[data-testid="canvas-grid"]')
-    .filter({ visible: true });
+    .locator('visible=true');
   if (!(await visible(grid))) {
     await director.click(
       page.getByRole('button', {
@@ -61,21 +61,21 @@ async function createTile(page: Page, director: Director): Promise<void> {
   const newSession = page
     .locator('[title="Add new session tile"]')
     .or(page.getByRole('button', { name: 'Create new session', exact: true }))
-    .filter({ visible: true })
+    .locator('visible=true')
     .first();
   await newSession.waitFor({ state: 'visible', timeout: 90_000 });
   await director.click(newSession);
 
   const nameInput = page
     .locator('input[placeholder*="session name" i]')
-    .filter({ visible: true })
+    .locator('visible=true')
     .last();
   await nameInput.waitFor({ state: 'visible', timeout: 15_000 });
   await director.type(nameInput, 'lane-review');
 
   const create = page
     .getByRole('button', { name: 'Create', exact: true })
-    .filter({ visible: true })
+    .locator('visible=true')
     .first();
   await create.waitFor({ state: 'visible', timeout: 15_000 });
   await director.click(create);
@@ -97,7 +97,7 @@ function reviewTile(page: Page): Locator {
     .filter({
       has: page.locator('.tile-header span', { hasText: /^lane-review$/ }),
     })
-    .filter({ visible: true })
+    .locator('visible=true')
     .first();
 }
 
