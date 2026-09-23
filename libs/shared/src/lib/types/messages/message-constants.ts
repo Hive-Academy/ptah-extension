@@ -164,17 +164,16 @@ export const MESSAGE_TYPES = {
   /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */
   HARNESS_CONFIG_PROPOSED: 'harness:config-proposed',
   /**
-   * Backend → Frontend: an agent proposed a declarative dashboard spec via the
+   * An agent proposed a declarative dashboard spec via the
    * `ptah_dashboard_propose_spec` MCP tool (TASK_2026_493_9f58).
    *
-   * Named after `HARNESS_CONFIG_PROPOSED`, and the same one-way push: the spec
-   * on this message has ALREADY passed `validateDashboardSpec` at the MCP
-   * boundary, and it is always a whole spec — there is no partial or
-   * incremental form of this message, so a renderer never has to decide
-   * whether it has enough of a spec to draw. The UI must read the spec from
-   * this payload and must never parse the tool's text content.
+   * No longer posted to webviews since TASK_2026_538; v1 proposals arrive as
+   * `surface:updated`. This constant stays as the namespace-to-publisher
+   * hand-off type, carrying a whole spec already validated at the MCP boundary.
    */
   DASHBOARD_SPEC_PROPOSED: 'dashboard:spec-proposed',
+  /** Backend → Frontend: the one push for surface changes, v1 proposals included. */
+  SURFACE_UPDATED: 'surface:updated',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',

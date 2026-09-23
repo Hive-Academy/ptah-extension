@@ -127,6 +127,7 @@ import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
 import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { DashboardSpecEnvelope } from '../../../mcp-apps-contracts/dashboard-spec.types';
+import type { SurfaceChange } from '../../../mcp-apps-contracts/surface.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
@@ -242,6 +243,24 @@ export interface DashboardSpecProposedPayload {
   readonly sessionId?: string;
   /** The MCP request id of the `tools/call` that produced this spec. */
   readonly toolCallId: string;
+}
+
+/** Payload for MESSAGE_TYPES.SURFACE_UPDATED ('surface:updated'). */
+export interface SurfaceUpdatedPayload {
+  /** The tabId-or-sessionId routing id, the same value v1 sent as sessionId. */
+  readonly routingId: string;
+  /** Stable id of the surface within this routing id. */
+  readonly surfaceId: string;
+  /** Host revision after this change; a receiver seeing a gap re-reads with surface:read. */
+  readonly revision: number;
+  /** The actor that initiated the surface change. */
+  readonly origin: 'agent' | 'ui' | 'host';
+  /** The committed snapshot, incremental operations, or deletion. */
+  readonly change: SurfaceChange;
+  /** MCP request id of the tools/call that produced the change, when applicable. */
+  readonly toolCallId?: string;
+  /** Mutation operation id that produced the change, when applicable. */
+  readonly operationId?: string;
 }
 
 /**
@@ -364,6 +383,7 @@ export interface MessagePayloadMap {
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
   'dashboard:spec-proposed': DashboardSpecProposedPayload;
+  'surface:updated': SurfaceUpdatedPayload;
   'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
   'file:content-changed': FileContentChangedPayload;

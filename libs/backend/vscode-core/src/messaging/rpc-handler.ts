@@ -87,6 +87,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
   'boot:', // Boot readiness probe (getReadiness) — the renderer's first read
   'peerSession:', // Other Claude Code sessions on this machine (list, send)
+  'surface:', // TASK_2026_538 surface state RPC
 ] as const;
 
 export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';
