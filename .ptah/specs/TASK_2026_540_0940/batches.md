@@ -1,6 +1,6 @@
 # Batches - TASK_2026_540_0940
 
-Total tasks: 23 | Batches: 7 | Complete: 6/7
+Total tasks: 23 | Batches: 7 | Complete: 7/7
 
 Worktree root (every path below is under it): `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu`
 Task folder: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940`
@@ -598,7 +598,7 @@ the surface through a top-nav tab.
 - Commit note: following the orchestrator's staging split, this commit carries the five scenes and `batch-6-report.md`.
   The combined review files and this `batches.md` entry are committed with Batch 7.
 
-## Batch 7: E2e — renamed-tab scenes, residual sweep, branch guard greps — IMPLEMENTED
+## Batch 7: E2e — renamed-tab scenes, residual sweep, branch guard greps — COMPLETE (commit 92030185d)
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -609,17 +609,17 @@ the surface through a top-nav tab.
 - Scoped verification: `npx nx run-many -t typecheck,lint -p ptah-electron-e2e`
 - Reviewers: internal code-logic-reviewer (batch-7-internal-review.md) + Glm lane ("Batch 7" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 7.1: canvas-orchestra scene — IMPLEMENTED
+### Task 7.1: canvas-orchestra scene — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\canvas-orchestra.scene.ts` (MODIFY)
 - Implementation details: `:44-45` `name: 'Canvas'` becomes `name: 'Chat'`, and any `[title="Orchestra Canvas"]` becomes `[title="Chat"]`. Narration and headings are unchanged.
 
-### Task 7.2: chat-code-edit scene — IMPLEMENTED
+### Task 7.2: chat-code-edit scene — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\chat-code-edit.scene.ts` (MODIFY)
 - Implementation details: `:179-181` Canvas becomes Chat and `[title="Orchestra Canvas"]` becomes `[title="Chat"]`; change the doc comment at `:15` only where it names the tab.
 
-### Task 7.3: dashboard-tour scene and residual sweep — IMPLEMENTED
+### Task 7.3: dashboard-tour scene and residual sweep — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\apps\ptah-electron-e2e\src\showcase\dashboard-tour.scene.ts` (MODIFY)
 - Implementation details: `:53-56` Dashboard becomes Analytics (`name: 'Analytics'`, `[title="Analytics"]`). Then grep `apps/ptah-electron-e2e/src` and `libs/frontend/webview-e2e-harness/src` for `name: 'Canvas'`, `name: 'Dashboard'`, `title="Orchestra Canvas"`, `title="Session Analytics"`, and a top-nav `getByRole('tab', { name: 'Thoth' | 'Setup' | 'Settings' | 'Marketplace' })`. List every hit in `batch-7-report.md`. The canvas headings `landing-page-tour.scene.ts:242` and `specs/git/hunk-revert-top-layer.spec.ts:199` are expected and stay. When run in parallel with Batch 6, hits in Batch 6's five files are expected and only listed; the team-leader re-runs the sweep after both commits. Report other hits; do not edit them.
@@ -665,3 +665,39 @@ the surface through a top-nav tab.
 - Batch 4's manual checks recorded as run, or as carried to QA
 - Tell TASK_2026_533 where the global write lives and that the remount is `SurfaceRouterService.remountActiveSurface()`
   (outlet re-activation, the child URL is preserved) — the orchestrator's message; 533 also wants to be told when 540 is merged (the merge is the user's action)
+
+## Completion (Mode 3, team-leader)
+
+- All 7 batches and 23 tasks are COMPLETE. Commit SHAs, verified with `git cat-file` and all ancestors of branch HEAD
+  `92030185d`: 78a3b0546, 378e97f82, a8f8e2c69, c4454b5d3, 5584cdb80, 48862a1d0, 92030185d.
+- All 23 code files named across the batches exist and are tracked. The diff against `origin/main`, excluding `.ptah`,
+  is 23 files, +1724 / -306.
+- Every batch passed review before its commit. Two exceptions, both recorded on the batch: for Batches 2 and 3 the Glm
+  verdict arrived after the commit (ACCEPT 9/10 each, MINORs accepted), and Batch 1's outside review was codex standing
+  in for Glm.
+- Branch guards (Batch 7 outcome): no added `class.hidden` / `retain: true`; `webview-surface.types.ts`,
+  `app.routes.ts` and `app-shell.component.*` are untouched; the residual selector sweep is clean.
+- Full-suite gate: run by the orchestrator (result recorded in the Mode 3 return, not here).
+
+| Validation risk | Resolution |
+| --- | --- |
+| RA — outlet context capture order | Implemented (capture before `deactivate`, `surface-router.service.ts`). The outcome is pinned by the 4 remount spec cases. The ordering itself is not pinned: accepted as defensive (Batch 2). |
+| RB — first-folder flip plus tick in one pass | Pinned by gate spec cases "opens the first workspace with a tick bump…" and "focuses the rendered configuration host when the first workspace opens…" (Batch 4). |
+| RC — finding-4 in-flight navigation | Pinned by app-state spec case 8 (Batch 1). Narrowed by the `pendingSurface()` skip in the shell effect, pinned by gate spec case 11 (Batch 4). |
+| RD — stale service-level caches after remount | CARRIED TO QA (manual fresh-data check on all four surfaces). |
+| RE — focus theft after remount | Implemented (three focus conditions, `afterNextRender`); pinned by two gate spec focus cases (Batch 4). |
+| RF — spec stubs for the new shell dependencies | Done: activity-placement stub extended; gate spec uses a real `RouterOutlet` (Batch 4). |
+| RG — macOS backdrop over the title bar | CARRIED TO QA (manual macOS check; no macOS machine in this session). |
+| RH — Electron Playwright suites not run per batch | CARRIED TO QA: the `ptah-electron-e2e:e2e` run plus showcase scene playback. The harness e2e passed (71) in Batch 4. |
+| RI — scene camera beats | `openConfigSurface` drives `director.click` on trigger and item (Batches 5, 6). Live playback is CARRIED TO QA. |
+| RJ — skipped remount when an in-flight navigation is cancelled | Accepted LOW (Batch 3 decision). Covered by the RD manual check. |
+
+Carried to QA:
+
+1. No folder open: Settings, then "Back to welcome", also with no auth.
+2. Close the last workspace while on Settings.
+3. Open the first folder while on a configuration surface.
+4. Switch workspace on each of the four surfaces and check for fresh data (RD, RJ).
+5. macOS: trigger, items and backdrop over the title bar (criterion 8, RG).
+6. `ptah-electron-e2e:e2e` run and showcase scene playback (RH, RI).
+7. VS Code webview spot check: no menu, unchanged navigation (criterion 19).
