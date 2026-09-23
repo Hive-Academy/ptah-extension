@@ -104,11 +104,25 @@ export function summarizeFinalized(
   context: CompactSummaryContext,
 ): CompactSessionSummary {
   const items: SemanticItem[] = [];
+  let latestTurnStart = 0;
+  let terminalTime: number | undefined;
   for (const message of messages) {
+    if (message.role === 'user') {
+      latestTurnStart = items.length;
+      terminalTime = undefined;
+      continue;
+    }
     if (!message.streamingState) continue;
     collectFinalizedNode(message.streamingState, items, context.workspacePath);
+    terminalTime = message.streamingState.endTime;
   }
-  return buildSummary(items.slice(-MAX_ITEMS), context);
+  const omitted = Math.max(0, items.length - MAX_ITEMS);
+  return buildSummary(
+    items.slice(omitted),
+    context,
+    Math.max(0, latestTurnStart - omitted),
+    terminalTime,
+  );
 }
 
 function liveItems(
@@ -277,17 +291,29 @@ function collectFinalizedNode(
   }
 }
 
-/**
- * A turn that failed with a terminal error reason ends with the provider
- * error as its final assistant message, so the newest prose item IS that
- * turn's error result. The recap's FAILED tag derives from the same
- * terminal reason, so the feed row re-tones through that signal instead of
- * a new text match on the message content.
- */
-function markFailedTurnProse(
+// Badge error tones also cover limits and deliberate stops. Only genuine
+// failures may change assistant prose into an error result.
+const FAILURE_REASONS: ReadonlySet<SdkTerminalReason> = new Set([
+  'prompt_too_long',
+  'image_error',
+  'model_error',
+  'api_error',
+  'malformed_tool_use_exhausted',
+  'tool_deferred_unavailable',
+  'structured_output_retry_exhausted',
+  'turn_setup_failed',
+]);
+
+function markFailedTurn(
   items: readonly SemanticItem[],
+  context: CompactSummaryContext,
+  latestTurnStart: number,
+  terminalTime?: number,
 ): readonly SemanticItem[] {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
+  const reason = context.terminalReason;
+  const status = terminalStatus(reason);
+  if (!reason || !FAILURE_REASONS.has(reason) || !status) return items;
+  for (let index = items.length - 1; index >= latestTurnStart; index -= 1) {
     if (items[index].kind === 'prose') {
       return [
         ...items.slice(0, index),
@@ -296,17 +322,40 @@ function markFailedTurnProse(
       ];
     }
   }
-  return items;
+  // Live message_complete already supplies a terminal mark. Reuse it instead
+  // of adding a second row; finalized trees do not otherwise emit terminals.
+  const terminalIndex = items.findIndex(
+    (item, index) => index >= latestTurnStart && item.kind === 'terminal',
+  );
+  const existing = items[terminalIndex];
+  const label = status.text;
+  const terminal: SemanticItem = {
+    id: existing?.id ?? 'terminal:failure',
+    kind: 'terminal',
+    tone: 'error',
+    label,
+    text: label,
+    contentKind: 'error',
+    timestamp:
+      terminalTime ??
+      existing?.timestamp ??
+      Math.max(0, ...items.map((item) => item.timestamp)),
+  };
+  return [...items.filter((_, index) => index !== terminalIndex), terminal];
 }
 
 function buildSummary(
   items: readonly SemanticItem[],
   context: CompactSummaryContext,
+  latestTurnStart = 0,
+  terminalTime?: number,
 ): CompactSessionSummary {
-  const semanticItems =
-    terminalStatus(context.terminalReason)?.tone === 'error'
-      ? markFailedTurnProse(items)
-      : items;
+  const semanticItems = markFailedTurn(
+    items,
+    context,
+    latestTurnStart,
+    terminalTime,
+  );
   const questions = [...(context.questions ?? [])].sort(
     (a, b) => a.timestamp - b.timestamp,
   );
