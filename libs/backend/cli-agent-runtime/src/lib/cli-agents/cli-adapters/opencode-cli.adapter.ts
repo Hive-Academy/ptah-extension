@@ -152,9 +152,10 @@ const requireResolveModulePath: ModulePathResolver = (request) =>
  *
  * The npm `.ps1` wrapper opencode generates has been reported to invoke
  * `/bin/sh.exe`, which does not exist on stock Windows. When that path breaks,
- * spawning the bundled `.exe` directly bypasses the wrapper entirely. Mirrors
- * the resolution-order strategy of CodexCliAdapter.resolveCodexNativeBinary(),
- * including the `app.asar` → `app.asar.unpacked` twin for module-resolved
+ * spawning the bundled `.exe` directly bypasses the wrapper entirely. Checks
+ * the detected CLI's directory and its nested `node_modules/opencode-ai` first,
+ * then Electron resources, module-resolved packages, and APPDATA npm packages.
+ * Includes the `app.asar` → `app.asar.unpacked` twin for module-resolved
  * candidates, which a packaged Electron build needs to reach a spawnable file.
  *
  * Returns `undefined` off-Windows, on unsupported arches, or when no candidate
@@ -176,6 +177,14 @@ export function resolveOpencodeNativeBinary(
   const relFromBin = path.join('node_modules', relFromNodeModules);
 
   const candidates: string[] = [];
+  if (detectedCliPath) {
+    const cliDir = path.dirname(detectedCliPath);
+    candidates.push(path.join(cliDir, relFromBin));
+    candidates.push(
+      path.join(cliDir, 'node_modules', 'opencode-ai', relFromBin),
+    );
+  }
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (resourcesPath) {
@@ -210,14 +219,6 @@ export function resolveOpencodeNativeBinary(
     candidates.push(path.join(appData, 'npm', relFromBin));
     candidates.push(
       path.join(appData, 'npm', 'node_modules', 'opencode-ai', relFromBin),
-    );
-  }
-
-  if (detectedCliPath) {
-    const cliDir = path.dirname(detectedCliPath);
-    candidates.push(path.join(cliDir, relFromBin));
-    candidates.push(
-      path.join(cliDir, 'node_modules', 'opencode-ai', relFromBin),
     );
   }
 

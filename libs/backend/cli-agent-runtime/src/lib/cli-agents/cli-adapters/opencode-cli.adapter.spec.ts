@@ -965,6 +965,23 @@ describe('OpencodeCliAdapter', () => {
 
     const originalPlatform = process.platform;
     const originalArch = process.arch;
+    const originalAppData = process.env['APPDATA'];
+    const appData = path.join(path.sep, 'test-appdata');
+    const detectedCliPath = path.join(path.sep, 'detected-install', 'opencode.cmd');
+    const relFromBin = path.join(
+      'node_modules',
+      'opencode-windows-x64',
+      'bin',
+      'opencode.exe',
+    );
+    const detectedCandidate = path.join(path.dirname(detectedCliPath), relFromBin);
+    const nestedDetectedCandidate = path.join(
+      path.dirname(detectedCliPath),
+      'node_modules',
+      'opencode-ai',
+      relFromBin,
+    );
+    const appDataCandidate = path.join(appData, 'npm', relFromBin);
 
     function stub(key: 'platform' | 'arch', value: string): void {
       Object.defineProperty(process, key, { value, configurable: true });
@@ -979,12 +996,49 @@ describe('OpencodeCliAdapter', () => {
     beforeEach(() => {
       stub('platform', 'win32');
       stub('arch', 'x64');
+      process.env['APPDATA'] = appData;
     });
 
     afterEach(() => {
       stub('platform', originalPlatform);
       stub('arch', originalArch);
+      if (originalAppData === undefined) {
+        delete process.env['APPDATA'];
+      } else {
+        process.env['APPDATA'] = originalAppData;
+      }
     });
+
+    it.each([
+      ['its own directory', detectedCandidate],
+      ['nested opencode-ai', nestedDetectedCandidate],
+    ])(
+      'prefers the detected-path candidate in %s over module-resolved and APPDATA candidates',
+      (_layout, candidate) => {
+        mockExistsSync.mockImplementation(
+          (p: string) =>
+            p === candidate || p === asarCandidate || p === appDataCandidate,
+        );
+
+        expect(
+          resolveOpencodeNativeBinary(detectedCliPath, resolveModulePath),
+        ).toBe(candidate);
+      },
+    );
+
+    it.each([
+      ['module-resolved', asarCandidate],
+      ['APPDATA', appDataCandidate],
+    ])(
+      'falls back to %s when no detected-path candidate exists',
+      (_source, candidate) => {
+        mockExistsSync.mockImplementation((p: string) => p === candidate);
+
+        expect(
+          resolveOpencodeNativeBinary(detectedCliPath, resolveModulePath),
+        ).toBe(candidate);
+      },
+    );
 
     it('probes the app.asar.unpacked twin right after the asar candidate', () => {
       mockExistsSync.mockReturnValue(false);
