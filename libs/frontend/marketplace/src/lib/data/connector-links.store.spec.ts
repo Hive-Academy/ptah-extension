@@ -1083,8 +1083,18 @@ describe('ConnectorLinksStore', () => {
         ok({ status: 'auth_required' }),
       );
       await startAuthorize();
+      // The deadline is the fake `Date.now()` at poll start + 5 minutes. Jump
+      // the fake clock to 1 ms short of the deadline's last tick instead of
+      // replaying ~100 ticks: `advanceTimersByTimeAsync` yields one real
+      // event-loop turn per fired timer (~15 ms on Windows), which pushed this
+      // test toward Jest's 5 s timeout under load. `setSystemTime` keeps the
+      // pending tick 3 s ahead of the new clock.
+      jest.setSystemTime(Date.now() + 5 * 60 * 1000 - 3000 - 1);
 
-      await jest.advanceTimersByTimeAsync(5 * 60 * 1000 + 3000);
+      await jest.advanceTimersByTimeAsync(3000);
+      expect(store.pollingIds().has(HUBSPOT_SMITHERY.id)).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(3000);
 
       expect(store.pollingIds().has(HUBSPOT_SMITHERY.id)).toBe(false);
       const settled = callsTo('mcpDirectory:smitheryConnectionStatus').length;
