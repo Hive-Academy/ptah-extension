@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 5/29
+Total tasks: 63 | Batches: 29 | Complete: 6/29
 
-Wave A (Batches 1, 2, 3), 7a and 7d are COMPLETE. Batches 4, 5, 6 are IN_PROGRESS
-(5 and 6 are both marketplace: separate worktrees).
+Wave A (Batches 1, 2, 3), 5, 7a and 7d are COMPLETE. Batches 4 and 6 are IN_PROGRESS
+(different projects: ui and marketplace).
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -52,6 +52,7 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
   store the route — the shell records it on `NavigationEnd` (Batch 12); the
   sub-path is dropped when `navigateToSurface` falls back to another surface.
 - Batch 7d decisions (binding on Batches 11, 13, 15, 16, 20-24): the card input is `heading` (not `title`); loading tiles use `<ptah-catalog-card-skeleton>`; consumers put `role="listitem"` on each `ptah-catalog-grid` child; Batches 24 and 25 verify the `@container` columns (1/2/3/4 at 480/800/1200) and the card compact trigger in a real browser, including 2 columns in the dashboard `max-w-2xl` dialog.
+- Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 699 lines (cap 700). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
 - Batch 1 facts for Batch 4: monogram slugs `klaviyo`, `zernio`, `context7`,
   `google-people`; `huggingface` chosen over `hugging-face` (see Task 4.2).
 - Commit convention (from `git log`): Conventional Commits,
@@ -317,7 +318,7 @@ Edge cases:
 - Determinism check passes; ≤300 KB; A4 outcome stated; `PROVIDER_BRAND_ART` present and small
 - Reviewer: code-logic-reviewer (rejection rules, failure behaviour)
 
-## Batch 5: `MarketplaceInventoryStore` (C3) — IN_PROGRESS
+## Batch 5: `MarketplaceInventoryStore` (C3) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (spec migration needs judgement)
@@ -326,7 +327,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 5.1: Inventory store with per-slice state and removal — IN_PROGRESS
+### Task 5.1: Inventory store with per-slice state and removal — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\marketplace-inventory.store.spec.ts`
 - Plan reference: implementation-plan.md D4, C3
@@ -462,7 +463,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer (resolution order, eager-bundle evidence)
 
-## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — COMPLETE
+## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — COMPLETE (commit 6429503f0)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lanes x3 (one component each; team-leader adds the barrel lines)
