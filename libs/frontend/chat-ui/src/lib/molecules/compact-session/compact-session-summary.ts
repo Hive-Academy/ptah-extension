@@ -10,19 +10,10 @@ import type {
 import { generateAgentColor } from '../../utils/agent-color.utils';
 
 export type CompactSummaryStatusTone =
-  | 'idle'
-  | 'live'
-  | 'success'
-  | 'warning'
-  | 'error';
+  'idle' | 'live' | 'success' | 'warning' | 'error';
 
 export type CompactSemanticMarkKind =
-  | 'tool'
-  | 'agent'
-  | 'prose'
-  | 'prompt'
-  | 'compaction'
-  | 'terminal';
+  'tool' | 'agent' | 'prose' | 'prompt' | 'compaction' | 'terminal';
 
 export interface CompactSemanticMark {
   readonly id: string;
@@ -41,12 +32,7 @@ export interface CompactSemanticMark {
 
 export interface CompactSummaryContent {
   readonly kind:
-    | 'question'
-    | 'permission'
-    | 'error'
-    | 'prose'
-    | 'result'
-    | 'idle';
+    'question' | 'permission' | 'error' | 'prose' | 'result' | 'idle';
   readonly text: string;
   readonly additionalPromptCount: number;
   readonly actionable: boolean;
@@ -291,10 +277,36 @@ function collectFinalizedNode(
   }
 }
 
+/**
+ * A turn that failed with a terminal error reason ends with the provider
+ * error as its final assistant message, so the newest prose item IS that
+ * turn's error result. The recap's FAILED tag derives from the same
+ * terminal reason, so the feed row re-tones through that signal instead of
+ * a new text match on the message content.
+ */
+function markFailedTurnProse(
+  items: readonly SemanticItem[],
+): readonly SemanticItem[] {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].kind === 'prose') {
+      return [
+        ...items.slice(0, index),
+        { ...items[index], tone: 'error', contentKind: 'error' },
+        ...items.slice(index + 1),
+      ];
+    }
+  }
+  return items;
+}
+
 function buildSummary(
   items: readonly SemanticItem[],
   context: CompactSummaryContext,
 ): CompactSessionSummary {
+  const semanticItems =
+    terminalStatus(context.terminalReason)?.tone === 'error'
+      ? markFailedTurnProse(items)
+      : items;
   const questions = [...(context.questions ?? [])].sort(
     (a, b) => a.timestamp - b.timestamp,
   );
@@ -328,7 +340,7 @@ function buildSummary(
         },
       ]
     : [];
-  const marks = [...items, ...promptMarks, ...compactionMarks]
+  const marks = [...semanticItems, ...promptMarks, ...compactionMarks]
     .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
     .slice(-MAX_MARKS)
     .map(({ id, kind, tone, label, timestamp, text }) => ({
@@ -340,10 +352,10 @@ function buildSummary(
       text,
     }));
 
-  const content = selectContent(questions, permissions, items, context);
+  const content = selectContent(questions, permissions, semanticItems, context);
   const status = selectStatus(
     questions.length + permissions.length,
-    items,
+    semanticItems,
     context,
   );
   return {
@@ -358,7 +370,7 @@ function buildSummary(
       model: context.metrics?.model ?? null,
       tokens: context.metrics?.tokens ?? 0,
       cost: context.metrics?.cost ?? null,
-      agentCount: context.metrics?.agentCount ?? countAgents(items),
+      agentCount: context.metrics?.agentCount ?? countAgents(semanticItems),
       compactionCount: context.metrics?.compactionCount ?? 0,
     },
   };

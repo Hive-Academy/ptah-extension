@@ -209,6 +209,51 @@ describe('compact-session-summary', () => {
     ).toBe(expected);
   });
 
+  it('tones the failed turn final assistant message as an error row', () => {
+    const summary = summarizeFinalized(
+      [
+        message(node({ id: 'ok-turn', content: 'Plan agreed.' })),
+        message(
+          node({
+            id: 'error-turn',
+            content: 'API Error: 400 Invalid Messages request',
+          }),
+        ),
+      ],
+      context({ terminalReason: 'api_error' }),
+    );
+
+    const errorMark = summary.marks.find(
+      (mark) => mark.id === 'prose:error-turn',
+    );
+    expect(errorMark?.tone).toBe('error');
+    // The ERR filter counts marks by this exact tone, so one error tone is
+    // one ERR row.
+    expect(summary.marks.filter((mark) => mark.tone === 'error')).toHaveLength(
+      1,
+    );
+    expect(summary.content.kind).toBe('error');
+    expect(summary.content.text).toBe(
+      'API Error: 400 Invalid Messages request',
+    );
+    expect(summary.status.tone).toBe('error');
+  });
+
+  it('keeps a normal final prose message on the success tone', () => {
+    const summary = summarizeFinalized(
+      [message(node({ id: 'done-turn', content: 'All tests passed.' }))],
+      context({ terminalReason: 'completed' }),
+    );
+
+    expect(
+      summary.marks.find((mark) => mark.id === 'prose:done-turn')?.tone,
+    ).toBe('success');
+    expect(summary.marks.filter((mark) => mark.tone === 'error')).toHaveLength(
+      0,
+    );
+    expect(summary.content.kind).toBe('prose');
+  });
+
   it('keeps a null terminal reason in the idle state', () => {
     expect(
       summarizeFinalized([], context({ terminalReason: null })).status,
