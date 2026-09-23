@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 10/30
+Total tasks: 65 | Batches: 30 | Complete: 11/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7d, 12. Nothing in progress (session close-out).
-Launchable next: 7c (ui) and 8 (marketplace), each in its own worktree based on 1b8a2b813 or later.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 12.
+In progress: 8 (marketplace, own worktree).
 Batch 12b (Revision 3, D-4) runs after 8 is committed, in parallel with 9 (own worktree), and must be COMPLETE before 13-16 start.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
@@ -445,7 +445,7 @@ Edge cases:
 - 10 files present; ui lint/typecheck/test green; no `@ptah-extension/core` import
 - Reviewer: code-logic-reviewer (resolver order, dark switch, fallback)
 
-## Batch 7c: `ProviderMarkComponent` convergence (C14 part) — PENDING
+## Batch 7c: `ProviderMarkComponent` convergence (C14 part) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -454,7 +454,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 7b
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/ui @ptah-extension/chat`; `npx nx build ptah-extension-webview` + initial-chunk comparison (R7)
 
-### Task 7c.1: Render provider marks through `ptah-mark-svg` — PENDING
+### Task 7c.1: Render provider marks through `ptah-mark-svg` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\provider-mark\provider-mark.component.ts`, `...\provider-mark\provider-mark.component.spec.ts`, `...\provider-mark\provider-marks.data.ts`, `...\provider-mark\provider-marks.data.spec.ts` (all under `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\`)
 - Plan reference: implementation-plan.md C14 (:587-596, :608-609), R1 follow-through (:743)
@@ -463,7 +463,7 @@ Edge cases:
 - Validation notes: existing specs updated only where anthropic/claude-cli now render vendored artwork; `libs/frontend/chat/.../provider-setup-wizard.component.spec.ts:1025` and `provider-connection-card` consumers stay green.
 - Implementation details: no new inputs.
 
-### Task 7c.2: R7 baseline and comparison — PENDING
+### Task 7c.2: R7 baseline and comparison — COMPLETE
 
 - Depends on: Task 7c.1
 - Files: none (evidence)
@@ -476,6 +476,9 @@ Edge cases:
 ### Batch 7c verification
 
 - Reviewer: code-logic-reviewer (resolution order, eager-bundle evidence)
+- Result: 4 files (component, data, both specs); `lint,typecheck,test -p @ptah-extension/ui @ptah-extension/chat` green in TASK_WT (2 projects). Reviews: logic APPROVED 9/10, style APPROVED.
+- R7 baseline (BINDING for Batches 17, 24, 25; 7d deferred to it): `batch-7c-report.md` "Task 7c.2" — `origin/main` `f98b1309d` initial total 3.40 MB / 687.67 kB transfer (initial JS 3,135,383 bytes); after 7c 3.37 MB / 682.09 kB (initial JS 3,105,363); 7c's own delta +1,167 bytes, all `main.js`. Compare by chunk role and total (hashed names differ). `BRAND_MARKS`-only path strings: 0 in any emitted chunk; later batches re-run the same path-string probe and expect 0 in initial chunks, >0 in a lazy chunk once `ptah-brand-mark` has a route. The report is kept untracked in the task folder, like the other reports.
+- Follow-up (next ui batch that touches `brand-mark/`, not fixed in 7c): stale future-tense comments `libs/frontend/ui/src/lib/native/brand-mark/brand-slugs.ts:71-72` ("Batch 7c wires `ProviderMarkComponent`…") and `brand-slugs.spec.ts:368` ("shape changes in Batch 7c") — reword to present tense.
 
 ## Batch 7d: Catalog card, grid and storefront panel (C13 shared pieces) — COMPLETE (commit 6429503f0)
 
