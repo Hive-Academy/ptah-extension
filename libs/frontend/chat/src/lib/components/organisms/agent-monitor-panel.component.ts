@@ -68,6 +68,7 @@ import {
 
 import { AgentLaneGridComponent } from './agent-monitor/agent-lane-grid.component';
 import { laneColumnCount } from './agent-monitor/agent-lane-layout';
+import { WorkflowPermissionPresenterService } from './agent-monitor/workflow-permission-presenter.service';
 
 // Re-export the pure grouping API alongside the component for consumers that
 // import from the component barrel. The implementation lives in
@@ -93,6 +94,7 @@ interface WorkflowTileVM {
   readonly workflowRunId: string;
   readonly workflowName?: string;
   readonly totalTokens?: number;
+  readonly permissionCount: number;
 }
 
 /** Map a raw lifecycle status onto the tile's status-dot bucket. */
@@ -125,6 +127,7 @@ function agentToTile(a: MonitoredAgent): WorkflowTileVM {
     workflowRunId: a.workflowRunId as string,
     workflowName: a.workflowName,
     totalTokens: undefined,
+    permissionCount: a.permissionQueue.length,
   };
 }
 
@@ -139,6 +142,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     workflowRunId: r.workflowRunId as string,
     workflowName: r.workflowName,
     totalTokens: r.totalTokens,
+    permissionCount: 0,
   };
 }
 
@@ -160,6 +164,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     '[class.z-20]': 'effectiveOpen() && isOverlay()',
     '[class.bg-base-200]': 'effectiveOpen() && isOverlay()',
   },
+  providers: [WorkflowPermissionPresenterService],
   imports: [
     NgClass,
     NgTemplateOutlet,
@@ -342,6 +347,16 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                       <span class="text-xs font-medium truncate max-w-[120px]">
                         {{ tile.name }}
                       </span>
+                      @if (tile.permissionCount > 0) {
+                        <span
+                          class="badge badge-xs badge-warning animate-pulse"
+                          [attr.aria-label]="
+                            tile.permissionCount + ' pending permissions'
+                          "
+                        >
+                          {{ tile.permissionCount }}
+                        </span>
+                      }
                       @if (tile.totalTokens !== undefined) {
                         <span
                           class="text-[10px] text-base-content-muted font-mono"
@@ -535,6 +550,9 @@ export class AgentMonitorPanelComponent {
   protected readonly resizeService = inject(PanelResizeService);
   private readonly vscode = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
+  private readonly workflowPermissions = inject(
+    WorkflowPermissionPresenterService,
+  );
 
   readonly ColumnsIcon = Columns;
   readonly SquareIcon = Square;
@@ -826,17 +844,14 @@ export class AgentMonitorPanelComponent {
           const agent = agents.find(
             (item) => item.agentId === permissionAgent.agentId,
           );
-          if (!agent) continue;
+          if (!agent || agent.workflowRunId) continue;
           for (const request of permissionAgent.permissionQueue) {
             const key = `${agent.agentId}:${request.requestId}`;
             if (this.seenLanePermissions.has(key)) {
               pending.add(key);
               continue;
             }
-            if (agent.workflowRunId) {
-              this.selectAgent(agent.agentId);
-              pending.add(key);
-            } else if (grid && gridAgentIds.has(agent.agentId)) {
+            if (grid && gridAgentIds.has(agent.agentId)) {
               if (!grid.shownIds().includes(agent.agentId))
                 grid.pick(agent.agentId);
               // A pick can be rejected while the child is catching up. Leave it
@@ -846,6 +861,26 @@ export class AgentMonitorPanelComponent {
           }
         }
         this.seenLanePermissions = pending;
+        const nextWorkflow = this.workflowPermissions.nextAgent(
+          agents,
+          this.showLaneGrid()
+            ? null
+            : (this.explicitSelectedAgent()?.agentId ?? null),
+        );
+        if (nextWorkflow) {
+          if (
+            this.showLaneGrid() ||
+            this.explicitSelectedAgent()?.agentId !== nextWorkflow
+          ) {
+            this.applyAgentSelection(nextWorkflow);
+          }
+          if (
+            !this.showLaneGrid() &&
+            this.explicitSelectedAgent()?.agentId === nextWorkflow
+          ) {
+            this.workflowPermissions.markShown(nextWorkflow);
+          }
+        }
       });
     });
 
@@ -905,6 +940,12 @@ export class AgentMonitorPanelComponent {
   }
 
   selectAgent(agentId: string): void {
+    if (this.selectedAgentId() !== agentId)
+      this.workflowPermissions.onUserNavigation();
+    this.applyAgentSelection(agentId);
+  }
+
+  private applyAgentSelection(agentId: string): void {
     this.selectedAgentId.set(agentId);
     this.workflowDetailPicked.set(
       !!this.explicitSelectedAgent()?.workflowRunId ||
@@ -921,7 +962,7 @@ export class AgentMonitorPanelComponent {
   }
 
   private autoSelectAgent(agentId: string): void {
-    this.selectAgent(agentId);
+    this.applyAgentSelection(agentId);
     this.workflowDetailPicked.set(false);
   }
 
@@ -932,6 +973,7 @@ export class AgentMonitorPanelComponent {
 
   /** Close the transcript view — land back on a standalone agent or clear. */
   deselect(): void {
+    this.workflowPermissions.onUserNavigation();
     this.workflowDetailPicked.set(false);
     const first = this.standaloneAgents()[0];
     this.selectedAgentId.set(first ? first.agentId : null);

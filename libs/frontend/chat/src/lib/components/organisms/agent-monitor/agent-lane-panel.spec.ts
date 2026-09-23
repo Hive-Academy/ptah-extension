@@ -461,6 +461,135 @@ describe('agent panel lanes', () => {
     },
   );
 
+  it('queues simultaneous workflow permissions oldest first and marks waiting tiles', () => {
+    const standalone = [agent('a', 3), agent('b', 2)];
+    const first = {
+      ...blockedAgent('first'),
+      workflowRunId: 'run',
+      displayName: 'First workflow',
+    };
+    const second = {
+      ...blockedAgent('second'),
+      workflowRunId: 'run',
+      displayName: 'Second workflow',
+    };
+    first.permissionQueue = first.permissionQueue.map((request) => ({
+      ...request,
+      timestamp: 10,
+    }));
+    second.permissionQueue = second.permissionQueue.map((request) => ({
+      ...request,
+      timestamp: 20,
+    }));
+    const fixture = create(650, standalone);
+    // Reverse input order to prove selection follows request time, not iteration order.
+    fixture.componentRef.setInput('embeddedAgents', [
+      ...standalone,
+      second,
+      first,
+    ]);
+    pendingPermissions.set([second, first]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedAgentId()).toBe('first');
+    expect(fixture.componentInstance.showLaneGrid()).toBe(false);
+    const waiting: HTMLElement = fixture.nativeElement.querySelector(
+      'button[title="Second workflow"] .badge-warning',
+    );
+    expect(waiting.textContent?.trim()).toBe('1');
+    expect(waiting.getAttribute('aria-label')).toBe('1 pending permissions');
+    pendingPermissions.set([{ ...second }, { ...first }]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedAgentId()).toBe('first');
+    fixture.componentRef.setInput('embeddedAgents', [
+      ...standalone,
+      second,
+      { ...first, permissionQueue: [] },
+    ]);
+    pendingPermissions.set([second]);
+    fixture.detectChanges();
+    // This transition also proves the waiting request was not prematurely marked shown.
+    expect(fixture.componentInstance.selectedAgentId()).toBe('second');
+    expect(
+      fixture.componentInstance.effectiveSelectedAgent()?.permissionQueue[0]
+        .requestId,
+    ).toBe('req-second');
+  });
+
+  it('keeps the current workflow visible when another new request arrives', () => {
+    const standalone = [agent('a'), agent('b')];
+    const first = { ...blockedAgent('first'), workflowRunId: 'run' };
+    const second = { ...blockedAgent('second'), workflowRunId: 'run' };
+    const fixture = create(650, standalone);
+    fixture.componentRef.setInput('embeddedAgents', [...standalone, first]);
+    pendingPermissions.set([first]);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('embeddedAgents', [
+      ...standalone,
+      second,
+      first,
+    ]);
+    pendingPermissions.set([second, first]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedAgentId()).toBe('first');
+  });
+
+  it.each(['standalone', 'closed transcript'])(
+    'preserves a later user choice (%s) until a new workflow request arrives',
+    (choice) => {
+      const standalone = [agent('a'), agent('b')];
+      const first = { ...blockedAgent('first'), workflowRunId: 'run' };
+      const second = { ...blockedAgent('second'), workflowRunId: 'run' };
+      const fixture = create(650, standalone);
+      fixture.componentRef.setInput('embeddedAgents', [
+        ...standalone,
+        first,
+        second,
+      ]);
+      pendingPermissions.set([first, second]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.selectedAgentId()).toBe('first');
+      if (choice === 'standalone') {
+        fixture.componentInstance.pickStandalone('a');
+      } else {
+        fixture.componentInstance.selectAgent('sub');
+        fixture.detectChanges();
+        fixture.debugElement
+          .query(By.directive(TranscriptStub))
+          .componentInstance.closed.emit();
+      }
+      fixture.detectChanges();
+      pendingPermissions.set([{ ...first }, { ...second }]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.showLaneGrid()).toBe(true);
+      // Resolving the old request alone must not steal the user's chosen view either.
+      fixture.componentRef.setInput('embeddedAgents', [
+        ...standalone,
+        { ...first, permissionQueue: [] },
+        second,
+      ]);
+      pendingPermissions.set([second]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.showLaneGrid()).toBe(true);
+      const newRequest = {
+        ...first,
+        permissionQueue: first.permissionQueue.map((request) => ({
+          ...request,
+          requestId: 'req-first-new',
+          timestamp: 30,
+        })),
+      };
+      fixture.componentRef.setInput('embeddedAgents', [
+        ...standalone,
+        newRequest,
+        second,
+      ]);
+      pendingPermissions.set([newRequest, second]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.selectedAgentId()).toBe('second');
+      expect(fixture.componentInstance.showLaneGrid()).toBe(false);
+    },
+  );
+
   it('picks a new standalone and its permission into the grid in the same tick', () => {
     const fixture = create(650, [agent('a', 3), agent('b', 2)]);
     const blocked = blockedAgent('new');
