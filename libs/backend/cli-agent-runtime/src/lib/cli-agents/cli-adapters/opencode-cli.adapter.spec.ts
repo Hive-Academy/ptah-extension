@@ -530,18 +530,40 @@ describe('OpencodeCliAdapter', () => {
       expect(await runArgs()).not.toContain('--standalone');
     });
 
-    it('omits --standalone when the help probe exits non-zero', async () => {
-      mockHelpProbe.mockImplementation(() => helpProbeChild(V2_RUN_HELP, 1));
+    it('omits --standalone and says so when the help probe exits non-zero', async () => {
+      mockHelpProbe.mockImplementationOnce(() =>
+        helpProbeChild(V2_RUN_HELP, 1),
+      );
 
-      expect(await runArgs()).not.toContain('--standalone');
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(mockSpawnCli.mock.calls[0][1]).not.toContain('--standalone');
+      expect(
+        segments.some(
+          (s) => s.type === 'info' && s.content.includes('--standalone'),
+        ),
+      ).toBe(true);
+      // A non-zero exit is not an answer, so the next run probes again.
+      expect(await runArgs()).toContain('--standalone');
+      expect(mockHelpProbe).toHaveBeenCalledTimes(2);
     });
 
-    it('probes once per binary across runs', async () => {
-      await runArgs();
+    it('probes once per binary across runs, including concurrent ones', async () => {
+      const [first, second] = await Promise.all([
+        adapter.runSdk(baseOptions),
+        adapter.runSdk(baseOptions),
+      ]);
+      collect(first);
+      collect(second);
       await runArgs();
 
       expect(mockHelpProbe).toHaveBeenCalledTimes(1);
-      expect(mockSpawnCli.mock.calls[1][1]).toContain('--standalone');
+      for (const call of mockSpawnCli.mock.calls) {
+        expect(call[1]).toContain('--standalone');
+      }
     });
 
     it('probes again after a failed probe spawn', async () => {
@@ -552,6 +574,29 @@ describe('OpencodeCliAdapter', () => {
       });
 
       expect(await runArgs()).not.toContain('--standalone');
+      expect(await runArgs()).toContain('--standalone');
+      expect(mockHelpProbe).toHaveBeenCalledTimes(2);
+    });
+
+    it('probes again when the probe spawn throws', async () => {
+      mockHelpProbe.mockImplementationOnce(() => {
+        throw new Error('spawn EPERM');
+      });
+
+      expect(await runArgs()).not.toContain('--standalone');
+      expect(await runArgs()).toContain('--standalone');
+    });
+
+    it('does not reuse a cached answer after detect() (CLI upgrade)', async () => {
+      mockHelpProbe.mockImplementationOnce(() =>
+        helpProbeChild('  --print-logs  Print logs to stderr\n'),
+      );
+      expect(await runArgs()).not.toContain('--standalone');
+
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+      mockProbeCliVersion.mockResolvedValue('2.0.12');
+      await adapter.detect();
+
       expect(await runArgs()).toContain('--standalone');
       expect(mockHelpProbe).toHaveBeenCalledTimes(2);
     });

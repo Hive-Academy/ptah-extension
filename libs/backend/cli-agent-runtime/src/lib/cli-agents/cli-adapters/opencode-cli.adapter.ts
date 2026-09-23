@@ -244,9 +244,14 @@ export class OpencodeCliAdapter implements CliAdapter {
   constructor(private readonly spawner?: IProcessSpawner) {}
 
   /** `run --help` probe result per binary; see `supportsStandalone`. */
-  private readonly standaloneSupport = new Map<string, Promise<boolean>>();
+  private readonly standaloneSupport = new Map<
+    string,
+    Promise<boolean | undefined>
+  >();
 
   async detect(): Promise<CliDetectionResult> {
+    // A re-detect may follow an upgrade (1.x → 2.x); probe `run --help` again.
+    this.standaloneSupport.clear();
     try {
       const binaryPath = await resolveCliPath('opencode');
       if (!binaryPath) {
@@ -493,23 +498,26 @@ export class OpencodeCliAdapter implements CliAdapter {
   /**
    * Whether this binary's `opencode run` accepts `--standalone` (see the header).
    * Probed from `run --help` (stdout, ~2.7 s on 2.0.12) rather than the version,
-   * because an unknown flag makes 2.x exit 1 before any output. Cached per binary;
-   * a timed-out or failed spawn is not cached, so the next run probes again.
+   * because an unknown flag makes 2.x exit 1 before any output. Only a clean
+   * exit-0 answer is cached (per binary, until the next `detect()`); a timeout,
+   * spawn failure or non-zero exit resolves `undefined` — unknown — and the next
+   * run probes again.
    */
-  private supportsStandalone(binary: string): Promise<boolean> {
+  private supportsStandalone(binary: string): Promise<boolean | undefined> {
     let probe = this.standaloneSupport.get(binary);
     if (!probe) {
-      probe = this.probeCommandOnce(binary, ['run', '--help']).then(
-        (outcome) => {
-          if (outcome.timedOut || outcome.errored) {
+      probe = this.probeCommandOnce(binary, ['run', '--help'])
+        .then((outcome) => {
+          if (outcome.exitCode !== 0 || outcome.timedOut || outcome.errored) {
             this.standaloneSupport.delete(binary);
+            return undefined;
           }
-          return (
-            outcome.exitCode === 0 &&
-            /^\s*--standalone\b/m.test(stripAnsiCodes(outcome.stdout))
-          );
-        },
-      );
+          return /^\s*--standalone\b/m.test(stripAnsiCodes(outcome.stdout));
+        })
+        .catch(() => {
+          this.standaloneSupport.delete(binary);
+          return undefined;
+        });
       this.standaloneSupport.set(binary, probe);
     }
     return probe;
@@ -573,7 +581,8 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (options.model) {
       args.push('--model', options.model);
     }
-    if (await this.supportsStandalone(binary)) {
+    const standalone = await this.supportsStandalone(binary);
+    if (standalone) {
       args.push('--standalone');
     }
     // No working-directory flag: `opencode run` takes it from the spawn's cwd,
@@ -586,6 +595,14 @@ export class OpencodeCliAdapter implements CliAdapter {
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
+    if (standalone === undefined) {
+      segment.emit({
+        type: 'info',
+        content:
+          '`opencode run --help` did not answer, so this run omits --standalone. ' +
+          'On opencode 2.x the lane may then have no Ptah MCP tools.',
+      });
+    }
 
     const env: NodeJS.ProcessEnv = {};
     if (options.mcpPort) {
