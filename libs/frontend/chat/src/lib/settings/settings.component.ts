@@ -129,6 +129,15 @@ export class SettingsComponent implements OnInit {
     await this.authState.loadAuthStatus();
   }
 
+  /**
+   * The Providers page opened the wizard for the deep-linked provider: consume
+   * the request (like `consumePendingSettingsTab`) so leaving and returning to
+   * the Providers tab does not reopen it.
+   */
+  consumeRequestedProvider(providerId: string): void {
+    if (this.requestedProviderId() === providerId) this.requestedProviderId.set(undefined);
+  }
+
   private applyPendingTab(): void {
     const pending = this.appState.consumePendingSettingsTab();
     if (!pending) return;

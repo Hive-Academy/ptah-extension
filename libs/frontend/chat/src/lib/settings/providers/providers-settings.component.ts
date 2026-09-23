@@ -1,6 +1,6 @@
 import {
   ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit,
-  afterRenderEffect, computed, effect, inject, input, signal, untracked,
+  afterRenderEffect, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
 import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
@@ -250,6 +250,8 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
       </div>
     </div>
     @if (wizardOpen()) {
+      <!-- One wizard instance per setup session: a deep link applied right after a close must start fresh. -->
+      @for (session of [wizardSession()]; track session) {
       <ptah-provider-setup-wizard [open]="true" [deepLinkProviderId]="wizardProviderId()" [existingCredentialPresent]="wizardCredentialStored()"
         [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
         [supportedSaveTargets]="globalTarget" [workspaceName]="workspaceName()" [mainRouteExists]="mainRouteExists()"
@@ -257,11 +259,14 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
         [initialSetup]="state.connectionSetup().status === 'ready' ? state.connectionSetup().data : null" [contextChanged]="wizardContextChanged()" [commitDetail]="wizardCommitDetail()"
         (providerChanged)="selectWizardProvider($event)" (reviewContextRequested)="reviewWizardContext()" [commitState]="wizardCommitState()"
         (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction($event.providerId, $event.action)" />
+      }
     }
   `,
 })
 export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderId = input<string>('');
+  /** Emitted once the wizard was opened for {@link requestedProviderId}. */
+  readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -274,6 +279,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly catalogOpen = signal(false);
   protected readonly wizardOpen = signal(false);
   protected readonly wizardProviderId = signal('');
+  /** Incremented per openWizard: keys the wizard instance so every setup session starts from a clean draft. */
+  protected readonly wizardSession = signal(0);
   protected readonly wizardCommitState = signal<WizardCommitState>('idle');
   protected readonly modelDraft = signal<string | null>(null);
   protected readonly effortDraft = signal<EffortLevel | '' | null>(null);
@@ -311,6 +318,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return [result.saved.length ? 'Saved: ' + result.saved.join(', ') : '', result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '', result.unconfirmed.length ? 'Not confirmed: ' + result.unconfirmed.join(', ') : '', result.message].filter(Boolean).join('. ');
   });
   private returnFocus: HTMLElement | null = null;
+  /** Deep-linked provider handed to the open wizard and not yet accepted by it. */
+  private deepLinkAwaitingAcceptance: string | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly workspaceName = computed(() => this.state.scopes().data?.activePath?.split(/[\\/]/).filter(Boolean).pop() ?? null);
   protected readonly mainGroupKeys = computed(() => [...this.mainKeys,
@@ -352,12 +361,22 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
 
   constructor() {
     // Deep link (e.g. Tribunal "Configure"): open setup for that provider once setup can start.
+    // - While the wizard is open (on any provider) a request stays PENDING and is applied when the
+    //   wizard closes; an open draft is never switched away from under the user.
+    // - The request is reported consumed only once the wizard has accepted the provider
+    //   (see selectWizardProvider), or when that wizard session is dismissed.
+    // - The guard is per request: when the parent clears the input, a fresh request for the same
+    //   provider opens again, while an unrelated re-render with the same request does not.
     let openedFor = '';
     effect(() => {
       const provider = this.requestedProviderId();
-      if (!provider || provider === openedFor || !this.canStartSetup()) return;
+      if (!provider) { openedFor = ''; return; }
+      if (provider === openedFor || !this.canStartSetup() || this.wizardOpen()) return;
       openedFor = provider;
-      untracked(() => this.openWizard(provider));
+      untracked(() => {
+        this.deepLinkAwaitingAcceptance = provider;
+        this.openWizard(provider);
+      });
     });
     afterRenderEffect(() => {
       if (this.focusTarget() !== this.lastInputFocus) {
@@ -430,6 +449,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardContext.set(this.state.reviewContext());
     this.returnFocus = this.element.nativeElement.ownerDocument.activeElement as HTMLElement | null;
     this.wizardProviderId.set(providerId);
+    this.wizardSession.update((session) => session + 1);
     this.wizardCommitState.set('idle');
     this.feedback.set(null);
     this.wizardOpen.set(true);
@@ -454,6 +474,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected selectWizardProvider(providerId: string): void {
     this.selectedWizardProvider.set(providerId);
     if (!providerId) return;
+    if (providerId === this.deepLinkAwaitingAcceptance) this.consumeDeepLink();
     void this.state.refreshConnectionSetup(providerId);
     const connection = this.state.connections().data?.find((entry) => entry.id === providerId);
     if (connection?.authMode === 'oauth' || connection?.authMode === 'cli') this.externalAction(providerId, 'cli-check');
@@ -463,7 +484,16 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardContext.set(this.state.reviewContext());
     this.wizardCommitState.set('idle');
   }
+  /** One-shot: the parent clears the request so a re-mounted page does not reopen it. */
+  private consumeDeepLink(): void {
+    const provider = this.deepLinkAwaitingAcceptance;
+    if (!provider) return;
+    this.deepLinkAwaitingAcceptance = null;
+    this.requestedProviderConsumed.emit(provider);
+  }
   protected closeWizard(): void {
+    // A deep link the wizard could not select (e.g. an unknown id) is still handled once dismissed.
+    this.consumeDeepLink();
     this.wizardOpen.set(false);
     this.wizardContext.set(null);
     this.feedback.set(this.wizardCommitState() === 'saved' ? 'Connection settings saved.' : 'Setup closed. External sign-in, if completed, remains available.');

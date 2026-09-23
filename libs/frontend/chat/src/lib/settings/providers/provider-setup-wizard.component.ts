@@ -845,6 +845,11 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     >
                       {{ showApiKey() ? 'Hide API key' : 'Show API key' }}
                     </button>
+                    @if (usesStoredKey()) {
+                      <p class="text-xs text-base-content-muted" data-testid="wizard-local-stored-key">
+                        Key stored. Leave the key empty to verify the stored key.
+                      </p>
+                    }
                   }
                 }
                 @case ('local-proxy') {
@@ -901,6 +906,11 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     >
                       {{ showApiKey() ? 'Hide API key' : 'Show API key' }}
                     </button>
+                    @if (usesStoredKey()) {
+                      <p class="text-xs text-base-content-muted" data-testid="wizard-local-stored-key">
+                        Key stored. Leave the key empty to verify the stored key.
+                      </p>
+                    }
                   }
                 }
                 @case ('custom') {
@@ -1454,6 +1464,12 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   private readonly _replacingKey = signal(false);
   private readonly _baseUrlDraft = signal('');
   private readonly _baseUrlTouched = signal(false);
+  /**
+   * The SAVED endpoint from `initialSetup` (host: saved override, else default). A stored key is
+   * bound to it. `null` until the setup read arrives: the registry default alone cannot prove the
+   * draft URL equals a saved override, so no stored-key probe is offered before then.
+   */
+  private readonly _loadedBaseUrl = signal<string | null>(null);
   private readonly _probeState = signal<WizardProbeState>('idle');
   private readonly _probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
   private readonly _probeId = signal<string | null>(null);
@@ -1632,12 +1648,20 @@ export class ProviderSetupWizardComponent implements OnDestroy {
    */
   protected readonly usesStoredKey = computed<boolean>(() => {
     const mode = this.authMode();
-    return (
-      (mode === 'apiKey' || mode === 'custom') &&
-      this.existingCredentialPresent() &&
-      !this._replacingKey() &&
-      this._apiKeyDraft().trim().length === 0
-    );
+    const local = mode === 'local-native' || mode === 'local-proxy';
+    if (
+      !(mode === 'apiKey' || mode === 'custom' || (local && this.supportsOptionalKey())) ||
+      !this.existingCredentialPresent() ||
+      this._replacingKey() ||
+      this._apiKeyDraft().trim().length > 0
+    ) {
+      return false;
+    }
+    // The host binds a stored key to its SAVED endpoint (DraftVerificationService
+    // bindStoredDraft); an edited URL is a new destination and needs a typed key.
+    if (mode === 'apiKey') return true;
+    const saved = this._loadedBaseUrl();
+    return saved !== null && this._baseUrlDraft().trim() === saved.trim();
   });
 
   /** Native Anthropic auth (Claude API, Claude CLI) keeps the SDK's default models: no tiers. */
@@ -1786,7 +1810,9 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       case 'local-proxy':
         return this._apiKeyDraft().trim().length > 0
           ? 'Key entered (optional)'
-          : 'No API key required';
+          : this.usesStoredKey()
+            ? 'Stored key (unchanged)'
+            : 'No API key required';
       case 'custom':
         return this._apiKeyDraft().trim().length > 0
           ? 'Key entered'
@@ -1859,7 +1885,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
         this._selection.set({ kind: 'custom' }); this._customId.set(setup.providerId);
         this._customName.set(setup.customName); this._customProtocol.set(setup.customProtocol);
       }
-      if (!this._baseUrlTouched()) this._baseUrlDraft.set(setup.baseUrl ?? this.selectedEntry()?.baseUrl ?? '');
+      this._loadedBaseUrl.set(setup.baseUrl ?? this.selectedEntry()?.baseUrl ?? '');
+      if (!this._baseUrlTouched()) this._baseUrlDraft.set(this._loadedBaseUrl() ?? '');
       this._tierSnapshot.set({ everyday: setup.tiers.sonnet, complex: setup.tiers.opus, fast: setup.tiers.haiku });
       this._tiers.everyday.set(setup.tiers.sonnet ?? '');
       this._tiers.complex.set(setup.tiers.opus ?? '');
@@ -2036,6 +2063,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._replacingKey.set(false);
     this._baseUrlTouched.set(false);
     this._baseUrlDraft.set(this.selectedEntry()?.baseUrl ?? '');
+    this._loadedBaseUrl.set(null);
     this._probeState.set('idle');
     this._probeResult.set(null);
     this._probeId.set(null);
@@ -2345,6 +2373,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._replacingKey.set(false);
     this._baseUrlDraft.set('');
     this._baseUrlTouched.set(false);
+    this._loadedBaseUrl.set(null);
     this._probeState.set('idle');
     this._probeResult.set(null);
     this._probeId.set(null);

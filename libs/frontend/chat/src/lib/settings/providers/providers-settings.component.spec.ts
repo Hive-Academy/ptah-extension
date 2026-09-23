@@ -215,8 +215,15 @@ describe('ProvidersSettingsComponent', () => {
     expect(wizard().existingCredentialPresent()).toBe(false);
   });
   it('opens the setup wizard for a deep-linked provider once', async () => {
+    const consumed: string[] = [];
+    fixture.componentInstance.requestedProviderConsumed.subscribe((id) => consumed.push(id));
     fixture.componentRef.setInput('requestedProviderId', 'second'); await render();
     expect(wizard().deepLinkProviderId()).toBe('second');
+    // Not consumed until the wizard accepts the provider (the stub does not select on its own).
+    expect(consumed).toEqual([]);
+    wizard().providerChanged.emit('second'); await render();
+    // PR 581: the page reports the request as consumed so the parent can clear it.
+    expect(consumed).toEqual(['second']);
     wizard().closed.emit(); await render();
     expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
     // Not reopened by an unrelated render.
@@ -341,5 +348,94 @@ describe('ProvidersSettingsComponent', () => {
       expect(node.classList.contains('min-h-9')).toBe(true);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
+  });
+});
+
+/**
+ * PR 581 review round 1: deep links against the REAL page and the REAL wizard,
+ * with a host that clears the request on consumption exactly as SettingsComponent does.
+ */
+describe('ProvidersSettingsComponent deep links with the real wizard', () => {
+  @Component({ standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, imports: [ProvidersSettingsComponent],
+    template: `<ptah-providers-settings [requestedProviderId]="requested()" (requestedProviderConsumed)="consume($event)" />` })
+  class Host {
+    readonly requested = signal('');
+    readonly consumed: string[] = [];
+    consume(id: string): void {
+      this.consumed.push(id);
+      // SettingsComponent.consumeRequestedProvider
+      if (this.requested() === id) this.requested.set('');
+    }
+  }
+
+  let fixture: ComponentFixture<Host>;
+  let host: Host;
+  let state: StateStub;
+  beforeEach(async () => {
+    state = new StateStub();
+    await TestBed.configureTestingModule({ imports: [Host], providers: [
+      { provide: ProvidersSettingsStateService, useValue: state },
+      { provide: ClaudeRpcService, useValue: { call: jest.fn(async () => new RpcResult(true, { models: [] })) } },
+    ] }).overrideComponent(ProvidersSettingsComponent, {
+      remove: { imports: [ProviderConsumerAssignmentsComponent] },
+      add: { imports: [ConsumerStub] },
+    }).compileComponents();
+    fixture = TestBed.createComponent(Host);
+    host = fixture.componentInstance;
+  });
+  afterEach(() => { fixture.destroy(); TestBed.resetTestingModule(); });
+
+  async function render() {
+    for (let i = 0; i < 3; i++) { fixture.detectChanges(); await fixture.whenStable(); }
+  }
+  function realWizard(): ProviderSetupWizardComponent | null {
+    return fixture.debugElement.query(By.directive(ProviderSetupWizardComponent))?.componentInstance ?? null;
+  }
+  function selectedProvider(): string | null {
+    const radio = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[name="wizard-provider"]:checked');
+    return radio?.value ?? null;
+  }
+  async function discardWizard() {
+    const wizard = realWizard();
+    if (!wizard) throw new Error('wizard not open');
+    // Cancel with a draft (the selection) asks for review; confirm the discard.
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="wizard-cancel"]')?.click(); await render();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="wizard-discard-confirm"]')?.click(); await render();
+  }
+
+  it('keeps a different request pending while the wizard is open and applies it on close — never merely acknowledged', async () => {
+    host.requested.set('openrouter'); await render();
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.consumed).toEqual(['openrouter']);
+    expect(host.requested()).toBe('');
+
+    host.requested.set('requesty'); await render();
+    // The open draft for OpenRouter is not switched away, and B is still pending in the parent.
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.requested()).toBe('requesty');
+    expect(host.consumed).toEqual(['openrouter']);
+
+    await discardWizard();
+    // Closing applies the pending request: the wizard reopens on Requesty and only then consumes it.
+    expect(realWizard()).not.toBeNull();
+    expect(selectedProvider()).toBe('requesty');
+    expect(host.consumed).toEqual(['openrouter', 'requesty']);
+    expect(host.requested()).toBe('');
+  });
+
+  it('opens again for a fresh request for the same provider, but not on an unrelated re-render', async () => {
+    host.requested.set('openrouter'); await render();
+    expect(host.requested()).toBe('');
+    await discardWizard();
+    expect(realWizard()).toBeNull();
+
+    // Unrelated re-render: nothing opens.
+    state.refresh(); state.commit.set({ ...idle }); await render();
+    expect(realWizard()).toBeNull();
+
+    host.requested.set('openrouter'); await render();
+    expect(realWizard()).not.toBeNull();
+    expect(selectedProvider()).toBe('openrouter');
+    expect(host.consumed).toEqual(['openrouter', 'openrouter']);
   });
 });

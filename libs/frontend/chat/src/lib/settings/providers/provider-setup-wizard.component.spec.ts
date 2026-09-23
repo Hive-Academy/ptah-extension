@@ -504,6 +504,21 @@ describe('ProviderSetupWizardComponent', () => {
       expect(commits[0]).toMatchObject({ credential: null, existingKeyReused: true, verified: { probeId: params.probeId } });
     });
 
+    it('PR 581: Ollama Cloud (optional key) verifies its stored key without re-entry and sends no URL', async () => {
+      const verify = verifyEcho();
+      const fixture = createComponent({ existingCredentialPresent: true }, verify);
+      selectProvider(fixture, 'ollama-cloud'); click(fixture, 'wizard-continue');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      click(fixture, 'wizard-verify-stored-key');
+      const params = verify.mock.calls[0][0] as AuthVerifyDraftConnectionParams;
+      expect(params).toMatchObject({ providerId: 'ollama-cloud', credential: { kind: 'stored' } });
+      // The host binds the stored key to the saved endpoint; no caller URL is sent.
+      expect(params.baseUrl).toBeUndefined();
+      await Promise.resolve(); await Promise.resolve(); fixture.detectChanges();
+      click(fixture, 'wizard-continue'); click(fixture, 'wizard-continue');
+      expect(query(fixture, 'wizard-review-credential')?.textContent?.trim()).toBe('Stored key (unchanged)');
+    });
+
     it('does not probe while the user types', () => {
       const verify =
         jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(

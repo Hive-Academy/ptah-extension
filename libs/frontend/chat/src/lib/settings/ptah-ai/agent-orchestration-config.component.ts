@@ -272,7 +272,7 @@ import type {
                         type="checkbox"
                         class="toggle toggle-xs toggle-success"
                         [checked]="agentConfig()?.copilotAutoApprove ?? true"
-                        [disabled]="savingCopilotAutoApprove()"
+                        [disabled]="savingCopilotAutoApprove() || copilotAutoApproveUnconfirmed()"
                         (change)="toggleCopilotAutoApprove($event)"
                         aria-label="Auto-approve Copilot tool calls"
                         data-testid="copilot-auto-approve"
@@ -280,6 +280,17 @@ import type {
                     </label>
                     @if (copilotAutoApproveError(); as message) {
                       <p class="px-2 pb-2 text-xs text-error" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
+                    }
+                    @if (copilotAutoApproveUnconfirmed()) {
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs mx-2 mb-2 min-h-9"
+                        [disabled]="savingCopilotAutoApprove()"
+                        (click)="recheckCopilotAutoApprove()"
+                        data-testid="copilot-auto-approve-recheck"
+                      >
+                        Check saved setting again
+                      </button>
                     }
                   }
                   <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageProviders()">Manage provider, model and credentials in Providers</button>
@@ -455,6 +466,13 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   /** True while a Copilot auto-approve write is in flight; the toggle is disabled meanwhile. */
   readonly savingCopilotAutoApprove = signal(false);
   readonly copilotAutoApproveError = signal<string | null>(null);
+  /**
+   * True when a write's outcome is unknown AND the read-back failed: the saved
+   * value is unknown, so the toggle shows no value and accepts no writes until
+   * {@link recheckCopilotAutoApprove} reads it successfully.
+   */
+  readonly copilotAutoApproveUnconfirmed = signal(false);
+  private copilotToggle: HTMLInputElement | null = null;
 
   /**
    * Copilot only: AgentSpawnEnvironment.resolveAutoApprove reads
@@ -464,12 +482,14 @@ export class AgentOrchestrationConfigComponent implements OnInit {
    * envelope (`{ success: false }`), so both must succeed. Any other outcome
    * (failed envelope, `success:false`, rejected call) is uncertain: the saved
    * value is read back and the toggle shows that, with an error when the
-   * change did not take effect.
+   * change did not take effect. When the read-back fails too, the setting is
+   * marked unconfirmed instead of guessing the pre-write value.
    */
   async toggleCopilotAutoApprove(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
+    this.copilotToggle = input;
     const saved = this.agentConfig()?.copilotAutoApprove ?? true;
-    if (this.savingCopilotAutoApprove()) {
+    if (this.savingCopilotAutoApprove() || this.copilotAutoApproveUnconfirmed()) {
       input.checked = saved;
       return;
     }
@@ -492,20 +512,53 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         return;
       }
       const actual = await this.readCopilotAutoApprove();
-      const shown = actual ?? saved;
-      this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: shown } : c));
-      // The binding value may not change, so set the element state directly.
-      input.checked = shown;
+      if (actual === null) {
+        this.markCopilotAutoApproveUnconfirmed(input);
+        return;
+      }
+      this.showCopilotAutoApprove(input, actual);
       if (actual !== next) {
         this.copilotAutoApproveError.set(
-          actual === null
-            ? 'Could not confirm the Copilot auto-approve setting. Re-detect to check it.'
-            : 'Could not save Copilot auto-approve. The saved setting is unchanged.',
+          'Could not save Copilot auto-approve. The saved setting is unchanged.',
         );
       }
     } finally {
       this.savingCopilotAutoApprove.set(false);
     }
+  }
+
+  /** Re-read the saved value after an unconfirmed write; re-enables the toggle on success. */
+  async recheckCopilotAutoApprove(): Promise<void> {
+    if (this.savingCopilotAutoApprove()) return;
+    this.savingCopilotAutoApprove.set(true);
+    try {
+      const actual = await this.readCopilotAutoApprove();
+      if (actual === null) {
+        this.markCopilotAutoApproveUnconfirmed(this.copilotToggle);
+        return;
+      }
+      if (this.copilotToggle) this.showCopilotAutoApprove(this.copilotToggle, actual);
+      else this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: actual } : c));
+      this.copilotAutoApproveUnconfirmed.set(false);
+      this.copilotAutoApproveError.set(null);
+    } finally {
+      this.savingCopilotAutoApprove.set(false);
+    }
+  }
+
+  private showCopilotAutoApprove(input: HTMLInputElement, value: boolean): void {
+    this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: value } : c));
+    // The binding value may not change, so set the element state directly.
+    input.indeterminate = false;
+    input.checked = value;
+  }
+
+  private markCopilotAutoApproveUnconfirmed(input: HTMLInputElement | null): void {
+    this.copilotAutoApproveUnconfirmed.set(true);
+    if (input) input.indeterminate = true;
+    this.copilotAutoApproveError.set(
+      'Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it.',
+    );
   }
 
   /** Persisted Copilot auto-approve, or null when it cannot be read. */

@@ -94,6 +94,49 @@ describe('AgentOrchestrationConfigComponent', () => {
     expect(copilotToggle()?.disabled).toBe(false);
   });
 
+  it('PR 581: marks the setting unconfirmed when the read-back also fails, blocks writes, and recovers on a re-check', async () => {
+    let readOk = false;
+    call.mockImplementation(async (method: string) => {
+      if (method === 'agent:setConfig') return new RpcResult(true, { success: false, error: 'EACCES' });
+      if (!readOk) return new RpcResult(false, undefined, 'host unavailable');
+      return new RpcResult(true, { ...config, copilotAutoApprove: true });
+    });
+    copilotToggle()?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    // No guess: neither the pre-write nor the requested value is shown as saved.
+    expect(copilotToggle()?.indeterminate).toBe(true);
+    expect(copilotToggle()?.disabled).toBe(true);
+    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')?.textContent).toContain(
+      'Could not confirm whether Copilot auto-approve was saved',
+    );
+    // The old copy pointed at Re-detect, which does not reload this setting.
+    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')?.textContent).not.toContain('Re-detect');
+    // Further writes are blocked while unconfirmed.
+    const writes = () => call.mock.calls.filter(([method]) => method === 'agent:setConfig').length;
+    expect(writes()).toBe(1);
+    await fixture.componentInstance.toggleCopilotAutoApprove({ target: copilotToggle() } as unknown as Event);
+    expect(writes()).toBe(1);
+
+    // A failing re-check keeps it blocked.
+    (element.querySelector('[data-testid="copilot-auto-approve-recheck"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(copilotToggle()?.disabled).toBe(true);
+
+    // A successful re-check shows the saved value and re-enables the toggle.
+    readOk = true;
+    (element.querySelector('[data-testid="copilot-auto-approve-recheck"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(copilotToggle()?.indeterminate).toBe(false);
+    expect(copilotToggle()?.checked).toBe(true);
+    expect(copilotToggle()?.disabled).toBe(false);
+    expect(fixture.componentInstance.agentConfig()?.copilotAutoApprove).toBe(true);
+    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')).toBeNull();
+    expect(element.querySelector('[data-testid="copilot-auto-approve-recheck"]')).toBeNull();
+  });
+
   it('trusts the read-back when an uncertain write did persist', async () => {
     call.mockImplementation(async (method: string) => {
       if (method === 'agent:setConfig') throw new Error('response lost');
