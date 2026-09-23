@@ -38,7 +38,7 @@ Phase 0.5: [IF ambiguous request] SCOPE CLARIFICATION
            v
 Phase 1: project-manager --> Creates task-description.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -48,7 +48,7 @@ Phase 2: [IF technical unknowns] researcher-expert --> Creates research-report.m
          v
 Phase 3: [IF UI/UX work] ui-ux-designer --> Creates design-spec.md + prototype/
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          GATE 1.7: USER VALIDATES ("APPROVED" or revisions)
          |
@@ -61,7 +61,7 @@ Phase 3.5: [IF multiple valid approaches] TECHNICAL CLARIFICATION
            v
 Phase 4: software-architect --> Creates implementation-plan.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -125,7 +125,7 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 ```
 software-architect --> Creates implementation-plan.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -157,7 +157,7 @@ The architect designs HOW to refactor; no scope discovery needed.
 ```
 project-manager --> Creates task-description.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -211,14 +211,14 @@ If research concludes implementation is needed:
 ```
 Phase 1: project-manager --> Creates task-description.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
          v
 Phase 2: software-architect --> Creates implementation-plan.md
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -287,7 +287,7 @@ Phase 1: project-manager + [saas-discovery-prompt]
              - Integration patterns
              - MVP scope
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |
@@ -299,7 +299,7 @@ Phase 2: software-architect + [saas-architecture-skills]
              - Module boundary rules
              - Batch breakdown
          |
-         INDEPENDENT DOCUMENT REVIEW (other execution side; max 2 revise rounds)
+         INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
          USER VALIDATES ("APPROVED" or feedback)
          |

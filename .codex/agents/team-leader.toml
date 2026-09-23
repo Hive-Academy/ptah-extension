@@ -165,9 +165,9 @@ Edge cases:
 ### Task 1.1: [description] — PENDING
 
 - File: [absolute path]
-- Plan reference: implementation-plan.md:[line range]
+- Plan reference: implementation-plan.md:[line range] (for BUGFIX: task.md, context.md, research-report.md when present, and the reproduction)
 - Pattern to follow: [existing file:line]
-- Quality requirements: [from the plan]
+- Quality requirements: [from the plan; for BUGFIX: from task.md, context.md, and the reproduction]
 - Validation notes: [risks or assumptions this task must handle]
 - Implementation details: [key imports, registration or wiring step, the core
   logic in one sentence]
@@ -273,17 +273,23 @@ Perform mandatory completion checks:
 1. **Parity verification**: First decide whether the task replaces, consolidates,
    rebuilds or redesigns an existing surface. If it does, `parity-inventory.md` (or
    the lane preserve list) is required — a missing inventory is a blocker, not
-   \"N/A\". Verify it row by row against the new codebase and its tests. For
-   `parity-inventory.md`, every capability marked `keep` or `move` must exist in
-   the build with a passing test, and every `remove-proposed` decision needs
-   recorded user approval. For a preserve list, check every listed capability:
-   it must be present in the build with a passing test or listed under an
-   approved `## Proposed Removals` section with recorded user approval for that
-   removal. Do not require inventory decision markers in a preserve list.
-   Any unapproved missing capability blocks completion.
+   \"N/A\". First compare the inventory or preserve list against the OLD surface at
+   the base commit (its routes, commands, RPC calls, user-facing actions) and
+   treat any capability found there but absent from the list as a blocker; only
+   then verify rows against the build. For `parity-inventory.md`, every
+   capability marked `keep` or `move` must exist in the build with a passing
+   test, and every `remove-proposed` decision needs recorded user approval. For a
+   preserve list, check every listed capability: it must be present in the build
+   with a passing test or listed under an approved `## Proposed Removals` section
+   with recorded user approval for that removal. Do not require inventory
+   decision markers in a preserve list. Any unapproved missing capability blocks
+   completion.
 2. **Rendered visual evidence**: For UI tasks, typecheck, test, and lint are not
    proof. Confirm that rendered visual-reviewer screenshots exist for both dark
    and light themes and verify fidelity against the approved prototype in `prototype/`.
+   For a UI BUGFIX that does not add or redesign a surface (skipping the designer
+   and Gate 1.7), completion requires before/after screenshots (dark + light) of
+   the affected screen instead of a prototype.
 3. **Write-path trace**: When code changes what gets written to persisted settings,
    configuration, or storage, trace each write to its runtime reader (key, scope,
    value format, side effects such as environment variables) and confirm runtime
@@ -373,8 +379,9 @@ with:
     <absolute path>.
 
     1. Read batches.md and find Batch [N], marked IN_PROGRESS.
-    2. Read implementation-plan.md for context, and the plan validation section
-       for the risks and assumptions this batch carries.
+    2. Read implementation-plan.md for context (for a BUGFIX: task.md, context.md,
+       research-report.md when present, and the reproduction instead of the plan),
+       and the plan validation section for the risks and assumptions this batch carries.
     3. Implement every task in Batch [N], in order, with real code — no stubs,
        placeholders or TODO markers.
     4. Handle the edge cases listed in the validation section.

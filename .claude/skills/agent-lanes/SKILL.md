@@ -69,7 +69,8 @@ A lane shares none of your context and cannot ask the user anything. Every `task
    that exits silently still produces a completion signal, but the signal lists files — only the
    lane can say what it decided and what it left undone.
 7. **Git**: never commit, push or run history-changing git — unless the workflow gives the lane its
-   own throwaway worktree and says so.
+   own throwaway worktree and says so. Never run git commands that discard working-tree changes
+   (`restore`, `checkout -- <path>`, `stash`, `reset`, `clean`); a change the lane did not make belongs to another writer — report it, never revert it.
 8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
    in the deliverable and stop.
 9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
@@ -168,7 +169,7 @@ Lane output is evidence, not proof.
   The review informs the user's gate and never replaces it.
 - **Defects** go back to the original lane (resume per §5) as a numbered list, each with
   `file:line`. Drop any defect without a location before relaying it.
-- **Revise cap**: at most 2 author/reviewer revision pairs after the initial review; announce it
+- **Revise cap**: at most 2 revise rounds (author/reviewer revision pairs) after the initial review; announce it
   first. At exhaustion, a document goes to its user gate with every open item. For code, report the
   open defects or make ONE bounded correction, then have the changed code independently reviewed;
   if that review finds defects, report them and stop — never reset the cap or claim completion.
