@@ -24,7 +24,7 @@ function post(
   return new Promise<{ body: string; type: string | undefined }>(
     (resolve, reject) => {
       const req = http.request(
-        `${url}/v1/messages`,
+        `${url}/v1/messages?beta=true`,
         { method: 'POST' },
         (res) => {
           let body = '';
@@ -79,7 +79,7 @@ describe('Codex upstream transport selection', () => {
     ['https://example.com/backend-api/codex', false, false],
     ['https://chatgpt.com/other', false, false],
   ] as const)(
-    '%s caller stream=%s upstream stream=%s',
+    '%s accepts SDK system turns: caller stream=%s upstream stream=%s',
     async (endpoint, stream, upstreamStream) => {
       let body = '';
       const fakeRequest = new EventEmitter() as EventEmitter & {
@@ -119,7 +119,38 @@ describe('Codex upstream transport selection', () => {
       );
       try {
         const { url } = await proxy.start();
-        const result = await post(url, stream);
+        // SDK 0.3.278 sends a mid-conversation system turn even on the first
+        // gpt-5.6-sol request. The old envelope rejected messages[1].role.
+        const result = await post(url, stream, {
+          model: 'gpt-5.6-sol',
+          max_tokens: 32000,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Context' },
+                { type: 'text', text: 'Hello' },
+              ],
+            },
+            {
+              role: 'system',
+              content: [{ type: 'text', text: 'SDK instructions' }],
+            },
+          ],
+        });
+        expect(JSON.parse(body)).toMatchObject({
+          model: 'gpt-5.6-sol',
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: 'Context' },
+                { type: 'input_text', text: 'Hello' },
+              ],
+            },
+            { role: 'developer', content: 'SDK instructions' },
+          ],
+        });
         expect(JSON.parse(body).stream).toBe(upstreamStream ? true : undefined);
         if (stream) {
           expect(result.type).toBe('text/event-stream');
