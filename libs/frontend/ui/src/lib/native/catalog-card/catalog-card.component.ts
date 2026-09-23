@@ -45,7 +45,7 @@
  *     [interactive]="true"
  *     (activated)="openDetail(server.id)"
  *   >
- *     <ptah-brand-mark card-mark [slug]="server.brandSlug" [label]="server.name" />
+ *     <ptah-brand-mark card-mark [brandSlug]="server.brandSlug" [label]="server.name" />
  *     <div card-actions>
  *       <button type="button" class="btn btn-sm btn-primary">Install</button>
  *     </div>

@@ -32,6 +32,7 @@ export * from './autocomplete';
 export * from './form';
 export * from './card';
 export * from './catalog-card';
+export * from './brand-mark';
 export * from './tab-group';
 export * from './drawer';
 export * from './provider-model-picker';

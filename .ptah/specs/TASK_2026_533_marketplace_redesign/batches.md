@@ -1,9 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 63 | Batches: 29 | Complete: 9/29
+Total tasks: 63 | Batches: 29 | Complete: 10/29
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7d, 12. IN_PROGRESS: Batch 7b (ui, own worktree, in review).
-Next after 7b: 7c (ui) and 8 (marketplace); after 8: 9.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7d, 12. Nothing in progress (session close-out).
+Launchable next: 7c (ui) and 8 (marketplace), each in its own worktree based on the 7b commit.
 
 Revision 2 (2026-09-23): the architect resolved D-1, D-2 and D-2b in
 implementation-plan.md (C13, C14, revised D6/C5/C8/C12, R7). Batches 4-25 were
@@ -24,7 +24,7 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
   Batch 4; A5 is the first task of the coverage work in Batch 8.
 - Mark system and shared discovery pieces live in `@ptah-extension/ui` per C13/C14:
   one renderer `ptah-mark-svg`, `ptah-brand-mark`, `ptah-monogram-tile`,
-  `brand-slugs.ts` (`resolveBrandSlug`, `KNOWN_SERVER_BRANDS`, `CLI_TARGET_BRANDS`,
+  `brand-slugs.ts` (`resolveInstalledBrandSlug`, `resolveListingBrandSlug`, `KNOWN_SERVER_BRANDS`, `CLI_TARGET_BRANDS`,
   `PROVIDER_BRAND_SLUGS`), and `ptah-catalog-card` / `ptah-catalog-grid` /
   `ptah-storefront-panel`. No `onDark` input anywhere: the dark variant is chosen in
   CSS from `data-theme-mode` (`theme.service.ts:184-194`, `index.html:64-66`,
@@ -55,6 +55,8 @@ re-split into 7a/7b/7c/7d. No batch waits on a design decision any more.
 - Batch 5 constraint: `data/marketplace-inventory.store.ts` is at 699 lines (cap 700). No later batch may grow it; new store behaviour goes into a collaborator file (facade rule).
 - Batch 4 outcome (binding on 7b, 7c, 17, 25): the vendoring script also writes `libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt` (theSVG MIT, pinned SHA, trademark note, the 10 marks needing attribution: Angular CC-BY-4.0, SonarQube LGPL-3.0, Attio, Pipedrive, Monday.com, Apollo.io, Exa, Firecrawl, Slack, Tavily; AI vendors covered generically, never named). A scanner-token guard fails the run on any banned token. The notices ship in the VSIX (build-esbuild assets) and Electron (build-main assets + `electron-builder.yml` extraResources). `scripts/brand-icons/rejection-report.md` is kept, not shipped. Any edit to the manifest or script must be followed by `npm run vendor:brand-icons -- --check`.
 - Batch 12 contract (BINDING on Batches 10, 13, 14, 15, 16): (1) each page renders its search field inside `<main>` as `input[type="search"]` or `[role="searchbox"]` so the shell's `/` shortcut finds it; when the field is not shown it is hidden with the `hidden` attribute or `inert`, never only a CSS class (the shell's `pageSearch()` checks only `[hidden]`/`[inert]`); (2) each page renders exactly one `<h1>`; (3) the status bar lists ↑↓ / Enter / Esc hints — pages from Batch 13 on must implement those keys, or the batch that lands a page without them trims the hints.
+- Batch 7b contract, resolvers (BINDING on Batches 8, 20, 21, 22): `resolveBrandSlug` no longer exists. Installed rows (Batch 8 provider-row, Custom URL connected-servers list) use `resolveInstalledBrandSlug({ serverKey, serverUrl? })` (catalogue URL → normalized key → alias → last `/` segment → null). Discovery listings (Smithery and Registry results, Custom URL suggestions) use `resolveListingBrandSlug({ registryName?, remoteUrls })`: a vendor mark only on an exact catalogue-URL match or an allowlisted namespace in `LISTING_NAMESPACE_BRANDS` (seed `io.github.getsentry` → `sentry`), else null (monogram), so look-alike listings never borrow a vendor mark. The input types are distinct (`never` fields) so cross-use does not compile.
+- Batch 7b accepted deviations: `brand-mark.component.ts` sets `styles: BRAND_MARK_THEME_STYLES` as a bare constant (jest-preset-angular strips `styles` array/string literals, `replace-resources.js:118-122`, which breaks the dark-switch specs); the monogram neutral tint is `bg-neutral/15` instead of the plan's `bg-neutral`, for light-theme readability.
 - Batch 12 files for later batches: `shell/marketplace-route-url.ts` exports `MARKETPLACE_SURFACE`, `marketplaceRouteLink` and `marketplaceRouteOfUrl` (use these for in-marketplace links; do not import the shell or nav from pages); `shell/marketplace-nav-counts.ts` holds the zero-RPC nav counts. Batch 17 wires the shell as the `''` route component.
 - Batch 7b contract (BINDING): `CLI_TARGET_BRANDS` is a discriminated union `{ kind: 'brand'; brandSlug } | { kind: 'provider-mark'; providerId: 'opencode' }`; `vscode` stays a monogram. Batch 9 (TargetMarks) handles both kinds. Batch 7c imports `PROVIDER_BRAND_ART` directly from `brand-marks.generated.ts` (it is not re-exported by the barrel).
 - Batch 1 facts for Batch 4: monogram slugs `klaviyo`, `zernio`, `context7`,
@@ -74,8 +76,8 @@ Agreed 2026-09-23:
 3. 540 replaces the per-workspace `_viewSlices` for those four surfaces with one GLOBAL, generic per-surface slot in `AppStateManager`. After the rebase, `marketplaceRoute: MarketplaceRoute | null` (added per-workspace in Batch 2) moves into 540's global Marketplace slot, and the per-workspace specs (`app-state.service.spec.ts`, `workspace-coordinator.service.spec.ts:511-540`) become global-state specs — Batch 18b.
 4. RESOLVED (540 Gate 2): the Marketplace renders its header in BOTH hosts — mark + breadcrumb `Marketplace / <page>`; the back-to-chat button only when `!vscode.isElectron`; the Electron header is one slim row (implementation-plan.md C6 :365). Batch 12 is unblocked.
 5. `setCurrentView` no-op rule (`openMarketplace` while `!canSwitchViews()` is a no-op, plan :255): 540 does not change `setCurrentView` and applies the same rule to thoth/setup-hub/settings. No change to Batch 18.
-6. After 540 merges, a workspace switch while ANY configuration surface is open (marketplace and every child route) does NOT re-navigate; 540 sets `_settlementOwner` directly. Consequences: (a) the restore redirect is not reached on a workspace switch while the Marketplace is open — accepted; (b) the shell-scoped stores must reload on `WorkspaceScopeService.generation` because nothing re-creates them — acceptance added to Batches 5 and 6; (c) an open detail whose ref no longer exists after the reload must fall back to "Not found" (or close to the list) — acceptance added to Task 13.3 (and Task 16.3).
-7. Batch 18b target: `marketplaceRoute` goes into 540's global `_configurationSurfaces.perSurface.marketplace` (via `updateConfigurationSurfaceSlot('marketplace', { marketplaceRoute })` plus our own typed computed, or a dedicated marketplace slot interface); settlement recording goes through 540's private `recordSettledView(surface)`. 540 plan: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940\implementation-plan.md` ("Design decisions" 1-3, "Extension points").
+6. After 540 merges, a workspace switch while ANY configuration surface is open (marketplace and every child route) does NOT navigate: 540 bumps `configurationSurfaceRemountTick` and the Electron shell effect calls `SurfaceRouterService.remountActiveSurface()`, which re-creates the routed component at the SAME URL (child-route URL kept; skipped while `pendingSurface()` is non-null). Consequences: (a) the restore redirect is not reached on such a switch — accepted; (b) the Marketplace shell and its shell-scoped stores are re-created and load fresh; their reload on `WorkspaceScopeService.generation` (Batches 5, 6) stays as a harmless second guard; (c) an open detail route survives the remount by URL, so a detail whose ref no longer exists after the reload must fall back to "Not found" (or close to the list) — Tasks 13.3 and 16.3; Batch 25 tests a workspace switch with a Marketplace detail open.
+7. Batch 18b target (final 540 design, corrected 2026-09-23; details in `handoff.md` §7): there is NO `updateConfigurationSurfaceSlot` and NO `recordSettledView`. 533 adds `marketplaceRoute: MarketplaceRoute | null` to the `marketplace` member of 540's typed `ConfigurationSurfaceSlots` (`_configurationSurfaces.perSurface`) together with its own writer and first caller. 540's global write (`_configurationSurfaces.openSurface`) lives in the `AppStateManager` constructor effect; `openViewInActiveSlice` refuses the four configuration ids; `recordSettledSurface` is unchanged. 540 plan: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\.ptah\specs\TASK_2026_540_0940\implementation-plan.md` ("Revision 3 overrides").
 
 DECIDED (h1 ownership, plan C6 :365 and C7): the shell renders a breadcrumb `<nav aria-label="Breadcrumb">` and NO `<h1>`; each page renders its own single `<h1>`. Batch 12 implements this; Tasks 15.2 and 19.1 keep relying on the page `h1`.
 
@@ -395,7 +397,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer (barrel, no duplicate left in live code)
 
-## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — IN_PROGRESS
+## Batch 7b: Mark renderer, brand mark, monogram, brand slugs (C14 part) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -404,7 +406,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 4, 7a, 7d
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/ui`
 
-### Task 7b.1: `MarkSvgComponent` and `MonogramTileComponent` — IN_PROGRESS
+### Task 7b.1: `MarkSvgComponent` and `MonogramTileComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\mark-svg.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\monogram-tile.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C14 (:572-576), D6 tile and monogram rules
@@ -413,7 +415,7 @@ Edge cases:
 - Validation notes: specs — brand vs mono paint, fill vs stroke kind; deterministic tint; no `innerHTML`.
 - Implementation details: `MarkArtwork` type from `mark-artwork.ts` (Task 4.2).
 
-### Task 7b.2: `BrandMarkComponent` — IN_PROGRESS
+### Task 7b.2: `BrandMarkComponent` — COMPLETE
 
 - Depends on: Task 7b.1
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-mark.component.ts` (+`.spec.ts`)
@@ -423,7 +425,7 @@ Edge cases:
 - Validation notes: spec sets `data-theme-mode` on `document.documentElement`; light tile; monogram fallback; missing `onDark` shows `art`.
 - Implementation details: renders through `ptah-mark-svg`.
 
-### Task 7b.3: `brand-slugs.ts` and barrels — IN_PROGRESS
+### Task 7b.3: `brand-slugs.ts` and barrels — COMPLETE
 
 - Depends on: Task 7b.2
 - Files: `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\brand-slugs.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\brand-mark\index.ts`, `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\index.ts`
@@ -517,7 +519,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\data\provider-row.spec.ts`
 - Plan reference: implementation-plan.md C5 (:333 brand revision), `provider-row` responsibilities
 - Pattern to follow: `installed-mcp-groups.ts:32-45` (`TARGET_LABELS`), `mcp-install.service.ts:95-101` (origin labels)
-- Quality requirements: `brand` from `resolveBrandSlug({ serverKey, serverUrl })` imported from `@ptah-extension/ui` (no local resolver); status precedence session → OAuth → Smithery → `configured`, never `connected` without a live source; removal `uninstall|disconnect|confirm-direct|blocked{reason,fixCommand?}|manage-link`; `ConfigSummary` has no field that could hold an env/header value.
+- Quality requirements: `brand` from `resolveInstalledBrandSlug({ serverKey, serverUrl })` imported from `@ptah-extension/ui` (no local resolver); status precedence session → OAuth → Smithery → `configured`, never `connected` without a live source; removal `uninstall|disconnect|confirm-direct|blocked{reason,fixCommand?}|manage-link`; `ConfigSummary` has no field that could hold an env/header value.
 - Acceptance (Batch 5 review, moderate): the store's `installed()` exposes raw `config.env`/`config.headers`; masking happens here. Add a spec that runs a REAL `mcpDirectory:listInstalled`-shaped response carrying env and header secrets through store → mapper → view model and asserts no secret value appears in any view-model string.
 - Validation notes: R3. Unknown status → `unknown` with raw text. Spec includes a type-level assertion (`// @ts-expect-error` on assigning a value field).
 - Implementation details: pure.
@@ -660,7 +662,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer
 
-## Batch 12: Shell, nav and status bar (C6) — COMPLETE
+## Batch 12: Shell, nav and status bar (C6) — COMPLETE (commit 6f69a9330)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -797,7 +799,7 @@ Edge cases:
 
 ### Batch 15 verification
 
-- Follow-ups from the Batch 6 logic review (owned here; fix in `connector-links.store.ts` only if the page cannot handle them, and that file must not grow past 700 lines): (1) `openSmitherySetup` returning `opened:false` with no error is reported as a failure although it can mean "already connected" (`connector-links.store.ts:604-612`) — the page must show the connected state, not an error; (2) the 5-minute Smithery poll deadline ends silently (`:638-644`) — the card must show a "timed out, retry" state. Each pinned by a spec. (3) Flaky test: `connector-links.store.spec.ts:1081` "gives up after five minutes" failed once in the team-leader's full `lint,typecheck,test` run of Batch 6 (passed in 6 other runs, incl. 4 concurrent) — give it an explicit timeout or reduce the fake-timer work so it is stable under load.
+- Follow-ups from the Batch 6 logic review (owned here; fix in `connector-links.store.ts` only if the page cannot handle them, and that file must not grow past 700 lines): (1) `openSmitherySetup` returning `opened:false` with no error is reported as a failure although it can mean "already connected" (`connector-links.store.ts:604-612`) — the page must show the connected state, not an error; (2) the 5-minute Smithery poll deadline ends silently (`:638-644`) — the card must show a "timed out, retry" state. Each pinned by a spec. (3) RESOLVED in commit 77cce7d8f (fake clock jumped with `jest.setSystemTime`, both deadline assertions kept; 50/50 runs under load). Original note: flaky test `connector-links.store.spec.ts:1081` "gives up after five minutes" failed once in the team-leader's full `lint,typecheck,test` run of Batch 6 (passed in 6 other runs, incl. 4 concurrent) — give it an explicit timeout or reduce the fake-timer work so it is stable under load.
 - Reviewer: code-logic-reviewer
 
 ## Batch 16: Skills pages (C9 part) — PENDING
@@ -940,7 +942,7 @@ Edge cases:
 
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`, `...\app-state.service.spec.ts`, `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\workspace-coordinator.service.spec.ts`; the marketplace shell/routes only if 540's slot API changes the call sites of `rememberMarketplaceRoute` / `marketplaceRoute`
 - Plan reference: External coordination items 1-3; implementation-plan.md D2 (`marketplaceRoute`)
-- Pattern to follow: 540's `_configurationSurfaces.perSurface.marketplace` slot — `updateConfigurationSurfaceSlot('marketplace', { marketplaceRoute })` plus a typed computed (or a dedicated marketplace slot interface); settlement through 540's private `recordSettledView(surface)`; see 540's implementation-plan.md "Design decisions" 1-3 and "Extension points" (path under External coordination item 7)
+- Pattern to follow: 540's typed `ConfigurationSurfaceSlots` — add `marketplaceRoute: MarketplaceRoute | null` to its `marketplace` member (`_configurationSurfaces.perSurface.marketplace`) with a 533-owned writer used by `rememberMarketplaceRoute` and a typed computed for `marketplaceRoute`; do not add settlement code (540's constructor effect owns `openSurface`; `recordSettledSurface` is unchanged). See External coordination item 7 and `handoff.md` §7.
 - Quality requirements: `marketplaceRoute: MarketplaceRoute | null` stored in the global Marketplace slot, not the per-workspace `ViewSlice`; `marketplaceRoute`/`rememberMarketplaceRoute`/`openMarketplace` signatures unchanged for callers; the per-workspace specs (Batch 2 additions, `workspace-coordinator.service.spec.ts:511-540`) rewritten as global-state specs; no leftover per-workspace field.
 - Validation notes: the restore redirect (Task 17.1) still restores the remembered page after a workspace switch — now the same page for every workspace; state that behaviour change in the report.
 - Implementation details: replace in place; no compatibility shim.
@@ -985,7 +987,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\smithery-surface.component.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\smithery-surface.component.spec.ts`; optionally one NEW sibling presentational file (+spec) for Smithery-only markup that does not fit the card
 - Plan reference: implementation-plan.md C13 table row "Smithery" (:540), spec-migration rule (:547-552), net-line rule (:553-557)
 - Pattern to follow: `ptah-catalog-card` / `ptah-storefront-panel` (Batch 7d)
-- Quality requirements: server list (`:409`) → `ptah-catalog-grid` of `ptah-catalog-card` (projected `ptah-brand-mark` via `resolveBrandSlug`, else monogram; `useCount`, verified, `bySmithery` as meta/badge; Install or Installed action); key gate and per-server config/setup → `ptah-storefront-panel` (setup form in a `col-span-full` expansion); category chips stay filters; inputs/outputs (`:752-757`) and RPCs unchanged; file does not grow; every `data-testid` kept.
+- Quality requirements: server list (`:409`) → `ptah-catalog-grid` of `ptah-catalog-card` (projected `ptah-brand-mark` via `resolveListingBrandSlug({ registryName, remoteUrls })`, else monogram; `useCount`, verified, `bySmithery` as meta/badge; Install or Installed action); key gate and per-server config/setup → `ptah-storefront-panel` (setup form in a `col-span-full` expansion); category chips stay filters; inputs/outputs (`:752-757`) and RPCs unchanged; file does not grow; every `data-testid` kept.
 - Validation notes: only selector-level spec edits, each listed with its reason; new assertions: items inside `ptah-catalog-grid`/`ptah-catalog-card`, no `innerHTML`.
 - Implementation details: presentation only; a behaviour-preserving split is out of scope.
 
@@ -1016,7 +1018,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\oauth-surface.component.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\oauth-surface.component.spec.ts`
 - Plan reference: implementation-plan.md C13 row "Custom URL" (:542)
 - Pattern to follow: `ptah-storefront-panel`
-- Quality requirements: whole form in one panel with grouped fields and the Advanced disclosure inside; suggestions list (`:270`) → compact row of interactive `ptah-catalog-card`s (activated = pick suggestion); connected-servers list (`:337`) → cards with `resolveBrandSlug({serverUrl})` mark, status badge, Disconnect; public signals `urlInput`/`nameInput`/`advancedOpen`/`redirectUri` (`:478-503`) and inputs/outputs frozen; no growth.
+- Quality requirements: whole form in one panel with grouped fields and the Advanced disclosure inside; suggestions list (`:270`) → compact row of interactive `ptah-catalog-card`s (activated = pick suggestion; mark via `resolveListingBrandSlug`); connected-servers list (`:337`) → cards with `resolveInstalledBrandSlug({ serverKey, serverUrl })` mark (connected servers are installed rows), status badge, Disconnect; public signals `urlInput`/`nameInput`/`advancedOpen`/`redirectUri` (`:478-503`) and inputs/outputs frozen; no growth.
 - Validation notes: Batch 15 prefill spec stays green (run it).
 - Implementation details: presentation only.
 
@@ -1038,7 +1040,7 @@ Edge cases:
 - Files: `D:\projects\ptah-extension\libs\frontend\chat-ui\src\lib\molecules\setup-plugins\mcp-directory-browser.component.ts`, `...\mcp-directory-browser.component.spec.ts`
 - Plan reference: implementation-plan.md C11, C13 row "MCP Registry" (:541)
 - Pattern to follow: `mcp-directory-browser.component.ts:54-71,292-430,459-480`
-- Quality requirements: FIRST delete Installed view, tab strip, removal/confirm state and `connectorServers` input; keep browse, detail, install and its own `listInstalled` read for "Installed" badges; results → `ptah-catalog-card`s (projected `ptah-brand-mark` via `resolveBrandSlug`, else monogram; version/transport meta; Installed badge); detail and install → `ptah-storefront-panel` expansion; file ENDS ≤700 lines; every `data-testid` kept.
+- Quality requirements: FIRST delete Installed view, tab strip, removal/confirm state and `connectorServers` input; keep browse, detail, install and its own `listInstalled` read for "Installed" badges; results → `ptah-catalog-card`s (projected `ptah-brand-mark` via `resolveListingBrandSlug({ registryName, remoteUrls })`, else monogram; version/transport meta; Installed badge); detail and install → `ptah-storefront-panel` expansion; file ENDS ≤700 lines; every `data-testid` kept.
 - Validation notes: imports only `@ptah-extension/ui` / `@ptah-extension/shared` for this (never marketplace or chat); spec asserts no tab strip and items inside `ptah-catalog-grid`.
 - Implementation details: presentation + removal of dead code only.
 
@@ -1140,6 +1142,7 @@ Edge cases:
 
 ### Batch 25 verification
 
-- Open risk carried here: a flaky marketplace test failed once in the Batch 6 verification run (first seen at `connector-links.store.spec.ts:1081`); not reproduced in 12+ later runs incl. `--randomize`; the exact spec is unconfirmed. A Jest "worker process has failed to exit gracefully" warning appears on every marketplace run regardless of pass/fail. Batch 25 runs the marketplace suite repeatedly (e.g. 10x with `--randomize`) and chases the open handle with `--detectOpenHandles`.
+- Flaky test root-caused and fixed in commit 77cce7d8f (`connector-links.store.spec.ts` "gives up after five minutes"); Batch 25 still runs the marketplace suite repeatedly and chases the "worker failed to exit" open handle. Original note: a flaky marketplace test failed once in the Batch 6 verification run (first seen at `connector-links.store.spec.ts:1081`); not reproduced in 12+ later runs incl. `--randomize`; the exact spec is unconfirmed. A Jest "worker process has failed to exit gracefully" warning appears on every marketplace run regardless of pass/fail. Batch 25 runs the marketplace suite repeatedly (e.g. 10x with `--randomize`) and chases the open handle with `--detectOpenHandles`.
+- Workspace switch with a Marketplace detail open (TASK_2026_540 remount): after the switch the URL is unchanged, the shell and stores are re-created, and a detail whose ref is gone renders "Not found" (or closes to the list) while a still-present one re-renders.
 - Real-host tier check (from Batch 3 review): in a real host build, resize the container across 900 and 1400 WITHOUT any manual change detection and assert the tier flips (rail ↔ sidebar, drawer ↔ docked detail). Belongs in `marketplace-routes.e2e.spec.ts` (Task 25.1).
 - Reviewer: visual-reviewer (rendered interface parity), after senior-tester's run is green
