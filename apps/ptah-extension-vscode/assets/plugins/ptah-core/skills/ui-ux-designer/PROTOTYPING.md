@@ -287,6 +287,11 @@ npx http-server <taskFolder>/prototype -p <port>
 - State dropdown (switch between populated, empty, loading, error).
 - Clickable modals, tabs, or accordions.
 
+## Project rules applied
+List each applied `[project-rule]` with its source file or doc; write `none` if there are none. Examples:
+- `[project-rule]` Single primary action per card. Source: `ui-ux-designer/SKILL.md`, Prototyping Rules, "One primary action per surface".
+- `[project-rule]` Provider status shown as badge. Source: `ui-ux-designer/SKILL.md`, Prototyping Rules, "Status is not a button".
+
 ## Lane-introduced constraints
 List only lane-proposed design rules, boundaries, or constraints; write `none` if there are none.
 - `[lane-proposed]`: Introduced by the agent/lane. **Requires explicit user approval at Gate 1.7.**

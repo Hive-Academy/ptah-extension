@@ -330,6 +330,10 @@ DESIGN READY FOR REVIEW — TASK_[ID]
 
 - [Screen and its populated, empty, loading, error states; themes and widths from README.md]
 
+## Project rules applied
+
+- [project-rule] [Applied rule + its source file or doc, from prototype/README.md; or none]
+
 ## Lane-introduced constraints
 
 - [lane-proposed] [Rule introduced by the lane + source; or none]

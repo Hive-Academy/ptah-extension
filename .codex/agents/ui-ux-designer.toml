@@ -54,8 +54,9 @@ Pick the workflow that matches the request.
   section with exact token values, responsive behaviour, and states. For any UI surface,
   the designer owns building an interactive static prototype in `.ptah/specs/<TASK_FOLDER>/prototype/`
   (`index.html`, `README.md`, `screenshots/`) using the project's real tokens and component library.
-  List all design constraints in `prototype/README.md` under `## Lane-introduced constraints`
-  tagged `[user-requested]`, `[project-rule]`, or `[lane-proposed]`, and cross-reference
+  List only `[lane-proposed]` rules under `## Lane-introduced constraints` in
+  `prototype/README.md` (or `none`); keep project rules tagged `[project-rule]` with
+  their sources where they appear, and cross-reference
   `parity-inventory.md`. Stop for user confirmation at Gate 1.7; iterate until the user
   replies APPROVED before any implementation starts.
 - **Assets.** Write briefs using the skill's prompt formula. Discover image-generation
