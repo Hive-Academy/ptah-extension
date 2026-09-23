@@ -18,6 +18,7 @@
  *   MCP_STATUS                ← (no chat deps)
  *   HISTORY_READ              ← (no chat deps)
  *   SESSION                   ← all of the above
+ *   SURFACE_SUBMIT_TURN       ← STREAM_BROADCASTER
  *
  * `SESSION` also resolves `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`, which is
  * NOT registered here — `registerOutputStyleServices` owns it, because the
@@ -44,6 +45,7 @@ import { ChatSlashCommandRouterService } from './session/chat-slash-command-rout
 import { ChatSessionService } from './session/chat-session.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
+import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
 
 export { CHAT_TOKENS } from './tokens';
 
@@ -73,6 +75,10 @@ export function registerChatServices(container: DependencyContainer): void {
   // same composition, and `registerOutputStyleServices` — which every host
   // already calls — binds it under `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`.
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
+  container.registerSingleton(
+    CHAT_TOKENS.SURFACE_SUBMIT_TURN,
+    SurfaceSubmitTurnService,
+  );
 
   // A fresh session streams under its tabId until the SDK reports the real
   // UUID. Same wiring `SessionTurnStateRegistry` gets in
