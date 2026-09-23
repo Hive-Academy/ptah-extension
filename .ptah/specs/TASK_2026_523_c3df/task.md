@@ -1,13 +1,15 @@
 ---
-status: in_progress
+status: done
 type: feature
 title: 'Providers & Auth: one settings surface, truthful active route, guided setup'
 description: >-
   Replace the scattered provider/model settings (authMethod, ptahCliAgents,
-  memory.curatorProvider, skillSynthesis.<lane>.provider, skillSynthesis.judgeModel)
-  with one Providers surface. Show the EFFECTIVE auth route rather than the stored
-  authMethod enum, surface global vs per-workspace scope, add a guided provider
-  setup wizard with vendor marks, and land the three skill-enhancement fixes.
+  memory.curatorProvider, skillSynthesis.<lane>.provider,
+  skillSynthesis.judgeModel) with one Providers surface. Show the EFFECTIVE auth
+  route rather than the stored authMethod enum, surface global vs per-workspace
+  scope, add a guided provider setup wizard with vendor marks, and land the
+  three skill-enhancement fixes.
+updated: '2026-09-23T14:41:52.495Z'
 ---
 
 # Providers & Auth consolidation

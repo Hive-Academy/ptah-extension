@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_492_0bcc
-status: in_review
+status: done
 type: CREATIVE
 title: >-
   Shell design specification for apps - workspace types, Home grid, pin flow,
@@ -11,6 +11,7 @@ description: >-
   the navigation changes one time only. The first release builds only the Apps
   tab inside a code workspace. This is a specification task for the
   ui-ux-designer agent. It writes no product code.
+updated: '2026-09-23T15:00:12.776Z'
 ---
 
 # Shell design specification for apps - workspace types, Home grid, pin flow, tile states, permission levels

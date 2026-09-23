@@ -1,12 +1,14 @@
 ---
 id: TASK_2026_526_1e6f
-status: in_review
+status: done
 type: FEATURE
 title: Add OpenCode Zen and OpenCode Go as auth providers
 depends_on: []
-created: "2026-09-22T09:04:43.165Z"
-updated: "2026-09-22T09:04:43.165Z"
-description: "One API key per subscription, three upstream protocols each (Anthropic messages, OpenAI chat/completions, OpenAI responses) routed per model id."
+created: '2026-09-22T09:04:43.165Z'
+updated: '2026-09-23T14:41:51.968Z'
+description: >-
+  One API key per subscription, three upstream protocols each (Anthropic
+  messages, OpenAI chat/completions, OpenAI responses) routed per model id.
 executor: software-architect
 estimate: L
 labels:
