@@ -445,7 +445,7 @@ Edge cases:
 - 10 files present; ui lint/typecheck/test green; no `@ptah-extension/core` import
 - Reviewer: code-logic-reviewer (resolver order, dark switch, fallback)
 
-## Batch 7c: `ProviderMarkComponent` convergence (C14 part) — COMPLETE
+## Batch 7c: `ProviderMarkComponent` convergence (C14 part) — COMPLETE (commit ff0cf906b)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
