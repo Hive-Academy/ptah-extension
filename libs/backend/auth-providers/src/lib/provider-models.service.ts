@@ -600,7 +600,8 @@ export class ProviderModelsService {
   /**
    * Clear a model tier override for a specific provider and scope.
    *
-   * Always clears the scoped config key. Removes the global env var entry
+   * Always clears the scoped config key; for `mainAgent` also the legacy
+   * unscoped key that reads fall back to. Removes the global env var entry
    * ONLY when `scope === 'mainAgent'` to avoid clearing main-agent runtime
    * state when a CLI sub-agent tier is reset.
    *
@@ -616,6 +617,15 @@ export class ProviderModelsService {
     const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier, scope);
     await this.config.set(configKey, undefined);
+    // mainAgent reads fall back to the legacy unscoped key
+    // (getPersistedTierValue), so a cleared tier would come back from it on the
+    // next applyPersistedTiers. Clear it too. cliAgent never reads it.
+    if (scope === 'mainAgent') {
+      const legacyKey = this.getLegacyTierConfigKey(providerId, tier);
+      if (this.config.get<string>(legacyKey) !== undefined) {
+        await this.config.set(legacyKey, undefined);
+      }
+    }
     if (scope === 'mainAgent' && providerId === this.resolveActiveProviderId()) {
       // Both env stores feed the next SDK launch (`process.env` is spread
       // first), so fall back to the same default applyPersistedTiers would

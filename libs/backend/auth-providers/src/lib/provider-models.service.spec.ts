@@ -388,6 +388,38 @@ describe('ProviderModelsService.getModelTiers', () => {
 // clearModelTier — scope isolation
 // ---------------------------------------------------------------------------
 
+// PR 581 review: a mainAgent clear must also clear the legacy unscoped key
+// that getPersistedTierValue falls back to, or activation restores the tier.
+describe('ProviderModelsService.clearModelTier — legacy fallback key', () => {
+  const LEGACY = 'provider.openrouter.modelTier.haiku';
+
+  it('clears the legacy key so getModelTiers and applyPersistedTiers do not restore the tier', async () => {
+    const { service, config } = makeService({
+      activeProvider: 'openrouter',
+      configValues: { [LEGACY]: 'legacy-haiku' },
+    });
+    expect(service.getModelTiers('openrouter', 'mainAgent').haiku).toBe('legacy-haiku');
+
+    await service.clearModelTier('openrouter', 'haiku', 'mainAgent');
+
+    expect(config.get(LEGACY)).toBeUndefined();
+    expect(service.getModelTiers('openrouter', 'mainAgent').haiku).toBeNull();
+    // Activation path: openrouter has no registry defaults and no catalogue.
+    service.switchActiveProvider('openrouter');
+    expect(process.env[ENV_HAIKU]).toBeUndefined();
+  });
+
+  it('cliAgent clears never touch the legacy mainAgent key', async () => {
+    const { service, config } = makeService({
+      activeProvider: 'openrouter',
+      configValues: { [LEGACY]: 'legacy-haiku' },
+    });
+    await service.clearModelTier('openrouter', 'haiku', 'cliAgent');
+    expect(config.get(LEGACY)).toBe('legacy-haiku');
+    expect(config.set).not.toHaveBeenCalledWith(LEGACY, undefined);
+  });
+});
+
 describe('ProviderModelsService.clearModelTier', () => {
   it('mainAgent scope clears the scoped config key', async () => {
     const { service, config } = makeService({});

@@ -2011,8 +2011,10 @@ describe('AuthRpcHandlers', () => {
       const h = makeHarness({ configSeed, credentialsSeed: { apiKey: 'sk-ant-x' }, providerKeysSeed: { openrouter: 'or-key' } });
       h.handlers.register();
       // The route composes llm:getProviderStatus (registered by LlmRpcHandlers in the app).
+      // Report the same llm.defaultProvider the seed stores, as the real handler does,
+      // so a resolver that trusted it would pick that provider.
       h.rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
-        defaultProvider: 'openrouter',
+        defaultProvider: (configSeed['llm.defaultProvider'] as string | undefined) ?? 'openrouter',
         providers: [
           { name: 'anthropic', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
           { name: 'openrouter', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
