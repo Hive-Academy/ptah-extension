@@ -238,11 +238,7 @@ export interface McpInstallResult {
  * backend cannot and does not emit it.
  */
 export type McpServerOrigin =
-  | 'harness-config'
-  | 'claude-user'
-  | 'smithery'
-  | 'oauth'
-  | 'claude-connector';
+  'harness-config' | 'claude-user' | 'smithery' | 'oauth' | 'claude-connector';
 
 /**
  * How — and whether — a row can be removed locally.
@@ -255,11 +251,7 @@ export type McpServerOrigin =
  * local removal path at all and `removalBlockedReason` says where to go.
  */
 export type McpRemovalKind =
-  | 'ptah-managed'
-  | 'direct'
-  | 'smithery'
-  | 'oauth'
-  | 'none';
+  'ptah-managed' | 'direct' | 'smithery' | 'oauth' | 'none';
 
 /** An MCP server that is currently installed (read from config files) */
 export interface InstalledMcpServer {
@@ -291,6 +283,18 @@ export interface InstalledMcpServer {
    * `removal: 'none'` row and names the file plus the command that can do it.
    */
   removalBlockedReason?: string;
+  /**
+   * The exact shell command that removes this row, ready to copy — present
+   * only when one exists AND can be written safely for the key as stored.
+   *
+   * Structured beside {@link InstalledMcpServer.removalBlockedReason} so the
+   * UI never has to parse the command back out of prose. A key that needs
+   * quoting is double-quoted; a key no quoting can make safe (a `"`, a `$`, a
+   * newline, a leading `-`…) gets no command at all, and the reason alone is
+   * shown. Absent for every row that has a local removal path, and for
+   * claude.ai connector rows, which no command can remove.
+   */
+  removalFixCommand?: string;
 }
 
 /** Tracks which MCP servers Ptah has installed (persisted to ~/.ptah/mcp-installed.json) */

@@ -68,6 +68,15 @@ export interface PtahConnector {
   /** Stable kebab-case id. Never reused for a different product. */
   readonly id: string;
   readonly label: string;
+  /**
+   * Kebab-case brand key the UI resolves to a vendored mark. It is the theSVG
+   * slug (github.com/glincker/thesvg, `public/icons/<slug>/`) whenever theSVG
+   * carries the brand; a brand it does not carry still gets its own kebab-case
+   * name and renders as a monogram. Entries for the same product share a slug
+   * (Asana v1 and v2, Gmail direct and via Smithery); two different brands
+   * never do.
+   */
+  readonly brandSlug: string;
   /** One sentence, rendered under the label on the card. */
   readonly description: string;
   readonly category: PtahConnectorCategory;
@@ -107,6 +116,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'sentry',
     label: 'Sentry',
+    brandSlug: 'sentry',
     description: 'Read issues, events and releases from your Sentry projects.',
     category: 'devops',
     kind: 'oauth-dcr',
@@ -116,6 +126,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'notion',
     label: 'Notion',
+    brandSlug: 'notion',
     description:
       'Search and edit pages and databases in your Notion workspace.',
     category: 'productivity',
@@ -126,6 +137,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'linear',
     label: 'Linear',
+    brandSlug: 'linear',
     description: 'Create, update and query issues, projects and cycles.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -135,6 +147,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'atlassian',
     label: 'Atlassian',
+    brandSlug: 'atlassian',
     description: 'Work with Jira issues and Confluence pages.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -144,6 +157,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'atlassian-v2',
     label: 'Atlassian Rovo v2',
+    brandSlug: 'atlassian',
     description:
       'The newer Rovo endpoint, with more Confluence, Bitbucket and Compass tools.',
     category: 'productivity',
@@ -154,6 +168,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'asana',
     label: 'Asana v1 beta',
+    brandSlug: 'asana',
     description:
       'The deprecated beta endpoint for tasks, projects and portfolios in Asana.',
     category: 'productivity',
@@ -164,6 +179,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'monday',
     label: 'monday.com',
+    brandSlug: 'monday',
     description: 'Query and update boards, items and updates on monday.com.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -173,6 +189,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'clickup',
     label: 'ClickUp',
+    brandSlug: 'clickup',
     description: 'Create and update tasks, lists and docs in ClickUp.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -182,6 +199,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'trello',
     label: 'Trello',
+    brandSlug: 'trello',
     description: 'Work with boards, lists and cards in Trello.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -191,6 +209,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'todoist',
     label: 'Todoist',
+    brandSlug: 'todoist',
     description: 'Create, complete and query tasks and projects in Todoist.',
     category: 'productivity',
     kind: 'oauth-dcr',
@@ -200,6 +219,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'zapier',
     label: 'Zapier',
+    brandSlug: 'zapier',
     description:
       'Run Zapier actions across thousands of apps, on about 50 free tool calls a month.',
     category: 'productivity',
@@ -210,6 +230,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'pipedream',
     label: 'Pipedream',
+    brandSlug: 'pipedream',
     description:
       'Reach thousands of apps through one endpoint, on an unpublished MCP quota.',
     category: 'productivity',
@@ -220,6 +241,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'intercom',
     label: 'Intercom',
+    brandSlug: 'intercom',
     description: 'Search conversations, contacts and help-center articles.',
     category: 'communication',
     kind: 'oauth-dcr',
@@ -229,6 +251,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'figma',
     label: 'Figma',
+    brandSlug: 'figma',
     description: 'Read files, frames and design metadata from Figma.',
     category: 'design',
     kind: 'oauth-dcr',
@@ -238,6 +261,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'canva',
     label: 'Canva',
+    brandSlug: 'canva',
     description: 'Browse and create designs in your Canva account.',
     category: 'design',
     kind: 'oauth-dcr',
@@ -247,6 +271,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'webflow',
     label: 'Webflow',
+    brandSlug: 'webflow',
     description: 'Manage sites, collections and CMS items in Webflow.',
     category: 'design',
     kind: 'oauth-dcr',
@@ -256,6 +281,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'stripe',
     label: 'Stripe',
+    brandSlug: 'stripe',
     description: 'Query customers, payments, subscriptions and invoices.',
     category: 'finance',
     kind: 'oauth-dcr',
@@ -265,6 +291,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'paypal',
     label: 'PayPal',
+    brandSlug: 'paypal',
     description: 'Work with orders, invoices and transactions in PayPal.',
     category: 'finance',
     kind: 'oauth-dcr',
@@ -274,6 +301,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'neon',
     label: 'Neon',
+    brandSlug: 'neon',
     description: 'Manage Postgres projects, branches and queries on Neon.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -283,6 +311,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'supabase',
     label: 'Supabase',
+    brandSlug: 'supabase',
     description: 'Query your database and manage Supabase project resources.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -292,6 +321,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'planetscale',
     label: 'PlanetScale',
+    brandSlug: 'planetscale',
     description: 'Manage PlanetScale databases, branches and deploy requests.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -301,6 +331,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'airtable',
     label: 'Airtable',
+    brandSlug: 'airtable',
     description: 'Read and write records, tables and bases in Airtable.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -310,6 +341,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'amplitude',
     label: 'Amplitude',
+    brandSlug: 'amplitude',
     description: 'Query product-analytics events, charts and cohorts.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -319,6 +351,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'mixpanel',
     label: 'Mixpanel',
+    brandSlug: 'mixpanel',
     description: 'Query events, funnels and retention reports in Mixpanel.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -328,6 +361,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'dropbox',
     label: 'Dropbox',
+    brandSlug: 'dropbox',
     description: 'Search, read and organize the files in your Dropbox account.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -337,6 +371,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'exa',
     label: 'Exa',
+    brandSlug: 'exa',
     description: 'Search the web and crawl pages straight from Exa.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -346,6 +381,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'tavily',
     label: 'Tavily',
+    brandSlug: 'tavily',
     description: 'Search the web and extract page content for research.',
     category: 'data',
     kind: 'oauth-dcr',
@@ -355,6 +391,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'gitlab',
     label: 'GitLab',
+    brandSlug: 'gitlab',
     description:
       'Work with projects, issues, merge requests and pipelines on GitLab.',
     category: 'code',
@@ -365,6 +402,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'huggingface',
     label: 'Hugging Face',
+    brandSlug: 'huggingface',
     description: 'Search models, datasets and Spaces on the Hugging Face Hub.',
     category: 'code',
     kind: 'oauth-dcr',
@@ -374,6 +412,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'context7',
     label: 'Context7',
+    brandSlug: 'context7',
     description:
       'Pull current documentation and code examples for the libraries you use.',
     category: 'code',
@@ -384,6 +423,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'vercel',
     label: 'Vercel',
+    brandSlug: 'vercel',
     description: 'Inspect projects, deployments and logs on Vercel.',
     category: 'devops',
     kind: 'oauth-dcr',
@@ -393,6 +433,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'cloudflare',
     label: 'Cloudflare',
+    brandSlug: 'cloudflare',
     description:
       'Reach the Cloudflare API for zones, DNS, Workers and account settings.',
     category: 'devops',
@@ -403,6 +444,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'cloudflare-bindings',
     label: 'Cloudflare Bindings',
+    brandSlug: 'cloudflare-workers',
     description:
       'Manage the Workers resources you bind to a Worker, such as D1, KV and R2.',
     category: 'devops',
@@ -413,6 +455,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'datadog',
     label: 'Datadog',
+    brandSlug: 'datadog',
     description: 'Query metrics, logs, monitors and incidents in Datadog.',
     category: 'devops',
     kind: 'oauth-dcr',
@@ -422,6 +465,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'apollo',
     label: 'Apollo.io',
+    brandSlug: 'apollodotio',
     description: 'Search contacts, accounts and sequences in Apollo.io.',
     category: 'sales-marketing',
     kind: 'oauth-dcr',
@@ -431,6 +475,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'attio',
     label: 'Attio',
+    brandSlug: 'attio',
     description: 'Work with records, lists and notes in your Attio CRM.',
     category: 'sales-marketing',
     kind: 'oauth-dcr',
@@ -440,6 +485,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'pipedrive',
     label: 'Pipedrive',
+    brandSlug: 'pipedrive',
     description: 'Read and update deals, contacts and activities in Pipedrive.',
     category: 'sales-marketing',
     kind: 'oauth-dcr',
@@ -449,6 +495,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'klaviyo',
     label: 'Klaviyo',
+    brandSlug: 'klaviyo',
     description: 'Work with lists, segments, campaigns and flows in Klaviyo.',
     category: 'sales-marketing',
     kind: 'oauth-dcr',
@@ -458,6 +505,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'zernio',
     label: 'Zernio',
+    brandSlug: 'zernio',
     description: 'Sign in to Zernio and use the sales tools it exposes.',
     category: 'sales-marketing',
     kind: 'oauth-dcr',
@@ -471,6 +519,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'gmail-smithery',
     label: 'Gmail via Smithery',
+    brandSlug: 'gmail',
     description:
       'Read and draft mail through a server that Smithery, a third party, hosts.',
     category: 'communication',
@@ -481,6 +530,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'googlecalendar-smithery',
     label: 'Google Calendar via Smithery',
+    brandSlug: 'google-calendar',
     description:
       'Read and create events through a server that Smithery, a third party, hosts.',
     category: 'productivity',
@@ -491,6 +541,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'googledrive-smithery',
     label: 'Google Drive via Smithery',
+    brandSlug: 'google-drive',
     description:
       'Browse and read files through a server that Smithery, a third party, hosts.',
     category: 'data',
@@ -501,6 +552,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'googledocs-smithery',
     label: 'Google Docs via Smithery',
+    brandSlug: 'google-docs',
     description:
       'Read and edit documents through a server that Smithery, a third party, hosts.',
     category: 'productivity',
@@ -511,6 +563,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'googlesheets-smithery',
     label: 'Google Sheets via Smithery',
+    brandSlug: 'google-sheets',
     description:
       'Read and edit spreadsheets through a server that Smithery, a third party, hosts.',
     category: 'productivity',
@@ -522,6 +575,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'github',
     label: 'GitHub',
+    brandSlug: 'github',
     description: 'Work with repositories, issues, pull requests and workflows.',
     category: 'code',
     kind: 'oauth-app',
@@ -537,6 +591,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'hubspot',
     label: 'HubSpot',
+    brandSlug: 'hubspot',
     description: 'Search contacts, companies, deals and tickets in your CRM.',
     category: 'sales-marketing',
     kind: 'oauth-app',
@@ -552,6 +607,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-gmail',
     label: 'Gmail',
+    brandSlug: 'gmail',
     description: 'Read and draft mail through the server Google hosts itself.',
     category: 'communication',
     kind: 'oauth-app',
@@ -572,6 +628,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-calendar',
     label: 'Google Calendar',
+    brandSlug: 'google-calendar',
     description: 'Read calendars, events and free or busy times.',
     category: 'productivity',
     kind: 'oauth-app',
@@ -593,6 +650,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-drive',
     label: 'Google Drive',
+    brandSlug: 'google-drive',
     description: 'Search and read the files in your Google Drive.',
     category: 'data',
     kind: 'oauth-app',
@@ -613,6 +671,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-docs',
     label: 'Google Docs',
+    brandSlug: 'google-docs',
     description: 'Read and edit documents through the Google Docs server.',
     category: 'productivity',
     kind: 'oauth-app',
@@ -635,6 +694,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-sheets',
     label: 'Google Sheets',
+    brandSlug: 'google-sheets',
     description: 'Read and edit spreadsheets through the Google Sheets server.',
     category: 'productivity',
     kind: 'oauth-app',
@@ -657,6 +717,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-slides',
     label: 'Google Slides',
+    brandSlug: 'google-slides',
     description:
       'Read and edit presentations through the Google Slides server.',
     category: 'productivity',
@@ -680,6 +741,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-chat',
     label: 'Google Chat',
+    brandSlug: 'google-chat',
     description: 'Read spaces and messages, and post to Google Chat.',
     category: 'communication',
     kind: 'oauth-app',
@@ -703,6 +765,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-people',
     label: 'Google People',
+    brandSlug: 'google-people',
     description:
       'Look up contacts and directory profiles in your Google account.',
     category: 'communication',
@@ -725,6 +788,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'google-bigquery',
     label: 'BigQuery',
+    brandSlug: 'google-bigquery',
     description: 'Run queries and inspect datasets and tables in BigQuery.',
     category: 'data',
     kind: 'oauth-app',
@@ -742,6 +806,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'slack',
     label: 'Slack',
+    brandSlug: 'slack',
     description:
       'Read and post messages across the channels in your Slack workspace.',
     category: 'communication',
@@ -759,6 +824,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'box',
     label: 'Box',
+    brandSlug: 'box',
     description: 'Search, read and manage the files in your Box account.',
     category: 'data',
     kind: 'oauth-app',
@@ -774,6 +840,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'mongodb-atlas',
     label: 'MongoDB Atlas',
+    brandSlug: 'mongodb',
     description: 'Inspect clusters, databases and collections in Atlas.',
     category: 'data',
     kind: 'oauth-app',
@@ -789,6 +856,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'pagerduty',
     label: 'PagerDuty',
+    brandSlug: 'pagerduty',
     description: 'Read incidents, services and on-call schedules.',
     category: 'devops',
     kind: 'oauth-app',
@@ -804,6 +872,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'shopify',
     label: 'Shopify',
+    brandSlug: 'shopify',
     description: 'Work with products, orders and customers in your store.',
     category: 'finance',
     kind: 'oauth-app',
@@ -819,6 +888,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'asana-v2',
     label: 'Asana v2',
+    brandSlug: 'asana',
     description:
       'The current Asana endpoint, with workspace-scoped authorization and a wider tool set.',
     category: 'productivity',
@@ -836,6 +906,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'hubspot-smithery',
     label: 'HubSpot via Smithery',
+    brandSlug: 'hubspot',
     description:
       'The same CRM tools, hosted by Smithery, with no app to create yourself.',
     category: 'sales-marketing',
@@ -846,6 +917,7 @@ export const PTAH_CONNECTORS: readonly PtahConnector[] = [
   {
     id: 'exa-smithery',
     label: 'Exa Search via Smithery',
+    brandSlug: 'exa',
     description: 'Fast web search and page crawling for fresh documentation.',
     category: 'data',
     kind: 'smithery',

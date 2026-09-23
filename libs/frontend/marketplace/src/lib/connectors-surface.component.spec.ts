@@ -65,6 +65,7 @@ const HUBSPOT_SMITHERY = connectorById('hubspot-smithery'); // smithery
 const APP_WITH_SETUP: PtahConnector = {
   id: 'calendar-with-setup',
   label: 'Calendar with setup',
+  brandSlug: 'calendar-with-setup',
   description: 'A test-only connector with provider setup instructions.',
   category: 'productivity',
   kind: 'oauth-app',

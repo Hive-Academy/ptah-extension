@@ -165,6 +165,60 @@ describe('groupInstalledServers', () => {
   it('is total on an empty list', () => {
     expect(groupInstalledServers([])).toEqual([]);
   });
+
+  it('carries the head row removal fix command onto the group', () => {
+    const [claudeUser] = groupInstalledServers([
+      server({
+        origin: 'claude-user',
+        originLabel: 'Claude CLI',
+        serverKey: 'sentry',
+        configPath: '/home/.claude.json',
+        removal: 'none',
+        removalBlockedReason: 'Remove it with `claude mcp remove sentry`.',
+        removalFixCommand: 'claude mcp remove sentry --scope user',
+      }),
+    ]);
+
+    expect(claudeUser.removalFixCommand).toBe(
+      'claude mcp remove sentry --scope user',
+    );
+    expect(claudeUser.removalBlockedReason).toBe(
+      'Remove it with `claude mcp remove sentry`.',
+    );
+  });
+
+  it('takes the command from the head row, not a later one', () => {
+    const [grouped] = groupInstalledServers([
+      server({ removal: 'none', removalFixCommand: 'claude mcp remove first' }),
+      server({ removal: 'none', removalFixCommand: 'claude mcp remove other' }),
+    ]);
+
+    expect(grouped.removalFixCommand).toBe('claude mcp remove first');
+  });
+
+  it('leaves the field absent when the head row has no command', () => {
+    const [connector, unquotable] = groupInstalledServers([
+      // A claude.ai connector row: blocked, but no command can remove it.
+      server({
+        origin: 'claude-connector',
+        originLabel: 'Claude account',
+        configPath: '',
+        removal: 'none',
+        removalBlockedReason: 'Manage it in your Claude account.',
+      }),
+      // The backend withheld the command because the key cannot be quoted.
+      server({
+        origin: 'claude-user',
+        originLabel: 'Claude CLI',
+        serverKey: 'say"hi"',
+        removal: 'none',
+        removalBlockedReason: 'Remove it with the claude CLI.',
+      }),
+    ]);
+
+    expect(connector).not.toHaveProperty('removalFixCommand');
+    expect(unquotable).not.toHaveProperty('removalFixCommand');
+  });
 });
 
 describe('mcpTargetLabel', () => {

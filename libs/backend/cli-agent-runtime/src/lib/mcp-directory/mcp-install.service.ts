@@ -307,22 +307,28 @@ export class McpInstallService {
       this.options.homeDir === undefined
         ? {}
         : { homeDir: this.options.homeDir },
-    ).map((entry) => ({
-      serverKey: entry.serverKey,
-      configPath: entry.configPath,
-      config: entry.config,
-      managedByPtah: false,
-      origin: 'claude-user' as const,
-      originLabel: ORIGIN_LABELS['claude-user'],
-      // Read-only by design: this file belongs to the `claude` CLI and carries
-      // far more than MCP servers, so Ptah never writes it.
-      removal: 'none' as const,
-      removalBlockedReason: claudeUserRemovalReason(
-        entry.serverKey,
-        entry.scope,
-        entry.configPath,
-      ),
-    }));
+    ).map((entry) => {
+      const fixCommand = claudeUserRemovalCommand(entry.serverKey, entry.scope);
+      return {
+        serverKey: entry.serverKey,
+        configPath: entry.configPath,
+        config: entry.config,
+        managedByPtah: false,
+        origin: 'claude-user' as const,
+        originLabel: ORIGIN_LABELS['claude-user'],
+        // Read-only by design: this file belongs to the `claude` CLI and
+        // carries far more than MCP servers, so Ptah never writes it.
+        removal: 'none' as const,
+        removalBlockedReason: claudeUserRemovalReason(
+          entry.serverKey,
+          entry.scope,
+          entry.configPath,
+        ),
+        // Absent, not empty, when the key cannot be written safely: the UI
+        // then shows the reason with no copy button.
+        ...(fixCommand === null ? {} : { removalFixCommand: fixCommand }),
+      };
+    });
   }
 
   /** `~/.ptah/smithery-installed.json`, when the caller supplied its store. */
@@ -523,18 +529,85 @@ export class McpInstallService {
   }
 }
 
+/**
+ * The `claude mcp remove` scope flag for a `~/.claude.json` entry. One place,
+ * so the prose reason and the copyable command cannot disagree about scope.
+ */
+function claudeUserScopeFlag(scope: ClaudeUserMcpScope): string {
+  return scope === 'user' ? ' --scope user' : '';
+}
+
 /** Why a `~/.claude.json` row has no removal path here, and what does. */
 function claudeUserRemovalReason(
   serverKey: string,
   scope: ClaudeUserMcpScope,
   configPath: string,
 ): string {
-  const flag = scope === 'user' ? ' --scope user' : '';
   return (
     `"${serverKey}" is declared in ${configPath}, which belongs to the Claude ` +
     `CLI — Ptah reads it and never writes it. Remove it with ` +
-    `\`claude mcp remove ${serverKey}${flag}\`.`
+    `\`claude mcp remove ${serverKey}${claudeUserScopeFlag(scope)}\`.`
   );
+}
+
+/**
+ * The copyable command that removes a `~/.claude.json` entry, or `null` when
+ * the key cannot be put on a command line safely.
+ */
+function claudeUserRemovalCommand(
+  serverKey: string,
+  scope: ClaudeUserMcpScope,
+): string | null {
+  const arg = shellSafeArgument(serverKey);
+  return arg === null
+    ? null
+    : `claude mcp remove ${arg}${claudeUserScopeFlag(scope)}`;
+}
+
+/** Characters that need no quoting in bash, zsh, PowerShell or cmd. */
+const SHELL_BARE_ARGUMENT = /^[A-Za-z0-9_][A-Za-z0-9_./:+=-]*$/;
+
+/**
+ * Characters double quotes do NOT neutralise in at least one shell the user
+ * may paste into: `"` ends the quote everywhere; `$` and `` ` `` expand inside
+ * double quotes in bash, zsh and PowerShell; `\` escapes in bash and zsh; `!`
+ * is history expansion in interactive bash; `%` expands `%VAR%` in cmd.
+ */
+const SHELL_UNQUOTABLE_PRINTABLE = new Set(['"', '$', '`', '\\', '!', '%']);
+
+/**
+ * Whether double quotes cannot make `value` safe. Besides the printable set
+ * above, C0 and C1 control characters (newline, tab, escape…) and the Unicode
+ * line and paragraph separators would split the pasted line, trigger shell
+ * completion or hide what is actually being run.
+ */
+function hasUnquotableCharacter(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+    if (code === 0x2028 || code === 0x2029) return true;
+    if (SHELL_UNQUOTABLE_PRINTABLE.has(char)) return true;
+  }
+  return false;
+}
+
+/**
+ * A server key as one shell argument that means the same thing in every shell
+ * the user is likely to paste it into, or `null` when no such spelling exists.
+ *
+ * Keys come from JSON object keys in a file another tool writes, so they can
+ * hold anything. A plain key is passed bare; whitespace or any other shell
+ * metacharacter (`;`, `&`, `|`, `<`, `(`, `*`, `#`, `~`, `,`, `@`…) is wrapped
+ * in double quotes, inside which all of those are literal. A key double quotes
+ * cannot protect gets no command at all, because a copy button that pastes
+ * something other than what it shows is worse than no button. So does a key
+ * starting with `-`: quoting does not stop `claude` reading it as an option.
+ */
+function shellSafeArgument(value: string): string | null {
+  if (value === '' || value.startsWith('-')) return null;
+  if (SHELL_BARE_ARGUMENT.test(value)) return value;
+  if (hasUnquotableCharacter(value)) return null;
+  return `"${value}"`;
 }
 
 /**
