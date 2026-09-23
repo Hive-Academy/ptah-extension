@@ -98,7 +98,7 @@ Edge cases:
 - Gate flips: 1 → 2 (menu item, no workspace), 2 → 1 (Back to welcome or the surface's own back button), 2 → 3 (first folder), 3 → 2 (last workspace closed), and a Setup hub non-configuration button with no workspace (back to welcome, while the Router stays on the target) — Task 4.1, pinned in 4.3.
 - Prewarm starting on a configuration surface (no active tab): restore through the menu — Task 5.2.
 
-## Batch 1: Core — AppStateManager global configuration state — IMPLEMENTED
+## Batch 1: Core — AppStateManager global configuration state — COMPLETE (commit 78a3b0546)
 
 - Recommended executor: CLI lane `opencode`, model `opencode-go/kimi-k3` (x1) — used
 - Fallback executor: frontend-developer subagent
@@ -109,7 +109,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core`
 - Reviewers: internal code-logic-reviewer (batch-1-internal-review.md) + outside review by `codex` standing in for Glm (429) ("Batch 1" in code-logic-review.md)
 
-### Task 1.1: Global state, single global writer, slice refusal, stay-branch, remount tick — IMPLEMENTED
+### Task 1.1: Global state, single global writer, slice refusal, stay-branch, remount tick — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\services\app-state.service.ts` (MODIFY)
 - Plan reference: implementation-plan.md:101-286 (Decision 1), :428-435 (Component 2), :452-469 (Data flow, Failure behaviour); overrides 1 and 6 (:9-24, :34-36); plan-review.md:173-178 (implementer instructions 1-2)
@@ -126,7 +126,7 @@ Edge cases:
   - `switchWorkspace` (plan :216-249): `const staying = isConfigurationSurface(this.currentView())` read after the same-path guard; the outgoing stamp stays as it is; `_settlementOwner = staying ? newPath : null`; the migration block (`:686-701`) stays verbatim; if `staying`, bump the tick once and return without `requestSurface`.
   - Update the doc comments on `_settlementOwner`, `recordSettledSurface`, `openViewInActiveSlice` and `switchWorkspace` so they describe the new behaviour. No dead code, and no `recordSettledView` method.
 
-### Task 1.2: Spec re-pins and the new global-state cases — IMPLEMENTED
+### Task 1.2: Spec re-pins and the new global-state cases — COMPLETE
 
 - Depends on: Task 1.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\services\app-state.service.spec.ts` (MODIFY)
@@ -177,7 +177,7 @@ Edge cases:
   - The production guard that prevents resurrection (`openViewInActiveSlice` refusal) was traced by both reviewers.
   - If a later task makes slice presence observable (a public API or persistence), that task adds the membership assertion.
 
-## Batch 2: Core — SurfaceRouterService outlet remount — IN_PROGRESS
+## Batch 2: Core — SurfaceRouterService outlet remount — IMPLEMENTED
 
 - Recommended executor: CLI lane `codex` (x1)
 - Fallback executor: frontend-developer subagent
@@ -188,7 +188,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core`
 - Reviewers: internal code-logic-reviewer (batch-2-internal-review.md) + Glm lane ("Batch 2" in code-logic-review.md) when available; codex implemented, so codex cannot stand in
 
-### Task 2.1: `remountActiveSurface()` — IN_PROGRESS
+### Task 2.1: `remountActiveSurface()` — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\routing\surface-router.service.ts` (MODIFY)
 - Plan reference: override 1 (implementation-plan.md:9-24); plan-review.md:242-266 (R2-1 fix), :288-295 (R2-3)
@@ -197,7 +197,7 @@ Edge cases:
 - Validation notes: RA.
 - Implementation details: `private readonly outletContexts = inject(ChildrenOutletContexts)`. `remountActiveSurface()`: `const ctx = this.outletContexts.getContext(PRIMARY_OUTLET)`. If `!ctx?.outlet?.isActivated || !ctx.route`, return. Otherwise capture `route = ctx.route` and `injector = ctx.injector` BEFORE `ctx.outlet.deactivate()`, then call `ctx.outlet.activateWith(route, injector)`. The JSDoc states: what it is for (the switch-while-open remount), that it re-creates only the routed component at the same URL, that child outlets re-activate from retained contexts, why there is no navigation, and that callers must not call it synchronously inside `switchWorkspace` (the `workspaceInfo` timing, `electron-layout.service.ts:486-503`).
 
-### Task 2.2: Remount spec — IN_PROGRESS
+### Task 2.2: Remount spec — IMPLEMENTED
 
 - Depends on: Task 2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\feat-task-540-global-config-menu\libs\frontend\core\src\lib\routing\surface-router.service.spec.ts` (MODIFY — add a `describe('remountActiveSurface')`)
@@ -215,6 +215,33 @@ Edge cases:
 - `remountActiveSurface` exists with the capture-before-deactivate order
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core` passes
 - Both review verdicts accepting; RA addressed
+
+### Batch 2 outcome
+
+- Executor: `codex` (`batch-2-report.md`, including "Revision 1"). Files: `surface-router.service.ts`,
+  `surface-router.service.spec.ts` only.
+- Team-leader check on disk:
+  - `remountActiveSurface()` injects `ChildrenOutletContexts`, returns early when there is no activated outlet or no
+    stored route, captures `route` and `injector` before `deactivate()`, then calls `activateWith`.
+  - No other method changed.
+  - The spec adds `describe('remountActiveSurface')` with the four required cases (new instance, same URL and no
+    `NavigationStart`; parent and child re-created at the same child URL; component-less no-op; no-outlet no-op) on a
+    real Router and `RouterOutlet`.
+  - The one deleted spec line is the old single-line router import, now expanded. No `.skip`, `.only` or TODO.
+- Orchestrator verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core --skip-nx-cache` PASS
+  before revision 1. Revision 1 is JSDoc-only (the method body is unchanged); lint and typecheck for core passed after it.
+- Reviews:
+  - Internal code-logic-reviewer: ACCEPT WITH FIXES 8/10 (`batch-2-internal-review.md`), 0 blocking, 0 serious.
+    - MODERATE: the JSDoc did not warn about pending navigations. FIXED in revision 1: the JSDoc now says to skip the
+      call while `pendingSurface()` is non-null, and that `(activate)`/`(deactivate)` fire on every remount.
+    - MINOR: the report overstated the evidence for RA. FIXED in revision 1.
+    - MINOR: no `loadChildren` test. ACCEPTED; it belongs to TASK_2026_533 once its marketplace `loadChildren` route
+      lands, because the mechanism does not vary by eager or lazy route (the reviewer confirmed this in the Router source).
+  - Glm verdict: MISSING (Ollama 429, not retried). Codex implemented this batch, so it cannot stand in. The internal
+    verdict is the gate.
+- RA: the capture-before-deactivate order is implemented. As the reviewer notes, today's tests prove the outcome but
+  not the ordering itself; the order is kept as a defensive pattern. Recorded as addressed in code, not pinned by a test.
+- Carried forward: the reviewer's call-site instructions are folded into Task 4.1.
 
 ## Batch 3: Chat — GlobalConfigMenuComponent — IN_PROGRESS
 
@@ -267,7 +294,18 @@ Edge cases:
 - Plan reference: implementation-plan.md:288-320 (Decision 2 items 1-4), :437-444 (Component 3), :511 (Apps slot); overrides 1, 3, 6 (:9-28, :34-36); plan-review.md:195-200 (instruction 5), :297-305 (R2-4)
 - Pattern to follow: the existing tab buttons `:124-145`; the `no-drag` cluster `:223-227`; the existing constructor `effect` `:343-359`.
 - Quality requirements: criteria 4, 5, 8-13, 19-21. No edits to `app-shell.component.*`, `app.routes.ts` or `webview-surface.types.ts`. No `[class.hidden]`. No keyed `@for` around `ptah-app-shell` (override 1 replaces Decision 2 item 5).
-- Validation notes: RB, RC, RE. Gate-flip edge cases.
+- Validation notes: RB, RC, RE. Gate-flip edge cases. The Batch 2 reviewer's call-site instructions are binding
+  (`batch-2-internal-review.md:138-143`):
+  1. Never call `remountActiveSurface()` unconditionally from the tick effect. First check `surfaceRouter.pendingSurface()`.
+     If it is non-null (a navigation is in flight), skip this tick's remount or defer it until the navigation settles
+     (for example, re-check on the next `NavigationEnd` / `currentSurface()` change). A spec case in Task 4.3 pins the skip.
+  2. Call it only from the effect, inside `untracked`, reading the tick just to trigger it. Never call it inside
+     `AppStateManager.switchWorkspace` (`workspaceInfo` is set after the coordinator returns, `electron-layout.service.ts:486-503`).
+  3. `remountActiveSurface()` does not catch errors thrown by the re-created component's constructor or `ngOnInit`. Do not
+     assume it does. Any defensive boundary belongs at the call site; if you add one, log with context and do not
+     swallow silently.
+  4. The outlet's `(activate)`/`(deactivate)` outputs also fire on every remount. Do not bind them on the outlet
+     expecting navigation-only semantics.
 - Implementation details:
   - Tab row, in order: Chat (`onCanvasTab()`, label "Chat", `title="Chat"`, `LayoutGrid`), then the comment `<!-- Apps tab (TASK_2026_494) renders between Chat and Tasks -->`, Tasks, Tribunal, Analytics (`openDashboard()`, label "Analytics", `title="Analytics"`, `BarChart3`). Keep `role="tablist"`, the `electron-tabs` class, `role="tab"`, `aria-selected`, and the `:122` gate.
   - Delete the Thoth, Setup, Marketplace and Settings tab buttons; the `openSettings`, `openThoth`, `openSetupHub` and `openMarketplace` handlers; and the unused icon fields and lucide imports (`Settings`, `Wrench`, `Store`, `RadioTower`, `Zap`, `Bot`, `GitBranch`, `Sparkles`). Keep only what the template still uses.
@@ -302,6 +340,7 @@ Edge cases:
   8. Setup hub non-configuration target with no workspace (finding 6): `openConfigurationSurface` back to null gives the welcome screen (designed behaviour, pinned).
   9. Tick bump from 0 to 1 calls `remountActiveSurface` exactly once; tick 0 never calls it.
   10. Focus (RE): with focus on `body` the host receives focus after the bump; with focus on a live control outside the host (for example a navbar button) focus stays there.
+  11. Pending navigation (Batch 2 reviewer instruction 1): with `pendingSurface()` stubbed non-null, a tick bump does NOT call `remountActiveSurface`. If the implementation defers rather than skips, assert that the deferred call runs once after the navigation settles.
 
 ### Batch 4 verification
 
