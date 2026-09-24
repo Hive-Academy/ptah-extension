@@ -1,6 +1,11 @@
+# PR 584 comments — Codex lane report
+
 ## Finding
 
-Valid at the starting HEAD `8561d97d8`; now fixed. Inspection confirmed that `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/opencode-cli.adapter.ts:178` originally queued Electron resources, module-resolved packages and APPDATA before the detected-install candidates at original line 216. The first existing candidate won at original line 225. `runSdk` replaces the detected binary with this result (current file:572) and probes that selected binary for standalone support (current file:585), so an older fallback could shadow a newer detected installation.
+Valid at the starting HEAD `8561d97d8`; now fixed.
+Inspection confirmed that `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/opencode-cli.adapter.ts:178` originally queued Electron resources, module-resolved packages and APPDATA before the detected-install candidates at original line 216.
+The first existing candidate won at original line 225.
+`runSdk` replaces the detected binary with this result (current file:572) and probes that selected binary for standalone support (current file:585), so an older fallback could shadow a newer detected installation.
 
 ## Changes
 
