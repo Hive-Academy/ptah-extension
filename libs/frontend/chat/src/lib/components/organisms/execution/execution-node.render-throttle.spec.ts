@@ -160,14 +160,6 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
     ).renderedContent();
   }
 
-  function flipDisabled(): boolean {
-    return (
-      fixture.componentInstance as unknown as {
-        flipAnimationDisabled: () => boolean;
-      }
-    ).flipAnimationDisabled();
-  }
-
   it('cancels a pending hidden frame and resumes with the latest content only', () => {
     pushContent('queued', 'streaming');
     const oldFrames = [...frames];
@@ -257,32 +249,15 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
     expect(renders()).toHaveLength(before);
   });
 
-  it('disables auto-animate FLIP while streaming and re-enables when settled', () => {
-    pushContent('body', 'streaming');
-    expect(flipDisabled()).toBe(true);
-
-    pushContent('body done', 'complete');
-    expect(flipDisabled()).toBe(false);
-  });
-
   it('treats a node with status "streaming" as streaming even without the bubble flag', () => {
     fixture.componentRef.setInput('node', makeNode('body', 'streaming'));
     fixture.componentRef.setInput('isStreaming', false);
     fixture.detectChanges();
 
-    expect(flipDisabled()).toBe(true);
     // Throttled, not rendered straight through.
     expect(renders()).toHaveLength(0);
     flushFrames();
     expect(renders()).toEqual(['body']);
-  });
-
-  it('keeps FLIP disabled through the finalize burst', () => {
-    pushContent('body done', 'complete');
-    fixture.componentRef.setInput('isFinalizing', true);
-    fixture.detectChanges();
-
-    expect(flipDisabled()).toBe(true);
   });
 
   it('cancels its queued frame on destroy, and that frame renders nothing if it fires anyway', () => {

@@ -249,12 +249,12 @@ const PLAYWRIGHT_INJECTED_SCRIPT_UNIQUE_FUNCTIONS = new Set([
  * standard native DOM/Animation APIs (`Element.getAnimations()`,
  * `Element.checkVisibility()`, `window.getComputedStyle()`,
  * `Element.getBoundingClientRect()`) that app code can call directly too —
- * confirmed live in the same profile that motivated this split:
- * `@formkit/auto-animate` (`autoAnimate`, real app URL) is a genuine
- * FLIP-animation caller of `getAnimations`/`getBoundingClientRect` for its
- * own DOM-mutation reactions. A blank-source-URL hit on one of these names is
- * therefore ambiguous between "Playwright's actionability check" and "the
- * app's own animation library calling a native API" — bucketed separately so
+ * confirmed live in the profile that motivated this split, where the app's
+ * FLIP-animation library (since removed) called
+ * `getAnimations`/`getBoundingClientRect` for its own DOM-mutation reactions.
+ * A blank-source-URL hit on one of these names is therefore ambiguous between
+ * "Playwright's actionability check" and "app code calling a native layout or
+ * animation API" — bucketed separately so
  * a report doesn't silently attribute the app's own cost to the test
  * harness, or vice versa.
  */
@@ -290,7 +290,7 @@ export function classifyFrame(node: CpuProfileNode): string {
       return 'Playwright injected script (locator/actionability, confirmed unique name)';
     }
     if (AMBIGUOUS_NATIVE_API_FUNCTIONS.has(fn)) {
-      return 'native DOM/Animation API (ambiguous: Playwright OR app, e.g. auto-animate)';
+      return 'native DOM/Animation API (ambiguous: Playwright OR app)';
     }
   }
   const hay = `${fn} ${node.callFrame.url}`;

@@ -1704,9 +1704,7 @@ export class TabManagerService {
   applyFinalizedTurn(tabId: string, messages: ExecutionChatMessage[]): void {
     // Write 1: install finalized messages and clear currentMessageId, but
     // KEEP status='streaming' and streamingState in place. This prevents
-    // `resolvedIsStreaming()` and `[autoAnimateDisabled]` from flipping
-    // mid-DOM-swap, which would re-enable FLIP transforms during the swap
-    // and cause a scroll-vs-FLIP race flicker.
+    // `resolvedIsStreaming()` from flipping mid-DOM-swap.
     this.updateTabInternal(tabId, {
       messages,
       currentMessageId: null,

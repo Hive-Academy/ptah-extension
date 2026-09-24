@@ -662,9 +662,8 @@ describe('TabManagerService — intent-named mutators', () => {
       const state = createEmptyStreamingState();
       service.setStreamingStateAndCurrentMessage(id, state, 'msg');
       service.applyFinalizedTurn(id, [makeMessage('a', 'done')]);
-      // applyFinalizedTurn splits the commit across two writes to prevent
-      // a scroll-vs-FLIP race during finalize: messages + currentMessageId
-      // land synchronously while status and streamingState flip together
+      // applyFinalizedTurn splits the commit across two writes: messages +
+      // currentMessageId land synchronously while status and streamingState flip together
       // one microtask later, so every streaming-derived signal flips on a
       // single coherent boundary AFTER the DOM commits the finalized
       // messages.

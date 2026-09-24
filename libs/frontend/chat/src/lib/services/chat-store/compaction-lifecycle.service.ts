@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import {
   SessionId,
   type SdkCompactionCompletePayload,
@@ -101,28 +101,6 @@ export class CompactionLifecycleService {
     { generation: number; authoritativeGeneration: number | null }
   >();
   private static readonly MAX_COMPACTION_GENERATION_SESSIONS = 256;
-
-  /**
-   * One-tick auto-animate suppression flag.
-   *
-   * After `applyCompactionComplete` clears `messages: []` and `switchSession`
-   * reloads from JSONL, the FLIP-based `[auto-animate]` directive on the
-   * message container animates the diff between the old (stale) bubble DOM
-   * and the new tree. Combined with `position: sticky` headers in agent
-   * message bubbles, stacking-context contention produces visible bubble
-   * overlap and clipping.
-   *
-   * The lifecycle service flips this signal `true` synchronously right
-   * before the message clear, then resets it on the next microtask so the
-   * suppression spans exactly one Angular change-detection tick. The
-   * chat-view consumes this via its `[autoAnimateDisabled]` binding.
-   *
-   * Microtask (not `setTimeout(0)`) is intentional: it runs after the
-   * current synchronous work but before the browser's next paint, which
-   * matches the lifetime of the OnPush diff we want to skip animating.
-   */
-  private readonly _suppressAnimateOnce = signal(false);
-  readonly suppressAnimateOnce = this._suppressAnimateOnce.asReadonly();
 
   /** Whether `sessionId` keys a recovery timer or a compaction generation. */
   private readonly hasLifecycleState = (sessionId: SessionId): boolean =>
@@ -549,8 +527,6 @@ export class CompactionLifecycleService {
     }
     const compactionTab = originatingTab;
     if (compactionTab) {
-      this._suppressAnimateOnce.set(true);
-      queueMicrotask(() => this._suppressAnimateOnce.set(false));
       for (const t of fanoutTabs) {
         // The tab keeps its backend session snapshot across compaction; no
         // totals are rebuilt from the messages being cleared (TASK_2026_533).

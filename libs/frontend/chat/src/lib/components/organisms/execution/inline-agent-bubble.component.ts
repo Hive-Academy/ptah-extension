@@ -49,7 +49,6 @@ import type {
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
-import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
@@ -77,7 +76,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     DurationBadgeComponent,
     NgClass,
     NgTemplateOutlet,
-    AutoAnimateDirective,
   ],
   template: `
     <!-- Enhanced styling for interrupted agents -->
@@ -436,8 +434,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
 
       <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order).
            Uses CSS grid 0fr/1fr rows transition for smooth height collapse
-           without measuring in JS. Inner container handles the actual scroll
-           and child animations via auto-animate. -->
+           without measuring in JS. Inner container handles the actual scroll;
+           each child execution node carries its own exec-fade-in enter. -->
       <div
         class="agent-collapse-wrapper"
         [class.agent-collapsed]="isCollapsed()"
@@ -446,8 +444,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           <div
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-            [auto-animate]
-            [autoAnimateDisabled]="isFinalizing()"
             (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
@@ -470,6 +466,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               @if (isStreaming()) {
                 <div
                   class="flex items-center gap-1 text-[10px] text-base-content-muted mt-2"
+                  animate.enter="agent-fade-in"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
@@ -484,6 +481,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               @if (isStreaming()) {
                 <div
                   class="flex items-center gap-2 text-[10px] text-base-content-muted py-2"
+                  animate.enter="agent-fade-in"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
