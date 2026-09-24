@@ -122,7 +122,7 @@ the same path in `deliverables`.
 4. Check color contrast ratios.
 5. Check touch target sizes.
 6. Test responsive behavior between the breakpoints.
-7. Compare dark + light theme screenshots with the approved `<taskFolder>/prototype/`; show evidence to the user before merge.
+7. Compare dark + light theme screenshots with the approved `<taskFolder>/prototype/`. When no prototype is required (a UI change that adds or redesigns no surface), capture dark + light screenshots of the affected screen at the base commit (before) and at the fixed state (after), and compare those. The visual-reviewer prompt must supply both inputs: the base-commit capture or a running app at the base commit, and the running app with the fix. Show evidence to the user before merge.
 
 ---
 
