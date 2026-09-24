@@ -52,6 +52,8 @@ export class ElectronWebviewManagerAdapter {
     try {
       return this.ipcBridge.sendToRenderer({ type, payload });
     } catch {
+      // degradation-audit: reported - false is the delivery outcome;
+      // createDashboardBroadcast reports it as a failed or partial delivery.
       // A throw can only mean a destroyed-window race inside the bridge; the
       // honest delivery answer is "not delivered", not a rejection that
       // escapes into the caller's error handler.

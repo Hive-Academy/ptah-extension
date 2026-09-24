@@ -378,6 +378,8 @@ function requestBytes(params: unknown): number | undefined {
   try {
     return jsonUtf8Bytes(params);
   } catch (error: unknown) {
+    // degradation-audit: reported - undefined makes the caller throw
+    // INVALID_PARAMS ("the request is not serializable JSON").
     // JSON.stringify throws on cycles and BigInt; either is an invalid request.
     void error;
     return undefined;
@@ -402,6 +404,8 @@ function errorName(error: unknown): string {
   try {
     return error instanceof Error ? String(error.name) : typeof error;
   } catch (nameError: unknown) {
+    // degradation-audit: reported - only a hostile error's name getter fails
+    // here; the caller still logs the original failure at warn.
     void nameError;
     return 'unknown';
   }
