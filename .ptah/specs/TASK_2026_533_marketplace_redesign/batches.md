@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 13/30
+Total tasks: 65 | Batches: 30 | Complete: 14/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 12, 12b.
-In progress: Batch 9 (executor worktree `task533-b9`, under review).
-Next launchable: none until Batch 9 is committed; then Batches 10 ∥ 11 (after 9), and 13 ∥ 15 ∥ 16 once their other dependencies (9, 10, 11) are COMPLETE — 12b no longer gates them.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 12, 12b.
+In progress: none.
+Next launchable: Batch 10 ∥ Batch 11, each in its own worktree (same project, file-disjoint). Then 13 ∥ 15 ∥ 16 once their other dependencies (10, 11) are COMPLETE, then 14.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -561,7 +561,7 @@ Edge cases:
 - Accepted deviations (BINDING on Batches 10 and 13): `ProviderRow` carries no raw `InstalledServerGroup` — pages look the group up in `store.installed()` by `row.ref`; the `manage-link` removal (claude.ai connector rows) has a `reason` but no `href` — Batch 13/15 decides the link target; `ProviderStatus` includes `failed`, `needs-input` and `unknown` (raw text in `statusText`), which Batch 9's `StatusPill` and Batch 10's filters must render; session status only reaches the row that owns the name, and when ownership is ambiguous no row gets it.
 - Follow-ups: export the MCP target order from chat-ui and drop `provider-row.ts` `TARGET_RANK` (M-2); pass the SDK status `scope` through `SessionMcpServerEntry` (`session-mcp-status.ts:51-56,120`) to resolve the ambiguous user/project case (shared/backend, outside this task); `resumeSession` gets no `mcpServersOverride` (backend, outside this task). Batch 12b must stub `TabManagerService` in `provider-row.spec.ts` (it builds the real store).
 
-## Batch 9: Marketplace UI kit I — row primitives (C8 part) — PENDING
+## Batch 9: Marketplace UI kit I — row primitives (C8 part) — COMPLETE (commit 3b722417a)
 
 - Recommended executor: CLI lanes x3 (one per task)
 - Fallback executor: frontend-developer (sequential)
@@ -570,7 +570,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 7b, 8
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace` (team-leader runs once after all lanes)
 
-### Task 9.1: `StatusPillComponent` + `TargetMarksComponent` — PENDING
+### Task 9.1: `StatusPillComponent` + `TargetMarksComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\status-pill.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\target-marks.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`StatusPill`, `TargetMarks`)
@@ -579,7 +579,7 @@ Edge cases:
 - Validation notes: unknown status renders neutral with raw text.
 - Implementation details: inputs/outputs only.
 
-### Task 9.2: `CopyCommandButtonComponent` + `RemovalLockBadgeComponent` — PENDING
+### Task 9.2: `CopyCommandButtonComponent` + `RemovalLockBadgeComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\copy-command-button.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\removal-lock-badge.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`RemovalLockBadge`, `CopyCommandButton`)
@@ -588,7 +588,7 @@ Edge cases:
 - Validation notes: no command → no copy button; clipboard rejection → select fallback (spec).
 - Implementation details: never a paragraph in the action column.
 
-### Task 9.3: `BulkActionBarComponent` + `DockedInspectorComponent` — PENDING
+### Task 9.3: `BulkActionBarComponent` + `DockedInspectorComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\bulk-action-bar.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\docked-inspector.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`BulkActionBar`, `DockedInspector`)
@@ -601,6 +601,11 @@ Edge cases:
 
 - 12 files present; data components have loading/empty/error; no `innerHTML`
 - Reviewer: code-style-reviewer (consistency across three lanes)
+- Result: 12 new files in `libs/frontend/marketplace/src/lib/ui/` (6 components + specs, 1986 lines), no barrel or registry edit; executor frontend-developer (sequential fallback) in worktree `task533-b9`, files diffed identical before commit; `lint,typecheck,test -p @ptah-extension/marketplace` green in TASK_WT (1 project, 34 suites, 829 tests, includes Batch 12b). Review: logic 6/10 round 1 (unknown-target crash in TargetMarks, copy re-entrancy), then APPROVED 9/10 round 2; style APPROVED 9/10. Report: `batch-9-report.md` (untracked).
+- Binding on Batch 10: use `statusPresentation()` exported from `status-pill.component.ts` for filter and table status words, do not re-map `ProviderStatus`; render CLI targets through `ptah-target-marks` (`maxVisible` default 4, "+N" overflow); blocked rows use `ptah-removal-lock-badge`, never a paragraph in the action column.
+- Binding on Batch 11: "Synced to" marks go through `ptah-target-marks` or `ptah-brand-mark` + `CLI_TARGET_BRANDS`; the status pill in featured cards is `ptah-status-pill`.
+- Binding on Batch 13: `ptah-docked-inspector` has no Escape handling — the page owns Escape (close inspector, return focus to the active row); `ptah-copy-command-button` requires a `selectTarget` template ref (the `<code>` element to select on clipboard rejection); `ptah-bulk-action-bar` renders the results summary from an input, the page computes it.
+- Follow-ups: OpenCode `ptah-provider-mark` is drawn at `scale-[0.625]` in TargetMarks (accepted) — add a size input on `ProviderMarkComponent` and drop the scale; DockedInspector Escape stays with Batch 13 pages (above).
 
 ## Batch 10: Marketplace UI kit II — lists and overview widgets — PENDING
 
