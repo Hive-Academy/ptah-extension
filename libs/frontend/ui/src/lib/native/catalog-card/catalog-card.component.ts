@@ -11,8 +11,11 @@
  * THE MARK IS A SLOT. There is deliberately no brand/slug input: the card never
  * imports brand artwork, so an eager host (the dashboard skill picker) that
  * renders catalog cards cannot pull vendored logos into the initial chunk.
- * Lazy consumers project `<ptah-brand-mark card-mark>`, eager ones project
- * `<ptah-monogram-tile card-mark>`.
+ * Lazy consumers project `<ptah-brand-mark card-mark>`. Eager ones project
+ * `<ptah-monogram-tile card-mark>`, or a DEFERRED brand mark: a `card-mark`
+ * wrapper holding `@defer { <ptah-brand-mark> } @placeholder { monogram }`,
+ * with the component imported from `@ptah-extension/ui/brand-mark` (the MCP
+ * Registry browser does this).
  *
  * Slots (each wrapper collapses via `:empty` when nothing is projected, so an
  * unused slot never adds gap spacing):

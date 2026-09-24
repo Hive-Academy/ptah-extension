@@ -237,7 +237,7 @@ describe('mcp directory browser — registry discovery', () => {
     ]);
 
     const [sentry, lookalike] = cards(fixture);
-    expect(sentry.querySelector('ptah-brand-mark[card-mark]')).not.toBeNull();
+    expect(sentry.querySelector('[card-mark] ptah-brand-mark')).not.toBeNull();
     expect(lookalike.querySelector('ptah-brand-mark')).toBeNull();
     expect(
       lookalike.querySelector('ptah-monogram-tile[card-mark]'),

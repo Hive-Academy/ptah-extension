@@ -1,38 +1,19 @@
 /**
  * Native Brand Mark - Barrel Export
  *
- * The one mark system of the webview: the SVG renderer every vendor and
- * provider mark goes through (`ptah-mark-svg`), the brand logo tile
- * (`ptah-brand-mark`), the artwork-free monogram tile (`ptah-monogram-tile`)
- * and the slug tables with the two MCP server brand resolvers (installed rows
- * and discovery listings, kept apart by their input types).
+ * The brand logo tile (`ptah-brand-mark`), and nothing else. It is the only
+ * export that reaches the vendored artwork table (`brand-marks.generated.ts`),
+ * so it must stay reachable only from lazily loaded code: the Marketplace
+ * routes import it from `@ptah-extension/ui`, and an eager host defers it
+ * through the `@ptah-extension/ui/brand-mark` entry point inside `@defer`.
  *
- * The vendored artwork table itself is not exported: consumers draw a brand
- * through `ptah-brand-mark`, which keeps the table reachable only from the
- * lazily loaded code that renders it.
+ * The artwork-free pieces of the mark system live in sibling barrels that eager
+ * code may import: `../mark-svg` (renderer), `../monogram-tile` and
+ * `../brand-slugs` (slug tables and resolvers). Do NOT re-export them here:
+ * esbuild follows every import of a barrel it keeps, so one eager import
+ * through this file pulls the whole table into the initial chunk (R7,
+ * TASK_2026_533 Batch 24a).
  *
  * @module native/brand-mark
  */
-export { MarkSvgComponent } from './mark-svg.component';
-export type { MarkPaint } from './mark-svg.component';
-export { MonogramTileComponent } from './monogram-tile.component';
-export type { MarkTileSize } from './monogram-tile.component';
 export { BrandMarkComponent } from './brand-mark.component';
-export {
-  CLI_TARGET_BRANDS,
-  KNOWN_SERVER_BRANDS,
-  LISTING_NAMESPACE_BRANDS,
-  PROVIDER_BRAND_SLUGS,
-  resolveInstalledBrandSlug,
-  resolveListingBrandSlug,
-} from './brand-slugs';
-export type {
-  CliTargetBrand,
-  InstalledBrandQuery,
-  ListingBrandQuery,
-} from './brand-slugs';
-export type {
-  MarkArtwork,
-  MarkArtworkKind,
-  MarkArtworkPath,
-} from './mark-artwork';

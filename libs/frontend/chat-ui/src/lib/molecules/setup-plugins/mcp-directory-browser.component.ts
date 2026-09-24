@@ -20,7 +20,6 @@ import type {
   InstalledMcpServer,
 } from '@ptah-extension/shared';
 import {
-  BrandMarkComponent,
   CatalogCardComponent,
   CatalogCardSkeletonComponent,
   CatalogGridComponent,
@@ -29,6 +28,9 @@ import {
   resolveListingBrandSlug,
   type CatalogCardBadge,
 } from '@ptah-extension/ui';
+// Its own declaration, used only inside @defer: the compiler then emits a
+// dynamic import, keeping the vendored logo table out of the eager chunk (R7).
+import { BrandMarkComponent } from '@ptah-extension/ui/brand-mark';
 import { mcpTargetLabel } from './installed-mcp-groups';
 
 const ALL_TARGETS: McpInstallTarget[] = [
@@ -161,12 +163,20 @@ interface RegistryCardView {
                 [meta]="card.meta"
                 [badge]="card.installed ? installedBadge : null"
               >
-                @if (card.brandSlug) {
-                  <ptah-brand-mark
-                    card-mark
-                    [brandSlug]="card.brandSlug"
-                    [label]="card.displayName"
-                  />
+                @if (card.brandSlug; as slug) {
+                  <!-- Deferred: the mark's artwork table is a lazy chunk (R7). -->
+                  <span card-mark class="flex">
+                    @defer (on immediate) {
+                      <ptah-brand-mark
+                        [brandSlug]="slug"
+                        [label]="card.displayName"
+                      />
+                    } @placeholder {
+                      <ptah-monogram-tile [label]="card.displayName" />
+                    } @error {
+                      <ptah-monogram-tile [label]="card.displayName" />
+                    }
+                  </span>
                 } @else {
                   <ptah-monogram-tile card-mark [label]="card.displayName" />
                 }
