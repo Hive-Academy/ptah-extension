@@ -8,7 +8,7 @@
  * Codex adapter's structured mapping than to Antigravity's heuristic classifier.
  *
  * Non-interactive run:  opencode run --format json --auto --model <provider/model>
- *                                   [--session <id>] "<prompt>"
+ *                                   [--standalone] [--session <id>] "<prompt>"
  *
  * Notes:
  * - **The working directory is the spawn's `cwd`, and there is no flag for it.**
@@ -31,10 +31,15 @@
  *   shot; `tool: "bash"` becomes a `command` segment with an exit code.
  * - MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var:
  *   an inline JSON string carrying the `mcp.ptah` remote entry, passed to the
- *   child at spawn time. opencode deep-merges it (remeda `mergeDeep`, highest
- *   precedence) on top of the untouched shared project config — so two agents in
- *   the same working dir never race over a shared file, and there is nothing to
- *   clean up after the run.
+ *   child at spawn time. It only reaches the session when that process runs the
+ *   session itself. opencode 2.x `run` instead attaches to ONE shared background
+ *   service (measured on 2.0.12: a single `role=server` in opencode.log served
+ *   every worktree), which never sees the child's env — so the lane had no
+ *   `ptah_*` tools and could not report. `--standalone` makes `run` start a
+ *   private server from the child's own env; we pass it whenever `run --help`
+ *   lists it (1.x has no such flag, and 2.x rejects unknown flags). With the env
+ *   honoured, opencode deep-merges it (highest precedence) over the untouched
+ *   project config, so agents in one working dir never race over a shared file.
  * - Windows: `resolveCliPath('opencode')` + cross-spawn (`.cmd` wrapper) is the
  *   primary path. Upstream issues report the generated `.ps1` wrapper shelling
  *   out to `/bin/sh.exe`; as a fallback we resolve the bundled native binary
@@ -143,17 +148,12 @@ const requireResolveModulePath: ModulePathResolver = (request) =>
   require.resolve(request);
 
 /**
- * Resolve the opencode native binary inside its Windows platform package.
- *
- * The npm `.ps1` wrapper opencode generates has been reported to invoke
- * `/bin/sh.exe`, which does not exist on stock Windows. When that path breaks,
- * spawning the bundled `.exe` directly bypasses the wrapper entirely. Mirrors
- * the resolution-order strategy of CodexCliAdapter.resolveCodexNativeBinary(),
- * including the `app.asar` → `app.asar.unpacked` twin for module-resolved
- * candidates, which a packaged Electron build needs to reach a spawnable file.
- *
- * Returns `undefined` off-Windows, on unsupported arches, or when no candidate
- * exists (e.g. the tool was installed via Homebrew/Scoop/curl rather than npm).
+ * Resolve a Windows native binary only from the detected CLI's directory or
+ * its nested `node_modules/opencode-ai`; return `undefined` for an already-native
+ * `.exe` (case-insensitive) or missing candidates so the caller keeps that CLI.
+ * Without a detected path, try Electron resources, module-resolved packages
+ * (including their `app.asar.unpacked` twins), then APPDATA npm packages.
+ * Returns `undefined` off-Windows, on unsupported arches, or if no candidate exists.
  *
  * @internal Exported for unit tests only. `resolveModulePath` is a seam: Jest's
  * `require.resolve` can never yield an `app.asar` path, so the asar branch is
@@ -171,6 +171,16 @@ export function resolveOpencodeNativeBinary(
   const relFromBin = path.join('node_modules', relFromNodeModules);
 
   const candidates: string[] = [];
+  if (detectedCliPath) {
+    if (/\.exe$/i.test(detectedCliPath)) return undefined;
+    const cliDir = path.dirname(detectedCliPath);
+    candidates.push(path.join(cliDir, relFromBin));
+    candidates.push(
+      path.join(cliDir, 'node_modules', 'opencode-ai', relFromBin),
+    );
+    return candidates.find((candidate) => existsSync(candidate));
+  }
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (resourcesPath) {
@@ -208,14 +218,6 @@ export function resolveOpencodeNativeBinary(
     );
   }
 
-  if (detectedCliPath) {
-    const cliDir = path.dirname(detectedCliPath);
-    candidates.push(path.join(cliDir, relFromBin));
-    candidates.push(
-      path.join(cliDir, 'node_modules', 'opencode-ai', relFromBin),
-    );
-  }
-
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
@@ -238,7 +240,15 @@ export class OpencodeCliAdapter implements CliAdapter {
    */
   constructor(private readonly spawner?: IProcessSpawner) {}
 
+  /** `run --help` probe result per binary; see `supportsStandalone`. */
+  private readonly standaloneSupport = new Map<
+    string,
+    Promise<boolean | undefined>
+  >();
+
   async detect(): Promise<CliDetectionResult> {
+    // A re-detect may follow an upgrade (1.x → 2.x); probe `run --help` again.
+    this.standaloneSupport.clear();
     try {
       const binaryPath = await resolveCliPath('opencode');
       if (!binaryPath) {
@@ -483,6 +493,34 @@ export class OpencodeCliAdapter implements CliAdapter {
   }
 
   /**
+   * Whether this binary's `opencode run` accepts `--standalone` (see the header).
+   * Probed from `run --help` (stdout, ~2.7 s on 2.0.12) rather than the version,
+   * because an unknown flag makes 2.x exit 1 before any output. Only a clean
+   * exit-0 answer is cached (per binary, until the next `detect()`); a timeout,
+   * spawn failure or non-zero exit resolves `undefined` — unknown — and the next
+   * run probes again.
+   */
+  private supportsStandalone(binary: string): Promise<boolean | undefined> {
+    let probe = this.standaloneSupport.get(binary);
+    if (!probe) {
+      probe = this.probeCommandOnce(binary, ['run', '--help'])
+        .then((outcome) => {
+          if (outcome.exitCode !== 0 || outcome.timedOut || outcome.errored) {
+            this.standaloneSupport.delete(binary);
+            return undefined;
+          }
+          return /^\s*--standalone\b/m.test(stripAnsiCodes(outcome.stdout));
+        })
+        .catch(() => {
+          this.standaloneSupport.delete(binary);
+          return undefined;
+        });
+      this.standaloneSupport.set(binary, probe);
+    }
+    return probe;
+  }
+
+  /**
    * Build the inline `OPENCODE_CONFIG_CONTENT` JSON registering the Ptah MCP
    * server as a remote endpoint. opencode deep-merges this per-process at the
    * highest precedence, so it never touches the shared project config on disk.
@@ -521,12 +559,28 @@ export class OpencodeCliAdapter implements CliAdapter {
     // the newly-appended delta (mirrors Codex's emitTextDelta).
     const textTracker = new Map<string, string>();
 
+    // Primary: detected binary path (the `.cmd` shim on Windows). We always
+    // attempt native-binary resolution (passing the detected path as a hint) and
+    // prefer the bundled native `.exe` when it exists — mirroring
+    // CodexCliAdapter.resolveCodexNativeBinary(). On Windows the wrapper's target
+    // binary can be wrong/missing/corrupt (open upstream #28920/#36737), so the
+    // native `.exe` bypasses it entirely. No-op off-Windows / when absent.
+    let binary = options.binaryPath ?? 'opencode';
+    const native = resolveOpencodeNativeBinary(options.binaryPath);
+    if (native) {
+      binary = native;
+    }
+
     const args: string[] = ['run', '--format', 'json'];
     if (options.autoApprove !== false) {
       args.push('--auto');
     }
     if (options.model) {
       args.push('--model', options.model);
+    }
+    const standalone = await this.supportsStandalone(binary);
+    if (standalone) {
+      args.push('--standalone');
     }
     // No working-directory flag: `opencode run` takes it from the spawn's cwd,
     // which is set below. See the note at the top of this file.
@@ -538,17 +592,13 @@ export class OpencodeCliAdapter implements CliAdapter {
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
-
-    // Primary: detected binary path (the `.cmd` shim on Windows). We always
-    // attempt native-binary resolution (passing the detected path as a hint) and
-    // prefer the bundled native `.exe` when it exists — mirroring
-    // CodexCliAdapter.resolveCodexNativeBinary(). On Windows the wrapper's target
-    // binary can be wrong/missing/corrupt (open upstream #28920/#36737), so the
-    // native `.exe` bypasses it entirely. No-op off-Windows / when absent.
-    let binary = options.binaryPath ?? 'opencode';
-    const native = resolveOpencodeNativeBinary(options.binaryPath);
-    if (native) {
-      binary = native;
+    if (standalone === undefined) {
+      segment.emit({
+        type: 'info',
+        content:
+          '`opencode run --help` did not answer, so this run omits --standalone. ' +
+          'On opencode 2.x the lane may then have no Ptah MCP tools.',
+      });
     }
 
     const env: NodeJS.ProcessEnv = {};

@@ -28,7 +28,10 @@ import {
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
-import { activateSessionLifecycleNotifier } from '@ptah-extension/rpc-handlers';
+import {
+  activateSessionLifecycleNotifier,
+  runCursorApiKeyMigration,
+} from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
@@ -237,6 +240,8 @@ export async function bootstrapElectron(
         : String(settingsError),
     );
   }
+  // Run outside the settings try so settings failures cannot skip key migration.
+  await runCursorApiKeyMigration(container);
   const sentryDsn = typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
   if (sentryDsn) {
     const sentryService = container.resolve<SentryService>(

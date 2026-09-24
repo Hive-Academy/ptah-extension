@@ -7,7 +7,10 @@
  */
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  IAuthSecretsService,
+  SentryService,
+} from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
@@ -47,6 +50,8 @@ export class CliDetectionService {
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly spawner: IProcessSpawner,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
   ) {
     this.adapters.set('codex', new CodexCliAdapter(this.logger));
     const permissionBridge = new CopilotPermissionBridge();
@@ -55,7 +60,14 @@ export class CliDetectionService {
       new CopilotSdkAdapter(permissionBridge, this.spawner),
     );
 
-    this.adapters.set('cursor', new CursorCliAdapter(this.logger));
+    // The Cursor provider key lives only in the secrets store (TASK_2026_538);
+    // the resolver is lazy so the adapter re-reads the secret on every use.
+    this.adapters.set(
+      'cursor',
+      new CursorCliAdapter(this.logger, () =>
+        this.authSecrets.getProviderKey('cursor'),
+      ),
+    );
     this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
     this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
     this.adapters.set('pi', new PiCliAdapter(this.spawner));

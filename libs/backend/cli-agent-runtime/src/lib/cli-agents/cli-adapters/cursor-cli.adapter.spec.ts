@@ -3,7 +3,8 @@
  *
  * The adapter runs in-process via @cursor/sdk (Agent.create → send →
  * run.stream()). Tests mock the SDK module and drive a fake run stream.
- * Covers: detect()/ensureTokensFresh() gated on API key, runSdk() streaming
+ * Covers: key resolution order (CURSOR_API_KEY env → injected resolver),
+ * detect()/ensureTokensFresh() gated on API key, runSdk() streaming
  * of SDKMessage events, tool-call dedup, AbortSignal → run.cancel(), resume
  * via Agent.resume, and the missing-key error path.
  */
@@ -87,7 +88,16 @@ jest.mock('@cursor/sdk', () => ({
   },
 }));
 
+// The adapter must source its key from env + the injected resolver, never
+// from a settings file on disk (TASK_2026_538).
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return { ...actual, readFileSync: jest.fn() };
+});
+
+import * as fs from 'fs';
 import { CursorCliAdapter } from './cursor-cli.adapter';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from './cli-adapter.interface';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
@@ -96,12 +106,14 @@ const ORIGINAL_ENV = process.env;
 
 describe('CursorCliAdapter', () => {
   let adapter: CursorCliAdapter;
+  let resolveKey: jest.Mock<Promise<string | undefined>, []>;
   let currentRun: FakeRunControls | null = null;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...ORIGINAL_ENV, CURSOR_API_KEY: 'test-key' };
     currentRun = null;
+    resolveKey = jest.fn(async () => undefined);
 
     mockCreate.mockImplementation(async () => {
       currentRun = createFakeRun('agent-abc');
@@ -115,11 +127,84 @@ describe('CursorCliAdapter', () => {
       };
     });
 
-    adapter = new CursorCliAdapter();
+    adapter = new CursorCliAdapter(undefined, resolveKey);
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
+  });
+
+  describe('API key resolution (env → injected resolver)', () => {
+    it('prefers CURSOR_API_KEY over the resolver value', async () => {
+      resolveKey.mockResolvedValue('secret-key');
+
+      const result = await adapter.detect();
+      expect(result.installed).toBe(true);
+      expect(resolveKey).not.toHaveBeenCalled();
+    });
+
+    it('uses the resolver value (trimmed) when CURSOR_API_KEY is unset', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      resolveKey.mockResolvedValue('  secret-key  ');
+
+      const result = await adapter.detect();
+      expect(result.installed).toBe(true);
+      expect(await adapter.ensureTokensFresh()).toBe(true);
+      expect(resolveKey).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports no key when both env and resolver values are blank', async () => {
+      process.env['CURSOR_API_KEY'] = '   ';
+      resolveKey.mockResolvedValue('  ');
+
+      const result = await adapter.detect();
+      expect(result.installed).toBe(false);
+      expect(await adapter.ensureTokensFresh()).toBe(false);
+    });
+
+    it('treats a throwing resolver as no key and logs only a fixed text', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      resolveKey.mockRejectedValue(new Error('boom'));
+
+      const result = await adapter.detect();
+      expect(result.installed).toBe(false);
+      expect(await adapter.ensureTokensFresh()).toBe(false);
+    });
+
+    it('logs a fixed text without error detail when the resolver throws', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      resolveKey.mockRejectedValue(new Error('boom secret=abc'));
+      const debugMock = jest.fn();
+      const logger = {
+        debug: debugMock,
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger;
+      const guarded = new CursorCliAdapter(logger, resolveKey);
+
+      await expect(guarded.detect()).resolves.toMatchObject({
+        installed: false,
+      });
+
+      expect(debugMock).toHaveBeenCalledWith(
+        '[CursorCliAdapter] Cursor API key resolver failed; treating as no key',
+      );
+      const logged = JSON.stringify(debugMock.mock.calls);
+      expect(logged).not.toContain('boom');
+      expect(logged).not.toContain('secret=abc');
+    });
+
+    it('never reads ~/.ptah/settings.json for the key', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      resolveKey.mockResolvedValue('secret-key');
+
+      await adapter.detect();
+      await adapter.ensureTokensFresh();
+      await adapter.listModels();
+
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('detect() / ensureTokensFresh()', () => {
@@ -133,8 +218,6 @@ describe('CursorCliAdapter', () => {
 
     it('reports NOT installed when no API key is resolvable', async () => {
       delete process.env['CURSOR_API_KEY'];
-      delete process.env['HOME'];
-      delete process.env['USERPROFILE'];
 
       const result = await adapter.detect();
       expect(result.installed).toBe(false);
@@ -143,8 +226,6 @@ describe('CursorCliAdapter', () => {
     it('ensureTokensFresh() reflects API key presence', async () => {
       expect(await adapter.ensureTokensFresh()).toBe(true);
       delete process.env['CURSOR_API_KEY'];
-      delete process.env['HOME'];
-      delete process.env['USERPROFILE'];
       expect(await adapter.ensureTokensFresh()).toBe(false);
     });
   });
@@ -214,6 +295,25 @@ describe('CursorCliAdapter', () => {
       expect(output.join('')).toContain('Done.');
       expect(handle.getSessionId?.()).toBe('agent-abc');
       expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it('passes the resolver-provided key to Agent.create when env is unset', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      resolveKey.mockResolvedValue('secret-key');
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      currentRun?.end();
+      await handle.done;
+
+      const createArg = mockCreate.mock.calls[0][0] as {
+        apiKey?: string;
+      };
+      expect(createArg.apiKey).toBe('secret-key');
     });
 
     it('emits incremental text deltas for growing assistant messages', async () => {
@@ -341,11 +441,66 @@ describe('CursorCliAdapter', () => {
       );
     });
 
+    it.each([undefined, 'agent-resumed'])(
+      'does not create or resume an agent when aborted during key resolution (resumeSessionId: %s)',
+      async (resumeSessionId) => {
+        delete process.env['CURSOR_API_KEY'];
+        let releaseKey!: (key: string) => void;
+        resolveKey.mockImplementationOnce(
+          () =>
+            new Promise<string>((resolve) => {
+              releaseKey = resolve;
+            }),
+        );
+
+        const handle = await adapter.runSdk({
+          ...defaultOptions,
+          resumeSessionId,
+        });
+        expect(resolveKey).toHaveBeenCalledTimes(1);
+        handle.abort.abort();
+        releaseKey('secret-key');
+
+        await expect(handle.done).resolves.toBe(1);
+        expect(mockCreate).not.toHaveBeenCalled();
+        expect(mockResume).not.toHaveBeenCalled();
+        expect(mockSend).not.toHaveBeenCalled();
+      },
+    );
+
+    it('closes the created agent when aborted during Agent.create', async () => {
+      let releaseCreate!: () => void;
+      let notifyCreateStarted!: () => void;
+      const createStarted = new Promise<void>((resolve) => {
+        notifyCreateStarted = resolve;
+      });
+      const createPending = new Promise<void>((resolve) => {
+        releaseCreate = resolve;
+      });
+      mockCreate.mockImplementationOnce(async () => {
+        notifyCreateStarted();
+        await createPending;
+        return { agentId: 'agent-abc', send: mockSend, close: mockClose };
+      });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      await createStarted;
+      handle.abort.abort();
+      expect(mockClose).not.toHaveBeenCalled();
+      releaseCreate();
+
+      await expect(handle.done).resolves.toBe(1);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockClose).toHaveBeenCalledTimes(1);
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
     it('cancels the run on abort and resolves done with 1', async () => {
       const handle = await adapter.runSdk(defaultOptions);
       handle.onOutput(() => {
         /* drain */
       });
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
 
@@ -359,8 +514,7 @@ describe('CursorCliAdapter', () => {
 
     it('resolves done with 1 and emits an error segment on missing API key', async () => {
       delete process.env['CURSOR_API_KEY'];
-      delete process.env['HOME'];
-      delete process.env['USERPROFILE'];
+      resolveKey.mockResolvedValue(undefined);
 
       const handle = await adapter.runSdk(defaultOptions);
       const output: string[] = [];
@@ -565,6 +719,7 @@ describe('CursorCliAdapter', () => {
       });
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
 
       handle.abort.abort();
       const code = await handle.done;
@@ -599,6 +754,7 @@ describe('CursorCliAdapter', () => {
     it('reports supportsInterrupt() true', async () => {
       const handle = await adapter.runSdk(defaultOptions);
       expect(handle.supportsInterrupt?.()).toBe(true);
+      await Promise.resolve();
       currentRun?.end();
       await handle.done;
     });
@@ -611,6 +767,7 @@ describe('CursorCliAdapter', () => {
       handle.onOutput(() => {
         /* drain */
       });
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
 
@@ -664,6 +821,7 @@ describe('CursorCliAdapter', () => {
       handle.onOutput(() => {
         /* drain */
       });
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
 
