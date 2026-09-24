@@ -9,6 +9,13 @@ Full contents of every changed production file were read (not only the diff hunk
 `session-lifecycle-manager.ts`, `sdk-agent-adapter.ts`, plus the out-of-batch consumer
 `provider-rpc.handlers.ts` that the diff's new contract silently affects.
 
+> Status: this review covers Batch A **before Revision 1**. Revision 1
+> (`batch-a-report.md`, "Revision 1") changed `provider-rpc.handlers.ts` and
+> every dynamic fetcher, so the provenance defect below is a pre-revision
+> assessment. Revision 1 resolved it: fetchers now declare
+> `contextLengthSource: 'provider'` themselves, and the generic stamping was
+> removed.
+
 ## Verdict
 
 APPROVE, 8/10 — the two additive contracts (provider-qualified context capacity,

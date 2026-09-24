@@ -419,6 +419,7 @@ describe('StreamingHandlerService', () => {
         eventType: 'compaction_complete',
         timestamp: 10,
         sessionId: SESSION_ID,
+        messageId: 'compaction-A',
         trigger: 'auto',
         boundaryId: 'A',
         measurement,

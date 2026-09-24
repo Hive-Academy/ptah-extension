@@ -105,19 +105,18 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
           if (!provider.baseUrl) return false;
           try {
             return new URL(provider.baseUrl).href === route.href;
-          } catch (error: unknown) {
+          } catch {
             // degradation-audit: optional-capability - an invalid user-defined
             // endpoint supplies no capacity evidence.
-            void error;
             return false;
           }
         });
         if (matches.length === 1) providerId = matches[0].id;
       }
     }
-  } catch (error: unknown) {
-    // Invalid/custom routes remain usable by the query; capacity is unknown.
-    void error;
+  } catch {
+    // degradation-audit: optional-capability - an invalid/custom route stays
+    // usable by the query; it only leaves capacity unknown.
   }
   return Object.freeze({ kind: 'proxy', providerId });
 }
@@ -191,8 +190,13 @@ export class SessionQueryExecutor {
     const abortController = new AbortController();
 
     // The route this query will actually talk to, honouring a per-session
-    // provider profile. Classified once, here, and frozen on the record.
-    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    // provider profile. Snapshotted once, here: the global env object is
+    // mutated in place on auth changes, and the async initialisation below
+    // must build the SDK query from the same route that classified its cost
+    // authority and context-capacity provider.
+    const effectiveAuthEnv: Readonly<AuthEnv> = Object.freeze({
+      ...(authEnvOverride ?? this.authEnv),
+    });
     const registerKey = sessionConfig?.tabId ?? (sessionId as string);
     const knownRealSessionId = resumeSessionId
       ? (sessionId as string)
@@ -204,8 +208,7 @@ export class SessionQueryExecutor {
       knownRealSessionId,
       {
         usageCostSource: classifyUsageCostSource(effectiveAuthEnv),
-        // A copy: the global env object is mutated in place on auth changes.
-        authEnv: Object.freeze({ ...effectiveAuthEnv }),
+        authEnv: effectiveAuthEnv,
       },
       resolveCapacityRoute(effectiveAuthEnv),
     );
@@ -376,7 +379,12 @@ export class SessionQueryExecutor {
         includePartialMessages,
         mcpServersOverride,
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
-        authEnvOverride,
+        // Always the snapshot, never the live global object. The builder's
+        // cross-provider check compares it with the live global route, so an
+        // unprofiled session only reads as cross-provider if auth changed
+        // mid-initialisation — exactly when the global model cache no longer
+        // describes this query's provider.
+        authEnvOverride: effectiveAuthEnv,
         // A turn parked on a permission prompt or an AskUserQuestion card emits
         // no stream events by construction. Without this the watchdog below
         // reads the user's own deliberation as a wedged provider and aborts the

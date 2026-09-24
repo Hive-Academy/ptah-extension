@@ -1,6 +1,6 @@
-# Batch A report ? TASK_2026_418_a91c
+# Batch A report — TASK_2026_418_a91c
 
-Implementation is written. All five mandatory red specs pass after the fixes. All required targets have passed, with the failed files rechecked as described below.
+Implementation is written. All five mandatory red specs pass after the fixes, and every changed specification passes. The first full run passed after the failed files were rechecked (below). The Revision 1 full command was **not green**: two untouched tests timed out under load (see "Revision 1"). Both pass when run alone.
 
 ## Scope and preserved contracts
 

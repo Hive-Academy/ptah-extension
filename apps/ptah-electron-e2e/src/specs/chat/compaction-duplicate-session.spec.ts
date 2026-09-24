@@ -210,6 +210,11 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     );
 
     const resumeBaseline = (await ui.getObservedCalls('chat:resume')).length;
+    // The compact_boundary emitter (SystemMessageTransformer) identifies the
+    // boundary by the SDK message uuid and attaches a measurement only when
+    // both endpoints come from that same compact_metadata object. The marker
+    // says "shrank" only for such a same-boundary SDK pair (TASK_2026_418).
+    const boundaryId = randomUUID();
     await ui.pushEvent({
       type: 'session:compactionComplete',
       payload: {
@@ -230,6 +235,14 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
           eventType: 'compaction_complete',
           timestamp: Date.now(),
           sessionId: SHARED_SESSION_ID,
+          messageId: `compaction-${boundaryId}`,
+          boundaryId,
+          measurement: {
+            source: 'sdk-compact-metadata',
+            boundaryId,
+            preTokens: 8_000,
+            postTokens: 1_500,
+          },
           trigger: 'manual',
           preTokens: 8_000,
           postTokens: 1_500,

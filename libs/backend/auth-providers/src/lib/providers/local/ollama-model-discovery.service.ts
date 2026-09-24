@@ -572,7 +572,10 @@ export class OllamaModelDiscoveryService {
     baseUrl: string,
     modelName: string,
   ): Promise<ModelMetadataCache> {
-    const cached = this.metadataCache.get(modelName);
+    // Keyed by server as well as model: a base-URL change while an entry is
+    // still fresh must not certify the previous server's window for the new one.
+    const cacheKey = JSON.stringify([baseUrl, modelName]);
+    const cached = this.metadataCache.get(cacheKey);
     if (cached) {
       const ttl = cached.isFallback
         ? this.FALLBACK_CACHE_TTL_MS
@@ -592,7 +595,7 @@ export class OllamaModelDiscoveryService {
           supportsVision: known.supportsVision,
           timestamp: Date.now(),
         };
-        this.metadataCache.set(modelName, metadata);
+        this.metadataCache.set(cacheKey, metadata);
         return metadata;
       }
     }
@@ -603,7 +606,7 @@ export class OllamaModelDiscoveryService {
       );
 
       const metadata = this.parseShowResponse(showResponse, modelName);
-      this.metadataCache.set(modelName, metadata);
+      this.metadataCache.set(cacheKey, metadata);
       return metadata;
     } catch (showError) {
       this.sentryService.captureException(
@@ -618,7 +621,7 @@ export class OllamaModelDiscoveryService {
         timestamp: Date.now(),
         isFallback: true,
       };
-      this.metadataCache.set(modelName, fallback);
+      this.metadataCache.set(cacheKey, fallback);
       return fallback;
     }
   }
@@ -631,13 +634,17 @@ export class OllamaModelDiscoveryService {
     modelName: string,
   ): ModelMetadataCache {
     const modelinfo = response.modelinfo ?? {};
-    const reportedContextLength =
-      modelinfo['general.context_length'] ?? modelinfo['llama.context_length'];
-    const hasProviderCapacity =
-      typeof reportedContextLength === 'number' &&
-      Number.isFinite(reportedContextLength) &&
-      reportedContextLength > 0;
-    const contextLength = hasProviderCapacity ? reportedContextLength : 8192;
+    // Validate each candidate before choosing: an invalid `general` value
+    // (e.g. 0) must not hide a valid architecture-specific one.
+    const reportedContextLength = [
+      modelinfo['general.context_length'],
+      modelinfo['llama.context_length'],
+    ].find(
+      (value): value is number =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+    );
+    const hasProviderCapacity = reportedContextLength !== undefined;
+    const contextLength = reportedContextLength ?? 8192;
     const template = response.template ?? '';
     const families = response.details?.families ?? [];
     const supportsToolUse =

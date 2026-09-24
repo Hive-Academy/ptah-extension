@@ -10,10 +10,10 @@ import { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from './ollama-cloud-metadata.service';
 
 describe('Ollama capacity evidence', () => {
-  function harness() {
+  function harness(configGet: jest.Mock = jest.fn()) {
     const service = new OllamaModelDiscoveryService(
       createMockLogger() as unknown as Logger,
-      { get: jest.fn() } as unknown as ConfigManager,
+      { get: configGet } as unknown as ConfigManager,
       {
         fetchCloudTags: jest.fn().mockResolvedValue([]),
       } as unknown as OllamaCloudMetadataService,
@@ -46,6 +46,51 @@ describe('Ollama capacity evidence', () => {
       expect(post).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('validates each reported window before choosing one (general 0, llama 32768)', async () => {
+    const { service, post } = harness();
+    post.mockResolvedValue({
+      modelinfo: {
+        'general.context_length': 0,
+        'llama.context_length': 32768,
+      },
+    });
+    const [model] = await service.listLocalModels();
+    expect(model.contextLength).toBe(32768);
+    expect(model).toHaveProperty('contextLengthSource', 'provider');
+  });
+
+  it('does not certify a fractional reported window', async () => {
+    const { service, post } = harness();
+    post.mockResolvedValue({
+      modelinfo: { 'general.context_length': 4096.5 },
+    });
+    const [model] = await service.listLocalModels();
+    expect(model).not.toHaveProperty('contextLengthSource');
+  });
+
+  it('never reuses one server’s cached metadata for another base URL', async () => {
+    let baseUrl = 'http://127.0.0.1:11434';
+    const { service, post } = harness(jest.fn(() => baseUrl));
+    post.mockResolvedValueOnce({
+      modelinfo: { 'llama.context_length': 200000 },
+    });
+    post.mockResolvedValueOnce({
+      modelinfo: { 'llama.context_length': 8000 },
+    });
+
+    const [first] = await service.listLocalModels();
+    baseUrl = 'http://192.168.1.20:11434';
+    const [second] = await service.listLocalModels();
+
+    expect(first.contextLength).toBe(200000);
+    expect(second.contextLength).toBe(8000);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenLastCalledWith(
+      'http://192.168.1.20:11434/api/show',
+      { model: 'llama3:latest' },
+    );
+  });
 
   it('keeps show errors and the static cloud catalog unverified', async () => {
     const { service, post } = harness();

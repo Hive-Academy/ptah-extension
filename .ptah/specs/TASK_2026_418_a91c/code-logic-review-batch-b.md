@@ -268,7 +268,7 @@ Implicit requirements not addressed: none identified beyond the Minor items abov
 | Duplicate identical boundary completion | YES | `sameBoundary && summaryOnly` retains prior pair | None |
 | Late boundary after advisory fallback fired | YES | `mergeLateCompactionBoundary` forwards fresh boundary/measurement, overwriting the fallback's cleared state | Relies on pre-existing (untouched) advisory-correlator generation matching; not re-verified in this review since that file is outside Batch B |
 | Legacy persisted marker (no boundaryId) | YES | `validMeasurement` rejects, `measurement: undefined` | None |
-| Cross-provider same model-id collision (e.g. `openrouter` vs `openai-codex` both claiming `m`) | YES | `providerId` embedded in `ContextCapacity` re-checked at UI layer alongside model | Provider isolation itself is a Batch A (backend) guarantee; frontend correctly propagates and re-checks it but cannot itself prevent a backend from mislabeling `providerId` |
+| Cross-provider same model-id collision (e.g. `openrouter` vs `openai-codex` both claiming `m`) | YES | `providerId` embedded in `ContextCapacity`; UI checks model equality and requires a non-empty provider ID | Provider isolation is a Batch A (backend) guarantee. The frontend propagates the provider ID but does not independently compare it with the effective provider. |
 
 ## Verdict
 

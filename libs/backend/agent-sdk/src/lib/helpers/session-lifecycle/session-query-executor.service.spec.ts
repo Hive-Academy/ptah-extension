@@ -99,7 +99,10 @@ interface Harness {
   sdkQuery: Query;
 }
 
-function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
+function makeHarness(
+  globalPermissionLevel: PermissionLevel,
+  authEnv: AuthEnv = {} as AuthEnv,
+): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
 
@@ -149,8 +152,6 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
       parent_tool_use_id: null,
     }),
   } as unknown as SdkMessageFactory;
-
-  const authEnv = {} as AuthEnv;
 
   const sdkQuery = makeSdkQuery();
   const queryRunner = {
@@ -229,6 +230,45 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
       result.capacityRoute,
     );
     expect(Object.isFrozen(result.capacityRoute)).toBe(true);
+  });
+
+  it('builds the SDK query from the same auth snapshot that classified its capacity route', async () => {
+    // The global env object is mutated in place on an auth change; one that
+    // lands while the query is still initialising must not split the recorded
+    // capacity route from the provider the SDK query actually talks to.
+    const globalAuthEnv: AuthEnv = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+    };
+    const { executor, buildSpy } = makeHarness('ask', globalAuthEnv);
+    buildSpy.mockImplementationOnce(
+      async (input: { authEnvOverride?: AuthEnv }) => {
+        expect(input.authEnvOverride).toEqual({
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        });
+        return {
+          options: { model: 'test-model', cwd: '/tmp/test' },
+          prompt: emptyAsyncIterable<SDKUserMessage>(),
+        };
+      },
+    );
+    const pending = executor.executeQuery(makeConfig('capacity-snapshot'));
+    globalAuthEnv.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+    globalAuthEnv.ANTHROPIC_AUTH_TOKEN = 'sk-or-live';
+
+    const result = await pending;
+
+    expect(buildSpy).toHaveBeenCalledTimes(1);
+    const buildInput = buildSpy.mock.calls[0][0] as {
+      authEnvOverride?: AuthEnv;
+    };
+    expect(buildInput.authEnvOverride).toBe(result.accountingAuthEnv);
+    expect(Object.isFrozen(buildInput.authEnvOverride)).toBe(true);
+    expect(result.capacityRoute).toEqual({
+      kind: 'proxy',
+      providerId: 'openai-codex',
+    });
   });
 
   it('rejects route substrings and remote proxy-token impersonation for capacity', () => {

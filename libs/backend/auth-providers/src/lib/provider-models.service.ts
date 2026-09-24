@@ -26,7 +26,7 @@ import type {
   ModelPricing,
 } from '@ptah-extension/shared';
 import {
-  registerModelContextWindows,
+  replaceProviderContextWindows,
   updatePricingMap,
 } from '@ptah-extension/shared';
 import {
@@ -206,16 +206,20 @@ export class ProviderModelsService {
    * subscription model) is still the authority on that model's window. Never
    * called for `staticModels` — those are release-time literals, not the
    * provider's own answer.
+   *
+   * Every caller passes the provider's COMPLETE catalog, so this replaces that
+   * provider's evidence: a model the refreshed catalog drops, or now reports
+   * without provider evidence, stops being reported as known capacity.
    */
   private recordContextWindows(
     models: readonly ProviderModelInfo[],
     providerId: string,
   ): void {
-    registerModelContextWindows(
+    replaceProviderContextWindows(
+      providerId,
       models
         .filter((m) => m.contextLengthSource === 'provider')
         .map((m) => ({ id: m.id, contextLength: m.contextLength })),
-      providerId,
     );
   }
 
@@ -644,7 +648,10 @@ export class ProviderModelsService {
         await this.config.set(legacyKey, undefined);
       }
     }
-    if (scope === 'mainAgent' && providerId === this.resolveActiveProviderId()) {
+    if (
+      scope === 'mainAgent' &&
+      providerId === this.resolveActiveProviderId()
+    ) {
       // Both env stores feed the next SDK launch (`process.env` is spread
       // first), so fall back to the same default applyPersistedTiers would
       // pick, or remove the tier and its metadata from both when none exists.

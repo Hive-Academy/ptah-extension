@@ -392,6 +392,26 @@ export function registerModelContextWindows(
   }
 }
 
+/**
+ * Make `entries` the provider's complete capacity evidence: a refreshed
+ * catalog that drops a model, or reports it without provider evidence,
+ * withdraws the window recorded from an earlier catalog. Other providers'
+ * entries, including the same model id, are untouched.
+ */
+export function replaceProviderContextWindows(
+  providerId: string,
+  entries: ReadonlyArray<{
+    readonly id: string;
+    readonly contextLength: number;
+  }>,
+): void {
+  for (const key of Array.from(discoveredContextWindows.keys())) {
+    const [keyProvider] = JSON.parse(key) as [string | null, string];
+    if (keyProvider === providerId) discoveredContextWindows.delete(key);
+  }
+  registerModelContextWindows(entries, providerId);
+}
+
 /** No aliases, model-family defaults or cross-provider discovery. */
 export function getDiscoveredContextWindow(
   modelId: string,

@@ -454,6 +454,39 @@ describe('pricing.utils', () => {
       expect(mod.getModelContextWindow('ctx-fraction')).toBe(131_072);
     });
 
+    it('replaceProviderContextWindows withdraws only that provider’s absent models', () => {
+      const mod = freshModule();
+      mod.registerModelContextWindows(
+        [
+          { id: 'ctx-kept', contextLength: 100_000 },
+          { id: 'ctx-withdrawn', contextLength: 100_000 },
+        ],
+        'provider-a',
+      );
+      mod.registerModelContextWindows(
+        [{ id: 'ctx-withdrawn', contextLength: 300_000 }],
+        'provider-b',
+      );
+      mod.registerModelContextWindows([
+        { id: 'ctx-withdrawn', contextLength: 50_000 },
+      ]);
+
+      mod.replaceProviderContextWindows('provider-a', [
+        { id: 'ctx-kept', contextLength: 120_000 },
+      ]);
+
+      expect(mod.getDiscoveredContextWindow('ctx-kept', 'provider-a')).toBe(
+        120_000,
+      );
+      expect(
+        mod.getDiscoveredContextWindow('ctx-withdrawn', 'provider-a'),
+      ).toBe(0);
+      expect(
+        mod.getDiscoveredContextWindow('ctx-withdrawn', 'provider-b'),
+      ).toBe(300_000);
+      expect(mod.getDiscoveredContextWindow('ctx-withdrawn')).toBe(50_000);
+    });
+
     it('evicts oldest past the bound, and a re-register refreshes recency', () => {
       const mod = freshModule();
       mod.registerModelContextWindows([

@@ -146,18 +146,16 @@ describe('ProviderModelsService — discovered context windows', () => {
       const id = `undeclared-dynamic-418-${String(source)}`;
       service.registerDynamicFetcher(
         'anthropic',
-        jest
-          .fn()
-          .mockResolvedValue([
-            {
-              id,
-              name: id,
-              description: '',
-              contextLength: 200000,
-              supportsToolUse: true,
-              ...(source !== undefined && { contextLengthSource: source }),
-            },
-          ]),
+        jest.fn().mockResolvedValue([
+          {
+            id,
+            name: id,
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+            ...(source !== undefined && { contextLengthSource: source }),
+          },
+        ]),
       );
       const { models } = await service.fetchModels('anthropic', null);
       expect(models[0].contextLength).toBe(200000);
@@ -214,6 +212,53 @@ describe('ProviderModelsService — discovered context windows', () => {
 
     expect(getDiscoveredContextWindow(modelId, 'codex')).toBe(400_000);
     expect(getDiscoveredContextWindow(modelId, 'openrouter')).toBe(0);
+  });
+
+  it('withdraws capacity evidence a refreshed catalog no longer reports for that provider', async () => {
+    const { service } = makeService({});
+    const kept = 'gpt-ctx-refresh-kept-418';
+    const withdrawn = 'gpt-ctx-refresh-withdrawn-418';
+    const dropped = 'gpt-ctx-refresh-dropped-418';
+    const model = (id: string, evidence: boolean) => ({
+      id,
+      name: id,
+      description: '',
+      contextLength: 400_000,
+      ...(evidence && { contextLengthSource: 'provider' as const }),
+      supportsToolUse: true,
+    });
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce([
+        model(kept, true),
+        model(withdrawn, true),
+        model(dropped, true),
+      ])
+      .mockResolvedValueOnce([model(kept, true), model(withdrawn, false)]);
+    service.registerDynamicFetcher('refresh-provider-418', fetcher);
+    service.registerDynamicFetcher('other-provider-418', async () => [
+      model(dropped, true),
+    ]);
+
+    await service.fetchModels('refresh-provider-418', null);
+    await service.fetchModels('other-provider-418', null);
+    expect(getDiscoveredContextWindow(withdrawn, 'refresh-provider-418')).toBe(
+      400_000,
+    );
+    service.clearCache('refresh-provider-418');
+    await service.fetchModels('refresh-provider-418', null);
+
+    expect(getDiscoveredContextWindow(kept, 'refresh-provider-418')).toBe(
+      400_000,
+    );
+    expect(getDiscoveredContextWindow(withdrawn, 'refresh-provider-418')).toBe(
+      0,
+    );
+    expect(getDiscoveredContextWindow(dropped, 'refresh-provider-418')).toBe(0);
+    // Another provider's evidence for the same slug is not reconciled away.
+    expect(getDiscoveredContextWindow(dropped, 'other-provider-418')).toBe(
+      400_000,
+    );
   });
 
   it('restores only valid provider capacity evidence from the persisted catalog', async () => {
@@ -314,11 +359,16 @@ describe('ProviderModelsService.setModelTier', () => {
 
     it('applies the saved tier when that provider is activated', async () => {
       const values: Record<string, unknown> = {};
-      const { service, config } = makeService({ activeProvider: 'openrouter', configValues: values });
+      const { service, config } = makeService({
+        activeProvider: 'openrouter',
+        configValues: values,
+      });
       await service.setModelTier(PROVIDER, 'haiku', 'kimi-k2', 'mainAgent');
       expect(process.env[ENV_HAIKU]).toBeUndefined();
       // The value really landed in the store the activation path reads.
-      expect(config.get(`provider.${PROVIDER}.mainAgent.modelTier.haiku`)).toBe('kimi-k2');
+      expect(config.get(`provider.${PROVIDER}.mainAgent.modelTier.haiku`)).toBe(
+        'kimi-k2',
+      );
 
       // Auth reset -> strategy.configure -> switchActiveProvider(providerId).
       service.switchActiveProvider(PROVIDER);
@@ -478,7 +528,9 @@ describe('ProviderModelsService.clearModelTier — legacy fallback key', () => {
       activeProvider: 'openrouter',
       configValues: { [LEGACY]: 'legacy-haiku' },
     });
-    expect(service.getModelTiers('openrouter', 'mainAgent').haiku).toBe('legacy-haiku');
+    expect(service.getModelTiers('openrouter', 'mainAgent').haiku).toBe(
+      'legacy-haiku',
+    );
 
     await service.clearModelTier('openrouter', 'haiku', 'mainAgent');
 
@@ -1444,7 +1496,9 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('publishes the provider model label and description alongside the id', async () => {
-    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
+    const { service, authEnv } = makeService({
+      activeProvider: 'openai-codex',
+    });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1471,7 +1525,9 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('omits the capability allowlist when the provider declares none', async () => {
-    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
+    const { service, authEnv } = makeService({
+      activeProvider: 'openai-codex',
+    });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1498,7 +1554,9 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('emits a comma-separated allowlist when the provider does declare capabilities', async () => {
-    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
+    const { service, authEnv } = makeService({
+      activeProvider: 'openai-codex',
+    });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
@@ -1524,7 +1582,9 @@ describe('ProviderModelsService tier metadata env vars', () => {
   });
 
   it('clearAllTierEnvVars clears the metadata vars too', async () => {
-    const { service, authEnv } = makeService({ activeProvider: 'openai-codex' });
+    const { service, authEnv } = makeService({
+      activeProvider: 'openai-codex',
+    });
     service.registerDynamicFetcher('openai-codex', async () => [
       {
         id: 'gpt-5.6-luna',
