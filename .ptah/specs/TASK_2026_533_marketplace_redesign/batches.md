@@ -1,10 +1,13 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 17/30
+Total tasks: 65 | Batches: 30 | Complete: 18/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 16.
-In progress: Batches 13 and 15 (revise round 1, own worktrees).
-Next launchable: Batch 14 after Batch 13.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 16.
+In progress: Batch 15 (revise round 1, own worktree).
+Next launchable: Batch 14 (dependencies 11, 12b, 13 all COMPLETE). It can run in
+parallel with Batch 15's revise round: Batch 14 writes only `pages/overview/*` and
+`pages/servers/server-source-host.*`; Batch 15 writes only `pages/connectors/*`
+(and at most `data/connector-links.store.ts`, which Batch 14 only reads).
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -772,7 +775,7 @@ Edge cases:
 - Result: 6 files — created `data/workspace-session-status.ts` (71 lines) + `.spec.ts`; modified `data/marketplace-inventory.store.ts` (688 lines, no `SessionMcpStatusRegistry` reference, `newestSessionStatus` name and type unchanged), `data/marketplace-inventory.store.spec.ts`, `data/provider-row.spec.ts`, `shell/marketplace-shell.component.spec.ts`. `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project). Review: logic APPROVED 9/10 (`code-logic-review-batch-12b.md`); the D-4 tab-coverage assumption (canvas tiles, Tribunal tabs have a `TabState`) verified by the reviewer against source. Report `batch-12b-report.md` (untracked).
 - Follow-up (optional, minor): add one spec literally named "rapid A → B → A" to `workspace-session-status.spec.ts` for traceability against the plan's Revision 3 failure table; the property is already covered by spec 4 and store cases 9-10.
 
-## Batch 13: Installed servers list and server detail (C7 part) — IN_PROGRESS (revise round 1)
+## Batch 13: Installed servers list and server detail (C7 part) — COMPLETE (255f5870e)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -783,7 +786,7 @@ Edge cases:
 - Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 13.1: `ProviderListViewComponent` — PENDING
+### Task 13.1: `ProviderListViewComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\servers\provider-list-view.component.ts` (+`.html`, +`.spec.ts`)
 - Plan reference: implementation-plan.md C7 `ProviderListView`
@@ -792,7 +795,7 @@ Edge cases:
 - Validation notes: tier flip keeps the selection (A1 verified); bulk partial-failure spec; drawer traps focus, docked does not steal it.
 - Implementation details: page-local filter/sort/selection signals.
 
-### Task 13.2: `InstalledServersPageComponent` — PENDING
+### Task 13.2: `InstalledServersPageComponent` — COMPLETE
 
 - Depends on: Task 13.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\servers\installed-servers-page.component.ts` (+`.spec.ts`)
@@ -802,7 +805,7 @@ Edge cases:
 - Validation notes: RPC-set spec: exactly `listInstalled` + link reads. Connector rows and the 'live in last session' KPI come only from sessions of the active workspace (Revision 3); a spec with no active-workspace session shows neither.
 - Implementation details: thin page over the list view.
 
-### Task 13.3: `ServerDetailComponent` — PENDING
+### Task 13.3: `ServerDetailComponent` — COMPLETE
 
 - Depends on: Task 13.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\servers\server-detail.component.ts` (+`.html`, +`.spec.ts`)
@@ -815,6 +818,15 @@ Edge cases:
 ### Batch 13 verification
 
 - Reviewer: code-logic-reviewer (removal confirm, masking, selection across tiers)
+- Result: commit 255f5870e. 17 files under `libs/frontend/marketplace/src/lib/`: MODIFIED `data/provider-filtering.ts` (+spec) and `ui/bulk-action-bar.component.ts` (+spec) (the two Batch 10 pre-fixes: status labels from `statusPresentation()`, result-icon tone on a wrapper span); CREATED `data/installed-provider-rows.ts` (added), `ui/direct-removal-confirm.component.ts` (+spec, added), `pages/servers/provider-list-view.component.{ts,html,spec.ts}`, `provider-list-view.removal.spec.ts`, `provider-list-view.testing.ts`, `installed-servers-page.component.{ts,spec.ts}`, `server-detail.component.{ts,html,spec.ts}`. Executor frontend-developer in worktree `task533-b13` (base `a990942f8`); the two modified files were confirmed equal to `a990942f8` in TASK_WT before copying. `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project; jest 55 suites, 1161 tests, includes Batch 16). Reviews: logic NEEDS_REVISION 7/10 then APPROVED 9/10; style NEEDS_REVISION 7/10 then APPROVED 9/10 (`code-logic-review-batch-13.md`, `code-style-review-batch-13.md`). Report `batch-13-report.md` (untracked).
+- Binding on Batch 14 and later pages:
+  - Build MCP rows with `injectProviderRows()` and look up a group by ref with `findGroupByRef()` from `data/installed-provider-rows.ts`; do not re-map. Overview's list reuses `<ptah-provider-list-view>` (without `groupByOrigin`, which only the Installed page sets).
+  - The "live in last session" count is the exported `liveInLastSession()` (installed-servers-page); it shows only while `newestSessionStatus()` is non-null.
+  - claude.ai connector (`manage-link`) rows have NO link: the webview has no verified claude.ai settings URL and no host "open external URL" RPC. A link needs that host call first (separate item; Batch 15 may revisit).
+  - Bulk removal acts only on selected rows that are currently visible, and locks every queued row client-side for the whole run (`queuedRefs` ∪ store `pendingIds` = `busyRefs`). The backend has no removal idempotency, so any future removal entry point on the same rows must go through the same `busyRefs`.
+- Follow-ups:
+  - `*.testing.ts` spec harness convention (`provider-list-view.testing.ts`, precedent `dashboard/.../session-analytics-state.testing.ts`) has no lint boundary preventing production imports; add one (eslint override or boundary rule).
+  - `ui/provider-filter-select.component.ts:40-41` doc comment (Batch 10) still open.
 
 ## Batch 14: Overview and server source host (C7 part) — PENDING
 
