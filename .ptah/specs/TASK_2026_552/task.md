@@ -42,7 +42,7 @@ tier marks the later tier operations in the same commit as not saved").
 ## Acceptance
 
 - Spec: edit two tiers and make the first conflict. The second is saved, activation does not run,
-  and the summary names the conflicted tier.
+  and the summary names the conflicted tier and the saved tier.
 - The existing TASK_2026_534 specs for conflicts and activation still pass.
 
 ## Process

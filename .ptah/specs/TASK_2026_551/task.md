@@ -52,8 +52,12 @@ TASK_2026_538 (PR #585) moved the Cursor API key into the secrets store. Two gap
 
 ## Acceptance
 
-- A spec makes the SDK mock throw an error whose message contains the key. No logger call,
-  `output` chunk or `segment` contains it.
+- A spec makes the SDK mock throw an error whose message contains the key during `runTurn`. No
+  logger call, `output` chunk or `segment` contains it.
+- A spec makes `run.cancel()` reject with an error whose message contains the key. The logged
+  error and the rethrown error carry the redaction marker, not the key.
+- A spec makes the key resolution in `detect` fail with the key in the error. No logger call
+  contains it.
 - With `CURSOR_API_KEY` set, saving and then clearing the stored key both read back as success.
 - `fix-report.md` carries the write-path trace (key → store → reader), as in TASK_2026_538.
 
