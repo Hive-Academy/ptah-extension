@@ -1,13 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 18/30
+Total tasks: 65 | Batches: 30 | Complete: 19/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 16.
-In progress: Batch 15 (revise round 1, own worktree).
-Next launchable: Batch 14 (dependencies 11, 12b, 13 all COMPLETE). It can run in
-parallel with Batch 15's revise round: Batch 14 writes only `pages/overview/*` and
-`pages/servers/server-source-host.*`; Batch 15 writes only `pages/connectors/*`
-(and at most `data/connector-links.store.ts`, which Batch 14 only reads).
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 15, 16.
+In progress: none.
+Next launchable: Batch 14 (dependencies 11, 12b, 13 all COMPLETE).
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -860,7 +857,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer
 
-## Batch 15: Connectors pages (C9 part) — IN_PROGRESS (revise round 1)
+## Batch 15: Connectors pages (C9 part) — COMPLETE (5e6f41faf)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -870,7 +867,7 @@ Edge cases:
 - Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 15.1: `ConnectorsPageComponent` — PENDING
+### Task 15.1: `ConnectorsPageComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\connectors\connectors-page.component.ts` (+`.html`, +`.spec.ts`)
 - Plan reference: implementation-plan.md C9 `ConnectorsPage`
@@ -879,7 +876,7 @@ Edge cases:
 - Validation notes: RPC-set spec (link reads only); featured-rule spec.
 - Implementation details: card actions call the links store.
 
-### Task 15.2: `ConnectorDetailComponent` — PENDING
+### Task 15.2: `ConnectorDetailComponent` — COMPLETE
 
 - Depends on: Task 15.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\connectors\connector-detail.component.ts` (+`.html`, +`.spec.ts`)
@@ -893,6 +890,14 @@ Edge cases:
 
 - Follow-ups from the Batch 6 logic review (owned here; fix in `connector-links.store.ts` only if the page cannot handle them, and that file must not grow past 700 lines): (1) `openSmitherySetup` returning `opened:false` with no error is reported as a failure although it can mean "already connected" (`connector-links.store.ts:604-612`) — the page must show the connected state, not an error; (2) the 5-minute Smithery poll deadline ends silently (`:638-644`) — the card must show a "timed out, retry" state. Each pinned by a spec. (3) RESOLVED in commit 77cce7d8f (fake clock jumped with `jest.setSystemTime`, both deadline assertions kept; 50/50 runs under load). Original note: flaky test `connector-links.store.spec.ts:1081` "gives up after five minutes" failed once in the team-leader's full `lint,typecheck,test` run of Batch 6 (passed in 6 other runs, incl. 4 concurrent) — give it an explicit timeout or reduce the fake-timer work so it is stable under load.
 - Reviewer: code-logic-reviewer
+- Result: commit 5e6f41faf. 18 files under `libs/frontend/marketplace/src/lib/`: CREATED `pages/connectors/connectors-page.component.{ts,html,spec.ts}`, `connector-detail.component.{ts,html,spec.ts}`, `connector-actions.ts` (+spec), `connector-cards.ts` (+spec), `ui/connector-card-state.ts` (+spec), `ui/connector-card-status.component.ts` (+spec), `ui/connector-card-actions.component.ts` (+spec); MODIFIED `ui/featured-connectors.component.ts` (+spec). Executor frontend-developer in worktree `task533-b15` (base `a990942f8`). The two modified files were checked equal to `a990942f8` in TASK_WT before copying, and they have no other consumer. `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project). Direct jest: 62 suites and 1270 tests, including Batches 13 and 16. Two runs were clean, with no flaky failure. Reviews: logic NEEDS_REVISION 6/10, then APPROVED 9/10. Style NEEDS_REVISION 6/10, then NEEDS_REVISION 7/10 (split the two-component file). The team-leader verified the split in round 3: one `@Component` per production file, no shim, imports updated (`code-logic-review-batch-15.md`, `code-style-review-batch-15.md`). Report `batch-15-report.md` (untracked).
+- Batch 6 follow-ups (1) and (2) are done in `pages/connectors/connector-actions.ts`, not in the store. `opened:false` with no error now shows the connected state, and an expired Smithery poll shows a "timed out, retry" state. Each is pinned by a spec.
+- Accepted limitation: if a Smithery poll ends while the Connectors page is unmounted, the page shows no timed-out note. Fixing it needs the store or shell to remember the verdict. `data/connector-links.store.ts` is 905 lines, over the 700-line cap (unchanged since Batch 6). Split it in a later batch, then carry the verdict there.
+- API change, `ui/featured-connectors.component.ts`: `actionErrors` is now a list of `{ connectorId, message }`, and `dismissError` emits the connector id. `ConnectorCardAction` and `connectorPillStatus` now live in `ui/connector-card-state.ts`.
+- The Connect label of an `oauth-app` connector is "Set up", because its Connect opens the setup form.
+- The wide-tier read of `harness:health` was accepted by the orchestrator.
+- No catalogue entry has a `docsUrl` yet, so the detail's docs link renders for none today.
+- Binding on Batch 17: the route param must be `connectorId`. Children are `{ path: '', children: [] }` and `{ path: ':connectorId', component: ConnectorDetailComponent }`.
 
 ## Batch 16: Skills pages (C9 part) — COMPLETE (d0839d9d8)
 
