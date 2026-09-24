@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: bugfix
 title: Session stats panel chips disagree with the per-model table
 description: >-
