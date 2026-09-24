@@ -105,9 +105,16 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-marketplace"]').click();
 
+    // `ptah-marketplace-shell` (plan C6) is the top-level routed component
+    // `SurfaceRouterService.remountActiveSurface()` deactivates/reactivates
+    // at the marketplace surface's outlet — the same position
+    // `ptah-marketplace-hub` occupied before TASK_2026_533 — so this still
+    // proves the SHELL itself (and everything it `providers`, e.g.
+    // `MarketplaceInventoryStore`) is torn down and rebuilt, not merely that
+    // some marketplace element is present.
     await proveRecreated(
       page,
-      page.locator('ptah-app-shell ptah-marketplace-hub'),
+      page.locator('ptah-app-shell ptah-marketplace-shell'),
       () => switchToSecondFolder(page),
     );
   });

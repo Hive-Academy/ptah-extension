@@ -6,48 +6,66 @@ import { openConfigSurface } from './_harness/config-menu';
 /**
  * P3.x — "One marketplace, every provider" (Marketplace surface tour).
  *
- * A confident browse across the desktop app's Marketplace hub: the three
- * sections (Connected, Apps, Skills), opening a live source to reveal its
- * browse/search surface, then panning the listings. This is a SCENE, not a
- * test — it asserts almost nothing and is tuned for how it looks on camera.
+ * A confident browse across the desktop app's routed Marketplace shell: the
+ * persistent nav's "Marketplace" group (Overview, Connectors, MCP Servers,
+ * Skills & Plugins), opening a live source directly from the nav's "Sources"
+ * group to reveal its browse/search surface, then panning the listings. This
+ * is a SCENE, not a test — it asserts almost nothing and is tuned for how it
+ * looks on camera.
  *
  * AUDIO-FIRST: the voiceover script lives in `scripts/marketplace-tour.json`
  * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
  * speaks line i, holding for the REAL clip duration (durations.json) so
  * narration, captions and footage stay locked — no estimated holds, no silent
  * gaps. Element-targeted says + spotlight/hover auto-emit `shots.json`,
- * punching the camera onto each section and listing as the VO names it.
+ * punching the camera onto each nav item and listing as the VO names it.
  *
  * Everything here is NON-DESTRUCTIVE: we open sources, scroll listings,
- * spotlight chips and hover into detail. We NEVER click Install, purchase, or
- * download anything, and we never check an install target.
+ * spotlight nav items and hover into detail. We NEVER click Install, purchase,
+ * or download anything, and we never check an install target.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
  * - No other Ptah instance is running (single-instance lock).
  *
- * Selector notes (no Settings-style spec exists for Marketplace — these were
- * discovered from `libs/frontend/marketplace` + `chat-ui` setup-plugins):
- * - The global configuration menu opens the Marketplace surface.
- * - Hub root: `ptah-marketplace-hub`. Since TASK_2026_524 the seven-tile
- *   provider grid is gone: the hub renders a `NativeTabGroupComponent` section
- *   strip (`role="tab"`, labels `Connected` / `Apps` / `Skills`) over a chip
- *   strip of plain buttons carrying `data-source-id`. Every section-scoped
- *   lookup below is therefore anchored to `ptah-marketplace-hub`, because the
- *   shell's own nav is a tablist too. There is no "Back to providers" button
- *   any more — switching sections is a single tab click.
+ * Selector notes (TASK_2026_533, implementation-plan.md C6/C9/C10 — the
+ * tabbed hub and its "no Settings-style spec" era are gone; this scene now has
+ * one to follow: `specs/config-menu/*.spec.ts` plus the marketplace shell's
+ * own specs):
+ * - TASK_2026_540 removed the top-nav "Marketplace" tab; the surface opens
+ *   from the global configuration menu (`_harness/config-menu.ts`
+ *   `openConfigSurface`), same as the Settings and Setup-hub tours.
+ * - Shell root: `[data-testid="marketplace-shell"]` (element
+ *   `ptah-marketplace-shell`). The header is one slim row (mark + a
+ *   `Marketplace / <page>` breadcrumb, `[data-testid="marketplace-breadcrumb"]`)
+ *   with NO back button in Electron and NO `<h1>` — each page renders its own.
+ * - The persistent nav (`[data-testid="marketplace-nav"]`) replaces the old
+ *   section-tab strip. Every item is a direct `routerLink` carrying
+ *   `[data-nav-id]`: the "Marketplace" group (`overview`, `connectors`,
+ *   `servers`, `skills`) lists what the user has, and the "Sources" group
+ *   (`smithery`, `registry`, `custom-url`, `ptah-plugins`, `community`,
+ *   `marketplaces`) opens a discovery surface in ONE click — there is no more
+ *   tab-then-chip sequence.
  * - Live MCP/Skills surfaces (`ptah-mcp-directory-browser`,
- *   `ptah-skill-sh-browser`) expose a Browse/Installed tab pair and a search
- *   input ("Search MCP servers..." / "Search skills...").
+ *   `ptah-skill-sh-browser`) still expose a search input ("Search MCP
+ *   servers..." / "Search skills..."); their own restyle is a later batch
+ *   (implementation-plan.md C13), so these selectors are unchanged for now.
+ *   Both still carry a Browse/Installed tab strip in THIS base too — plan
+ *   C11 removes it from each (Batch 22 for `ptah-mcp-directory-browser`,
+ *   Batch 23 for `ptah-skill-sh-browser`: browse results become
+ *   `ptah-catalog-card`s, and installed skills move to the Marketplace's own
+ *   Installed skills page — `skills` nav item,
+ *   `InstalledSkillsPageComponent` — not this browser). This scene never
+ *   clicks either tab strip: it only opens a source's default (Browse) view
+ *   through the nav link and scrolls/hovers the listings that are already
+ *   showing, so nothing here needs to change when Batches 22/23 land.
  */
 
-/** One stop on the tour: a section tab plus the chip to open inside it. */
+/** One stop on the tour: the `data-nav-id` of a Sources-group nav link. */
 interface TourStop {
-  /** Visible label of the section tab in the hub's strip. */
-  readonly section: string;
-  /** `data-source-id` of the chip to open inside that section. */
-  readonly sourceId: string;
+  /** `data-nav-id` of the nav link to open (see `marketplace-nav.component.ts`). */
+  readonly navId: string;
 }
 
 /**
@@ -56,8 +74,8 @@ interface TourStop {
  * order: line 3 is the official MCP registry, line 4 is community skills.
  */
 const TOUR_STOPS: readonly TourStop[] = [
-  { section: 'Apps', sourceId: 'mcp-registry' },
-  { section: 'Skills', sourceId: 'community' },
+  { navId: 'registry' },
+  { navId: 'community' },
 ];
 
 /** Script index of the first source line in `scripts/marketplace-tour.json`. */
@@ -66,44 +84,49 @@ const SOURCE_SCRIPT_BASE = 3;
 /** Script index of the closing line. */
 const CLOSER_SCRIPT_INDEX = 7;
 
-/** The hub root — every section/chip lookup hangs off this. */
-function hub(page: Page): Locator {
-  return page.locator('ptah-marketplace-hub');
+/** The shell root — every nav lookup hangs off this. */
+function shell(page: Page): Locator {
+  return page.locator('[data-testid="marketplace-shell"]');
+}
+
+/** The shell's own nav, scoped so a future stray `[data-nav-id]` elsewhere never matches. */
+function nav(page: Page): Locator {
+  return shell(page).locator('[data-testid="marketplace-nav"]');
 }
 
 /**
- * Enter Marketplace through the global configuration menu, then wait for the
- * hub root to mount so callers can inspect which surface (sections vs. gate) rendered.
+ * Enter the Marketplace surface through the global configuration menu, then
+ * wait for the shell root to mount so callers can drive its nav.
  */
 async function goToMarketplace(page: Page, director: Director): Promise<void> {
   await openConfigSurface(page, director, 'marketplace');
-  await hub(page)
+  await shell(page)
     .waitFor({ state: 'visible' })
     .catch(() => undefined);
 }
 
 /**
- * Tour the section strip: spotlight each of the three tabs so the eye lands on
+ * Tour the nav's "Marketplace" group: spotlight each item so the eye lands on
  * the whole shelf before the tour drills into one source.
  */
 async function tourSections(page: Page, director: Director): Promise<void> {
   await director.say(2);
 
-  for (const section of ['Connected', 'Apps', 'Skills']) {
-    const tab = hub(page).getByRole('tab', { name: section }).first();
-    if (await tab.isVisible().catch(() => false)) {
-      await director.spotlight(tab, 1200);
-      await director.hover(tab, 500);
+  for (const navId of ['overview', 'connectors', 'servers', 'skills']) {
+    const item = nav(page).locator(`[data-nav-id="${navId}"]`).first();
+    if (await item.isVisible().catch(() => false)) {
+      await director.spotlight(item, 1200);
+      await director.hover(item, 500);
     }
   }
 }
 
 /**
- * Open one source: select its section tab, click its chip, reveal the browse
- * surface and pan the listings. Strictly NON-DESTRUCTIVE — no Install click.
+ * Open one source: click its nav link directly, reveal the browse surface and
+ * pan the listings. Strictly NON-DESTRUCTIVE — no Install click.
  *
- * Unlike the old provider grid there is no way back out to an overview, and
- * none is needed: the next stop selects its own section tab.
+ * Unlike the old tab-then-chip sequence, the Sources group's nav links go
+ * straight to the source page — one click, no intermediate section switch.
  */
 async function tourSource(
   page: Page,
@@ -111,28 +134,20 @@ async function tourSource(
   stop: TourStop,
   scriptIndex: number,
 ): Promise<void> {
-  const tab = hub(page).getByRole('tab', { name: stop.section }).first();
-  if (!(await tab.isVisible().catch(() => false))) return;
+  const link = nav(page).locator(`[data-nav-id="${stop.navId}"]`).first();
+  if (!(await link.isVisible().catch(() => false))) return;
 
-  // The section click + chip click + populate hold + spotlight + scroll all run
-  // inside `during`; say() keeps holding until the narration clip has finished.
+  // The nav click + populate hold + spotlight + scroll all run inside
+  // `during`; say() keeps holding until the narration clip has finished.
   await director.say(scriptIndex, {
-    target: tab,
+    target: link,
     during: async () => {
-      await director.click(tab);
-      await director.hold(400);
+      await director.click(link);
 
-      const chip = hub(page)
-        .locator(`[data-source-id="${stop.sourceId}"]`)
-        .first();
-      if (await chip.isVisible().catch(() => false)) {
-        await director.click(chip);
-      }
-
-      // The selected surface mounts inside the hub; give it a beat to populate
-      // from the network, then pan its listings. The two live surfaces share a
-      // Browse search box + a results list, so scrolling the hub reveals the
-      // catalogue.
+      // The selected surface mounts as the source page's one reused surface;
+      // give it a beat to populate from the network, then pan its listings.
+      // The two live surfaces share a Browse search box + a results list, so
+      // scrolling the content area reveals the catalogue.
       await director.hold(1400);
 
       const search = page
@@ -145,18 +160,42 @@ async function tourSource(
       }
 
       // Reveal the listings — these run well past the viewport once loaded.
-      await director.scrollThrough(hub(page), {
-        steps: 5,
-        dwellMs: 700,
-        andBack: true,
-      });
+      // `<main data-testid="marketplace-content">` is the shell's scroll
+      // owner (plan C6), the direct equivalent of the old hub root scroll.
+      await director.scrollThrough(
+        shell(page).locator('[data-testid="marketplace-content"]'),
+        { steps: 5, dwellMs: 700, andBack: true },
+      );
     },
   });
 
   // Hover the first listing row to draw attention to an item's detail, without
   // clicking the Install button next to it. Script line 5 is shared by every
   // stop — the same clip replays for each one.
-  const firstRow = hub(page).locator('.rounded-lg.border').first();
+  //
+  // Selector note (code-style-review-batch-19.md minor #1): `.rounded-lg.
+  // border` is a CSS-class selector, not a stable attribute, and the Batch
+  // 20-23 restyle this file already calls out (line ~53 above) as upcoming
+  // WILL change it. Checked both live source components for something more
+  // stable before keeping this: neither `mcp-directory-browser.component.ts`
+  // (browse row, :138-139) nor `skill-sh-browser.component.ts` (browse row,
+  // :130,229) carries a `data-testid` or `role="listitem"` on this row today
+  // — the only existing testid near it, `installed-row`
+  // (`mcp-directory-browser.component.ts:314`), belongs to the INSTALLED
+  // tab/view, not Browse (wrong list), and plan C11 (Batch 22) deletes that
+  // view outright, so anchoring to it would be both wrong now and gone soon.
+  // Adding one would mean editing those two product files, out of scope for
+  // this batch ("test and showcase code only"; explicit "do not change
+  // product code" on this revision round). Left as `.rounded-lg.border`,
+  // scoped to the shell as before — it already degrades safely
+  // (`isVisible().catch(() => false)` below skips this beat, never throws),
+  // so the worst case of the restyle landing is a silently skipped hover
+  // beat, not a broken scene. Batches 20-23 introduce `ptah-catalog-card`
+  // (plan C13) for exactly this row; that component already needs a stable
+  // hook for ITS OWN specs, so picking up a `data-testid` there — and
+  // pointing this line at it — is the natural fix, not a new addition made
+  // solely for this scene.
+  const firstRow = shell(page).locator('.rounded-lg.border').first();
   if (await firstRow.isVisible().catch(() => false)) {
     await director.say(5, {
       target: firstRow,
@@ -177,7 +216,7 @@ test('P3 — marketplace surface tour (sections, browse & detail)', async ({
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
   // the hook lands on the Marketplace instead of the stale restored surface.
-  // Entering the hub here forces its network-populated first-mount, so no
+  // Entering the shell here forces its network-populated first-mount, so no
   // separate pre-warm is needed.
   await goToMarketplace(page, director);
   await director.hold();
@@ -188,7 +227,7 @@ test('P3 — marketplace surface tour (sections, browse & detail)', async ({
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
 
-  // Full tour of the three sections.
+  // Full tour of the nav's "Marketplace" group.
   await tourSections(page, director);
 
   for (const [i, stop] of TOUR_STOPS.entries()) {
