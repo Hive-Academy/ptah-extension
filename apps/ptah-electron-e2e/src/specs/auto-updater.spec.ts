@@ -219,8 +219,14 @@ test.describe('Update detection', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const marker = { e2eMarker: 'auto-updater-spec', ts: Date.now() };
     await rpcBridge.setState(marker);
-    await mainWindow.waitForTimeout(150);
-    const after = await rpcBridge.getState();
-    expect(JSON.stringify(after ?? {})).toContain('auto-updater-spec');
+    // 'set-state' is fire-and-forget, and with the storage worker the read
+    // cache behind 'get-state' only refreshes after the worker round trip
+    // (ElectronStateStorage.update). A fixed 150 ms wait lost that race on
+    // loaded CI runners, so wait for the value to become visible instead.
+    await expect
+      .poll(async () => JSON.stringify((await rpcBridge.getState()) ?? {}), {
+        timeout: 5_000,
+      })
+      .toContain('auto-updater-spec');
   });
 });
