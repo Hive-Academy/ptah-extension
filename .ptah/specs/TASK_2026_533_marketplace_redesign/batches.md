@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 19/30
+Total tasks: 65 | Batches: 30 | Complete: 20/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 15, 16.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16.
 In progress: none.
-Next launchable: Batch 14 (dependencies 11, 12b, 13 all COMPLETE).
+Next launchable: Batch 17 (dependencies 12-16 all COMPLETE).
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -825,7 +825,7 @@ Edge cases:
   - `*.testing.ts` spec harness convention (`provider-list-view.testing.ts`, precedent `dashboard/.../session-analytics-state.testing.ts`) has no lint boundary preventing production imports; add one (eslint override or boundary rule).
   - `ui/provider-filter-select.component.ts:40-41` doc comment (Batch 10) still open.
 
-## Batch 14: Overview and server source host (C7 part) — PENDING
+## Batch 14: Overview and server source host (C7 part) — COMPLETE (1b5301cbe)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -835,7 +835,7 @@ Edge cases:
 - Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 14.1: `OverviewPageComponent` — PENDING
+### Task 14.1: `OverviewPageComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\overview\overview-page.component.ts` (+`.html`, +`.spec.ts`)
 - Plan reference: implementation-plan.md C7 `OverviewPage`, performance requirements (Overview RPC list)
@@ -844,7 +844,7 @@ Edge cases:
 - Validation notes: RPC-set spec pins the plan's Overview list (R5); per-slice error isolation; no activity timeline/sparklines. Connector rows and the 'live in last session' KPI come only from sessions of the active workspace (Revision 3); a spec with no active-workspace session shows neither.
 - Implementation details: pure mappers only, no RPC shapes in the page.
 
-### Task 14.2: `ServerSourceHostComponent` — PENDING
+### Task 14.2: `ServerSourceHostComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\servers\server-source-host.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C7 `ServerSourceHost`
@@ -856,6 +856,11 @@ Edge cases:
 ### Batch 14 verification
 
 - Reviewer: code-logic-reviewer
+- Result: commit 1b5301cbe. 9 files under `libs/frontend/marketplace/src/lib/`: CREATED `pages/overview/overview-page.component.{ts,html,spec.ts}`, `pages/overview/overview-kpis.ts` (+spec), `pages/servers/server-source-host.component.ts` (+spec); MODIFIED `harness/harness-health.model.ts` (+47, additive: harness chip presentation next to `harnessBadgeTone()`, named exports, eager barrels unchanged) and `pages/servers/installed-servers-page.component.ts` (doc cross-reference on `liveInLastSession`). `marketplace-inventory.store.ts` unchanged. Executor frontend-developer in worktree `task533-b14` (base `0a0b65182`). `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project; executor run: 65 suites, 1323 tests). Reviews: logic NEEDS_REVISION 7/10, then APPROVED 9/10; style APPROVED 8/10, then APPROVED 9/10 (`code-logic-review-batch-14.md`, `code-style-review-batch-14.md`). Report `batch-14-report.md` (untracked).
+- Accepted deviations: harness chip words come from `harnessChipPresentation()` (a CLI sync state, not a server `ProviderStatus`, so `statusPresentation()` does not apply); a failed harness refresh keeps the last figures with a `role="alert"` line and its own Retry; the Skills card joins every failed source's labelled reason on the stat card's one error line; Refresh uses the cached `harness.refresh()`; page order KPIs → needs-attention → provider list → coverage matrix. Needs-attention and the coverage matrix bind only to the installed slice state (a failed harness/links read drops their items without a local note) — accepted.
+- Binding on Batch 17: the Overview list opens server details relative to its own route, so the Overview route needs the `overview/:serverRef` child (the D1 tree has it). `ServerSourceHostComponent` takes `source` from route `data`; `SERVER_SOURCE_PAGES` is exhaustive over `MarketplaceServerSource`.
+- Binding on Batch 17 R7 check (Task 17.4): `harness-health.model.ts` is in the eager graph (via `harnessBlockedPaths`) and now imports `CircleCheck`, `TriangleAlert`, `CircleX`. Grep the initial chunks for "Out of sync", "In sync", "Write failed" — they must appear only in the lazy marketplace chunk.
+- Follow-ups: `data/attention.ts` and `harness-health.model.ts` hold two hand-matched copies of the write-failed / out-of-sync severity rule (one shared predicate later). Icon tone classes sit directly on `<lucide-angular>` in `pages/skills/skill-source-host.component.ts:117` and `ui/needs-attention.component.ts:90-93,157-161` (fix in the next batch that touches them).
 
 ## Batch 15: Connectors pages (C9 part) — COMPLETE (5e6f41faf)
 
