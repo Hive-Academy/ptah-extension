@@ -257,11 +257,8 @@ export interface CompactionStartEvent extends FlatStreamEvent {
   /** Whether compaction was triggered manually or automatically */
   readonly trigger: 'manual' | 'auto';
   /**
-   * Cumulative pre-compaction token usage (input + output + cache_read +
-   * cache_creation) sampled at PreCompact firing time. Used by the frontend
-   * to freeze the pre-compaction header stats during the compaction window
-   * and to pair this event with the eventual `compact_boundary` for
-   * duration / delta computation.
+   * Latest-request sample at PreCompact firing time, used to freeze the
+   * header during compaction. Never one half of a reduction measurement.
    */
   readonly preTokens: number;
 }
@@ -272,7 +269,16 @@ export interface CompactionStartEvent extends FlatStreamEvent {
  * Used to dismiss the compaction banner, reset the execution tree, and clear
  * deduplication state across the compaction boundary.
  */
+export interface CompactionMeasurement {
+  readonly source: 'sdk-compact-metadata';
+  readonly boundaryId: string;
+  readonly preTokens: number;
+  readonly postTokens: number;
+}
+
 export interface CompactionCompleteEvent extends FlatStreamEvent {
+  readonly boundaryId?: string;
+  readonly measurement?: CompactionMeasurement;
   readonly eventType: 'compaction_complete';
   /** Whether compaction was triggered manually or automatically */
   readonly trigger: 'manual' | 'auto';

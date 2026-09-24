@@ -15,7 +15,10 @@ import {
   type MockConfigManager,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { getModelContextWindow, type AuthEnv } from '@ptah-extension/shared';
+import {
+  getDiscoveredContextWindow,
+  type AuthEnv,
+} from '@ptah-extension/shared';
 import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
@@ -81,11 +84,11 @@ describe('ProviderModelsService.prefetchPricing — discovered context windows',
       data: { data: [unpricedRow(modelId, 333_000)] },
     });
     const { service } = makeService();
-    expect(getModelContextWindow(modelId)).toBe(0);
+    expect(getDiscoveredContextWindow(modelId, 'openrouter')).toBe(0);
 
     await runPrefetch(service);
 
-    expect(getModelContextWindow(modelId)).toBe(333_000);
+    expect(getDiscoveredContextWindow(modelId, 'openrouter')).toBe(333_000);
   });
 
   it('registers windows again on the cached branch', async () => {
@@ -98,7 +101,10 @@ describe('ProviderModelsService.prefetchPricing — discovered context windows',
 
     const recordSpy = jest.spyOn(
       service as unknown as {
-        recordContextWindows: (models: readonly unknown[]) => void;
+        recordContextWindows: (
+          models: readonly unknown[],
+          providerId: string,
+        ) => void;
       },
       'recordContextWindows',
     );
@@ -111,6 +117,8 @@ describe('ProviderModelsService.prefetchPricing — discovered context windows',
     // without any provider-reported window.
     expect(mockedGet).not.toHaveBeenCalled();
     expect(recordSpy).toHaveBeenCalledTimes(1);
+    expect(recordSpy.mock.calls[0][1]).toBe('openrouter');
+    expect(getDiscoveredContextWindow(modelId, 'openai-codex')).toBe(0);
     expect(recordSpy.mock.calls[0][0]).toEqual([
       expect.objectContaining({ id: modelId, contextLength: 444_000 }),
     ]);

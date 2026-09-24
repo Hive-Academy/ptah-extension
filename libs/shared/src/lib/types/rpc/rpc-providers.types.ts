@@ -56,6 +56,8 @@ export interface ProviderModelInfo {
   description: string;
   /** Maximum context length in tokens */
   contextLength: number;
+  /** Present only for a positive finite capacity returned by the provider. */
+  contextLengthSource?: 'provider';
   /** Whether the model supports tool use (required for AI agents) */
   supportsToolUse: boolean;
   /**
@@ -155,9 +157,14 @@ export interface ProviderGetAccountUsageParams {
 }
 
 export type ProviderAccountUsageStatus =
-  | 'available' | 'unsupported-auth' | 'unsupported-config'
-  | 'provider-unsupported' | 'cli-unavailable' | 'cli-version-unsupported'
-  | 'service-unavailable' | 'stale';
+  | 'available'
+  | 'unsupported-auth'
+  | 'unsupported-config'
+  | 'provider-unsupported'
+  | 'cli-unavailable'
+  | 'cli-version-unsupported'
+  | 'service-unavailable'
+  | 'stale';
 
 export interface ProviderGetAccountUsageResult {
   readonly status: ProviderAccountUsageStatus;
@@ -166,12 +173,23 @@ export interface ProviderGetAccountUsageResult {
   readonly staleSince?: number;
   readonly account?: { readonly planType: string };
   readonly quota?: {
-    readonly primary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
-    readonly secondary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+    readonly primary?: {
+      readonly usedPercent: number;
+      readonly windowDurationMins?: number | null;
+      readonly resetsAt?: number | null;
+    };
+    readonly secondary?: {
+      readonly usedPercent: number;
+      readonly windowDurationMins?: number | null;
+      readonly resetsAt?: number | null;
+    };
   };
   readonly activity?: {
     readonly lifetimeTokens?: string | null;
-    readonly dailyUsage: ReadonlyArray<{ readonly startDate: string; readonly tokens: string }>;
+    readonly dailyUsage: ReadonlyArray<{
+      readonly startDate: string;
+      readonly tokens: string;
+    }>;
   };
 }
 // ---------------------------------------------------------------------------

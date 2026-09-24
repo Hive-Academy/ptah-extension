@@ -1,3 +1,4 @@
+import type { ContextCapacity } from '../utils/pricing.utils';
 /**
  * IAgentAdapter - Unified contract for the agent runtime.
  *
@@ -50,6 +51,7 @@ export interface ResultStatsPayload {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly contextWindow: number;
+    readonly contextCapacity?: ContextCapacity;
     readonly costUSD: number | null;
     readonly cacheReadInputTokens: number;
     readonly lastTurnContextTokens?: number;

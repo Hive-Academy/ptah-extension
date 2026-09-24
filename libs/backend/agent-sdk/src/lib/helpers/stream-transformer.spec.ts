@@ -38,7 +38,10 @@ import {
   registerProviderPricing,
 } from '@ptah-extension/shared';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
-import { classifyUsageCostSource } from './session-lifecycle/session-query-executor.service';
+import {
+  classifyUsageCostSource,
+  resolveCapacityRoute,
+} from './session-lifecycle/session-query-executor.service';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type {
@@ -143,16 +146,15 @@ function asAsyncIterable(messages: SDKMessage[]): AsyncIterable<SDKMessage> {
  * authority itself pass it explicitly.
  */
 type RunAccountingFields =
-  | 'runToken'
-  | 'usageCostSource'
-  | 'accountingAuthEnv'
-  | 'statsGeneration';
+  'runToken' | 'usageCostSource' | 'accountingAuthEnv' | 'statsGeneration';
 type HarnessTransformConfig = Omit<StreamTransformConfig, RunAccountingFields> &
   Partial<Pick<StreamTransformConfig, RunAccountingFields>>;
 
 interface Harness {
   transformer: {
-    transform(config: HarnessTransformConfig): AsyncIterable<FlatStreamEventUnion>;
+    transform(
+      config: HarnessTransformConfig,
+    ): AsyncIterable<FlatStreamEventUnion>;
   };
   messageTransformer: ReturnType<typeof makeMessageTransformer>;
   pricingProvider: jest.Mocked<IPricingProvider>;
@@ -194,6 +196,7 @@ function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
           runToken: 'run-1',
           usageCostSource: routeAuthority,
           accountingAuthEnv: authEnv,
+          capacityRoute: resolveCapacityRoute(authEnv),
           statsGeneration:
             statsOwner.leaseOf(config.sessionId)?.generation ?? null,
           ...config,
@@ -437,6 +440,110 @@ async function drain(iter: AsyncIterable<unknown>): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe('StreamTransformer — discovered context windows on proxies (TASK_2026_414)', () => {
+  it('publishes unknown capacity for a proxy with only a generic SDK window', async () => {
+    const model = 'profile-capacity-418';
+    const register: (
+      entries: { id: string; contextLength: number }[],
+      provider?: string,
+    ) => void = registerModelContextWindows;
+    register([{ id: model, contextLength: 400000 }], 'openrouter');
+    const results = await Promise.all(
+      ['openrouter', 'openai-codex'].map(async (providerId) => {
+        const { transformer } = makeHarness();
+        const payloads: ResultStatsPayload[] = [];
+        const config = {
+          sdkQuery: asAsyncIterable([
+            resultMessage(model, { inputTokens: 20, outputTokens: 7 }),
+          ]),
+          sessionId: providerId as SessionId,
+          initialModel: model,
+          capacityRoute: { kind: 'proxy' as const, providerId },
+          onResultStats: (stats: ResultStatsPayload) => payloads.push(stats),
+        };
+        await drain(transformer.transform(config));
+        return payloads[0].modelUsage?.[0];
+      }),
+    );
+    expect(results[1]).toMatchObject({
+      contextWindow: 0,
+      contextCapacity: {
+        tokens: null,
+        source: 'unknown',
+        providerId: 'openai-codex',
+        model,
+      },
+    });
+    expect(results[0]).toMatchObject({
+      contextWindow: 400000,
+      contextCapacity: {
+        tokens: 400000,
+        source: 'provider-catalog',
+        providerId: 'openrouter',
+        model,
+      },
+    });
+  });
+
+  it('uses cumulative modelUsage while proxy request usage remains per-turn', async () => {
+    const h = makeHarness(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+    );
+    h.statsOwner.startNew('sess-1');
+    const a = resultMessage(MODEL, {
+      inputTokens: 30,
+      outputTokens: 9,
+      cacheReadInputTokens: 12,
+    });
+    const b = {
+      ...resultMessage(MODEL, {
+        inputTokens: 50,
+        outputTokens: 16,
+        cacheReadInputTokens: 42,
+      }),
+      usage: {
+        input_tokens: 20,
+        output_tokens: 7,
+        cache_read_input_tokens: 30,
+        cache_creation_input_tokens: 0,
+      },
+    } as SDKMessage;
+    const payloads: ResultStatsPayload[] = [];
+    await drain(
+      h.transformer.transform({
+        sdkQuery: asAsyncIterable([
+          messageStart(MODEL, { input_tokens: 0 }),
+          messageDelta({
+            input_tokens: 30,
+            output_tokens: 9,
+            cache_read_input_tokens: 12,
+          }),
+          a,
+          messageStart(MODEL, { input_tokens: 0 }),
+          messageDelta({
+            input_tokens: 20,
+            output_tokens: 7,
+            cache_read_input_tokens: 30,
+          }),
+          b,
+          b,
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: (stats) => payloads.push(stats),
+      }),
+    );
+    expect(payloads.map((p) => p.sessionStats?.tokenCount)).toEqual([
+      51, 108, 108,
+    ]);
+    expect(payloads[1].tokens).toEqual({
+      input: 20,
+      output: 7,
+      cacheRead: 30,
+      cacheCreation: 0,
+    });
+    expect(payloads[1].modelUsage?.[0].lastTurnContextTokens).toBe(50);
+    expect(payloads[1].sessionStats?.tokens.cacheCreation).toBe(0);
+  });
   async function runResult(
     authEnv: AuthEnv,
     model: string,
@@ -460,10 +567,16 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
 
   it('proxied result modelUsage contextWindow 200000 is replaced by the registered 400000', async () => {
     const model = 'gpt-ctx-stream-proxy-414';
-    registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
+    registerModelContextWindows(
+      [{ id: model, contextLength: 400_000 }],
+      'openai-codex',
+    );
 
     const usage = await runResult(
-      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+      makeAuthEnv({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123',
+        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+      }),
       model,
     );
 
@@ -482,16 +595,16 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
     expect(usage?.[0]).toMatchObject({ model, contextWindow: 200_000 });
   });
 
-  it('proxied model with no known window keeps the SDK-reported window', async () => {
+  it('proxied model with no known window publishes unknown', async () => {
     const usage = await runResult(
       makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
       'mystery-ctx-stream-414',
     );
 
-    expect(usage?.[0]?.contextWindow).toBe(200_000);
+    expect(usage?.[0]?.contextWindow).toBe(0);
   });
 
-  it('a proxied model that only FUZZY-matches the bundled table keeps the SDK window', async () => {
+  it('a proxied model that only FUZZY-matches the bundled table publishes unknown', async () => {
     // PR #493 review C: the override used getModelContextWindow(), whose
     // pricing-table fallback matches partially — `gpt-4o-ultra-414` resolved
     // to the bundled `gpt-4o` entry's 128000 and replaced the SDK value for a
@@ -502,7 +615,7 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
       'gpt-4o-ultra-414',
     );
 
-    expect(usage?.[0]?.contextWindow).toBe(200_000);
+    expect(usage?.[0]?.contextWindow).toBe(0);
   });
 });
 
@@ -2282,9 +2395,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
     expect(payloads.map((p) => p.sessionStats?.totalCost)).toEqual([10, 15]);
     expect(payloads[1].sessionStats?.tokens.input).toBe(150);
     // Each result's `duration_ms` (100) is one turn: accepted turns add up.
-    expect(payloads.map((p) => p.sessionStats?.durationMs)).toEqual([
-      100, 200,
-    ]);
+    expect(payloads.map((p) => p.sessionStats?.durationMs)).toEqual([100, 200]);
   });
 
   it('preserves the accepted snapshot on an empty result and still ends the turn', async () => {
@@ -2349,7 +2460,10 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
   // Review F4: alias resolution for pricing uses the query's FROZEN effective
   // env, never the mutable process-global one.
   describe('frozen pricing context (review F4)', () => {
-    const CHEAP: ModelPricing = { inputCostPerToken: 0.01, outputCostPerToken: 0 };
+    const CHEAP: ModelPricing = {
+      inputCostPerToken: 0.01,
+      outputCostPerToken: 0,
+    };
     const DEAR: ModelPricing = { inputCostPerToken: 1, outputCostPerToken: 0 };
     const TIER_KEY = 'ANTHROPIC_DEFAULT_SONNET_MODEL';
 

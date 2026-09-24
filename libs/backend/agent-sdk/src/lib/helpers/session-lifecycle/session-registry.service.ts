@@ -25,6 +25,7 @@ import type {
   SessionId,
   AISessionConfig,
   AuthEnv,
+  ContextCapacityRoute,
   PermissionLevel,
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
@@ -111,6 +112,7 @@ export interface SessionRecord {
    * cannot re-price a running query.
    */
   readonly accountingAuthEnv: Readonly<AuthEnv>;
+  readonly capacityRoute?: ContextCapacityRoute;
 }
 
 /** Cost authority and pricing context of one query, frozen at creation. */
@@ -227,11 +229,13 @@ export class SessionRegistry {
     abortController: AbortController,
     realSessionId?: string,
     accounting: QueryAccounting = UNCLASSIFIED_ACCOUNTING,
+    capacityRoute: ContextCapacityRoute = { kind: 'proxy', providerId: null },
   ): SessionRecord {
     const rec: SessionRecord = {
       token: randomUUID(),
       usageCostSource: accounting.usageCostSource,
       accountingAuthEnv: accounting.authEnv,
+      capacityRoute: Object.freeze({ ...capacityRoute }),
       tabId,
       realSessionId: realSessionId ?? null,
       query: null,

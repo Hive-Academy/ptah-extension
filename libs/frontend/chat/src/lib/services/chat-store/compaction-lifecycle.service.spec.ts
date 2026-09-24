@@ -835,6 +835,26 @@ describe('CompactionLifecycleService', () => {
     });
   });
 
+  it('forwards the compact-boundary measurement unchanged to the conversation marker', () => {
+    tabs = [makeTab({ claudeSessionId: SESS_RELOAD })];
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    service.handleCompactionComplete({
+      tabId: 'tab-1',
+      compactionSessionId: SESS_RELOAD,
+      boundaryId: 'A',
+      measurement,
+    });
+    expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
+      tabToConv['tab-1'],
+      expect.objectContaining({ boundaryId: 'A', measurement }),
+    );
+  });
+
   describe('compaction marker (token + summary merge inputs)', () => {
     it('handleCompactionComplete upserts token fields into the marker', () => {
       tabs = [

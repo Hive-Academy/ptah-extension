@@ -194,10 +194,18 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(after?.liveModelStats).toBeNull();
     });
 
-    it('seeds post-compaction context only for a tab with a known model', () => {
+    it('seeds post-compaction context with verified same-model capacity', () => {
       const tabId = service.createTab('compacting tab');
+      const contextCapacity = {
+        tokens: 200000,
+        source: 'provider-catalog' as const,
+        providerId: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      };
       service.setLiveModelStats(tabId, {
         model: 'claude-sonnet-4-5',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1234,
         contextWindow: 200000,
         contextPercent: 0.6,
@@ -210,6 +218,8 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
 
       expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toEqual({
         model: 'claude-sonnet-4-5',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1200,
         contextWindow: 200000,
         contextPercent: 0.6,
@@ -238,13 +248,19 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       },
     );
 
-    it('retains the prior finite positive context window for an unrecognized model', () => {
-      // PR #493 review C: a proxied Codex model id (gpt-5.6-sol) is not in the
-      // pricing registry, so getModelContextWindow returns 0 — the tab's own
-      // prior window must keep the gauge alive instead of clearing it.
+    it('retains verified provider capacity for an unrecognized model', () => {
+      // Exact provider evidence keeps an uncatalogued model's capacity known.
       const tabId = service.createTab('compacting tab');
+      const contextCapacity = {
+        tokens: 200000,
+        source: 'provider-catalog' as const,
+        providerId: 'openai-codex',
+        model: 'gpt-5.6-sol',
+      };
       service.setLiveModelStats(tabId, {
         model: 'gpt-5.6-sol',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1234,
         contextWindow: 200000,
         contextPercent: 0.6,
@@ -259,13 +275,15 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
       ).toEqual({
         model: 'gpt-5.6-sol',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1200,
         contextWindow: 200000,
         contextPercent: 0.6,
       });
     });
 
-    it('does not seed context when neither the prior window nor the model registry provides one', () => {
+    it('keeps the measured post-context with unknown capacity for legacy metadata', () => {
       const tabId = service.createTab('compacting tab');
       service.setLiveModelStats(tabId, {
         model: 'unrecognized-model',
@@ -279,7 +297,14 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         postCompactionContextTokens: 1200,
       });
 
-      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toEqual({
+        model: 'unrecognized-model',
+        contextKnown: true,
+        contextCapacity: undefined,
+        contextUsed: 1200,
+        contextWindow: 0,
+        contextPercent: 0,
+      });
     });
 
     it('does not seed context when the tab has no existing model', () => {
@@ -369,8 +394,16 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
 
     it('seeds verified late boundary context without resetting messages or compaction count', () => {
       const tabId = service.createTab('compacted tab');
+      const contextCapacity = {
+        tokens: 200000,
+        source: 'provider-catalog' as const,
+        providerId: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      };
       service.setLiveModelStats(tabId, {
         model: 'claude-sonnet-4-5',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1234,
         contextWindow: 200000,
         contextPercent: 0.6,
@@ -386,6 +419,8 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(tab?.compactionCount).toBeUndefined();
       expect(tab?.liveModelStats).toEqual({
         model: 'claude-sonnet-4-5',
+        contextKnown: true,
+        contextCapacity,
         contextUsed: 1600,
         contextWindow: 200000,
         contextPercent: 0.8,

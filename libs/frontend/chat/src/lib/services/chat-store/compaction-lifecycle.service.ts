@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import {
+  type CompactionMeasurement,
   SessionId,
   type SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
@@ -351,6 +352,8 @@ export class CompactionLifecycleService {
   handleCompactionComplete(result: {
     tabId: string;
     compactionSessionId: string;
+    boundaryId?: string;
+    measurement?: CompactionMeasurement;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -509,6 +512,8 @@ export class CompactionLifecycleService {
       fanoutTabs.map((t) => t.id),
     )) {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,
@@ -626,6 +631,10 @@ export class CompactionLifecycleService {
         this.conversationRegistry.setCompactionMarkerSummary(convId, {
           summary: payload.compactSummary,
           completedAt: payload.timestamp,
+          boundaryId: this.isAuthoritativelyCompletedGeneration(key)
+            ? this.conversationRegistry.getRecord(convId)?.compactionMarker
+                ?.boundaryId
+            : undefined,
         });
       } catch (error: unknown) {
         console.warn(
@@ -727,6 +736,8 @@ export class CompactionLifecycleService {
   private mergeLateCompactionBoundary(
     sessionIds: readonly SessionId[],
     result: {
+      boundaryId?: string;
+      measurement?: CompactionMeasurement;
       preTokens?: number;
       postTokens?: number;
       durationMs?: number;
@@ -747,6 +758,8 @@ export class CompactionLifecycleService {
       ownedTabs.map((tab) => tab.id),
     )) {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,

@@ -728,6 +728,48 @@ describe('TabManagerService — intent-named mutators', () => {
     });
   });
 
+  it('retains only verified same-model capacity after compaction and never changes the snapshot', () => {
+    const id = service.createTab('capacity');
+    const snapshot = sessionSnapshot(SESS_X, 4, 1);
+    service.attachSession(id, SESS_X);
+    service.installSessionStats(id, snapshot);
+    const contextCapacity = {
+      tokens: 2000,
+      source: 'provider-catalog' as const,
+      providerId: 'openai-codex',
+      model: 'm',
+    };
+    service.setLiveModelStats(id, {
+      model: 'm',
+      contextUsed: 1000,
+      contextKnown: true,
+      contextWindow: 2000,
+      contextPercent: 50,
+      contextCapacity,
+    });
+    service.seedPostCompactionContext(id, 600);
+    expect(service.tabs().find((t) => t.id === id)?.liveModelStats).toEqual(
+      expect.objectContaining({
+        contextCapacity,
+        contextKnown: true,
+        contextUsed: 600,
+        contextPercent: 30,
+      }),
+    );
+    service.setLiveModelStats(id, {
+      model: 'other',
+      contextUsed: 0,
+      contextKnown: false,
+      contextWindow: 2000,
+      contextPercent: 0,
+      contextCapacity,
+    });
+    service.seedPostCompactionContext(id, 400);
+    const tab = service.tabs().find((t) => t.id === id);
+    expect(tab?.liveModelStats?.contextWindow).toBe(0);
+    expect(tab?.sessionStats).toBe(snapshot);
+  });
+
   describe('compaction', () => {
     it('applyCompactionTimeoutReset clears state machine', () => {
       const id = service.createTab('timeout');
@@ -1076,11 +1118,7 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
     });
 
-    // `applyLoadedSessionStats` synthesizes a best-effort liveModelStats so
-    // the header renders the model name and context window immediately on
-    // resume, instead of staying empty until the first live SESSION_STATS
-    // arrives.
-    it('N6 — synthesizes liveModelStats from sessionModel on session resume', () => {
+    it('N6 - resumes a model badge with unknown context until a main frame arrives', () => {
       const id = service.createTab('resume');
       const stats = sessionSnapshot(SESS_X, 2, 1.25);
       // claude-opus-4-7 is a known model in the shared pricing registry
@@ -1093,8 +1131,9 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.liveModelStats?.model).toBe('claude-opus-4-7');
       expect(tab?.liveModelStats?.contextUsed).toBe(0);
       expect(tab?.liveModelStats?.contextPercent).toBe(0);
-      // Window populated from the shared getModelContextWindow lookup.
-      expect(tab?.liveModelStats?.contextWindow).toBeGreaterThan(0);
+      // Legacy metadata is not evidence for capacity.
+      expect(tab?.liveModelStats?.contextWindow).toBe(0);
+      expect(tab?.liveModelStats?.contextKnown).toBe(false);
     });
 
     it('N6 — leaves liveModelStats null when sessionModel is null', () => {

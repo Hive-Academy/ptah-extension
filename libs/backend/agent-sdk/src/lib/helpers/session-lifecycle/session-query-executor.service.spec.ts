@@ -38,6 +38,7 @@ import type { SessionEndCallbackRegistry } from '../session-end-callback-registr
 import {
   SessionQueryExecutor,
   classifyUsageCostSource,
+  resolveCapacityRoute,
 } from './session-query-executor.service';
 import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
@@ -98,7 +99,10 @@ interface Harness {
   sdkQuery: Query;
 }
 
-function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
+function makeHarness(
+  globalPermissionLevel: PermissionLevel,
+  authEnv: AuthEnv = {} as AuthEnv,
+): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
 
@@ -148,8 +152,6 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
       parent_tool_use_id: null,
     }),
   } as unknown as SdkMessageFactory;
-
-  const authEnv = {} as AuthEnv;
 
   const sdkQuery = makeSdkQuery();
   const queryRunner = {
@@ -210,6 +212,89 @@ function makeConfig(
 // ---------------------------------------------------------------------------
 
 describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () => {
+  it('freezes the exact effective profile capacity route on the query record', async () => {
+    const { executor, registry } = makeHarness('ask');
+    const authEnvOverride = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+    };
+    const result = await executor.executeQuery(
+      makeConfig('capacity-profile', { authEnvOverride }),
+    );
+    authEnvOverride.ANTHROPIC_AUTH_TOKEN = 'openrouter-proxy-token';
+    expect(result.capacityRoute).toEqual({
+      kind: 'proxy',
+      providerId: 'openai-codex',
+    });
+    expect(registry.find('capacity-profile')?.capacityRoute).toBe(
+      result.capacityRoute,
+    );
+    expect(Object.isFrozen(result.capacityRoute)).toBe(true);
+  });
+
+  it('builds the SDK query from the same auth snapshot that classified its capacity route', async () => {
+    // The global env object is mutated in place on an auth change; one that
+    // lands while the query is still initialising must not split the recorded
+    // capacity route from the provider the SDK query actually talks to.
+    const globalAuthEnv: AuthEnv = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+      ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+    };
+    const { executor, buildSpy } = makeHarness('ask', globalAuthEnv);
+    buildSpy.mockImplementationOnce(
+      async (input: { authEnvOverride?: AuthEnv }) => {
+        expect(input.authEnvOverride).toEqual({
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        });
+        return {
+          options: { model: 'test-model', cwd: '/tmp/test' },
+          prompt: emptyAsyncIterable<SDKUserMessage>(),
+        };
+      },
+    );
+    const pending = executor.executeQuery(makeConfig('capacity-snapshot'));
+    globalAuthEnv.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+    globalAuthEnv.ANTHROPIC_AUTH_TOKEN = 'sk-or-live';
+
+    const result = await pending;
+
+    expect(buildSpy).toHaveBeenCalledTimes(1);
+    const buildInput = buildSpy.mock.calls[0][0] as {
+      authEnvOverride?: AuthEnv;
+    };
+    expect(buildInput.authEnvOverride).toBe(result.accountingAuthEnv);
+    expect(Object.isFrozen(buildInput.authEnvOverride)).toBe(true);
+    expect(result.capacityRoute).toEqual({
+      kind: 'proxy',
+      providerId: 'openai-codex',
+    });
+  });
+
+  it('rejects route substrings and remote proxy-token impersonation for capacity', () => {
+    expect(resolveCapacityRoute({})).toEqual({
+      kind: 'native',
+      providerId: 'anthropic',
+    });
+    expect(
+      resolveCapacityRoute({
+        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
+      }),
+    ).toEqual({ kind: 'proxy', providerId: 'openrouter' });
+    for (const url of [
+      'https://api.anthropic.com.evil.test',
+      'https://evil.test/openrouter.ai',
+      'https://openrouter.ai/api/v1/custom',
+      'not-a-url',
+    ]) {
+      expect(
+        resolveCapacityRoute({
+          ANTHROPIC_BASE_URL: url,
+          ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        }),
+      ).toEqual({ kind: 'proxy', providerId: null });
+    }
+  });
   it('config.permissionLevel = "yolo" seeds rec.permissionLevel and maps to SDK permissionMode "default" (never bypassPermissions)', async () => {
     const { executor, registry, buildSpy } = makeHarness('ask');
 

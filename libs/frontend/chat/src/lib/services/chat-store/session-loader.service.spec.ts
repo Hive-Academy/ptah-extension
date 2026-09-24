@@ -670,6 +670,12 @@ describe('SessionLoaderService', () => {
         contextSnapshot: {
           model: 'claude-opus-5',
           contextTokens: 11_016,
+          contextCapacity: {
+            tokens: 1_000_000,
+            source: 'sdk-native' as const,
+            providerId: null,
+            model: 'claude-opus-5',
+          },
         },
       };
       rpcCall.mockImplementation(async (method: string) =>
@@ -692,6 +698,8 @@ describe('SessionLoaderService', () => {
       expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
         model: 'claude-opus-5',
         contextUsed: 11_016,
+        contextKnown: true,
+        contextCapacity: stats.contextSnapshot.contextCapacity,
         contextWindow: 1_000_000,
         contextPercent: 1.1,
       });
@@ -724,6 +732,12 @@ describe('SessionLoaderService', () => {
         contextSnapshot: {
           model: 'gpt-5.6-sol',
           contextTokens: 40_000,
+          contextCapacity: {
+            tokens: 400_000,
+            source: 'provider-catalog' as const,
+            providerId: 'openai-codex',
+            model: 'gpt-5.6-sol',
+          },
           contextWindow: 400_000,
         },
       };
@@ -741,12 +755,14 @@ describe('SessionLoaderService', () => {
       expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
         model: 'gpt-5.6-sol',
         contextUsed: 40_000,
+        contextKnown: true,
+        contextCapacity: stats.contextSnapshot.contextCapacity,
         contextWindow: 400_000,
         contextPercent: 10,
       });
     });
 
-    it('falls back to getModelContextWindow when the field is absent or not positive', async () => {
+    it('leaves resume capacity unknown without provider evidence', async () => {
       const restoredTabId = TabId.from('3c9e2f4a-7d1b-4e6a-8b2c-5a9f0e1d7c22');
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set(restoredTabId);
@@ -783,7 +799,11 @@ describe('SessionLoaderService', () => {
 
       expect(setLiveModelStats).toHaveBeenCalledWith(
         restoredTabId,
-        expect.objectContaining({ contextWindow: 1_000_000 }),
+        expect.objectContaining({
+          contextWindow: 0,
+          contextKnown: true,
+          contextPercent: 0,
+        }),
       );
     });
 
@@ -1718,7 +1738,14 @@ describe('SessionLoaderService', () => {
         stats,
         stats.model,
       );
-      expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, null);
+      expect(harness.setLiveModelStats).toHaveBeenCalledWith(
+        TAB_B,
+        expect.objectContaining({
+          model: stats.model,
+          contextKnown: false,
+          contextWindow: 0,
+        }),
+      );
       expect(harness.processStreamEvent).toHaveBeenCalledWith(
         expect.anything(),
         TAB_B,
@@ -1834,8 +1861,9 @@ describe('SessionLoaderService', () => {
       expect(harness.setLiveModelStats).toHaveBeenCalledWith(TAB_B, {
         model: 'claude-opus-5',
         contextUsed: 11_016,
-        contextWindow: 1_000_000,
-        contextPercent: 1.1,
+        contextKnown: true,
+        contextWindow: 0,
+        contextPercent: 0,
       });
     });
 

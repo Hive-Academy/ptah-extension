@@ -1,3 +1,4 @@
+import { deriveLiveModelStats } from './session-live-stats.util';
 /**
  * SessionLoaderService - Session List Management and Session Switching
  *
@@ -24,7 +25,6 @@ import {
   TabId,
   SessionId,
   SubagentRecord,
-  getModelContextWindow,
   type ChatResumeResult,
 } from '@ptah-extension/shared';
 import {
@@ -856,7 +856,7 @@ export class SessionLoaderService {
       return;
     }
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
-    // zero-valued live-model placeholder, which would otherwise erase the fresh
+    // unknown live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
     const compactionContextSeed =
       options?.preserveCompactionContextSeed === true
@@ -877,39 +877,35 @@ export class SessionLoaderService {
 
     const snapshot = stats.contextSnapshot;
     if (!snapshot) {
-      this.tabManager.setLiveModelStats(tabId, null);
+      this.tabManager.setLiveModelStats(
+        tabId,
+        stats.model
+          ? {
+              model: stats.model,
+              contextKnown: false,
+              contextUsed: 0,
+              contextWindow: 0,
+              contextPercent: 0,
+            }
+          : null,
+      );
       return;
     }
-
-    const contextWindow = this.wireContextWindow(
-      snapshot.contextWindow,
-      snapshot.model,
+    const derived = deriveLiveModelStats(
+      [
+        {
+          model: snapshot.model,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUSD: 0,
+          contextWindow: snapshot.contextWindow ?? 0,
+          contextCapacity: snapshot.contextCapacity,
+          lastTurnContextTokens: snapshot.contextTokens,
+        },
+      ],
+      { hasCompacted: false },
     );
-    this.tabManager.setLiveModelStats(tabId, {
-      model: snapshot.model,
-      contextUsed: snapshot.contextTokens,
-      contextWindow,
-      contextPercent:
-        contextWindow > 0
-          ? Math.round((snapshot.contextTokens / contextWindow) * 1000) / 10
-          : 0,
-    });
-  }
-
-  /**
-   * The backend carries the window it knows (including provider-discovered
-   * ones the renderer's bundled table cannot resolve). Reverse-resolving from
-   * the model name is only the fallback for an older payload or unknown model.
-   */
-  private wireContextWindow(
-    carried: number | undefined,
-    model: string,
-  ): number {
-    return typeof carried === 'number' &&
-      Number.isFinite(carried) &&
-      carried > 0
-      ? carried
-      : getModelContextWindow(model);
+    if (derived) this.tabManager.setLiveModelStats(tabId, derived.live);
   }
 
   /**

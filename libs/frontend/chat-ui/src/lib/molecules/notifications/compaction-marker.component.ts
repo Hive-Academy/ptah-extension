@@ -1,3 +1,4 @@
+import type { CompactionMeasurement } from '@ptah-extension/shared';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   inject,
@@ -92,8 +93,8 @@ export class CompactionMarkerComponent {
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
 
   readonly summary = input<string | null>(null);
-  readonly preTokens = input<number | null>(null);
-  readonly postTokens = input<number | null>(null);
+  readonly boundaryId = input<string | undefined>();
+  readonly measurement = input<CompactionMeasurement | undefined>();
   readonly durationMs = input<number | null>(null);
 
   protected readonly ArchiveIcon = Archive;
@@ -102,11 +103,20 @@ export class CompactionMarkerComponent {
   protected readonly isOpen = this._isOpen.asReadonly();
 
   protected readonly tokenLine = computed<string | null>(() => {
-    const pre = this.preTokens();
-    const post = this.postTokens();
-    if (pre === null || post === null) return null;
-    const prefix = pre > post ? 'shrank ' : '';
-    const base = `${prefix}${this.format(pre)} → ${this.format(post)} tokens`;
+    const pair = this.measurement();
+    if (
+      !pair ||
+      pair.source !== 'sdk-compact-metadata' ||
+      !pair.boundaryId ||
+      pair.boundaryId !== this.boundaryId() ||
+      !Number.isFinite(pair.preTokens) ||
+      pair.preTokens < 0 ||
+      !Number.isFinite(pair.postTokens) ||
+      pair.postTokens < 0 ||
+      pair.preTokens <= pair.postTokens
+    )
+      return null;
+    const base = `shrank ${this.format(pair.preTokens)} \u2192 ${this.format(pair.postTokens)} tokens`;
     const ms = this.durationMs();
     if (ms === null) return base;
     return `${base} in ${this.formatDuration(ms)}`;

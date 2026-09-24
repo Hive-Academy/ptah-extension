@@ -20,6 +20,178 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
     registry = TestBed.inject(ConversationRegistry);
   });
 
+  it('does not carry a measurement across compaction boundaries', () => {
+    const id = registry.create(sid());
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      measurement,
+      preTokens: 1000,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    });
+    expect(registry.compactionMarkerFor(id)?.measurement).toEqual(measurement);
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'B',
+      preTokens: null,
+      postTokens: 400,
+      durationMs: null,
+      completedAt: 2,
+    });
+    expect(registry.compactionMarkerFor(id)?.measurement).toBeUndefined();
+    expect(registry.compactionMarkerFor(id)?.preTokens).toBeNull();
+  });
+
+  it('retains a same-boundary pair on duplicate and summary-only updates and on reload', () => {
+    const id = registry.create(sid());
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    const fields = {
+      boundaryId: 'A',
+      measurement,
+      preTokens: 1000,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    };
+    registry.setCompactionMarkerTokens(id, fields);
+    registry.setCompactionMarkerTokens(id, fields);
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      preTokens: null,
+      postTokens: null,
+      durationMs: null,
+      completedAt: 1,
+    });
+    registry.setCompactionMarkerSummary(id, {
+      summary: 'recap',
+      completedAt: 1,
+      boundaryId: 'A',
+    });
+    const marker = registry.compactionMarkerFor(id);
+    expect(marker?.measurement).toEqual(measurement);
+    const fresh = registry.create();
+    localStorage.setItem(
+      `ptah:compaction-marker:${fresh}`,
+      JSON.stringify(marker),
+    );
+    expect(registry.compactionMarkerFor(fresh)?.measurement).toEqual(
+      measurement,
+    );
+  });
+
+  it.each([
+    undefined,
+    { source: 'tracker', boundaryId: 'A', preTokens: 1000, postTokens: 600 },
+    {
+      source: 'sdk-compact-metadata',
+      boundaryId: 'B',
+      preTokens: 1000,
+      postTokens: 600,
+    },
+    {
+      source: 'sdk-compact-metadata',
+      boundaryId: 'A',
+      preTokens: -1,
+      postTokens: 600,
+    },
+    { source: 'sdk-compact-metadata', boundaryId: 'A', postTokens: 600 },
+  ])('loads legacy or malformed provenance neutrally: %j', (measurement) => {
+    const id = registry.create();
+    localStorage.setItem(
+      `ptah:compaction-marker:${id}`,
+      JSON.stringify({
+        boundaryId: 'A',
+        measurement,
+        preTokens: 1000,
+        postTokens: 600,
+      }),
+    );
+    expect(registry.compactionMarkerFor(id)?.measurement).toBeUndefined();
+  });
+
+  it('does not attach an earlier measurement to a new summary-only completion', () => {
+    const id = registry.create(sid());
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 1000,
+        postTokens: 600,
+      },
+      preTokens: 1000,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    });
+    registry.markCompactionStart(id);
+    registry.setCompactionMarkerSummary(id, {
+      summary: 'next compact',
+      completedAt: 2,
+    });
+    expect(registry.compactionMarkerFor(id)?.measurement).toBeUndefined();
+  });
+
+  it('clears invalid provenance even when the boundary identity repeats', () => {
+    const id = registry.create(sid());
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      measurement,
+      preTokens: 1000,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    });
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      measurement: { ...measurement, preTokens: NaN },
+      preTokens: null,
+      postTokens: null,
+      durationMs: null,
+      completedAt: 2,
+    });
+    expect(registry.compactionMarkerFor(id)?.measurement).toBeUndefined();
+  });
+
+  it('clears an earlier pair on an unidentified summary-only completion even without a start event', () => {
+    const id = registry.create(sid());
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 1000,
+        postTokens: 600,
+      },
+      preTokens: 1000,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    });
+    registry.setCompactionMarkerSummary(id, {
+      summary: 'unidentified completion',
+      completedAt: 2,
+    });
+    expect(registry.compactionMarkerFor(id)?.measurement).toBeUndefined();
+  });
+
   describe('create()', () => {
     it('mints a fresh ConversationId and registers it', () => {
       const id = registry.create();
@@ -255,7 +427,7 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
       expect(m?.durationMs).toBeNull();
     });
 
-    it('a later null never clobbers an already-set field', () => {
+    it('an unidentified completion never borrows earlier endpoints', () => {
       const id = registry.create(sid());
       registry.setCompactionMarkerTokens(id, {
         preTokens: 5000,
@@ -270,9 +442,9 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
         completedAt: 50,
       });
       const m = registry.compactionMarkerFor(id);
-      expect(m?.preTokens).toBe(5000);
-      expect(m?.postTokens).toBe(1200);
-      expect(m?.durationMs).toBe(800);
+      expect(m?.preTokens).toBeNull();
+      expect(m?.postTokens).toBeNull();
+      expect(m?.durationMs).toBeNull();
       expect(m?.completedAt).toBe(100);
     });
 

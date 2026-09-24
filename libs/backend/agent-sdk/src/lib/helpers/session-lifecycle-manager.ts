@@ -23,6 +23,7 @@ import {
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AuthEnv,
+  type ContextCapacityRoute,
   type EffortLevel,
   type FlagEffortLevel,
   type McpHttpServerOverride,
@@ -283,6 +284,7 @@ export interface ExecuteQueryResult {
   usageCostSource: UsageCostSource;
   /** Effective auth env frozen with it; pricing alias resolution uses it. */
   accountingAuthEnv: Readonly<AuthEnv>;
+  capacityRoute?: ContextCapacityRoute;
 }
 
 /**

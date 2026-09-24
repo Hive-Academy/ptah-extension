@@ -1,3 +1,5 @@
+import type { ContextCapacity } from '@ptah-extension/shared';
+
 /**
  * Per-tab payload shapes used by TabManagerService intent mutators.
  *
@@ -13,6 +15,8 @@
  */
 export interface LiveModelStatsPayload {
   model: string;
+  contextKnown?: boolean;
+  contextCapacity?: ContextCapacity;
   contextUsed: number;
   contextWindow: number;
   contextPercent: number;

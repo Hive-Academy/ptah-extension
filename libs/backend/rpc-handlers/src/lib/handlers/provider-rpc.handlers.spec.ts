@@ -220,7 +220,9 @@ function makeHarness(
   const codexAuthService = createMockCodexAuthService();
   const codexAccountUsage = {
     getAccountUsage: jest.fn().mockResolvedValue({
-      status: 'available', providerId: 'openai-codex', fetchedAt: 1,
+      status: 'available',
+      providerId: 'openai-codex',
+      fetchedAt: 1,
     }),
     clearCache: jest.fn(),
     close: jest.fn(),
@@ -302,13 +304,23 @@ describe('ProviderRpcHandlers', () => {
     it('routes Codex and returns unsupported for other providers without service work', async () => {
       const h = makeHarness();
       h.handlers.register();
-      await expect(call(h, 'provider:getAccountUsage', {
-        providerId: 'openai-codex', refresh: true,
-      })).resolves.toMatchObject({ status: 'available' });
-      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ refresh: true });
-      await expect(call(h, 'provider:getAccountUsage', {
+      await expect(
+        call(h, 'provider:getAccountUsage', {
+          providerId: 'openai-codex',
+          refresh: true,
+        }),
+      ).resolves.toMatchObject({ status: 'available' });
+      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({
+        refresh: true,
+      });
+      await expect(
+        call(h, 'provider:getAccountUsage', {
+          providerId: 'github-copilot',
+        }),
+      ).resolves.toEqual({
+        status: 'provider-unsupported',
         providerId: 'github-copilot',
-      })).resolves.toEqual({ status: 'provider-unsupported', providerId: 'github-copilot' });
+      });
       expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
     });
   });
@@ -353,6 +365,77 @@ describe('ProviderRpcHandlers', () => {
           'ollama-cloud',
         ]),
       );
+    });
+
+    it.each(['api', 'sdk', 'fallback', 'claude-cli'])(
+      'does not declare provider capacity for Anthropic-direct %s model entries',
+      async (source) => {
+        const h = makeHarness({
+          authEnv:
+            source === 'api' || source === 'fallback'
+              ? { ANTHROPIC_API_KEY: 'fixture-key' }
+              : {},
+        });
+        const models = [
+          {
+            value: 'claude-sonnet-4-5',
+            displayName: 'Sonnet',
+            description: '',
+          },
+        ];
+        h.sdkAdapter.getApiModels.mockResolvedValue(models);
+        h.sdkAdapter.getSupportedModels.mockResolvedValue(models);
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue(models);
+        if (source === 'fallback')
+          h.sdkAdapter.getApiModels.mockRejectedValue(new Error('offline'));
+        h.handlers.register();
+        const providerId = source === 'claude-cli' ? 'claude-cli' : 'anthropic';
+        const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+          ([id]) => id === providerId,
+        );
+        if (!entry) throw new Error('Missing native fetcher');
+        const result = await entry[1]();
+        expect(result).toHaveLength(1);
+        expect(result[0].contextLength).toBeGreaterThan(0);
+        expect(result[0]).not.toHaveProperty('contextLengthSource');
+      },
+    );
+
+    it('declares platform API capacity but leaves the static Copilot fallback unverified', async () => {
+      const h = makeHarness();
+      h.modelDiscovery.getCopilotModels.mockResolvedValueOnce([
+        { id: 'api-model-418', name: 'API model', contextLength: 200000 },
+      ]);
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'github-copilot',
+      );
+      if (!entry) throw new Error('Missing Copilot fetcher');
+      expect((await entry[1]())[0]).toMatchObject({
+        contextLength: 200000,
+        contextLengthSource: 'provider',
+      });
+      const fallback = await entry[1]();
+      expect(fallback.length).toBeGreaterThan(0);
+      for (const model of fallback)
+        expect(model).not.toHaveProperty('contextLengthSource');
+    });
+
+    it('does not certify Codex platform matches without provider identity', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'openai-codex',
+      );
+      if (!entry) throw new Error('Missing Codex fetcher');
+      const fallback = await entry[1]();
+      expect(fallback.length).toBeGreaterThan(0);
+      h.modelDiscovery.getCodexModels.mockResolvedValue([
+        { id: fallback[0].id, name: 'Shared slug', contextLength: 200000 },
+      ]);
+      const [model] = await entry[1]();
+      expect(model.contextLength).toBe(200000);
+      expect(model).not.toHaveProperty('contextLengthSource');
     });
 
     /**

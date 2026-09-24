@@ -7,7 +7,7 @@
  *   - primary-model selection: highest costUSD wins
  *   - single-model array uses [0] without reduce
  *   - contextUsed uses lastTurnContextTokens when present
- *   - contextUsed falls back to inputTokens + cacheReadInputTokens + outputTokens
+ *   - contextUsed marks absent main context unknown without cumulative fallback
  *   - contextPercent rounding to 1 decimal place
  *   - installs the backend session snapshot (never adds footer fields)
  *   - clears compaction state via CompactionLifecycleService
@@ -102,6 +102,76 @@ describe('SessionStatsAggregatorService', () => {
   let surfaceStats: SurfaceSessionStatsRegistry;
   let warn: jest.SpyInstance;
   let debug: jest.SpyInstance;
+
+  it('clears known fill for an unknown provider on tabs and surfaces without replacing accounting', () => {
+    const contextCapacity = {
+      tokens: 2000,
+      source: 'provider-catalog' as const,
+      providerId: 'openrouter',
+      model: 'm',
+    };
+    const row = {
+      model: 'm',
+      inputTokens: 108,
+      outputTokens: 0,
+      costUSD: 1,
+      contextWindow: 2000,
+      lastTurnContextTokens: 1000,
+      contextCapacity,
+    };
+    const stored = makeSnapshot(SESS_1, 1, 10);
+    service.handleSessionStats({
+      ...baseStats,
+      sessionStats: stored,
+      modelUsage: [row],
+    });
+    service.handleSessionStats({
+      ...baseStats,
+      modelUsage: [
+        {
+          ...row,
+          lastTurnContextTokens: undefined,
+          contextCapacity: {
+            ...contextCapacity,
+            providerId: 'openai-codex',
+            tokens: null,
+            source: 'unknown',
+          },
+        },
+      ],
+    });
+    expect(setLiveModelStatsMock).toHaveBeenLastCalledWith(
+      'tab-1',
+      expect.objectContaining({ contextKnown: false, contextWindow: 0 }),
+    );
+    expect(installSessionStatsMock).toHaveBeenCalledTimes(1);
+    tabs = [];
+    surfacesForSessionMock.mockReturnValue(['surface']);
+    service.handleSessionStats({
+      ...baseStats,
+      sessionStats: stored,
+      modelUsage: [row],
+    });
+    service.handleSessionStats({
+      ...baseStats,
+      modelUsage: [
+        {
+          ...row,
+          lastTurnContextTokens: undefined,
+          contextCapacity: {
+            ...contextCapacity,
+            providerId: 'openai-codex',
+            tokens: null,
+            source: 'unknown',
+          },
+        },
+      ],
+    });
+    expect(surfaceStats.peek(SESS_1)?.live).toEqual(
+      expect.objectContaining({ contextKnown: false, contextWindow: 0 }),
+    );
+    expect(surfaceStats.peek(SESS_1)?.snapshot).toBe(stored);
+  });
 
   beforeEach(() => {
     tabs = [makeTab()];
@@ -274,7 +344,8 @@ describe('SessionStatsAggregatorService', () => {
     expect(stats?.live).toEqual({
       model: 'claude-opus-5',
       contextUsed: 160,
-      contextWindow: 1_000_000,
+      contextKnown: true,
+      contextWindow: 0,
       contextPercent: 0,
     });
   });
@@ -356,7 +427,7 @@ describe('SessionStatsAggregatorService', () => {
       expect((liveStats as { contextUsed: number }).contextUsed).toBe(12345);
     });
 
-    it('falls back to inputTokens + cacheReadInputTokens + outputTokens', () => {
+    it('marks absent main context unknown without cumulative fallback', () => {
       service.handleSessionStats({
         ...baseStats,
         modelUsage: [
@@ -371,7 +442,9 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
       const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
-      expect((liveStats as { contextUsed: number }).contextUsed).toBe(175);
+      expect(liveStats).toEqual(
+        expect.objectContaining({ contextKnown: false }),
+      );
     });
 
     it('contextPercent rounding to 1 decimal place', () => {
@@ -383,6 +456,12 @@ describe('SessionStatsAggregatorService', () => {
             inputTokens: 23456,
             outputTokens: 0,
             contextWindow: 100000,
+            contextCapacity: {
+              tokens: 100000,
+              source: 'sdk-native',
+              providerId: null,
+              model: 'opus',
+            },
             costUSD: 0.5,
             lastTurnContextTokens: 23456,
           },
@@ -617,11 +696,11 @@ describe('SessionStatsAggregatorService', () => {
       ];
       service.handleSessionStats({ ...baseStats, modelUsage });
       // 150k + 20k + 60k = 230k > 200k window → suppress context-fill.
-      expect(setLiveModelStatsMock).not.toHaveBeenCalled();
-      expect(debug).toHaveBeenCalledWith(
-        '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
-        expect.any(Object),
+      expect(setLiveModelStatsMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ contextKnown: false }),
       );
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('still publishes live stats when cumulative is within the window', () => {
@@ -641,7 +720,9 @@ describe('SessionStatsAggregatorService', () => {
       // 50k + 5k + 10k = 65k ≤ 200k → publish.
       expect(setLiveModelStatsMock).toHaveBeenCalledTimes(1);
       const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
-      expect((liveStats as { contextUsed: number }).contextUsed).toBe(65_000);
+      expect(liveStats).toEqual(
+        expect.objectContaining({ contextKnown: false }),
+      );
     });
   });
 
@@ -676,7 +757,10 @@ describe('SessionStatsAggregatorService', () => {
       });
 
       // Context-fill is untrustworthy here → not published.
-      expect(setLiveModelStatsMock).not.toHaveBeenCalled();
+      expect(setLiveModelStatsMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ contextKnown: false }),
+      );
       // The snapshot that names the model is installed as-is.
       expect(installSessionStatsMock).toHaveBeenCalledWith(
         'tab-1',

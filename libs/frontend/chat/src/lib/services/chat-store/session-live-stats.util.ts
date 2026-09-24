@@ -1,5 +1,6 @@
 import {
   pickPrimaryModel,
+  type ContextCapacity,
   type ModelUsageEntry as CostRankedModelUsage,
 } from '@ptah-extension/shared';
 import type { LiveModelStatsPayload } from '@ptah-extension/chat-state';
@@ -10,6 +11,7 @@ export interface TurnModelUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly contextWindow: number;
+  readonly contextCapacity?: ContextCapacity;
   readonly costUSD: number;
   readonly cacheReadInputTokens?: number;
   readonly lastTurnContextTokens?: number;
@@ -18,29 +20,17 @@ export interface TurnModelUsage {
 export interface DerivedLiveStats {
   /** The model the header should name — sticky pick, else highest cost. */
   readonly primaryModel: TurnModelUsage;
-  /**
-   * Context fill for the primary model, or null when it could not be computed
-   * HONESTLY (see `suppressed`). Null means "leave whatever is displayed
-   * alone", never "zero".
-   */
-  readonly live: LiveModelStatsPayload | null;
-  /**
-   * True when a context-fill figure was deliberately withheld: the turn
-   * reported no `lastTurnContextTokens`, so the only available number is the
-   * session's CUMULATIVE token count, and that is not a context fill once the
-   * conversation has compacted or once the cumulative sum has run past the
-   * window. Publishing it anyway is what produced ">100% full" headers.
-   */
+  /** An explicit unknown clears stale fill; only an absent model update is null. */
+  readonly live: LiveModelStatsPayload;
+  /** True when the latest main request numerator is unavailable. */
   readonly suppressed: boolean;
 }
 
 /**
  * Derive the header's live model stats from one turn's per-model usage.
  *
- * Extracted so tabs and non-tab surfaces cannot drift. Both call this; the only
- * difference is where each gets `stickyModel` and `hasCompacted` from (a
- * `TabState` for one, the `ConversationRegistry` record for the other), which is
- * exactly the part that legitimately differs.
+ * Tabs and non-tab surfaces share this derivation. Missing latest-request
+ * evidence always produces an explicit unknown, including after compaction.
  *
  * Pure: no signals, no injection, no clock.
  */
@@ -72,38 +62,38 @@ export function deriveLiveModelStats(
   const primaryModel =
     modelUsage.find((m) => m.model === primaryModelName) ?? modelUsage[0];
 
-  const useCumulativeFallback = primaryModel.lastTurnContextTokens == null;
-  const cumulativeFallback =
-    primaryModel.inputTokens +
-    (primaryModel.cacheReadInputTokens ?? 0) +
-    primaryModel.outputTokens;
-  const cumulativeExceedsWindow =
-    primaryModel.contextWindow > 0 &&
-    cumulativeFallback > primaryModel.contextWindow;
-  const suppressed =
-    useCumulativeFallback && (opts.hasCompacted || cumulativeExceedsWindow);
-
-  if (suppressed) {
-    return { primaryModel, live: null, suppressed: true };
-  }
-
-  const contextUsed =
-    primaryModel.lastTurnContextTokens != null
-      ? primaryModel.lastTurnContextTokens
-      : cumulativeFallback;
-  const contextPercent =
-    primaryModel.contextWindow > 0
-      ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
+  const numerator = primaryModel.lastTurnContextTokens;
+  const contextKnown =
+    typeof numerator === 'number' &&
+    Number.isFinite(numerator) &&
+    numerator >= 0;
+  const contextUsed = contextKnown ? numerator : 0;
+  const capacity = primaryModel.contextCapacity;
+  const contextWindow =
+    capacity &&
+    capacity.model === primaryModel.model &&
+    (capacity.source === 'sdk-native' ||
+      (capacity.source === 'provider-catalog' &&
+        typeof capacity.providerId === 'string' &&
+        capacity.providerId.length > 0)) &&
+    typeof capacity.tokens === 'number' &&
+    Number.isFinite(capacity.tokens) &&
+    capacity.tokens > 0
+      ? capacity.tokens
       : 0;
-
   return {
     primaryModel,
     live: {
       model: primaryModel.model,
+      contextKnown,
+      contextCapacity: capacity,
       contextUsed,
-      contextWindow: primaryModel.contextWindow,
-      contextPercent,
+      contextWindow,
+      contextPercent:
+        contextKnown && contextWindow > 0
+          ? Math.round((contextUsed / contextWindow) * 1000) / 10
+          : 0,
     },
-    suppressed: false,
+    suppressed: !contextKnown,
   };
 }

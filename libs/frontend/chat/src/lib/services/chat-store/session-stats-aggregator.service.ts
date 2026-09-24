@@ -75,8 +75,7 @@ function isSnapshotOnly(
  * Responsibilities:
  * - Route incoming stats to the correct tab (or to a workflow surface)
  * - Derive the context badge (`liveModelStats`) from the turn's modelUsage:
- *   pick the primary model, compute context-fill (lastTurnContextTokens
- *   preferred over cumulative)
+ *   pick the primary model, use only its latest main-request context frame
  * - Validate and INSTALL the backend's session snapshot (`sessionStats`) —
  *   assignment only. Session totals are never added up here (TASK_2026_533).
  * - Forward the per-result footer fields to StreamingHandlerService unchanged
@@ -166,20 +165,10 @@ export class SessionStatsAggregatorService {
         ),
       });
 
-      if (derived && derived.live) {
+      if (derived) {
         for (const t of targetTabs) {
           this.tabManager.setLiveModelStats(t.id, derived.live);
         }
-      } else if (derived) {
-        // The model name still renders from the session snapshot.
-        console.debug(
-          '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
-          {
-            sessionId: stats.sessionId,
-            model: derived.primaryModel.model,
-            inputTokens: derived.primaryModel.inputTokens,
-          },
-        );
       }
     }
     const result = this.streamingHandler.handleSessionStats(stats);

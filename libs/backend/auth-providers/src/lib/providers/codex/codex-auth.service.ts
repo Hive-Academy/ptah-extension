@@ -114,7 +114,9 @@ export class CodexAuthService implements ICodexAuthService {
     return join(this.codexHome.path, 'auth.json');
   }
 
-  async getAccountUsageEligibility(): Promise<'supported' | 'unsupported-auth' | 'unsupported-config'> {
+  async getAccountUsageEligibility(): Promise<
+    'supported' | 'unsupported-auth' | 'unsupported-config'
+  > {
     const auth = await this.readAuthFile();
     if (!auth || this.getApiKey(auth) || auth.auth_mode === 'ApiKey') {
       return 'unsupported-auth';
@@ -325,6 +327,11 @@ export class CodexAuthService implements ICodexAuthService {
             name: m.display_name ?? m.slug,
             description: m.description ?? '',
             contextLength: m.context_window ?? 0,
+            ...(typeof m.context_window === 'number' &&
+            Number.isFinite(m.context_window) &&
+            m.context_window > 0
+              ? { contextLengthSource: 'provider' as const }
+              : {}),
             supportsToolUse: true,
           }));
       }

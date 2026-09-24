@@ -347,69 +347,43 @@ export function calculateMessageCost(
   return Math.round(totalCost * 1000000) / 1000000;
 }
 
-/**
- * Upper bound on discovered context-window keys. Each model registers up to
- * three keys (id, provider-stripped id, dotted→hyphen alias), so this holds
- * well over a thousand models — more than any provider catalogue — while still
- * bounding a long-lived process that browses many providers.
- */
-const MAX_DISCOVERED_CONTEXT_WINDOW_KEYS = 4096;
-
-/**
- * Context windows reported by provider model discovery, keyed by EXACT
- * normalized id. Separate from pricing on purpose: a discovered model with a
- * real `context_window` but no published price (every Codex subscription
- * model) never reaches the pricing map, so coupling the two left those models
- * with no window at all. Insertion order is recency — a re-register refreshes
- * the key — and the oldest key is evicted past the bound.
- */
-const discoveredContextWindows = new Map<string, number>();
-
-/**
- * The exact keys one discovered model id answers to: the lowercase id, the
- * `provider/`-stripped form, and the dots→hyphens alias of the stripped form
- * (the same aliasing the pricing feed applies, so an SDK-reported id matches).
- */
-function contextWindowKeys(modelId: string): string[] {
-  const fullId = modelId.toLowerCase();
-  const keys = new Set<string>([fullId]);
-  const stripped = fullId.includes('/')
-    ? fullId.split('/').slice(1).join('/')
-    : fullId;
-  keys.add(stripped);
-  keys.add(stripped.replace(/\./g, '-'));
-  return Array.from(keys);
+/** Non-secret identity of the effective query route, captured at creation. */
+export interface ContextCapacityRoute {
+  readonly kind: 'native' | 'proxy';
+  readonly providerId: string | null;
 }
 
-/**
- * Record context windows from provider model discovery, even for models the
- * pricing catalogue does not know.
- *
- * Only finite positive lengths are recorded (as integers); `0`, negatives,
- * `NaN` and `Infinity` mean "unknown" and are ignored. Lookup is EXACT-match
- * only — `gpt-5` must never answer for `gpt-5.6-sol` the way the pricing
- * table's partial matching would.
- */
+export interface ContextCapacity {
+  readonly tokens: number | null;
+  readonly source: 'sdk-native' | 'provider-catalog' | 'unknown';
+  readonly providerId: string | null;
+  readonly model: string;
+}
+
+const MAX_DISCOVERED_CONTEXT_WINDOW_KEYS = 4096;
+/** Exact provider/model pairs. The empty provider namespace is legacy only. */
+const discoveredContextWindows = new Map<string, number>();
+
+function contextWindowKey(modelId: string, providerId?: string): string {
+  return JSON.stringify([providerId ?? null, modelId]);
+}
+
+/** Record only positive finite provider observations; refresh recency on write. */
 export function registerModelContextWindows(
   entries: ReadonlyArray<{
     readonly id: string;
     readonly contextLength: number;
   }>,
+  providerId?: string,
 ): void {
   for (const entry of entries) {
-    if (!entry || typeof entry.id !== 'string' || entry.id.length === 0) {
-      continue;
-    }
+    if (!entry || typeof entry.id !== 'string' || !entry.id) continue;
     const length = entry.contextLength;
-    if (typeof length !== 'number' || !Number.isFinite(length) || length <= 0) {
+    if (typeof length !== 'number' || !Number.isFinite(length) || length < 1)
       continue;
-    }
-    const window = Math.floor(length);
-    if (window <= 0) continue;
-    for (const key of contextWindowKeys(entry.id)) {
-      discoveredContextWindows.delete(key);
-      discoveredContextWindows.set(key, window);
-    }
+    const key = contextWindowKey(entry.id, providerId);
+    discoveredContextWindows.delete(key);
+    discoveredContextWindows.set(key, Math.floor(length));
   }
   while (discoveredContextWindows.size > MAX_DISCOVERED_CONTEXT_WINDOW_KEYS) {
     const oldest = discoveredContextWindows.keys().next().value;
@@ -419,42 +393,67 @@ export function registerModelContextWindows(
 }
 
 /**
- * Context window for a model, in tokens. `0` when genuinely unknown.
- *
- * A window reported by provider model discovery wins over everything below
- * (see {@link registerModelContextWindows}); it is the provider's own answer
- * for that exact id.
- *
- * Deliberately uses the SILENT {@link lookupPricingEntry} rather than
- * {@link findModelPricing}. A catalogue entry is a convenient carrier for
- * `maxTokens`, but a miss here is not a pricing failure: the family regex below
- * answers every modern Claude id without any catalogue at all. Routing through
- * the warning variant made every webview context-window lookup print
- * "cost will render as unavailable" about a cost nobody was calculating — the
- * renderer's pricing map is only ever the bundled table (hydration from
- * OpenRouter happens in the extension host, a different module instance), so
- * that warning fired for every Claude model on every session load.
+ * Make `entries` the provider's complete capacity evidence: a refreshed
+ * catalog that drops a model, or reports it without provider evidence,
+ * withdraws the window recorded from an earlier catalog. Other providers'
+ * entries, including the same model id, are untouched.
  */
-/**
- * The context window provider model DISCOVERY reported for this exact id, or
- * `0` when discovery never registered it.
- *
- * Deliberately narrower than {@link getModelContextWindow}: no bundled pricing
- * table, no family regex, no partial matching of any kind. A caller that must
- * only override an authoritative value when the provider itself answered —
- * the proxy branch of the result-stats path — needs exactly this, because
- * `lookupPricingEntry` would fuzzily resolve an unknown `gpt-4o-ultra` to the
- * bundled `gpt-4o` window and override the SDK for a model nobody discovered
- * (PR #493 review C).
- */
-export function getDiscoveredContextWindow(modelId: string): number {
-  if (!modelId) return 0;
-  return discoveredContextWindows.get(modelId.toLowerCase()) ?? 0;
+export function replaceProviderContextWindows(
+  providerId: string,
+  entries: ReadonlyArray<{
+    readonly id: string;
+    readonly contextLength: number;
+  }>,
+): void {
+  for (const key of Array.from(discoveredContextWindows.keys())) {
+    const [keyProvider] = JSON.parse(key) as [string | null, string];
+    if (keyProvider === providerId) discoveredContextWindows.delete(key);
+  }
+  registerModelContextWindows(entries, providerId);
+}
+
+/** No aliases, model-family defaults or cross-provider discovery. */
+export function getDiscoveredContextWindow(
+  modelId: string,
+  providerId?: string,
+): number {
+  return (
+    discoveredContextWindows.get(contextWindowKey(modelId, providerId)) ?? 0
+  );
+}
+
+/** Capacity evidence is independent of pricing and cumulative usage accounting. */
+export function resolveContextCapacity(params: {
+  readonly route?: ContextCapacityRoute;
+  readonly model: string;
+  readonly sdkContextWindow?: number;
+}): ContextCapacity {
+  const { route, model, sdkContextWindow } = params;
+  const providerId = route?.providerId ?? null;
+  if (
+    route?.kind === 'native' &&
+    typeof sdkContextWindow === 'number' &&
+    Number.isFinite(sdkContextWindow) &&
+    sdkContextWindow > 0
+  ) {
+    return {
+      tokens: sdkContextWindow,
+      source: 'sdk-native',
+      providerId,
+      model,
+    };
+  }
+  const catalog = providerId
+    ? getDiscoveredContextWindow(model, providerId)
+    : 0;
+  return catalog > 0
+    ? { tokens: catalog, source: 'provider-catalog', providerId, model }
+    : { tokens: null, source: 'unknown', providerId, model };
 }
 
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
-  const discovered = discoveredContextWindows.get(modelId.toLowerCase());
+  const discovered = discoveredContextWindows.get(contextWindowKey(modelId));
   if (discovered !== undefined) return discovered;
   const pricing = lookupPricingEntry(modelId);
   if (pricing?.maxTokens) return pricing.maxTokens;

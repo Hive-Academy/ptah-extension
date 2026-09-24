@@ -22,7 +22,14 @@
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ISdkPermissionHandler, AuthEnv } from '@ptah-extension/shared';
-import { isDirectAnthropic } from '@ptah-extension/shared';
+import {
+  isDirectAnthropic,
+  getAllAnthropicProviders,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  type ContextCapacityRoute,
+} from '@ptah-extension/shared';
 import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
 
 import {
@@ -62,6 +69,56 @@ import type { IHarnessPreflight } from '../../harness/harness-preflight.port';
  */
 export function classifyUsageCostSource(authEnv: AuthEnv): UsageCostSource {
   return isDirectAnthropic(authEnv) ? 'reported' : 'unreported';
+}
+
+/** Capacity identity only: never infer authority from a hostname substring. */
+export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
+  if (isDirectAnthropic(authEnv)) {
+    return Object.freeze({ kind: 'native', providerId: 'anthropic' });
+  }
+  let providerId: string | null = null;
+  try {
+    const route = new URL(authEnv.ANTHROPIC_BASE_URL?.trim() ?? '');
+    if (
+      (route.protocol === 'http:' || route.protocol === 'https:') &&
+      !route.username &&
+      !route.password
+    ) {
+      const local = ['127.0.0.1', 'localhost', '[::1]'].includes(
+        route.hostname,
+      );
+      if (local && !route.search && !route.hash && route.pathname === '/') {
+        switch (authEnv.ANTHROPIC_AUTH_TOKEN) {
+          case COPILOT_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'github-copilot';
+            break;
+          case CODEX_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'openai-codex';
+            break;
+          case OPENROUTER_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'openrouter';
+            break;
+        }
+      }
+      if (!providerId) {
+        const matches = getAllAnthropicProviders().filter((provider) => {
+          if (!provider.baseUrl) return false;
+          try {
+            return new URL(provider.baseUrl).href === route.href;
+          } catch {
+            // degradation-audit: optional-capability - an invalid user-defined
+            // endpoint supplies no capacity evidence.
+            return false;
+          }
+        });
+        if (matches.length === 1) providerId = matches[0].id;
+      }
+    }
+  } catch {
+    // degradation-audit: optional-capability - an invalid/custom route stays
+    // usable by the query; it only leaves capacity unknown.
+  }
+  return Object.freeze({ kind: 'proxy', providerId });
 }
 
 export class SessionQueryExecutor {
@@ -133,8 +190,13 @@ export class SessionQueryExecutor {
     const abortController = new AbortController();
 
     // The route this query will actually talk to, honouring a per-session
-    // provider profile. Classified once, here, and frozen on the record.
-    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    // provider profile. Snapshotted once, here: the global env object is
+    // mutated in place on auth changes, and the async initialisation below
+    // must build the SDK query from the same route that classified its cost
+    // authority and context-capacity provider.
+    const effectiveAuthEnv: Readonly<AuthEnv> = Object.freeze({
+      ...(authEnvOverride ?? this.authEnv),
+    });
     const registerKey = sessionConfig?.tabId ?? (sessionId as string);
     const knownRealSessionId = resumeSessionId
       ? (sessionId as string)
@@ -146,9 +208,9 @@ export class SessionQueryExecutor {
       knownRealSessionId,
       {
         usageCostSource: classifyUsageCostSource(effectiveAuthEnv),
-        // A copy: the global env object is mutated in place on auth changes.
-        authEnv: Object.freeze({ ...effectiveAuthEnv }),
+        authEnv: effectiveAuthEnv,
       },
+      resolveCapacityRoute(effectiveAuthEnv),
     );
     const initialContent = initialPrompt?.content.trim() || '';
     // Every prompt is queued the same way — a slash command is NOT special-
@@ -297,9 +359,7 @@ export class SessionQueryExecutor {
         currentLevel === 'ask'
           ? 'default'
           : (PERMISSION_MODE_MAP[currentLevel] as
-              | 'default'
-              | 'acceptEdits'
-              | 'plan');
+              'default' | 'acceptEdits' | 'plan');
       const queryOptions = await this.queryOptionsBuilder.build({
         userMessageStream,
         abortController,
@@ -319,7 +379,12 @@ export class SessionQueryExecutor {
         includePartialMessages,
         mcpServersOverride,
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
-        authEnvOverride,
+        // Always the snapshot, never the live global object. The builder's
+        // cross-provider check compares it with the live global route, so an
+        // unprofiled session only reads as cross-provider if auth changed
+        // mid-initialisation — exactly when the global model cache no longer
+        // describes this query's provider.
+        authEnvOverride: effectiveAuthEnv,
         // A turn parked on a permission prompt or an AskUserQuestion card emits
         // no stream events by construction. Without this the watchdog below
         // reads the user's own deliberation as a wedged provider and aborts the
@@ -385,6 +450,7 @@ export class SessionQueryExecutor {
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,
         accountingAuthEnv: rec.accountingAuthEnv,
+        capacityRoute: rec.capacityRoute,
       };
     } catch (err) {
       if (rec) {

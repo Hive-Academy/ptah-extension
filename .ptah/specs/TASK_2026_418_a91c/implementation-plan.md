@@ -2,133 +2,325 @@
 
 ## Inputs and constraints
 
-- Requirements used: `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/.ptah/specs/TASK_2026_418_a91c/context.md`, `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/.ptah/specs/TASK_2026_418_a91c/research-report.md`, root `CLAUDE.md`, `libs/backend/agent-sdk/CLAUDE.md`, `libs/frontend/chat/CLAUDE.md`, and `libs/shared/CLAUDE.md`.
-- Corrections applied: the research recommendation said to mint a separate stream/run identity. Existing `SessionRecord.token` already is a fresh registration identity and is stable across reuse of that query, so this plan reuses it rather than introducing a parallel ID generator. The current Codex provider registry's `128000` capacities and zero prices are not authoritative telemetry and must not be used for this fix.
-- Design handoff used: none; this is a correctness and labeling change using existing stats UI.
-- Missing decision-critical input: none. Codex capacity and charge/quota data are intentionally represented as unknown until authoritative provider/model metadata exists.
-- Coordination constraint: TASK_2026_414 owns `session-history-reader.service.ts` single-snapshot reload work plus compaction marker, lifecycle, and state changes. Its `implementation-plan.md` is overlap awareness only. TASK_2026_418 must land after TASK_2026_414 for overlapping files, rebase onto its result, and preserve its boundary-readiness, per-session timer, and post-compaction seeding contracts. No edits to TASK_2026_414's task folder.
-- Explicit non-goals: no changes to Claude Agent SDK orchestration, `translateResponsesUsage`, cache-efficiency claims, provider quota logic, billing/charge inference, Ollama code, or fixtures derived from private logs.
+- Binding intent: .ptah/specs/TASK_2026_418_a91c/context.md, “Re-scope (2026-09-23, with TASK_2026_533_b7e1).”
+- Base contract: APPROVED .ptah/specs/TASK_2026_533_b7e1/implementation-plan.md and context.md. Another developer is implementing 533 in this worktree. This plan targets the approved result, not unfinished source seen during inspection.
+- Prior 418 implementation-plan.md and research-report.md were read as historical evidence; their delta-ledger and scope-migration recommendations are superseded below.
+- CORRECTED (2026-09-23): the earlier "SDK 0.3.278 resets on resume" claim was wrong. Resume restoration is conditional: Claude sessions restore from the transcript `cost-state` entry, proxy sessions sometimes reset. 533 Batch A detects it per run (see `TASK_2026_533_b7e1/context.md`, "Resume combination"). This plan does not own that rule.
+- Root/library instruction-file inventory from this worktree found no AGENTS.md/CLAUDE.md in the inspected affected paths. No design handoff is needed for these correctness changes.
+- Only this plan is overwritten. No source/spec changes, SDK execution, live provider calls, suite execution, or history-changing git commands were performed.
+- All relative references below resolve under D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement. Line references describe inspected definitions; 533 may move them. Apply changes by named symbol after its commits land.
+
+## Decision summary
+
+- **No confirmed Codex-specific under-count blocker for 533:** the proxy emits per-request usage, but the SDK result's modelUsage is cumulative and is the field 533 consumes. Do not make the proxy cumulative or make the owner add result.usage. Pin that boundary with regression fixtures.
+- Keep provider-aware context capacity: only evidence for the effective provider and exact model can supply the denominator. An SDK generic proxy fallback, static catalog default, or another provider's discovery is unknown.
+- Keep compaction measurement provenance: only a valid pair from one compact-boundary payload can support “shrank”; mixed tracker/history/boundary samples remain neutral.
+- Defer main-only cumulative accounting. 533's lifetime execution-tree snapshot already makes cost, tokens and agent count consistent; the independent context badge is explicitly the main latest-request context.
+- Preserve 533's fixed prefix + latest cumulative value per SessionRecord.token, usageCostSource flag, SessionStatsEntry snapshot and frontend assignment. No delta ledger, frontend addition or accounting checkpoint.
+- Extend shared types additively for context evidence and compaction measurement only. No new totals DTO or pricing algorithm.
+- TASK_2026_414 is **done**, not a future prerequisite. Preserve its boundary-ready reload, per-session timers, post-context seed and marker behavior except the tighter provenance condition.
+- Deliver after 533 commits on fix/task-418-codex-session-statistics in this same worktree; stacked PR targets fix/session-stats-disagreement until 533 merges. Implementation is a codex lane (it wrote this plan), reviewed by a Claude code-logic-reviewer subagent.
+
+## Superseded
+
+| Removed from the old 418 plan | Why / current owner |
+| --- | --- |
+| ResultUsageLedger, per-result subtraction, statsEventId/fingerprint ring, query-process delta protocol | 533 owns latest cumulative run replacement using the existing SessionRecord.token. No alternative ledger or IDs. |
+| Frontend delta accumulation and event dedupe in tab/surface totals | 533 installs complete SessionStatsEntry snapshots; replacement is idempotent. |
+| Reload accounting dedupe and a new deduplicate-assistant-usage helper | 533 reuses aggregateSessionUsage and its history ledger. Do not change its dedupe policy or reintroduce first-record-wins from the old plan. |
+| mainSession/executionTree duplicated totals DTO and compatibility aliases | One lifetime execution-tree snapshot already solves the panel mismatch. Main-only breakdown has no remaining acceptance requirement. |
+| Model-only capacity fallback and unconditional preference for SDK proxy contextWindow | The proxy SDK can report a generic window. Provider/model evidence outranks an unverified fallback. |
+| Adding CLAUDE_CODE_MAX_CONTEXT_TOKENS for guessed proxy capacity | Current sdk-query-options-builder.ts:999 deliberately has no such synthesized override; preserve it. |
+| Old worktree/base/CLI delegation instructions | Latest context selects the 533 worktree/commits, codex implementer (user request, replacing opencode) and a Claude different-family reviewer. |
+
+## Codex-proxy normalization finding
+
+**Verdict: per-request translation is confirmed; an under-count at the 533 owner is NOT established. No additional production token accumulator is required for this path.** Per-request Anthropic-compatible HTTP messages are inputs to the Claude SDK query, not the final cumulative result consumed by SessionStatsOwnerService.
+
+Verified path:
+
+1. libs/backend/auth-providers/src/lib/providers/codex/codex-translation-proxy.ts:130 selects Responses for Codex. Model mapping at :93 resolves SDK tier/Claude aliases to actual upstream IDs.
+2. libs/backend/auth-providers/src/lib/translation/translation-proxy-base.ts:984 creates a new ResponsesStreamTranslator for each HTTP response. There is no session/run accumulator in the proxy.
+3. responses-stream-translator.ts:458 takes response.completed usage, translates it at :464 and emits final Anthropic message_delta.usage at :514–517. Duplicate terminal events are ignored (:459/:488).
+4. translation-proxy-helpers.ts:25–38 maps inclusive Responses input to uncached input plus cache read: input - min(input, cached); output is already inclusive of reasoning. No cache-creation measurement exists in this Responses shape; do not invent one or reclassify cache reads as writes. The SDK/result four-class contract represents absent creation as zero for this translated request.
+5. Existing responses-stream-translator.spec.ts:126–144 verifies cached input and duplicate completion; :147 explicitly verifies usage remains scoped to each tool turn. Collect/non-stream paths share translateResponsesUsage at responses-stream-collector.ts:190 and translation-proxy-base.ts:1062.
+6. The installed pinned SDK distinguishes the result fields explicitly: D:\projects\ptah-extension\node_modules\@anthropic-ai\claude-agent-sdk\sdk.d.ts:5370 says result.usage is main-loop only and per-turn; :5374/:5376 defines cumulative query-pipeline modelUsage, including subagents/sidechains/compaction. The success result repeats this at :5456/:5460/:5462. Its ModelUsage includes cacheCreationInputTokens at :1368. Repo stream-transformer.ts:91/:99 also documents cumulative model fields.
+7. Approved 533 “Backend producer,” item 6, consumes cumulative modelUsage, not sdkMessage.usage. The former is replaced per run; the latter stays in existing footer/current-request paths. Cost authority remains 533's reported/unreported decision, with own-model-ID rate-card pricing for unreported cost.
+
+**Concrete under-count counterexample to guard against:** request A emits input=30, cacheRead=12, output=9; request B emits input=20, cacheRead=30, output=7. Installing raw B into the owner would give 57 tokens instead of cumulative 108 (input50 + cacheRead42 + output16). SDK result.modelUsage must give A's 51 then A+B's 108. 533 must replace 51 with108, never add them to159. A fixed history prefix of1000 produces1108; replaying result B stays1108. A new resumed run adds its own contribution once (its cumulative value minus the restored `cost-state` when 533 detects a restore).
+
+**Spec seam:** extend agent-sdk/helpers/stream-transformer.spec.ts with “uses cumulative modelUsage while proxy request usage remains per-turn.” Feed final stream request frames A/B, SDK modelUsage snapshots A/A+B, and deliberately smaller per-turn result.usage B. Assert current-request frame B is57, owner session contribution is108, duplicate result unchanged, and cache creation remains zero. Preserve existing translator per-tool-turn/cache tests in auth-providers. These are regressions against accidentally selecting the wrong input, not a claim that the current translator test should fail.
+
+**Conditional release gate:** if a real pinned-SDK boundary fixture instead shows modelUsage itself resetting each turn, that is a blocking normalization defect for 533. Fix the SDK adapter/transformer seam to produce cumulative-per-run values before the owner; never change the HTTP translator to cumulative or add an owner “sometimes add” mode. That would require a bounded request-identity accumulator and explicit approval of the changed scope. The inspected evidence does not justify building it now.
+
+The installed declaration comments (:5366/:5374) say saved totals are restored on resume when the transcript has them. Local transcripts confirm this for Claude sessions and show resets for some proxy sessions. 533 owns the per-run restore detection; this plan must not add a second rule. Cumulative-within-run behavior is separately documented. No private log fixture or live billing inference is permitted.
 
 ## Codebase evidence
 
-| Evidence | Location | Architectural implication |
+| Verified evidence | Location | Architectural implication |
 | --- | --- | --- |
-| Verified: one SDK query registration already receives an opaque, freshly minted token; both tab and resolved-session indexes reference the same record. | `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts:42-63,141-167,216-232` | Use `SessionRecord.token` as query-process generation identity. Reuse keeps one ledger; restart, resume, and slash-command re-registration receive new ledgers even when SDK session ID is unchanged. |
-| Verified: `SessionQueryExecutor` creates the registration before invoking the SDK and returns the query/watchdog through one lifecycle seam. | `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts:87-127,331-360` | Create and return the ledger with the registration; do not key a global map by session ID. Harness preflight and query construction remain unchanged. |
-| Verified: active-query reuse bypasses `executeQuery`, while fresh start, resume, and slash command each create/obtain a query then call `StreamTransformer.transform`. | `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:684-732,760-846,980-1006` | Every transform call must receive the current record's ledger. Existing-query reuse must retrieve that same ledger, not start a new baseline. |
-| Verified: SDK result and per-model usage are documented and emitted as cumulative, while latest-request context is separately replaced from `message_start` and final `message_delta`; output-only direct-Claude deltas retain prior input/cache components. | `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:61-85,293-365,408-523` | Delta only cumulative tokens/cost. Never delta `lastTurnContextTokens`; preserve PR #490 final-delta and direct-Claude behavior unchanged. |
-| Verified: direct Anthropic forwards SDK-reported costs; proxy routes calculate cost from resolved pricing and return `null` when pricing is unavailable. | `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:418-503`; `libs/shared/src/lib/utils/pricing.utils.ts:279-295` | Cost provenance must distinguish `reported` from `estimated`; unknown pricing remains `null`, never zero. |
-| Verified: frontend tab and surface paths add every `session:stats` payload to running totals. | `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts:135-154`; `libs/frontend/chat-state/src/lib/surface-session-stats.registry.ts:72-123` | Backend must emit query-process deltas, and frontend must reject duplicate deliveries by stable stats identity before any accumulation. |
-| Verified: result-stats transport currently drops all identity/provenance beyond values and retries broadcasts. | `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts:129-143,394-430` | Additive wire fields must pass through this chokepoint; retry ambiguity makes consumer idempotence mandatory. |
-| Verified: history aggregation sums post-boundary main records and every agent file, but current context is only the latest assistant usage from the main file. It does not deduplicate `message.id`. | `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:744-830,875-888`; `libs/backend/agent-sdk/src/lib/helpers/history/history.types.ts:53-78,101-105` | Build explicit main-session and execution-tree totals, deduplicate assistant usage within each source file by `message.id`, and keep context snapshot main-only. |
-| Verified: history replay calculates message costs independently for main and agent records and emits usage-bearing `message_complete` events. | `libs/backend/agent-sdk/src/lib/helpers/history/session-replay.service.ts:228-264,448-451,551-571` | Dedupe must happen before both replay and aggregate paths so live and reload cannot disagree through duplicate tree nodes/costs. |
-| Verified: loaded stats expose one undifferentiated aggregate, while live UI combines that aggregate with a main latest-request context gauge. | `libs/shared/src/lib/types/rpc/rpc-chat.types.ts:254-280`; `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:632-661,760-805` | Wire and UI need named scopes; tokens and costs displayed together must come from the same scope. |
-| Verified: context capacity lookup is model-only and can match mutable pricing entries or Claude-family heuristics; query options apply it to every non-first-party base URL. | `libs/shared/src/lib/utils/pricing.utils.ts:118-166,232-249,298-340`; `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:898-924` | Replace proxy capacity resolution with provider/model-aware provenance. Unknown means no environment override and no percentage. |
-| Verified: OpenRouter catalog data contains `context_length` and stores it as `ModelPricing.maxTokens`; Codex path only exposes static model records. | `libs/backend/auth-providers/src/lib/providers/openrouter/openrouter-pricing.service.ts:17-38,49-62,93-121,249-287`; `libs/backend/auth-providers/src/lib/providers/codex/codex-translation-proxy.ts:76-81` | OpenRouter catalog capacity is usable only under active OpenRouter provider. Codex must stay unknown unless SDK response metadata reports capacity. |
-| Verified: Codex static entries currently hardcode `128000` and zero prices while declaring subscription coverage. | `libs/shared/src/lib/providers/entries/codex-provider-entry.ts:13-74,94-109` | Those values are configuration/catalog placeholders, not observed capacity, charges, or quota. This task must not surface them as authoritative telemetry. |
-| Verified: Responses translation preserves inclusive input as uncached input plus cache read, and emits final usage on `message_delta`. | `libs/backend/auth-providers/src/lib/translation/translation-proxy-helpers.ts:14-39`; `libs/backend/auth-providers/src/lib/translation/responses-stream-translator.ts:446-510` | Leave translation untouched and regression-test cached/uncached and final context propagation around the new ledger. |
-| Verified: compaction start `preTokens` comes from a live/resume tracker sample, whereas compact completion forwards SDK `compact_metadata.pre_tokens/post_tokens`. | `libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts:40-66,209-235`; `libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.ts:80-95` | Never compare tracker-start measurement with SDK compact metadata. Only a same-record SDK pair may be labeled as a measured reduction. |
+| Discovery windows are keyed only by normalized model ID. | libs/shared/src/lib/utils/pricing.utils.ts:366,393,450 | Capacity registry must include provider identity; telemetry cannot use unscoped entries. |
+| Exact proxy discovery currently outranks SDK, but SDK fallback and general lookup still win on a miss. | libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:71–81,479–498 | A miss must become unknown for proxies, not generic200000/regex. |
+| Discovery knows provider ID; persisted entries lose evidence provenance and static metadata can fill context length. | libs/backend/auth-providers/src/lib/provider-models.service.ts:182–210,286,324,450,520 | Carry capacity provenance through cache/persistence; do not promote static fallback to discovery. |
+| OpenRouter prefetch also feeds the global discovery registry. | libs/backend/auth-providers/src/lib/provider-models.service.ts:1024,1058 | Scope prefetch to openrouter; it cannot populate Codex capacity. |
+| Effective session auth is resolved before SDK query creation. | libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts:152 | Capture non-secret capacity identity per run rather than consult mutable global auth. |
+| Missing latest-request context currently falls back to cumulative input/cache/output. | libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.ts:75–97 | Remove that fallback; totals are not a context numerator. |
+| Resume/post-compaction state can synthesize a window from model-only lookup. | libs/frontend/chat-state/src/lib/tab-manager.service.ts:1954–1958,2060–2065 | Preserve backend evidence or display unknown; never guess on reload. |
+| PreCompact samples latest live/resume usage; completion forwards SDK metadata. | libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts:344–369; libs/backend/agent-sdk/src/lib/helpers/live-usage-tracker.ts:100–109,138; libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.ts:87–96 | Start sample and completion pair are different sources. |
+| Marker currently gates “shrank” only on numeric decrease. | libs/frontend/chat-ui/src/lib/molecules/notifications/compaction-marker.component.ts:104–112 | Add provenance gate. |
+| Marker state merges each endpoint with old state independently. | libs/frontend/chat-state/src/lib/conversation-registry.service.ts:263–280 | Persist/replace a pair atomically; never combine boundaries. |
 
 ## Architecture decision
 
-- Chosen approach: normalize cumulative SDK result telemetry through a query-owned `ResultUsageLedger`; carry additive event and provenance metadata over existing `session:stats`; deduplicate JSONL assistant usage per source file; expose separate main-session, execution-tree, current-request-context, and query-process concepts; resolve capacity from provider-scoped evidence; and gate compaction reduction wording on explicit comparability provenance.
-- Rationale: this places normalization at the only boundary that knows both cumulative SDK result snapshots and query generation identity, while history owns disk dedupe and UI owns labels. It preserves Claude SDK harness flow and PR #490 translation/context behavior.
-- Rejected alternatives: a session-ID-only ledger crosses process generations and subtracts unrelated runs; frontend-only subtraction cannot detect restart/resume or repair reload; clamping negative deltas hides inconsistent telemetry; hardcoded Codex capacity turns an observation/config placeholder into false authority; treating tree cost with main tokens repeats the current scope mismatch; replacing the SDK harness or Responses translator risks the behavior explicitly required to remain stable.
-- Assumptions: SDK result messages expose `uuid` in some versions but not all. Implementer must confirm the installed SDK type. If present, use it as raw-result identity; otherwise use a deterministic fingerprint over canonical session ID, `num_turns`, subtype, duration, aggregate usage, total cost, and sorted model usage. Collision behavior must be covered by a sanitized equal-usage/different-`num_turns` test. No assumption is made that Codex, OpenRouter, or direct-Claude cost telemetry is an invoice.
-- Effect on existing code: replace additive handling of cumulative result values with per-query deltas; retain the existing callback and message channel additively; retain existing top-level history fields for one compatibility window as deprecated execution-tree aliases while new named scopes become canonical; replace model-only proxy capacity fallback; preserve direct-Claude SDK cost source, proxy cost calculation, Responses accounting, and final context tracking.
+Two kept components share additive transport types, not accounting logic. Context-capacity resolution stays a pure shared utility consumed by backend; provider discovery supplies qualified evidence. Existing compaction event/state flow carries a self-contained measurement. Frontend remains a formatter of session totals and may compute a percentage only from an independently supplied current-context frame and verified denominator.
 
-## Component specifications
+Rejected alternatives: model-only prices/windows leak across providers; trusting any positive SDK proxy window preserves generic defaults; restoring the old main/tree DTO migration duplicates 533; marking an arbitrary pre/post pair comparable in frontend hides its origin; changing Responses usage to cumulative makes the SDK count prior requests again.
 
-### 1. Query-process usage ledger
+No new service/DI token, library, persisted accounting schema or cross-library deep import is needed. Pricing and capacity remain separate concerns even though the existing pricing utility houses the bounded discovered-capacity map.
 
-- Purpose: convert cumulative result snapshots into idempotent deltas for exactly one registered SDK query process.
-- Responsibilities: own last accepted aggregate and per-model cumulative snapshots; own seen raw-result identities and emitted `statsEventId`s; emit the first valid snapshot in full; subtract only later snapshots from the same ledger; suppress exact duplicates; reject and log any decreasing token/cost/model counter as an inconsistent snapshot without changing baseline; keep current-request context fields absolute; expose no global/session-only state.
-- Verified contracts and entry points: Verified `SessionRecord.token` lifecycle at `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts:42-63,141-167`; Verified query result return at `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts:234-252`; Verified transform boundary at `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:104-134,250-288,408-523`.
-- Dependencies: ledger is an `agent-sdk` internal pure collaborator owned by `SessionRecord`; it depends only on numeric/result snapshot types. `SessionQueryExecutor` returns `queryRunId` and ledger alongside existing query data. `SdkAgentAdapter` passes both into each transformer, including existing-query reuse.
-- Integration points: add `usageLedger` to `SessionRecord`; add `queryRunId: string` and `usageLedger` to internal `ExecuteQueryResult`; add both to internal `StreamTransformConfig`. `ResultStatsPayload` gains `statsEventId`, `queryRunId`, `sequence`, `scope: 'query-process'`, and `costProvenance: 'reported' | 'estimated' | 'unknown'`. Each model row gains the same cost provenance. Existing numeric fields become deltas; `lastTurnContextTokens` stays absolute.
-- Failure behaviour: malformed input still follows `validateStats`; a decreasing/internally inconsistent same-ledger snapshot produces one structured warning with run/session/model and differing fields, emits no additive totals, and leaves last valid baseline intact. Never use `Math.max(0, delta)`. New registration accepts its first snapshot regardless of a prior process using the same SDK session ID.
-- Quality requirements: O(number of models) per result; ledger memory bounded to one current snapshot plus a small fixed seen-identity ring (64 entries) per live `SessionRecord`; no message text, prompts, credentials, or private paths in identity/fingerprint/logs.
-- Verification seam: pure ledger specs cover reuse, duplicate raw result, retry duplicate event, restart, resume with same SDK ID, slash re-registration, cost-null transitions, inconsistent decreases, multi-model changes, and late background completion. Stream transformer specs prove cached/uncached Responses values, final `message_delta`, and direct output-only delta behavior remain unchanged.
-- Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/libs/backend/agent-sdk/src/lib/helpers/result-usage-ledger.ts`; CREATE matching `.spec.ts`; MODIFY `.../helpers/session-lifecycle/session-registry.service.ts`; MODIFY `.../helpers/session-lifecycle/session-query-executor.service.ts`; MODIFY `.../helpers/session-lifecycle-manager.ts`; MODIFY `.../sdk-agent-adapter.ts`; MODIFY `.../helpers/stream-transformer.ts`; MODIFY their existing specs.
+## Component 1 — Provider-aware context capacity
 
-### 2. Stats protocol and idempotent live accumulation
+### Purpose and verified boundaries
 
-- Purpose: transport normalized telemetry without duplicate accumulation and make meaning/provenance explicit.
-- Responsibilities: carry query/run and event identity through the existing callback/broadcast; deduplicate `statsEventId` before tab or surface mutation; retain separate absolute current-request context and delta query-process totals; label reported versus estimated costs; avoid quota/charge claims.
-- Verified contracts and entry points: Verified shared callback shape at `libs/shared/src/lib/types/agent-adapter.types.ts:19-50`; Verified transport at `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts:129-143,394-430`; Verified tab accumulation at `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts:48-166`; Verified surface accumulation at `libs/frontend/chat-state/src/lib/surface-session-stats.registry.ts:72-123`.
-- Dependencies: shared remains framework-free. Frontend `SessionStatsAggregatorService` owns a bounded event-ID dedupe map because it is the common entry before tab/surface routing; no second dedupe registry is added.
-- Integration points: `ResultStatsPayload` additive fields are passed unchanged by `sendStatsWithRetry`. Frontend handler types use `cost: number | null` (correcting current narrower local annotations) and new provenance fields. Dedupe key is `statsEventId`, not values; two genuine zero-usage turns with distinct IDs remain distinct. Model rows retain current-request context and capacity provenance.
-- Failure behaviour: missing new fields from an older backend follows legacy additive behavior during compatibility window; duplicate new event is ignored wholly before compaction clear, totals, pending-message merge, sidebar reload, or queued-message dispatch. Unknown cost stays `null`; no `$0.00`, charge, quota, cache-efficiency, or subscription-consumption inference.
-- Quality requirements: 256-entry bounded LRU per frontend process; event identity contains no private data; no new message namespace or RPC method, so dual-registration is not involved.
-- Verification seam: callback transport spec asserts all additive fields survive; aggregator and surface specs assert one event is accumulated once across duplicate delivery and distinct events accumulate; direct, background-workspace, and surface routing stay intact.
-- Files: MODIFY `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/libs/shared/src/lib/types/agent-adapter.types.ts`; MODIFY `.../libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts`; MODIFY `.../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`; MODIFY `.../libs/frontend/chat-state/src/lib/surface-session-stats.registry.ts`; MODIFY matching specs.
+Supply honest capacity and current-context display for direct Anthropic, Codex, OpenRouter and other routes. Preserve the SDK harness, PR490 final message_delta handling, and 533 totals. Evidence and callers appear in the table above. Shared utility is exported already by libs/shared/src/index.ts:52; provider discovery is the existing registration caller.
 
-### 3. Provider-aware context capacity
+### Additive contract and change
 
-- Purpose: resolve context denominator only from evidence valid for active provider/model and retain honest unknowns.
-- Responsibilities: return `{ tokens: number | null, source, providerId, model }`; precedence is SDK result `usage.contextWindow > 0`, then active provider's authoritative catalog metadata for exact resolved model, then direct-Anthropic SDK/native family knowledge, otherwise unknown; prevent cross-provider model-slug contamination; omit proxy environment override when unknown.
-- Verified contracts and entry points: Verified model-only resolver at `libs/shared/src/lib/utils/pricing.utils.ts:298-340`; Verified provider profile identity at `libs/shared/src/lib/types/provider-profile.types.ts:17-25`; Verified query override at `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:898-924`; Verified OpenRouter exact catalog lookup at `libs/backend/auth-providers/src/lib/providers/openrouter/openrouter-pricing.service.ts:49-62,249-287`.
-- Dependencies: extend `IModelResolver` with provider identity/capacity resolution only if needed to avoid importing concrete providers into `agent-sdk`; shared resolver remains pure. `StreamTransformer` receives effective provider ID from session profile/global auth resolution and asks `IPricingProvider` only when that provider owns the catalog. Codex static `contextLength` is excluded until source provenance becomes authoritative.
-- Integration points: replace bare `contextWindow` derivation internally with `ContextCapacity { tokens: number | null; source: 'sdk-result' | 'provider-catalog' | 'anthropic-native' | 'unknown'; providerId; model }`. For compatibility, existing wire `contextWindow` remains numeric (`tokens ?? 0`) while model rows add `contextCapacity`. `SdkQueryOptionsBuilder.build` receives effective provider identity/capacity through its existing session/profile input and sets `CLAUDE_CODE_MAX_CONTEXT_TOKENS` only for a positive, non-unknown resolved capacity. `deriveLiveModelStats` uses absolute `lastTurnContextTokens`; when absent or capacity unknown it returns no fill percentage instead of cumulative fallback/0%.
-- Failure behaviour: catalog fetch failure, provider mismatch, partial model match, or absent metadata yields unknown and no SDK override. Explicit user-set `CLAUDE_CODE_MAX_CONTEXT_TOKENS` remains untouched but is tagged `user-override` if surfaced. Capacity failure must not fail query startup.
-- Quality requirements: exact provider/model matching for capacity even if pricing retains fuzzy matching; no hardcoded observed Codex number; context percentage only when numerator is latest-request prompt context and denominator is known.
-- Verification seam: pure precedence tests cover direct Claude SDK value, direct Claude native fallback, OpenRouter exact catalog value, same slug under another provider, Codex unknown, failed catalog, explicit environment override, and model switch. Stream tests preserve final-delta numerator.
-- Files: MODIFY `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/libs/shared/src/lib/utils/pricing.utils.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/auth-env.port.ts`; MODIFY `.../libs/backend/auth-providers/src/lib/auth/model-resolver.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts`; MODIFY `.../libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.ts`; MODIFY matching specs. Do not modify Codex static entries in this focused fix; tests must prove they are ignored for telemetry capacity.
+Proposed exported ContextCapacity in libs/shared/src/lib/utils/pricing.utils.ts:
 
-### 4. Reload dedupe and explicit main/tree scopes
+~~~ts
+export interface ContextCapacity {
+  readonly tokens: number | null;
+  readonly source: 'sdk-native' | 'provider-catalog' | 'unknown';
+  readonly providerId: string | null;
+  readonly model: string; // exact effective model, not a tier label
+}
+~~~
 
-- Purpose: make history reload converge with live accounting and expose totals whose labels match their data scope.
-- Responsibilities: deduplicate usage-bearing assistant records by `message.id` before replay and aggregation; fall back to line `uuid` only when message ID is absent; scope dedupe separately to main file and each agent file; aggregate `mainSession` and `executionTree` independently; keep `currentRequestContext` from latest valid main record only; preserve child totals once, including late background-agent files.
-- Verified contracts and entry points: Verified message identities at `libs/backend/agent-sdk/src/lib/helpers/history/history.types.ts:53-78`; Verified aggregation at `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:661-888`; Verified replay costs at `libs/backend/agent-sdk/src/lib/helpers/history/session-replay.service.ts:228-264,551-571`; Verified RPC shapes at `libs/shared/src/lib/types/rpc/rpc-chat.types.ts:254-280` and `libs/shared/src/lib/types/rpc/rpc-session.types.ts:158-201`.
-- Dependencies: one pure history helper in `agent-sdk` produces deduplicated per-file message arrays used by both `SessionReplayService` and `aggregateUsageStats`. It does not mutate cached arrays and does not collapse IDs across files.
-- Integration points: canonical history stats shape becomes `{ mainSession, executionTree, currentRequestContext, modelUsageList }`, where each totals scope contains tokens, estimated/reported cost descriptor, and message/agent counts appropriate to that scope. Existing `totalCost`, `tokens`, `messageCount`, `agentSessionCount`, and `contextSnapshot` remain deprecated aliases through one compatibility window: aggregate aliases map to `executionTree`, `contextSnapshot` maps to `currentRequestContext`. `SessionStatsEntry` gains the same named scopes. UI `preloadedStats` is replaced in place with a scoped payload; stats summary displays execution-tree tokens and execution-tree estimated/reported cost together, while context badge remains main current-request only. Main-session details may appear in tooltip/breakdown, not substituted into tree total.
-- Failure behaviour: duplicate with same `message.id` contributes only first valid usage record; missing both IDs cannot be safely deduplicated and is retained with an observability warning count, not discarded. Unknown cost contribution remains unknown per scope. Agent-file read failure follows existing per-session error behavior and never mutates live ledger.
-- Quality requirements: O(messages) time and bounded set size proportional to one loaded file; helper sees IDs and usage only, never serializes content; all fixtures are synthetic and sanitized.
-- Verification seam: sanitized fixture matrix covers duplicate main records, duplicate agent records, same ID in different files, missing message ID with UUID fallback, missing both IDs, compact boundary, late background agent, and reload parity. RPC tests assert named fields and deprecated aliases agree.
-- Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/libs/backend/agent-sdk/src/lib/helpers/history/deduplicate-assistant-usage.ts`; CREATE matching `.spec.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/session-history-reader.service.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/helpers/history/session-replay.service.ts`; MODIFY `.../libs/shared/src/lib/types/rpc/rpc-chat.types.ts`; MODIFY `.../libs/shared/src/lib/types/rpc/rpc-session.types.ts`; MODIFY `.../libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts`; MODIFY `.../libs/frontend/chat-state/src/lib/tab-state.types.ts`; MODIFY `.../libs/frontend/chat-types/src/lib/chat-types.ts`; MODIFY `.../libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts`; MODIFY `.../libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts`; MODIFY matching specs. `session-history-reader.service.ts` overlap requires TASK_2026_414 first; preserve its single-snapshot projection/readiness changes and apply dedupe to that one parsed snapshot.
+Add contextCapacity?: ContextCapacity to ResultStatsPayload.modelUsage rows (shared/types/agent-adapter.types.ts:29), and to SessionStatsEntry.contextSnapshot plus its optional per-model context metadata (shared/types/rpc/rpc-session.types.ts, approved533 shape). Keep contextWindow numeric/optional as the compatibility projection of tokens, using0 for an explicit unknown live window. Do not add main/tree totals or alter tokenCount/cost fields. A missing older evidence field is unknown; a bare positive window is not new authority.
 
-### 5. Honest compaction measurement provenance
+Add contextLengthSource?: 'provider' to ProviderModelInfo in shared/types/rpc/rpc-providers.types.ts:50. Only genuine remote catalog/dynamic-fetcher evidence sets it; static/missing lengths leave it absent. Persist it in the existing catalog object, not a new checkpoint. Older persisted entries without the field remain usable for model selection but not as authoritative telemetry capacity until refreshed. Validate positive finite values at read/registration.
 
-- Purpose: prevent mixed-source compaction values from being presented as a measured reduction.
-- Responsibilities: mark SDK compact-metadata pair as one comparable measurement; mark tracker/start sample as context-only and non-comparable with compact metadata; retain neutral marker when provenance is absent/mixed; never calculate savings from main current-request context, cumulative session/tree totals, or different boundaries.
-- Verified contracts and entry points: Verified mixed producers at `libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts:40-66,209-235` and `libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.ts:80-95`; Verified TASK_2026_414 marker design overlap at `.ptah/specs/TASK_2026_414/implementation-plan.md:89-114`.
-- Dependencies: additive fields on existing compaction stream/state contracts only; no new service. TASK_2026_414 must land first because it owns the same marker/lifecycle/state files.
-- Integration points: `CompactionCompleteEvent` gains `measurement: { source: 'sdk-compact-metadata'; boundaryId: string; comparable: true }` only when one compact-boundary payload carries finite nonnegative `pre_tokens` and `post_tokens`; `CompactionStartEvent` identifies `preTokensSource: 'live-latest-request' | 'resumed-latest-request' | 'unknown'` and is never paired for reduction. `CompactionMarkerRecord` persists source/boundary/comparability. Marker uses “shrank” only for a comparable same-boundary pair with `pre > post`; otherwise “Context compacted” plus individually labeled values if useful. This tightens TASK_2026_414's numeric-only `pre > post` rule.
-- Failure behaviour: missing/invalid/mixed provenance yields neutral text and no reduction amount or percent. Compaction itself and TASK_2026_414 reload/timer behavior continue normally.
-- Quality requirements: no extra file reads or hook-path work; no private transcript data in provenance; accessible tooltip/text must communicate unknown rather than 0.
-- Verification seam: marker and lifecycle specs cover comparable decrease, comparable increase, mixed tracker/SDK values, missing fields, reload persistence, and two boundaries. Existing compaction timing and post-context tests remain green.
-- Files: MODIFY `D:/projects/ptah-extension/.claude-worktrees/codex-session-statistics-followup-8c8e75444325/libs/shared/src/lib/types/execution/stream.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`; MODIFY `.../libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.ts`; MODIFY `.../libs/frontend/chat-state/src/lib/conversation-registry.service.ts`; MODIFY `.../libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`; MODIFY `.../libs/frontend/chat-ui/src/lib/molecules/notifications/compaction-marker.component.ts`; MODIFY matching specs. All listed frontend files overlap TASK_2026_414 and must be a follow-up after its merge, not parallel edits.
+Extend existing registerModelContextWindows(entries, providerId?: string) and getDiscoveredContextWindow(modelId, providerId?: string) with provider qualification. Proposed resolveContextCapacity({ route, model, sdkContextWindow }): ContextCapacity is the pure resolver in that same utility; route is the frozen capacityRoute described below. Use one bounded map keyed by provider + exact model; do not create a parallel global “V2” registry. An unqualified legacy entry cannot satisfy a qualified telemetry lookup. Keep explicit provider-qualified ID aliases only within that provider; do not use arbitrary substring, stripped vendor collisions or fuzzy/dotted model substitutions for capacity. Model resolution, not approximate matching, establishes the exact ID.
 
-## Integration architecture
+ProviderModelsService.recordContextWindows receives providerId and accepts only entries with provider evidence. Set evidence on raw transformApiModels (context fields at :1103) and successful live dynamic-fetcher results before static enrichment; all cached, persisted, discovery and prefetch routes must pass the original provider. mergeStaticMetadata (:520) cannot give an inherited static length provider provenance. Prefetch is qualified openrouter even when the active chat provider is Codex. Register no staticModels lengths.
 
-- Data flow: session registration creates query-run ledger; adapter passes ledger and effective provider identity into transformer; transformer preserves absolute latest-request context, resolves provider-scoped capacity, normalizes cumulative totals/cost into one delta event, and emits stable provenance/identity; transport forwards unchanged; frontend deduplicates before mutation and accumulates query-process deltas; on reload, one parsed snapshot is deduplicated per source file then projected into explicit main and tree totals plus main current-request context; summary renders like-scoped tokens/cost and separate context.
-- State or persistence: live ledger lives only as long as `SessionRecord`; no cross-restart persistence is needed or allowed. Reload truth comes from SDK JSONL. Frontend event-ID LRU is process-local delivery protection. Compaction marker provenance persists only through existing conversation state.
-- External boundaries: SDK messages, provider catalogs, environment overrides, and JSONL are external inputs. Existing SDK validation remains; new identity/capacity/provenance fields are validated for finite nonnegative values and closed enums. Provider catalog capacity requires exact provider/model ownership. No credential, prompt, path, or private log content enters fixtures or IDs.
-- Failure and rollback: invalid/decreasing cumulative telemetry is skipped with structured diagnostics, never clamped or applied; a fresh query registration starts clean. Unknown capacity suppresses override/percentage. Unknown pricing suppresses cost. Duplicate delivery is idempotent. History duplicate handling retains first occurrence and reports only counts. Existing query abort, session teardown, compaction reload, and RPC error paths stay unchanged.
-- Observability: structured warnings include canonical session ID, opaque run ID, provider/model, source, and field names only. Add counters for rejected inconsistent snapshots, duplicate result events, duplicate deliveries, and duplicate history usage records. No values from prompts/messages and no claim that cost equals charge or quota consumption.
+Capture proposed capacityRoute: { kind: 'native' | 'proxy'; providerId: string | null } on the existing SessionRecord and pass it through ExecuteQueryResult and StreamTransformConfig, alongside 533's token/cost flag. It contains no credentials. Derive at SessionQueryExecutor's effective auth seam (:152), honoring profile overrides, and retain it on active reuse. Existing getActiveProviderId in sdk-query-options-builder.ts:169 supplies a candidate provider, but its hostname substring match (:189) is not sufficient authority: accept only an exact effective route/known proxy-token match; otherwise unknown. Use strict isDirectAnthropic at shared/utils/auth-env.utils.ts:3 for native identity. Unknown custom route must not inherit native authority merely because provider lookup returned null. No changes to 533's cost-authority algorithm.
+
+Replace resolveResultContextWindow's fallback selection with a pure resolver in the existing shared utility:
+
+1. Native route + finite positive SDK model window -> sdk-native.
+2. Exact provider/model catalog capacity from the qualified registry -> provider-catalog. This is the primary proxy source; known provider response/discovery metadata can feed this same path.
+3. Otherwise tokens:null/source:unknown. No bundled family regex, static128000, generic SDK proxy200000, or another provider's catalog.
+   
+No new provider-response capacity field is assumed to exist. If future metadata exists, its producer must prove authority before adding another source. A configured SDK limit/user environment override is a policy setting, not observed provider capacity; preserve explicit options, do not display them as verified capacity. sdk-query-options-builder.ts:993–1000 already preserves inherited env and avoids generating the obsolete override; leave production option behavior alone.
+
+History: after533, use its contextSnapshot from the latest main frame, not totals. SessionHistoryReader's model-only knownWindow fallback (inspected :938–940) must not recreate capacity without matching provider evidence. If the historical provider cannot be proven, attach unknown capacity. Do not guess from the currently active global provider or rewrite533's aggregation.
+
+Frontend: carry evidence in existing LiveModelStatsPayload / corresponding TabState and panel LiveModelStats shapes. Add optional contextKnown?: boolean for the numerator, leaving old numeric shape compatible; newly derived unknown values set false and are never presented as zero. deriveLiveModelStats uses only lastTurnContextTokens or the backend history contextSnapshot; remove cumulative fallback even before compaction. Positive finite capacity alone cannot make a missing numerator known. Numeric0 is a valid observed numerator only when explicitly reported.
+
+When context is unknown, retain the model label but render “—”, omit percent/progress and omit fabricated used-token0. Do not preserve a previous provider/model's badge on an authoritative unknown update. Distinguish “no context update” from “explicitly unknown” in tab and surface assignment. Context changes must not erase/modify533's session snapshot. Propagate through SessionStatsAggregatorService, SessionLoaderService and both tab/surface live state; harness uses the same live view model, so no separate harness capacity calculation.
+
+Post-compaction seeding may retain the verified capacity for the SAME provider/model while replacing only context numerator with the valid post value. Remove getModelContextWindow fallback from TabManagerService. Model/provider changes or legacy persisted evidence invalidate the old capacity. Preserve414's nonpositive/missing post-value behavior.
+
+### Failure behaviour and verification seam
+
+Catalog failure, missing provenance, malformed length, route mismatch, unknown provider or unknown historical route -> unknown capacity; query startup and session accounting continue. No fetch on every result; use existing discovery/cache. Context-only unknown explicitly clears stale fill.
+
+Focused specs prove same-slug cross-provider isolation, static/persisted fallback exclusion, profile override isolation, no SDK proxy fallback, no cumulative numerator, resume unknown, provider switch clearing and post-compaction same-provider preservation. Read-side shared utility remains pure and UI imports shared via public aliases. Files are handoff A/B below.
+
+## Component 2 — Honest compaction measurement provenance
+
+### Purpose and evidence
+
+Show a measured reduction only for one valid SDK compact-boundary pair. Keep414's reload/timer/context behavior and533's lifetime snapshot unchanged. PreCompact sample (compaction-hook-handler.ts:348) reads a latest live/resume frame, not session totals; system-message.transformer.ts:94–96 supplies completion metadata. Marker currently compares numbers without origin.
+
+### Additive contract and change
+
+In shared/types/execution/stream.ts, add a proposed exported CompactionMeasurement and optional fields to the existing CompactionCompleteEvent:
+
+~~~ts
+export interface CompactionMeasurement {
+  readonly source: 'sdk-compact-metadata';
+  readonly boundaryId: string;
+  readonly preTokens: number;
+  readonly postTokens: number;
+}
+// Add to CompactionCompleteEvent:
+readonly boundaryId?: string;
+readonly measurement?: CompactionMeasurement;
+~~~
+
+The envelope owns both values; do not certify independently merged scalar fields. Keep existing preTokens/postTokens/durationMs for compatibility/context seeding. Clarify CompactionStartEvent.preTokens documentation at :259: latest-request sample, never half a reduction measurement. No start-event ledger or hook accumulator.
+
+SystemMessageTransformer.transformCompactBoundary (:32) assigns a boundary identity from the SDK UUID, already used at :84, or this emitted event's ID when absent. Only emit measurement if BOTH finite nonnegative numbers occur in this same compact_metadata object. Do not fill a missing endpoint from tracker/start/history. Missing data emits a normal completion with no measurement. Pair provenance describes SDK telemetry, not verified physical compression or billing savings.
+
+Carry boundaryId/measurement intact through AccumulatorCore.process (:573–576), both declared result shapes and actual forwarding in StreamingHandlerService (:185/:329/:403), ChatStore.processStreamEvent (:372), and CompactionLifecycleService.handleCompactionComplete (:367). Forward optional metadata rather than reconstructing it. Notification-only completion paths (:655) with no SDK pair remain neutral.
+
+Extend CompactionMarkerRecord and setCompactionMarkerTokens in ConversationRegistry (:38/:263); persist/validate optional boundaryId/measurement in its existing local-storage representation (:324). A new completion replaces measurement atomically. Missing/invalid provenance never inherits a prior boundary's measurement. Repeated identical boundary is idempotent; a duplicate carrying only summary may retain that same boundary's valid pair. Never synthesize a new pair by null-coalescing old and new endpoints (:277–278). Old stored markers deserialize with unknown provenance.
+
+ChatView template (:54) passes the measurement to CompactionMarkerComponent. Only this envelope's valid same-boundary pair with pre>post allows “shrank.” Equal/increasing same-boundary values are neutral. Mixed/unknown data shows “Context compacted” and, if useful, separately labeled samples; no reduction arrow, amount or percentage implying comparability. Reload preserves valid envelope and treats old records neutrally.
+
+### Failure behaviour and verification seam
+
+Missing UUID uses local emitted event identity, not timestamp coincidence for pairing. Invalid/missing endpoint, mixed sources or different boundaries -> no measurement claim; compaction still completes and reloads. Do not delay completion waiting for accounting. Preserve414's session-isolated timers and generation/readiness handling; preserve533 snapshot identity/value throughout.
+
+Specs prove valid decrease, increase/equality, invalid/one-sided pairs, legacy records, sequential boundaries, duplicate completion and summary-only persistence. Exact files below; no new service or transport channel.
+
+## Main/tree scope decision
+
+No separate main-only cumulative scope is needed for this panel after533: snapshot cost and all token classes already refer to lifetime execution-tree/query-pipeline accounting. Context badge is separate and must say “Main context” or equivalent tooltip text describing the latest main request. This labeling is part of Component1; it is not a second totals scope.
+
+Do not add mainSession/executionTree/currentRequestContext duplicate accounting DTOs, alter SessionStatsEntry.scope, or modify sessions-list range/current-context selections. Main-only cumulative breakdown is Deferred pending an explicit consumer requirement.
+
+## Integration architecture and failure behavior
+
+533 supplies the stable totals snapshot. This task adds orthogonal context evidence and compaction envelopes along existing callback/event paths. Result model metadata travels intact in existing modelUsage (sdk-callbacks.ts:408 already forwards that array), so no new broadcast message or stats owner method is needed.
+
+Unknown capacity cannot affect cost or tokens. Unknown compaction provenance cannot prevent completion, replace totals, or reset the owner. All state modifications use the existing session/tab/conversation ownership; no cross-session fallback. New shared fields are optional to keep533 consumers compiling. No direct frontend/backend import; shared DTOs and existing public barrels are the only bridge.
+
+## TASK_2026_414 overlap
+
+Verified .ptah/specs/TASK_2026_414/task.md:3 says status:done. Its old context still says active; the task status/current implemented behavior take precedence. It is not a new blocking dependency.
+
+Direct overlap with this plan: libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts and its spec; compaction-lifecycle.service.ts and its spec; libs/frontend/chat-state/src/lib/tab-manager.service.ts (414's tab-manager.service.spec.ts versus this plan's intent-mutators spec); libs/frontend/chat-ui/src/lib/molecules/notifications/compaction-marker.component.ts and its spec; libs/backend/agent-sdk/src/lib/session-history-reader.service.ts and history specs. 414 batches.md lists reload at :42, timers at :62, context seed/marker at :82–86. Conversation-registry and stream propagation are additional418 seams, not a reason to rework414.
+
+Preserve boundary-ready immutable history/staleSnapshot handling, per-session timers, ownership checks, nonpositive seed rules and diagnostic warnings. Tighten only414's “pre>post” marker rule with provenance. Do not copy the obsolete old418 requirement to wait for414 to land.
 
 ## Architecture-level quality requirements
 
-- Functional: first cumulative snapshot for each query run contributes fully; later same-run snapshots contribute exact deltas; duplicate result/broadcast/history records contribute zero additional totals; restart/resume with same SDK session ID does not subtract predecessor state; latest-request context remains absolute and main-only; execution-tree tokens and cost include each child once; capacity stays unknown without authoritative active-provider evidence.
-- Performance: live normalization O(models) with fixed 64-result identity bound per query; frontend dedupe capped at 256 IDs; reload dedupe O(messages) without extra transcript reads; no provider call added to direct Claude or Codex query hot path; reuse OpenRouter's existing catalog cache/single flight.
-- Security: synthetic fixtures only; no private logs, prompt bodies, credentials, auth headers, transcript paths, or message content committed or logged; Zod/current validators remain at wire/file boundaries.
-- Maintainability: preserve frontend/backend separation through shared additive contracts; no new message namespace; one ledger owner, one history dedupe helper, one provider-aware capacity resolver; no `V2`, compatibility flag, or parallel stats implementation. Deprecated aliases have one removal condition: delete after all in-repo consumers use named scopes and one release has accepted additive payloads.
-- Testability: every cumulative/reset/dedupe transition is observable through pure ledger output; capacity precedence is pure and table-tested; live/reload parity is asserted from sanitized records; UI tests assert labels and unknown states, not implementation details.
+- No change to533 arithmetic/owner/usageCostSource or PR490 inclusive-input/cache mapping.
+- Qualified exact context lookup only; bounded registry size and existing cache lifetime; no provider network request per streamed token/result.
+- Unknown remains unknown through reload, model/provider switch, surface assignment and compaction.
+- Measurement envelopes move and persist atomically; legacy records never imply comparability.
+- Retain OnPush/signals, Native UI components, readable “—”/tooltip behavior and accessible marker text.
+- No any casts, suppressions, logging credentials or private fixture content. No pricing/billing/quota/cache-efficiency claims.
 
 ## Team-leader handoff
 
-- Recommended executors: backend developer for query ledger, transformer, history, and provider resolver because these own SDK/process and JSONL boundaries; frontend developer for event idempotence and scoped presentation; senior tester for cross-provider regression matrix and sanitized fixture audit. Compaction consumer work starts only after TASK_2026_414 merges.
-- Complexity: HIGH. Numeric changes are small, but correctness spans query lifecycle identity, retry delivery, two reload projections, provider provenance, and active overlapping work.
-- Dependencies and ordering: shared additive types/provenance precede backend and frontend consumers; ledger lifecycle precedes transformer normalization; history dedupe precedes scoped aggregation/replay; capacity resolver precedes query override and UI percentage behavior; TASK_2026_414 precedes all edits to `session-history-reader.service.ts`, compaction lifecycle/state, and marker files.
-- Parallel-safe work: ledger pure class/spec and capacity resolver/spec are file-disjoint initially; frontend stats protocol work can follow shared type settlement. History and compaction work are not parallel-safe with TASK_2026_414.
-- Files affected:
-  - CREATE: `libs/backend/agent-sdk/src/lib/helpers/result-usage-ledger.ts`, `libs/backend/agent-sdk/src/lib/helpers/result-usage-ledger.spec.ts`, `libs/backend/agent-sdk/src/lib/helpers/history/deduplicate-assistant-usage.ts`, `libs/backend/agent-sdk/src/lib/helpers/history/deduplicate-assistant-usage.spec.ts`.
-  - MODIFY: `libs/shared/src/lib/types/agent-adapter.types.ts`, `libs/shared/src/lib/types/rpc/rpc-chat.types.ts`, `libs/shared/src/lib/types/rpc/rpc-session.types.ts`, `libs/shared/src/lib/types/execution/stream.ts`, `libs/shared/src/lib/utils/pricing.utils.ts`, `libs/backend/agent-sdk/src/lib/auth-env.port.ts`, `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts`, `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`, `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts`, `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts`, `libs/backend/agent-sdk/src/lib/helpers/history/session-replay.service.ts`, `libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`, `libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.ts`, `libs/backend/auth-providers/src/lib/auth/model-resolver.ts`, `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts`, `libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts`, `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`, `libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.ts`, `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts`, `libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`, `libs/frontend/chat-state/src/lib/tab-state.types.ts`, `libs/frontend/chat-state/src/lib/surface-session-stats.registry.ts`, `libs/frontend/chat-state/src/lib/conversation-registry.service.ts`, `libs/frontend/chat-types/src/lib/chat-types.ts`, `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts`, `libs/frontend/chat-ui/src/lib/molecules/notifications/compaction-marker.component.ts`, plus colocated existing specs for each modified behavior.
-  - REWRITE: none.
-- Verification points:
-  - Direct Claude: first and repeated cumulative results delta correctly; SDK-reported cost is marked `reported`; output-only `message_delta` preserves prior input/cache; native/SDK capacity works; unknown charge/quota remains absent.
-  - Codex proxy: Responses inclusive input splits into uncached plus cache read exactly once; final `message_delta` sets latest-request context; cost is `estimated` or unknown, never charge/quota; capacity stays unknown without SDK response metadata; process reuse, restart, resume, duplicate raw result, duplicate broadcast, and late background completion pass.
-  - OpenRouter: exact active-provider catalog capacity wins; same model slug under another provider cannot borrow it; catalog/pricing failure yields unknown/null; estimated cost and tree scope remain labeled.
-  - Reload: main and each agent file dedupe by `message.id`, UUID fallback works, same ID across files remains distinct, late child appears once, current context comes only from latest post-boundary main assistant, and live/reload scoped totals converge.
-  - Compaction: only same-boundary SDK metadata can claim reduction; mixed tracker/resume and SDK values stay neutral; TASK_2026_414 single-snapshot reload, timer isolation, and post-context seed stay green.
-  - Commands: `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/agent-sdk @ptah-extension/auth-providers @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers @ptah-extension/chat @ptah-extension/chat-state @ptah-extension/chat-types @ptah-extension/chat-ui`; verify header says 9 projects. Then `npx nx affected -t typecheck` and `npx nx affected -t lint`. No `project.json` changes are planned, so no `npx nx reset` is required.
+The codex implementation lane cannot receive clarification from the user; this plan supplies the decisions, exact paths, failure behavior and expected tests. Use a different-family reviewer after implementation. Do not substitute a lane silently. No lane is started by this architecture task.
+
+Delivery base is the completed533 commits (including frontend contract adoption), not the concurrently changing worktree state. Then create branch fix/task-418-codex-session-statistics in this same worktree; stacked PR targets fix/session-stats-disagreement until533 merges. Do not reuse the deleted old418 worktree, branch off old main, or modify533's owner to accommodate this task. No source edits or branch actions are performed now.
+
+Complexity: MEDIUM. Two file-disjoint component ownership groups below support team-leader decomposition. A's additive contract precedes B; B can compile against that contract and fixtures without live provider access. Shared/backend files belong only to A. No third accounting batch.
+
+## Batches
+
+These are file-ownership and verification handoffs; implementation decomposition remains the team-leader's responsibility. All listed files are MODIFY after533, no new production module. session-stats-summary.component.spec.ts is currently absent but is explicitly CREATE in approved533 Batch B; extend that delivered spec rather than treating it as an unverified existing file. If533 renames a seam, resolve its approved replacement and report the mapping before expanding file scope.
+
+### A — shared/backend context evidence and compaction producers
+
+Recommended executor: backend-developer skill set, executed by the codex lane.
+
+**FAILING SPEC first (exact file + test name + expected versus current behavior):**
+
+- libs/shared/src/lib/utils/pricing.utils.spec.ts — “does not borrow another provider's context capacity for the same model”: register openrouter/m=400000; lookup openai-codex/m ->unknown, not400000. Proxy SDK fallback200000 with no qualified evidence ->unknown. Native SDK1000000 ->known. Current global map/fallback cannot establish this isolation.
+- libs/backend/auth-providers/src/lib/provider-models.service.spec.ts — “does not promote static or legacy persisted context lengths into provider evidence”: a live entry lacks length, static enrichment supplies128000; expected unknown telemetry while model selection stays usable, versus current unqualified re-registration of enriched persisted values.
+- libs/backend/agent-sdk/src/lib/helpers/stream-transformer.spec.ts — “publishes unknown capacity for a proxy with only a generic SDK window”: expected contextWindow0 and contextCapacity.tokens null, versus current positive SDK fallback. Include simultaneous per-profile sessions using the same model slug.
+- libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.spec.ts — “emits a measurement only for a complete same-boundary SDK pair”: expected envelope for1000->600; missing/NaN/negative endpoint yields no envelope and still a completion. Current event has no origin envelope.
+- libs/backend/agent-sdk/src/lib/session-history-reader.service.spec.ts — “leaves historical context capacity unknown without historical provider evidence”: latest main context preserved, no model-only capacity fallback.
+- Regression, not fabricated red test: stream-transformer.spec.ts “uses cumulative modelUsage while proxy request usage remains per-turn” uses the51/108/57 fixture in the normalization finding; sdk-agent-adapter.spec.ts preserves533's prefix1000 + resumed-run108=1108 and run reuse. Existing auth-providers translator per-tool-turn/cache/reasoning/duplicate specs remain unchanged and must pass.
+
+Exact files:
+
+~~~text
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\utils\pricing.utils.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\utils\pricing.utils.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\types\rpc\rpc-providers.types.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\types\rpc\rpc-session.types.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\types\agent-adapter.types.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\shared\src\lib\types\execution\stream.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\auth-providers\src\lib\provider-models.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\auth-providers\src\lib\provider-models.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\auth-providers\src\lib\provider-models.prefetch-context-windows.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-registry.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\session-history-reader.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\session-history-reader.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\message-transform\system-message.transformer.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\backend\agent-sdk\src\lib\message-transform\system-message.transformer.spec.ts
+~~~
+
+~~~sh
+npx nx run-many -t test,typecheck,lint -p @ptah-extension/shared,@ptah-extension/auth-providers,@ptah-extension/agent-sdk
+~~~
+
+### B — frontend context display and compaction provenance
+
+Recommended executor: frontend-developer skill set, executed by the codex lane after A.
+
+**FAILING SPEC first:**
+
+- libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.spec.ts — “never substitutes cumulative usage for a missing main context frame”: cumulative108, known capacity, absent lastTurnContextTokens ->contextKnown false and no percentage; current pre-compaction fallback publishes cumulative context. Unknown new provider must clear previous known fill.
+- libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.spec.ts — “renders unknown main context as an em dash without changing tree totals”: session snapshot stays unchanged, unknown numerator or capacity ->“—”, no progress and no fake0. Current window-only gate/fallback allows stale or fabricated fill.
+- libs/frontend/chat-state/src/lib/conversation-registry.service.spec.ts — “does not carry a measurement across compaction boundaries”: valid boundaryA pair, then boundaryB missing pre ->no measurement forB, versus current independent null-coalescing of old/new values.
+- libs/frontend/chat-ui/src/lib/molecules/notifications/compaction-marker.component.spec.ts — “does not say shrank for legacy or mixed-source decreasing values”: pre1000/post600 without envelope ->neutral; valid same-boundary envelope ->shrank. Current numerical gate says shrank in both.
+- libs/frontend/chat-streaming/src/lib/accumulator-core.service.spec.ts and streaming-handler.service.spec.ts — “forwards the compact-boundary measurement unchanged”: metadata reaches ChatStore/lifecycle rather than disappearing in scalar projection.
+- Extend tab-manager.intent-mutators.spec.ts, loader/aggregator/surface/lifecycle specs listed below for provider switch, unknown clearing, post-compaction verified capacity retention, legacy persisted marker and533 snapshot retention. Do not re-test unrelated UI styling or workspace-wide projects.
+
+Exact files:
+
+~~~text
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\tab-state.types.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-types\src\lib\chat-types.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\tab-manager.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\tab-manager.intent-mutators.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\surface-session-stats.registry.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\surface-session-stats.registry.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\conversation-registry.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-state\src\lib\conversation-registry.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-streaming\src\lib\accumulator-core.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-streaming\src\lib\accumulator-core.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-streaming\src\lib\streaming-handler.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-streaming\src\lib\streaming-handler.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat.store.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-live-stats.util.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-live-stats.util.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\compaction-lifecycle.service.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\services\chat-store\compaction-lifecycle.service.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat\src\lib\components\templates\chat-view.component.html
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.spec.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-ui\src\lib\molecules\notifications\compaction-marker.component.ts
+D:\projects\ptah-extension\.claude-worktrees\session-stats-disagreement\libs\frontend\chat-ui\src\lib\molecules\notifications\compaction-marker.component.spec.ts
+~~~
+
+~~~sh
+npx nx run-many -t test,typecheck,lint -p @ptah-extension/chat-types,@ptah-extension/chat-state,@ptah-extension/chat-streaming,@ptah-extension/chat,@ptah-extension/chat-ui
+~~~
+
+Nx names verified in the affected project.json files. Run commands once with a captured concise failure summary; no workspace-wide affected/test/build sweep. No project.json edit or Nx reset is planned.
+
+## Deferred
+
+| Item | Owner/reason |
+| --- | --- |
+| Main-only cumulative breakdown / scope selector | Future explicit consumer request;533 already aligns lifetime tree totals. |
+| Sessions-list range/current-context redesign | TASK_2026_411/533 scope decisions; not needed for context badge correctness. |
+| Query result delta ledger, frontend addition, reload accounting dedupe | Superseded by TASK_2026_533, not pending418 work. |
+| Additional per-request -> cumulative adapter normalizer | Only if pinned-SDK modelUsage boundary test disproves its cumulative contract; no current evidence warrants it. |
+| Persistent accounting checkpoint, overlap watermarks, repricing | Explicitly deferred by533. |
+| New provider response-capacity integrations | Future provider-specific evidence; this task accepts existing authoritative discovery and native SDK metadata only. |
+| SDK compaction policy/threshold redesign or environment overrides | Separate concern; preserve current option behavior and explicit user settings. |
+| Standalone Codex CLI turn.completed/session tile statistics | TASK_2026_513; this finding concerns the Claude SDK's Codex HTTP proxy path. |
+| Model-price matching and pricing recovery | TASK_2026_475 and separate recovery work; no cost algorithm in418. |
+
+## Risks
+
+- Resume restoration is conditional (Claude restores from `cost-state`, some proxy sessions reset). 533 owns the per-run detection; any 418 change at the transformer seam must keep its inputs intact and must not add a second restore rule, rather than reopening the approved533 architecture.
+- Raw proxy usage and SDK result usage are easy to confuse. Replacing owner values with per-turn result.usage would under-count; making HTTP usage cumulative would double-count inside the SDK. The boundary fixture is mandatory.
+- Effective route identity must be frozen per query. Global auth/provider changes cannot alter a running session's denominator. Unknown route is not native merely because provider lookup returned null.
+- Historical provider identity or catalog provenance may be absent. More “—” displays are the intended honest outcome, not a reason to restore heuristics.
+- Provider model discovery currently enriches/persists static metadata. Ensure the new provenance field survives genuine discovery but is never acquired through static merge or old-cache rehydration.
+- Completion events and summary notifications can arrive separately; never merge measurement halves across boundaries. Preserve414's recovery and session ownership.
+- Source was changing during architecture. Treat533's approved contract as the base and re-anchor cited symbols after its commits. Any compile-only additional consumer must be identified with concrete evidence; do not broaden this into another stats rewrite.

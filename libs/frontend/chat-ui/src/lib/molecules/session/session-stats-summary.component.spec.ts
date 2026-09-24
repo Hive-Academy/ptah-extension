@@ -56,6 +56,13 @@ const SNAPSHOT: SessionStatsEntry = {
 };
 
 const LIVE: LiveModelStats = {
+  contextKnown: true,
+  contextCapacity: {
+    tokens: 200_000,
+    source: 'sdk-native',
+    providerId: null,
+    model: 'claude-opus-4-7',
+  },
   model: 'claude-opus-4-7',
   contextUsed: 50_000,
   contextWindow: 200_000,
@@ -129,6 +136,48 @@ describe('SessionStatsSummaryComponent', () => {
   }
 
   afterEach(() => TestBed.resetTestingModule());
+
+  it.each([
+    { contextKnown: false },
+    { contextCapacity: undefined },
+    {
+      contextCapacity: {
+        tokens: null,
+        source: 'unknown' as const,
+        providerId: 'openai-codex',
+        model: LIVE.model,
+      },
+    },
+  ])(
+    'renders unknown main context as an em dash without changing tree totals: %j',
+    (unknown) => {
+      const root = render(SNAPSHOT, {
+        ...LIVE,
+        contextKnown: true,
+        contextCapacity: {
+          tokens: 200_000,
+          source: 'provider-catalog',
+          providerId: 'openai-codex',
+          model: LIVE.model,
+        },
+        ...unknown,
+      });
+      expect(text(root, 'stats-context')).toBe('\u2014');
+      expect(root.querySelector('.context-bar-track')).toBeNull();
+      click(root, '[data-testid="stats-expand"]');
+      expect(text(root, 'stats-context')).toBe('\u2014');
+      const card = required(
+        root,
+        '[data-testid="stats-context"]',
+      ).parentElement;
+      expect(card?.textContent).not.toContain('(0)');
+      expect(card?.textContent).not.toContain('(50.0k)');
+      expect(root.textContent).toContain('Main context');
+      expect(text(root, 'stats-cost')).toBe('$38.18');
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(fixture.componentInstance.snapshot()).toBe(SNAPSHOT);
+    },
+  );
 
   it('displays one backend snapshot in both layouts without message-derived totals', () => {
     const root = render(SNAPSHOT, LIVE);

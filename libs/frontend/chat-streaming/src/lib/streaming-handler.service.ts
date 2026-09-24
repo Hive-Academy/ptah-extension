@@ -14,6 +14,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import {
+  type CompactionMeasurement,
   ExecutionNode,
   FlatStreamEventUnion,
   ExecutionChatMessage,
@@ -183,6 +184,8 @@ export class StreamingHandlerService {
     queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
+    boundaryId?: string;
+    measurement?: CompactionMeasurement;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -327,6 +330,8 @@ export class StreamingHandlerService {
     queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
+    boundaryId?: string;
+    measurement?: CompactionMeasurement;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -402,6 +407,8 @@ export class StreamingHandlerService {
         tabId: targetTab.id,
         compactionComplete: true,
         compactionSessionId: event.sessionId,
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens,
         postTokens: result.postTokens,
         durationMs: result.durationMs,

@@ -18,6 +18,28 @@ Preserve the Claude Agent SDK harness and PR #490 behavior while fixing four con
 - TASK_2026_414 is active in `fix/compaction-ui-consistency`, focused on boundary-safe reload, compaction timers, marker wording, and post-compaction context seeding. Coordinate overlapping compaction presentation; do not duplicate or overwrite its work.
 - Root checkout has unrelated uncommitted orchestration/canvas changes and remains untouched.
 
+## Re-scope (2026-09-23, with TASK_2026_533_b7e1)
+
+The user made the backend the single authority for session stats
+(`TASK_2026_533_b7e1/context.md`). Consequences for this task:
+
+- Component 1 (query-process delta ledger) and component 2 (frontend delta
+  accumulation) are superseded by 533's backend owner, which keeps the latest
+  cumulative result per query run and replaces it (never adds).
+- Reload dedupe (part of component 4) moves into 533 Batch A through
+  `aggregateSessionUsage`.
+- Remaining here: provider-aware context capacity (3), explicit main/tree
+  scopes (rest of 4), honest compaction measurement (5). The plan must be
+  revised against 533's contract before implementation.
+- Delivery: same worktree as 533
+  (`.claude-worktrees/session-stats-disagreement`), branch
+  `fix/task-418-codex-session-statistics` cut from the 533 commits, stacked PR
+  targeting `fix/session-stats-disagreement` until 533 merges. Implementer:
+  codex lane (resumes the session that wrote the re-scoped plan); reviewer: a
+  Claude `code-logic-reviewer` subagent (different family); fallback
+  implementer: antigravity. opencode was dropped at the user's request.
+- The old worktree `task-418-codex-session-statistics` no longer exists.
+
 ## Evidence
 
 Private runtime and JSONL logs named by the user are read-only evidence. No private log content may be committed. Duplicate assistant usage records must be deduplicated by `message.id`. Cost figures are estimated/reported telemetry, not invoices or subscription consumption. Absolute latest-request context usage is trustworthy when present; capacity is unknown unless authoritative metadata for the configured provider/model establishes it.

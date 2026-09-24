@@ -434,7 +434,7 @@ describe('SessionHistoryReaderService', () => {
       expect(stats?.model).toBe('claude-sonnet-4-20250514');
     });
 
-    it('contextSnapshot and modelUsageList carry contextWindow for a registered unpriced model', async () => {
+    it('leaves historical context capacity unknown without historical provider evidence', async () => {
       const model = 'gpt-ctx-reader-registered-414';
       registerModelContextWindows([{ id: model, contextLength: 400_000 }]);
       const stubs = makeStubs();
@@ -470,15 +470,21 @@ describe('SessionHistoryReaderService', () => {
       expect(stats?.contextSnapshot).toEqual({
         model,
         contextTokens: 40_000,
-        contextWindow: 400_000,
+        contextWindow: 0,
+        contextCapacity: {
+          tokens: null,
+          source: 'unknown',
+          providerId: null,
+          model,
+        },
       });
       expect(stats?.modelUsageList?.[0]).toMatchObject({
         model,
-        contextWindow: 400_000,
+        contextWindow: 0,
       });
     });
 
-    it('omits contextWindow when the window is unknown', async () => {
+    it('explicitly clears contextWindow when the historical window is unknown', async () => {
       const model = 'mystery-ctx-reader-unknown-414';
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
@@ -510,8 +516,18 @@ describe('SessionHistoryReaderService', () => {
         '/workspace',
       );
 
-      expect(stats?.contextSnapshot).toEqual({ model, contextTokens: 100 });
-      expect(stats?.modelUsageList?.[0]).not.toHaveProperty('contextWindow');
+      expect(stats?.contextSnapshot).toEqual({
+        model,
+        contextTokens: 100,
+        contextWindow: 0,
+        contextCapacity: {
+          tokens: null,
+          source: 'unknown',
+          providerId: null,
+          model,
+        },
+      });
+      expect(stats?.modelUsageList?.[0]).toHaveProperty('contextWindow', 0);
     });
 
     it('uses the globally latest main-session model for the context snapshot regardless of aggregate cost', async () => {
@@ -2216,7 +2232,9 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
         type: 'cost-state',
         totalCostUSD: total,
         hasUnknownModelCost: false,
-        modelUsage: { [MODEL]: { inputTokens: input, outputTokens: 0, costUSD: total } },
+        modelUsage: {
+          [MODEL]: { inputTokens: input, outputTokens: 0, costUSD: total },
+        },
       });
 
     it('returns the last cost-state line, raw SDK figures', async () => {
@@ -2247,12 +2265,17 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
 
     it('is null when the last cost-state is malformed or the read fails', async () => {
       const { stubs, service } = setup([]);
-      streamLines(stubs, [state(10, 100), '{"type":"cost-state","totalCostUSD":-1,"modelUsage":{}}']);
+      streamLines(stubs, [
+        state(10, 100),
+        '{"type":"cost-state","totalCostUSD":-1,"modelUsage":{}}',
+      ]);
       await expect(
         service.readLastSavedCostState(SESSION, '/workspace'),
       ).resolves.toBeNull();
 
-      stubs.jsonlReader.projectJsonlLines.mockRejectedValue(new Error('EACCES'));
+      stubs.jsonlReader.projectJsonlLines.mockRejectedValue(
+        new Error('EACCES'),
+      );
       await expect(
         service.readLastSavedCostState(SESSION, '/workspace'),
       ).resolves.toBeNull();
@@ -2261,7 +2284,11 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
 
   it('reads the prefix with the LAST valid cost-state for a cold resume', async () => {
     const { service } = setup([
-      costState({ totalCostUSD: 1, modelUsage: {}, hasUnknownModelCost: false }),
+      costState({
+        totalCostUSD: 1,
+        modelUsage: {},
+        hasUnknownModelCost: false,
+      }),
       assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),
       costState({
         totalCostUSD: 2.5,

@@ -649,6 +649,11 @@ export class CopilotAuthService implements ICopilotAuthService {
           name: m.name ?? m.id,
           description: '',
           contextLength: m.context_window ?? 0,
+          ...(typeof m.context_window === 'number' &&
+          Number.isFinite(m.context_window) &&
+          m.context_window > 0
+            ? { contextLengthSource: 'provider' as const }
+            : {}),
           supportsToolUse: true,
         }));
     } catch {

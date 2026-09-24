@@ -406,6 +406,30 @@ describe('StreamingHandlerService', () => {
     return tab.streamingState;
   }
 
+  it('forwards the compact-boundary measurement unchanged', () => {
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    const result = service.processStreamEvent(
+      {
+        id: 'compact-A',
+        eventType: 'compaction_complete',
+        timestamp: 10,
+        sessionId: SESSION_ID,
+        messageId: 'compaction-A',
+        trigger: 'auto',
+        boundaryId: 'A',
+        measurement,
+      },
+      TAB_ID,
+    );
+    expect(result?.measurement).toBe(measurement);
+    expect(result?.boundaryId).toBe('A');
+  });
+
   describe('agent_start', () => {
     it('stores the event and registers the agent with SessionManager', () => {
       service.processStreamEvent(agentStart(), TAB_ID);

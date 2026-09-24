@@ -1243,6 +1243,7 @@ describe('SdkAgentAdapter', () => {
         lastActivityAt: 0,
         usageCostSource: 'reported',
         accountingAuthEnv: {} as AuthEnv,
+        capacityRoute: { kind: 'proxy', providerId: 'openai-codex' },
       });
 
       await h.adapter.resumeSession(
@@ -1341,6 +1342,7 @@ describe('SdkAgentAdapter', () => {
         sessionToken: token,
         usageCostSource: 'reported',
         accountingAuthEnv: {} as AuthEnv,
+        capacityRoute: { kind: 'proxy', providerId: 'openai-codex' },
       };
     }
 
@@ -1356,9 +1358,12 @@ describe('SdkAgentAdapter', () => {
         queryResult('run-token-1'),
       );
 
-      const resuming = h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      const resuming = h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       // Let every microtask before the history read settle.
       await new Promise((resolve) => setImmediate(resolve));
 
@@ -1370,13 +1375,25 @@ describe('SdkAgentAdapter', () => {
       );
       expect(h.sessionLifecycle.executeQuery).not.toHaveBeenCalled();
 
-      history.resolve(historyPrefix(10));
+      const prefix = historyPrefix(10);
+      history.resolve({
+        ...prefix,
+        stats: {
+          ...prefix.stats,
+          tokens: { input: 1000, output: 0, cacheRead: 0, cacheCreation: 0 },
+          tokenCount: 1000,
+        },
+      });
       await resuming;
 
       expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
       const launched = h.streamTransformer.transform.mock.calls[0][0];
       expect(launched.runToken).toBe('run-token-1');
       expect(launched.usageCostSource).toBe('reported');
+      expect(launched.capacityRoute).toEqual({
+        kind: 'proxy',
+        providerId: 'openai-codex',
+      });
       expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(10);
 
       // Active reuse: same query, same record token, no second history read.
@@ -1396,6 +1413,7 @@ describe('SdkAgentAdapter', () => {
         lastActivityAt: 0,
         usageCostSource: 'reported',
         accountingAuthEnv: {} as AuthEnv,
+        capacityRoute: { kind: 'proxy', providerId: 'openai-codex' },
       });
       await h.adapter.resumeSession(SESSION as SessionId);
 
@@ -1403,7 +1421,28 @@ describe('SdkAgentAdapter', () => {
       const reused = h.streamTransformer.transform.mock.calls[1][0];
       expect(reused.runToken).toBe('run-token-1');
       expect(reused.usageCostSource).toBe('reported');
+      expect(reused.capacityRoute).toEqual(launched.capacityRoute);
       expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(10);
+      const result = runResult(0, 50);
+      const contribution = {
+        ...result,
+        models: [{ ...result.models[0], outputTokens: 16, cacheRead: 42 }],
+      };
+      if (reused.statsGeneration === null)
+        throw new Error('Missing prepared stats owner');
+      h.statsOwner.replaceRun(
+        SESSION,
+        reused.statsGeneration,
+        reused.runToken,
+        contribution,
+      );
+      h.statsOwner.replaceRun(
+        SESSION,
+        reused.statsGeneration,
+        reused.runToken,
+        contribution,
+      );
+      expect(h.statsOwner.snapshot(SESSION)?.tokenCount).toBe(1108);
     });
 
     it('seeds a known-empty prefix for a new session and keeps it under the canonical id', async () => {
@@ -1464,20 +1503,23 @@ describe('SdkAgentAdapter', () => {
         queryResult('run-token-resumed'),
       );
 
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       const { runToken, statsGeneration } =
         h.streamTransformer.transform.mock.calls[0][0];
       const gen = statsGeneration ?? -1;
 
       expect(
-        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(13, 130)).snapshot
-          ?.totalCost,
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(13, 130))
+          .snapshot?.totalCost,
       ).toBe(13);
       expect(
-        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(15, 150)).snapshot
-          ?.totalCost,
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(15, 150))
+          .snapshot?.totalCost,
       ).toBe(15);
     });
 
@@ -1491,20 +1533,23 @@ describe('SdkAgentAdapter', () => {
         queryResult('run-token-resumed'),
       );
 
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       const { runToken, statsGeneration } =
         h.streamTransformer.transform.mock.calls[0][0];
       const gen = statsGeneration ?? -1;
 
       expect(
-        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(3, 30)).snapshot
-          ?.totalCost,
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(3, 30))
+          .snapshot?.totalCost,
       ).toBe(13);
       expect(
-        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(5, 50)).snapshot
-          ?.totalCost,
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(5, 50))
+          .snapshot?.totalCost,
       ).toBe(15);
     });
 
@@ -1569,9 +1614,12 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-old'),
       );
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
 
       const teardown = deferred<boolean>();
       h.sessionLifecycle.endSessionIfTokenMatches.mockReturnValueOnce(
@@ -1587,9 +1635,12 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-new'),
       );
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
 
       teardown.resolve(true);
       await expect(ending).resolves.toBe(true);
@@ -1633,9 +1684,12 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-1'),
       );
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       const first = h.streamTransformer.transform.mock.calls[0][0];
       h.statsOwner.replaceRun(
         SESSION,
@@ -1657,9 +1711,12 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-2'),
       );
-      await h.adapter.resumeSession(SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       const second = h.streamTransformer.transform.mock.calls[1][0];
       expect(second.runToken).not.toBe(first.runToken);
 
@@ -1681,7 +1738,9 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-early-close'),
       );
-      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_early' }));
+      await h.adapter.startChatSession(
+        makeSessionConfig({ tabId: 'tab_early' }),
+      );
       const launched = h.streamTransformer.transform.mock.calls[0][0];
 
       const interrupt = deferred<void>();

@@ -731,29 +731,29 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
     } = await this.sessionLifecycle.executeQuery({
-        sessionId: trackingId,
-        sessionConfig: sessionConfigWithProfileModel,
-        initialPrompt: config.prompt
-          ? {
-              content: config.prompt,
-              files: config.files,
-              images: config.images as
-                | { data: string; mediaType: string }[]
-                | undefined,
-            }
-          : undefined,
-        onCompactionStart: this.callbacks.getCompactionStart(),
-        onWorktreeCreated: this.callbacks.getWorktreeCreated(),
-        onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        mcpServerRunning,
-        enhancedPromptsContent,
-        permissionLevel,
-        pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
-        includePartialMessages,
-        mcpServersOverride,
-        authEnvOverride: effectiveAuthEnv,
-      });
+      sessionId: trackingId,
+      sessionConfig: sessionConfigWithProfileModel,
+      initialPrompt: config.prompt
+        ? {
+            content: config.prompt,
+            files: config.files,
+            images: config.images as
+              { data: string; mediaType: string }[] | undefined,
+          }
+        : undefined,
+      onCompactionStart: this.callbacks.getCompactionStart(),
+      onWorktreeCreated: this.callbacks.getWorktreeCreated(),
+      onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
+      mcpServerRunning,
+      enhancedPromptsContent,
+      permissionLevel,
+      pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
+      includePartialMessages,
+      mcpServersOverride,
+      authEnvOverride: effectiveAuthEnv,
+    });
     // A brand-new session has a known-empty history and nothing saved to
     // restore. It is keyed by the tab id until the SDK reports the canonical
     // id (see createSessionIdCallback).
@@ -785,6 +785,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       runToken: sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
       statsGeneration: statsLease.generation,
       onSessionIdResolved: sessionIdCallback,
       onResultStats: this.wrapResultStatsForActivity(
@@ -905,6 +906,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         runToken: existingSession.token,
         usageCostSource: existingSession.usageCostSource,
         accountingAuthEnv: existingSession.accountingAuthEnv,
+        capacityRoute: existingSession.capacityRoute,
         statsGeneration:
           this.statsOwner.leaseOf(sessionId as string)?.generation ?? null,
         onSessionIdResolved: this.callbacks.getSessionIdResolved(),
@@ -975,20 +977,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
     } = await this.sessionLifecycle.executeQuery({
-        sessionId,
-        sessionConfig: sessionConfigWithProfileModel,
-        resumeSessionId: sessionId as string,
-        onCompactionStart: this.callbacks.getCompactionStart(),
-        onWorktreeCreated: this.callbacks.getWorktreeCreated(),
-        onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        mcpServerRunning,
-        enhancedPromptsContent,
-        permissionLevel,
-        pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
-        includePartialMessages,
-        authEnvOverride: effectiveAuthEnv,
-      });
+      sessionId,
+      sessionConfig: sessionConfigWithProfileModel,
+      resumeSessionId: sessionId as string,
+      onCompactionStart: this.callbacks.getCompactionStart(),
+      onWorktreeCreated: this.callbacks.getWorktreeCreated(),
+      onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
+      mcpServerRunning,
+      enhancedPromptsContent,
+      permissionLevel,
+      pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
+      includePartialMessages,
+      authEnvOverride: effectiveAuthEnv,
+    });
     this.statsOwner.beginRun(
       sessionId as string,
       statsRun.generation,
@@ -1042,6 +1045,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       runToken: sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
       statsGeneration: statsRun.generation,
       onSessionIdResolved: resumeCallback,
       onResultStats: this.wrapResultStatsForActivity(
@@ -1267,6 +1271,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
     } = await this.sessionLifecycle.executeSlashCommandQuery(
       sessionId,
       command,
@@ -1306,6 +1311,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       runToken: sessionToken,
       usageCostSource,
       accountingAuthEnv,
+      capacityRoute,
       statsGeneration: preparedRun?.generation ?? null,
       onSessionIdResolved: this.callbacks.getSessionIdResolved(),
       onResultStats: this.wrapResultStatsForActivity(
