@@ -49,7 +49,6 @@ import type {
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
-import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
@@ -77,7 +76,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     DurationBadgeComponent,
     NgClass,
     NgTemplateOutlet,
-    AutoAnimateDirective,
   ],
   template: `
     <!-- Enhanced styling for interrupted agents -->
@@ -436,8 +434,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
 
       <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order).
            Uses CSS grid 0fr/1fr rows transition for smooth height collapse
-           without measuring in JS. Inner container handles the actual scroll
-           and child animations via auto-animate. -->
+           without measuring in JS. Inner container handles the actual scroll;
+           each child execution node carries its own exec-fade-in enter. -->
       <div
         class="agent-collapse-wrapper"
         [class.agent-collapsed]="isCollapsed()"
@@ -446,8 +444,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           <div
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-            [auto-animate]
-            [autoAnimateDisabled]="isFinalizing()"
             (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
@@ -470,6 +466,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               @if (isStreaming()) {
                 <div
                   class="flex items-center gap-1 text-[10px] text-base-content-muted mt-2"
+                  animate.enter="agent-fade-in"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
@@ -484,6 +481,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               @if (isStreaming()) {
                 <div
                   class="flex items-center gap-2 text-[10px] text-base-content-muted py-2"
+                  animate.enter="agent-fade-in"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
@@ -537,19 +535,12 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
   `,
   styles: [
     `
+      /* Static on purpose: an infinite box-shadow animation cannot run on the
+         compositor, so it repaints and re-layerizes the whole document every
+         frame for as long as any agent streams. */
       :host ::ng-deep .streaming-border-glow {
-        animation: agent-border-glow 2s ease-in-out infinite;
-      }
-      @keyframes agent-border-glow {
-        0%,
-        100% {
-          box-shadow: 0 0 6px 1px oklch(var(--in) / 0.2);
-          border-color: oklch(var(--in) / 0.4);
-        }
-        50% {
-          box-shadow: 0 0 2px 0 oklch(var(--in) / 0.05);
-          border-color: oklch(var(--in) / 0.15);
-        }
+        box-shadow: 0 0 6px 1px oklch(var(--in) / 0.2);
+        border-color: oklch(var(--in) / 0.4);
       }
 
       /* Grid-rows collapse pattern: animate height without measuring in JS.
@@ -606,11 +597,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       }
 
       @media (prefers-reduced-motion: reduce) {
-        :host ::ng-deep .streaming-border-glow {
-          animation: none;
-          box-shadow: 0 0 4px 1px oklch(var(--in) / 0.15);
-          border-color: oklch(var(--in) / 0.3);
-        }
         .agent-collapse-wrapper {
           transition: none !important;
         }

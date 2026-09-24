@@ -44,7 +44,7 @@ const KEYBOARD_STEP = 16;
       (pointerdown)="onPointerDown($event)"
       (lostpointercapture)="onLostPointerCapture($event)"
       (keydown)="onKeydown($event)"
-      (dblclick)="reset.emit()"
+      (dblclick)="sizeReset.emit()"
     >
       <div
         class="rounded-full bg-base-content/15 transition-colors group-hover:bg-primary/60 group-active:bg-primary"
@@ -73,7 +73,7 @@ export class SplitHandleComponent {
 
   readonly sizeChange = output<number>();
   readonly sizeCommit = output<void>();
-  readonly reset = output<void>();
+  readonly sizeReset = output<void>();
 
   protected readonly roundedSize = computed(() => Math.round(this.size()));
 

@@ -101,6 +101,7 @@ describe('SessionStatsAggregatorService', () => {
   let surfacesForSessionMock: jest.Mock;
   let surfaceStats: SurfaceSessionStatsRegistry;
   let warn: jest.SpyInstance;
+  let debug: jest.SpyInstance;
 
   beforeEach(() => {
     tabs = [makeTab()];
@@ -118,6 +119,7 @@ describe('SessionStatsAggregatorService', () => {
     sendQueuedMock = jest.fn();
     surfacesForSessionMock = jest.fn(() => []);
     warn = jest.spyOn(console, 'warn').mockImplementation();
+    debug = jest.spyOn(console, 'debug').mockImplementation();
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
@@ -165,6 +167,7 @@ describe('SessionStatsAggregatorService', () => {
 
   afterEach(() => {
     warn.mockRestore();
+    debug.mockRestore();
     TestBed.resetTestingModule();
   });
 
@@ -615,7 +618,7 @@ describe('SessionStatsAggregatorService', () => {
       service.handleSessionStats({ ...baseStats, modelUsage });
       // 150k + 20k + 60k = 230k > 200k window → suppress context-fill.
       expect(setLiveModelStatsMock).not.toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledWith(
+      expect(debug).toHaveBeenCalledWith(
         '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
         expect.any(Object),
       );

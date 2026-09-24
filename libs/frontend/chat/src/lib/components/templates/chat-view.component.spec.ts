@@ -67,7 +67,6 @@ import {
 } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
-import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import {
@@ -192,7 +191,6 @@ function makeHarness(
   const showErrorMock = jest.fn();
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
   const olderHistoryLoadingTabIds = signal<ReadonlySet<string>>(new Set());
-  const suppressAnimateOnceSig = signal<boolean>(false);
   const agentsSig = signal<MonitoredAgent[]>([]);
   const replayingTabIds = new Set<string>();
   const isReplayingMock = jest.fn((tabId: string) =>
@@ -332,10 +330,6 @@ function makeHarness(
     ? realActionBanner
     : actionBannerStub;
 
-  const compactionLifecycleStub = {
-    suppressAnimateOnce: suppressAnimateOnceSig.asReadonly(),
-  } as unknown as CompactionLifecycleService;
-
   const agentMonitorStoreStub = {
     agents: agentsSig.asReadonly(),
     agentsForSession: jest.fn(() => []),
@@ -408,10 +402,6 @@ function makeHarness(
       { provide: ConfirmationDialogService, useValue: confirmDialogStub },
       { provide: ActionBannerService, useValue: actionBannerProvider },
       { provide: TabManagerService, useValue: tabManagerStub },
-      {
-        provide: CompactionLifecycleService,
-        useValue: compactionLifecycleStub,
-      },
       {
         provide: SessionHistoryReplayer,
         useValue: { isReplaying: isReplayingMock },

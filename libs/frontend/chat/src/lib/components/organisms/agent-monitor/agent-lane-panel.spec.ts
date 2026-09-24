@@ -662,7 +662,7 @@ describe('agent panel lanes', () => {
     handle.sizeChange.emit(1000);
     fixture.detectChanges();
     expect(grid.fractions()[1] * grid.availableWidth()).toBeCloseTo(240);
-    handle.reset.emit();
+    handle.sizeReset.emit();
     fixture.detectChanges();
     expect(grid.fractions()).toEqual([0.5, 0.5]);
     handle.sizeChange.emit(500);

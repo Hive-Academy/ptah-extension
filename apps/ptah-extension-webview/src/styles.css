@@ -1717,6 +1717,60 @@ SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
   height: 12px;
 }
 
+/**
+ * Compositor-only daisyUI loaders (daisyUI 4.12).
+ *
+ * daisyUI draws `.loading` / `.loading-spinner` / `.loading-dots` as a
+ * `mask-image` data-URI SVG with infinite SMIL `<animate>`s. An animated SVG
+ * used as a mask is re-rasterised on the main thread every frame, so each
+ * visible spinner forced a full repaint + layerize per frame while streaming.
+ *
+ * Here the host drops the mask and a `::before` carries a STATIC SVG mask
+ * (the spinner's resting open arc / the three dots), animated with
+ * `transform` / `opacity` only, which the compositor runs off the main thread.
+ * The pseudo-element spins, not the host, because some call sites position the
+ * spinner with `-translate-y-1/2` (a `transform`) which a host animation would
+ * override.
+ *
+ * Cascade: Tailwind emits user `@layer components` rules after plugin
+ * components (daisyUI) and before utilities, so this wins over daisyUI's
+ * `.loading` / `.loading-spinner` by order at equal specificity, while
+ * utilities on the host (`absolute`, `text-*`, `w-*`) still win over it.
+ * Size modifiers (`loading-xs`..`loading-lg`) size the host; the pseudo fills
+ * it. Colour stays `currentColor` (the pseudo inherits `color`).
+ * `prefers-reduced-motion` is handled by the global rule in ACCESSIBILITY
+ * STYLES, which covers `*::before` and stops these animations.
+ */
+@layer components {
+  .loading-spinner,
+  .loading-dots {
+    position: relative;
+    background-color: transparent;
+    mask-image: none;
+  }
+
+  .loading-spinner::before,
+  .loading-dots::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: currentColor;
+    mask-size: 100%;
+    mask-repeat: no-repeat;
+    mask-position: center;
+  }
+
+  .loading-spinner::before {
+    mask-image: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='12' cy='12' r='9.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-dasharray='42 150'/%3E%3C/svg%3E");
+    animation: cosmic-spin 0.8s linear infinite;
+  }
+
+  .loading-dots::before {
+    mask-image: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='4' cy='12' r='3'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3Ccircle cx='20' cy='12' r='3'/%3E%3C/svg%3E");
+    animation: pulse 1.05s ease-in-out infinite;
+  }
+}
+
 /* ============================================================================
 LUCIDE ICON SIZING FOR SIDEBAR
 ============================================================================ */

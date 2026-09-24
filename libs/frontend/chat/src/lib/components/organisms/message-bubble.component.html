@@ -2,11 +2,13 @@
   <!-- Assistant message (left-aligned) -->
   <div class="chat chat-start group">
     <!-- Avatar with Ptah icon + streaming ring -->
-    <div class="chat-image avatar">
-      <div
-        class="w-6 h-6 rounded-full overflow-hidden transition-all duration-300"
-        [class.streaming-avatar-glow]="isStreaming()"
-      >
+    <!-- The glow lives on the unclipped .avatar wrapper (a pseudo-element);
+         the inner div clips the icon with overflow-hidden. -->
+    <div
+      class="chat-image avatar"
+      [class.streaming-avatar-glow]="isStreaming()"
+    >
+      <div class="w-6 h-6 rounded-full overflow-hidden">
         <img
           [src]="ptahIconUri"
           alt="Claude"

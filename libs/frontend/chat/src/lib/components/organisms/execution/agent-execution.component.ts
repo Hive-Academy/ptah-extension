@@ -20,7 +20,6 @@ import {
   TypingCursorComponent,
 } from '@ptah-extension/chat-ui';
 import { ExecutionNodeComponent } from './execution-node.component';
-import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import type {
   ExecutionNode,
   AgentInfo,
@@ -59,7 +58,6 @@ import type {
     AgentSummaryComponent,
     ExecutionNodeComponent,
     TypingCursorComponent,
-    AutoAnimateDirective,
   ],
   template: `
     <div class="flex flex-col gap-2">
@@ -171,7 +169,8 @@ import type {
             [class.ae-collapsed]="executionCollapsed()"
           >
             <div class="ae-collapse-inner">
-              <div class="px-2.5 py-2 max-h-96 overflow-y-auto" [auto-animate]>
+              <!-- Each execution node carries its own exec-fade-in enter. -->
+              <div class="px-2.5 py-2 max-h-96 overflow-y-auto">
                 @if (hasExecutionNodes()) {
                   @for (
                     child of executionTree()?.children || [];

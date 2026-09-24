@@ -315,9 +315,12 @@ describe('CompactionLifecycleService', () => {
 
       expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
       expect(markTabIdleMock).not.toHaveBeenCalled();
-      expect(setCompactionStateMock).not.toHaveBeenCalledWith(tabToConv['tab-1'], {
-        inFlight: false,
-      });
+      expect(setCompactionStateMock).not.toHaveBeenCalledWith(
+        tabToConv['tab-1'],
+        {
+          inFlight: false,
+        },
+      );
     });
 
     it('does NOT fire the safety net at the old 120s ceiling — a real large-session compaction takes ~2 minutes', () => {
@@ -401,7 +404,11 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: SESS_RELOAD,
       });
-      expect(clearCacheMock).toHaveBeenCalled();
+      // Only the reset tab's tab/tile entries — never a global clear, which
+      // rebuilt every open tab's tree on each compaction.
+      expect(clearCacheMock).toHaveBeenCalledWith('tab-tab-1');
+      expect(clearCacheMock).toHaveBeenCalledWith('tile-tab-1');
+      expect(clearCacheMock).not.toHaveBeenCalledWith();
       expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
         'tab-1',
         expect.objectContaining({
@@ -515,32 +522,6 @@ describe('CompactionLifecycleService', () => {
         '[ChatStore] Failed to reload session after compaction:',
         expect.any(Error),
       );
-    });
-
-    it('B4 — flips suppressAnimateOnce true synchronously and resets it via microtask', async () => {
-      tabs = [
-        makeTab({
-          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
-        }),
-      ];
-
-      expect(service.suppressAnimateOnce()).toBe(false);
-
-      service.handleCompactionComplete({
-        tabId: 'tab-1',
-        compactionSessionId: SESS_RELOAD,
-      });
-
-      // Synchronously after the call: suppression must be ON for the
-      // current change-detection tick.
-      expect(service.suppressAnimateOnce()).toBe(true);
-
-      // After a microtask flush, the flag returns to false. The outer suite
-      // uses jest.useFakeTimers() (legacy timers do not drain microtasks
-      // via Promise.resolve), so explicitly advance both timer queues.
-      jest.runAllTicks();
-      await Promise.resolve();
-      expect(service.suppressAnimateOnce()).toBe(false);
     });
 
     it('C1 — writes through ConversationRegistry.setCompactionState on complete (clears inFlight)', async () => {
@@ -1084,7 +1065,11 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenCalledTimes(1);
       expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
         tabToConv['tab-1'],
-        expect.objectContaining({ preTokens: 8000, postTokens: 1500, durationMs: 1200 }),
+        expect.objectContaining({
+          preTokens: 8000,
+          postTokens: 1500,
+          durationMs: 1200,
+        }),
       );
     });
 
@@ -1364,7 +1349,9 @@ describe('CompactionLifecycleService', () => {
 
       // One generation entry per unrelated session. 256 more starts take the
       // map to 257, and the trim evicts SESS_1 as the oldest key.
-      const bulkSessions = Array.from({ length: 256 }, () => SessionId.create());
+      const bulkSessions = Array.from({ length: 256 }, () =>
+        SessionId.create(),
+      );
       const bulkTabs = bulkSessions.map((sessionId, i) =>
         makeTab({ id: `gen-${i}`, claudeSessionId: sessionId }),
       );

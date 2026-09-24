@@ -104,7 +104,6 @@
     "@clack/prompts": "^1.8.1",
     "@cursor/sdk": "^1.0.13",
     "@floating-ui/dom": "^1.7.4",
-    "@formkit/auto-animate": "^0.8.4",
     "@fullcalendar/angular": "^7.0.2",
     "@hive-academy/angular-gsap": "^1.1.0",
     "@huggingface/transformers": "3.8.1",
