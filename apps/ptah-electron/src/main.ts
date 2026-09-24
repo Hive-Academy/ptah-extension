@@ -38,6 +38,17 @@ import {
   PTAH_CONFIG_SECTION,
   TRAY_KEEPALIVE_KEY,
 } from './services/tray/tray.service';
+import {
+  armBootGuards,
+  bootStep,
+  disarmBootGuards,
+  RENDERER_LOADED_STEP,
+  reportBootFailure,
+} from './activation/boot-trace';
+
+/** How long after `whenReady` a missing renderer load is reported. */
+const BOOT_WATCHDOG_MS = 20_000;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
@@ -100,7 +111,38 @@ if (!gotLock) {
         : null,
   }).install(app);
 
-  app.whenReady().then(async () => {
+  const bootSequence = app.whenReady().then(async () => {
+    bootStep('whenReady');
+    // A boot that stalls or fails short of the renderer is never silent
+    // (TASK_2026_556): a watchdog names the last step, and process-level
+    // handlers log a rejection or exception — for THIS window only. They come
+    // off when the renderer loads, so a crash later in the session keeps
+    // Electron's (and Sentry's) default outcome. An uncaught exception during
+    // boot is logged and then still exits.
+    armBootGuards({
+      goal: RENDERER_LOADED_STEP,
+      timeoutMs: BOOT_WATCHDOG_MS,
+      exit: (code) => {
+        // Give Sentry's listener, which already captured the crash, the same
+        // bounded flush `before-quit` gets; a dead DSN cannot hold the exit.
+        let sentryService: SentryService | null = null;
+        try {
+          sentryService =
+            bootContainer?.resolve<SentryService>(TOKENS.SENTRY_SERVICE) ??
+            null;
+        } catch {
+          sentryService = null;
+        }
+        if (sentryService?.isInitialized()) {
+          void sentryService
+            .flush(2000)
+            .catch(() => undefined)
+            .finally(() => app.exit(code));
+        } else {
+          app.exit(code);
+        }
+      },
+    });
     // BEFORE the first window. Every renderer's preload blocks on this sync
     // channel while it loads, so a window opened ahead of the responder can
     // never finish loading — see `startup-config-ipc.ts` (TASK_2026_411).
@@ -130,9 +172,12 @@ if (!gotLock) {
       );
     }
 
+    bootStep('preparing shell loaded');
+
     let boot: Awaited<ReturnType<typeof bootstrapElectron>>;
     try {
       boot = await bootstrapElectron(() => mainWindow, coordinator);
+      bootStep('bootstrapElectron done');
       bootContainer = boot.container;
       workspaceStorageReady = true;
     } catch (error: unknown) {
@@ -153,6 +198,8 @@ if (!gotLock) {
       // the SYNC `get-state` blocks the renderer outright and every RPC waits
       // out its own timeout with no error (TASK_2026_411).
       registerRecoveryModeIpc(startupShellQuery['code'] ?? 'startup-failed');
+      // The recovery shell is this boot's final page; no renderer is coming.
+      disarmBootGuards();
       await preparingWindow
         .loadFile(preparingShellPath, { query: startupShellQuery })
         .catch((loadError: unknown) => {
@@ -242,6 +289,8 @@ if (!gotLock) {
       logsPath: app.getPath('logs'),
     });
 
+    bootStep('wireRuntimePreWindow done');
+
     // THE WINDOW. Everything above this line is on the critical path; nothing
     // below it is.
     const post = await registerPostWindow({
@@ -253,6 +302,7 @@ if (!gotLock) {
       getMainWindow: () => mainWindow,
       coordinator,
     });
+    bootStep('registerPostWindow done');
     revalidationInterval = post.revalidationInterval;
     updateCheckInterval = post.updateCheckInterval;
 
@@ -295,6 +345,13 @@ if (!gotLock) {
       );
       trayService = null;
     }
+  });
+  // Nothing in the boot above may reject silently: without this a throw
+  // anywhere past the preparing shell left the window on it with no line in
+  // any log. Logged, not exited — the app stays up so the user can still quit.
+  bootSequence.catch((error: unknown) => {
+    disarmBootGuards();
+    reportBootFailure('Start-up failed', error);
   });
   app.on('second-instance', () => {
     if (mainWindow) {

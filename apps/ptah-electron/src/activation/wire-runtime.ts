@@ -4,8 +4,9 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
   TOKENS,
-  bringUpSubsystems,
   armDiagnostics,
+  registerCodeExecutionMcpForSubagents,
+  startCodeExecutionMcp,
 } from '@ptah-extension/vscode-core';
 import type {
   DegradationReporter,
@@ -30,6 +31,7 @@ import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 import type { BootCoordinator } from './boot-coordinator';
 import { createHeavyServicesBooter } from './boot-heavy-services';
+import { bootStep } from './boot-trace';
 
 /**
  * How much heap the embedder warmup may ADD to the Electron MAIN process.
@@ -324,6 +326,7 @@ export async function wireRuntimePreWindow(
     container,
     createElectronRpcHostProfile(container, rpcLogger),
   );
+  bootStep('RPC surface registered');
 
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
@@ -382,9 +385,16 @@ export async function wireRuntimePreWindow(
   // bring-up — got `mcpServerRunning: true, mcpPort: 51820`. Same work, two
   // different tool surfaces, decided by activation ordering alone.
   //
-  // Nothing in `bringUpSubsystems` depends on the Thoth boot: it resolves
-  // `CODE_EXECUTION_MCP`, binds a local port and writes the `ptah` entry into
-  // `{ws}/.mcp.json`. The dependency runs the other way, which is the bug.
+  // Nothing in the MCP start depends on the Thoth boot: it resolves
+  // `CODE_EXECUTION_MCP` and binds a local port. The dependency runs the other
+  // way, which is the bug.
+  //
+  // ONLY the start, not the subagent registration (TASK_2026_556). Registration
+  // plans the rival-CLI config slots, and that probes every installed CLI one
+  // after another — 4-12 s measured, over 30 s at the sum of the probe
+  // timeouts. Awaited here it held the window on the preparing shell for all of
+  // it, and was the whole of the intermittent e2e start-up timeout. It runs in
+  // `postWindow` below instead, still ahead of the heavy boot.
   //
   // Placement is also what keeps the workspace-change listener honest. It is
   // registered AFTER this await and immediately before the startup boot
@@ -393,14 +403,14 @@ export async function wireRuntimePreWindow(
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
-    await bringUpSubsystems({
+    await startCodeExecutionMcp({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
       },
     });
-    console.log('[Ptah Electron] Subsystems brought up');
+    bootStep('MCP server started');
   } catch (bringUpError: unknown) {
     console.warn(
       '[Ptah Electron] Subsystem bring-up failed (non-fatal):',
@@ -499,6 +509,18 @@ export async function wireRuntimePreWindow(
   });
 
   const postWindow = async (): Promise<void> => {
+    // Behind the window, ahead of the heavy boot — the same position relative
+    // to the Thoth scans it had when it sat in front of the window. Never
+    // throws. Session starters await their own registration regardless.
+    //
+    // Released early by a quit: the CLI probes are not abortable, and holding
+    // the post-window promise open for them cost every quit during start-up the
+    // whole `will-quit` drain budget. The gate still opens below either way —
+    // the booter's own abort path is what settles the persistence gate.
+    await settleOnAbort(
+      registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger }),
+      coordinator.abortSignal,
+    );
     booter.openWindowGate();
     if (startupWorkspaceRoot) {
       await booter.startOrJoin(startupWorkspaceRoot);
@@ -507,6 +529,38 @@ export async function wireRuntimePreWindow(
   };
 
   return { resolvedStateStorage, postWindow };
+}
+
+/**
+ * Resolve when `work` settles or `signal` aborts, whichever comes first.
+ *
+ * For a step that cannot itself be cancelled: the work carries on in the
+ * background, but the caller stops waiting for it. Never rejects — a rejection
+ * of `work` is observed here and resolves like a success, so callers pass work
+ * that already reports its own failures.
+ */
+export function settleOnAbort(
+  work: Promise<unknown>,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      // Still observed, so a late rejection is never unhandled.
+      work.then(
+        () => undefined,
+        () => undefined,
+      );
+      resolve();
+      return;
+    }
+    const onAbort = (): void => resolve();
+    signal.addEventListener('abort', onAbort, { once: true });
+    const done = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    work.then(done, done);
+  });
 }
 
 /**

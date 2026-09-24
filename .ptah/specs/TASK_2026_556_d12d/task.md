@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_556_d12d
-status: backlog
+status: done
 type: BUGFIX
 title: Fix the intermittent Electron start-up hang after IpcBridge IPC listeners initialized
 depends_on: []

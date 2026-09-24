@@ -38,6 +38,7 @@ import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
 import type { BootCoordinator } from './boot-coordinator';
+import { bootStep } from './boot-trace';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -305,6 +306,7 @@ export async function bootstrapElectron(
     );
   }
   const gitWatcherRef: BootstrapResult['gitWatcherRef'] = { current: null };
+  bootStep('restoreWorkspaces');
   const { startupWorkspaceRoot: restoredRoot, flushWorkspacePersistence } =
     await restoreWorkspaces(
       container,
@@ -319,6 +321,7 @@ export async function bootstrapElectron(
 
   // The exact active delegate completes verification/migration before IPC,
   // RPC activation, session import, or the Angular renderer can observe it.
+  bootStep('workspace state storage whenReady');
   await container
     .resolve<WorkspaceAwareStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,

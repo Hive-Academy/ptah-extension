@@ -173,3 +173,62 @@ closer look at buffering).
   logs and exits rather than hanging.
 - E2E: keep the 20x repeated-launch loop from (b) as a standing smoke/perf spec (or CI job) so a
   regression shows up as a flaky-rate regression, not a one-off report.
+
+## Findings (2026-09-24, measured, not inferred)
+
+**None of H1/H2/H3 is the cause.** The boot never throws and the main thread is never blocked. It is a
+slow `await` on the pre-window critical path, which the static analysis ruled out too early. The trace
+evidence stopped at `[IpcBridge] IPC listeners initialized` because Playwright attaches its stdout
+listener late and `console.log` on a Windows pipe is asynchronous. With synchronous `fs.writeSync(2)`
+markers the boot visibly runs well past that line.
+
+### Evidence
+
+- Step markers (`[Ptah Boot +Nms]`, new `activation/boot-trace.ts`) across `main.ts`, `bootstrapElectron`,
+  `wireRuntimePreWindow` and `registerPostWindow`. On a normal launch everything up to `application menu
+  created` took about 0.5 s after `preparing shell loaded`. **`bringUpSubsystems` then took 7-11 s**
+  (baseline runs: `+9224ms → +20326ms`, `+7217ms → +14325ms`).
+- Inside it, `CodeExecutionMCP.start()` took about 20 ms (port 51821). **`ensureRegisteredForSubagents()`
+  took the remaining 7-12 s.** Most of it is `planPtahMcpSlots → cliDetector.isInstalled →
+  CliDetectionService.doDetectAll`, which probes six rival CLIs **sequentially**. Measured per adapter:
+  codex 1.1-1.2 s, copilot 1.5-2.2 s, cursor 0 s, antigravity 1.5-**5.7** s, opencode 0.4-0.6 s, pi 0.1 s.
+  The home-scoped `antigravity` slot has no `appliesTo`, so detection runs even with no workspace open,
+  which is the e2e case.
+- The worst case is bounded only by the probe timeouts: `probeCliVersion` is 5 s per CLI, and antigravity
+  adds an 8 s `--help` probe. That sums to over 30 s, above the harness budget. `waitForPtahRenderer`
+  gives `firstWindow` and `waitForURL` 30 s each, and the preparing shell appears about 5-9 s after
+  launch. Anything that makes the probes slow (machine load, AV scanning `.cmd` shims, a CLI checking
+  for updates) pushes the renderer load past the timeout.
+- Event loop during the stall: alive. A temporary 100 ms interval probe saw only 200-1155 ms lag spikes
+  (the CLI spawns), and `electronApp.evaluate(() => 1)` answered `1` in every hung launch.
+- **Deterministic repro:** slow `codex/copilot/agy/opencode/pi` `.cmd` shims first on PATH (each sleeps
+  30 s, so every probe hits its timeout). **0/3 launches** reached the renderer within 30 s. Every one was
+  still on `preparing-workspace.html?state=preparing`, `evaluate` answered `1`, and the watchdog fired
+  inside the probe sequence (codex 5.0 s, copilot 5.1-5.5 s, antigravity 13.0-13.3 s, opencode 5.0 s).
+- Under ordinary load the same mechanism reproduced as a thin margin rather than a failure. Baseline
+  smoke ×3 was 12/12, but 20.2-35.8 s per test with 7-12 s of it in detection. Nine concurrent launches
+  also all passed (worst 32 s end to end). The user's 3-of-4 failure rate is this margin running out on
+  a busier machine.
+- "Saving window bounds" in the failing logs is the `close` handler (`main-window.ts:167-170`), meaning
+  the harness tearing the window down after its timeout. It is not a boot step.
+
+### Root cause
+
+`wireRuntimePreWindow` awaited `bringUpSubsystems`, which awaits `ensureRegisteredForSubagents()`. That
+runs a sequential, timeout-bounded probe of every installed rival CLI to decide which external config
+files (`~/.gemini/…`, `{ws}/.codex/…`) to write. The renderer was only loaded after it returned, so the
+window sat on the preparing shell for the whole probe: 4-12 s normally, over 30 s under load. A real user
+sees the same delay at every start. The B1 invariant this code was protecting (TASK_2026_315: MCP port
+live before the heavy boot) needs only `start()`.
+
+### Secondary findings
+
+- The `app.whenReady().then(async …)` chain had no `.catch`, there was no process-level rejection or
+  exception handler, and `post-window.ts` called `mainWindow.loadFile(rendererPath)` unobserved. A boot
+  failure in that window would have been silent. H1's mechanism was real, it just wasn't what happened
+  here. All three are now reported to stderr.
+- Quitting while CLI detection is in flight leaves the probe grandchild (`cmd /c agy.cmd …`) orphaned.
+  On Windows it inherits Electron's stdio pipe handles. Electron's process exits in 1.5-2.4 s, but the
+  pipe stays open until the orphan finishes, so Playwright's `close()` waits for it: up to about 28 s
+  with slow CLIs, about 1-2 s extra normally. This predates the fix (a quit on the preparing shell hit
+  the same thing) and is not user-visible. It is recorded as an open follow-up.
