@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 28/30
+Total tasks: 65 | Batches: 30 | Complete: 29/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23, 24 (+24a).
 In progress: none.
-In progress: Batch 24 (+24a R7 pre-fix). Next: 25.
+In progress: none. Next launchable: Batch 25 (all dependencies COMPLETE).
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1210,7 +1210,7 @@ Edge cases:
 - Accepted deviations: Remove kept on installed result cards (it existed on browse cards before; the host still listens for `skillUninstalled`); `refreshTrigger` kept; search field `type="search"`; cards show only the source repo.
 - Follow-ups: `refreshTrigger` is never bound (`skill-source-host.component.ts`); `performSearch` has no request-generation guard (two in-flight searches can resolve out of order; pre-existing). The Electron tour scene (`marketplace-tour.scene.ts`) comment and its `.rounded-lg.border` browse-row selector must move to the new `role="listitem"` cards once Batch 19 is committed (Batch 19 follow-up).
 
-## Batch 24: Ptah plugins panel restyle, everywhere (C13, D-2b) — PENDING
+## Batch 24: Ptah plugins panel restyle, everywhere (C13, D-2b) — COMPLETE (823ad71ce 24a, 417b6a0ea)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1219,7 +1219,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 7d (runs in Wave I)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat-ui @ptah-extension/dashboard`; `npx nx build ptah-extension-webview` + R7 initial-chunk comparison; `git diff --numstat`
 
-### Task 24.1: Plugin groups to `CatalogGrid`/`CatalogCard` — PENDING
+### Task 24.1: Plugin groups to `CatalogGrid`/`CatalogCard` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\chat-ui\src\lib\molecules\setup-plugins\plugin-catalog-panel.component.ts`, `...\plugin-catalog-panel.component.spec.ts`
 - Plan reference: implementation-plan.md C13 row "Ptah Plugins" (:543), D-2b (:745)
@@ -1228,7 +1228,7 @@ Edge cases:
 - Validation notes: only selector-level spec edits, each listed.
 - Implementation details: presentation only.
 
-### Task 24.2: Dashboard picker check — PENDING
+### Task 24.2: Dashboard picker check — COMPLETE (layout check moved to Batch 25)
 
 - Depends on: Task 24.1
 - Files: `D:\projects\ptah-extension\libs\frontend\dashboard\src\lib\components\skill-selection-card\skill-selection-card.spec.ts` (one added assertion); `skill-selection-card.component.ts` only if review finds a dialog-width token adjustment is needed
@@ -1241,6 +1241,12 @@ Edge cases:
 ### Batch 24 verification
 
 - Dashboard spec green; R7 table; reviewer: code-logic-reviewer
+- Result: two commits. **24a** `823ad71ce` fix(ui,chat-ui) — R7 pre-fix added by the team-leader: the Batch 24 build showed all 104 brand paths in an initial chunk, and a build of the task head `cb1d7899d` (Batches 22 + 23 committed) showed the same leak (109/109 in `chunk-CwbgUS38.js`, initial JS 3,208,524 B) — the eager chat-ui browsers imported the monogram / resolver through the brand-mark barrel and the registry browser rendered `ptah-brand-mark`. Fix: `native/brand-mark/index.ts` exports only `BrandMarkComponent`; new sibling barrels `native/monogram-tile`, `native/mark-svg`, `native/brand-slugs` (re-exported by `native/index.ts`; public API unchanged); new secondary entry `@ptah-extension/ui/brand-mark` (`libs/frontend/ui/src/brand-mark.ts`, `tsconfig.base.json`, same pattern as `@ptah-extension/marketplace/services`); `mcp-directory-browser.component.ts` renders the brand mark inside `@defer (on immediate)` with the monogram as placeholder (`card-mark` on a wrapper span). Guards: `native/brand-mark/brand-mark-barrels.spec.ts` (umbrella barrels pure `export *`; artwork barrel exports only the component) and `libs/frontend/chat-ui/src/lib/dependency-boundaries.spec.ts` (chat-ui imports `BrandMarkComponent` only from the entry point, only inside `@defer`); both shown to fail on injected regressions. **24** `417b6a0ea` feat(chat-ui,dashboard): `plugin-catalog-panel.component.ts` 1186 → 1167 (+spec), `skill-selection-card.spec.ts` (+44, existing assertions unchanged). Executor frontend-developer (`task533-b24`, then `task533-b24a` from `cb1d7899d`). `lint,typecheck,test -p @ptah-extension/ui @ptah-extension/chat-ui @ptah-extension/chat @ptah-extension/dashboard @ptah-extension/marketplace ptah-extension-webview --skip-nx-cache` green in TASK_WT (6 projects).
+- R7 in TASK_WT (production build of all batches incl. 21, 24, 24a; Node probe on full path strings): BRAND_MARKS-only paths 109 — 0 in the 13 initial chunks, 109 in one lazy chunk. Initial JS 3,160,156 B (699.43 kB transfer): −48,368 B vs the leaking head `cb1d7899d`, +38,371 B vs Batch 17, +24,773 B vs the 7c baseline. The growth since Batch 17 is the catalog pieces now used by the three eager chat-ui views (allowed), the two `main` rebases, and the Angular `@defer` runtime (+7,892 B) — the latter accepted by the team-leader (framework code the fix requires; same reasoning as the Batch 17 runtime item). Batch 25's final R7 table attributes every byte.
+- Reviews: 24 — logic APPROVED 8/10, style APPROVED 9/10 → 10/10 (search `type="search"` with icon wrapper; `catch (err: unknown)`; `aria-expanded` asserted). 24a — logic APPROVED 8/10 → 9/10, style NEEDS_REVISION 8/10 → APPROVED 10/10 (umbrella-barrel guard, format-tolerant import check, rename to `dependency-boundaries.spec.ts`). A reviewer's mutation-test revert (checkout) wiped the executor's uncommitted doc paragraph in `libs/frontend/ui/src/index.ts`; the executor restored it before commit. Reports `batch-24-report.md`, `batch-24a-report.md` (untracked).
+- Accepted deviations: the per-plugin skill list sits in `[card-expansion]`; the `:259` "Skills for this project" list is unchanged (dashboard specs depend on it); "Recommended" / "Yours" are meta text (one badge slot shows "Enabled"); the dashboard component is unchanged.
+- To Batch 25 (real browser): the 2-column / no-overflow layout of `ptah-catalog-grid` inside the `max-w-2xl` dashboard dialog; the registry browser's Sentry vendor mark appears after the deferred load.
+- Follow-ups: `pluginCardMeta` would drop one word for a plugin that is both default and harness-sourced (the backend hard-codes `isDefault:false` for harness plugins). Process: reviewers must not revert mutation tests with a checkout in an executor worktree that has uncommitted work.
 
 ## Batch 25: Webview e2e scenarios and visual parity (B10) — PENDING
 
