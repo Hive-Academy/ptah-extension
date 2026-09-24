@@ -25,7 +25,7 @@ The binding "Revision 3 overrides" block (lines 3-36) was left untouched, as was
 Lines changed in implementation-plan.md:
 
 | Pre-edit line | Section | New text (summary) |
-| --- | --- |
+| --- | --- | --- |
 | 43 | Summary item 2 | "keyed remount" → `SurfaceRouterService.remountActiveSurface()` outlet deactivate + re-activate at the same URL (Revision 3 override 1). |
 | 86 | Evidence table | "The keyed remount host wraps :264" → the focus-effect host wraps `:264`; the remount effect joins the existing constructor effect. |
 | 88 | Evidence table | Finding 2 pipe escapes (above). |

@@ -1,8 +1,7 @@
 # PR 586 — code review (review-fix round)
 
-**Scope:** the 4 permitted non-doc files (2 modified source-adjacent, 2 test/spec, 2 new
-untracked harness files). `.ptah` doc diffs and `pr-586-fix-*.md` excluded (already
-reviewed by docs-reviewer).
+**Scope:** the 6 permitted non-doc files reviewed below. `.ptah` doc diffs and
+`pr-586-fix-*.md` excluded (already reviewed by docs-reviewer).
 
 ## Verdict: APPROVE
 

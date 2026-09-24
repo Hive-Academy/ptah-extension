@@ -12,23 +12,11 @@ import type { Page } from '@playwright/test';
  * `@if (isElectron()) { <ptah-electron-shell /> } @else { <ptah-app-shell /> }`
  * (`:54-58`) takes the VS Code branch.
  *
- * Must be installed AFTER `installPostMessageBridge` — the init script only
- * injects `ptahConfig` once `acquireVsCodeApi` is stubbed — and, like every
- * `addInitScript`, before `page.goto(...)`.
+ * Like every `addInitScript`, must be installed before `page.goto(...)`.
  */
 export async function installVSCodeHost(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const w = window as unknown as {
-      acquireVsCodeApi?: () => {
-        postMessage: (msg: unknown) => void;
-        getState: () => unknown;
-        setState: (s: unknown) => void;
-      };
-      ptahConfig?: unknown;
-    };
-    if (typeof w.acquireVsCodeApi !== 'function') {
-      return;
-    }
+    const w = window as unknown as { ptahConfig?: unknown };
     // Exact shape a real VS Code webview host injects: no `isElectron`.
     w.ptahConfig = {
       isVSCode: true,

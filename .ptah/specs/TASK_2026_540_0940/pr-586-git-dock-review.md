@@ -13,7 +13,7 @@ against the lane's account at
   object values.
 - The main-process handler (`ui-driver.ts:82-153`) reads `rpcData['params']` off the
   raw IPC message (`ui-driver.ts:100-102`) and, for a function-mock method, compiles it
-  with `new Function('params', \`return (${source})(params);\`)` (`ui-driver.ts:126-129`)
+  with `new Function('params', ...)` (`ui-driver.ts:126-129`)
   and calls `resolver(params)` (`ui-driver.ts:133`). So the fix's
   `(params) => (...)[params.path]` receives the full RPC params object, unmodified.
 - `GitDiffFileParams` (`libs/shared/src/lib/types/rpc/rpc-git.types.ts:339-345`) declares
