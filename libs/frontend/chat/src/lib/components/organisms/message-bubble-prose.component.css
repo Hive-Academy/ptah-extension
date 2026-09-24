@@ -313,9 +313,20 @@
 /* ==========================================================================
    Streaming Avatar Glow - Replaces animate-pulse to avoid flashing entire bubble
    Only the ring/shadow around the avatar pulses, not the avatar opacity.
+
+   The ring is a static box-shadow on a pseudo-element of the `.avatar`
+   wrapper (the inner avatar div clips with overflow-hidden, so it cannot
+   host it). Only the pseudo-element's `opacity` is animated: an animated
+   box-shadow cannot run on the compositor and repaints + re-layerizes the
+   document on every frame for as long as a message streams.
    ========================================================================== */
 
-:host ::ng-deep .streaming-avatar-glow {
+:host ::ng-deep .streaming-avatar-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
   box-shadow:
     0 0 0 2px oklch(var(--b1)),
     0 0 0 4px oklch(var(--in) / 0.6),
@@ -326,21 +337,15 @@
 @keyframes avatar-ring-pulse {
   0%,
   100% {
-    box-shadow:
-      0 0 0 2px oklch(var(--b1)),
-      0 0 0 4px oklch(var(--in) / 0.6),
-      0 0 8px 2px oklch(var(--in) / 0.25);
+    opacity: 1;
   }
   50% {
-    box-shadow:
-      0 0 0 2px oklch(var(--b1)),
-      0 0 0 4px oklch(var(--in) / 0.35),
-      0 0 4px 1px oklch(var(--in) / 0.1);
+    opacity: 0.6;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :host ::ng-deep .streaming-avatar-glow {
+  :host ::ng-deep .streaming-avatar-glow::after {
     animation: none;
     box-shadow:
       0 0 0 2px oklch(var(--b1)),

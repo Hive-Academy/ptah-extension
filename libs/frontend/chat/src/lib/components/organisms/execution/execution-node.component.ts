@@ -24,7 +24,6 @@ import { TaskCardComponent } from './task-card.component';
 import { MonitorCardComponent } from './monitor-card.component';
 import { SendMessageChipComponent } from './send-message-chip.component';
 import { ScheduleWakeupChipComponent } from './schedule-wakeup-chip.component';
-import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import {
   isWorkflowTool,
   isTaskManagementTool,
@@ -110,7 +109,6 @@ function scheduleFrame(cb: () => void): FrameHandle {
     MonitorCardComponent,
     SendMessageChipComponent,
     ScheduleWakeupChipComponent,
-    AutoAnimateDirective,
   ],
   template: `
     @switch (node().type) {
@@ -187,11 +185,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
               (permissionResponded)="permissionResponded.emit($event)"
             >
               <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-              <div
-                [auto-animate]
-                [autoAnimateDisabled]="flipAnimationDisabled()"
-                class="exec-children"
-              >
+              <div class="exec-children">
                 @for (child of node().children; track child.id) {
                   <ptah-execution-node
                     [node]="child"
@@ -239,11 +233,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
       }
       @case ('message') {
         <!-- Message node unwraps to its children -->
-        <div
-          [auto-animate]
-          [autoAnimateDisabled]="flipAnimationDisabled()"
-          class="exec-children"
-        >
+        <div class="exec-children">
           @for (child of node().children; track child.id) {
             <ptah-execution-node
               [node]="child"
@@ -347,20 +337,6 @@ export class ExecutionNodeComponent {
    */
   protected readonly isNodeStreaming = computed(
     () => this.isStreaming() || this.node().status === 'streaming',
-  );
-
-  /**
-   * Gate for the `[auto-animate]` FLIP containers.
-   *
-   * The directive installs a MutationObserver and measures
-   * `getBoundingClientRect()` for every child on every mutation — a forced
-   * synchronous layout per streamed chunk, on a subtree that is changing many
-   * times a second. Disabling it while chunks arrive (and through the
-   * finalize burst, where the whole tree re-lays out at once) keeps the FLIP
-   * animation for the case it was added for: a settled tree gaining a child.
-   */
-  protected readonly flipAnimationDisabled = computed(
-    () => this.isNodeStreaming() || this.isFinalizing(),
   );
 
   /**

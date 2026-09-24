@@ -39,21 +39,22 @@ import { LucideAngularModule, RefreshCw } from 'lucide-angular';
     }
   `,
   styles: `
+    /* Keyframes animate transform only, so the compositor can run them. The
+       constant width lives on the element: a width in keyframes would force a
+       main-thread layout/paint every frame for the life of the banner. */
     @keyframes indeterminate {
       0% {
-        width: 30%;
         transform: translateX(-100%);
       }
       50% {
-        width: 30%;
         transform: translateX(200%);
       }
       100% {
-        width: 30%;
         transform: translateX(400%);
       }
     }
     .animate-indeterminate {
+      width: 30%;
       animation: indeterminate 1.8s ease-in-out infinite;
     }
   `,

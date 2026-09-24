@@ -101,6 +101,7 @@ describe('SessionStatsAggregatorService', () => {
   let surfacesForSessionMock: jest.Mock;
   let surfaceStats: SurfaceSessionStatsRegistry;
   let warn: jest.SpyInstance;
+  let debug: jest.SpyInstance;
 
   it('clears known fill for an unknown provider on tabs and surfaces without replacing accounting', () => {
     const contextCapacity = {
@@ -188,6 +189,7 @@ describe('SessionStatsAggregatorService', () => {
     sendQueuedMock = jest.fn();
     surfacesForSessionMock = jest.fn(() => []);
     warn = jest.spyOn(console, 'warn').mockImplementation();
+    debug = jest.spyOn(console, 'debug').mockImplementation();
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
@@ -235,6 +237,7 @@ describe('SessionStatsAggregatorService', () => {
 
   afterEach(() => {
     warn.mockRestore();
+    debug.mockRestore();
     TestBed.resetTestingModule();
   });
 

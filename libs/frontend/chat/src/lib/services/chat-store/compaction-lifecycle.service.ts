@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
   SessionId,
@@ -102,28 +102,6 @@ export class CompactionLifecycleService {
     { generation: number; authoritativeGeneration: number | null }
   >();
   private static readonly MAX_COMPACTION_GENERATION_SESSIONS = 256;
-
-  /**
-   * One-tick auto-animate suppression flag.
-   *
-   * After `applyCompactionComplete` clears `messages: []` and `switchSession`
-   * reloads from JSONL, the FLIP-based `[auto-animate]` directive on the
-   * message container animates the diff between the old (stale) bubble DOM
-   * and the new tree. Combined with `position: sticky` headers in agent
-   * message bubbles, stacking-context contention produces visible bubble
-   * overlap and clipping.
-   *
-   * The lifecycle service flips this signal `true` synchronously right
-   * before the message clear, then resets it on the next microtask so the
-   * suppression spans exactly one Angular change-detection tick. The
-   * chat-view consumes this via its `[autoAnimateDisabled]` binding.
-   *
-   * Microtask (not `setTimeout(0)`) is intentional: it runs after the
-   * current synchronous work but before the browser's next paint, which
-   * matches the lifetime of the OnPush diff we want to skip animating.
-   */
-  private readonly _suppressAnimateOnce = signal(false);
-  readonly suppressAnimateOnce = this._suppressAnimateOnce.asReadonly();
 
   /** Whether `sessionId` keys a recovery timer or a compaction generation. */
   private readonly hasLifecycleState = (sessionId: SessionId): boolean =>
@@ -416,7 +394,6 @@ export class CompactionLifecycleService {
         this.advisoryCorrelator.delete(key);
       }
     }
-    this.treeBuilder.clearCache();
     this.clearCompactionRecoveryTimer(key);
     const allTabs = this.tabManager.tabs();
     const originatingTab = allTabs.find((t) => t.id === result.tabId);
@@ -523,28 +500,12 @@ export class CompactionLifecycleService {
       },
     );
 
-    // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
-    // repro is confirmed. Snapshots the fan-out DECISION: every open tab, the
-    // event's originating tab/session, and exactly which tabs were selected to
-    // clear + reload. If the visible-but-stale tile is missing from
-    // `fanoutTabs` here, the bug is in fan-out SELECTION; if it is present but
-    // still stale, the bug is in the RELOAD target (see session-loader diag).
-    console.warn('[compaction-diag] handleCompactionComplete decision', {
-      resultTabId: result.tabId,
-      compactionSessionId: result.compactionSessionId,
-      lifecycleKey: key,
-      originatingTabFound: !!originatingTab,
-      allTabs: allTabs.map((t) => ({
-        id: t.id,
-        claudeSessionId: t.claudeSessionId ?? null,
-        messages: t.messages.length,
-      })),
-      fanoutTabs: fanoutTabs.map((t) => ({
-        id: t.id,
-        claudeSessionId: t.claudeSessionId ?? null,
-        messages: t.messages.length,
-      })),
-    });
+    // Only the tabs being reset lose their tree cache. A global clear made every
+    // open tab and canvas tile rebuild its whole tree on each compaction.
+    for (const t of fanoutTabs) {
+      this.treeBuilder.clearCache(`tab-${t.id}`);
+      this.treeBuilder.clearCache(`tile-${t.id}`);
+    }
 
     const completedAt = Date.now();
     for (const convId of this.collectConversationIdsForTabs(
@@ -561,8 +522,6 @@ export class CompactionLifecycleService {
     }
     const compactionTab = originatingTab;
     if (compactionTab) {
-      this._suppressAnimateOnce.set(true);
-      queueMicrotask(() => this._suppressAnimateOnce.set(false));
       for (const t of fanoutTabs) {
         // The tab keeps its backend session snapshot across compaction; no
         // totals are rebuilt from the messages being cleared (TASK_2026_533).
@@ -579,13 +538,6 @@ export class CompactionLifecycleService {
         tabId: tab.id,
         sessionId: tab.claudeSessionId ?? compactionSid,
       }));
-
-      // [compaction-diag] TEMPORARY — retain visibility into the explicit
-      // session/tab pairs until the 2-tile stale-transcript repro is confirmed.
-      console.warn('[compaction-diag] reload plan', {
-        reloadSessionIds: reloadTargets.map((target) => target.sessionId),
-        fanoutTabIds: fanoutTabs.map((t) => t.id),
-      });
 
       if (reloadTargets.length === 0) {
         this.clearCompactionStateForFanout(fanoutTabs);
@@ -724,7 +676,7 @@ export class CompactionLifecycleService {
           advisoryFallback: true,
         }),
     });
-    console.info(
+    console.debug(
       '[ChatStore] PostCompact advisory received; waiting briefly for real compact_boundary',
       { sessionId: compactionSid },
     );

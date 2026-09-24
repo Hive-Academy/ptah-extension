@@ -39,7 +39,6 @@ import { CompactSessionCardComponent } from '../molecules/compact-session/compac
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
-import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
@@ -163,16 +162,6 @@ export class ChatViewComponent implements OnDestroy {
    * view and the routing itself can never disagree about who owns a prompt.
    */
   private readonly _streamRouter = inject(StreamRouter);
-  /**
-   * Read the one-tick auto-animate suppression flag set by
-   * `CompactionLifecycleService.handleCompactionComplete`. Combined with
-   * `resolvedIsStreaming()` and `isFinalizingTransition()` in the
-   * `[autoAnimateDisabled]` binding so the FLIP directive skips the
-   * stale→empty diff that produced bubble overlap with sticky headers.
-   */
-  private readonly _compactionLifecycle = inject(CompactionLifecycleService);
-  protected readonly suppressAnimateOnce =
-    this._compactionLifecycle.suppressAnimateOnce;
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly sessionHistoryReplayer = inject(SessionHistoryReplayer);
   private readonly historyPaging = inject(HistoryPagingService);
@@ -899,9 +888,10 @@ export class ChatViewComponent implements OnDestroy {
       const panelOpen = this.agentPanelOpen();
       const sidebarTab = this.agentSidebarTab();
       if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
-        const button = this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
-          'ptah-sidebar-tab button',
-        );
+        const button =
+          this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
+            'ptah-sidebar-tab button',
+          );
         if (!button) return;
         button.focus();
         this.restoreAgentSidebarTabFocus = false;

@@ -526,7 +526,7 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
               [max]="handleMax()"
               [label]="splitHandleLabel()"
               (sizeChange)="onSplitSizeChange($event)"
-              (reset)="onSplitReset()"
+              (sizeReset)="onSplitReset()"
             />
           }
 
