@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { activeConfigSurface, openConfigSurfaceSilently } from './config-menu';
 
 /**
  * Silent, best-effort PRE-WARM helpers for showcase scenes.
@@ -30,11 +31,11 @@ const NAV = '.electron-tabs';
 
 /** `title` of the active top-nav tab, captured so pre-warm can restore it. */
 async function activeNavTitle(page: Page): Promise<string | null> {
-  return page
+  const tab = page
     .locator(`${NAV} [role="tab"][aria-selected="true"]`)
-    .first()
-    .getAttribute('title')
-    .catch(() => null);
+    .first();
+  if (!(await tab.isVisible().catch(() => false))) return null;
+  return tab.getAttribute('title').catch(() => null);
 }
 
 /** Best-effort re-select of a top-nav tab by its `title` (no-op when unknown). */
@@ -43,15 +44,16 @@ async function restoreNav(page: Page, title: string | null): Promise<void> {
   const tab = page.locator(`${NAV} [role="tab"][title="${title}"]`).first();
   if (await tab.isVisible().catch(() => false)) {
     await tab.click().catch(() => undefined);
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(200).catch(() => undefined);
   }
 }
 
 /**
- * Pre-warm a top-nav surface: remember the active tab, click the tab named
- * `navName`, wait for `ready` to mount, then restore the original tab. When the
- * tab isn't on screen (gated / renamed) nothing happens and the original view is
- * left untouched.
+ * Pre-warm a remaining top-nav surface (for example Chat or Analytics): click
+ * the tab named `navName`, wait for `ready`, then restore the original tab or
+ * configuration surface. Configuration destinations use the menu instead. When
+ * the tab isn't on screen (gated / renamed) nothing happens and the original
+ * view is left untouched.
  */
 export async function prewarmNavSurface(
   page: Page,
@@ -62,30 +64,42 @@ export async function prewarmNavSurface(
   const original = await activeNavTitle(page);
   const tab = page.getByRole('tab', { name: navName }).first();
   if (!(await tab.isVisible().catch(() => false))) return;
+  const originalConfig = await activeConfigSurface(page);
   await tab.click().catch(() => undefined);
   await page
     .locator(ready)
     .first()
     .waitFor({ state: 'visible', timeout: timeoutMs })
     .catch(() => undefined);
-  await page.waitForTimeout(400);
-  await restoreNav(page, original);
+  await page.waitForTimeout(400).catch(() => undefined);
+  if (original) {
+    await restoreNav(page, original);
+  } else if (originalConfig) {
+    await openConfigSurfaceSilently(page, originalConfig);
+  }
 }
 
 /**
- * Pre-warm the Thoth shell and one or more of its inner tabs. Enters Thoth,
- * waits for the shell tablist, clicks each requested inner tab so its
+ * Pre-warm the Thoth shell and one or more of its inner tabs. Enter through the
+ * menu, wait for the shell tablist, and click each requested inner tab so its
  * SQLite/embedder-backed panel takes its first-mount cost here (in the trimmed
- * lead-in), then returns to the starting surface.
+ * lead-in), then restore tab-row, configuration-surface, or no-workspace welcome
+ * origins only. Other origins (for example setup-wizard or harness-builder)
+ * stay on Thoth. A null configuration capture means no configuration origin
+ * was captured, including when detection failed.
  */
 export async function prewarmThoth(
   page: Page,
   tabIds: readonly ('memory' | 'skills' | 'cron' | 'gateway')[],
 ): Promise<void> {
   const original = await activeNavTitle(page);
-  const thoth = page.getByRole('tab', { name: 'Thoth' }).first();
-  if (!(await thoth.isVisible().catch(() => false))) return;
-  await thoth.click().catch(() => undefined);
+  const originalConfig = await activeConfigSurface(page);
+  const originalWelcome =
+    !original &&
+    !originalConfig &&
+    (await page.locator('ptah-electron-welcome').isVisible().catch(() => false)) &&
+    (await page.locator(NAV).count().catch(() => -1)) === 0;
+  if (!(await openConfigSurfaceSilently(page, 'thoth'))) return;
   // The shell renders its inner tablist once mounted — memory is always first.
   await page
     .locator('#thoth-tab-memory')
@@ -100,7 +114,16 @@ export async function prewarmThoth(
       .waitFor({ state: 'visible', timeout: 15_000 })
       .catch(() => undefined);
     // Let the panel's async data (SQLite reads / embedder stats) settle.
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(500).catch(() => undefined);
   }
-  await restoreNav(page, original);
+  if (original) {
+    await restoreNav(page, original);
+  } else if (originalConfig) {
+    await openConfigSurfaceSilently(page, originalConfig);
+  } else if (originalWelcome) {
+    const back = page.locator('[data-test="config-back-to-welcome"]');
+    if (await back.isVisible().catch(() => false)) {
+      await back.click({ timeout: 2_000 }).catch(() => undefined);
+    }
+  }
 }

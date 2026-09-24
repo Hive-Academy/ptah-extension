@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P3.2 — "Drive Ptah from your phone" (Messaging Gateway tour).
@@ -78,20 +79,12 @@ const PAIRING_LINE = 10;
 
 /**
  * Navigate from wherever the shell opens into the Thoth → Gateway tab and wait
- * for its panel to render. Best-effort selectors so the scene survives minor
- * chrome changes.
+ * for its panel to render. Enters Thoth through the global configuration menu
+ * via `openConfigSurface`; a missing menu trigger or item fails the scene loudly.
  */
 async function goToGateway(page: Page, director: Director): Promise<void> {
-  // Enter the desktop "cockpit" (Thoth shell) via the top nav tab.
-  const thothTab = page.getByRole('tab', { name: 'Thoth' });
-  if (
-    await thothTab
-      .first()
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await director.click(thothTab.first());
-  }
+  // Enter the desktop "cockpit" (Thoth shell) via the global configuration menu.
+  await openConfigSurface(page, director, 'thoth');
 
   // Open the Gateway inner tab and wait for its panel.
   const gatewayTab = page.locator('#thoth-tab-gateway');

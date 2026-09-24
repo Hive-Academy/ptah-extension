@@ -1,6 +1,6 @@
 ---
 templateId: project-manager-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 100
@@ -110,7 +110,6 @@ codebase has already settled.
 Write `task-description.md` (and `parity-inventory.md` when replacing, consolidating,
 rebuilding or redesigning an existing surface) into the task folder with `Write`, using
 its absolute path.
-
 
 ```markdown
 # Requirements - TASK_YYYY_NNN
@@ -237,4 +236,3 @@ The document is the deliverable. Do not summarise it in the response.
   a note, and it dilutes the risks that need attention.
 - Do not omit `parity-inventory.md` when replacing, consolidating, rebuilding or
   redesigning an existing surface; silent removal of existing capabilities is prohibited.
-

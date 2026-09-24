@@ -1,6 +1,7 @@
 import { Injectable, Signal, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
+  ChildrenOutletContexts,
   NavigationEnd,
   PRIMARY_OUTLET,
   Router,
@@ -63,6 +64,7 @@ export function surfaceNavigationLanded(
 @Injectable({ providedIn: 'root' })
 export class SurfaceRouterService {
   private readonly router = inject(Router);
+  private readonly outletContexts = inject(ChildrenOutletContexts);
 
   /**
    * The last URL the Router successfully settled on.
@@ -138,6 +140,36 @@ export class SurfaceRouterService {
       );
       return 'failed';
     }
+  }
+
+  /**
+   * Re-create an open configuration surface with fresh workspace data after a
+   * workspace switch.
+   *
+   * Only the routed component is re-created, at the same URL; child outlets
+   * re-activate from their retained contexts. There is no navigation because
+   * the destination has not changed, only the workspace data it should read.
+   *
+   * Callers must skip this call while a navigation is in flight (`pendingSurface()`
+   * is non-null): concurrent navigation would tear the re-created component
+   * down again, wasting construction and risking a flash and duplicate data fetches.
+   *
+   * The outlet's `(activate)`/`(deactivate)` outputs fire on every remount,
+   * not only on real navigations.
+   *
+   * Callers must NOT call this synchronously inside `AppStateManager.switchWorkspace`:
+   * `workspaceInfo` is set only after the coordinator returns
+   * (`electron-layout.service.ts:486-503`). The Electron shell calls this from
+   * an effect on `configurationSurfaceRemountTick`, after that update.
+   */
+  remountActiveSurface(): void {
+    const ctx = this.outletContexts.getContext(PRIMARY_OUTLET);
+    if (!ctx?.outlet?.isActivated || !ctx.route) return;
+
+    const route = ctx.route;
+    const injector = ctx.injector;
+    ctx.outlet.deactivate();
+    ctx.outlet.activateWith(route, injector);
   }
 
   /**

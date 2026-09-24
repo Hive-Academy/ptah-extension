@@ -191,6 +191,26 @@ describe('TemplatePartialResolver', () => {
     expect(result.error!.message).toContain('Unknown STATIC block id');
   });
 
+  it('resolves a well-formed unregistered id when its partial file exists', async () => {
+    // A template published on main can name a block an older installed app
+    // does not list in its compiled SHARED_BLOCK_IDS; the partial file in
+    // `_shared/` is the compatibility contract that lets every resolver that
+    // can read the templates directory expand it anyway.
+    writeFileSync(
+      join(dir, partialFileName('FUTURE_BLOCK')),
+      '- Future rule.\n',
+      'utf8',
+    );
+
+    const result = await resolve(
+      '<!-- STATIC:FUTURE_BLOCK -->\n<!-- /STATIC:FUTURE_BLOCK -->\n',
+    );
+
+    expect(result.isErr() ? result.error!.message : 'ok').toBe('ok');
+    expect(result.value!.content).toContain('- Future rule.');
+    expect(result.value!.blocks.map((b) => b.id)).toEqual(['FUTURE_BLOCK']);
+  });
+
   it('refuses an unclosed block', async () => {
     const result = await resolve('<!-- STATIC:REPLACEMENT_POLICY -->\nbody\n');
     expect(result.isErr()).toBe(true);

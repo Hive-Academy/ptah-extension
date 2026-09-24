@@ -721,6 +721,175 @@ describe('StreamTransformer — lastTurnContextTokens (TASK_2026_109_FOLLOWUP)',
 });
 
 // ---------------------------------------------------------------------------
+// Key-space mismatch and subagent partials.
+//
+// `modelUsage` is keyed by the raw model string the CLI ran — the 1M variant
+// arrives as `claude-opus-5-5[1m]` — while `message_start.message.model` is
+// what the API echoed for the request the CLI sent with the tag stripped. An
+// exact-key lookup therefore missed every turn of a 1M session, and the
+// frontend suppressed the context gauge after compaction.
+// ---------------------------------------------------------------------------
+
+describe('StreamTransformer — last-turn context key matching and subagent partials', () => {
+  function asSubagent(
+    message: SDKMessage,
+    parentToolUseId: string,
+  ): SDKMessage {
+    return { ...message, parent_tool_use_id: parentToolUseId } as SDKMessage;
+  }
+
+  async function run(
+    messages: SDKMessage[],
+    harness: Harness = makeHarness(),
+  ): Promise<ResultModelUsage[][]> {
+    const captured: ResultModelUsage[][] = [];
+    await drain(
+      harness.transformer.transform({
+        sdkQuery: asAsyncIterable(messages),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: 'claude-opus-5-5[1m]',
+        onResultStats: (stats) => {
+          if (stats.modelUsage) captured.push(stats.modelUsage);
+        },
+      }),
+    );
+    return captured;
+  }
+
+  it('matches a `[1m]` modelUsage key to the bare id message_start reported', async () => {
+    const captured = await run([
+      messageStart('claude-opus-5-5', {
+        input_tokens: 1000,
+        cache_read_input_tokens: 200_000,
+        cache_creation_input_tokens: 500,
+      }),
+      resultMessage('claude-opus-5-5[1m]', {
+        inputTokens: 1_500_000,
+        outputTokens: 9000,
+      }),
+    ]);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0][0].model).toBe('claude-opus-5-5[1m]');
+    expect(captured[0][0].lastTurnContextTokens).toBe(201_500);
+  });
+
+  it('matches across a date snapshot suffix', async () => {
+    const captured = await run([
+      messageStart('claude-sonnet-5-20260801', { input_tokens: 4200 }),
+      resultMessage('claude-sonnet-5', { inputTokens: 4200, outputTokens: 10 }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(4200);
+  });
+
+  it('an exact key wins, and the tracked fill is never handed to a second row', async () => {
+    const captured = await run([
+      messageStart('claude-opus-5-5', { input_tokens: 7000 }),
+      resultMessageMulti({
+        totalCostUsd: 0,
+        modelUsage: {
+          'claude-opus-5-5[1m]': {
+            inputTokens: 100,
+            outputTokens: 50,
+            costUSD: 0,
+          },
+          'claude-opus-5-5': { inputTokens: 90, outputTokens: 40, costUSD: 0 },
+        },
+      }),
+    ]);
+
+    const byModel = new Map(captured[0].map((row) => [row.model, row]));
+    expect(byModel.get('claude-opus-5-5')?.lastTurnContextTokens).toBe(7000);
+    expect(
+      byModel.get('claude-opus-5-5[1m]')?.lastTurnContextTokens,
+    ).toBeUndefined();
+  });
+
+  it('leaves both rows undefined when two keys normalize to the one tracked id', async () => {
+    const captured = await run([
+      messageStart('claude-opus-5-5', { input_tokens: 7000 }),
+      resultMessageMulti({
+        totalCostUsd: 0,
+        modelUsage: {
+          'claude-opus-5-5[1m]': {
+            inputTokens: 100,
+            outputTokens: 50,
+            costUSD: 0,
+          },
+          'anthropic/claude-opus-5-5': {
+            inputTokens: 90,
+            outputTokens: 40,
+            costUSD: 0,
+          },
+        },
+      }),
+    ]);
+
+    for (const row of captured[0]) {
+      expect(row.lastTurnContextTokens).toBeUndefined();
+    }
+  });
+
+  it('a subagent message_start / message_delta does not overwrite the main loop value', async () => {
+    const captured = await run([
+      messageStart('claude-opus-5-5', {
+        input_tokens: 3000,
+        cache_read_input_tokens: 150_000,
+      }),
+      // Same model, different conversation: a subagent's much smaller prompt.
+      asSubagent(
+        messageStart('claude-opus-5-5', { input_tokens: 40 }),
+        'toolu_sub_1',
+      ),
+      asSubagent(
+        messageDelta({ input_tokens: 60, output_tokens: 5 }),
+        'toolu_sub_1',
+      ),
+      resultMessage('claude-opus-5-5[1m]', {
+        inputTokens: 3100,
+        outputTokens: 700,
+      }),
+    ]);
+
+    expect(captured[0][0].lastTurnContextTokens).toBe(153_000);
+  });
+
+  it('logs the modelUsage and tracked keys at debug level when a value is still missing', async () => {
+    const harness = makeHarness();
+    const captured = await run(
+      [
+        messageStart('claude-opus-5-5', { input_tokens: 100 }),
+        resultMessageMulti({
+          totalCostUsd: 0,
+          modelUsage: {
+            'claude-opus-5-5[1m]': {
+              inputTokens: 100,
+              outputTokens: 50,
+              costUSD: 0,
+            },
+            'claude-sonnet-5': { inputTokens: 10, outputTokens: 5, costUSD: 0 },
+          },
+        }),
+      ],
+      harness,
+    );
+
+    const sonnet = captured[0].find((row) => row.model === 'claude-sonnet-5');
+    // No main-loop message streamed for it: no number is invented.
+    expect(sonnet?.lastTurnContextTokens).toBeUndefined();
+    expect(harness.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('No last-turn context tracked'),
+      expect.objectContaining({
+        untrackedModels: ['claude-sonnet-5'],
+        modelUsageKeys: ['claude-opus-5-5[1m]', 'claude-sonnet-5'],
+        trackedKeys: ['claude-opus-5-5'],
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // TASK_2026_408 phase 2 — usage-to-stats integration regressions.
 //
 // These pin the producer side of the context gauge: whatever usage a

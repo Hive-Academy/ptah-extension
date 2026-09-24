@@ -1,6 +1,6 @@
 ---
 templateId: visual-reviewer-v2
-templateVersion: 2.2.0
+templateVersion: 2.3.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 65
@@ -94,6 +94,7 @@ and the prototype comparison pass (or before/after comparison when no prototype 
 When `prototype/` exists in the task folder, compare the running application directly
 against the Gate 1.7 approved prototype (`prototype/index.html` and `prototype/screenshots/`).
 Compare across both dark and light themes, and narrow (≈400px) vs wide viewports:
+
 - Verify component choices match (e.g. badges, tooltips, hints, and button styling). Flag
   any unapproved substitution of status badges/tooltips with text buttons.
 - Verify that no project components were banned or stripped without user approval.
@@ -301,4 +302,3 @@ severity. Nothing else.
 - Do not soften a severity because the fix looks small.
 - Do not review a UI surface without comparing against the approved prototype in `prototype/` when one was produced.
 - Do not approve a build that introduces unapproved visual deviations or component bans not present in the approved prototype.
-

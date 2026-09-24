@@ -50,10 +50,10 @@ async function isVisible(loc: Locator): Promise<boolean> {
 /** Navigate to the Dashboard via the global Electron navbar tab. */
 async function goToDashboard(page: Page, director: Director): Promise<void> {
   const candidates: Locator[] = [
-    page.getByRole('tab', { name: 'Dashboard' }),
-    page.getByRole('button', { name: 'Dashboard' }),
-    page.locator('[aria-label="Dashboard"]'),
-    page.locator('[title="Dashboard"]'),
+    page.getByRole('tab', { name: 'Analytics' }),
+    page.getByRole('button', { name: 'Analytics' }),
+    page.locator('[aria-label="Analytics"]'),
+    page.locator('[title="Analytics"]'),
   ];
   for (const c of candidates) {
     if (await isVisible(c)) {
