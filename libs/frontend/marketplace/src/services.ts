@@ -4,15 +4,16 @@
  * Lightweight barrel that exports only services — no components. Use this
  * import path from eager code (e.g. the webview's `app.config.ts`, which
  * registers `HarnessHealthStore` in `MESSAGE_HANDLERS`) so that registering the
- * message handler does not drag `MarketplaceHubComponent` and the eight
- * surfaces behind it into the initial bundle:
+ * message handler does not drag the Marketplace shell, its pages and the
+ * surfaces behind them into the initial bundle:
  *
  *   import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
  *
- * For components, use the main entry point — which should only ever be reached
- * through a dynamic `import()`:
+ * For the Marketplace itself, use the main entry point — which should only
+ * ever be reached through a dynamic `import()`:
  *
- *   import('@ptah-extension/marketplace').then((m) => m.MarketplaceHubComponent);
+ *   loadChildren: () =>
+ *     import('@ptah-extension/marketplace').then((m) => m.MARKETPLACE_ROUTES)
  *
  * @see TASK_2026_187
  */

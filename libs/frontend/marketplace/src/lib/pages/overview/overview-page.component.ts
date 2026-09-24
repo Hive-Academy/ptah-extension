@@ -24,7 +24,7 @@ import {
   MarketplaceInventoryStore,
   type InventorySliceId,
 } from '../../data/marketplace-inventory.store';
-import { harnessChipPresentation } from '../../harness/harness-health.model';
+import { harnessChipPresentation } from '../../harness/harness-chip-presentation';
 import { HarnessHealthStore } from '../../harness/harness-health.store';
 import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';

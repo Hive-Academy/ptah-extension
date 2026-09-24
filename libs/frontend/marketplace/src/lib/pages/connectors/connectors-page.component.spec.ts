@@ -316,6 +316,16 @@ describe('ConnectorsPageComponent', () => {
       await mount('/marketplace/connectors?category=devops');
 
       const search = one('input[type="search"]') as HTMLInputElement;
+      // Search and category narrow together ("issues" matches outside devops).
+      const hits = PTAH_CONNECTORS.filter((c) =>
+        `${c.id} ${c.label} ${c.description}`.toLowerCase().includes('issues'),
+      );
+      expect(hits.some((c) => c.category !== 'devops')).toBe(true);
+      search.value = 'issues';
+      search.dispatchEvent(new Event('input'));
+      await settle();
+      const devopsHits = hits.filter((c) => c.category === 'devops');
+      expect(gridIds()).toEqual(devopsHits.map((c) => c.id));
       search.value = 'zzz-no-match';
       search.dispatchEvent(new Event('input'));
       await settle();

@@ -62,6 +62,16 @@ const NOTION: InstalledMcpServer = {
   removal: 'oauth',
 };
 
+const HUBSPOT_SMITHERY: InstalledMcpServer = {
+  serverKey: 'smithery_hubspot',
+  configPath: '',
+  config: { type: 'http', url: 'https://smithery.example/mcp' },
+  managedByPtah: true,
+  origin: 'smithery',
+  originLabel: 'Smithery',
+  removal: 'smithery',
+};
+
 function ok<T>(data: T) {
   return { success: true, data, error: undefined, isSuccess: () => true };
 }
@@ -96,13 +106,15 @@ describe('InstalledServersPageComponent', () => {
   let tabs: ReturnType<typeof signal<readonly TabStub[]>>;
   let tier: ReturnType<typeof signal<MarketplaceTier>>;
   let ensureLoaded: jest.Mock;
+  /** Per-method answers; a test may replace one before `mount()`. */
+  let responders: Record<string, () => unknown>;
 
   beforeEach(() => {
     methods = [];
     tabs = signal<readonly TabStub[]>([]);
     tier = signal<MarketplaceTier>('regular');
     ensureLoaded = jest.fn();
-    const responders: Record<string, () => unknown> = {
+    responders = {
       'mcpDirectory:listInstalled': () => ok({ servers: [FIRECRAWL, NOTION] }),
       'mcpDirectory:listOAuthConnected': () =>
         ok({
@@ -256,6 +268,60 @@ describe('InstalledServersPageComponent', () => {
         ?.querySelector('[data-testid="status-pill"]')
         ?.getAttribute('data-status'),
     ).toBe('connected');
+  });
+
+  /** The status pill of the row with `ref`, or `null` when it has none. */
+  const pillOf = (ref: string): string | null | undefined =>
+    Array.from(root().querySelectorAll('[data-list-rows] [data-ref]'))
+      .find((el) => el.getAttribute('data-ref') === ref)
+      ?.querySelector('[data-testid="status-pill"]')
+      ?.getAttribute('data-status');
+
+  it('decorates Smithery rows with the live connection state', async () => {
+    responders['mcpDirectory:listInstalled'] = () =>
+      ok({ servers: [FIRECRAWL, NOTION, HUBSPOT_SMITHERY] });
+    responders['mcpDirectory:listSmitheryConnections'] = () =>
+      ok({
+        connections: [
+          {
+            connectionId: 'hubspot',
+            name: 'HubSpot',
+            server: 'hubspot',
+            status: 'auth_required',
+            managedByPtah: true,
+            serverKey: 'smithery_hubspot',
+          },
+        ],
+        namespace: 'acme',
+      });
+    await mount();
+
+    expect(pillOf('smithery:smithery_hubspot')).toBe('needs-auth');
+    expect(pillOf('oauth:notion')).toBe('connected');
+  });
+
+  it('keeps the list whole, without live states or an error, when the link reads fail', async () => {
+    const failed = () => ({
+      success: false,
+      error: 'link read failed',
+      isSuccess: () => false,
+    });
+    responders['mcpDirectory:listInstalled'] = () =>
+      ok({ servers: [FIRECRAWL, NOTION, HUBSPOT_SMITHERY] });
+    responders['mcpDirectory:listOAuthConnected'] = failed;
+    responders['mcpDirectory:listSmitheryConnections'] = failed;
+    await mount();
+
+    expect(rowRefs()).toEqual([
+      'harness-config:firecrawl',
+      'oauth:notion',
+      'smithery:smithery_hubspot',
+    ]);
+    // No decoration source answered: every row falls back to its config.
+    expect(pillOf('oauth:notion')).toBe('configured');
+    expect(pillOf('smithery:smithery_hubspot')).toBe('configured');
+    expect(root().querySelector('[role="alert"]')).toBeNull();
+    expect(root().textContent).not.toContain('link read failed');
   });
 
   it('shows neither connector rows nor the live count without an active-workspace session', async () => {

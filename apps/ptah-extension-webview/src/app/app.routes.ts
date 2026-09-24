@@ -52,7 +52,8 @@ import { WizardViewComponent } from '@ptah-extension/setup-wizard';
  *   is already in the eager graph.
  * - everything else — `loadComponent`. These replace the five deferred
  *   `LazyViewService` tokens one-for-one, plus `thoth`'s
- *   `@defer (on immediate)` block.
+ *   `@defer (on immediate)` block. `marketplace` is the one `loadChildren`:
+ *   its pages are child routes of the lazily loaded tree.
  *
  * `harness-builder` and `setup-hub` both resolve out of
  * `@ptah-extension/harness-builder`, so ONE chunk serves both. That is
@@ -126,10 +127,10 @@ export const appRoutes: Routes = [
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('marketplace') },
     ],
-    loadComponent: () =>
-      import('@ptah-extension/marketplace').then(
-        (m) => m.MarketplaceHubComponent,
-      ),
+    // A routed tree, not one component: the shell and its pages live under
+    // `/marketplace/...` (`MARKETPLACE_ROUTES`, TASK_2026_533).
+    loadChildren: () =>
+      import('@ptah-extension/marketplace').then((m) => m.MARKETPLACE_ROUTES),
   },
   {
     path: 'tribunal',

@@ -623,6 +623,11 @@ export class InstalledSkillsPageComponent {
   }
 
   private readChildRef(): string | null {
-    return this.route.firstChild?.snapshot.paramMap.get(SKILL_REF_PARAM) ?? null;
+    // While the router is still activating this page (the constructor runs
+    // then), the child route exists but has no snapshot yet; the NavigationEnd
+    // of that same navigation reads again once it has one.
+    return (
+      this.route.firstChild?.snapshot?.paramMap.get(SKILL_REF_PARAM) ?? null
+    );
   }
 }

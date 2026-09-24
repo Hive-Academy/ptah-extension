@@ -195,6 +195,8 @@ describe('ConnectorDetailComponent', () => {
       expect(fact('Connected')).toBe('Sep 1, 2026');
       expect(one('ptah-status-pill')).not.toBeNull();
       expect(one('ptah-oauth-surface')).toBeNull();
+      // Dynamic client registration needs no provider app: no steps block.
+      expect(one('[data-testid="connector-setup-steps"]')).toBeNull();
     });
 
     it('says "Not connected" with no pill and offers Connect before any connection', async () => {
@@ -310,6 +312,38 @@ describe('ConnectorDetailComponent', () => {
 
       expect(form().urlInput()).toBe(other.url);
       expect(form().nameInput()).toBe(other.label);
+    });
+
+    it('replaces the steps with the other connector’s, then drops them for an oauth-dcr one', async () => {
+      configure();
+      await mount('github');
+      const other = PTAH_CONNECTORS.find(
+        (c) =>
+          c.kind === 'oauth-app' &&
+          c.id !== 'github' &&
+          (c.setupSteps?.length ?? 0) > 0,
+      );
+      if (!other?.setupSteps) throw new Error('need a second oauth-app');
+      const stepTexts = (): string[] =>
+        Array.from(
+          el().querySelectorAll('[data-testid="connector-setup-steps"] li'),
+          (li) => li.textContent?.trim() ?? '',
+        );
+      expect(stepTexts()[0]).toBe(GITHUB.setupSteps?.[0]);
+
+      fixture.componentRef.setInput('connectorId', other.id);
+      await settle();
+
+      expect(stepTexts()).toEqual(
+        other.setupSteps.map((step) =>
+          step.replaceAll('{redirectUrl}', REDIRECT),
+        ),
+      );
+
+      fixture.componentRef.setInput('connectorId', SENTRY.id);
+      await settle();
+
+      expect(one('[data-testid="connector-setup-steps"]')).toBeNull();
     });
 
     it('brings the setup form into focus on Set up, without an RPC', async () => {

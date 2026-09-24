@@ -12,8 +12,8 @@ import type {
 
 import type { ConnectorLink } from '../../data/connector-links.store';
 import type { ProviderRow } from '../../data/provider-row';
-// The harness model has no spec file of its own; its chip words are pinned here.
-import { harnessChipPresentation } from '../../harness/harness-health.model';
+// The chip presentation has no spec file of its own; its words are pinned here.
+import { harnessChipPresentation } from '../../harness/harness-chip-presentation';
 import {
   combinedWidgetState,
   connectorsKpi,

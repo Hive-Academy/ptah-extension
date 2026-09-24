@@ -310,16 +310,22 @@ describe('InstalledSkillsPageComponent', () => {
     expect(names('community')).toEqual(['deep-research']);
   });
 
-  it('shows an empty state that links to the source', async () => {
+  it.each([
+    ['plugins', 'ptah-plugins'],
+    ['community', 'community'],
+    ['marketplaces', 'marketplaces'],
+  ])('shows an empty %s group that links to its source', async (id, source) => {
+    enabledPlugins.set([]);
+    responders.set('skillsSh:listInstalled', () => ok({ skills: [] }));
     responders.set('plugins:list-marketplaces', () =>
       ok({ marketplaces: [], suggestions: [], installed: [] }),
     );
     await openPage();
 
-    const empty = group('marketplaces').querySelector(
+    const empty = group(id).querySelector(
       '[data-testid="installed-skills-empty"] a',
     );
-    expect(empty?.getAttribute('href')).toBe('/marketplace/skills/marketplaces');
+    expect(empty?.getAttribute('href')).toBe(`/marketplace/skills/${source}`);
   });
 
   it('links Ptah plugins to their source page instead of uninstalling them', async () => {

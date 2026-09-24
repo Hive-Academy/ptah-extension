@@ -35,6 +35,7 @@ import {
   provideRouter,
   withComponentInputBinding,
   withDisabledInitialNavigation,
+  type Routes,
 } from '@angular/router';
 import {
   ACCEPTED_INITIAL_VIEWS,
@@ -265,7 +266,11 @@ describe('webview routing composition', () => {
 
         await bootWithInitialView(id);
 
-        expect(TestBed.inject(Router).url).toBe(`/${id}`);
+        // The bare Marketplace URL is its restore redirect, which lands on the
+        // Overview when nothing is remembered (`MARKETPLACE_ROUTES`).
+        expect(TestBed.inject(Router).url).toBe(
+          id === 'marketplace' ? '/marketplace/overview' : `/${id}`,
+        );
       },
     );
 
@@ -365,20 +370,31 @@ describe('app.routes', () => {
     },
   );
 
-  it.each([
-    'harness-builder',
-    'setup-hub',
-    'thoth',
-    'marketplace',
-    'tribunal',
-    'tasks',
-  ])('defers %s with loadComponent', (path) => {
-    const route = appRoutes.find((candidate) => candidate.path === path);
-    expect(typeof route?.loadComponent).toBe('function');
-    expect(route?.component).toBeUndefined();
-  });
+  it.each(['harness-builder', 'setup-hub', 'thoth', 'tribunal', 'tasks'])(
+    'defers %s with loadComponent',
+    (path) => {
+      const route = appRoutes.find((candidate) => candidate.path === path);
+      expect(typeof route?.loadComponent).toBe('function');
+      expect(route?.component).toBeUndefined();
+    },
+  );
 
-  it.each(['harness-builder', 'setup-hub', 'thoth', 'marketplace', 'tasks'])(
+  it('defers marketplace as a lazily loaded route tree', async () => {
+    // Pins the `MARKETPLACE_ROUTES` barrel export: a rename would otherwise
+    // only surface as a dead surface at runtime.
+    const route = appRoutes.find(
+      (candidate) => candidate.path === 'marketplace',
+    );
+    expect(route?.component).toBeUndefined();
+    expect(route?.loadComponent).toBeUndefined();
+
+    const loaded = await (route?.loadChildren as () => Promise<Routes>)();
+
+    expect(Array.isArray(loaded)).toBe(true);
+    expect(typeof loaded[0]?.component).toBe('function');
+  }, 30_000);
+
+  it.each(['harness-builder', 'setup-hub', 'thoth', 'tasks'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would

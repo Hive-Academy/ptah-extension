@@ -49,7 +49,7 @@ const UNKNOWN_SUMMARY: HarnessHealthSummary = summarizeHarnessHealth(null);
  * start, and any of those can turn the harness amber while the user is looking
  * at some other surface. The store is registered in `MESSAGE_HANDLERS` at
  * bootstrap (see `src/services.ts`), so the badge is correct on first paint
- * even though `MarketplaceHubComponent` is lazy — the push that changed the
+ * even though the Marketplace routes are lazy — the push that changed the
  * state may well have arrived before the surface was ever imported.
  *
  * Complexity Level: 2 — two RPC calls, one push, five signals, two derived

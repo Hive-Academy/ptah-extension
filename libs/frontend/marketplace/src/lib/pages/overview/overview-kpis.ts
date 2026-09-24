@@ -11,10 +11,10 @@ import type { HarnessHealth, HarnessTargetId } from '@ptah-extension/shared';
 
 import type { ConnectorLink } from '../../data/connector-links.store';
 import type { ProviderRow } from '../../data/provider-row';
+import type { HarnessChipState } from '../../harness/harness-chip-presentation';
 import {
   harnessTargetLabel,
   harnessTargetNeedsAttention,
-  type HarnessChipState,
 } from '../../harness/harness-health.model';
 
 /** The three shapes a stat card or panel draws. */
