@@ -896,6 +896,8 @@ export class JsonlReaderService {
     try {
       return await fs.readdir(dir);
     } catch (error: unknown) {
+      // degradation-audit: reported - an unlistable directory is logged and
+      // passed to `onUnlistable`; a missing one is an empty membership.
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? (error as { code?: unknown }).code

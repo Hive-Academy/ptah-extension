@@ -822,6 +822,42 @@ describe('SessionLoaderService', () => {
       );
     });
 
+    it('rejects a resume snapshot with a malformed contextSnapshot and installs nothing', async () => {
+      const restoredTabId = TabId.from('0b8e5a4c-2d1f-4e3a-9c7b-6a5d4e3f2a1b');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                stats: {
+                  sessionId: SESSION,
+                  model: 'claude-opus-5',
+                  totalCost: 1,
+                  tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+                  messageCount: 1,
+                  status: 'ok',
+                  contextSnapshot: { model: 42, contextTokens: 'many' },
+                },
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(setLiveModelStats).not.toHaveBeenCalled();
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[SessionLoaderService] chat:resume returned a malformed session snapshot; keeping the current one',
+        { sessionId: SESSION },
+      );
+    });
+
     it('keeps the installed snapshot when a successful resume has no stats', async () => {
       const restoredTabId = TabId.from('c74b7af0-4c5c-4336-821c-e2fe28cd921d');
       activeTabSessionIdSignal.set(SESSION);

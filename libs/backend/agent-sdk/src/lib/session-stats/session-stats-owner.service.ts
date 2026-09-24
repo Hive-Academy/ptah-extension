@@ -182,12 +182,13 @@ export interface RunUsageResult {
  * The base a query run's cumulative figures started from: the saved state
  * the SDK restored, or `null` for zero.
  *
- * Restored iff every model of `saved` is present in `first` (absent reads as
- * zero) with all four token classes at least as large; anything else is a
- * reset. Evidence from real transcripts: Claude sessions restore exactly
- * (next saved state = previous saved state + the usage between them), while
- * proxied sessions sometimes reset to zero, so this is detected per run and
- * never assumed. Cost is not compared: only token counters are.
+ * Restored iff `saved` has at least one model row and every model of `saved`
+ * is present in `first` (absent reads as zero) with all four token classes at
+ * least as large; anything else is a reset. A saved state without model rows
+ * carries no per-model evidence, so a restore cannot be proven. Evidence
+ * from real transcripts: Claude sessions restore exactly (next saved state =
+ * previous saved state + the usage between them), while proxied sessions
+ * sometimes reset to zero, so this is detected per run and never assumed. Cost is not compared: only token counters are.
  *
  * Known limit: a reset whose first result already exceeds a tiny saved state
  * in every class is read as restored, and the error is bounded by that saved
@@ -197,7 +198,7 @@ export function resolveRunBase(
   saved: SavedCostState | null,
   first: RunUsageResult,
 ): SavedCostState | null {
-  if (saved === null) return null;
+  if (saved === null || Object.keys(saved.models).length === 0) return null;
   const byModel = new Map(first.models.map((m) => [m.model, m]));
   for (const [model, base] of Object.entries(saved.models)) {
     const now = byModel.get(model);
@@ -531,10 +532,16 @@ export class SessionStatsOwnerService {
     return true;
   }
 
-  /** The current immutable snapshot, or `null` when the session has no owner. */
+  /**
+   * The current immutable snapshot, or `null` when the session has no owner
+   * or its prefix read is still in flight — the caller then answers with the
+   * transcript aggregate rather than an owner that knows nothing yet.
+   */
   snapshot(sessionId: string): SessionStatsEntry | null {
     const state = this.states.get(sessionId);
-    return state ? this.publish(sessionId, state) : null;
+    return state && state.pending === null
+      ? this.publish(sessionId, state)
+      : null;
   }
 
   /** The owner's identity now, for a caller that may release it later. */
@@ -716,6 +723,7 @@ async function readOrNull<T>(load: () => Promise<T | null>): Promise<T | null> {
   try {
     return await load();
   } catch (error: unknown) {
+    // degradation-audit: reported - the loader logs the failure.
     // Deliberately absorbed: an unreadable transcript must not stop a session
     // from launching. `null` makes the prefix unknown (partial coverage, no
     // total) or the restore candidate absent. The loader owns the logging.

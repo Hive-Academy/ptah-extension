@@ -130,8 +130,12 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
             tokenUsage: { input: 10, output: 20 },
           },
         ],
+        // The backend session snapshot (TASK_2026_533): the renderer shows it
+        // as sent and recomputes nothing, so `tokenCount` carries the total.
         stats: {
+          sessionId: SHARED_SESSION_ID,
           totalCost: 35.668,
+          tokenCount: 226_728,
           tokens: {
             input: 200_000,
             output: 26_000,

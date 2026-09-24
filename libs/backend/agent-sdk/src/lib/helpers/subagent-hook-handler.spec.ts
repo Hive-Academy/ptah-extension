@@ -615,4 +615,46 @@ describe('SubagentHookHandler — session agent identities (TASK_2026_533)', () 
 
     expect(owner.snapshot(PARENT)?.agentSessionCount).toBe(5);
   });
+
+  // CodeRabbit: the SDK runs hook callbacks from its read loop while `init`
+  // can still sit unconsumed in the message queue, so a subagent hook may
+  // arrive before the tab-keyed owner is rebound to the canonical id.
+  it('records under the provisional tab key before rebind, and the identity survives rebind', async () => {
+    const TAB = 'tab_new';
+    const logger = makeLogger();
+    const owner = new SessionStatsOwnerService();
+    const { generation } = owner.startNew(TAB);
+    const handler = new SubagentHookHandler(
+      logger,
+      makeRegistry(null),
+      new SubagentStopCallbackRegistry(logger),
+      owner,
+    );
+    const start = getStartCallback(handler, '/workspace', TAB);
+
+    await start(startInput({ agent_id: 'a1' }), 'tu-a1', signal);
+    owner.rebind(TAB, PARENT, generation);
+
+    expect(owner.snapshot(PARENT)?.agentSessionCount).toBe(1);
+  });
+
+  it('never records under the tab key while the canonical owner exists', async () => {
+    const TAB = 'tab_other';
+    const logger = makeLogger();
+    const owner = new SessionStatsOwnerService();
+    owner.startNew(PARENT);
+    owner.startNew(TAB);
+    const handler = new SubagentHookHandler(
+      logger,
+      makeRegistry(null),
+      new SubagentStopCallbackRegistry(logger),
+      owner,
+    );
+    const start = getStartCallback(handler, '/workspace', TAB);
+
+    await start(startInput({ agent_id: 'a1' }), 'tu-a1', signal);
+
+    expect(owner.snapshot(PARENT)?.agentSessionCount).toBe(1);
+    expect(owner.snapshot(TAB)?.agentSessionCount).toBe(0);
+  });
 });
