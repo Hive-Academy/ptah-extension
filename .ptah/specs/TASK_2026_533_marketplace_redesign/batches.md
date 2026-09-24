@@ -4,7 +4,10 @@ Total tasks: 65 | Batches: 30 | Complete: 21/30
 
 Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a).
 In progress: none.
-Next launchable: Batch 18 ∥ Batch 19 (separate worktrees). Batch 18b waits for TASK_2026_540 on `main` and the rebase.
+Next launchable: Batch 18 (with 18b folded into Task 18.2) ∥ Batch 19 (separate worktrees).
+
+Rebase (2026-09-24, after Batch 17): TASK_2026_540 merged to `main` (PR 586, `ced4bf9dc`). The branch was rebased onto `origin/main` `b38583515` (backup branch `task533-backup-pre-rebase` = `4015ad735`). Only commit 742c7ab3e (Batch 2) conflicted, in two specs (both sides added content; resolved as the union): `surface-router.service.spec.ts` (540's `Remount*` probes + 533's marketplace probes) and the `app-state.service.spec.ts` header. Commit hashes elsewhere in this file are PRE-rebase. Map old→new: 6acdafbd0→a6c03fa0c, 11d3878e5→77e5501f2, 742c7ab3e→25507fd53, 1d01377b8→07b3373ba, 6429503f0→f9bdb0daf, f7a393f46→9de4d9778, d398a9561→3cf4ba5e9, 71ecac2a7→0dc7e779d, 6f69a9330→77dbc0991, 77cce7d8f→a22d961c6, 1b8a2b813→2e20779ca, ff0cf906b→fed560c6c, 666a0867c→36399a407, 93822fa60→1ee16946a, 3b722417a→801de9a23, 41ae43cf5→25a9c7fe2, a9929f030→8e16505cd, d0839d9d8→12c803d7c, 255f5870e→1f011f827, 5e6f41faf→279cd13a2, 1b5301cbe→42ee39e8b, 62a55d80f→3260a1556, 119b3f3ce→f743ab18a (records commits map in the same order).
+After the rebase, `lint,typecheck,test` is green for chat, marketplace, ptah-extension-webview, ui, dashboard; `@ptah-extension/core:test` has 7 failures, all 533 specs that assume the per-workspace `marketplaceRoute` against 540's global configuration surfaces: `AppStateManager › openMarketplace (TASK_2026_533)` ×6 (opens overview / connectors / servers/smithery / skills/ptah-plugins / skills; "records the settled surface against the workspace that asked") and `SurfaceRouterService › Marketplace redirect probes … › restores the INCOMING workspace page on a workspace switch`. Batch 18 (Task 18.2 with 18b folded in) owns them.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -1018,7 +1021,7 @@ Edge cases:
 - Execution mode: sequential
 - Rationale: removing the old slice field breaks the callers; both edits land together.
 - Tasks: 2 | Depends on: Batch 17
-- Coordination: if TASK_2026_540 is already on `main` and this branch has been rebased before Batch 18 starts, fold Batch 18b's move into Task 18.2 (the old per-workspace field is removed and `marketplaceRoute` lands directly in 540's global slot) and mark 18b COMPLETE as merged into 18. Otherwise run 18 as written and 18b after the rebase.
+- Coordination: APPLIES (540 merged, branch rebased before Batch 18 started) — 18b is folded into Task 18.2. Original rule: if TASK_2026_540 is already on `main` and this branch has been rebased before Batch 18 starts, fold Batch 18b's move into Task 18.2 (the old per-workspace field is removed and `marketplaceRoute` lands directly in 540's global slot) and mark 18b COMPLETE as merged into 18. Otherwise run 18 as written and 18b after the rebase.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core @ptah-extension/chat` then `npx nx run-many -t typecheck -p @ptah-extension/marketplace`
 
 ### Task 18.1: Migrate chat callers to `openMarketplace` — PENDING
@@ -1045,7 +1048,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer (deep links, per-workspace memory)
 
-## Batch 18b: Move `marketplaceRoute` into TASK_2026_540's global Marketplace slot — PENDING
+## Batch 18b: Move `marketplaceRoute` into TASK_2026_540's global Marketplace slot — FOLDED INTO BATCH 18 (Task 18.2)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
