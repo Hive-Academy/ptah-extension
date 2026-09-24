@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Fix remaining Codex proxy session statistics
 description: >-

@@ -14,7 +14,31 @@ export type ElectronView =
   | 'harness-builder'
   | 'setup-hub';
 
-export type ThothTab = 'memory' | 'skills' | 'cron' | 'gateway';
+/**
+ * Host element of each routed surface (`apps/ptah-extension-webview/src/app/
+ * app.routes.ts`). `goto` waits for it, so a lost `switchView` is retried
+ * instead of surfacing later as an unrelated visibility timeout.
+ */
+const SURFACE_HOSTS: Record<
+  Exclude<ElectronView, 'chat' | 'canvas' | 'git'>,
+  string
+> = {
+  dashboard: 'ptah-dashboard-grid',
+  settings: 'ptah-settings',
+  'setup-wizard': 'ptah-wizard-view',
+  thoth: 'ptah-thoth-shell',
+  marketplace: 'ptah-marketplace-hub',
+  tribunal: 'ptah-tribunal-page',
+  tasks: 'ptah-tasks-view',
+  'harness-builder': 'ptah-harness-builder-view',
+  'setup-hub': 'ptah-setup-hub',
+};
+
+/** Total time `goto` waits for a surface, and the wait between re-pushes. */
+const GOTO_TIMEOUT_MS = 30_000;
+const GOTO_RETRY_MS = 2_000;
+
+export type ThothTab ='memory' | 'skills' | 'cron' | 'gateway';
 
 export type RpcResolver = unknown | string;
 
@@ -349,7 +373,38 @@ export class UiDriver {
       return;
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;
-    await this.pushEvent({ type: 'switchView', payload: { view: viewName } });
+    await this.switchViewUntilMounted(viewName, SURFACE_HOSTS[view]);
+  }
+
+  /**
+   * Push `switchView` until the routed surface's host element is attached.
+   *
+   * `goto` first pushes `workspaceChanged`, whose handler re-syncs the
+   * workspace asynchronously. The view pointer is kept per workspace, so a
+   * `switchView` handled before that sync activates the workspace lands on the
+   * previous slice, and the app stays on the canvas. Re-pushing is idempotent
+   * once the surface is shown, and the loop ends as soon as it is.
+   */
+  private async switchViewUntilMounted(
+    viewName: string,
+    hostSelector: string,
+  ): Promise<void> {
+    const host = this.page.locator(hostSelector).first();
+    const deadline = Date.now() + GOTO_TIMEOUT_MS;
+    for (;;) {
+      await this.pushEvent({ type: 'switchView', payload: { view: viewName } });
+      try {
+        await host.waitFor({ state: 'attached', timeout: GOTO_RETRY_MS });
+        return;
+      } catch (error: unknown) {
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `goto('${viewName}'): ${hostSelector} never mounted within ${GOTO_TIMEOUT_MS}ms`,
+            { cause: error },
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -388,7 +443,7 @@ export class UiDriver {
 
   public async openTab(tab: ThothTab): Promise<void> {
     await this.syncWorkspace();
-    await this.pushEvent({ type: 'switchView', payload: { view: 'thoth' } });
+    await this.switchViewUntilMounted('thoth', SURFACE_HOSTS.thoth);
     const tabButton = this.page.locator('#thoth-tab-' + tab);
     await tabButton.waitFor({ state: 'visible' });
     await tabButton.click();
