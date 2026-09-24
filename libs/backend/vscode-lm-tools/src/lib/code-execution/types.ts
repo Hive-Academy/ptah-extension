@@ -22,6 +22,7 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
 import type { DashboardNamespace } from './namespace-builders/dashboard-namespace.builder';
+import type { SurfaceNamespace } from './namespace-builders/surface-namespace.builder';
 import type { SkillNamespace } from './namespace-builders/skill-namespace.builder';
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
@@ -103,6 +104,12 @@ export interface PtahAPI {
    * which it has to degrade. Its only collaborator is a broadcast callback.
    */
   dashboard: DashboardNamespace;
+  /**
+   * Declarative surface contract v2 (TASK_2026_538). NON-optional for the same
+   * reason as `dashboard`: without a surface state service it still validates
+   * and reports `unavailable`, and an anonymous caller gets plain text.
+   */
+  surface: SurfaceNamespace;
   memory?: MemoryNamespace;
   corpus?: CorpusNamespace;
   code?: CodeNamespace;

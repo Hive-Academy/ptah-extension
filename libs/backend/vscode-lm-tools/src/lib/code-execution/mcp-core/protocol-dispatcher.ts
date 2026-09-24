@@ -91,6 +91,13 @@ import {
   DASHBOARD_PROPOSE_SPEC_TOOL_NAME,
   buildDashboardProposeSpecTool,
 } from './dashboard-propose-spec.tool';
+import {
+  SURFACE_GET_STATE_TOOL_NAME,
+  SURFACE_UPDATE_TOOL_NAME,
+  buildSurfaceGetStateTool,
+  buildSurfaceUpdateTool,
+} from './surface-tools';
+import { handleSurfaceToolCall } from './surface-tool-handlers';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import {
@@ -175,9 +182,11 @@ export async function handleMCPRequest(
   // MCP requests, and at `info` this single line was the highest-volume writer
   // in the log — which is precisely the log an operator has to read to find a
   // stall. The interesting MCP signal is now the slow-tool warning below.
-  logger.debug(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
-    id: request.id,
-  });
+  runObserver(() =>
+    logger.debug(`MCP Request: ${request.method}`, 'CodeExecutionMCP', {
+      id: request.id,
+    }),
+  );
 
   try {
     switch (request.method) {
@@ -208,9 +217,11 @@ export async function handleMCPRequest(
       error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
-    logger.error(
-      `MCP request failed: ${request.method}`,
-      error instanceof Error ? error : new Error(String(error)),
+    runObserver(() =>
+      logger.error(
+        `MCP request failed: ${request.method}`,
+        error instanceof Error ? error : new Error(String(error)),
+      ),
     );
 
     return createErrorResponse(request.id, -32603, errorMessage, errorStack);
@@ -301,6 +312,10 @@ function handleToolsList(
     // being present writes a markdown table instead — the exact improvisation
     // `ptah_harness_propose_config` was added to remove.
     buildDashboardProposeSpecTool(),
+    // Always-on for the same reason (TASK_2026_538): an anonymous or headless
+    // caller still gets validation and a plain-text rendering.
+    buildSurfaceUpdateTool(),
+    buildSurfaceGetStateTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -547,10 +562,12 @@ async function handleToolsCall(
   } finally {
     const elapsedMs = performance.now() - startedAt;
     if (elapsedMs >= mcpSlowToolWarnMs) {
-      deps.logger.warn('[MCP] slow tool', {
-        tool: toolName,
-        durationMs: Math.round(elapsedMs * 10) / 10,
-      });
+      runObserver(() =>
+        deps.logger.warn('[MCP] slow tool', {
+          tool: toolName,
+          durationMs: Math.round(elapsedMs * 10) / 10,
+        }),
+      );
     }
   }
 }
@@ -1657,6 +1674,24 @@ async function handleIndividualTool(
         return createToolSuccessResponse(request, outcome.text, deps);
       }
 
+      case SURFACE_UPDATE_TOOL_NAME:
+      case SURFACE_GET_STATE_TOOL_NAME: {
+        // Scope comes ONLY from the trusted request context, never from args.
+        const reply = await handleSurfaceToolCall(
+          name,
+          args,
+          ptahAPI.surface,
+          {
+            sessionId: getCallerSessionId(),
+            toolCallId: request.id.toString(),
+          },
+          logger,
+        );
+        return reply.isError
+          ? toolErrorResponse(request, reply.text)
+          : createToolSuccessResponse(request, reply.text, deps);
+      }
+
       case 'ptah_ast_analyze': {
         const { file, workspaceRoot } = args as {
           file: string;
@@ -1849,12 +1884,16 @@ async function handleIndividualTool(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
-    logger.error(
-      `Individual tool ${name} failed: ${errorMessage}`,
-      error instanceof Error ? error : new Error(String(error)),
+    runObserver(() =>
+      logger.error(
+        `Individual tool ${name} failed: ${errorMessage}`,
+        error instanceof Error ? error : new Error(String(error)),
+      ),
     );
 
-    deps.onToolResult?.(request.id.toString(), errorMessage, true);
+    runObserver(() =>
+      deps.onToolResult?.(request.id.toString(), errorMessage, true),
+    );
 
     return {
       jsonrpc: '2.0',
@@ -1982,7 +2021,7 @@ function createToolSuccessResponse(
   text: string,
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
-  deps.onToolResult?.(request.id.toString(), text, false);
+  runObserver(() => deps.onToolResult?.(request.id.toString(), text, false));
   return {
     jsonrpc: '2.0',
     id: request.id,
@@ -1990,6 +2029,22 @@ function createToolSuccessResponse(
       content: [{ type: 'text', text }],
     },
   };
+}
+
+/**
+ * Run a logging or result-notification observer so that its failure can never
+ * replace the response it observes (TASK_2026_538 review F3): a committed
+ * surface write must keep its revision and "do not resend" guidance even when
+ * the output channel or transcript callback throws.
+ */
+function runObserver(observe: () => void): void {
+  try {
+    observe();
+  } catch (error: unknown) {
+    // Dropped on purpose: the observer failed, the tool result did not, and
+    // there is no other channel to report it on without the same risk.
+    void error;
+  }
 }
 
 /**

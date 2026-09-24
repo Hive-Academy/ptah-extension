@@ -167,12 +167,18 @@ export const MESSAGE_TYPES = {
    * An agent proposed a declarative dashboard spec via the
    * `ptah_dashboard_propose_spec` MCP tool (TASK_2026_493_9f58).
    *
-   * No longer posted to webviews since TASK_2026_538; v1 proposals arrive as
-   * `surface:updated`. This constant stays as the namespace-to-publisher
-   * hand-off type, carrying a whole spec already validated at the MCP boundary.
+   * Since TASK_2026_538 a host with the surface state service (every host
+   * that runs `registerVsCodeLmToolsServices`) stores v1 proposals and pushes
+   * them as `surface:updated`; this type is then only the namespace-to-publisher
+   * hand-off, carrying a whole spec already validated at the MCP boundary. It
+   * is still posted to webviews by the defensive fallback in
+   * `PtahAPIBuilder` when that service is not registered.
    */
   DASHBOARD_SPEC_PROPOSED: 'dashboard:spec-proposed',
-  /** Backend → Frontend: the one push for surface changes, v1 proposals included. */
+  /**
+   * Backend → Frontend: the one push for surface changes, v1 proposals
+   * included whenever the surface state service is registered.
+   */
   SURFACE_UPDATED: 'surface:updated',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',

@@ -193,6 +193,7 @@ import { WebSearchService } from './services/web-search.service';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
 import { runWithMcpRequestContext } from './mcp-core/mcp-request-context';
 import type { DiagnosticsCacheInvalidator } from '../diagnostics/diagnostics-cache-invalidator.service';
+import type { SurfaceStateService } from '../surface';
 import type { Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type {
   IWorkspaceProvider,
@@ -321,6 +322,7 @@ function buildTestBuilder(
   sessionManager: ReturnType<typeof makeSessionManager>,
   agentRoleResolver?: AgentRoleResolver,
   memoryUsageRecorder?: IMemoryUsageRecorder,
+  surfaceStateService?: SurfaceStateService,
 ): PtahAPIBuilder {
   return new PtahAPIBuilder(
     {} as unknown as WorkspaceAnalyzerService,
@@ -370,6 +372,7 @@ function buildTestBuilder(
     // stub; the subscription itself is covered by
     // `diagnostics-cache-invalidator.service.spec.ts`.
     { start: () => undefined } as unknown as DiagnosticsCacheInvalidator,
+    surfaceStateService,
   );
 }
 
@@ -552,5 +555,63 @@ describe('PtahAPIBuilder.build() — agent role resolver wiring', () => {
     const deps = buildAgentDeps(undefined);
 
     await expect(deps.listAgentRoles?.('D:\\ws')).resolves.toEqual([]);
+  });
+});
+
+describe('PtahAPIBuilder.build() — surface wiring (TASK_2026_538)', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function build(surfaceStateService?: SurfaceStateService) {
+    buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+      undefined,
+      undefined,
+      surfaceStateService,
+    ).build();
+    const dashboardDeps = (
+      namespaceBuilders.buildDashboardNamespace as jest.Mock
+    ).mock.calls[0][0] as {
+      broadcast: (type: string, payload: unknown) => Promise<unknown>;
+    };
+    const surfaceDeps = (namespaceBuilders.buildSurfaceNamespace as jest.Mock)
+      .mock.calls[0][0] as { service?: unknown; logger: unknown };
+    return { dashboardDeps, surfaceDeps };
+  }
+
+  it('routes v1 proposals through the surface bridge and hands the service to ptah.surface', async () => {
+    const delivery = { status: 'delivered', surfaces: 1 };
+    const service = {
+      recordV1Proposal: jest.fn(() => ({ status: 'applied', delivery })),
+    };
+    const { dashboardDeps, surfaceDeps } = build(
+      service as unknown as SurfaceStateService,
+    );
+
+    expect(surfaceDeps.service).toBe(service);
+    expect(surfaceDeps.logger).toBeDefined();
+    expect(namespaceBuilders.createDashboardBroadcast).not.toHaveBeenCalled();
+    const spec = { specId: 'build-health' };
+    await expect(
+      dashboardDeps.broadcast('dashboard:spec-proposed', {
+        spec,
+        sessionId: 'tab-a',
+        toolCallId: 'call-1',
+      }),
+    ).resolves.toBe(delivery);
+    expect(service.recordV1Proposal).toHaveBeenCalledWith(
+      'tab-a',
+      spec,
+      'call-1',
+    );
+  });
+
+  it('falls back to the direct webview broadcast when the service is absent', () => {
+    const { surfaceDeps } = build(undefined);
+
+    expect(surfaceDeps.service).toBeUndefined();
+    expect(namespaceBuilders.createDashboardBroadcast).toHaveBeenCalledTimes(1);
   });
 });

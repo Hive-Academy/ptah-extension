@@ -1835,3 +1835,200 @@ describe('protocol-handlers › ptah_agent_list roles', () => {
     expect(listRoles).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// tools/list + tools/call — ptah_surface_update / ptah_surface_get_state
+// (TASK_2026_538, Task 13.3). Scope comes ONLY from the request context the
+// dispatcher establishes (`_callerSessionId` -> `runWithMcpRequestContext`);
+// a session or tab id inside the tool arguments is forwarded untouched to the
+// namespace's strict validator and never becomes the caller.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › surface tools', () => {
+  const SURFACE_TOOLS = ['ptah_surface_update', 'ptah_surface_get_state'];
+
+  function surfaceDeps(surface: { update?: jest.Mock; getState?: jest.Mock }) {
+    return buildDeps({ ptahAPI: buildPtahAPIStub({ surface }) });
+  }
+
+  function callSurface(
+    name: string,
+    args: Record<string, unknown>,
+    deps: ProtocolHandlerDependencies,
+    callerSessionId?: string,
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: 'surface-7',
+        method: 'tools/call',
+        params: { name, arguments: args },
+        ...(callerSessionId ? { _callerSessionId: callerSessionId } : {}),
+      }),
+      deps,
+    );
+  }
+
+  it('lists both tools even when every namespace toggle is off', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'surface-list', method: 'tools/list' }),
+      buildDeps({
+        disabledMcpNamespaces: [
+          'ide',
+          'agent',
+          'git',
+          'json',
+          'browser',
+          'harness',
+          'code',
+          'dashboard',
+          'surface',
+        ],
+      }),
+    );
+    const names = (res.result as { tools: Array<{ name: string }> }).tools.map(
+      (tool) => tool.name,
+    );
+    for (const name of SURFACE_TOOLS) expect(names).toContain(name);
+  });
+
+  it('passes a scoped caller from the request context, not from the arguments', async () => {
+    let seenInside: string | undefined;
+    const update = jest.fn(async () => {
+      seenInside = getCallerSessionId();
+      return {
+        status: 'accepted' as const,
+        surfaceId: 'profile',
+        revision: 1,
+        text: 'Profile',
+        delivery: { status: 'delivered' as const, surfaces: 1 },
+      };
+    });
+    const args = { operation: 'create', surface: {}, sessionId: 'forged' };
+
+    const { text, isError } = agentToolResult(
+      await callSurface(
+        'ptah_surface_update',
+        args,
+        surfaceDeps({ update }),
+        'tab-a',
+      ),
+    );
+
+    expect(update).toHaveBeenCalledWith(args, {
+      sessionId: 'tab-a',
+      toolCallId: 'surface-7',
+    });
+    expect(seenInside).toBe('tab-a');
+    expect(isError).toBeUndefined();
+    expect(text).toContain('committed at revision 1');
+  });
+
+  it('passes an anonymous caller when the request carries no session', async () => {
+    const update = jest.fn(async () => ({
+      status: 'render-only' as const,
+      text: 'no interactive surface is attached',
+    }));
+    const getState = jest.fn(async () => ({
+      status: 'not-found' as const,
+      text: 'no surface state for this caller',
+    }));
+    const deps = surfaceDeps({ update, getState });
+
+    const rendered = agentToolResult(
+      await callSurface('ptah_surface_update', { tabId: 'tab-b' }, deps),
+    );
+    const read = agentToolResult(
+      await callSurface('ptah_surface_get_state', { sessionId: 'tab-b' }, deps),
+    );
+
+    expect(update).toHaveBeenCalledWith(
+      { tabId: 'tab-b' },
+      { sessionId: undefined, toolCallId: 'surface-7' },
+    );
+    expect(getState).toHaveBeenCalledWith(
+      { sessionId: 'tab-b' },
+      { sessionId: undefined, toolCallId: 'surface-7' },
+    );
+    expect(rendered).toEqual({
+      text: 'no interactive surface is attached',
+      isError: undefined,
+    });
+    expect(read).toEqual({
+      text: 'no surface state for this caller',
+      isError: undefined,
+    });
+  });
+
+  it('routes get_state with a scoped caller and maps failures to tool errors', async () => {
+    const getState = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'found',
+        text: 'State of profile',
+        truncated: false,
+        omittedSurfaceIds: [],
+      })
+      .mockResolvedValueOnce({ status: 'rejected', reason: 'bad view' })
+      .mockResolvedValueOnce({
+        status: 'unavailable',
+        reason: 'surface state unavailable on this host',
+      });
+    const deps = surfaceDeps({ getState });
+
+    const found = agentToolResult(
+      await callSurface('ptah_surface_get_state', {}, deps, 'tab-a'),
+    );
+    const rejected = agentToolResult(
+      await callSurface('ptah_surface_get_state', { view: 'x' }, deps, 'tab-a'),
+    );
+    const unavailable = agentToolResult(
+      await callSurface('ptah_surface_get_state', {}, deps, 'tab-a'),
+    );
+
+    expect(getState).toHaveBeenNthCalledWith(
+      1,
+      {},
+      {
+        sessionId: 'tab-a',
+        toolCallId: 'surface-7',
+      },
+    );
+    expect(found).toEqual({ text: 'State of profile', isError: undefined });
+    expect(rejected).toEqual({ text: 'bad view', isError: true });
+    expect(unavailable).toEqual({
+      text: 'surface state unavailable on this host',
+      isError: true,
+    });
+  });
+
+  it('reports a committed-but-undelivered update as an error keeping the text', async () => {
+    const update = jest.fn(async () => ({
+      status: 'delivery-failed' as const,
+      surfaceId: 'profile',
+      revision: 2,
+      text: 'Name: Grace',
+      reason:
+        'Surface profile committed revision 2, but delivery failed; do not resend.',
+      delivery: {
+        status: 'failed' as const,
+        delivered: 0,
+        surfaces: 1,
+        reason: 'x',
+      },
+    }));
+
+    const { text, isError } = agentToolResult(
+      await callSurface(
+        'ptah_surface_update',
+        {},
+        surfaceDeps({ update }),
+        'tab-a',
+      ),
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toContain('committed revision 2');
+    expect(text).toContain('do not resend');
+    expect(text).toContain('Name: Grace');
+  });
+});

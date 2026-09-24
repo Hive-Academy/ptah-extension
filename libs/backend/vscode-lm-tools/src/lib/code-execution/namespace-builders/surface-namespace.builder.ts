@@ -17,6 +17,9 @@ import {
 } from '../../surface/surface-log';
 import type { DashboardDeliveryOutcome } from './dashboard-namespace.builder';
 
+/** Public delivery-failure wording; raw transport detail stays in the log. */
+export const SURFACE_DELIVERY_FAILED_PUBLIC = 'delivery to the UI failed';
+
 /** Scope supplied by the dispatcher from trusted MCP request context. */
 export interface SurfaceCaller {
   readonly sessionId?: string;
@@ -147,11 +150,21 @@ export function buildSurfaceNamespace(
           delete:
             'the surface was already deleted; a retry cannot repeat that deletion',
         }[validated.operation];
+        // Agent-facing text is stable public wording (review F2): the raw
+        // delivery reason may carry host exception detail, so it goes only to
+        // the guarded internal log.
         const reason =
-          `Surface ${result.surfaceId} committed revision ${result.revision}, but delivery failed: ${delivery.reason}. ` +
+          `Surface ${result.surfaceId} committed revision ${result.revision}, but ${SURFACE_DELIVERY_FAILED_PUBLIC}. ` +
           `${delivery.delivered} of ${delivery.surfaces} attached surface(s) received it; do not resend; ${retryReason}.`;
-        logger.warn(`[Surface] ${reason}`);
-        return { status: 'delivery-failed', ...committed, reason };
+        logger.warn(
+          `[Surface] ${result.surfaceId} revision ${result.revision} not delivered: ${delivery.reason}`,
+        );
+        return {
+          status: 'delivery-failed',
+          ...committed,
+          delivery: { ...delivery, reason: SURFACE_DELIVERY_FAILED_PUBLIC },
+          reason,
+        };
       }
       logger.info(
         `[Surface] accepted ${result.surfaceId} revision ${result.revision}; delivery ${delivery.status}`,
