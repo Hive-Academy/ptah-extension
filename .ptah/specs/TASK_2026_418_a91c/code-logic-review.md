@@ -12,9 +12,10 @@ Full contents of every changed production file were read (not only the diff hunk
 > Status: this review covers Batch A **before Revision 1**. Revision 1
 > (`batch-a-report.md`, "Revision 1") changed `provider-rpc.handlers.ts` and
 > every dynamic fetcher, so the provenance defect below is a pre-revision
-> assessment. Revision 1 resolved it: fetchers now declare
-> `contextLengthSource: 'provider'` themselves, and the generic stamping was
-> removed.
+> assessment. Revision 1 resolved it: the generic stamping was removed, and
+> `contextLengthSource: 'provider'` is now declared only by producers with
+> provider-backed evidence. Static fallbacks and inferred lengths omit it, so
+> they never report known capacity.
 
 ## Verdict
 
