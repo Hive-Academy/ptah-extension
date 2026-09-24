@@ -1,10 +1,12 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 23/30
+Total tasks: 65 | Batches: 30 | Complete: 24/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18).
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 20.
 In progress: none.
-In progress: Batch 19. Next launchable after 19: Batches 20 ∥ 21 ∥ 22 ∥ 23 ∥ 24 (21 also waits for 19).
+In progress: Batches 19, 22, 23. Next: 21 (after 19), 24.
+
+Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
 Rebase (2026-09-24, after Batch 17): TASK_2026_540 merged to `main` (PR 586, `ced4bf9dc`). The branch was rebased onto `origin/main` `b38583515` (backup branch `task533-backup-pre-rebase` = `4015ad735`). Only commit 742c7ab3e (Batch 2) conflicted, in two specs (both sides added content; resolved as the union): `surface-router.service.spec.ts` (540's `Remount*` probes + 533's marketplace probes) and the `app-state.service.spec.ts` header. Commit hashes elsewhere in this file are PRE-rebase. Map old→new: 6acdafbd0→a6c03fa0c, 11d3878e5→77e5501f2, 742c7ab3e→25507fd53, 1d01377b8→07b3373ba, 6429503f0→f9bdb0daf, f7a393f46→9de4d9778, d398a9561→3cf4ba5e9, 71ecac2a7→0dc7e779d, 6f69a9330→77dbc0991, 77cce7d8f→a22d961c6, 1b8a2b813→2e20779ca, ff0cf906b→fed560c6c, 666a0867c→36399a407, 93822fa60→1ee16946a, 3b722417a→801de9a23, 41ae43cf5→25a9c7fe2, a9929f030→8e16505cd, d0839d9d8→12c803d7c, 255f5870e→1f011f827, 5e6f41faf→279cd13a2, 1b5301cbe→42ee39e8b, 62a55d80f→3260a1556, 119b3f3ce→f743ab18a (records commits map in the same order).
 After the rebase, `lint,typecheck,test` is green for chat, marketplace, ptah-extension-webview, ui, dashboard; `@ptah-extension/core:test` has 7 failures, all 533 specs that assume the per-workspace `marketplaceRoute` against 540's global configuration surfaces: `AppStateManager › openMarketplace (TASK_2026_533)` ×6 (opens overview / connectors / servers/smithery / skills/ptah-plugins / skills; "records the settled surface against the workspace that asked") and `SurfaceRouterService › Marketplace redirect probes … › restores the INCOMING workspace page on a workspace switch`. Batch 18 (Task 18.2 with 18b folded in) owns them.
@@ -1096,7 +1098,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer
 
-## Batch 20: Smithery view restyle (C13) — PENDING
+## Batch 20: Smithery view restyle (C13) — COMPLETE (f3f72e405)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1105,7 +1107,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batches 7b, 7d, 17
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`; `git diff --numstat` for every touched file
 
-### Task 20.1: Smithery list to `CatalogGrid`/`CatalogCard`, gate and setup to `StorefrontPanel` — PENDING
+### Task 20.1: Smithery list to `CatalogGrid`/`CatalogCard`, gate and setup to `StorefrontPanel` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\smithery-surface.component.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\smithery-surface.component.spec.ts`; optionally one NEW sibling presentational file (+spec) for Smithery-only markup that does not fit the card
 - Plan reference: implementation-plan.md C13 table row "Smithery" (:540), spec-migration rule (:547-552), net-line rule (:553-557)
@@ -1117,6 +1119,9 @@ Edge cases:
 ### Batch 20 verification
 
 - Numstat shows no growth; reviewer: code-logic-reviewer (behaviour preserved); visual parity in Batch 25
+- Result: commit f3f72e405 (`smithery-surface.component.ts` +272 −342 → 1474 lines, spec +128 −11). Executor frontend-developer in worktree `task533-b20` (base `43248ca81`). `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT. Reviews: logic APPROVED 7/10; style APPROVED 8/10, then 9/10 after round 1 (grid `ariaLabel` dropped where the visible h2 names it; meta line uses `VERIFIED_BADGE.label`). `data-testid` count 0 → 0. Report `batch-20-report.md` (untracked).
+- Accepted deviations: connection words from `statusPresentation()` ("Needs authorization" → "Needs sign-in", "Error" → "Failed"; 3-state grouping unchanged); the "Managed" badge is the meta word "By Smithery"; remote `<img>` logos and their helpers removed (plan D6); setup and "Change key" buttons in the panel footer.
+- Follow-ups: (1) Smithery `search` list entries carry no `connections` (`smithery-registry.source.ts` `mapListEntry` ~:200-222), so `remoteUrls` is always `[]` and the resolver's catalogue-URL step never fires in this view (fails safe: namespace allowlist or monogram) — backend list mapping. (2) `apps/ptah-docs/src/content/docs/marketplace/smithery.md` (~:31-32, :40-44, :55) still uses the old status words. (3) The ~120-line account/connections panel is the first extraction for the file's max-lines cleanup.
 
 ## Batch 21: External marketplaces and Custom URL restyle (C13) — PENDING
 
