@@ -106,7 +106,15 @@ export const SURFACE_LIMITS = {
   maxPatchOps: 100,
   maxRpcRequestBytes: 16 * 1024,
   maxSubmitMessageBytes: 32 * 1024,
-  maxStateReadBytes: 320 * 1024,
+  /**
+   * The escaped worst case of a complete agent read (U+2028/U+2029 become six
+   * bytes each), per implementation-plan.md "Batch 9 read-budget decision".
+   * State view: T1 metadata 4 KiB + T2 data model 128 KiB + T3a form values
+   * 128 KiB + T3b form keys, ids and issues 100 KiB + T4 selection 140 KiB +
+   * T5 last submit 48 KiB = 548 KiB. Structure view: 2 x maxSurfaceBytes +
+   * 4 KiB = 516 KiB, within the same bound.
+   */
+  maxStateReadBytes: 548 * 1024,
   maxWriteLogEntries: 32,
   maxWriteLogPathsPerEntry: 16,
 } as const;

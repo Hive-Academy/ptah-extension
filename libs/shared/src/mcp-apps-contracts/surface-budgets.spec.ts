@@ -552,18 +552,33 @@ describe('a large patch that cancels out is still rejected (Req 4.3)', () => {
 });
 
 describe('the complete state read fits maxStateReadBytes', () => {
-  it('sums the constituent budgets at or under the read budget', () => {
-    const formValueEntry = 1024; // ids and issues per input entry
-    const selectionDescription = 8 * 1024;
-    const fixedMetadata = 4 * 1024;
-    const worstCase =
-      L.maxDataModelBytes + // data model
-      L.maxDataModelBytes + // form values: unique paths, bounded by the model
-      L.maxInputs * formValueEntry +
-      selectionDescription +
-      L.maxSubmitMessageBytes + // last submit
-      fixedMetadata;
-    expect(worstCase).toBeLessThanOrEqual(L.maxStateReadBytes);
+  // Escaped worst case (implementation-plan.md "Batch 9 read-budget decision"):
+  // U+2028/U+2029 take 3 bytes in admitted JSON and 6 after escaping, so every
+  // string term can double.
+  it('sums the escaped state-view terms T1-T5 at or under the read budget', () => {
+    const t1Metadata = 4 * 1024;
+    const t2DataModel = 2 * L.maxDataModelBytes;
+    const t3aFormValues = 2 * L.maxDataModelBytes; // disjoint model substrings
+    const t3bFormEntries = L.maxInputs * 1024; // keys, ids, issues, wrapper
+    // 50 rows x (label + cell), each 200 separators re-embedded at 7 bytes.
+    const t4Selection = 140 * 1024;
+    // Message, componentId in place of label per value, metadata.
+    const t5LastSubmit = L.maxSubmitMessageBytes + 16 * 1024;
+    const sum =
+      t1Metadata +
+      t2DataModel +
+      t3aFormValues +
+      t3bFormEntries +
+      t4Selection +
+      t5LastSubmit;
+    expect(sum).toBe(548 * 1024);
+    expect(sum).toBeLessThanOrEqual(L.maxStateReadBytes);
+  });
+
+  it('covers the escaped structure view (whole document doubled plus header)', () => {
+    expect(2 * L.maxSurfaceBytes + 4096).toBeLessThanOrEqual(
+      L.maxStateReadBytes,
+    );
   });
 });
 

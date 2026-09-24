@@ -67,15 +67,6 @@ describe('surface catalog and version separation', () => {
       'dashboard.select',
     ]);
   });
-  it('keeps the complete state-read budget large enough for its constituent budgets', () => {
-    const worstCase =
-      2 * SURFACE_LIMITS.maxDataModelBytes +
-      SURFACE_LIMITS.maxInputs * 1024 +
-      8 * 1024 +
-      SURFACE_LIMITS.maxSubmitMessageBytes +
-      4 * 1024;
-    expect(worstCase).toBeLessThanOrEqual(SURFACE_LIMITS.maxStateReadBytes);
-  });
   it('round-trips v1 unchanged and rejects a v2 select inside v1', () => {
     const v1 = makeDashboardSpec();
     expect(DashboardSpecEnvelopeSchema.parse(v1)).toEqual(v1);
