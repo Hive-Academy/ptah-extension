@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_540_0940
-status: in_progress
+status: in_review
 type: FEATURE
 title: Apply the TASK_2026_492 navigation sets - move configuration surfaces to one global menu
 depends_on:

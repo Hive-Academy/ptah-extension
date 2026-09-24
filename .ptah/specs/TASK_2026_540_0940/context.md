@@ -117,3 +117,18 @@ Lane limits: one batch of <=6 files per lane, 40-tool-call ceiling, `deliverable
   ollama/kimi-k3 lane both failed without output. User decision (2026-09-23): "continue with codex and glm along with
   your own subagents" -> implement batches 2-7 with the `codex` lane (default model); review each batch with the Glm
   lane (when its limit allows) AND the internal code-logic-reviewer subagent.
+- 2026-09-23: the TASK_2026_533 session stops; a NEW 533 session will introduce itself. When 540 merges, record
+  "540 merged to main at <hash> on <date>" in D:\projects\ptah-extension\.ptah\specs\TASK_2026_533_marketplace_redesign\handoff.md
+  section 7, or message the new session. 540 already wrote a design correction into that section (no recordSettledView,
+  no updateConfigurationSurfaceSlot; constructor-effect write; typed ConfigurationSurfaceSlots; remountActiveSurface).
+- Development complete (team-leader Mode 3): 7 batches, commits 78a3b0546..18339f98a. Orchestrator full-suite gate
+  (--skip-nx-cache): typecheck/test/lint for core, chat, ptah-electron-e2e, webview-e2e-harness PASS; webview build
+  PASS; harness e2e 71 passed.
+- New TASK_2026_533 session: `ptah-ptah-extension-cotninue-marketplace-0d42a90000njk2pjljpjg0c`. Send it the merge note
+  when 540 is on main (it rebases, then runs its Batch 18b with its own writer for perSurface.marketplace).
+- Gate 3 (2026-09-23): user chose "tester" (senior-tester: ptah-electron-e2e:e2e + automate flows 1-4 where possible;
+  macOS and non-automatable flows stay manual for the user).
+- QA (2026-09-24): senior-tester stopped at the Claude session limit before test-report.md. Orchestrator finished it:
+  13/13 config-menu Electron specs pass (remount spec timing fixed with expect.poll, no product change); harness 72/72.
+  Full local Electron suite: 44 failures, all start-up hangs in main-process code 540 does not touch; the full suite
+  runs on CI (electron-e2e.yml), so it is not re-run locally (user, 2026-09-24). Status -> in_review.
