@@ -1,3 +1,9 @@
+import {
+  CircleCheck,
+  CircleX,
+  TriangleAlert,
+  type LucideIconData,
+} from 'lucide-angular';
 import { blockedTargetPaths } from '@ptah-extension/shared';
 import type {
   HarnessFacet,
@@ -47,6 +53,47 @@ export function harnessBadgeTone(level: HarnessHealthLevel): HarnessBadgeTone {
     case 'unknown':
       return 'neutral';
   }
+}
+
+/**
+ * One detected CLI's sync state, row-level like {@link harnessTargetNeedsAttention}:
+ * a failed write is an error, anything else missing or replaced is out of sync.
+ */
+export type HarnessChipState = 'in-sync' | 'out-of-sync' | 'write-failed';
+
+/** How a chip state is drawn: its word, its tone class and its icon. */
+export interface HarnessChipPresentation {
+  readonly label: string;
+  readonly toneClass: string;
+  readonly icon: LucideIconData;
+}
+
+/**
+ * The harness words. They describe a CLI's sync state, not a server's
+ * connection, so they are not `statusPresentation()` words; "out of sync" is
+ * the phrase the needs-attention items already use (`data/attention.ts`).
+ */
+const HARNESS_CHIP_PRESENTATION: Readonly<
+  Record<HarnessChipState, HarnessChipPresentation>
+> = {
+  'in-sync': { label: 'In sync', toneClass: 'text-success', icon: CircleCheck },
+  'out-of-sync': {
+    label: 'Out of sync',
+    toneClass: 'text-warning',
+    icon: TriangleAlert,
+  },
+  'write-failed': {
+    label: 'Write failed',
+    toneClass: 'text-error',
+    icon: CircleX,
+  },
+};
+
+/** The word, tone and icon of a chip state. */
+export function harnessChipPresentation(
+  state: HarnessChipState,
+): HarnessChipPresentation {
+  return HARNESS_CHIP_PRESENTATION[state];
 }
 
 /**

@@ -1,0 +1,204 @@
+<div class="space-y-5 p-4">
+  <header class="flex flex-wrap items-end justify-between gap-3">
+    <div class="min-w-0 space-y-1">
+      <p
+        class="text-[11px] font-semibold uppercase tracking-wider text-secondary"
+      >
+        Your workspace, connected
+      </p>
+      <h1 class="text-xl font-semibold text-base-content">Marketplace</h1>
+      <p class="text-xs text-base-content-muted">
+        Every tool. Every agent. One place to keep them in sync.
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        class="btn btn-outline btn-sm gap-1"
+        data-testid="overview-refresh"
+        (click)="refresh()"
+      >
+        <lucide-angular
+          [img]="RefreshIcon"
+          class="h-3.5 w-3.5"
+          aria-hidden="true"
+        />
+        Refresh
+      </button>
+      <a
+        class="btn btn-primary btn-sm gap-1"
+        [routerLink]="connectorsLink"
+        data-testid="overview-add-connection"
+      >
+        <lucide-angular
+          [img]="AddIcon"
+          class="h-3.5 w-3.5"
+          aria-hidden="true"
+        />
+        Add connection
+      </a>
+    </div>
+  </header>
+
+  <section
+    aria-label="Summary"
+    class="ptah-overview__kpis"
+    data-testid="overview-kpis"
+  >
+    <ptah-stat-card
+      data-kpi="servers"
+      label="Apps & MCP servers"
+      [value]="serversFigure().value"
+      [unit]="serversFigure().unit"
+      [subLine]="serversFigure().subLine"
+      [icon]="ServersIcon"
+      tone="secondary"
+      [state]="installedState()"
+      [errorMessage]="installedError()"
+      (retryRequested)="retryInstalled()"
+    />
+    <ptah-stat-card
+      data-kpi="connectors"
+      label="Connectors"
+      [value]="connectorsFigure().value"
+      [unit]="connectorsFigure().unit"
+      [subLine]="connectorsFigure().subLine"
+      [icon]="ConnectorsIcon"
+      tone="info"
+      [state]="connectorsState()"
+      [errorMessage]="connectorsError()"
+      (retryRequested)="retryConnectors()"
+    />
+    <ptah-stat-card
+      data-kpi="skills"
+      label="Skills & plugins"
+      [value]="skillsFigure().value"
+      [unit]="skillsFigure().unit"
+      [subLine]="skillsFigure().subLine"
+      [icon]="SkillsIcon"
+      tone="primary"
+      [state]="skillsState()"
+      [errorMessage]="skillsError()"
+      (retryRequested)="retrySkills()"
+    />
+    <ptah-stat-card
+      data-kpi="harness"
+      label="Harness health"
+      [value]="harnessFigure().value"
+      [unit]="harnessFigure().unit"
+      [subLine]="harnessFigure().subLine"
+      [icon]="HarnessIcon"
+      tone="success"
+      [state]="harnessState()"
+      [errorMessage]="harnessError()"
+      (retryRequested)="retryHarness()"
+    >
+      @if (harnessChipViews().length > 0) {
+        <ul
+          class="flex flex-wrap gap-1.5 pt-1"
+          aria-label="CLI harness state"
+          data-testid="harness-chips"
+        >
+          @for (view of harnessChipViews(); track view.chip.target) {
+            <li
+              class="inline-flex items-center gap-1 rounded-md border border-base-300 bg-base-100 px-1.5 py-0.5 text-[11px] text-base-content"
+              [attr.data-target]="view.chip.target"
+              [attr.data-state]="view.chip.state"
+              data-testid="harness-chip"
+            >
+              <span class="inline-flex" aria-hidden="true">
+                <ptah-target-marks [targets]="view.marks" [maxVisible]="1" />
+              </span>
+              <span class="font-medium">{{ view.chip.label }}</span>
+              <span
+                class="inline-flex"
+                [class]="view.presentation.toneClass"
+                aria-hidden="true"
+                data-testid="harness-chip-icon"
+              >
+                <lucide-angular
+                  [img]="view.presentation.icon"
+                  class="h-3 w-3"
+                />
+              </span>
+              <span
+                class="text-base-content-muted"
+                data-testid="harness-chip-state"
+                >{{ view.presentation.label }}</span
+              >
+            </li>
+          }
+        </ul>
+      }
+      @if (harnessStale(); as message) {
+        <div
+          role="alert"
+          class="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-error"
+          data-testid="harness-stale-error"
+        >
+          <span class="inline-flex" aria-hidden="true">
+            <lucide-angular [img]="AlertIcon" class="h-3.5 w-3.5" />
+          </span>
+          <span class="min-w-0 flex-1"
+            >{{ message }} Showing the last report.</span
+          >
+          <button
+            type="button"
+            class="btn btn-outline btn-xs gap-1"
+            aria-label="Retry Harness health"
+            data-testid="harness-stale-retry"
+            (click)="retryHarness()"
+          >
+            <lucide-angular
+              [img]="RefreshIcon"
+              class="h-3 w-3"
+              aria-hidden="true"
+            />
+            Retry
+          </button>
+        </div>
+      }
+    </ptah-stat-card>
+  </section>
+
+  @if (showInsights()) {
+    <ptah-needs-attention
+      [items]="attentionItems()"
+      [state]="installedState()"
+      [errorMessage]="installedError()"
+      (retryRequested)="retryInstalled()"
+    />
+  }
+
+  <section
+    class="space-y-3"
+    aria-labelledby="overview-providers-heading"
+    data-testid="overview-providers"
+  >
+    <div class="flex items-center gap-2">
+      <h2
+        id="overview-providers-heading"
+        class="text-sm font-semibold text-base-content"
+      >
+        Connected providers
+      </h2>
+      @if (installedState() === 'ready') {
+        <span
+          class="badge badge-ghost badge-sm tabular-nums"
+          data-testid="overview-providers-count"
+          >{{ serverCount() }}</span
+        >
+      }
+    </div>
+    <ptah-provider-list-view heading="Connected providers" />
+  </section>
+
+  @if (showInsights()) {
+    <ptah-coverage-matrix
+      [matrix]="coverage()"
+      [state]="installedState()"
+      [errorMessage]="installedError()"
+      (retryRequested)="retryInstalled()"
+    />
+  }
+</div>

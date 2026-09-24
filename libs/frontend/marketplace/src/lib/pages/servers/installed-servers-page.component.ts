@@ -17,7 +17,8 @@ import { ProviderListViewComponent } from './provider-list-view.component';
 /**
  * Rows a live session reported as connected. Session status reaches a row
  * only from the newest session OF THE ACTIVE WORKSPACE (plan Revision 3), so
- * this never counts another workspace's servers.
+ * this never counts another workspace's servers. The Overview's Apps & MCP
+ * servers card uses it too (`pages/overview/overview-page.component.ts`).
  */
 export function liveInLastSession(rows: readonly ProviderRow[]): number {
   return rows.filter(
