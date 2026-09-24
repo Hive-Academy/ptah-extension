@@ -30,10 +30,8 @@ export {
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,
 } from './lib/model-refresh-control';
-export type {
-  LiveModelStatsPayload,
-  PreloadedStatsPayload,
-} from './lib/tab-state.types';
+export type { LiveModelStatsPayload } from './lib/tab-state.types';
+export { isValidSessionStatsSnapshot } from './lib/session-stats-snapshot';
 export {
   TabId,
   ConversationId,
@@ -55,7 +53,6 @@ export {
 } from './lib/session-liveness.registry';
 export {
   SurfaceSessionStatsRegistry,
-  type SurfaceModelUsage,
   type SurfaceSessionStats,
 } from './lib/surface-session-stats.registry';
 export {

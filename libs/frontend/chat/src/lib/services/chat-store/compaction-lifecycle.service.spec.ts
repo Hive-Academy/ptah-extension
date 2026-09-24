@@ -6,7 +6,8 @@
  *   - handleCompactionStart early-returns + warns when no tab matches sessionId
  *   - handleCompactionStart clears prior timeout before scheduling new one
  *   - Safety timeout fires: resets tab, marks idle, sets sessionManager loaded
- *   - handleCompactionComplete clears tree-builder cache, snapshots preloadedStats
+ *   - handleCompactionComplete clears tree-builder cache and never manufactures
+ *     session totals (the tab keeps the backend snapshot, TASK_2026_533)
  *   - handleCompactionComplete early-returns when tab no longer exists
  *   - clearCompactionStateForTab clears registry inFlight via tab→conv lookup
  *   - clearCompactionState(tabId) clears specified conversation + timeout
@@ -88,9 +89,8 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
     compactionCount: 0,
     queuedContent: null,
     queuedOptions: null,
-    preloadedStats: null,
+    sessionStats: null,
     liveModelStats: null,
-    modelUsageList: null,
     ...overrides,
   } as unknown as TabState;
 }
@@ -436,25 +436,28 @@ describe('CompactionLifecycleService', () => {
       );
     });
 
-    it('snapshots preloadedStats when none exist and messages are present', () => {
+    it('never manufactures session totals from messages on compaction', () => {
       tabs = [
         makeTab({
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
-          preloadedStats: null,
+          sessionStats: null,
         }),
       ];
       service.handleCompactionComplete({
         tabId: 'tab-1',
         compactionSessionId: SESS_RELOAD,
       });
-      const call = applyCompactionCompleteMock.mock.calls.find(
-        (c) => (c[1] as { compactionCount: number }).compactionCount === 1,
-      );
-      expect(call).toBeDefined();
-      const payload = (
-        call as unknown as [string, { preloadedStats: unknown }]
-      )[1];
-      expect(payload.preloadedStats).toBeDefined();
+      expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
+      const [, payload] = applyCompactionCompleteMock.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      // Only compaction bookkeeping: no stats object is built from messages.
+      expect(Object.keys(payload).sort()).toEqual([
+        'compactionCount',
+        'postCompactionContextTokens',
+      ]);
+      expect(payload['compactionCount']).toBe(1);
     });
 
     it('does nothing when tab no longer exists', () => {
@@ -470,12 +473,14 @@ describe('CompactionLifecycleService', () => {
     // Additional regression gates.
     // -----------------------------------------------------------------
 
-    it('B2 — preserves lifetime stats when a targeted reload fails', async () => {
+    it('B2 — leaves the lifetime snapshot to the tab when a targeted reload fails', async () => {
       switchSessionMock.mockRejectedValueOnce(new Error('reload failed'));
       tabs = [
         makeTab({
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
-          preloadedStats: {
+          sessionStats: {
+            sessionId: SESS_1,
+            model: 'claude-opus-4-7',
             totalCost: 2.34,
             tokens: {
               input: 1000,
@@ -483,7 +488,10 @@ describe('CompactionLifecycleService', () => {
               cacheRead: 100,
               cacheCreation: 50,
             },
+            tokenCount: 1650,
             messageCount: 7,
+            status: 'ok',
+            revision: 3,
           },
         }),
       ];
@@ -496,27 +504,12 @@ describe('CompactionLifecycleService', () => {
       expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
       const [, payload] = applyCompactionCompleteMock.mock.calls[0] as [
         string,
-        {
-          preloadedStats: {
-            totalCost: number;
-            tokens: {
-              input: number;
-              output: number;
-              cacheRead: number;
-              cacheCreation: number;
-            };
-            messageCount: number;
-          };
-        },
+        Record<string, unknown>,
       ];
-      expect(payload.preloadedStats.tokens).toEqual({
-        input: 1000,
-        output: 500,
-        cacheRead: 100,
-        cacheCreation: 50,
-      });
-      expect(payload.preloadedStats.totalCost).toBeCloseTo(2.34);
-      expect(payload.preloadedStats.messageCount).toBe(7);
+      // Compaction neither replaces nor rebuilds accounting: the snapshot
+      // stays on the tab (TabManagerService.applyCompactionComplete keeps it).
+      expect(payload).not.toHaveProperty('sessionStats');
+      expect(payload).not.toHaveProperty('preloadedStats');
       await Promise.resolve();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] Failed to reload session after compaction:',
@@ -1126,7 +1119,6 @@ describe('CompactionLifecycleService', () => {
       jest.advanceTimersByTime(250);
 
       expect(applyCompactionCompleteMock).toHaveBeenCalledWith('tab-1', {
-        preloadedStats: null,
         compactionCount: 1,
         postCompactionContextTokens: undefined,
       });

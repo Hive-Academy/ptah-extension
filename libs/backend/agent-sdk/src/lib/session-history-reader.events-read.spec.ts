@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { SessionStatsOwnerService } from './session-stats/session-stats-owner.service';
 
 import type { AuthEnv, FlatStreamEventUnion } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
@@ -68,6 +69,7 @@ function makeHarness(messages: SessionHistoryMessage[] = []) {
     pricingProvider as unknown as IPricingProvider,
     usageTracker,
     compactionRegistry,
+    new SessionStatsOwnerService(),
   );
   return {
     service,

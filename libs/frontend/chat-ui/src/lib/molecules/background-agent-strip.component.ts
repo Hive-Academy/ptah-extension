@@ -54,6 +54,12 @@ export interface BackgroundAgentStripEntry {
   readonly hint?: string;
   /** Colour identity key for the agent dot. Falls back to {@link name}. */
   readonly agentType?: string;
+  /**
+   * Which population the row belongs to: an active foreground subagent, or a
+   * background agent (running or finished). The summary names each population
+   * explicitly, because this list is not the session's agent count.
+   */
+  readonly origin: 'foreground' | 'background';
   /** One-line tidy summary of current or final work. Truncated in the template. */
   readonly description?: string;
   /** Elapsed/total run time in milliseconds, when reported. */
@@ -133,7 +139,8 @@ interface StripRow {
  * the session's subagents and background agents.
  *
  * Collapsed (default): one thin toggle row with overlapping per-agent colour
- * dots and a status-bucket summary (`4 agents · 3 running · 1 background`).
+ * dots and a population + status summary (`1 background · 3 foreground ·
+ * 4 running`).
  * Expanded: a vertical list, capped at four rows before it scrolls, where each
  * row shows a status indicator, the agent name, a tidy status line with elapsed
  * time and tokens, and a single `⋯` actions menu (view transcript / steer /
@@ -474,23 +481,35 @@ export class BackgroundAgentStripComponent {
     this.rows().slice(0, MAX_PREVIEW_DOTS),
   );
 
-  /** `4 agents · 3 running · 1 background` — zero buckets omitted. */
+  /**
+   * `5 background · 5 done`, or `3 background · 2 foreground · 3 running ·
+   * 2 done` for a mixed list — each population named, then the status
+   * buckets; zero counts omitted. The list is a different population from the
+   * session AGENTS chip (the backend's lifetime count), so it never calls its
+   * rows "agents".
+   */
   readonly summaryText = computed(() => {
-    const counts: Record<BackgroundAgentStripStatus, number> = {
-      running: 0,
-      background: 0,
-      completed: 0,
-      error: 0,
-      stopped: 0,
-    };
     const list = this.entries();
-    for (const e of list) counts[e.status]++;
-    const parts = [`${list.length} ${list.length === 1 ? 'agent' : 'agents'}`];
-    if (counts.running) parts.push(`${counts.running} running`);
-    if (counts.background) parts.push(`${counts.background} background`);
-    if (counts.completed) parts.push(`${counts.completed} done`);
-    if (counts.error) parts.push(`${counts.error} failed`);
-    if (counts.stopped) parts.push(`${counts.stopped} stopped`);
+    let background = 0;
+    let running = 0;
+    let completed = 0;
+    let failed = 0;
+    let stopped = 0;
+    for (const e of list) {
+      if (e.origin === 'background') background++;
+      if (e.status === 'running' || e.status === 'background') running++;
+      else if (e.status === 'completed') completed++;
+      else if (e.status === 'error') failed++;
+      else stopped++;
+    }
+    const foreground = list.length - background;
+    const parts: string[] = [];
+    if (background) parts.push(`${background} background`);
+    if (foreground) parts.push(`${foreground} foreground`);
+    if (running) parts.push(`${running} running`);
+    if (completed) parts.push(`${completed} done`);
+    if (failed) parts.push(`${failed} failed`);
+    if (stopped) parts.push(`${stopped} stopped`);
     return parts.join(' · ');
   });
 

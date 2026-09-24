@@ -1,6 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
 import {
-  calculateSessionCostSummary,
   SessionId,
   type SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
@@ -27,8 +26,8 @@ import { CompactionAdvisoryCorrelator } from './compaction-advisory-correlator.s
  *   read every compaction surface uses — banner and input overlay alike)
  * - Compaction safety-fallback timeout (10 min) — dismisses banner if backend
  *   never sends `compaction_complete`
- * - Compaction-complete reload flow: tree-cache clear, preloadedStats
- *   snapshot, message clear, sidebar refresh, session re-switch
+ * - Compaction-complete reload flow: tree-cache clear, message clear (the
+ *   backend session snapshot is kept), sidebar refresh, session re-switch
  *
  * PostCompact advisory correlation (across SDK session-id rotation) and the
  * single retry of a stale fallback snapshot live in the injected
@@ -347,8 +346,8 @@ export class CompactionLifecycleService {
   /**
    * Handle compaction complete result from streaming-handler.
    *
-   * Dismisses banner, clears tree-builder cache, snapshots preloadedStats,
-   * clears messages on the tab, increments compactionCount, and reloads
+   * Dismisses banner, clears tree-builder cache, clears messages on the tab
+   * (keeping its backend session snapshot), increments compactionCount, and reloads
    * the session from disk so the post-compaction state is visible.
    *
    * Symmetric fan-out. `handleCompactionStart`
@@ -553,26 +552,9 @@ export class CompactionLifecycleService {
       this._suppressAnimateOnce.set(true);
       queueMicrotask(() => this._suppressAnimateOnce.set(false));
       for (const t of fanoutTabs) {
-        const liveSummary =
-          !t.preloadedStats && t.messages.length > 0
-            ? calculateSessionCostSummary([...t.messages])
-            : null;
-        const preloadedStats =
-          t.preloadedStats ??
-          (liveSummary
-            ? {
-                totalCost: liveSummary.totalCost,
-                tokens: {
-                  input: liveSummary.totalTokens.input,
-                  output: liveSummary.totalTokens.output,
-                  cacheRead: liveSummary.totalTokens.cacheRead ?? 0,
-                  cacheCreation: liveSummary.totalTokens.cacheCreation ?? 0,
-                },
-                messageCount: liveSummary.messageCount,
-              }
-            : null);
+        // The tab keeps its backend session snapshot across compaction; no
+        // totals are rebuilt from the messages being cleared (TASK_2026_533).
         this.tabManager.applyCompactionComplete(t.id, {
-          preloadedStats,
           compactionCount: (t.compactionCount ?? 0) + 1,
           postCompactionContextTokens: result.postTokens,
         });

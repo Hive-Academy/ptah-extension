@@ -35,7 +35,10 @@ import { SessionControl } from './session-control.service';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { IModelResolver } from '../../auth-env.port';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
-import { SessionQueryExecutor } from './session-query-executor.service';
+import {
+  SessionQueryExecutor,
+  classifyUsageCostSource,
+} from './session-query-executor.service';
 import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
 import { SessionStreamPump } from './session-stream-pump.service';
@@ -270,6 +273,71 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
       permissionMode?: string;
     };
     expect(buildInput.permissionMode).toBe('acceptEdits');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cost authority frozen at query creation (TASK_2026_533)
+// ---------------------------------------------------------------------------
+
+describe('SessionQueryExecutor — usage cost authority (TASK_2026_533)', () => {
+  it('classifies the route: native SDK-priced -> reported; translated or custom -> unreported', () => {
+    expect(classifyUsageCostSource({} as AuthEnv)).toBe('reported');
+    expect(
+      classifyUsageCostSource({
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      } as AuthEnv),
+    ).toBe('reported');
+    expect(
+      classifyUsageCostSource({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123',
+      } as AuthEnv),
+    ).toBe('unreported');
+  });
+
+  it('freezes the authority of the EFFECTIVE route on the record and returns it with the run token', async () => {
+    const { executor, registry } = makeHarness('ask');
+
+    const direct = await executor.executeQuery(makeConfig('tab-direct'));
+    const proxied = await executor.executeQuery(
+      makeConfig('tab-proxied', {
+        authEnvOverride: {
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123',
+        } as AuthEnv,
+      }),
+    );
+
+    expect(direct.usageCostSource).toBe('reported');
+    expect(registry.find('tab-direct')?.usageCostSource).toBe('reported');
+    // The per-session provider profile wins over the global route.
+    expect(proxied.usageCostSource).toBe('unreported');
+    expect(registry.find('tab-proxied')?.usageCostSource).toBe('unreported');
+    expect(proxied.sessionToken).toBe(registry.find('tab-proxied')?.token);
+  });
+
+  // Review F4: pricing alias resolution uses a frozen COPY of the effective
+  // env, so mutating the source env later cannot re-price the running query.
+  it('freezes a copy of the effective auth env for pricing', async () => {
+    const { executor, registry } = makeHarness('ask');
+    const override = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'model-a',
+    } as AuthEnv;
+
+    const result = await executor.executeQuery(
+      makeConfig('tab-frozen', { authEnvOverride: override }),
+    );
+    (override as Record<string, string>)['ANTHROPIC_DEFAULT_SONNET_MODEL'] =
+      'model-b';
+
+    expect(result.accountingAuthEnv).not.toBe(override);
+    expect(result.accountingAuthEnv['ANTHROPIC_DEFAULT_SONNET_MODEL']).toBe(
+      'model-a',
+    );
+    expect(Object.isFrozen(result.accountingAuthEnv)).toBe(true);
+    expect(registry.find('tab-frozen')?.accountingAuthEnv).toBe(
+      result.accountingAuthEnv,
+    );
   });
 });
 

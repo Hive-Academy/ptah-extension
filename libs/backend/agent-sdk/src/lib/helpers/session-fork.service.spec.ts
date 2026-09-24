@@ -12,7 +12,11 @@ function getMockedForkSession(): jest.Mock {
 }
 
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
-import type { SessionId, AISessionConfig } from '@ptah-extension/shared';
+import type {
+  SessionId,
+  AISessionConfig,
+  AuthEnv,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   createFakeAsyncGenerator,
@@ -498,6 +502,8 @@ describe('SessionForkService', () => {
             currentModel: 'claude-sonnet-4-20250514',
             permissionLevel: 'ask',
             lastActivityAt: 0,
+            usageCostSource: 'reported',
+            accountingAuthEnv: {} as AuthEnv,
           };
         }
         return undefined;

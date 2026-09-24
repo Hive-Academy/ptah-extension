@@ -22,6 +22,8 @@
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ISdkPermissionHandler, AuthEnv } from '@ptah-extension/shared';
+import { isDirectAnthropic } from '@ptah-extension/shared';
+import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
 
 import {
   SDKUserMessage,
@@ -44,6 +46,23 @@ import {
   NO_ACTIVITY_TIMEOUT_MS,
 } from '../no-activity-watchdog';
 import type { IHarnessPreflight } from '../../harness/harness-preflight.port';
+
+/**
+ * Classify who is authoritative for a query's dollars from its effective
+ * auth route (TASK_2026_533).
+ *
+ * The SDK's `total_cost_usd` / `modelUsage[].costUSD` are priced by the CLI
+ * for the endpoint it believes it is calling. On the native SDK-priced route
+ * (no base URL, or the first-party API host) those figures are the provider's
+ * own: `'reported'`. On a translated or custom endpoint the CLI prices a model
+ * it does not bill, so its dollars are not authoritative: `'unreported'`, and
+ * every model is priced from the rate card by its own id. This classifies
+ * cost authority from the route; it never branches on a provider or model
+ * name.
+ */
+export function classifyUsageCostSource(authEnv: AuthEnv): UsageCostSource {
+  return isDirectAnthropic(authEnv) ? 'reported' : 'unreported';
+}
 
 export class SessionQueryExecutor {
   constructor(
@@ -113,6 +132,9 @@ export class SessionQueryExecutor {
 
     const abortController = new AbortController();
 
+    // The route this query will actually talk to, honouring a per-session
+    // provider profile. Classified once, here, and frozen on the record.
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     const registerKey = sessionConfig?.tabId ?? (sessionId as string);
     const knownRealSessionId = resumeSessionId
       ? (sessionId as string)
@@ -122,6 +144,11 @@ export class SessionQueryExecutor {
       sessionConfig || {},
       abortController,
       knownRealSessionId,
+      {
+        usageCostSource: classifyUsageCostSource(effectiveAuthEnv),
+        // A copy: the global env object is mutated in place on auth changes.
+        authEnv: Object.freeze({ ...effectiveAuthEnv }),
+      },
     );
     const initialContent = initialPrompt?.content.trim() || '';
     // Every prompt is queued the same way — a slash command is NOT special-
@@ -149,7 +176,6 @@ export class SessionQueryExecutor {
     // stream (kick on every event → reset), so a long-but-alive turn (long
     // tool call, extended thinking, slow stream) never trips it. Declared
     // before the try so the init-failure rollback can stop() it.
-    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     const providerBaseUrl =
       effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
     const providerModel = sessionConfig?.model ?? 'unknown';
@@ -357,6 +383,8 @@ export class SessionQueryExecutor {
         abortController,
         activityWatchdog,
         sessionToken: rec.token,
+        usageCostSource: rec.usageCostSource,
+        accountingAuthEnv: rec.accountingAuthEnv,
       };
     } catch (err) {
       if (rec) {

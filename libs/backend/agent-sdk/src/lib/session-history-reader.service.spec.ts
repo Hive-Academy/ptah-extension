@@ -36,6 +36,7 @@ import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
+import { SessionStatsOwnerService } from './session-stats/session-stats-owner.service';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
@@ -81,7 +82,10 @@ interface Stubs {
   jsonlReader: jest.Mocked<
     Pick<
       JsonlReaderService,
-      'findSessionsDirectory' | 'readJsonlMessages' | 'loadAgentSessions'
+      | 'findSessionsDirectory'
+      | 'readJsonlMessages'
+      | 'loadAgentSessions'
+      | 'projectJsonlLines'
     >
   >;
   replayService: jest.Mocked<
@@ -100,6 +104,8 @@ interface Stubs {
   usageTracker: LiveUsageTracker;
   /** Real singleton; compaction-read behaviour is tested through it. */
   compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry;
+  /** Real owner: a history read seeds it and returns its snapshot. */
+  statsOwner: SessionStatsOwnerService;
 }
 
 function makeStubs(): Stubs {
@@ -108,6 +114,7 @@ function makeStubs(): Stubs {
       findSessionsDirectory: jest.fn(),
       readJsonlMessages: jest.fn(),
       loadAgentSessions: jest.fn(),
+      projectJsonlLines: jest.fn(),
     },
     replayService: {
       replayToStreamEvents: jest.fn().mockReturnValue([]),
@@ -129,6 +136,7 @@ function makeStubs(): Stubs {
     logger: createMockLogger(),
     usageTracker: new LiveUsageTracker(),
     compactionBoundaryRegistry: new CompactionBoundaryGenerationRegistry(),
+    statsOwner: new SessionStatsOwnerService(),
   };
 }
 
@@ -144,6 +152,7 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.pricingProvider,
     stubs.usageTracker,
     stubs.compactionBoundaryRegistry,
+    stubs.statsOwner,
   );
 }
 
@@ -345,7 +354,11 @@ describe('SessionHistoryReaderService', () => {
       );
     });
 
-    it('aggregates only post-compact_boundary usage (pre-compact tokens are dropped)', async () => {
+    // TASK_2026_533: resume stats are the session LIFETIME, the same scope as
+    // the live cumulative figures they are combined with. Compaction shrinks
+    // the context, not what the session consumed; the context frame is
+    // extracted separately and stays post-boundary.
+    it('aggregates lifetime usage across a compact_boundary', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/sessions/dir',
@@ -358,7 +371,7 @@ describe('SessionHistoryReaderService', () => {
           model: 'claude-sonnet-4-20250514',
           uuid: 'init',
         } as SessionHistoryMessage,
-        // Pre-compact usage — MUST be excluded from aggregation.
+        // Pre-compact usage — counted in the lifetime total.
         {
           type: 'assistant',
           uuid: 'old',
@@ -414,8 +427,9 @@ describe('SessionHistoryReaderService', () => {
       const { stats } = await service.readSessionHistory('valid', '/workspace');
 
       expect(stats).not.toBeNull();
-      expect(stats?.tokens.input).toBe(10); // pre-compact 9999 dropped
-      expect(stats?.tokens.output).toBe(20);
+      expect(stats?.tokens.input).toBe(9999 + 10);
+      expect(stats?.tokens.output).toBe(9999 + 20);
+      expect(stats?.scope).toBe('session');
       // Model was detected from the pre-compact init (metadata, not usage).
       expect(stats?.model).toBe('claude-sonnet-4-20250514');
     });
@@ -712,16 +726,20 @@ describe('SessionHistoryReaderService', () => {
         '/workspace',
       );
 
+      // Lifetime accounting (TASK_2026_533) counts the pre-compact turn too;
+      // the context frame below stays the latest post-compaction one.
       expect(stats?.tokens).toEqual({
-        input: 76,
-        output: 600,
-        cacheRead: 130_000,
+        input: 1_076,
+        output: 1_100,
+        cacheRead: 930_000,
         cacheCreation: 2_800,
       });
       expect(stats?.modelUsageList?.[0]).toMatchObject({
         model: 'claude-sonnet-4-20250514',
-        inputTokens: 76,
-        outputTokens: 600,
+        inputTokens: 1_076,
+        outputTokens: 1_100,
+        cacheRead: 930_000,
+        cacheCreation: 2_800,
       });
       expect(stats).toMatchObject({
         contextSnapshot: {
@@ -1237,6 +1255,7 @@ describe('SessionHistoryReaderService', () => {
         stubs.pricingProvider,
         stubs.usageTracker,
         registry,
+        new SessionStatsOwnerService(),
       );
 
       const result = await service.readSessionHistory('valid', '/workspace', {
@@ -1999,5 +2018,304 @@ describe('SessionHistoryReaderService', () => {
 
       expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(0);
     });
+  });
+});
+
+/**
+ * TASK_2026_533 — resume accounting goes through the same ledger rules and
+ * aggregator as the sessions list, seeds the single stats owner, and carries
+ * the transcript's saved SDK `cost-state` for per-run restore detection.
+ */
+describe('SessionHistoryReaderService — session stats authority (TASK_2026_533)', () => {
+  const MODEL = 'claude-sonnet-4-20250514';
+  const SESSION = 'resume-stats-533';
+
+  function assistantMsg(
+    id: string,
+    usage: {
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    },
+  ): SessionHistoryMessage {
+    return {
+      type: 'assistant',
+      uuid: `line-${id}`,
+      message: {
+        role: 'assistant',
+        id,
+        model: MODEL,
+        content: [{ type: 'text', text: id }],
+        usage,
+      },
+      usage: {
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        ...usage,
+      },
+    } as SessionHistoryMessage;
+  }
+
+  function costState(payload: Record<string, unknown>): SessionHistoryMessage {
+    return {
+      type: 'cost-state',
+      costState: payload,
+    } as unknown as SessionHistoryMessage;
+  }
+
+  function setup(
+    main: SessionHistoryMessage[],
+    agents: Array<{ agentId: string; messages: SessionHistoryMessage[] }> = [],
+  ) {
+    const stubs = makeStubs();
+    stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+    stubs.jsonlReader.readJsonlMessages.mockResolvedValue(main);
+    stubs.jsonlReader.loadAgentSessions.mockResolvedValue(
+      agents.map((a) => ({ ...a, filePath: `/x/${a.agentId}.jsonl` })),
+    );
+    return { stubs, service: makeService(stubs) };
+  }
+
+  it('keeps both cache classes per model and counts a streamed message once', async () => {
+    const { service } = setup([
+      // One API message written as two lines; the second carries the final
+      // counters. Summing lines would count it twice.
+      assistantMsg('m1', {
+        input_tokens: 10,
+        output_tokens: 1,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 40,
+      }),
+      assistantMsg('m1', {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 40,
+      }),
+    ]);
+
+    const { stats } = await service.readSessionHistory(SESSION, '/workspace');
+
+    expect(stats?.tokens).toEqual({
+      input: 10,
+      output: 20,
+      cacheRead: 100,
+      cacheCreation: 40,
+    });
+    expect(stats?.tokenCount).toBe(170);
+    expect(stats?.modelUsageList?.[0]).toMatchObject({
+      model: MODEL,
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheRead: 100,
+      cacheCreation: 40,
+    });
+  });
+
+  it('counts subagent identities, not files', async () => {
+    const { service } = setup(
+      [assistantMsg('m1', { input_tokens: 1, output_tokens: 1 })],
+      [
+        { agentId: 'agent-a1', messages: [] },
+        { agentId: 'agent-a2', messages: [] },
+      ],
+    );
+
+    const { stats } = await service.readSessionHistory(SESSION, '/workspace');
+
+    expect(stats?.agentSessionCount).toBe(2);
+  });
+
+  // Review F7: browsing history never creates a persistent owner.
+  it('creates no owner for three history reads without activation', async () => {
+    const { stubs, service } = setup([
+      assistantMsg('m1', { input_tokens: 1, output_tokens: 1 }),
+    ]);
+
+    for (const id of ['browse-1', 'browse-2', 'browse-3']) {
+      const { stats } = await service.readSessionHistory(id, '/workspace');
+      expect(stats?.tokenCount).toBe(2);
+    }
+
+    expect(
+      ['browse-1', 'browse-2', 'browse-3'].map((id) =>
+        stubs.statsOwner.snapshot(id),
+      ),
+    ).toEqual([null, null, null]);
+  });
+
+  it('answers with the owner snapshot once a run is active, never re-adding a grown transcript', async () => {
+    const { stubs, service } = setup([
+      assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),
+    ]);
+    // The run launched with an unreadable prefix.
+    await stubs.statsOwner.prepareRun(SESSION, {
+      loadPrefix: async () => null,
+      loadSavedCostState: async () => null,
+    });
+
+    stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+      assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),
+      assistantMsg('m2', { input_tokens: 50, output_tokens: 5 }),
+    ]);
+    const { stats } = await service.readSessionHistory(SESSION, '/workspace');
+
+    // A later, larger transcript is not adopted underneath the running owner.
+    expect(stats?.revision).toBe(stubs.statsOwner.snapshot(SESSION)?.revision);
+    expect(stats?.coverage).toBe('partial');
+    expect(stats?.totalCost).toBeNull();
+  });
+
+  // Review F6: an owned member that cannot be read is missing usage.
+  it('parent $2 + one unreadable owned agent: no total, knownCost 2, one agent, partial', async () => {
+    const { stubs, service } = setup([
+      assistantMsg('m1', { input_tokens: 100, output_tokens: 100 }),
+    ]);
+    stubs.modelResolver.resolveForCost.mockImplementation((m: string) => ({
+      modelId: m,
+      pricing: { inputCostPerToken: 0.01, outputCostPerToken: 0.01 },
+      subscriptionCovered: false,
+    }));
+    stubs.jsonlReader.loadAgentSessions.mockImplementation(
+      async (_dir, _parent, onUnreadable) => {
+        onUnreadable?.({ agentId: 'agent-a9', owned: true });
+        // A flat legacy file of unknown owner: coverage only, no identity.
+        onUnreadable?.({ agentId: null, owned: false });
+        return [];
+      },
+    );
+
+    const prefixRead = await service.readSessionUsagePrefix(
+      SESSION,
+      '/workspace',
+    );
+    const { stats } = await service.readSessionHistory(SESSION, '/workspace');
+
+    for (const entry of [prefixRead?.stats, stats]) {
+      expect(entry?.totalCost).toBeNull();
+      expect(entry?.knownCost).toBeCloseTo(2, 6);
+      expect(entry?.agentSessionCount).toBe(1);
+      expect(entry?.coverage).toBe('partial');
+      expect(entry?.pricingCoverage).toBe('partial');
+    }
+  });
+
+  // Review F1: later runs re-read only the LAST raw cost-state on disk.
+  describe('readLastSavedCostState', () => {
+    function streamLines(stubs: ReturnType<typeof makeStubs>, lines: string[]) {
+      stubs.jsonlReader.projectJsonlLines.mockImplementation(
+        async (_path, visit) => {
+          for (const line of lines) visit(line);
+          return { lines: lines.length, yields: 0 };
+        },
+      );
+    }
+    const state = (total: number, input: number) =>
+      JSON.stringify({
+        type: 'cost-state',
+        totalCostUSD: total,
+        hasUnknownModelCost: false,
+        modelUsage: { [MODEL]: { inputTokens: input, outputTokens: 0, costUSD: total } },
+      });
+
+    it('returns the last cost-state line, raw SDK figures', async () => {
+      const { stubs, service } = setup([]);
+      streamLines(stubs, [
+        state(1, 10),
+        '{"type":"assistant","message":{"role":"assistant"}}',
+        state(10, 100),
+        '{"type":"last-prompt"}',
+      ]);
+
+      await expect(
+        service.readLastSavedCostState(SESSION, '/workspace'),
+      ).resolves.toEqual({
+        totalCostUSD: 10,
+        hasUnknownModelCost: false,
+        models: {
+          [MODEL]: {
+            input: 100,
+            output: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+            costUSD: 10,
+          },
+        },
+      });
+    });
+
+    it('is null when the last cost-state is malformed or the read fails', async () => {
+      const { stubs, service } = setup([]);
+      streamLines(stubs, [state(10, 100), '{"type":"cost-state","totalCostUSD":-1,"modelUsage":{}}']);
+      await expect(
+        service.readLastSavedCostState(SESSION, '/workspace'),
+      ).resolves.toBeNull();
+
+      stubs.jsonlReader.projectJsonlLines.mockRejectedValue(new Error('EACCES'));
+      await expect(
+        service.readLastSavedCostState(SESSION, '/workspace'),
+      ).resolves.toBeNull();
+    });
+  });
+
+  it('reads the prefix with the LAST valid cost-state for a cold resume', async () => {
+    const { service } = setup([
+      costState({ totalCostUSD: 1, modelUsage: {}, hasUnknownModelCost: false }),
+      assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),
+      costState({
+        totalCostUSD: 2.5,
+        hasUnknownModelCost: false,
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            costUSD: 2.5,
+          },
+        },
+      }),
+    ]);
+
+    const prefix = await service.readSessionUsagePrefix(SESSION, '/workspace');
+
+    expect(prefix?.stats.scope).toBe('session');
+    expect(prefix?.savedCostState).toEqual({
+      totalCostUSD: 2.5,
+      hasUnknownModelCost: false,
+      models: {
+        [MODEL]: {
+          input: 100,
+          output: 10,
+          cacheRead: 0,
+          cacheCreation: 0,
+          costUSD: 2.5,
+        },
+      },
+    });
+  });
+
+  it('treats a malformed last cost-state as absent', async () => {
+    const { service } = setup([
+      assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),
+      costState({ totalCostUSD: -1, modelUsage: {} }),
+    ]);
+
+    const prefix = await service.readSessionUsagePrefix(SESSION, '/workspace');
+
+    expect(prefix?.savedCostState).toBeNull();
+  });
+
+  it('returns no prefix for a missing transcript instead of an empty one', async () => {
+    const stubs = makeStubs();
+    stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+    stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
+      Object.assign(new Error('missing'), { code: 'ENOENT' }),
+    );
+
+    await expect(
+      makeService(stubs).readSessionUsagePrefix(SESSION, '/workspace'),
+    ).resolves.toBeNull();
   });
 });

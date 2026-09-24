@@ -3,12 +3,13 @@ import {
   ConversationRegistry,
   SurfaceSessionStatsRegistry,
   TabManagerService,
+  isValidSessionStatsSnapshot,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
 import {
   deriveLiveModelStats,
   type TurnModelUsage,
@@ -18,15 +19,73 @@ import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 
 /**
+ * A `session:stats` broadcast for one SDK result: the per-result footer fields
+ * (forwarded unchanged to the streaming handler) plus, when the backend has
+ * one, its session-lifetime snapshot.
+ */
+export interface SessionStatsResultEvent {
+  readonly sessionId: string;
+  readonly cost: number | null;
+  readonly tokens: {
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead?: number;
+    readonly cacheCreation?: number;
+  };
+  readonly duration: number;
+  readonly modelUsage?: TurnModelUsage[];
+  /** Wire contract only: validated before it is installed. */
+  readonly sessionStats?: SessionStatsEntry;
+}
+
+/**
+ * A `session:stats` broadcast that carries only a session snapshot and no
+ * per-turn footer fields. It is an accounting update, not a turn result.
+ */
+export interface SessionStatsSnapshotEvent {
+  readonly sessionId: string;
+  readonly sessionStats?: SessionStatsEntry;
+  readonly cost?: undefined;
+  readonly tokens?: undefined;
+  readonly duration?: undefined;
+  readonly modelUsage?: undefined;
+}
+
+/** One `session:stats` broadcast, as the webview receives it. */
+export type SessionStatsEvent =
+  SessionStatsResultEvent | SessionStatsSnapshotEvent;
+
+/**
+ * True when no per-turn footer field is present. A zero or `null` cost is a
+ * present field; only an absent (`undefined`) one counts as missing.
+ */
+function isSnapshotOnly(
+  stats: SessionStatsEvent,
+): stats is SessionStatsSnapshotEvent {
+  return (
+    stats.cost === undefined &&
+    stats.tokens === undefined &&
+    stats.duration === undefined
+  );
+}
+
+/**
  * SessionStatsAggregatorService - Process SESSION_STATS events from the backend.
  *
  * Responsibilities:
- * - Route incoming stats to the correct tab (with active-tab fallback)
- * - Process modelUsage array: pick primary model by highest cost,
- *   compute context-fill (lastTurnContextTokens preferred over cumulative)
- * - Update `liveModelStats` and `modelUsageList` per tab
- * - Accumulate `preloadedStats` for loaded sessions getting new turns
+ * - Route incoming stats to the correct tab (or to a workflow surface)
+ * - Derive the context badge (`liveModelStats`) from the turn's modelUsage:
+ *   pick the primary model, compute context-fill (lastTurnContextTokens
+ *   preferred over cumulative)
+ * - Validate and INSTALL the backend's session snapshot (`sessionStats`) —
+ *   assignment only. Session totals are never added up here (TASK_2026_533).
+ * - Forward the per-result footer fields to StreamingHandlerService unchanged
  * - Trigger sidebar refresh + auto-send re-steering
+ *
+ * A snapshot-only broadcast installs its snapshot and stops there: it is not a
+ * turn result, so compaction clearing, footer forwarding (which would overwrite
+ * a finalized message's cost/tokens/duration with `undefined`), the sidebar
+ * refresh and queued-message handling do not run.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionStatsAggregatorService {
@@ -43,28 +102,9 @@ export class SessionStatsAggregatorService {
    * Handle session stats update from backend
    * Delegates to StreamingHandlerService
    *
-   * @param stats - Session statistics (cost, tokens, duration, modelUsage)
+   * @param stats - Per-result footer fields plus the backend session snapshot
    */
-  handleSessionStats(stats: {
-    sessionId: string;
-    cost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    duration: number;
-    modelUsage?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      contextWindow: number;
-      costUSD: number;
-      cacheReadInputTokens?: number;
-      lastTurnContextTokens?: number;
-    }>;
-  }): void {
+  handleSessionStats(stats: SessionStatsEvent): void {
     let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
       SessionId.from(stats.sessionId),
     );
@@ -81,6 +121,17 @@ export class SessionStatsAggregatorService {
       );
       if (lookup) targetTabs = [lookup.tab];
     }
+    const snapshot = this.snapshotFor(stats);
+    if (isSnapshotOnly(stats)) {
+      if (targetTabs.length === 0) {
+        this.recordSurfaceStats(stats, snapshot);
+      } else if (snapshot) {
+        for (const t of targetTabs) {
+          this.tabManager.installSessionStats(t.id, snapshot);
+        }
+      }
+      return;
+    }
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
@@ -91,8 +142,13 @@ export class SessionStatsAggregatorService {
       // below applies (there is no `TabState` to write), but the stats
       // themselves are perfectly good: record them session-keyed so the
       // surface can render the same header a tab gets.
-      this.recordSurfaceStats(stats);
+      this.recordSurfaceStats(stats, snapshot);
       return;
+    }
+    if (snapshot) {
+      for (const t of targetTabs) {
+        this.tabManager.installSessionStats(t.id, snapshot);
+      }
     }
     if (stats.modelUsage && stats.modelUsage.length > 0) {
       const stickyModelName = ((): string | null => {
@@ -112,18 +168,12 @@ export class SessionStatsAggregatorService {
 
       if (derived && derived.live) {
         for (const t of targetTabs) {
-          this.tabManager.setLiveModelStatsAndUsageList(
-            t.id,
-            derived.live,
-            stats.modelUsage,
-          );
+          this.tabManager.setLiveModelStats(t.id, derived.live);
         }
       } else if (derived) {
-        for (const t of targetTabs) {
-          this.tabManager.setModelUsageList(t.id, stats.modelUsage);
-        }
+        // The model name still renders from the session snapshot.
         console.warn(
-          '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction); preserved per-model breakdown',
+          '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
           {
             sessionId: stats.sessionId,
             model: derived.primaryModel.model,
@@ -131,27 +181,6 @@ export class SessionStatsAggregatorService {
           },
         );
       }
-    }
-    for (const t of targetTabs) {
-      if (!t.preloadedStats) continue;
-      const prevCost = t.preloadedStats.totalCost;
-      const turnCost = stats.cost;
-      const nextCost =
-        prevCost === null || turnCost === null ? null : prevCost + turnCost;
-      this.tabManager.setPreloadedStats(t.id, {
-        ...t.preloadedStats,
-        totalCost: nextCost,
-        tokens: {
-          input: t.preloadedStats.tokens.input + stats.tokens.input,
-          output: t.preloadedStats.tokens.output + stats.tokens.output,
-          cacheRead:
-            t.preloadedStats.tokens.cacheRead + (stats.tokens.cacheRead ?? 0),
-          cacheCreation:
-            t.preloadedStats.tokens.cacheCreation +
-            (stats.tokens.cacheCreation ?? 0),
-        },
-        messageCount: t.preloadedStats.messageCount + 1,
-      });
     }
     const result = this.streamingHandler.handleSessionStats(stats);
     this.sessionLoader.loadSessions().catch((err) => {
@@ -176,17 +205,10 @@ export class SessionStatsAggregatorService {
    * A session the router knows nothing about is still a genuine drop and still
    * warns — that case means routing lost the event, which is a bug.
    */
-  private recordSurfaceStats(stats: {
-    sessionId: string;
-    cost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    modelUsage?: TurnModelUsage[];
-  }): void {
+  private recordSurfaceStats(
+    stats: SessionStatsEvent,
+    snapshot: SessionStatsEntry | null,
+  ): void {
     const sessionId = stats.sessionId as ClaudeSessionId;
     if (this.streamRouter.surfacesForSession(sessionId).length === 0) {
       console.warn(
@@ -208,9 +230,33 @@ export class SessionStatsAggregatorService {
 
     this.surfaceStats.record(stats.sessionId, {
       live: derived?.live ?? null,
-      modelUsage: stats.modelUsage ?? null,
-      cost: stats.cost,
-      tokens: stats.tokens,
+      snapshot,
     });
+  }
+
+  /**
+   * The event's session snapshot, or null when it carries none, is malformed
+   * (see `isValidSessionStatsSnapshot`), or names a different session than the
+   * event itself (routing would install it on the wrong tab). A malformed
+   * snapshot is rejected whole with one warning that names only the session.
+   */
+  private snapshotFor(stats: SessionStatsEvent): SessionStatsEntry | null {
+    const snapshot: unknown = stats.sessionStats;
+    if (snapshot === undefined || snapshot === null) return null;
+    if (!isValidSessionStatsSnapshot(snapshot)) {
+      console.warn(
+        '[ChatStore] handleSessionStats: rejected a malformed session snapshot',
+        { sessionId: stats.sessionId },
+      );
+      return null;
+    }
+    if (snapshot.sessionId !== stats.sessionId) {
+      console.warn(
+        '[ChatStore] handleSessionStats: session snapshot names a different session, ignoring it',
+        { sessionId: stats.sessionId, snapshotSessionId: snapshot.sessionId },
+      );
+      return null;
+    }
+    return snapshot;
   }
 }

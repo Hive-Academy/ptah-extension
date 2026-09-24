@@ -81,9 +81,8 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(service.activeTabStatus()).toBeNull();
       expect(service.activeTabSessionId()).toBeNull();
       expect(service.activeTabStreamingState()).toBeNull();
-      expect(service.activeTabPreloadedStats()).toBeNull();
+      expect(service.activeTabSessionStats()).toBeNull();
       expect(service.activeTabLiveModelStats()).toBeNull();
-      expect(service.activeTabModelUsageList()).toBeNull();
       expect(service.activeTabCompactionCount()).toBe(0);
       expect(service.activeTabViewMode()).toBe('full');
       expect(service.activeTabQueuedContent()).toBeNull();

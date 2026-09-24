@@ -16,6 +16,7 @@ import {
 import {
   aggregateSessionUsage,
   type PricingLookup,
+  type SessionStatsScopeSelection,
 } from './session-usage-aggregator';
 
 const SESSION = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
@@ -158,6 +159,7 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: PARENT,
         subagents: [SUBAGENT],
         unreadableSubagents: 0,
+        subagentIds: ['agent-s1'],
         scope: { kind: 'current-context' },
       },
       lookup,
@@ -193,6 +195,7 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: PARENT,
         subagents: [SUBAGENT],
         unreadableSubagents: 0,
+        subagentIds: ['agent-s1'],
         scope: { kind: 'range', since: T(1), until: T(6) },
       },
       lookup,
@@ -212,11 +215,14 @@ describe('aggregateSessionUsage — golden accounting', () => {
     expect(entry.pricingCoverage).toBe('partial');
     const alpha = 123 * 0.001 + 52 * 0.002 + 12 * 0.0001 + 6 * 0.0005;
     const beta = 50 * 0.01 + 5 * 0.02;
-    expect(entry.totalCost).toBeCloseTo(alpha + beta, 6);
+    // TASK_2026_533: an unpriced model makes the total unknown; the priced
+    // part survives only as the labeled subtotal.
+    expect(entry.totalCost).toBeNull();
+    expect(entry.knownCost).toBeCloseTo(alpha + beta, 6);
     expect(entry.modelUsageList).toEqual([
-      { model: 'zz-priced-beta', inputTokens: 50, outputTokens: 5, costUSD: expect.closeTo(beta, 6) },
-      { model: 'zz-priced-alpha', inputTokens: 123, outputTokens: 52, costUSD: expect.closeTo(alpha, 6) },
-      { model: 'zz-unpriced-omega', inputTokens: 7, outputTokens: 3, costUSD: null },
+      { model: 'zz-priced-beta', inputTokens: 50, outputTokens: 5, cacheRead: 0, cacheCreation: 0, costUSD: expect.closeTo(beta, 6) },
+      { model: 'zz-priced-alpha', inputTokens: 123, outputTokens: 52, cacheRead: 12, cacheCreation: 6, costUSD: expect.closeTo(alpha, 6) },
+      { model: 'zz-unpriced-omega', inputTokens: 7, outputTokens: 3, cacheRead: 0, cacheCreation: 0, costUSD: null },
     ]);
   });
 
@@ -227,6 +233,7 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: PARENT,
         subagents: [],
         unreadableSubagents: 0,
+        subagentIds: [],
         scope: { kind: 'current-context' },
       },
       () => null,
@@ -243,6 +250,7 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: PARENT,
         subagents: [SUBAGENT],
         unreadableSubagents: 1,
+        subagentIds: ['agent-s1', 'agent-s2'],
         scope: { kind: 'current-context' },
       },
       lookup,
@@ -262,6 +270,7 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: compacted,
         subagents: [],
         unreadableSubagents: 0,
+        subagentIds: [],
         scope: { kind: 'current-context' },
       },
       lookup,
@@ -282,13 +291,101 @@ describe('aggregateSessionUsage — golden accounting', () => {
         parent: modelless,
         subagents: [],
         unreadableSubagents: 0,
+        subagentIds: [],
         scope: { kind: 'current-context' },
       },
       lookup,
     );
     expect(entry.tokens.input).toBe(14);
     expect(entry.pricingCoverage).toBe('partial');
-    expect(entry.totalCost).toBeCloseTo(10 * 0.001, 6);
+    expect(entry.totalCost).toBeNull();
+    expect(entry.knownCost).toBeCloseTo(10 * 0.001, 6);
+  });
+
+  it('session: every record of parent and subagents, compact boundaries ignored', () => {
+    const entry = aggregateSessionUsage(
+      {
+        sessionId: SESSION,
+        parent: PARENT,
+        subagents: [SUBAGENT],
+        unreadableSubagents: 0,
+        subagentIds: ['agent-s1', 's1'],
+        scope: { kind: 'session' },
+      },
+      lookup,
+    );
+    expect(entry.scope).toBe('session');
+    expect(entry.tokens.input).toBe(100 + 7 + 20 + 1 + 3 + 50 + 1000);
+    expect(entry.messageCount).toBe(5);
+    // Two aliases of one identity count once.
+    expect(entry.agentSessionCount).toBe(1);
+  });
+});
+
+/**
+ * TASK_2026_533: a partial priced sum is not a total, and the per-model rows
+ * carry both cache classes so the table can reconcile with the TOKENS chip.
+ */
+describe('aggregateSessionUsage — mixed pricing (TASK_2026_533)', () => {
+  const TWO_DOLLAR: Record<string, ModelPricing> = {
+    'zz-two-dollar': {
+      inputCostPerToken: 0.001,
+      outputCostPerToken: 0.001,
+      cacheReadCostPerToken: 0.0025,
+      cacheCreationCostPerToken: 0.00625,
+    },
+  };
+  const MIXED = ledger([
+    assistant('k1', 'zz-two-dollar', T(0), {
+      input_tokens: 1000,
+      output_tokens: 500,
+      cache_read_input_tokens: 100,
+      cache_creation_input_tokens: 40,
+    }),
+    assistant('u1', 'zz-unpriced-omega', T(1), {
+      input_tokens: 7,
+      output_tokens: 3,
+      cache_read_input_tokens: 11,
+      cache_creation_input_tokens: 13,
+    }),
+  ]);
+
+  it('returns unknown total for mixed pricing and preserves both cache columns', () => {
+    const entry = aggregateSessionUsage(
+      {
+        sessionId: SESSION,
+        parent: MIXED,
+        subagents: [],
+        unreadableSubagents: 0,
+        subagentIds: [],
+        scope: { kind: 'current-context' },
+      },
+      (model) => TWO_DOLLAR[model] ?? null,
+    );
+
+    // Known model: 1000*0.001 + 500*0.001 + 100*0.0025 + 40*0.00625 = 2.
+    expect(entry.totalCost).toBeNull();
+    expect(entry.knownCost).toBeCloseTo(2, 6);
+    expect(entry.pricingCoverage).toBe('partial');
+    expect(entry.tokenCount).toBe(1000 + 500 + 100 + 40 + 7 + 3 + 11 + 13);
+    expect(entry.modelUsageList).toEqual([
+      {
+        model: 'zz-two-dollar',
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheRead: 100,
+        cacheCreation: 40,
+        costUSD: expect.closeTo(2, 6),
+      },
+      {
+        model: 'zz-unpriced-omega',
+        inputTokens: 7,
+        outputTokens: 3,
+        cacheRead: 11,
+        cacheCreation: 13,
+        costUSD: null,
+      },
+    ]);
   });
 });
 
@@ -307,10 +404,17 @@ describe('aggregateSessionUsage — subagent compaction', () => {
     { type: 'system', subtype: 'compact_boundary', timestamp: iso(T(2)) },
     assistant('c2', 'zz-priced-beta', T(3), { input_tokens: 9, output_tokens: 1 }),
   ]);
-  type Scope = Parameters<typeof aggregateSessionUsage>[0]['scope'];
+  type Scope = SessionStatsScopeSelection;
   const aggregate = (subagents: readonly SessionUsageLedger[], scope: Scope) =>
     aggregateSessionUsage(
-      { sessionId: SESSION, parent: PARENT_ONLY, subagents, unreadableSubagents: 0, scope },
+      {
+        sessionId: SESSION,
+        parent: PARENT_ONLY,
+        subagents,
+        unreadableSubagents: 0,
+        subagentIds: subagents.map((_, i) => `agent-c${i}`),
+        scope,
+      },
       lookup,
     );
 
@@ -330,6 +434,8 @@ describe('aggregateSessionUsage — subagent compaction', () => {
       model: 'zz-priced-beta',
       inputTokens: 9,
       outputTokens: 1,
+      cacheRead: 0,
+      cacheCreation: 0,
       costUSD: expect.closeTo(beta, 6),
     });
     expect(entry.totalCost).toBeCloseTo(1 * 0.001 + 1 * 0.002 + beta, 6);

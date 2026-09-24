@@ -22,6 +22,7 @@ import type {
   JsonlMessageLine,
   SessionHistoryMessage,
   AgentSessionData,
+  UnreadableAgentMember,
 } from './history.types';
 import { SdkError } from '../../errors';
 
@@ -776,6 +777,15 @@ export class JsonlReaderService {
       message: line.message as SessionHistoryMessage['message'],
       model: line.model,
       usage: line.message?.usage,
+      // The SDK's saved running totals; read by resume accounting to tell a
+      // restored run from a reset one (TASK_2026_533).
+      ...(line.type === 'cost-state' && {
+        costState: {
+          totalCostUSD: line.totalCostUSD,
+          modelUsage: line.modelUsage,
+          hasUnknownModelCost: line.hasUnknownModelCost,
+        },
+      }),
     };
   }
 
@@ -789,24 +799,29 @@ export class JsonlReaderService {
    * Each agent file contains messages from a subagent spawned by Task tool.
    * Files are filtered to only include agents belonging to the parent session.
    *
+   * A member that cannot be read is still reported through `onUnreadable`
+   * (TASK_2026_533): accounting must know usage is missing rather than
+   * silently present a smaller total. A nested file is owned by construction,
+   * so its file-name identity is known; a flat legacy file's owner is on its
+   * first record, so an unreadable one has no provable owner.
+   *
    * @param sessionsDir - Path to the sessions directory
    * @param parentSessionId - ID of the parent session to filter by
+   * @param onUnreadable - Told about each member that could not be read
    * @returns Array of agent session data
    */
   async loadAgentSessions(
     sessionsDir: string,
     parentSessionId: string,
+    onUnreadable?: (member: UnreadableAgentMember) => void,
   ): Promise<AgentSessionData[]> {
     const agentSessions: AgentSessionData[] = [];
     const agentFilePaths: { filePath: string; agentId: string }[] = [];
     const subagentsDir = path.join(sessionsDir, parentSessionId, 'subagents');
 
-    let subagentFiles: string[] = [];
-    try {
-      subagentFiles = await fs.readdir(subagentsDir);
-    } catch {
-      subagentFiles = [];
-    }
+    const subagentFiles = await this.listAgentDirectory(subagentsDir, () =>
+      onUnreadable?.({ agentId: null, owned: true }),
+    );
     const agentFiles = subagentFiles.filter(
       (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
     );
@@ -817,12 +832,9 @@ export class JsonlReaderService {
       });
     }
     if (agentFilePaths.length === 0) {
-      let files: string[] = [];
-      try {
-        files = await fs.readdir(sessionsDir);
-      } catch {
-        files = [];
-      }
+      const files = await this.listAgentDirectory(sessionsDir, () =>
+        onUnreadable?.({ agentId: null, owned: false }),
+      );
       const agentFiles = files.filter(
         (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
       );
@@ -846,11 +858,11 @@ export class JsonlReaderService {
     });
 
     for (const { filePath, agentId } of agentFilePaths) {
+      const isNested = filePath.includes(
+        path.join(parentSessionId, 'subagents'),
+      );
       try {
         const messages = await this.readJsonlMessages(filePath);
-        const isNested = filePath.includes(
-          path.join(parentSessionId, 'subagents'),
-        );
         const firstMsg = messages[0];
 
         if (isNested || firstMsg?.sessionId === parentSessionId) {
@@ -864,9 +876,40 @@ export class JsonlReaderService {
         this.logger.debug('[JsonlReader] Skipping unreadable agent file', {
           filePath,
         });
+        onUnreadable?.(
+          isNested ? { agentId, owned: true } : { agentId: null, owned: false },
+        );
       }
     }
 
     return agentSessions;
+  }
+
+  /**
+   * Entries of an agent directory. A directory that does not exist is an
+   * empty membership; one that exists but cannot be listed is reported.
+   */
+  private async listAgentDirectory(
+    dir: string,
+    onUnlistable: () => void,
+  ): Promise<string[]> {
+    try {
+      return await fs.readdir(dir);
+    } catch (error: unknown) {
+      // degradation-audit: reported - an unlistable directory is logged and
+      // passed to `onUnlistable`; a missing one is an empty membership.
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        this.logger.debug('[JsonlReader] Agent directory could not be listed', {
+          dir,
+          code,
+        });
+        onUnlistable();
+      }
+      return [];
+    }
   }
 }

@@ -32,6 +32,12 @@ export const SDK_TOKENS = {
    * (TASK_2026_411 B4). Never replays history.
    */
   SDK_SESSION_STATS_READER: Symbol.for('SdkSessionStatsReader'),
+  /**
+   * The single in-memory authority for each session's lifetime accounting:
+   * fixed history prefix + latest cumulative result per query run
+   * (TASK_2026_533). Singleton — every producer and reader shares one.
+   */
+  SDK_SESSION_STATS_OWNER: Symbol.for('SdkSessionStatsOwner'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),

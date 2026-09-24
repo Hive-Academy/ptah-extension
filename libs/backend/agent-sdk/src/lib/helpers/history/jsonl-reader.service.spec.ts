@@ -696,6 +696,54 @@ describe('JsonlReaderService', () => {
 
       expect(out.map((a) => a.agentId)).toEqual(['agent-ok']);
     });
+
+    // TASK_2026_533 review F6: accounting must learn what could not be read.
+    it('reports an unreadable nested member with its owned file-name identity', async () => {
+      mockedReaddir.mockResolvedValueOnce([
+        'agent-broken.jsonl',
+      ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+      mockedStat.mockRejectedValueOnce(new Error('EACCES'));
+      const unreadable: unknown[] = [];
+
+      await service.loadAgentSessions(sessionsDir, parentId, (member) =>
+        unreadable.push(member),
+      );
+
+      expect(unreadable).toEqual([{ agentId: 'agent-broken', owned: true }]);
+    });
+
+    it('reports an unreadable flat legacy file without assigning it an owner', async () => {
+      mockedReaddir.mockRejectedValueOnce(
+        Object.assign(new Error('missing'), { code: 'ENOENT' }),
+      );
+      mockedReaddir.mockResolvedValueOnce([
+        'agent-legacy-broken.jsonl',
+      ] as unknown as Awaited<ReturnType<typeof fs.readdir>>);
+      mockedStat.mockRejectedValueOnce(new Error('EACCES'));
+      const unreadable: unknown[] = [];
+
+      await service.loadAgentSessions(sessionsDir, parentId, (member) =>
+        unreadable.push(member),
+      );
+
+      expect(unreadable).toEqual([{ agentId: null, owned: false }]);
+    });
+
+    it('reports a subagents directory that exists but cannot be listed', async () => {
+      mockedReaddir.mockRejectedValueOnce(
+        Object.assign(new Error('denied'), { code: 'EACCES' }),
+      );
+      mockedReaddir.mockResolvedValueOnce(
+        [] as unknown as Awaited<ReturnType<typeof fs.readdir>>,
+      );
+      const unreadable: unknown[] = [];
+
+      await service.loadAgentSessions(sessionsDir, parentId, (member) =>
+        unreadable.push(member),
+      );
+
+      expect(unreadable).toEqual([{ agentId: null, owned: true }]);
+    });
   });
 
   // -------------------------------------------------------------------------

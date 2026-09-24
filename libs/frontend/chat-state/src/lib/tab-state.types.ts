@@ -7,26 +7,13 @@
  */
 
 /**
- * Stats payload accumulated for the active model usage display.
+ * The context badge's model and window fill, derived per turn. Not an
+ * accounting figure: session totals come from the backend snapshot
+ * (`TabState.sessionStats`).
  */
 export interface LiveModelStatsPayload {
   model: string;
   contextUsed: number;
   contextWindow: number;
   contextPercent: number;
-}
-
-/**
- * Aggregate stats persisted on a tab when a session is loaded from disk
- * or when previous turn totals must be carried across compaction.
- */
-export interface PreloadedStatsPayload {
-  totalCost: number | null;
-  tokens: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheCreation: number;
-  };
-  messageCount: number;
 }

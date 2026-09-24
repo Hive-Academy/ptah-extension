@@ -24,12 +24,14 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   SessionId,
   AISessionConfig,
+  AuthEnv,
   PermissionLevel,
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
 
 import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
 import type { ActivityHold } from '../no-activity-watchdog';
+import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
 
 /**
  * A single session record held in the dual-index registry.
@@ -95,7 +97,36 @@ export interface SessionRecord {
    */
   activityHold: ActivityHold | null;
   lastActivityAt: number;
+  /**
+   * Who is authoritative for this query's dollars, classified ONCE from the
+   * effective auth route when the query was created (TASK_2026_533). Every
+   * stream over this record — including an active-reuse stream — accounts
+   * with it, so a later route change cannot re-price a running query.
+   */
+  readonly usageCostSource: UsageCostSource;
+  /**
+   * Snapshot of the query's EFFECTIVE auth env (a provider-profile override
+   * wins), frozen with `usageCostSource`. Accounting resolves model aliases
+   * for pricing against it, so a later change to the process-global env
+   * cannot re-price a running query.
+   */
+  readonly accountingAuthEnv: Readonly<AuthEnv>;
 }
+
+/** Cost authority and pricing context of one query, frozen at creation. */
+export interface QueryAccounting {
+  readonly usageCostSource: UsageCostSource;
+  readonly authEnv: Readonly<AuthEnv>;
+}
+
+/**
+ * For a registration that never creates a query (no result can arrive):
+ * price from the rate card with no route-specific alias mapping.
+ */
+const UNCLASSIFIED_ACCOUNTING: QueryAccounting = Object.freeze({
+  usageCostSource: 'unreported',
+  authEnv: Object.freeze({}) as Readonly<AuthEnv>,
+});
 
 /**
  * What `bindRealSessionId` did.
@@ -183,6 +214,11 @@ export class SessionRegistry {
    *
    * Also updates _lastActiveTabId so ordering semantics are preserved.
    *
+   * The query's accounting (cost authority and pricing auth env) is frozen on
+   * the record. A registration that never creates a query (no result can ever
+   * arrive) takes {@link UNCLASSIFIED_ACCOUNTING}: rate card, never trust
+   * dollars nobody classified.
+   *
    * @returns The created SessionRecord (same object reference stored in byTabId).
    */
   register(
@@ -190,9 +226,12 @@ export class SessionRegistry {
     config: AISessionConfig,
     abortController: AbortController,
     realSessionId?: string,
+    accounting: QueryAccounting = UNCLASSIFIED_ACCOUNTING,
   ): SessionRecord {
     const rec: SessionRecord = {
       token: randomUUID(),
+      usageCostSource: accounting.usageCostSource,
+      accountingAuthEnv: accounting.authEnv,
       tabId,
       realSessionId: realSessionId ?? null,
       query: null,

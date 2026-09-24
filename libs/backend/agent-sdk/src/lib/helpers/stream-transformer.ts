@@ -21,8 +21,15 @@ import {
   getModelContextWindow,
   AuthEnv,
   isDirectAnthropic,
+  type ModelPricing,
+  type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type {
+  RunModelUsage,
+  SessionStatsOwnerService,
+  UsageCostSource,
+} from '../session-stats/session-stats-owner.service';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -123,6 +130,11 @@ export type ResultStatsCallback = (stats: {
   duration: number;
   /** Per-model usage data including context window size */
   modelUsage?: ResultModelUsage[];
+  /**
+   * The session owner's lifetime snapshot after this result (TASK_2026_533).
+   * The per-result fields above keep their footer/context meaning.
+   */
+  sessionStats?: SessionStatsEntry;
 }) => void;
 
 /**
@@ -132,6 +144,25 @@ export interface StreamTransformConfig {
   sdkQuery: AsyncIterable<SDKMessage>;
   sessionId: SessionId;
   initialModel: string;
+  /**
+   * `SessionRecord.token` of the query this stream reads — the identity of
+   * the query RUN for session accounting. Results carrying the same token
+   * replace each other; a new token is a new run. Backend-only.
+   */
+  runToken: string;
+  /** Cost authority frozen on the record at query creation. */
+  usageCostSource: UsageCostSource;
+  /**
+   * The query's effective auth env, frozen with `usageCostSource`. Model
+   * aliases are resolved for pricing against it — never the global env.
+   */
+  accountingAuthEnv: Readonly<AuthEnv>;
+  /**
+   * Generation of the session stats owner this run publishes to, captured
+   * when the run was prepared; `null` when no owner exists (nothing is
+   * published). Results for a released or replaced owner are dropped.
+   */
+  statsGeneration: number | null;
   onSessionIdResolved?: SessionIdResolvedCallback;
   onResultStats?: ResultStatsCallback;
   /**
@@ -268,6 +299,9 @@ export class StreamTransformer {
      */
     @inject(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY)
     private readonly mcpStatus: SessionMcpStatusCallbackRegistry,
+    /** The single authority every accepted result is published to. */
+    @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
+    private readonly statsOwner: SessionStatsOwnerService,
   ) {}
 
   /**
@@ -285,8 +319,13 @@ export class StreamTransformer {
       onTurnEnd,
       tabId,
       activityWatchdog,
+      runToken,
+      usageCostSource,
+      accountingAuthEnv,
+      statsGeneration,
     } = config;
     const logger = this.logger;
+    const statsOwner = this.statsOwner;
     // ONE transformer per stream, never the DI singleton (TASK_2026_370).
     //
     // `SdkMessageTransformer` keys its streaming bookkeeping on
@@ -436,152 +475,235 @@ export class StreamTransformer {
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
               onTurnEnd?.();
+              // Context-window precedence only (see resolveResultContextWindow).
+              // Cost authority is NOT re-derived here: it is `usageCostSource`,
+              // frozen when the query was created (TASK_2026_533).
+              const isDirectRoute = isDirectAnthropic(authEnv);
+              const reported = usageCostSource === 'reported';
+              // Footer/context rows, labelled by the resolved pricing id as
+              // they always were.
+              const modelUsageList: ResultModelUsage[] = [];
+              // Accounting rows, labelled by the SDK's OWN model id — the key
+              // its saved `cost-state` uses — with all four token classes.
+              const runModels: RunModelUsage[] = [];
+              if (sdkMessage.modelUsage) {
+                for (const [model, usage] of Object.entries(
+                  sdkMessage.modelUsage,
+                )) {
+                  if (model.startsWith('<') && model.endsWith('>')) {
+                    continue;
+                  }
+                  // Alias resolution stays (proxy routes report Claude aliases
+                  // for other models), but against the query's FROZEN
+                  // effective env, never the mutable process-global one.
+                  const priced = modelResolver.resolveForCost(
+                    model,
+                    accountingAuthEnv,
+                  );
+                  const resolvedModel = priced.modelId;
+                  const cacheRead = usage.cacheReadInputTokens ?? 0;
+                  const cacheCreation = usage.cacheCreationInputTokens ?? 0;
+                  let costUSD: number | null;
+                  let rate: ModelPricing | null = null;
+                  if (reported) {
+                    costUSD =
+                      typeof usage.costUSD === 'number' ? usage.costUSD : null;
+                  } else {
+                    // Prefer the already-hydrated map; only pay for a catalog
+                    // round-trip when the model is genuinely unknown to it.
+                    rate =
+                      priced.pricing ??
+                      (await pricingProvider.getPricing(resolvedModel));
+                    costUSD = rate
+                      ? calculateMessageCost(
+                          resolvedModel,
+                          {
+                            input: usage.inputTokens,
+                            output: usage.outputTokens,
+                            cacheHit: cacheRead,
+                            cacheCreation,
+                          },
+                          rate,
+                        )
+                      : null;
+                  }
+                  runModels.push({
+                    model,
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    cacheRead,
+                    cacheCreation,
+                    costUSD,
+                    ...(!reported && { pricing: rate }),
+                  });
+                  const knownContextWindow =
+                    getModelContextWindow(resolvedModel);
+                  const trackedContext = lastTurnContextByModel.get(model);
+                  // On a proxy the CLI cannot know a non-Claude model's
+                  // window and reports its generic 200000 fallback, so a
+                  // window the PROVIDER ITSELF reported for this exact id
+                  // wins there. It must be the EXACT discovered value, never
+                  // `getModelContextWindow`: that falls through to the
+                  // bundled pricing table's partial matching, so an
+                  // undiscovered `gpt-4o-ultra` resolved to `gpt-4o`'s
+                  // 128000 and overrode the SDK for a model nobody
+                  // registered (PR #493 review C). Direct Anthropic keeps
+                  // the SDK value, authoritative for `[1m]` and similar.
+                  const discoveredContextWindow =
+                    getDiscoveredContextWindow(resolvedModel);
+                  const contextWindow = resolveResultContextWindow({
+                    isDirect: isDirectRoute,
+                    discoveredContextWindow,
+                    sdkContextWindow: usage.contextWindow,
+                    knownContextWindow,
+                  });
+                  modelUsageList.push({
+                    model: resolvedModel,
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    contextWindow,
+                    costUSD: reported ? usage.costUSD : costUSD,
+                    cacheReadInputTokens: cacheRead,
+                    lastTurnContextTokens: trackedContext
+                      ? trackedContext.input +
+                        trackedContext.cacheRead +
+                        trackedContext.cacheCreation
+                      : undefined,
+                  });
+                }
+                if (modelUsageList.length > 1) {
+                  modelUsageList.sort((a, b) => {
+                    if (initialModel) {
+                      const normalizedInit = initialModel.toLowerCase();
+                      const aFuzzy =
+                        a.model === initialModel ||
+                        a.model.toLowerCase().includes(normalizedInit) ||
+                        normalizedInit.includes(a.model.toLowerCase())
+                          ? 1
+                          : 0;
+                      const bFuzzy =
+                        b.model === initialModel ||
+                        b.model.toLowerCase().includes(normalizedInit) ||
+                        normalizedInit.includes(b.model.toLowerCase())
+                          ? 1
+                          : 0;
+                      if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
+                    }
+                    return b.outputTokens - a.outputTokens;
+                  });
+                }
+              }
+              let totalCost: number | null;
+              if (reported) {
+                totalCost = sdkMessage.total_cost_usd;
+              } else if (
+                runModels.length === 0 ||
+                runModels.some((m) => m.costUSD === null)
+              ) {
+                totalCost = null;
+              } else {
+                totalCost = 0;
+                for (const row of runModels) {
+                  totalCost += row.costUSD ?? 0;
+                }
+              }
+
+              const sdkTokens = {
+                input: sdkMessage.usage.input_tokens,
+                output: sdkMessage.usage.output_tokens,
+                cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
+                cacheCreation:
+                  sdkMessage.usage.cache_creation_input_tokens ?? 0,
+              };
+              const hasNoSdkTokenUsage =
+                sdkTokens.input === 0 &&
+                sdkTokens.output === 0 &&
+                sdkTokens.cacheRead === 0 &&
+                sdkTokens.cacheCreation === 0;
+
+              // Session accounting runs for EVERY result, whether or not a UI
+              // callback is registered. `modelUsage` is the query's cumulative
+              // running total (sdk.d.ts), so the owner REPLACES this run's
+              // stored value with it. `usage` is per-turn and main-loop only:
+              // it is never counted as a run total — a result that carries
+              // only that marks the run under-counted instead.
+              // The owner generation is checked HERE, after every pricing
+              // await above: a result whose owner was released or replaced
+              // meanwhile is dropped, and can never recreate an owner.
+              let sessionStats: SessionStatsEntry | undefined;
+              if (statsGeneration === null) {
+                // No owner was prepared for this stream: nothing to publish.
+              } else if (runModels.length > 0) {
+                const { outcome, snapshot, firstRejection } = statsOwner.replaceRun(
+                  effectiveSessionId,
+                  statsGeneration,
+                  runToken,
+                  {
+                    models: runModels,
+                    totalCost:
+                      typeof totalCost === 'number' ? totalCost : null,
+                    costSource: usageCostSource,
+                    isErrorResult:
+                      sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                    // Per turn; the owner adds it only when it accepts the
+                    // result, and validates it.
+                    durationMs: sdkMessage.duration_ms,
+                  },
+                );
+                if (outcome === 'rejected-invalid') {
+                  logger.warn(
+                    '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',
+                    { sessionId: effectiveSessionId },
+                  );
+                } else if (firstRejection) {
+                  // The owner reports this once per run: an SDK that keeps
+                  // omitting a model would otherwise log on every turn.
+                  logger.warn(
+                    '[StreamTransformer] Session stats owner rejected a result that does not continue the run total (a model is missing or a counter decreased); keeping the accepted snapshot',
+                    { sessionId: effectiveSessionId },
+                  );
+                } else if (outcome === 'stale-owner') {
+                  logger.debug(
+                    '[StreamTransformer] Dropped a result for a released session stats owner',
+                    { sessionId: effectiveSessionId },
+                  );
+                }
+                sessionStats = snapshot ?? undefined;
+              } else if (!hasNoSdkTokenUsage) {
+                sessionStats =
+                  statsOwner.markRunIncomplete(
+                    effectiveSessionId,
+                    statsGeneration,
+                    runToken,
+                  ) ?? undefined;
+              }
+
               if (!onResultStats) {
                 logger.error(
                   '[StreamTransformer] Result stats callback not set - stats will be lost!',
                   { sessionId: effectiveSessionId },
                 );
-              } else {
-                const isDirect = isDirectAnthropic(authEnv);
-                const modelUsageList: ResultModelUsage[] = [];
-                if (sdkMessage.modelUsage) {
-                  for (const [model, usage] of Object.entries(
-                    sdkMessage.modelUsage,
-                  )) {
-                    if (model.startsWith('<') && model.endsWith('>')) {
-                      continue;
-                    }
-                    const priced = modelResolver.resolveForCost(model, authEnv);
-                    const resolvedModel = priced.modelId;
-                    let costUSD: number | null;
-                    if (isDirect) {
-                      costUSD = usage.costUSD;
-                    } else {
-                      // Prefer the already-hydrated map; only pay for a catalog
-                      // round-trip when the model is genuinely unknown to it.
-                      const pricing =
-                        priced.pricing ??
-                        (await pricingProvider.getPricing(resolvedModel));
-                      costUSD = pricing
-                        ? calculateMessageCost(
-                            resolvedModel,
-                            {
-                              input: usage.inputTokens,
-                              output: usage.outputTokens,
-                              cacheHit: usage.cacheReadInputTokens ?? 0,
-                              cacheCreation:
-                                usage.cacheCreationInputTokens ?? 0,
-                            },
-                            pricing,
-                          )
-                        : null;
-                    }
-                    const knownContextWindow =
-                      getModelContextWindow(resolvedModel);
-                    const trackedContext = lastTurnContextByModel.get(model);
-                    // On a proxy the CLI cannot know a non-Claude model's
-                    // window and reports its generic 200000 fallback, so a
-                    // window the PROVIDER ITSELF reported for this exact id
-                    // wins there. It must be the EXACT discovered value, never
-                    // `getModelContextWindow`: that falls through to the
-                    // bundled pricing table's partial matching, so an
-                    // undiscovered `gpt-4o-ultra` resolved to `gpt-4o`'s
-                    // 128000 and overrode the SDK for a model nobody
-                    // registered (PR #493 review C). Direct Anthropic keeps
-                    // the SDK value, authoritative for `[1m]` and similar.
-                    const discoveredContextWindow =
-                      getDiscoveredContextWindow(resolvedModel);
-                    const contextWindow = resolveResultContextWindow({
-                      isDirect,
-                      discoveredContextWindow,
-                      sdkContextWindow: usage.contextWindow,
-                      knownContextWindow,
-                    });
-                    modelUsageList.push({
-                      model: resolvedModel,
-                      inputTokens: usage.inputTokens,
-                      outputTokens: usage.outputTokens,
-                      contextWindow,
-                      costUSD,
-                      cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-                      lastTurnContextTokens: trackedContext
-                        ? trackedContext.input +
-                          trackedContext.cacheRead +
-                          trackedContext.cacheCreation
-                        : undefined,
-                    });
-                  }
-                  if (modelUsageList.length > 1) {
-                    modelUsageList.sort((a, b) => {
-                      if (initialModel) {
-                        const normalizedInit = initialModel.toLowerCase();
-                        const aFuzzy =
-                          a.model === initialModel ||
-                          a.model.toLowerCase().includes(normalizedInit) ||
-                          normalizedInit.includes(a.model.toLowerCase())
-                            ? 1
-                            : 0;
-                        const bFuzzy =
-                          b.model === initialModel ||
-                          b.model.toLowerCase().includes(normalizedInit) ||
-                          normalizedInit.includes(b.model.toLowerCase())
-                            ? 1
-                            : 0;
-                        if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
-                      }
-                      return b.outputTokens - a.outputTokens;
-                    });
-                  }
-                }
-                let totalCost: number | null;
-                if (isDirect) {
-                  totalCost = sdkMessage.total_cost_usd;
-                } else if (
-                  modelUsageList.length === 0 ||
-                  modelUsageList.some((m) => m.costUSD === null)
-                ) {
-                  totalCost = null;
-                } else {
-                  totalCost = 0;
-                  for (const modelUsage of modelUsageList) {
-                    if (modelUsage.costUSD !== null) {
-                      totalCost += modelUsage.costUSD;
-                    }
-                  }
-                }
-
-                const sdkTokens = {
-                  input: sdkMessage.usage.input_tokens,
-                  output: sdkMessage.usage.output_tokens,
-                  cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
-                  cacheCreation:
-                    sdkMessage.usage.cache_creation_input_tokens ?? 0,
-                };
-                const hasNoSdkTokenUsage =
-                  sdkTokens.input === 0 &&
-                  sdkTokens.output === 0 &&
-                  sdkTokens.cacheRead === 0 &&
-                  sdkTokens.cacheCreation === 0;
-
+              } else if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
                 // A result with neither aggregate usage nor per-model usage is
                 // a turn boundary, not a stats update. Emitting its zero values
                 // would overwrite the populated session header after resume.
-                // `sdkTokens` is a per-turn delta that consumers accumulate;
-                // `modelUsageList` is cumulative per session and must not be
+                // `sdkTokens` is a per-turn delta for the message footer;
+                // `modelUsageList` is cumulative per query and must not be
                 // summed into that delta or earlier turns are counted again.
-                if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
-                  const rawStats = {
-                    sessionId: effectiveSessionId,
-                    cost: totalCost,
-                    tokens: sdkTokens,
-                    duration: sdkMessage.duration_ms,
-                    modelUsage:
-                      modelUsageList.length > 0 ? modelUsageList : undefined,
-                  };
-                  const validatedStats = validateStats(rawStats, logger);
-                  if (validatedStats) {
-                    onResultStats(validatedStats);
-                  }
+                const rawStats = {
+                  sessionId: effectiveSessionId,
+                  cost: totalCost,
+                  tokens: sdkTokens,
+                  duration: sdkMessage.duration_ms,
+                  modelUsage:
+                    modelUsageList.length > 0 ? modelUsageList : undefined,
+                };
+                const validatedStats = validateStats(rawStats, logger);
+                if (validatedStats) {
+                  onResultStats({
+                    ...validatedStats,
+                    ...(sessionStats && { sessionStats }),
+                  });
                 }
               }
             }

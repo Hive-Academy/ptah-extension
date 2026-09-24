@@ -11,6 +11,7 @@ import type { FlatStreamEventUnion } from '../execution';
 import type { AskUserQuestionRequest } from '../permission.types';
 import type { SubagentRecord } from '../subagent-registry.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
+import type { SessionStatsEntry } from './rpc-session.types';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
@@ -254,42 +255,13 @@ export interface ChatResumeResult {
    */
   historyPage?: { readonly olderCursor: string | null };
   /**
-   * Aggregated usage stats from session history
-   * Extracted from JSONL message.usage fields for old session cost display
+   * The session's accounting snapshot (lifetime scope), in the same shape the
+   * live `session:stats` broadcast carries. When the session already has a
+   * backend stats owner this is that owner's current snapshot; otherwise it is
+   * computed from the transcript. `contextSnapshot` and per-row
+   * `contextWindow` carry the backend-known context data.
    */
-  stats?: {
-    totalCost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheCreation: number;
-    };
-    messageCount: number;
-    model?: string;
-    /** Latest valid main-session context frame after the last compaction. */
-    contextSnapshot?: {
-      model: string;
-      contextTokens: number;
-      /**
-       * The model's context window as the backend knows it (including windows
-       * discovered from a provider catalogue). Absent when unknown; the
-       * renderer falls back to its own name lookup only then.
-       */
-      contextWindow?: number;
-    };
-    /** Number of agent/subagent JSONL files found for this session */
-    agentSessionCount?: number;
-    /** Per-model token and cost breakdown for multi-model sessions */
-    modelUsageList?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      costUSD: number | null;
-      /** Backend-known context window; absent when unknown. */
-      contextWindow?: number;
-    }>;
-  } | null;
+  stats?: SessionStatsEntry | null;
   /**
    * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.

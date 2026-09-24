@@ -176,53 +176,107 @@ export interface SessionCliOutputPageResult {
   readonly done: boolean;
 }
 
-/** Per-session stats returned from JSONL reading */
+/**
+ * Per-session accounting snapshot.
+ *
+ * One DTO for every stats surface: the sessions list (`session:stats-batch`),
+ * the resume reply (`chat:resume` → `stats`) and the live `session:stats`
+ * broadcast (`ResultStatsPayload.sessionStats`). The backend is the only
+ * producer of these figures; a consumer displays them and never recomputes a
+ * total from messages, execution trees or model rows (TASK_2026_533).
+ *
+ * Fields added by TASK_2026_533 are optional at this boundary so older
+ * producers and fixtures still type-check. A missing field means "unavailable",
+ * never "recompute it".
+ */
 export interface SessionStatsEntry {
   /** Session ID */
   readonly sessionId: string;
-  /** Detected model from JSONL init message */
+  /** Primary model of the counted usage (highest cost, then most tokens). */
   readonly model: string | null;
-  /** Total cost in USD (calculated with model-aware pricing) */
+  /**
+   * Total cost in USD for the counted usage. `null` when ANY counted
+   * contribution has an unknown price: a partial sum is never a total. A
+   * provider-reported `0` is a known zero.
+   */
   readonly totalCost: number | null;
-  /** Token breakdown */
+  /**
+   * Sum of the contributions whose price IS known. Equal to `totalCost` when
+   * pricing is full; a labeled subtotal when pricing is partial; `null` when
+   * nothing is priced. Never a substitute for `totalCost`.
+   */
+  readonly knownCost?: number | null;
+  /** Token breakdown: four disjoint classes. */
   readonly tokens: {
     readonly input: number;
     readonly output: number;
     readonly cacheRead: number;
     readonly cacheCreation: number;
   };
+  /** Sum of all four token classes. */
+  readonly tokenCount?: number;
   /** Number of assistant messages */
   readonly messageCount: number;
-  /** Number of agent/subagent JSONL files found for this session */
+  /**
+   * Unique subagent identities that belong to this session (all statuses,
+   * descendants included, the root excluded). Repeated hooks, tool-use aliases
+   * and repeated transcript files do not increase it.
+   */
   readonly agentSessionCount?: number;
   /** CLI agent types used in this session (e.g., ['codex', 'copilot']) */
   readonly cliAgents?: readonly string[];
-  /** Per-model usage breakdown (model, input/output tokens, cost) */
+  /** Per-model usage breakdown: the four token classes and cost per model. */
   readonly modelUsageList?: ReadonlyArray<{
     readonly model: string;
+    /** Uncached input tokens. */
     readonly inputTokens: number;
     readonly outputTokens: number;
+    readonly cacheRead?: number;
+    readonly cacheCreation?: number;
+    /** `null` when this model's price is unknown. */
     readonly costUSD: number | null;
+    /** Backend-known context window; absent when unknown. */
+    readonly contextWindow?: number;
   }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
   /**
    * `'partial'` when some usage could not be counted: an untimestamped record
-   * under `scope: 'range'`, or a subagent transcript that could not be read.
-   * Absent on entries produced before TASK_2026_411 B4.
+   * under `scope: 'range'`, a subagent transcript that could not be read, a
+   * history prefix that could not be read, or a live result without per-model
+   * attribution. Absent on entries produced before TASK_2026_411 B4.
    */
   readonly coverage?: SessionStatsCoverage;
   /**
    * Usage records omitted from a `'range'` total because they carry no
-   * timestamp. Always `0` for `'current-context'`.
+   * timestamp. Always `0` for `'current-context'` and `'session'`.
    */
   readonly untimestampedCount?: number;
   /**
-   * How much of the counted usage has a known rate. `totalCost` is `null`
-   * exactly when this is `'none'`. Costs are estimates from the current rate
-   * card, computed when the page is served.
+   * How much of the counted usage has a known price (reported by the provider
+   * or priced from the rate card). `'full'` is the only value for which
+   * `totalCost` is non-null.
    */
   readonly pricingCoverage?: SessionStatsPricingCoverage;
+  /**
+   * Which records were counted: the whole session lifetime (`'session'`, the
+   * resume and live snapshots), the current context, or a time range.
+   */
+  readonly scope?: 'session' | 'current-context' | 'range';
+  /**
+   * Monotonic within ONE backend process lifetime. Comparable only between
+   * snapshots published by the same attached backend; never persisted.
+   */
+  readonly revision?: number;
+  /** Session duration in ms when the backend knows it; absent otherwise. */
+  readonly durationMs?: number | null;
+  /** Latest valid main-session context frame after the last compaction. */
+  readonly contextSnapshot?: {
+    readonly model: string;
+    readonly contextTokens: number;
+    /** Backend-known context window; absent when unknown. */
+    readonly contextWindow?: number;
+  };
 }
 
 /** Whether every usage record in the requested scope was counted. */

@@ -30,7 +30,10 @@ import { SessionHistoryReplayer } from './chat-store/session-history-replayer.se
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
-import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
+import {
+  SessionStatsAggregatorService,
+  type SessionStatsEvent,
+} from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
@@ -146,9 +149,9 @@ export class ChatStore {
    */
   readonly sessionIsActive = this.tabManager.activeTabHasLiveSession;
 
-  readonly preloadedStats = this.tabManager.activeTabPreloadedStats;
+  /** The active tab's backend session snapshot (TASK_2026_533). */
+  readonly sessionStats = this.tabManager.activeTabSessionStats;
   readonly liveModelStats = this.tabManager.activeTabLiveModelStats;
-  readonly modelUsageList = this.tabManager.activeTabModelUsageList;
   readonly compactionCount = this.tabManager.activeTabCompactionCount;
   readonly queuedContent = this.tabManager.activeTabQueuedContent;
   readonly activeStreamingState = this.tabManager.activeTabStreamingState;
@@ -488,26 +491,7 @@ export class ChatStore {
   }
 
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
-  handleSessionStats(stats: {
-    sessionId: string;
-    cost: number | null;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    duration: number;
-    modelUsage?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      contextWindow: number;
-      costUSD: number;
-      cacheReadInputTokens?: number;
-      lastTurnContextTokens?: number;
-    }>;
-  }): void {
+  handleSessionStats(stats: SessionStatsEvent): void {
     this.statsAggregator.handleSessionStats(stats);
   }
 

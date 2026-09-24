@@ -25,11 +25,20 @@
 import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  FlatStreamEventUnion,
+  ModelPricing,
+  ResultStatsPayload,
+  SessionId,
+} from '@ptah-extension/shared';
 import {
   findModelPricing,
   registerModelContextWindows,
+  registerProviderPricing,
 } from '@ptah-extension/shared';
+import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
+import { classifyUsageCostSource } from './session-lifecycle/session-query-executor.service';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type {
@@ -39,7 +48,11 @@ import type {
 import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
-import { StreamTransformer, ResultModelUsage } from './stream-transformer';
+import {
+  StreamTransformer,
+  ResultModelUsage,
+  type StreamTransformConfig,
+} from './stream-transformer';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
 
 interface FakeWatchdog {
@@ -122,13 +135,32 @@ function asAsyncIterable(messages: SDKMessage[]): AsyncIterable<SDKMessage> {
   };
 }
 
+/**
+ * The run identity and cost authority are frozen per query by the adapter.
+ * Specs that predate TASK_2026_533 do not care about them, so the harness
+ * supplies a run token and derives the authority from the harness route —
+ * the classification the executor freezes for that route. Specs about the
+ * authority itself pass it explicitly.
+ */
+type RunAccountingFields =
+  | 'runToken'
+  | 'usageCostSource'
+  | 'accountingAuthEnv'
+  | 'statsGeneration';
+type HarnessTransformConfig = Omit<StreamTransformConfig, RunAccountingFields> &
+  Partial<Pick<StreamTransformConfig, RunAccountingFields>>;
+
 interface Harness {
-  transformer: StreamTransformer;
+  transformer: {
+    transform(config: HarnessTransformConfig): AsyncIterable<FlatStreamEventUnion>;
+  };
   messageTransformer: ReturnType<typeof makeMessageTransformer>;
   pricingProvider: jest.Mocked<IPricingProvider>;
   logger: jest.Mocked<Logger>;
   /** Every event the transformer published on the MCP-status fan-out. */
   mcpEvents: SessionMcpStatusEvent[];
+  /** The real backend owner the transformer publishes accepted runs to. */
+  statsOwner: SessionStatsOwnerService;
 }
 
 function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
@@ -142,20 +174,36 @@ function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
       mcpEvents.push(event);
     },
   } as unknown as SessionMcpStatusCallbackRegistry;
-  const transformer = new StreamTransformer(
+  const statsOwner = new SessionStatsOwnerService();
+  const real = new StreamTransformer(
     logger,
     messageTransformer as unknown as SdkMessageTransformer,
     authEnv,
     modelResolver as unknown as IModelResolver,
     pricingProvider,
     mcpStatus,
+    statsOwner,
   );
+  const routeAuthority = classifyUsageCostSource(authEnv);
   return {
-    transformer,
+    transformer: {
+      // The owner generation is read when the stream starts, as the adapter
+      // captures it when the run is prepared; no owner → nothing published.
+      transform: (config) =>
+        real.transform({
+          runToken: 'run-1',
+          usageCostSource: routeAuthority,
+          accountingAuthEnv: authEnv,
+          statsGeneration:
+            statsOwner.leaseOf(config.sessionId)?.generation ?? null,
+          ...config,
+        }),
+    },
     messageTransformer,
     pricingProvider,
     logger,
     mcpEvents,
+    statsOwner,
   };
 }
 
@@ -1882,5 +1930,404 @@ describe('StreamTransformer — per-stream isolation (TASK_2026_370)', () => {
 
     await drainAll(first);
     await drainAll(second);
+  });
+});
+
+/**
+ * TASK_2026_533 — the backend is the single authority for session stats.
+ *
+ * The cost authority is frozen per query (`usageCostSource`), never re-derived
+ * from the route per result, and every accepted result publishes the owner's
+ * lifetime snapshot on the SAME payload whose footer fields stay unchanged.
+ */
+describe('StreamTransformer — session stats authority (TASK_2026_533)', () => {
+  const SESSION = 'sess-1' as SessionId;
+  const FOUR_CLASS_MODEL = 'zz-four-class-533';
+
+  beforeAll(() => {
+    registerProviderPricing({
+      [FOUR_CLASS_MODEL]: {
+        inputCostPerToken: 0.001,
+        outputCostPerToken: 0.002,
+        cacheReadCostPerToken: 0.0001,
+        cacheCreationCostPerToken: 0.0005,
+      },
+    });
+  });
+
+  function cumulativeResult(opts: {
+    model: string;
+    totalCostUsd: number;
+    costUSD: number;
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+  }): SDKMessage {
+    return {
+      type: 'result',
+      subtype: 'success',
+      session_id: 'sess-1',
+      duration_ms: 100,
+      duration_api_ms: 90,
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: opts.totalCostUsd,
+      usage: {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 4,
+      },
+      modelUsage: {
+        [opts.model]: {
+          inputTokens: opts.input,
+          outputTokens: opts.output,
+          cacheReadInputTokens: opts.cacheRead,
+          cacheCreationInputTokens: opts.cacheCreation,
+          contextWindow: 200000,
+          costUSD: opts.costUSD,
+        },
+      },
+    } as unknown as SDKMessage;
+  }
+
+  async function collect(
+    harness: Harness,
+    messages: SDKMessage[],
+    config: Partial<HarnessTransformConfig> = {},
+  ): Promise<ResultStatsPayload[]> {
+    const payloads: ResultStatsPayload[] = [];
+    await drain(
+      harness.transformer.transform({
+        sdkQuery: asAsyncIterable(messages),
+        sessionId: SESSION,
+        initialModel: MODEL,
+        onResultStats: (stats) => payloads.push(stats),
+        ...config,
+      }),
+    );
+    return payloads;
+  }
+
+  it('uses frozen cost authority and attaches snapshot without changing footer fields', async () => {
+    // Reported authority: the provider's own dollars, including a known zero.
+    const reported = makeHarness(
+      makeAuthEnv({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123' }),
+    );
+    reported.statsOwner.startNew(SESSION);
+    const [zero] = await collect(
+      reported,
+      [
+        cumulativeResult({
+          model: MODEL,
+          totalCostUsd: 0,
+          costUSD: 0,
+          input: 10,
+          output: 20,
+          cacheRead: 30,
+          cacheCreation: 40,
+        }),
+      ],
+      { usageCostSource: 'reported' },
+    );
+    expect(zero.cost).toBe(0);
+    expect(zero.tokens).toEqual({
+      input: 1,
+      output: 2,
+      cacheRead: 3,
+      cacheCreation: 4,
+    });
+    expect(zero.sessionStats).toMatchObject({
+      sessionId: SESSION,
+      totalCost: 0,
+      pricingCoverage: 'full',
+      tokenCount: 100,
+      scope: 'session',
+    });
+
+    // Unreported authority on a DIRECT route: the frozen flag wins over the
+    // route, and all four classes are priced by the model's own id.
+    const unreported = makeHarness(makeAuthEnv());
+    unreported.statsOwner.startNew(SESSION);
+    const [priced] = await collect(
+      unreported,
+      [
+        cumulativeResult({
+          model: FOUR_CLASS_MODEL,
+          totalCostUsd: 999,
+          costUSD: 999,
+          input: 1000,
+          output: 100,
+          cacheRead: 10000,
+          cacheCreation: 200,
+        }),
+      ],
+      { usageCostSource: 'unreported' },
+    );
+    const expected = 1000 * 0.001 + 100 * 0.002 + 10000 * 0.0001 + 200 * 0.0005;
+    expect(priced.cost).toBeCloseTo(expected, 6);
+    expect(priced.sessionStats?.totalCost).toBeCloseTo(expected, 6);
+    expect(priced.sessionStats?.modelUsageList).toEqual([
+      {
+        model: FOUR_CLASS_MODEL,
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheRead: 10000,
+        cacheCreation: 200,
+        costUSD: expect.closeTo(expected, 6),
+      },
+    ]);
+  });
+
+  it('replaces the latest cumulative result of a run instead of adding it', async () => {
+    const harness = makeHarness();
+    harness.statsOwner.startNew(SESSION);
+    const row = {
+      model: MODEL,
+      cacheRead: 0,
+      cacheCreation: 0,
+    };
+    const payloads = await collect(
+      harness,
+      [
+        cumulativeResult({
+          ...row,
+          totalCostUsd: 10,
+          costUSD: 10,
+          input: 100,
+          output: 10,
+        }),
+        cumulativeResult({
+          ...row,
+          totalCostUsd: 15,
+          costUSD: 15,
+          input: 150,
+          output: 15,
+        }),
+      ],
+      { usageCostSource: 'reported', runToken: 'run-A' },
+    );
+
+    expect(payloads.map((p) => p.cost)).toEqual([10, 15]);
+    expect(payloads.map((p) => p.sessionStats?.totalCost)).toEqual([10, 15]);
+    expect(payloads[1].sessionStats?.tokens.input).toBe(150);
+    // Each result's `duration_ms` (100) is one turn: accepted turns add up.
+    expect(payloads.map((p) => p.sessionStats?.durationMs)).toEqual([
+      100, 200,
+    ]);
+  });
+
+  it('preserves the accepted snapshot on an empty result and still ends the turn', async () => {
+    const harness = makeHarness();
+    harness.statsOwner.startNew(SESSION);
+    const onTurnEnd = jest.fn();
+    const payloads = await collect(
+      harness,
+      [
+        cumulativeResult({
+          model: MODEL,
+          totalCostUsd: 4,
+          costUSD: 4,
+          input: 40,
+          output: 4,
+          cacheRead: 0,
+          cacheCreation: 0,
+        }),
+        rawResultMessage({
+          totalCostUsd: 0,
+          durationMs: 1,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+          },
+        }),
+      ],
+      { usageCostSource: 'reported', onTurnEnd },
+    );
+
+    expect(onTurnEnd).toHaveBeenCalledTimes(2);
+    expect(payloads).toHaveLength(1);
+    expect(harness.statsOwner.snapshot(SESSION)?.totalCost).toBe(4);
+  });
+
+  it('records the run even when no stats callback is registered', async () => {
+    const harness = makeHarness();
+    harness.statsOwner.startNew(SESSION);
+    await drain(
+      harness.transformer.transform({
+        sdkQuery: asAsyncIterable([
+          cumulativeResult({
+            model: MODEL,
+            totalCostUsd: 7,
+            costUSD: 7,
+            input: 70,
+            output: 7,
+            cacheRead: 0,
+            cacheCreation: 0,
+          }),
+        ]),
+        sessionId: SESSION,
+        initialModel: MODEL,
+        usageCostSource: 'reported',
+      }),
+    );
+    expect(harness.statsOwner.snapshot(SESSION)?.totalCost).toBe(7);
+  });
+
+  // Review F4: alias resolution for pricing uses the query's FROZEN effective
+  // env, never the mutable process-global one.
+  describe('frozen pricing context (review F4)', () => {
+    const CHEAP: ModelPricing = { inputCostPerToken: 0.01, outputCostPerToken: 0 };
+    const DEAR: ModelPricing = { inputCostPerToken: 1, outputCostPerToken: 0 };
+    const TIER_KEY = 'ANTHROPIC_DEFAULT_SONNET_MODEL';
+
+    function tierPricedTransformer(globalEnv: AuthEnv) {
+      // A tier override in the env maps the Claude alias to a dearer model.
+      const resolver = {
+        resolveForPricing: (m: string) => m,
+        isSubscriptionCovered: () => false,
+        resolveForCost: (m: string, env?: AuthEnv) => ({
+          modelId: m,
+          pricing: (env ?? globalEnv)[TIER_KEY] ? DEAR : CHEAP,
+          subscriptionCovered: false,
+        }),
+      } as unknown as IModelResolver;
+      const owner = new SessionStatsOwnerService();
+      const transformer = new StreamTransformer(
+        makeLogger(),
+        makeMessageTransformer() as unknown as SdkMessageTransformer,
+        globalEnv,
+        resolver,
+        makePricingProvider(),
+        { notifyAll: jest.fn() } as unknown as SessionMcpStatusCallbackRegistry,
+        owner,
+      );
+      return { transformer, owner };
+    }
+
+    function result(input: number): SDKMessage {
+      return cumulativeResult({
+        model: 'claude-sonnet-4-5',
+        totalCostUsd: 0,
+        costUSD: 0,
+        input,
+        output: 0,
+        cacheRead: 0,
+        cacheCreation: 0,
+      });
+    }
+
+    it('a global tier change mid-query does not re-price the running query', async () => {
+      const globalEnv = { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1' } as AuthEnv;
+      const { transformer, owner } = tierPricedTransformer(globalEnv);
+      const { generation } = owner.startNew(SESSION);
+      const costs: Array<number | null> = [];
+      const sdkQuery = (async function* () {
+        yield result(100);
+        (globalEnv as Record<string, string>)[TIER_KEY] = 'model-x';
+        yield result(200);
+      })();
+
+      await drain(
+        transformer.transform({
+          sdkQuery,
+          sessionId: SESSION,
+          initialModel: MODEL,
+          runToken: 'run-1',
+          usageCostSource: 'unreported',
+          accountingAuthEnv: Object.freeze({ ...globalEnv }),
+          statsGeneration: generation,
+          onResultStats: (stats) => costs.push(stats.cost),
+        }),
+      );
+
+      expect(costs).toEqual([1, 2]);
+      expect(owner.snapshot(SESSION)?.totalCost).toBe(2);
+    });
+
+    it('an override query prices with its own frozen mapping', async () => {
+      const globalEnv = { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1' } as AuthEnv;
+      const { transformer, owner } = tierPricedTransformer(globalEnv);
+      const { generation } = owner.startNew(SESSION);
+      const costs: Array<number | null> = [];
+
+      await drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([result(100)]),
+          sessionId: SESSION,
+          initialModel: MODEL,
+          runToken: 'run-1',
+          usageCostSource: 'unreported',
+          accountingAuthEnv: Object.freeze({
+            ...globalEnv,
+            [TIER_KEY]: 'override-model',
+          }) as AuthEnv,
+          statsGeneration: generation,
+          onResultStats: (stats) => costs.push(stats.cost),
+        }),
+      );
+
+      expect(costs).toEqual([100]);
+    });
+  });
+
+  // Review F5: a result for a released owner generation is dropped and can
+  // never recreate the owner.
+  it('drops a late result for a released owner without recreating it', async () => {
+    const harness = makeHarness();
+    const { generation } = harness.statsOwner.startNew(SESSION);
+    const lease = harness.statsOwner.leaseOf(SESSION);
+    if (lease) harness.statsOwner.release(lease);
+
+    const payloads = await collect(
+      harness,
+      [
+        cumulativeResult({
+          model: MODEL,
+          totalCostUsd: 7,
+          costUSD: 7,
+          input: 70,
+          output: 7,
+          cacheRead: 0,
+          cacheCreation: 0,
+        }),
+      ],
+      { usageCostSource: 'reported', statsGeneration: generation },
+    );
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].sessionStats).toBeUndefined();
+    expect(harness.statsOwner.snapshot(SESSION)).toBeNull();
+  });
+
+  it('never treats per-turn usage without model attribution as cumulative', async () => {
+    const harness = makeHarness();
+    harness.statsOwner.startNew(SESSION);
+    const payloads = await collect(
+      harness,
+      [
+        rawResultMessage({
+          totalCostUsd: 3,
+          durationMs: 1,
+          usage: {
+            inputTokens: 50,
+            outputTokens: 5,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+          },
+        }),
+      ],
+      { usageCostSource: 'reported' },
+    );
+
+    // The footer still receives the per-turn figures...
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].tokens.input).toBe(50);
+    // ...but the lifetime snapshot does not count them as a run total.
+    expect(payloads[0].sessionStats?.tokenCount).toBe(0);
+    expect(payloads[0].sessionStats?.coverage).toBe('partial');
   });
 });

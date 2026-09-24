@@ -99,9 +99,7 @@ describe('SessionLoaderService', () => {
   let activeTabStatusSignal: ReturnType<typeof signal<string | null>>;
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
   let applyLoadedSessionStats: jest.Mock;
-  let setPreloadedStats: jest.Mock;
   let setLiveModelStats: jest.Mock;
-  let setModelUsageList: jest.Mock;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -120,9 +118,7 @@ describe('SessionLoaderService', () => {
       readonly { id: string; claudeSessionId: string | null }[]
     >([]);
     applyLoadedSessionStats = jest.fn();
-    setPreloadedStats = jest.fn();
     setLiveModelStats = jest.fn();
-    setModelUsageList = jest.fn();
     historyPagingMock.tailRequest.mockClear();
     historyPagingMock.recordTail.mockClear();
 
@@ -143,9 +139,7 @@ describe('SessionLoaderService', () => {
           : null;
       }),
       applyLoadedSessionStats,
-      setPreloadedStats,
       setLiveModelStats,
-      setModelUsageList,
     } as unknown as TabManagerService;
 
     const sessionManagerMock = {
@@ -650,11 +644,12 @@ describe('SessionLoaderService', () => {
       expect(cliSessionCalls()).toHaveLength(0);
     });
 
-    it('replaces a restored loaded tab stale stats from the resume snapshot', async () => {
+    it('installs the resume snapshot as-is and derives only the context badge', async () => {
       const restoredTabId = TabId.from('15fe87b7-9888-456d-a125-74e31307780e');
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set(restoredTabId);
       const stats = {
+        sessionId: SESSION,
         totalCost: 12,
         tokens: {
           input: 700_000,
@@ -688,26 +683,18 @@ describe('SessionLoaderService', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(applyLoadedSessionStats).toHaveBeenCalledWith(
-        restoredTabId,
-        stats,
-        stats.model,
-      );
+      expect(applyLoadedSessionStats).toHaveBeenCalledTimes(1);
+      const [tabId, installed, model] = applyLoadedSessionStats.mock.calls[0];
+      expect(tabId).toBe(restoredTabId);
+      // The backend object itself: rows and totals are never rebuilt here.
+      expect(installed).toBe(stats);
+      expect(model).toBe(stats.model);
       expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, {
         model: 'claude-opus-5',
         contextUsed: 11_016,
         contextWindow: 1_000_000,
         contextPercent: 1.1,
       });
-      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
-        {
-          model: 'claude-sonnet-4-5',
-          inputTokens: 700_000,
-          outputTokens: 20_000,
-          costUSD: 12,
-          contextWindow: 200_000,
-        },
-      ]);
     });
 
     it('applyResumeStats uses snapshot.contextWindow (gpt-5.6-sol, 400000) instead of the name lookup', async () => {
@@ -715,6 +702,7 @@ describe('SessionLoaderService', () => {
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set(restoredTabId);
       const stats = {
+        sessionId: SESSION,
         totalCost: null,
         tokens: {
           input: 40_000,
@@ -756,12 +744,6 @@ describe('SessionLoaderService', () => {
         contextWindow: 400_000,
         contextPercent: 10,
       });
-      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
-        expect.objectContaining({
-          model: 'gpt-5.6-sol',
-          contextWindow: 400_000,
-        }),
-      ]);
     });
 
     it('falls back to getModelContextWindow when the field is absent or not positive', async () => {
@@ -769,6 +751,7 @@ describe('SessionLoaderService', () => {
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set(restoredTabId);
       const stats = {
+        sessionId: SESSION,
         totalCost: 1,
         tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
         messageCount: 1,
@@ -802,12 +785,80 @@ describe('SessionLoaderService', () => {
         restoredTabId,
         expect.objectContaining({ contextWindow: 1_000_000 }),
       );
-      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, [
-        expect.objectContaining({ contextWindow: 200_000 }),
-      ]);
     });
 
-    it('clears stale restored-tab stats when a successful resume has no stats', async () => {
+    it('rejects a malformed resume snapshot with one warning and installs nothing', async () => {
+      const restoredTabId = TabId.from('9d1f2c3b-4a5e-4f60-8b7c-1d2e3f4a5b6c');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                stats: {
+                  sessionId: SESSION,
+                  model: 'claude-opus-5',
+                  totalCost: 1,
+                  tokens: { input: '10', output: 2, cacheRead: 0 },
+                  messageCount: 1,
+                  status: 'ok',
+                },
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(setLiveModelStats).not.toHaveBeenCalled();
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[SessionLoaderService] chat:resume returned a malformed session snapshot; keeping the current one',
+        { sessionId: SESSION },
+      );
+    });
+
+    it('rejects a resume snapshot with a malformed contextSnapshot and installs nothing', async () => {
+      const restoredTabId = TabId.from('0b8e5a4c-2d1f-4e3a-9c7b-6a5d4e3f2a1b');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                stats: {
+                  sessionId: SESSION,
+                  model: 'claude-opus-5',
+                  totalCost: 1,
+                  tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+                  messageCount: 1,
+                  status: 'ok',
+                  contextSnapshot: { model: 42, contextTokens: 'many' },
+                },
+              },
+            }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats).not.toHaveBeenCalled();
+      expect(setLiveModelStats).not.toHaveBeenCalled();
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[SessionLoaderService] chat:resume returned a malformed session snapshot; keeping the current one',
+        { sessionId: SESSION },
+      );
+    });
+
+    it('keeps the installed snapshot when a successful resume has no stats', async () => {
       const restoredTabId = TabId.from('c74b7af0-4c5c-4336-821c-e2fe28cd921d');
       activeTabSessionIdSignal.set(SESSION);
       activeTabIdSignal.set(restoredTabId);
@@ -818,9 +869,9 @@ describe('SessionLoaderService', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(setPreloadedStats).toHaveBeenCalledWith(restoredTabId, null);
+      // An empty resume payload never erases accepted accounting; only the
+      // context badge, which has no fresh frame, is cleared.
       expect(setLiveModelStats).toHaveBeenCalledWith(restoredTabId, null);
-      expect(setModelUsageList).toHaveBeenCalledWith(restoredTabId, []);
       expect(applyLoadedSessionStats).not.toHaveBeenCalled();
     });
 
@@ -831,6 +882,7 @@ describe('SessionLoaderService', () => {
         data: { stats: typeof stats };
       }) => void;
       const stats = {
+        sessionId: SESSION,
         totalCost: 1,
         tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
         messageCount: 1,
@@ -859,9 +911,7 @@ describe('SessionLoaderService', () => {
       await Promise.resolve();
 
       expect(applyLoadedSessionStats).not.toHaveBeenCalled();
-      expect(setPreloadedStats).not.toHaveBeenCalled();
       expect(setLiveModelStats).not.toHaveBeenCalled();
-      expect(setModelUsageList).not.toHaveBeenCalled();
     });
   });
 
@@ -1122,9 +1172,7 @@ describe('SessionLoaderService', () => {
       const openSessionTabMock = jest.fn().mockReturnValue('tab-fresh');
       const applyResumingSessionMock = jest.fn();
       const applyResumeFailureMock = jest.fn();
-      const setPreloadedStatsMock = jest.fn();
       const setLiveModelStatsMock = jest.fn();
-      const setModelUsageListMock = jest.fn();
       const applyLoadedSessionStatsMock = jest.fn();
 
       const tabManagerMock = {
@@ -1141,8 +1189,6 @@ describe('SessionLoaderService', () => {
         applyResumeFailure: applyResumeFailureMock,
         applyLoadedSessionStats: applyLoadedSessionStatsMock,
         setLiveModelStats: setLiveModelStatsMock,
-        setModelUsageList: setModelUsageListMock,
-        setPreloadedStats: setPreloadedStatsMock,
       } as unknown as TabManagerService;
 
       const sessionManagerMock = {
@@ -1235,11 +1281,10 @@ describe('SessionLoaderService', () => {
     });
   });
 
-  describe('UICS-010 — stats clearing when chat:resume omits stats', () => {
-    it('clears preloadedStats, liveModelStats, and modelUsageList when stats is null', async () => {
-      const setPreloadedStatsMock = jest.fn();
+  describe('UICS-010 — chat:resume omits stats', () => {
+    it('clears only the context badge and never erases the session snapshot when stats is null', async () => {
       const setLiveModelStatsMock = jest.fn();
-      const setModelUsageListMock = jest.fn();
+      const applyLoadedSessionStatsMock = jest.fn();
       const openSessionTabMock = jest.fn().mockReturnValue('tab-x');
 
       const tabManagerMock = {
@@ -1254,10 +1299,8 @@ describe('SessionLoaderService', () => {
         openSessionTab: openSessionTabMock,
         applyResumingSession: jest.fn(),
         applyResumeFailure: jest.fn(),
-        applyLoadedSessionStats: jest.fn(),
+        applyLoadedSessionStats: applyLoadedSessionStatsMock,
         setLiveModelStats: setLiveModelStatsMock,
-        setModelUsageList: setModelUsageListMock,
-        setPreloadedStats: setPreloadedStatsMock,
       } as unknown as TabManagerService;
 
       const sessionManagerMock = {
@@ -1316,9 +1359,8 @@ describe('SessionLoaderService', () => {
 
       await localService.switchSession('sess-null-stats' as SessionId);
 
-      expect(setPreloadedStatsMock).toHaveBeenCalledWith('tab-x', null);
       expect(setLiveModelStatsMock).toHaveBeenCalledWith('tab-x', null);
-      expect(setModelUsageListMock).toHaveBeenCalledWith('tab-x', []);
+      expect(applyLoadedSessionStatsMock).not.toHaveBeenCalled();
     });
   });
 
@@ -1354,8 +1396,6 @@ describe('SessionLoaderService', () => {
         applyResumeFailure: jest.fn(),
         applyLoadedSessionStats: jest.fn(),
         setLiveModelStats: jest.fn(),
-        setModelUsageList: jest.fn(),
-        setPreloadedStats: jest.fn(),
       } as unknown as TabManagerService;
 
       const sessionManagerMock = {
@@ -1541,7 +1581,6 @@ describe('SessionLoaderService', () => {
       const finalizeSessionHistory = jest.fn();
       const clearPendingUpdates = jest.fn();
       const markSessionActive = jest.fn();
-      const setPreloadedStats = jest.fn();
       const setLiveModelStats = jest.fn();
       const applyResumeFailure = jest.fn();
       const markTabIdle = jest.fn();
@@ -1565,8 +1604,6 @@ describe('SessionLoaderService', () => {
         markTabIdle,
         applyLoadedSessionStats,
         setLiveModelStats,
-        setModelUsageList: jest.fn(),
-        setPreloadedStats,
         markSessionActive,
       } as unknown as TabManagerService;
       const sessionManagerMock = {
@@ -1619,7 +1656,6 @@ describe('SessionLoaderService', () => {
         finalizeSessionHistory,
         clearPendingUpdates,
         markSessionActive,
-        setPreloadedStats,
         setLiveModelStats,
         applyResumeFailure,
         markTabIdle,
@@ -1630,6 +1666,7 @@ describe('SessionLoaderService', () => {
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
       const harness = makeTargetedService();
       const stats = {
+        sessionId: SESSION,
         totalCost: 4.2,
         tokens: { input: 10, output: 5, cacheRead: 2, cacheCreation: 1 },
         messageCount: 3,
@@ -1723,6 +1760,7 @@ describe('SessionLoaderService', () => {
                 data: {
                   events: [{ type: 'noop' }],
                   stats: {
+                    sessionId: SESSION,
                     totalCost: 4.2,
                     tokens: {
                       input: 10,
@@ -1760,6 +1798,7 @@ describe('SessionLoaderService', () => {
               data: {
                 events: [{ type: 'noop' }],
                 stats: {
+                  sessionId: SESSION,
                   totalCost: 35.668,
                   tokens: {
                     input: 896_000,
@@ -1826,7 +1865,6 @@ describe('SessionLoaderService', () => {
         TAB_B,
         undefined,
       );
-      expect(harness.setPreloadedStats).not.toHaveBeenCalled();
     });
 
     it('treats a reply with only a legacy messages array as no history (INV-9)', async () => {
@@ -1892,7 +1930,6 @@ describe('SessionLoaderService', () => {
       expect(harness.applyLoadedSessionStats).not.toHaveBeenCalled();
       expect(harness.processStreamEvent).not.toHaveBeenCalled();
       expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
-      expect(harness.setPreloadedStats).not.toHaveBeenCalled();
     });
 
     it('switchSession resolves { staleSnapshot: false } for a verified compaction reload and a normal resume', async () => {
@@ -2238,8 +2275,6 @@ describe('SessionLoaderService', () => {
         applyResumeFailure,
         applyLoadedSessionStats: jest.fn(),
         setLiveModelStats: jest.fn(),
-        setModelUsageList: jest.fn(),
-        setPreloadedStats: jest.fn(),
         markSessionActive: jest.fn(),
       } as unknown as TabManagerService;
 

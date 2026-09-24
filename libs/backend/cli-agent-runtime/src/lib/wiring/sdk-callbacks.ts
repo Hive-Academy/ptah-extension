@@ -138,6 +138,8 @@ function wireResultStatsCallback(
       tokens: stats.tokens,
       duration: stats.duration,
       modelUsage: stats.modelUsage,
+      sessionTotalCost: stats.sessionStats?.totalCost,
+      sessionStatsRevision: stats.sessionStats?.revision,
     });
     await sendStatsWithRetry(webviewManager, stats, logger, tag);
   });
@@ -406,6 +408,9 @@ async function sendStatsWithRetry(
           tokens: stats.tokens,
           duration: stats.duration,
           modelUsage: stats.modelUsage,
+          // The backend's authoritative lifetime snapshot (TASK_2026_533);
+          // the panel installs it as-is. Absent → the panel keeps its last one.
+          ...(stats.sessionStats && { sessionStats: stats.sessionStats }),
         }),
       {
         retries: 3,

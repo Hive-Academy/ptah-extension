@@ -27,6 +27,7 @@ import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
 import { SessionStatsReaderService } from '../session-stats';
+import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
@@ -148,6 +149,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_REPLAY,
     { useClass: SessionReplayService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Before the history reader, the stream transformer, the subagent hook
+  // handler and the adapter — all four inject it.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_STATS_OWNER,
+    { useClass: SessionStatsOwnerService },
     { lifecycle: Lifecycle.Singleton },
   );
 

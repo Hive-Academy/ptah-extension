@@ -152,7 +152,9 @@ function backgroundStatus(
  * Composes the entry list from all running subagents plus all background
  * agents (deduped by `toolCallId`, background records winning since they are
  * the authoritative state once an agent is backgrounded) and wires the chip
- * actions to the stores. Every action resolves the agent's OWNING session
+ * actions to the stores. Each entry carries its `origin` so the strip labels
+ * the two populations explicitly; neither is the session AGENTS chip, which
+ * is the backend's lifetime count of unique subagents. Every action resolves the agent's OWNING session
  * (from the pushed events, via `SubagentRecord.parentSessionId` /
  * `BackgroundAgentEntry.sessionId`) so it targets the correct Query even when
  * several canvas tiles are live — never the focused tab.
@@ -254,6 +256,7 @@ export class BackgroundAgentTrayComponent {
         name: label.name,
         hint: label.hint,
         agentType: rec.agentType,
+        origin: 'foreground',
         description: agentSummary(
           label.name,
           rec.latestSummary,
@@ -311,6 +314,7 @@ export class BackgroundAgentTrayComponent {
         name: label.name,
         hint: label.hint,
         agentType,
+        origin: 'background',
         description: agentSummary(
           label.name,
           rec?.latestSummary,

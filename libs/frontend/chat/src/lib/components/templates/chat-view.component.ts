@@ -750,11 +750,12 @@ export class ChatViewComponent implements OnDestroy {
     return this._tabManager.activeTab();
   });
 
-  readonly resolvedPreloadedStats = computed(() => {
+  /** The backend session snapshot every stats-panel figure comes from. */
+  readonly resolvedSessionStats = computed(() => {
     const tab = this.resolvedTab();
     return tab !== null
-      ? (tab.preloadedStats ?? null)
-      : this.chatStore.preloadedStats();
+      ? (tab.sessionStats ?? null)
+      : this.chatStore.sessionStats();
   });
 
   readonly resolvedLiveModelStats = computed(() => {
@@ -762,13 +763,6 @@ export class ChatViewComponent implements OnDestroy {
     return tab !== null
       ? (tab.liveModelStats ?? null)
       : this.chatStore.liveModelStats();
-  });
-
-  readonly resolvedModelUsageList = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.modelUsageList ?? null)
-      : this.chatStore.modelUsageList();
   });
 
   readonly resolvedCompactionCount = computed(() => {

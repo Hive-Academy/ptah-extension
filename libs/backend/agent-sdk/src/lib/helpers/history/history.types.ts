@@ -37,6 +37,23 @@ export interface JsonlMessageLine {
   isMeta?: boolean;
   isSynthetic?: boolean;
   slug?: string;
+  /** `type: 'cost-state'` only: the SDK's saved running cost (unvalidated). */
+  totalCostUSD?: unknown;
+  /** `type: 'cost-state'` only: the SDK's saved per-model totals (unvalidated). */
+  modelUsage?: unknown;
+  /** `type: 'cost-state'` only: whether a model had no known price. */
+  hasUnknownModelCost?: unknown;
+}
+
+/**
+ * The raw payload of a `type: 'cost-state'` transcript entry — the SDK's
+ * running totals, saved when a CLI process ends. Unvalidated: whoever reads
+ * it validates it at that boundary.
+ */
+export interface RawCostStatePayload {
+  readonly totalCostUSD?: unknown;
+  readonly modelUsage?: unknown;
+  readonly hasUnknownModelCost?: unknown;
 }
 
 /**
@@ -78,6 +95,8 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
       readonly cache_creation_input_tokens?: number;
     };
   };
+  /** Present only on `type: 'cost-state'` entries. */
+  readonly costState?: RawCostStatePayload;
 }
 
 /**
@@ -104,6 +123,19 @@ export interface AgentSessionData {
   agentId: string;
   filePath: string;
   messages: SessionHistoryMessage[];
+}
+
+/**
+ * A subagent transcript (or directory) that could not be read.
+ *
+ * `owned: true` — it belongs to the session (nested layout); `agentId` is its
+ * file-name identity, or `null` when a whole directory could not be listed.
+ * `owned: false` — a flat legacy file whose owner is unknown: it may be this
+ * session's, so coverage is partial, but it is never counted as its agent.
+ */
+export interface UnreadableAgentMember {
+  readonly agentId: string | null;
+  readonly owned: boolean;
 }
 
 /**

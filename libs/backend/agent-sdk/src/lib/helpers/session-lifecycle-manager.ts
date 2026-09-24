@@ -56,6 +56,7 @@ import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
+import type { UsageCostSource } from '../session-stats/session-stats-owner.service';
 import {
   HARNESS_PREFLIGHT_TOKEN,
   type IHarnessPreflight,
@@ -223,6 +224,13 @@ export interface SlashCommandConfig {
   /** Explicit path to cli.js */
   pathToClaudeCodeExecutable?: string;
   /**
+   * Runs after the previous query has ended and BEFORE the re-query starts —
+   * the one moment the transcript holds what the previous process saved and
+   * the new process has not yet restored it. Session accounting reads the
+   * restore candidate here (TASK_2026_533). A rejection aborts the re-query.
+   */
+  beforeRelaunch?: () => Promise<void>;
+  /**
    * Mirrors `ExecuteQueryConfig.forkSession`. Only meaningful in combination
    * with `resumeSessionId` (always set internally for slash commands since
    * they resume the existing session). Forwarded to the options builder.
@@ -265,8 +273,16 @@ export interface ExecuteQueryResult {
    * OWN process ("this session forked, follow the new id") from a displaced
    * process still emitting against the same tab ("refuse it"). Without the
    * token those two cases are the same observation.
+   *
+   * It is also the identity of this query RUN for session accounting: the
+   * stats owner keeps the latest cumulative result per token (TASK_2026_533).
+   * A backend-only capability — never sent to the renderer or a log.
    */
   sessionToken: string;
+  /** Cost authority frozen on the record at query creation (TASK_2026_533). */
+  usageCostSource: UsageCostSource;
+  /** Effective auth env frozen with it; pricing alias resolution uses it. */
+  accountingAuthEnv: Readonly<AuthEnv>;
 }
 
 /**
@@ -563,6 +579,7 @@ export class SessionLifecycleManager {
     const rec = this._registry.find(sessionId as string);
     const realSessionId = rec?.realSessionId ?? (sessionId as string);
     await this._control.endSession(sessionId);
+    await config.beforeRelaunch?.();
     return this._queryExecutor.executeQuery({
       sessionId,
       sessionConfig: config.sessionConfig,

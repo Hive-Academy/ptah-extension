@@ -35,6 +35,7 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type {
   AISessionConfig,
+  AuthEnv,
   FlatStreamEventUnion,
   SessionId,
 } from '@ptah-extension/shared';
@@ -59,6 +60,12 @@ import {
 } from './helpers/session-id-resolved-callback-registry';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
+import type { SessionHistoryReaderService } from './session-history-reader.service';
+import {
+  SessionStatsOwnerService,
+  type RunUsageResult,
+  type SessionStatsPrefix,
+} from './session-stats/session-stats-owner.service';
 import type {
   SessionLifecycleManager,
   StreamTransformer,
@@ -191,6 +198,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'markTurnEnded'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
+    | 'getSessionToken'
+    | 'endSessionIfTokenMatches'
   >
 > {
   return {
@@ -208,6 +217,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     markTurnEnded: jest.fn().mockReturnValue(true),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
+    getSessionToken: jest.fn().mockReturnValue(null),
+    endSessionIfTokenMatches: jest.fn().mockResolvedValue(true),
   };
 }
 
@@ -305,8 +316,23 @@ function createFakeQuery(): Query {
   return q as unknown as Query;
 }
 
+function createMockHistoryReader(): jest.Mocked<
+  Pick<
+    SessionHistoryReaderService,
+    'readSessionUsagePrefix' | 'readLastSavedCostState'
+  >
+> {
+  return {
+    readSessionUsagePrefix: jest.fn().mockResolvedValue(null),
+    readLastSavedCostState: jest.fn().mockResolvedValue(null),
+  };
+}
+
 interface AdapterHarness {
   adapter: SdkAgentAdapter;
+  /** Real owner: the arithmetic is the owner's own spec; here it is wiring. */
+  statsOwner: SessionStatsOwnerService;
+  historyReader: ReturnType<typeof createMockHistoryReader>;
   logger: MockLogger;
   config: MockConfigManager;
   sentry: ReturnType<typeof createMockSentry>;
@@ -356,6 +382,8 @@ function makeAdapter(
   const sessionIdResolvedRegistry = new SessionIdResolvedCallbackRegistry(
     asLogger(logger),
   );
+  const statsOwner = new SessionStatsOwnerService();
+  const historyReader = createMockHistoryReader();
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -375,10 +403,14 @@ function makeAdapter(
     activityRegistry,
     workspaceProvider,
     sessionIdResolvedRegistry,
+    statsOwner,
+    historyReader as unknown as SessionHistoryReaderService,
   );
 
   return {
     adapter,
+    statsOwner,
+    historyReader,
     logger,
     config,
     sentry,
@@ -1209,6 +1241,8 @@ describe('SdkAgentAdapter', () => {
         currentModel: 'claude-sonnet-4-20250514',
         permissionLevel: 'ask',
         lastActivityAt: 0,
+        usageCostSource: 'reported',
+        accountingAuthEnv: {} as AuthEnv,
       });
 
       await h.adapter.resumeSession(
@@ -1251,6 +1285,427 @@ describe('SdkAgentAdapter', () => {
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
       expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
+    });
+  });
+
+  describe('session stats ownership (TASK_2026_533)', () => {
+    const SESSION = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000533';
+
+    function historyPrefix(
+      cost: number,
+      savedCostState: SessionStatsPrefix['savedCostState'] = null,
+    ): SessionStatsPrefix {
+      return {
+        savedCostState,
+        stats: {
+          sessionId: SESSION,
+          model: 'claude-sonnet-4-20250514',
+          totalCost: cost,
+          knownCost: cost,
+          tokens: { input: 100, output: 0, cacheRead: 0, cacheCreation: 0 },
+          tokenCount: 100,
+          messageCount: 2,
+          status: 'ok',
+          coverage: 'complete',
+          pricingCoverage: 'full',
+          untimestampedCount: 0,
+          scope: 'session',
+        },
+        subagentIds: [],
+      };
+    }
+
+    function runResult(cost: number, input: number): RunUsageResult {
+      return {
+        totalCost: cost,
+        costSource: 'reported',
+        models: [
+          {
+            model: 'claude-sonnet-4-20250514',
+            inputTokens: input,
+            outputTokens: 1,
+            cacheRead: 0,
+            cacheCreation: 0,
+            costUSD: cost,
+          },
+        ],
+      };
+    }
+
+    function queryResult(token: string): ExecuteQueryResult {
+      return {
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
+        sessionToken: token,
+        usageCostSource: 'reported',
+        accountingAuthEnv: {} as AuthEnv,
+      };
+    }
+
+    it('seeds cold history before launching a resumed query and never reseeds active reuse', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const history = deferred<SessionStatsPrefix | null>();
+      h.historyReader.readSessionUsagePrefix.mockReturnValueOnce(
+        history.promise,
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-1'),
+      );
+
+      const resuming = h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+      // Let every microtask before the history read settle.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // A delayed prefix blocks the launch: the run must not start counting
+      // before its fixed history prefix is known.
+      expect(h.historyReader.readSessionUsagePrefix).toHaveBeenCalledWith(
+        SESSION,
+        '/fake/workspace',
+      );
+      expect(h.sessionLifecycle.executeQuery).not.toHaveBeenCalled();
+
+      history.resolve(historyPrefix(10));
+      await resuming;
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
+      const launched = h.streamTransformer.transform.mock.calls[0][0];
+      expect(launched.runToken).toBe('run-token-1');
+      expect(launched.usageCostSource).toBe('reported');
+      expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(10);
+
+      // Active reuse: same query, same record token, no second history read.
+      h.sessionLifecycle.find.mockReturnValueOnce({
+        token: 'run-token-1',
+        tabId: SESSION,
+        realSessionId: SESSION,
+        query: createFakeQuery(),
+        config: {} as AISessionConfig,
+        abortController: new AbortController(),
+        messageQueue: [],
+        resolveNext: null,
+        turnInFlight: false,
+        activityHold: null,
+        currentModel: 'claude-sonnet-4-20250514',
+        permissionLevel: 'ask',
+        lastActivityAt: 0,
+        usageCostSource: 'reported',
+        accountingAuthEnv: {} as AuthEnv,
+      });
+      await h.adapter.resumeSession(SESSION as SessionId);
+
+      expect(h.historyReader.readSessionUsagePrefix).toHaveBeenCalledTimes(1);
+      const reused = h.streamTransformer.transform.mock.calls[1][0];
+      expect(reused.runToken).toBe('run-token-1');
+      expect(reused.usageCostSource).toBe('reported');
+      expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(10);
+    });
+
+    it('seeds a known-empty prefix for a new session and keeps it under the canonical id', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-new'),
+      );
+
+      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_new' }));
+      const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+      expect(transformArg.runToken).toBe('run-token-new');
+      expect(h.historyReader.readSessionUsagePrefix).not.toHaveBeenCalled();
+
+      // The SDK init resolves the canonical id; the owner moves with it.
+      await transformArg.onSessionIdResolved?.('tab_new', SESSION);
+      expect(h.statsOwner.snapshot('tab_new')).toBeNull();
+      expect(h.statsOwner.snapshot(SESSION)).toMatchObject({
+        status: 'empty',
+        tokenCount: 0,
+      });
+    });
+
+    /**
+     * SDK boundary fixtures for a cold resume.
+     *
+     * `@anthropic-ai/claude-agent-sdk` documents on `total_cost_usd` and
+     * `modelUsage` (sdk.d.ts:5374, and :5366/:5452/:5460) that "a resumed or
+     * forked session continues from the totals its transcript saved, WHEN IT
+     * HAS THEM (so the first result already carries the earlier turns)", and
+     * that "a mid-session /clear resets the running total". Real transcripts
+     * show both outcomes: Claude sessions restore exactly from their last
+     * `cost-state` entry, proxied sessions sometimes start from zero. So the
+     * owner detects restore per run from the saved `cost-state` the adapter's
+     * prefix read supplies; these fixtures pin both outcomes through the
+     * adapter-seeded owner. The numbers a resumed run reports are fixtures —
+     * the SDK's restore itself is not observable from a unit spec.
+     */
+    it('SDK boundary (restored): prefix 10, saved 10, first result 13 -> 13; then 15 -> 15', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.historyReader.readSessionUsagePrefix.mockResolvedValueOnce(
+        historyPrefix(10, {
+          totalCostUSD: 10,
+          hasUnknownModelCost: false,
+          models: {
+            'claude-sonnet-4-20250514': {
+              input: 100,
+              output: 1,
+              cacheRead: 0,
+              cacheCreation: 0,
+              costUSD: 10,
+            },
+          },
+        }),
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-resumed'),
+      );
+
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+      const { runToken, statsGeneration } =
+        h.streamTransformer.transform.mock.calls[0][0];
+      const gen = statsGeneration ?? -1;
+
+      expect(
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(13, 130)).snapshot
+          ?.totalCost,
+      ).toBe(13);
+      expect(
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(15, 150)).snapshot
+          ?.totalCost,
+      ).toBe(15);
+    });
+
+    it('SDK boundary (reset or nothing saved): prefix 10, first result 3 -> 13; then 5 -> 15', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.historyReader.readSessionUsagePrefix.mockResolvedValueOnce(
+        historyPrefix(10),
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-resumed'),
+      );
+
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+      const { runToken, statsGeneration } =
+        h.streamTransformer.transform.mock.calls[0][0];
+      const gen = statsGeneration ?? -1;
+
+      expect(
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(3, 30)).snapshot
+          ?.totalCost,
+      ).toBe(13);
+      expect(
+        h.statsOwner.replaceRun(SESSION, gen, runToken, runResult(5, 50)).snapshot
+          ?.totalCost,
+      ).toBe(15);
+    });
+
+    // Review F1: a re-query's restore candidate is read AFTER the previous
+    // query ended and BEFORE the new one starts, and is bound to that run.
+    it('reads a slash-command run candidate between the old query ending and the new one starting', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const { generation } = h.statsOwner.startNew(SESSION);
+      const order: string[] = [];
+      const onDisk = {
+        totalCostUSD: 10,
+        hasUnknownModelCost: false,
+        models: {
+          'claude-sonnet-4-20250514': {
+            input: 100,
+            output: 1,
+            cacheRead: 0,
+            cacheCreation: 0,
+            costUSD: 10,
+          },
+        },
+      };
+      h.historyReader.readLastSavedCostState.mockImplementation(async () => {
+        order.push('read-cost-state');
+        return onDisk;
+      });
+      h.sessionLifecycle.executeSlashCommandQuery.mockImplementation(
+        async (_id, _command, slashConfig) => {
+          order.push('end-previous');
+          await slashConfig.beforeRelaunch?.();
+          order.push('launch');
+          return queryResult('run-token-slash');
+        },
+      );
+
+      await h.adapter.executeSlashCommand(SESSION as SessionId, '/compact', {
+        sessionConfig: { projectPath: '/fake/workspace' } as AISessionConfig,
+      });
+
+      expect(order).toEqual(['end-previous', 'read-cost-state', 'launch']);
+      const launched = h.streamTransformer.transform.mock.calls[0][0];
+      expect(launched.statsGeneration).toBe(generation);
+      // The candidate is bound to the new run: 13 restored over 10 → +3.
+      expect(
+        h.statsOwner.replaceRun(
+          SESSION,
+          generation,
+          launched.runToken,
+          runResult(13, 130),
+        ).snapshot?.totalCost,
+      ).toBe(3);
+    });
+
+    // Review F5: a teardown releases only the owner lease it captured.
+    it('an old teardown finishing after a replacement run leaves the replacement owner intact', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.historyReader.readSessionUsagePrefix.mockResolvedValue(
+        historyPrefix(10),
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-old'),
+      );
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+
+      const teardown = deferred<boolean>();
+      h.sessionLifecycle.endSessionIfTokenMatches.mockReturnValueOnce(
+        teardown.promise,
+      );
+      const ending = h.adapter.endSessionIfTokenMatches(
+        SESSION as SessionId,
+        'run-token-old',
+      );
+
+      // While the old query is still being torn down, a replacement run
+      // prepares on the same session.
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-new'),
+      );
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+
+      teardown.resolve(true);
+      await expect(ending).resolves.toBe(true);
+
+      expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(10);
+      const replacement = h.streamTransformer.transform.mock.calls[1][0];
+      expect(
+        h.statsOwner.replaceRun(
+          SESSION,
+          replacement.statsGeneration ?? -1,
+          replacement.runToken,
+          runResult(3, 30),
+        ).outcome,
+      ).toBe('accepted');
+    });
+
+    // Revision 2: Ptah handles `/clear` natively — it interrupts the session
+    // (chat-slash-command-router.service.ts) and never sends it to the SDK. The
+    // next message is a NEW run whose base is detected from the cost-state.
+    it('a Ptah /clear then the next message is a new run with a restored base, never double-counted', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const savedAt = (cost: number, input: number) => ({
+        totalCostUSD: cost,
+        hasUnknownModelCost: false,
+        models: {
+          'claude-sonnet-4-20250514': {
+            input,
+            output: 1,
+            cacheRead: 0,
+            cacheCreation: 0,
+            costUSD: cost,
+          },
+        },
+      });
+
+      // Run 1: the transcript held $10 (saved 100 tokens); run 1 grows to $13.
+      h.historyReader.readSessionUsagePrefix.mockResolvedValueOnce(
+        historyPrefix(10, savedAt(10, 100)),
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-1'),
+      );
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+      const first = h.streamTransformer.transform.mock.calls[0][0];
+      h.statsOwner.replaceRun(
+        SESSION,
+        first.statsGeneration ?? -1,
+        first.runToken,
+        runResult(13, 130),
+      );
+      expect(h.statsOwner.snapshot(SESSION)?.totalCost).toBe(13);
+
+      // `/clear`: Ptah interrupts the session; the SDK saved $13.
+      await h.adapter.interruptSession(SESSION as SessionId);
+      expect(h.statsOwner.snapshot(SESSION)).toBeNull();
+
+      // Next message: the transcript now holds $13, and the new process
+      // restores the saved $13 before spending $2 more.
+      h.historyReader.readSessionUsagePrefix.mockResolvedValueOnce(
+        historyPrefix(13, savedAt(13, 130)),
+      );
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-2'),
+      );
+      await h.adapter.resumeSession(SESSION as SessionId, {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig);
+      const second = h.streamTransformer.transform.mock.calls[1][0];
+      expect(second.runToken).not.toBe(first.runToken);
+
+      expect(
+        h.statsOwner.replaceRun(
+          SESSION,
+          second.statsGeneration ?? -1,
+          second.runToken,
+          runResult(15, 150),
+        ).snapshot?.totalCost,
+      ).toBe(15);
+    });
+
+    // Re-review residual F5: init can bind the canonical id while the
+    // interrupt is still awaiting; the release must follow the owner there.
+    it('releases the owner when init binds the canonical id while the interrupt awaits', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-early-close'),
+      );
+      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_early' }));
+      const launched = h.streamTransformer.transform.mock.calls[0][0];
+
+      const interrupt = deferred<void>();
+      h.sessionLifecycle.endSession.mockReturnValueOnce(interrupt.promise);
+      const closing = h.adapter.interruptSession('tab_early' as SessionId);
+
+      await launched.onSessionIdResolved?.('tab_early', SESSION);
+      expect(h.statsOwner.snapshot(SESSION)).not.toBeNull();
+
+      interrupt.resolve();
+      await closing;
+
+      expect(h.statsOwner.snapshot(SESSION)).toBeNull();
+      expect(h.statsOwner.snapshot('tab_early')).toBeNull();
+    });
+
+    it('releases the owner when the session is deliberately ended', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.statsOwner.startNew(SESSION);
+
+      await h.adapter.interruptSession(SESSION as SessionId);
+
+      expect(h.statsOwner.snapshot(SESSION)).toBeNull();
     });
   });
 

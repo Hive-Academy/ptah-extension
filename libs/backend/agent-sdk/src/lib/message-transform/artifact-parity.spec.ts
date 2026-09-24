@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 
 import type { AuthEnv, FlatStreamEventUnion } from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
@@ -113,6 +114,7 @@ function createReader(
     pricingProvider,
     new LiveUsageTracker(),
     new CompactionBoundaryGenerationRegistry(),
+    new SessionStatsOwnerService(),
   );
 }
 

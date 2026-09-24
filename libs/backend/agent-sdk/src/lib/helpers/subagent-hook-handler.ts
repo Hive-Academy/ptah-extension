@@ -43,6 +43,7 @@ import type {
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookSessionId } from './hook-session-resolver';
 import { SubagentStopCallbackRegistry } from './subagent-stop-callback-registry';
+import type { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 
 /**
  * SubagentHookHandler Service
@@ -67,7 +68,38 @@ export class SubagentHookHandler {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY)
     private readonly subagentStopRegistry: SubagentStopCallbackRegistry,
+    /** Session accounting: every subagent identity counts once (TASK_2026_533). */
+    @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
+    private readonly statsOwner: SessionStatsOwnerService,
   ) {}
+
+  /**
+   * Record a subagent identity for its parent session's agent count.
+   *
+   * Independent of the resumption registry's gate: a start hook without a
+   * `toolUseId` still proves the agent exists. The owner collapses aliases and
+   * never removes an identity, so start + stop + replay count once.
+   *
+   * A new session's owner stays keyed by its tab id (the captured closure id)
+   * until `init` is consumed and the owner is rebound to the canonical id.
+   * The SDK runs hook callbacks from its read loop while `init` may still be
+   * queued, so a hook can precede that rebind: record under the provisional
+   * key then, and the rebind carries the identity forward.
+   */
+  private recordSubagentIdentity(
+    parentSessionId: string | null,
+    capturedSessionId: string | undefined,
+    agentId: string | undefined,
+  ): void {
+    if (!parentSessionId || !agentId) return;
+    const key =
+      this.statsOwner.leaseOf(parentSessionId) === null &&
+      capturedSessionId &&
+      this.statsOwner.leaseOf(capturedSessionId) !== null
+        ? capturedSessionId
+        : parentSessionId;
+    this.statsOwner.recordAgent(key, agentId);
+  }
 
   /**
    * Create hooks configuration for SDK query options
@@ -218,6 +250,11 @@ export class SubagentHookHandler {
         input.session_id,
         parentSessionId,
       );
+      this.recordSubagentIdentity(
+        resolvedParentSessionId,
+        parentSessionId,
+        input.agent_id,
+      );
 
       if (toolUseId && resolvedParentSessionId) {
         this.subagentRegistry.register({
@@ -299,6 +336,13 @@ export class SubagentHookHandler {
         stopHookActive: input.stop_hook_active,
         toolUseId,
       });
+      // A stop confirms membership (an agent whose start hook was missed still
+      // counts); it never removes it.
+      this.recordSubagentIdentity(
+        resolveHookSessionId(input.session_id, parentSessionId),
+        parentSessionId,
+        input.agent_id,
+      );
       let resolvedToolCallId = toolUseId ?? undefined;
       let record = resolvedToolCallId
         ? this.subagentRegistry.get(resolvedToolCallId)

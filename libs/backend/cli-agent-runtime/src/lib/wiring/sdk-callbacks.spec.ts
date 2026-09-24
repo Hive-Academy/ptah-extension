@@ -20,7 +20,13 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
+import type {
+  AgentId,
+  AgentProcessInfo,
+  ResultStatsPayload,
+  SessionStatsEntry,
+} from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentMessageRouter } from '../cli-agents/agent-message-router.service';
@@ -481,5 +487,89 @@ describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
       REAL_SESSION_ID,
       expect.objectContaining({ cliSessionId: 'cli-agent-in-a' }),
     );
+  });
+});
+
+/**
+ * TASK_2026_533: the backend's lifetime snapshot rides the existing
+ * `session:stats` broadcast next to the unchanged per-result footer fields.
+ */
+describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)', () => {
+  function wireResultStats() {
+    let onResult: ((stats: ResultStatsPayload) => Promise<void>) | undefined;
+    const sdkAdapter = {
+      setResultStatsCallback: jest.fn(
+        (cb: (stats: ResultStatsPayload) => Promise<void>) => {
+          onResult = cb;
+        },
+      ),
+      setSessionIdResolvedCallback: jest.fn(),
+      setCompactionStartCallback: jest.fn(),
+    };
+    const webviewManager = {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    };
+    const registry = new Map<symbol, unknown>([
+      [TOKENS.AGENT_ADAPTER, sdkAdapter],
+      [TOKENS.WEBVIEW_MANAGER, webviewManager],
+    ]);
+    wireSdkCallbacks(
+      {
+        isRegistered: (token: symbol) => registry.has(token),
+        resolve: (token: symbol) => registry.get(token),
+      } as unknown as DependencyContainer,
+      {
+        logger: createMockLogger() as unknown as Logger,
+        platform: 'electron',
+      },
+    );
+    if (!onResult) throw new Error('setResultStatsCallback was never wired');
+    return { onResult, webviewManager };
+  }
+
+  const footer = {
+    sessionId: REAL_SESSION_ID as ResultStatsPayload['sessionId'],
+    cost: 0.5,
+    tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
+    duration: 100,
+  };
+
+  it('forwards sessionStats unchanged beside the footer fields', async () => {
+    const { onResult, webviewManager } = wireResultStats();
+    const sessionStats: SessionStatsEntry = {
+      sessionId: REAL_SESSION_ID,
+      model: 'm',
+      totalCost: 38.18,
+      knownCost: 38.18,
+      tokens: {
+        input: 15_200,
+        output: 396_700,
+        cacheRead: 14_388_100,
+        cacheCreation: 100_000,
+      },
+      tokenCount: 14_900_000,
+      messageCount: 3,
+      agentSessionCount: 9,
+      status: 'ok',
+      scope: 'session',
+      revision: 7,
+    };
+
+    await onResult({ ...footer, sessionStats });
+
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.SESSION_STATS,
+      { ...footer, modelUsage: undefined, sessionStats },
+    );
+  });
+
+  it('omits sessionStats when the backend had none to publish', async () => {
+    const { onResult, webviewManager } = wireResultStats();
+
+    await onResult(footer);
+
+    const payload = webviewManager.broadcastMessage.mock.calls[0][1];
+    expect(payload).not.toHaveProperty('sessionStats');
+    expect(payload).toMatchObject(footer);
   });
 });

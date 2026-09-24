@@ -25,10 +25,8 @@
           animate.leave="banner-leave"
         >
           <ptah-session-stats-summary
-            [messages]="resolvedMessages()"
-            [preloadedStats]="resolvedPreloadedStats()"
+            [snapshot]="resolvedSessionStats()"
             [liveModelStats]="resolvedLiveModelStats()"
-            [modelUsageList]="resolvedModelUsageList()"
             [compactionCount]="resolvedCompactionCount()"
           />
         </div>

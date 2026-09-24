@@ -463,6 +463,8 @@ describe('SessionStatsReaderService', () => {
     expect(entry.status).toBe('ok');
     expect(entry.tokens.input).toBe(10);
     expect(entry.coverage).toBe('partial');
-    expect(entry.agentSessionCount).toBe(1);
+    // TASK_2026_533: an unreadable flat file has no provable owner, so it is
+    // not an identity of THIS session — it only makes coverage partial.
+    expect(entry.agentSessionCount).toBe(0);
   });
 });

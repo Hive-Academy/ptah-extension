@@ -1,38 +1,21 @@
 import { Injectable, Signal, computed, signal } from '@angular/core';
-import type {
-  LiveModelStatsPayload,
-  PreloadedStatsPayload,
-} from './tab-state.types';
-
-/**
- * Per-model usage breakdown for one session. Structurally the same shape
- * `TabState.modelUsageList` carries, because both feed the same presentational
- * component (`SessionStatsSummaryComponent` in `chat-ui`).
- */
-export interface SurfaceModelUsage {
-  readonly model: string;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly costUSD: number | null;
-  readonly contextWindow: number;
-  readonly cacheReadInputTokens?: number;
-}
+import type { SessionStatsEntry } from '@ptah-extension/shared';
+import type { LiveModelStatsPayload } from './tab-state.types';
+import {
+  SessionStatsRevisionFloor,
+  isValidSessionStatsSnapshot,
+} from './session-stats-snapshot';
 
 /** Everything a surface needs to render the same stats a tab shows. */
 export interface SurfaceSessionStats {
   /** Primary model + context fill, or null when no window could be resolved. */
   readonly live: LiveModelStatsPayload | null;
-  /** Latest per-model breakdown, or null before the first turn completes. */
-  readonly modelUsage: readonly SurfaceModelUsage[] | null;
-  /** Running totals across every turn of the session. */
-  readonly totals: PreloadedStatsPayload;
+  /**
+   * The backend's session-lifetime accounting snapshot (TASK_2026_533), or
+   * null before the first one arrives. Displayed as-is, never added to.
+   */
+  readonly snapshot: SessionStatsEntry | null;
 }
-
-const EMPTY_TOTALS: PreloadedStatsPayload = {
-  totalCost: null,
-  tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
-  messageCount: 0,
-};
 
 /**
  * Session stats for consumers that are NOT tabs.
@@ -54,6 +37,13 @@ export class SurfaceSessionStatsRegistry {
     ReadonlyMap<string, SurfaceSessionStats>
   >(new Map());
 
+  /**
+   * Revision floor per session, kept apart from the displayed snapshot so an
+   * unrevisioned snapshot can neither win over nor erase it. Not cleared by
+   * {@link clear}: a torn-down surface must not let an older snapshot back in.
+   */
+  private readonly floor = new SessionStatsRevisionFloor();
+
   /** Snapshot of every recorded session. Primarily for tests and debugging. */
   readonly sessions = computed<readonly string[]>(() =>
     Array.from(this._bySession().keys()),
@@ -70,57 +60,47 @@ export class SurfaceSessionStatsRegistry {
   }
 
   /**
-   * Fold one turn's stats into the session's running record.
+   * Record one turn's stats for a session.
    *
-   * `live` and `modelUsage` REPLACE (they describe the session as of this
-   * turn); `totals` ACCUMULATE. That split mirrors the tab path exactly —
-   * `setLiveModelStatsAndUsageList` overwrites while `setPreloadedStats` adds —
-   * so the two surfaces cannot drift into reporting different numbers for the
-   * same turn.
-   *
-   * A `null` turn cost makes the running total unknown, and a later priced
-   * turn cannot turn that partial total back into a complete figure.
+   * Both halves REPLACE, mirroring the tab path (`setLiveModelStats` and
+   * `installSessionStats`): `live` describes the context as of this turn and
+   * `snapshot` is the backend's whole-session accounting. A turn without one
+   * keeps the last one. A malformed snapshot, one for another session, or one
+   * the per-session revision floor refuses (see `SessionStatsRevisionFloor`)
+   * is ignored and the stored snapshot kept.
    */
   record(
     sessionId: string,
     turn: {
       readonly live: LiveModelStatsPayload | null;
-      readonly modelUsage: readonly SurfaceModelUsage[] | null;
-      readonly cost: number | null;
-      readonly tokens: {
-        readonly input: number;
-        readonly output: number;
-        readonly cacheRead?: number;
-        readonly cacheCreation?: number;
-      };
+      readonly snapshot: SessionStatsEntry | null;
     },
   ): void {
     if (!sessionId) return;
+    const accepted = this.accepts(sessionId, turn.snapshot)
+      ? turn.snapshot
+      : null;
     this._bySession.update((prev) => {
       const existing = prev.get(sessionId);
-      const totals = existing?.totals ?? EMPTY_TOTALS;
-      const prevCost = existing ? totals.totalCost : 0;
       const next = new Map(prev);
       next.set(sessionId, {
         live: turn.live ?? existing?.live ?? null,
-        modelUsage: turn.modelUsage ?? existing?.modelUsage ?? null,
-        totals: {
-          totalCost:
-            prevCost === null || turn.cost === null
-              ? null
-              : prevCost + turn.cost,
-          tokens: {
-            input: totals.tokens.input + turn.tokens.input,
-            output: totals.tokens.output + turn.tokens.output,
-            cacheRead: totals.tokens.cacheRead + (turn.tokens.cacheRead ?? 0),
-            cacheCreation:
-              totals.tokens.cacheCreation + (turn.tokens.cacheCreation ?? 0),
-          },
-          messageCount: totals.messageCount + 1,
-        },
+        snapshot: accepted ?? existing?.snapshot ?? null,
       });
       return next;
     });
+  }
+
+  private accepts(
+    sessionId: string,
+    snapshot: SessionStatsEntry | null,
+  ): snapshot is SessionStatsEntry {
+    return (
+      snapshot !== null &&
+      isValidSessionStatsSnapshot(snapshot) &&
+      snapshot.sessionId === sessionId &&
+      this.floor.admit(snapshot)
+    );
   }
 
   /** Drop a session's record. Called when its surface is torn down. */

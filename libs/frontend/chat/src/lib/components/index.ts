@@ -109,7 +109,7 @@ export {
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
  */
-export type { LiveModelStats, ModelUsageEntry } from '@ptah-extension/chat-ui';
+export type { LiveModelStats } from '@ptah-extension/chat-ui';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
