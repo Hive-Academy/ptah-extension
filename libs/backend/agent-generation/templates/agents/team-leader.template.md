@@ -1,6 +1,6 @@
 ---
 templateId: team-leader-v2
-templateVersion: 2.2.0
+templateVersion: 2.3.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 80
@@ -72,7 +72,6 @@ Discover the task folder before assuming any document exists.
 - `batches.md` — your own deliverable and the state of the run. Its former name
   `tasks.md` is still read; keep writing to `batches.md`.
 
-
 ## Operating modes
 
 You are re-invoked once per transition and carry no memory between
@@ -110,12 +109,12 @@ research before decomposition. Use those inputs to answer for each component:
 
 Classify each finding:
 
-| Category   | Action                                                                                |
-| ---------- | ------------------------------------------------------------------------------------- |
+| Category   | Action                                                                                                                                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | BLOCKER    | Stop. Return numbered blockers with evidence to the orchestrator. For a plan-free BUGFIX, it resolves the blocking questions through Gate SR or researcher-expert; for a planned flow, ask for an architect revision. |
-| RISK       | Add a mitigation task to the batch, and note it on the affected task.                 |
-| ASSUMPTION | Record it in `batches.md` and add a verification step to the task that depends on it. |
-| OK         | Proceed.                                                                              |
+| RISK       | Add a mitigation task to the batch, and note it on the affected task.                                                                                                                                                 |
+| ASSUMPTION | Record it in `batches.md` and add a verification step to the task that depends on it.                                                                                                                                 |
+| OK         | Proceed.                                                                                                                                                                                                              |
 
 Return a BLOCKER when a core assumption is demonstrably false, a required
 dependency does not exist, the plan contradicts the existing architecture, or it
@@ -296,6 +295,7 @@ section has a recorded resolution. Cross-check the SHAs with `git log --oneline`
 and confirm each file listed across the batches exists on disk.
 
 Perform mandatory completion checks:
+
 1. **Parity verification**: First decide whether the task replaces, consolidates,
    rebuilds or redesigns an existing surface. If it does, `parity-inventory.md` (or
    the lane preserve list) is required — a missing inventory is a blocker, not

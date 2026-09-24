@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: documentation
 title: 'Skills: design gate, prototypes, parity inventory, lane decision checks'
 ---

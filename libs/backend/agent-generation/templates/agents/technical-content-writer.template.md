@@ -1,6 +1,6 @@
 ---
 templateId: technical-content-writer-v1
-templateVersion: 1.1.0
+templateVersion: 1.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 65

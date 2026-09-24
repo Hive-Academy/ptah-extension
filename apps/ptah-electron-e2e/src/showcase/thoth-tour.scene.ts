@@ -2,6 +2,7 @@ import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
 import { prewarmThoth } from './_harness/prewarm';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P1.2 — "Ptah Desktop — the Thoth shell" (4-tab cockpit tour).
@@ -33,8 +34,8 @@ import { prewarmThoth } from './_harness/prewarm';
  *   guards for an empty surface and still pans/spotlights the panel chrome.
  * - No other Ptah instance is running (single-instance lock).
  *
- * Selector note: the only shell-navigation touch point is the `Thoth` top-nav
- * tab in `goToThoth()`. The four inner tabs are addressed by their stable ids
+ * Selector note: shell navigation uses the configuration menu's stable hooks
+ * in `goToThoth()`. The four inner tabs are addressed by their stable ids
  * (`#thoth-tab-<id>` / `#thoth-panel-<id>`) rendered by
  * `libs/frontend/thoth-shell`, so they survive label/chrome tweaks. Note the
  * inner tabs ALSO carry `role="tab"`, so we deliberately select them by id
@@ -98,28 +99,11 @@ const BEATS: readonly ThothBeat[] = [
 const TAB_SCRIPT_BASE = 3;
 
 /**
- * Enter the Thoth shell from the top nav. Best-effort against the live shell:
- * tries a small list of resilient selectors for the `Thoth` tab, then waits for
+ * Enter the Thoth shell through the global configuration menu, then wait for
  * the shell's first panel to materialise so callers can drive inner tabs.
  */
 async function goToThoth(page: Page, director: Director): Promise<void> {
-  const candidates: Locator[] = [
-    page.getByRole('tab', { name: 'Thoth' }),
-    page.getByRole('button', { name: 'Thoth' }),
-    page.locator('[title="Thoth"]'),
-    page.locator('[aria-label="Thoth"]'),
-  ];
-  for (const c of candidates) {
-    if (
-      await c
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await director.click(c.first());
-      break;
-    }
-  }
+  await openConfigSurface(page, director, 'thoth');
   // The shell renders one tablist + one active panel; wait for the tab buttons
   // (any inner tab id) so we know the shell mounted before we start panning.
   await page.locator('#thoth-tab-memory').waitFor({ state: 'visible' });

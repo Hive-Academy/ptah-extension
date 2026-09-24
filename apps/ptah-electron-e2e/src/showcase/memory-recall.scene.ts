@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P3.1 — "Ptah remembers (persistent memory)".
@@ -55,20 +56,11 @@ const SEL = {
 
 /**
  * Navigate from wherever the shell opens into the Thoth → Memory tab and wait
- * for its panel to render. Best-effort selectors so the scene survives minor
- * chrome changes.
+ * for its panel to render. Shell entry uses the global configuration menu's
+ * stable data-test hooks.
  */
 async function goToMemory(page: Page, director: Director): Promise<void> {
-  // Enter the desktop "cockpit" (Thoth shell) via the top nav tab.
-  const thothTab = page.getByRole('tab', { name: 'Thoth' });
-  if (
-    await thothTab
-      .first()
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await director.click(thothTab.first());
-  }
+  await openConfigSurface(page, director, 'thoth');
 
   // Open the Memory inner tab and wait for its panel.
   const memoryTab = page.locator('#thoth-tab-memory');

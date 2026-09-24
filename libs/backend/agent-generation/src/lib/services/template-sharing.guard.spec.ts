@@ -1061,6 +1061,52 @@ describe('role grants', () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// (j) ENGINEERING_HYGIENE ships INLINE until installed resolvers know the id
+// ---------------------------------------------------------------------------
+
+/**
+ * Released apps (electron v0.1.69 / v0.1.70) download templates from main and
+ * resolve them with the SHARED_BLOCK_IDS they were compiled with. Those
+ * resolvers reject any STATIC id they do not list, so a
+ * `<!-- STATIC:ENGINEERING_HYGIENE -->` marker on main would stop template
+ * loading for every user still on those versions. The four roles that need
+ * the block therefore carry its text inline, byte-identical to the partial,
+ * and the marker stays out of the corpus until a release that knows the id
+ * (or falls back to the partial file) is widely installed. Swap the inline
+ * text for the marker pair then, and move ENGINEERING_HYGIENE into
+ * ROLE_PARTIALS in the same change.
+ */
+describe('engineering hygiene inlining', () => {
+  const HYGIENE_BODY = fs
+    .readFileSync(
+      path.join(PARTIALS_DIR, partialFileName('ENGINEERING_HYGIENE')),
+      'utf8',
+    )
+    .trim();
+
+  const INLINE_HYGIENE_ROLES = [
+    'backend-developer',
+    'frontend-developer',
+    'software-architect',
+    'code-style-reviewer',
+  ];
+
+  it('no template fences ENGINEERING_HYGIENE in a STATIC marker yet', () => {
+    const offenders = FILES.filter((file) =>
+      read(file).includes('STATIC:ENGINEERING_HYGIENE'),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(INLINE_HYGIENE_ROLES)(
+    '%s carries the engineering-hygiene body verbatim',
+    (role) => {
+      expect(read(`${role}.template.md`)).toContain(HYGIENE_BODY);
+    },
+  );
+});
+
 describe('task-spec audience', () => {
   const ALLOCATION_TERMS = [
     'git ls-tree',

@@ -1,6 +1,6 @@
 ---
 templateId: backend-developer-v2
-templateVersion: 2.2.0
+templateVersion: 2.3.0
 applicabilityRules:
   projectTypes: [Node, Python, Java, Go, DotNet, PHP, Ruby]
   requiredPatterns: ['**/controllers/**', '**/services/**', '**repositories/**', '**/models/**', '**/entities/**']
@@ -39,6 +39,15 @@ variables:
 <!-- /STATIC:CLARIFICATION_PROTOCOL -->
 <!-- STATIC:REPLACEMENT_POLICY -->
 <!-- /STATIC:REPLACEMENT_POLICY -->
+
+- Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.
+- Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use proves the shared shape.
+- Structure: one responsibility per unit; depend on abstractions at real boundaries (I/O, external services, the platform), not on concrete collaborators; composition over inheritance; low coupling, high cohesion.
+- Boundaries: validate external input where it enters; parameterised queries and argument arrays, never commands or queries built from strings; no secret in code, logs or error messages; least privilege.
+- External calls: explicit timeout; retry only idempotent operations, with backoff; define the behaviour when the dependency fails.
+- Tests at the right level: unit tests for logic, integration tests at boundaries, one regression test per bug fix.
+- Runtime cost: long-lived views and processes pay for everything they keep alive. An animation that repeats forever changes only compositor properties (`transform`, `opacity`). No timer, observer or poll per item of a list that can grow without limit, including one a library attaches for you; every timer, listener and observer has a release path.
+
 <!-- STATIC:CLI_DELEGATION -->
 <!-- /STATIC:CLI_DELEGATION -->
 
@@ -119,7 +128,9 @@ Working sequence:
    not introduce an ad hoc output mechanism beside it.
 6. Run every applicable verification command the repository declares — a build, a static
    check, a test target — scoped to the projects you changed (`-p <project>`), never
-   workspace-wide. Tail or filter the output; never paste a full log into a deliverable
+   workspace-wide. Other agents may be verifying on the same machine: when a runner has a
+   worker or parallelism setting, cap it low (for example two workers) instead of its
+   per-core default. Tail or filter the output; never paste a full log into a deliverable
    or the thread; do not re-run a suite only to re-read its output. Quote the command and
    the observed result, and state when a check is unavailable or does not apply. Do not
    invent a command the repository does not define, and do not report a target as passing

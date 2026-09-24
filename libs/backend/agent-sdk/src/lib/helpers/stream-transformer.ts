@@ -88,6 +88,85 @@ function resolveResultContextWindow(params: {
   return params.knownContextWindow;
 }
 
+/** One model's last-turn context components, as the stream reported them. */
+interface TrackedTurnContext {
+  input: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
+/**
+ * Reduce a model id to the spelling the two key spaces share.
+ *
+ * `modelUsage` is keyed by the raw model string the CLI ran (the SDK's
+ * `ModelUsage.canonicalModel` doc: "may differ from the raw model string this
+ * entry is keyed by"), so the 1M variant arrives as `claude-opus-5[1m]`. The
+ * CLI strips that tag before calling the API, so the `message_start` the
+ * tracker reads carries the bare id. Lowercase, trailing `[..]` variant tags,
+ * a `provider/` prefix and a date snapshot suffix are spelling, not identity.
+ */
+function normalizeModelKey(modelId: string): string {
+  const lower = modelId
+    .trim()
+    .toLowerCase()
+    .replace(/(\[[^\]]*\])+$/, '');
+  const unprefixed = lower.slice(lower.lastIndexOf('/') + 1);
+  return unprefixed.replace(/-(?:\d{4}-\d{2}-\d{2}|\d{8})$/, '');
+}
+
+/**
+ * Pair each `modelUsage` key with the last-turn context the stream tracked.
+ *
+ * Exact key first. A tracked entry left unclaimed is then matched by
+ * normalized spelling against the key and its aliases (the SDK's canonical id,
+ * the pricing-resolved id) — but only when the pairing is unambiguous in both
+ * directions. Two rows that normalize alike (a `[1m]` main loop and a bare
+ * subagent row of the same model) must not both receive the main loop's fill;
+ * the row is left `undefined` instead, and the frontend fallback applies.
+ */
+function matchTrackedContexts(
+  usageKeys: ReadonlyArray<{
+    readonly key: string;
+    readonly aliases: readonly string[];
+  }>,
+  tracked: ReadonlyMap<string, TrackedTurnContext>,
+): Map<string, TrackedTurnContext> {
+  const matched = new Map<string, TrackedTurnContext>();
+  for (const { key } of usageKeys) {
+    const exact = tracked.get(key);
+    if (exact) matched.set(key, exact);
+  }
+  const unclaimed = [...tracked.keys()].filter((key) => !matched.has(key));
+  if (unclaimed.length === 0) return matched;
+
+  const hitsByUsageKey = new Map<string, string[]>();
+  const usageKeyCountByTracked = new Map<string, number>();
+  for (const { key, aliases } of usageKeys) {
+    if (matched.has(key)) continue;
+    const spellings = new Set(
+      [key, ...aliases].filter(Boolean).map(normalizeModelKey),
+    );
+    const hits = unclaimed.filter((trackedKey) =>
+      spellings.has(normalizeModelKey(trackedKey)),
+    );
+    hitsByUsageKey.set(key, hits);
+    for (const trackedKey of hits) {
+      usageKeyCountByTracked.set(
+        trackedKey,
+        (usageKeyCountByTracked.get(trackedKey) ?? 0) + 1,
+      );
+    }
+  }
+  for (const [key, hits] of hitsByUsageKey) {
+    if (hits.length !== 1 || usageKeyCountByTracked.get(hits[0]) !== 1) {
+      continue;
+    }
+    const context = tracked.get(hits[0]);
+    if (context) matched.set(key, context);
+  }
+  return matched;
+}
+
 /**
  * Model usage data from SDK result message
  * Contains context window size for percentage calculation
@@ -361,10 +440,7 @@ export class StreamTransformer {
         // explicit 0 is a real reading and an absent field keeps the last
         // known value). Components are stored separately so an output-only
         // delta — the direct Anthropic shape — cannot zero input/cache.
-        const lastTurnContextByModel = new Map<
-          string,
-          { input: number; cacheRead: number; cacheCreation: number }
-        >();
+        const lastTurnContextByModel = new Map<string, TrackedTurnContext>();
         // message_delta carries no model, so the tracker remembers the model
         // of the message_start it belongs to.
         let currentStreamModel: string | null = null;
@@ -382,7 +458,13 @@ export class StreamTransformer {
             activityWatchdog?.observe(sdkMessage);
             sdkMessageCount++;
 
-            if (isStreamEvent(sdkMessage)) {
+            // The gauge measures the MAIN loop's prompt, so a partial event
+            // that belongs to a subagent must not overwrite it (same model,
+            // different conversation). `SDKPartialAssistantMessage` types
+            // `parent_tool_use_id` as `string | null`; the bundled CLI builds
+            // its stream events with `null` today, so this is the contract's
+            // guard, not a behaviour seen on the wire.
+            if (isStreamEvent(sdkMessage) && !sdkMessage.parent_tool_use_id) {
               const event = sdkMessage.event;
               if (isMessageStart(event)) {
                 const model = event.message.model;
@@ -487,19 +569,55 @@ export class StreamTransformer {
               // its saved `cost-state` uses — with all four token classes.
               const runModels: RunModelUsage[] = [];
               if (sdkMessage.modelUsage) {
-                for (const [model, usage] of Object.entries(
-                  sdkMessage.modelUsage,
-                )) {
-                  if (model.startsWith('<') && model.endsWith('>')) {
-                    continue;
-                  }
-                  // Alias resolution stays (proxy routes report Claude aliases
-                  // for other models), but against the query's FROZEN
-                  // effective env, never the mutable process-global one.
-                  const priced = modelResolver.resolveForCost(
+                const usageEntries = Object.entries(sdkMessage.modelUsage)
+                  .filter(
+                    ([model]) =>
+                      !(model.startsWith('<') && model.endsWith('>')),
+                  )
+                  .map(([model, usage]) => ({
                     model,
-                    accountingAuthEnv,
+                    usage,
+                    // Alias resolution stays (proxy routes report Claude
+                    // aliases for other models), but against the query's
+                    // FROZEN effective env, never the mutable process-global
+                    // one.
+                    priced: modelResolver.resolveForCost(
+                      model,
+                      accountingAuthEnv,
+                    ),
+                  }));
+                const trackedContextByModel = matchTrackedContexts(
+                  usageEntries.map(({ model, usage, priced }) => ({
+                    key: model,
+                    aliases: [usage.canonicalModel, priced.modelId].filter(
+                      (alias): alias is string => Boolean(alias),
+                    ),
+                  })),
+                  lastTurnContextByModel,
+                );
+                const untrackedModels = usageEntries
+                  .map(({ model }) => model)
+                  .filter((model) => !trackedContextByModel.has(model));
+                if (untrackedModels.length > 0) {
+                  // Not an error: a model that streamed nothing on the main
+                  // loop since the last compaction (a subagent-only model, a
+                  // turn with no API call) has no fill to report, and the
+                  // frontend falls back for it. Logged so a key mismatch
+                  // that slips past `matchTrackedContexts` is diagnosable.
+                  logger.debug(
+                    '[StreamTransformer] No last-turn context tracked for some modelUsage keys',
+                    {
+                      sessionId: effectiveSessionId,
+                      untrackedModels,
+                      modelUsageKeys: usageEntries.map(({ model }) => model),
+                      canonicalModels: usageEntries.map(
+                        ({ usage }) => usage.canonicalModel ?? null,
+                      ),
+                      trackedKeys: [...lastTurnContextByModel.keys()],
+                    },
                   );
+                }
+                for (const { model, usage, priced } of usageEntries) {
                   const resolvedModel = priced.modelId;
                   const cacheRead = usage.cacheReadInputTokens ?? 0;
                   const cacheCreation = usage.cacheCreationInputTokens ?? 0;
@@ -538,7 +656,7 @@ export class StreamTransformer {
                   });
                   const knownContextWindow =
                     getModelContextWindow(resolvedModel);
-                  const trackedContext = lastTurnContextByModel.get(model);
+                  const trackedContext = trackedContextByModel.get(model);
                   // On a proxy the CLI cannot know a non-Claude model's
                   // window and reports its generic 200000 fallback, so a
                   // window the PROVIDER ITSELF reported for this exact id
@@ -634,22 +752,23 @@ export class StreamTransformer {
               if (statsGeneration === null) {
                 // No owner was prepared for this stream: nothing to publish.
               } else if (runModels.length > 0) {
-                const { outcome, snapshot, firstRejection } = statsOwner.replaceRun(
-                  effectiveSessionId,
-                  statsGeneration,
-                  runToken,
-                  {
-                    models: runModels,
-                    totalCost:
-                      typeof totalCost === 'number' ? totalCost : null,
-                    costSource: usageCostSource,
-                    isErrorResult:
-                      sdkMessage.subtype !== 'success' || sdkMessage.is_error,
-                    // Per turn; the owner adds it only when it accepts the
-                    // result, and validates it.
-                    durationMs: sdkMessage.duration_ms,
-                  },
-                );
+                const { outcome, snapshot, firstRejection } =
+                  statsOwner.replaceRun(
+                    effectiveSessionId,
+                    statsGeneration,
+                    runToken,
+                    {
+                      models: runModels,
+                      totalCost:
+                        typeof totalCost === 'number' ? totalCost : null,
+                      costSource: usageCostSource,
+                      isErrorResult:
+                        sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                      // Per turn; the owner adds it only when it accepts the
+                      // result, and validates it.
+                      durationMs: sdkMessage.duration_ms,
+                    },
+                  );
                 if (outcome === 'rejected-invalid') {
                   logger.warn(
                     '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',
