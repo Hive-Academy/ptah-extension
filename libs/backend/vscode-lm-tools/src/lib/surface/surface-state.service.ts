@@ -98,8 +98,8 @@ import {
 } from './surface-ui-mutations';
 
 /**
- * Optional construction options. Never registered in production, so every
- * host runs the documented defaults (`SURFACE_STORE_LIMITS`,
+ * Optional construction options. Production registers an empty object, so
+ * every host runs the documented defaults (`SURFACE_STORE_LIMITS`,
  * `SURFACE_LIMITS.maxStateReadBytes`, `Date.now`, `crypto.randomUUID`); specs
  * pass smaller bounds and a fixed clock.
  */

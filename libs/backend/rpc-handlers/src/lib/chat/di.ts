@@ -45,7 +45,12 @@ import { ChatSlashCommandRouterService } from './session/chat-slash-command-rout
 import { ChatSessionService } from './session/chat-session.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
-import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
+import {
+  SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
+  SURFACE_SUBMIT_TURN_OPTIONS,
+  SurfaceSubmitTurnService,
+  type SurfaceSubmitTurnOptions,
+} from './session/surface-submit-turn.service';
 
 export { CHAT_TOKENS } from './tokens';
 
@@ -75,6 +80,12 @@ export function registerChatServices(container: DependencyContainer): void {
   // same composition, and `registerOutputStyleServices` — which every host
   // already calls — binds it under `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`.
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
+  const surfaceSubmitTurnOptions: SurfaceSubmitTurnOptions = {
+    dispatchDeadlineMs: SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
+  };
+  container.register(SURFACE_SUBMIT_TURN_OPTIONS, {
+    useValue: surfaceSubmitTurnOptions,
+  });
   container.registerSingleton(
     CHAT_TOKENS.SURFACE_SUBMIT_TURN,
     SurfaceSubmitTurnService,

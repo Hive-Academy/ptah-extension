@@ -193,7 +193,10 @@ export function canonicalSurfaceJson(value: unknown): string {
     return `[${items.join(',')}]`;
   }
   const members: string[] = [];
-  for (const key of Object.keys(value).sort()) {
+  // Code-unit order, not localeCompare: the fingerprint must not depend on locale.
+  for (const key of Object.keys(value).sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
     const member: unknown = (value as Record<string, unknown>)[key];
     if (
       member === undefined ||

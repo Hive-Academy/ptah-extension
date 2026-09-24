@@ -29,7 +29,12 @@ import {
   DiagnosticsCacheInvalidator,
 } from '../diagnostics/diagnostics-cache-invalidator.service';
 import type { DashboardSurfaceHost } from '../code-execution/namespace-builders/dashboard-namespace.builder';
-import { SurfaceStateService, type SurfacePushHostProvider } from '../surface';
+import {
+  SURFACE_STATE_SERVICE_OPTIONS,
+  SurfaceStateService,
+  type SurfacePushHostProvider,
+  type SurfaceStateServiceOptions,
+} from '../surface';
 import { VSCODE_LM_TOOLS_TOKENS } from './tokens';
 
 /**
@@ -121,6 +126,11 @@ export function registerVsCodeLmToolsServices(
   };
   container.register(VSCODE_LM_TOOLS_TOKENS.SURFACE_PUSH_HOST, {
     useValue: surfacePushHost,
+  });
+  // Empty options: production runs the documented defaults.
+  const surfaceStateOptions: SurfaceStateServiceOptions = {};
+  container.register(SURFACE_STATE_SERVICE_OPTIONS, {
+    useValue: surfaceStateOptions,
   });
   // One store per host process: the MCP tools and the surface:* RPC handlers
   // share it (Req 7.4).

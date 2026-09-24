@@ -103,8 +103,8 @@ export const SURFACE_SUBMIT_DEADLINE_DETAIL =
   'still start a turn; it was not resent.';
 
 /**
- * Optional construction options. Never registered in production, so every
- * host runs `SURFACE_SUBMIT_DISPATCH_DEADLINE_MS`; specs pass a shorter one.
+ * Optional construction options. Production registers
+ * `SURFACE_SUBMIT_DISPATCH_DEADLINE_MS`; specs pass a shorter one.
  */
 export const SURFACE_SUBMIT_TURN_OPTIONS = Symbol.for(
   'SurfaceSubmitTurnOptions',
