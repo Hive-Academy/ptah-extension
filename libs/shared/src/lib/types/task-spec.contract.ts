@@ -61,6 +61,9 @@ export const SPEC_CONTRACT_VERSION = 1;
  *  - `design-handoff.md`, `design-assets-inventory.md` —
  *    `ui-ux-designer.template.md:148,152` writes them; `software-architect` and
  *    `frontend-developer` read them back.
+ *  - `design-spec.md` — the visual specification `ui-ux-designer.template.md:104`
+ *    writes into the task folder (`.ptah/specs/<TASK_FOLDER>/design-spec.md`);
+ *    orchestration checkpoints Gate 1.7 reads it before the next phase runs.
  *  - `content-specification.md` — `technical-content-writer.template.md:555`.
  *  - `testing-infrastructure-escalation.md` — `senior-tester.template.md:528`.
  *
@@ -79,6 +82,7 @@ export const DOC_FILES = [
   'code-logic-review.md',
   'visual-review.md',
   'visual-design-specification.md',
+  'design-spec.md',
   'design-handoff.md',
   'design-assets-inventory.md',
   'content-specification.md',
