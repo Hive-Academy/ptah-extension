@@ -41,11 +41,9 @@ against a non-Error throw without masking a real code. Confirmed by reading
 libs/backend/harness-sync/src/lib/fs/atomic-write.ts and windows-retry.ts —
 no behavioural coupling to this catch; it only affects the pre-write read.
 
-No regression found: the ENOENT case (first run, no target file yet) is
-exactly what the dry-run and `--write` runs below exercise, and both
-completed with `0` changes because all target files already exist and
-match — the catch's ENOENT branch was already implicitly proven safe in
-past runs and is unchanged by this commit for that case.
+No regression found. The first two runs below do not reach the `ENOENT`
+case, because every target already exists. The focused run 1 below covers
+it.
 
 ## Point 2 — atomic write via `atomicWriteWithRetry` (CodeRabbit comment 2)
 

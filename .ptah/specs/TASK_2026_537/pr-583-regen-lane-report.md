@@ -15,7 +15,7 @@ The `isPtahOutput` guard, the skipped/changed logic and the output text are unch
 
 Run from the worktree root `D:\projects\ptah-extension\.claude-worktrees\skills-no-prototype`:
 
-```
+```text
 > node scripts/regen-agents.mjs
 WOULD CHANGE 0
 
