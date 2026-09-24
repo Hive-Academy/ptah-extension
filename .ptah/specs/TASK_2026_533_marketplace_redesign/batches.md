@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 27/30
+Total tasks: 65 | Batches: 30 | Complete: 28/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 22, 23.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23.
 In progress: none.
-In progress: Batches 21, 24. Next: 25.
+In progress: Batch 24 (+24a R7 pre-fix). Next: 25.
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1126,7 +1126,7 @@ Edge cases:
 - Accepted deviations: connection words from `statusPresentation()` ("Needs authorization" → "Needs sign-in", "Error" → "Failed"; 3-state grouping unchanged); the "Managed" badge is the meta word "By Smithery"; remote `<img>` logos and their helpers removed (plan D6); setup and "Change key" buttons in the panel footer.
 - Follow-ups: (1) Smithery `search` list entries carry no `connections` (`smithery-registry.source.ts` `mapListEntry` ~:200-222), so `remoteUrls` is always `[]` and the resolver's catalogue-URL step never fires in this view (fails safe: namespace allowlist or monogram) — backend list mapping. (2) `apps/ptah-docs/src/content/docs/marketplace/smithery.md` (~:31-32, :40-44, :55) still uses the old status words. (3) The ~120-line account/connections panel is the first extraction for the file's max-lines cleanup.
 
-## Batch 21: External marketplaces and Custom URL restyle (C13) — PENDING
+## Batch 21: External marketplaces and Custom URL restyle (C13) — COMPLETE (c52e8f21b)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1135,7 +1135,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 7b, 7d, 15, 17, 19 (Electron spec migrated first)
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`; Electron `external-marketplace.spec.ts`; `git diff --numstat`
 
-### Task 21.1: External marketplaces rows to `CatalogCard`s — PENDING
+### Task 21.1: External marketplaces rows to `CatalogCard`s — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\external-marketplaces.component.ts`, `...\external-marketplaces.component.spec.ts`, `...\external-plugin-row.component.ts`, `...\external-plugin-row.component.spec.ts`, `...\external-installed-row.component.ts` (all under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`)
 - Plan reference: implementation-plan.md C13 row "Marketplaces" (:545), rules (:547-557)
@@ -1144,7 +1144,7 @@ Edge cases:
 - Validation notes: Electron `external-marketplace.spec.ts:100-485` green.
 - Implementation details: presentation only.
 
-### Task 21.2: Custom URL (OAuth surface) as one `StorefrontPanel` — PENDING
+### Task 21.2: Custom URL (OAuth surface) as one `StorefrontPanel` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\oauth-surface.component.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\oauth-surface.component.spec.ts`
 - Plan reference: implementation-plan.md C13 row "Custom URL" (:542)
@@ -1156,6 +1156,10 @@ Edge cases:
 ### Batch 21 verification
 
 - Numstat; Electron marketplace spec green; reviewer: code-logic-reviewer
+- Result: commit c52e8f21b (12 files). MODIFIED `external-marketplaces.component.ts` (961 → 960), `external-plugin-row.component.ts` (+spec), `external-installed-row.component.ts` (116 → 115; new `error` input), `oauth-surface.component.ts` (921 → 916), `pages/skills/skill-source-host.component{,.spec}.ts`, `routes/marketplace.routes.spec.ts` (stand-in checked with `reflectComponentType`), `apps/ptah-electron-e2e/src/showcase/marketplace-tour.scene.ts` (Batch 19 follow-up: rows = `[data-testid="marketplace-content"] ptah-catalog-card[role="listitem"]`, tab-strip comment fixed); CREATED `external-install-report.component.ts` (post-install report moved unchanged), `external-marketplaces.storefront.spec.ts`, `oauth-surface.storefront.spec.ts` (sibling specs: the originals are near the 700-line cap). `data-testid` inventory 7 → 7; consent dialog untouched. Executor frontend-developer in worktree `task533-b21` (base `cb1d7899d`). `lint,typecheck,test -p @ptah-extension/marketplace` and `lint,typecheck -p ptah-electron-e2e` green in TASK_WT. Electron `external-marketplace.spec.ts` 7/7 on a fresh build (first run, round 0 and round 1). Reviews: logic APPROVED 8/10 → NEEDS_REVISION 6/10 (round 2 found two reproduced defects in the new uninstall error path) → APPROVED 9/10 (round 3, final); style APPROVED 9/10 → 10/10. Two revise rounds used. Report `batch-21-report.md` (untracked).
+- Behaviour added (team-leader decisions): Batch 16 follow-up — `ExternalMarketplacesComponent` emits `pluginInstalled` / `pluginUninstalled` (only on backend confirmation / `removed: true`); `SkillSourceHost` binds them to `notifyContentChanged()` and the leave-refresh workaround is gone. Pre-existing bug fixed — uninstall from the flat Installed list reloads it, never expands a marketplace, and its error shows on the plugin's card (also for an orphaned source); `uninstallErrors` is per plugin and the browse error is cleared only for the re-fetched source.
+- Accepted deviations: a source is a card and Browse opens a full-width panel below it (Batch 20 pattern); skeleton tiles while a source's first fetch runs; Custom URL "Quick connect" before the Server fields.
+- Follow-ups: bare `catch {}` blocks in `oauth-surface.component.ts` (pre-existing); extend the `reflectComponentType` stand-in check to the other stand-ins in `routes/marketplace.routes.spec.ts`; `oauth-surface.component.spec.ts` leaks a Jest worker (reproduces on the unchanged component — Batch 25 open-handle item); `external-marketplaces.component.ts` is at 960/961 — the next change must extract, not compact.
 
 ## Batch 22: MCP Registry browser — narrow and restyle (C11 + C13) — COMPLETE (0447081a8)
 
