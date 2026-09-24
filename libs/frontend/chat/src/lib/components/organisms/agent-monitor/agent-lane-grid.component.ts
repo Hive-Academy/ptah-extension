@@ -111,7 +111,7 @@ import {
           "
           [label]="'Resize ' + (agent.displayName || agent.cli) + ' column'"
           (sizeChange)="resize(index, $event)"
-          (reset)="resetSizes()"
+          (sizeReset)="resetSizes()"
         />
       }
     } @empty {
