@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 21/30
+Total tasks: 65 | Batches: 30 | Complete: 23/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a).
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18).
 In progress: none.
-Next launchable: Batch 18 (with 18b folded into Task 18.2) ∥ Batch 19 (separate worktrees).
+In progress: Batch 19. Next launchable after 19: Batches 20 ∥ 21 ∥ 22 ∥ 23 ∥ 24 (21 also waits for 19).
 
 Rebase (2026-09-24, after Batch 17): TASK_2026_540 merged to `main` (PR 586, `ced4bf9dc`). The branch was rebased onto `origin/main` `b38583515` (backup branch `task533-backup-pre-rebase` = `4015ad735`). Only commit 742c7ab3e (Batch 2) conflicted, in two specs (both sides added content; resolved as the union): `surface-router.service.spec.ts` (540's `Remount*` probes + 533's marketplace probes) and the `app-state.service.spec.ts` header. Commit hashes elsewhere in this file are PRE-rebase. Map old→new: 6acdafbd0→a6c03fa0c, 11d3878e5→77e5501f2, 742c7ab3e→25507fd53, 1d01377b8→07b3373ba, 6429503f0→f9bdb0daf, f7a393f46→9de4d9778, d398a9561→3cf4ba5e9, 71ecac2a7→0dc7e779d, 6f69a9330→77dbc0991, 77cce7d8f→a22d961c6, 1b8a2b813→2e20779ca, ff0cf906b→fed560c6c, 666a0867c→36399a407, 93822fa60→1ee16946a, 3b722417a→801de9a23, 41ae43cf5→25a9c7fe2, a9929f030→8e16505cd, d0839d9d8→12c803d7c, 255f5870e→1f011f827, 5e6f41faf→279cd13a2, 1b5301cbe→42ee39e8b, 62a55d80f→3260a1556, 119b3f3ce→f743ab18a (records commits map in the same order).
 After the rebase, `lint,typecheck,test` is green for chat, marketplace, ptah-extension-webview, ui, dashboard; `@ptah-extension/core:test` has 7 failures, all 533 specs that assume the per-workspace `marketplaceRoute` against 540's global configuration surfaces: `AppStateManager › openMarketplace (TASK_2026_533)` ×6 (opens overview / connectors / servers/smithery / skills/ptah-plugins / skills; "records the settled surface against the workspace that asked") and `SurfaceRouterService › Marketplace redirect probes … › restores the INCOMING workspace page on a workspace switch`. Batch 18 (Task 18.2 with 18b folded in) owns them.
@@ -1014,7 +1014,7 @@ Edge cases:
 - Binding on Batch 19: Electron e2e still selects `ptah-marketplace-hub`.
 - Follow-up: `connectors-page.component.spec.ts` is 698/700 lines — the next assertion goes into a new sibling spec file.
 
-## Batch 18: Core API removal and chat deep-link migration (C1 DELETE + callers) — PENDING
+## Batch 18: Core API removal and chat deep-link migration (C1 DELETE + callers) — COMPLETE (55176b968, post-rebase)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x1
@@ -1024,7 +1024,7 @@ Edge cases:
 - Coordination: APPLIES (540 merged, branch rebased before Batch 18 started) — 18b is folded into Task 18.2. Original rule: if TASK_2026_540 is already on `main` and this branch has been rebased before Batch 18 starts, fold Batch 18b's move into Task 18.2 (the old per-workspace field is removed and `marketplaceRoute` lands directly in 540's global slot) and mark 18b COMPLETE as merged into 18. Otherwise run 18 as written and 18b after the rebase.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core @ptah-extension/chat` then `npx nx run-many -t typecheck -p @ptah-extension/marketplace`
 
-### Task 18.1: Migrate chat callers to `openMarketplace` — PENDING
+### Task 18.1: Migrate chat callers to `openMarketplace` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\mcp-status-chip.component.ts`, `...\molecules\mcp-status-chip.component.spec.ts`, `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\setup-plugins\chat-empty-state.component.ts`, `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\workspace-coordinator.service.ts`, `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\workspace-coordinator.service.spec.ts`
 - Plan reference: implementation-plan.md D2, C1 integration points
@@ -1033,7 +1033,7 @@ Edge cases:
 - Validation notes: spec asserts `openMarketplace` arguments (`mcp-status-chip.component.spec.ts:298,348,362`).
 - Implementation details: remove the `encodeMarketplaceTarget` imports.
 
-### Task 18.2: Remove the old core API — PENDING
+### Task 18.2: Remove the old core API — COMPLETE (with 18b)
 
 - Depends on: Task 18.1
 - Files: `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`, `...\app-state.service.spec.ts`, `D:\projects\ptah-extension\libs\frontend\core\src\index.ts`; DELETE `D:\projects\ptah-extension\libs\frontend\core\src\lib\marketplace\marketplace-section.ts`, `...\marketplace-section.spec.ts`
@@ -1047,8 +1047,12 @@ Edge cases:
 ### Batch 18 verification
 
 - Reviewer: code-logic-reviewer (deep links, per-workspace memory)
+- Result: commit 55176b968 (13 files, +342 −364). chat: `mcp-status-chip.component.ts` (+spec) → `openMarketplace` (smithery → `servers/smithery`, else `connectors`); `chat-empty-state.component.ts` → `skills/ptah-plugins`; `workspace-coordinator.service.ts` comment and spec (page memory now shared across workspaces). core: `app-state.service.ts` — `marketplaceActiveProvider` removed; `marketplaceRoute` moved from `ViewSlice` into `_configurationSurfaces.perSurface.marketplace` (540's `ConfigurationSurfaceSlots`), private writer `updateMarketplaceSlot` used only by `rememberMarketplaceRoute`, typed computed; `setCurrentView` no-op rule (3 conditions, each shown load-bearing by mutation); no settlement code. `app-state.service.spec.ts` (4 rule cases, 6 `openMarketplace` cases now check `openConfigurationSurface()`, page-memory cases global), `surface-router.service.spec.ts` (redirect probe → "restores the remembered page after a workspace switch"; 540's specs and the A3 probe body unchanged), `index.ts` exports removed, `marketplace-route.spec.ts` doc; DELETED `marketplace-section.ts` (+spec). marketplace: `routes/marketplace.routes.ts` doc comment for the global memory. Executor frontend-developer in worktree `task533-b18` (base `bd50e3e68`). `lint,typecheck,test -p @ptah-extension/core @ptah-extension/chat @ptah-extension/marketplace ptah-extension-webview --skip-nx-cache` green in TASK_WT (4 projects). Review: logic APPROVED 9/10 (`code-logic-review-batch-18.md`); its minor 1 (stale redirect doc comment) fixed before commit. Report `batch-18-report.md` (untracked).
+- Behaviour change (18b, by the final 540 design): one remembered Marketplace page for every workspace; the last settled page wins; `removeWorkspaceState` no longer clears it; a workspace switch with the Marketplace open keeps the URL (540 remount) and the redirect applies on the next plain `/marketplace` open.
+- Deviations: `app-state.service.ts` 1360 → 1367 lines (already over the cap; pre-existing debt); slot shape typed inline (no new exported interface).
+- Follow-ups: `chat-empty-state.component.ts` has no spec (its `openMarketplace` argument is covered only by typecheck). `implementation-plan.md` D2 "Effect" still describes per-workspace memory — superseded by External coordination item 7 and this batch.
 
-## Batch 18b: Move `marketplaceRoute` into TASK_2026_540's global Marketplace slot — FOLDED INTO BATCH 18 (Task 18.2)
+## Batch 18b: Move `marketplaceRoute` into TASK_2026_540's global Marketplace slot — COMPLETE (folded into Batch 18, 55176b968)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
