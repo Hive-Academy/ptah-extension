@@ -45,3 +45,12 @@ as a BUGFIX; if it is an e2e-environment effect, fix the launcher.
 ## Related
 
 - TASK_2026_540_0940 (found during its QA).
+
+## CI flakes seen on PR 586 (2026-09-24)
+
+- Run 35964056447: `config-menu-keyboard.spec.ts:79` — ArrowDown before the first item had focus (fixed in b7ac3b35a).
+- Run 35970324119: `git/git-dock.spec.ts:319` — debounced diff refresh (`diff-tabs.service.ts` `DIFF_REFRESH_DEBOUNCE_MS`) re-requested an open tab's diff after the static mock was swapped (fixed in 8382e1458 with a path-keyed mock).
+- Run 35972122158: `auto-updater.spec.ts:224` — the spec's `rpcBridge.setState(marker)` is fire-and-forget into an async workspace-storage commit while `rpcBridge.getState()` answers synchronously from the in-memory cache, so the fixed 150 ms sleep read the pre-write cache (`"{}"`) under CI boot load; the sleep is now a poll (fixed in this change).
+- Other branches the same day failed on `chat/compaction-duplicate-session.spec.ts:52` (run 35964417827, not investigated).
+
+Each run failed a different test that passed on the other runs, so the suite needs a flake audit (fixed sleeps, static mocks swapped mid-test, renderer writes racing test writes) as part of this task.
