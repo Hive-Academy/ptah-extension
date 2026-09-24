@@ -106,7 +106,8 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
           try {
             return new URL(provider.baseUrl).href === route.href;
           } catch (error: unknown) {
-            // Invalid user-defined endpoints supply no capacity evidence.
+            // degradation-audit: optional-capability - an invalid user-defined
+            // endpoint supplies no capacity evidence.
             void error;
             return false;
           }
