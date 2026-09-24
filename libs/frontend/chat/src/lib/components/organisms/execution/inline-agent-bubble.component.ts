@@ -535,19 +535,12 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
   `,
   styles: [
     `
+      /* Static on purpose: an infinite box-shadow animation cannot run on the
+         compositor, so it repaints and re-layerizes the whole document every
+         frame for as long as any agent streams. */
       :host ::ng-deep .streaming-border-glow {
-        animation: agent-border-glow 2s ease-in-out infinite;
-      }
-      @keyframes agent-border-glow {
-        0%,
-        100% {
-          box-shadow: 0 0 6px 1px oklch(var(--in) / 0.2);
-          border-color: oklch(var(--in) / 0.4);
-        }
-        50% {
-          box-shadow: 0 0 2px 0 oklch(var(--in) / 0.05);
-          border-color: oklch(var(--in) / 0.15);
-        }
+        box-shadow: 0 0 6px 1px oklch(var(--in) / 0.2);
+        border-color: oklch(var(--in) / 0.4);
       }
 
       /* Grid-rows collapse pattern: animate height without measuring in JS.
@@ -604,11 +597,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       }
 
       @media (prefers-reduced-motion: reduce) {
-        :host ::ng-deep .streaming-border-glow {
-          animation: none;
-          box-shadow: 0 0 4px 1px oklch(var(--in) / 0.15);
-          border-color: oklch(var(--in) / 0.3);
-        }
         .agent-collapse-wrapper {
           transition: none !important;
         }
