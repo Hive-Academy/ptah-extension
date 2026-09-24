@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 14/30
+Total tasks: 65 | Batches: 30 | Complete: 15/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 12, 12b.
-In progress: none.
-Next launchable: Batch 10 ∥ Batch 11, each in its own worktree (same project, file-disjoint). Then 13 ∥ 15 ∥ 16 once their other dependencies (10, 11) are COMPLETE, then 14.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 11, 12, 12b.
+In progress: Batch 10 (executor running in its own worktree).
+Next launchable: none until Batch 10 is COMPLETE; then 13 ∥ 15 ∥ 16 (Batch 11 has landed), then 14.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -607,7 +607,7 @@ Edge cases:
 - Binding on Batch 13: `ptah-docked-inspector` has no Escape handling — the page owns Escape (close inspector, return focus to the active row); `ptah-copy-command-button` requires a `selectTarget` template ref (the `<code>` element to select on clipboard rejection); `ptah-bulk-action-bar` renders the results summary from an input, the page computes it.
 - Follow-ups: OpenCode `ptah-provider-mark` is drawn at `scale-[0.625]` in TargetMarks (accepted) — add a size input on `ProviderMarkComponent` and drop the scale; DockedInspector Escape stays with Batch 13 pages (above).
 
-## Batch 10: Marketplace UI kit II — lists and overview widgets — PENDING
+## Batch 10: Marketplace UI kit II — lists and overview widgets — IN_PROGRESS
 
 - Recommended executor: CLI lanes x3 (one per task)
 - Fallback executor: frontend-developer (sequential)
@@ -647,7 +647,7 @@ Edge cases:
 
 - Reviewer: code-style-reviewer
 
-## Batch 11: Marketplace UI kit III — storefront — PENDING
+## Batch 11: Marketplace UI kit III — storefront — COMPLETE (commit 41ae43cf5)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -656,7 +656,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 7b, 7d, 9
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 11.1: `SourceBandComponent` + `StorefrontHeroComponent` — PENDING
+### Task 11.1: `SourceBandComponent` + `StorefrontHeroComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\source-band.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\storefront-hero.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`StorefrontHero`, `SourceBand`), quality requirements (hex map, hero gradient)
@@ -665,7 +665,7 @@ Edge cases:
 - Validation notes: no ⌘K global search, no "My Stack" tab (dropped).
 - Implementation details: presentational.
 
-### Task 11.2: `FeaturedConnectorsComponent` + `CategoryBentoComponent` — PENDING
+### Task 11.2: `FeaturedConnectorsComponent` + `CategoryBentoComponent` — COMPLETE
 
 - Depends on: Task 11.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\featured-connectors.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\category-bento.component.ts` (+`.spec.ts`)
@@ -678,6 +678,16 @@ Edge cases:
 ### Batch 11 verification
 
 - Reviewer: code-style-reviewer
+- Result: 9 new files in `libs/frontend/marketplace/src/lib/ui/` (source-band, storefront-hero, featured-connectors, category-bento + specs, and `storefront-surface.styles.ts` exporting `STOREFRONT_SURFACE_CLASS`), no barrel or registry edit; executor frontend-developer in worktree `task533-b11`, copied into TASK_WT before commit; `lint,typecheck,test -p @ptah-extension/marketplace` green in TASK_WT (1 project, 38 suites, 897 tests). Review: logic APPROVED 8/10 (0 blocking); style APPROVED 8/10 — its serious finding (duplicated heading markup) and minor gradient duplication fixed in revise round 1 and verified by the team-leader (note appended to `code-style-review-batch-11.md`). Report: `batch-11-report.md` (untracked).
+- Binding on Batch 15 (and any page using the storefront kit):
+  - `ptah-category-bento` emits `categorySelected: PtahConnectorCategory`; it does not navigate. The page navigates with `connectorCategoryQueryParams()` (param name `CONNECTOR_CATEGORY_QUERY_PARAM` = `category`), exported from `category-bento.component.ts`.
+  - `ptah-featured-connectors` takes `actionError` as `{ connectorId, message }`; the error renders only on the card whose connector is in `items()`.
+  - Not-connected connectors get no status pill (no `ptah-status-pill` rendered); only live states show one.
+  - Details is the card title (the `ptah-catalog-card` stretched title button, `details` output) — no separate Details button.
+  - Use the exported helpers instead of re-deriving: `selectFeaturedConnectors()` and `connectorPillStatus()` (`featured-connectors.component.ts`), `groupConnectorsByCategory()` (`category-bento.component.ts`).
+- Follow-ups:
+  - (moderate, Batch 13/15 pages) `featured-connectors` `actionError` is invisible when the failing connector leaves `items()` (e.g. drops out of the featured selection after a status change); the page must render a fallback (page-level alert) for an `actionError` whose `connectorId` is not featured.
+  - (moderate, shared) `PTAH_CONNECTOR_CATEGORIES` is not compile-tied to the `PtahConnectorCategory` union; add a `satisfies`/exhaustiveness check so a new category cannot be silently dropped from the bento.
 
 ## Batch 12: Shell, nav and status bar (C6) — COMPLETE (commit 6f69a9330)
 
