@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 16/30
+Total tasks: 65 | Batches: 30 | Complete: 17/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b.
-In progress: none.
-Next launchable: Batch 13 ∥ 15 ∥ 16 (file-disjoint; run each in its own worktree), then 14.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 16.
+In progress: Batches 13 and 15 (revise round 1, own worktrees).
+Next launchable: Batch 14 after Batch 13.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -772,7 +772,7 @@ Edge cases:
 - Result: 6 files — created `data/workspace-session-status.ts` (71 lines) + `.spec.ts`; modified `data/marketplace-inventory.store.ts` (688 lines, no `SessionMcpStatusRegistry` reference, `newestSessionStatus` name and type unchanged), `data/marketplace-inventory.store.spec.ts`, `data/provider-row.spec.ts`, `shell/marketplace-shell.component.spec.ts`. `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project). Review: logic APPROVED 9/10 (`code-logic-review-batch-12b.md`); the D-4 tab-coverage assumption (canvas tiles, Tribunal tabs have a `TabState`) verified by the reviewer against source. Report `batch-12b-report.md` (untracked).
 - Follow-up (optional, minor): add one spec literally named "rapid A → B → A" to `workspace-session-status.spec.ts` for traceability against the plan's Revision 3 failure table; the property is already covered by spec 4 and store cases 9-10.
 
-## Batch 13: Installed servers list and server detail (C7 part) — PENDING
+## Batch 13: Installed servers list and server detail (C7 part) — IN_PROGRESS (revise round 1)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -848,7 +848,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer
 
-## Batch 15: Connectors pages (C9 part) — PENDING
+## Batch 15: Connectors pages (C9 part) — IN_PROGRESS (revise round 1)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -882,7 +882,7 @@ Edge cases:
 - Follow-ups from the Batch 6 logic review (owned here; fix in `connector-links.store.ts` only if the page cannot handle them, and that file must not grow past 700 lines): (1) `openSmitherySetup` returning `opened:false` with no error is reported as a failure although it can mean "already connected" (`connector-links.store.ts:604-612`) — the page must show the connected state, not an error; (2) the 5-minute Smithery poll deadline ends silently (`:638-644`) — the card must show a "timed out, retry" state. Each pinned by a spec. (3) RESOLVED in commit 77cce7d8f (fake clock jumped with `jest.setSystemTime`, both deadline assertions kept; 50/50 runs under load). Original note: flaky test `connector-links.store.spec.ts:1081` "gives up after five minutes" failed once in the team-leader's full `lint,typecheck,test` run of Batch 6 (passed in 6 other runs, incl. 4 concurrent) — give it an explicit timeout or reduce the fake-timer work so it is stable under load.
 - Reviewer: code-logic-reviewer
 
-## Batch 16: Skills pages (C9 part) — PENDING
+## Batch 16: Skills pages (C9 part) — COMPLETE (d0839d9d8)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -892,7 +892,7 @@ Edge cases:
 - Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 16.1: `SkillsSectionHeaderComponent` + `SkillSourceHostComponent` — PENDING
+### Task 16.1: `SkillsSectionHeaderComponent` + `SkillSourceHostComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\skills\skills-section-header.component.ts` (+`.spec.ts`, added), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\skills\skill-source-host.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C9 `SkillsSectionHeader`, `SkillSourceHost`
@@ -901,7 +901,7 @@ Edge cases:
 - Validation notes: "no tab strip" assertion for the skills.sh browser belongs to Batch 23, not here.
 - Implementation details: route `data` → `source` input.
 
-### Task 16.2: `InstalledSkillsPageComponent` — PENDING
+### Task 16.2: `InstalledSkillsPageComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\skills\installed-skills-page.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C9 `InstalledSkillsPage`
@@ -910,7 +910,7 @@ Edge cases:
 - Validation notes: RPC-set spec; per-slice error isolation.
 - Implementation details: uses `DockedInspectorComponent` + `NativeDrawerComponent` directly.
 
-### Task 16.3: `SkillDetailComponent` — PENDING
+### Task 16.3: `SkillDetailComponent` — COMPLETE
 
 - Depends on: Task 16.2
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\pages\skills\skill-detail.component.ts` (+`.spec.ts`)
@@ -923,6 +923,12 @@ Edge cases:
 ### Batch 16 verification
 
 - Reviewer: code-logic-reviewer
+- Result: commit d0839d9d8. 10 files in `libs/frontend/marketplace/src/lib/pages/skills/` (`installed-skill-rows.ts`, `skills-section-header`, `skill-source-host`, `installed-skills-page`, `skill-detail`, each with a spec), plus `.gitignore`. The bare `skills/` rule (`.gitignore:198`) ignored the folder, so an exception `!libs/frontend/marketplace/src/lib/pages/skills/` and `/**` was added after `:199-201`. `lint,typecheck,test -p @ptah-extension/marketplace` green: 50 suites, 1069 tests (this batch has 5 suites and 70 tests). Reviews: logic APPROVED 8/10 and style APPROVED 8/10. All 4 findings were fixed in revise round 1 and verified (see the notes appended to `code-logic-review-batch-16.md` and `code-style-review-batch-16.md`). Report `batch-16-report.md` (untracked).
+- Follow-ups:
+  - Batch 21 adds install/uninstall outputs to `ExternalMarketplacesComponent` and removes the `SkillSourceHost` leave-refresh workaround.
+  - The installed page keeps its own `pageErrors` signal because the store's `setActionError` is private and the store must not grow (688/700 lines).
+  - Row links use `['/', 'marketplace', 'skills', ref]`, so an id containing `/` stays one encoded segment. BINDING on Batch 17: the skills detail route must accept an encoded `:skillRef`.
+  - The installed page makes one extra cached `harness:health` read, through the header badge.
 
 ## Batch 17: Route switch-over and old marketplace removal (C10 part) — PENDING
 
