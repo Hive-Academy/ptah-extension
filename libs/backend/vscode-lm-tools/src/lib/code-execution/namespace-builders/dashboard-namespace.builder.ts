@@ -63,11 +63,14 @@ export type DashboardDeliveryOutcome =
       readonly reason: string;
     };
 
-/** Sends a validated spec to every attached surface and reports what happened. */
+/** A bridge may refuse storage before attempting delivery of a validated spec. */
 export type DashboardBroadcast = (
   type: typeof MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED,
   payload: DashboardSpecProposedPayload,
-) => Promise<DashboardDeliveryOutcome>;
+) => Promise<
+  | DashboardDeliveryOutcome
+  | { readonly status: 'refused'; readonly reason: string }
+>;
 
 /** The validated v1 and v2 messages supported by surface delivery. */
 export type DashboardPushType =
@@ -130,9 +133,13 @@ export function createDashboardBroadcast(
     try {
       const resolvedHost = getHost();
       if (!resolvedHost) {
-        logger.debug(
-          '[Dashboard] no webview host registered; the tool result is the whole answer here',
-        );
+        try {
+          logger.debug(
+            '[Dashboard] no webview host registered; the tool result is the whole answer here',
+          );
+        } catch (error: unknown) {
+          void error; // Logging must not change the delivery classification.
+        }
         return { status: 'no-surface' };
       }
       host = resolvedHost;
@@ -278,6 +285,13 @@ export function buildDashboardNamespace(
         sessionId: caller.sessionId,
         toolCallId: caller.toolCallId,
       });
+
+      if (delivery.status === 'refused') {
+        return {
+          status: 'rejected',
+          reason: `Dashboard ${identity} was rejected and was not stored: ${delivery.reason}. Nothing was sent to the UI.`,
+        };
+      }
 
       if (delivery.status === 'failed') {
         logger.warn(

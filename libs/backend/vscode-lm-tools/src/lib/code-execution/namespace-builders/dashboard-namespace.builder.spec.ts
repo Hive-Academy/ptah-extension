@@ -707,3 +707,14 @@ describe('createDashboardBroadcast > hardened v1 and v2 delivery', () => {
     );
   });
 });
+
+describe('createDashboardBroadcast with a throwing logger', () => {
+  it('keeps no-host classified as no-surface after debug throws', async () => {
+    const debug = jest.fn(() => { throw new Error('log channel closed'); });
+    const broadcast = createDashboardBroadcast(() => undefined, { debug });
+    await expect(broadcast(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED, {
+      spec: makeDashboardSpec(), sessionId: 'tab-a', toolCallId: 'call-1',
+    })).resolves.toEqual({ status: 'no-surface' });
+    expect(debug).toHaveBeenCalledTimes(1);
+  });
+});

@@ -31,7 +31,7 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 21 Namespaces:
+  overview: `Ptah IDE Access - 22 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
@@ -43,6 +43,7 @@ AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
 DASHBOARD: ptah.dashboard.* (propose a declarative dashboard spec to the surface)
+SURFACE: ptah.surface.* (create, replace, patch, delete and read scoped surface state)
 
 Use ptah.help('namespace') for details on any namespace.`,
 
@@ -72,7 +73,38 @@ http: are rejected).
 
 On success you get the dashboard back as plain text. That text is also the whole
 answer on a host with no dashboard page, and the UI never parses it — it reads the
-'dashboard:spec-proposed' push message instead.`,
+'surface:updated' push message instead. Scoped v1 proposals are stored as
+v1:<specId>, with a host revision separate from the unchanged agent revision.`,
+
+  surface: `ptah.surface - Declarative surface state
+
+Also exposed as MCP tools ptah_surface_update and ptah_surface_get_state.
+- update(input, caller) - create a surface snapshot; replace with a snapshot and
+  baseRevision; patch with surfaceId, baseRevision and ops; or delete with
+  surfaceId and baseRevision. create/replace/patch return the resulting surface
+  as plain text with its committed surfaceId and revision. Delete names the
+  deleted surface and its deletion revision.
+- getState(input, caller) - read current data-model and form values, selection,
+  last submit and revision. view defaults to 'state'; view: 'structure' requires
+  surfaceId and returns the component tree. Without surfaceId, every id and
+  revision is listed, followed by complete states that fit the byte budget.
+  Truncation names omitted ids; read those individually for complete state.
+
+Scope comes only from the dispatcher's trusted caller context, never tool input.
+Another tab's surface is not-found. Invalid input is rejected before any state
+change or push. Agent patches require baseRevision to equal the current revision.
+
+Outcomes: accepted, delivery-failed, rejected, unavailable, render-only. State
+commits before delivery; delivery-failed retains its committed revision and text.
+On delivery failure, do not resend; the same patch would be stale. Read state
+before deciding on a new mutation. A headless scoped caller keeps state and
+reports no-surface delivery. All state changes use the surface:updated push.
+
+Anonymous create/replace render text with 'no interactive surface is attached'
+and store nothing. Anonymous patch/delete return 'surface state unavailable for
+this caller'; anonymous reads return 'no surface state for this caller'. A
+missing store returns 'surface state unavailable on this host'. v1 surfaces
+(v1:<specId>) are readable here but managed by ptah_dashboard_propose_spec.`,
 
   harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
 

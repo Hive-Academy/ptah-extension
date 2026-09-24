@@ -29,3 +29,4 @@ export type {
   SurfaceAgentReadResult,
 } from './surface-state-reader';
 export type { SurfacePushHostProvider } from './surface-push';
+export { createDashboardSurfaceBridge } from './dashboard-surface-bridge';
