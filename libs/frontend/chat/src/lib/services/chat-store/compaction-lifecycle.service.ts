@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import {
+  type CompactionMeasurement,
   SessionId,
   type SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
@@ -145,7 +146,9 @@ export class CompactionLifecycleService {
     if (!tabId) return false;
     const convId = this.tabSessionBinding.conversationFor(tabId);
     if (!convId) return false;
-    return this.conversationRegistry.compactionStateFor(convId)?.inFlight ?? false;
+    return (
+      this.conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
+    );
   }
 
   /**
@@ -196,7 +199,10 @@ export class CompactionLifecycleService {
           .find((candidate) => candidate.id === tabId);
         if (tab?.claudeSessionId !== compactionSid) continue;
         const conversationId = this.tabSessionBinding.conversationFor(tabId);
-        if (!conversationId || !recovery.conversationIds.includes(conversationId)) {
+        if (
+          !conversationId ||
+          !recovery.conversationIds.includes(conversationId)
+        ) {
           continue;
         }
         ownedConversationIds.add(conversationId);
@@ -230,7 +236,9 @@ export class CompactionLifecycleService {
   }
 
   private clearCompactionRecoveryTimerForTab(tabId: TabId): void {
-    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabManager
+      .tabs()
+      .find((candidate) => candidate.id === tabId);
     if (!tab?.claudeSessionId) return;
     const { key } = this.advisoryCorrelator.resolveLifecycleKey(
       tab.claudeSessionId,
@@ -366,6 +374,8 @@ export class CompactionLifecycleService {
   handleCompactionComplete(result: {
     tabId: string;
     compactionSessionId: string;
+    boundaryId?: string;
+    measurement?: CompactionMeasurement;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -541,6 +551,8 @@ export class CompactionLifecycleService {
       fanoutTabs.map((t) => t.id),
     )) {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,
@@ -667,6 +679,10 @@ export class CompactionLifecycleService {
         this.conversationRegistry.setCompactionMarkerSummary(convId, {
           summary: payload.compactSummary,
           completedAt: payload.timestamp,
+          boundaryId: this.isAuthoritativelyCompletedGeneration(key)
+            ? this.conversationRegistry.getRecord(convId)?.compactionMarker
+                ?.boundaryId
+            : undefined,
         });
       } catch (error: unknown) {
         console.warn(
@@ -768,6 +784,8 @@ export class CompactionLifecycleService {
   private mergeLateCompactionBoundary(
     sessionIds: readonly SessionId[],
     result: {
+      boundaryId?: string;
+      measurement?: CompactionMeasurement;
       preTokens?: number;
       postTokens?: number;
       durationMs?: number;
@@ -788,6 +806,8 @@ export class CompactionLifecycleService {
       ownedTabs.map((tab) => tab.id),
     )) {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,
@@ -881,7 +901,9 @@ export class CompactionLifecycleService {
    * (PR #493 review C).
    */
   clearCompactionStateForTab(tabId: TabId): void {
-    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabManager
+      .tabs()
+      .find((candidate) => candidate.id === tabId);
     if (tab?.claudeSessionId) {
       const { key } = this.advisoryCorrelator.resolveLifecycleKey(
         tab.claudeSessionId,

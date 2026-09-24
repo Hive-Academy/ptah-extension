@@ -1,19 +1,3 @@
-/**
- * Pure-function spec for `deriveLiveModelStats` — the ONE derivation behind the
- * context gauge, shared by tab and non-tab surfaces.
- *
- * TASK_2026_408 phase 2. The load-bearing rules pinned here:
- *   1. `lastTurnContextTokens: 0` is an HONEST reading, not an absence. Only
- *      null/undefined falls back to the cumulative sum. This is the total
- *      prompt size, including cached input; a fully cached nonempty prompt
- *      must still have nonzero context occupancy.
- *   2. The last turn's context fill and the session's cumulative token total
- *      are DIFFERENT numbers; the gauge must show the former when present.
- *   3. The cumulative fallback is not a context fill once the session has
- *      compacted or the sum has passed the window — it is suppressed (live:
- *      null), never rendered as a >100% fill.
- */
-
 import {
   deriveLiveModelStats,
   type TurnModelUsage,
@@ -27,6 +11,12 @@ function usage(overrides: Partial<TurnModelUsage> = {}): TurnModelUsage {
     inputTokens: 30,
     outputTokens: 9,
     contextWindow: WINDOW,
+    contextCapacity: {
+      tokens: WINDOW,
+      source: 'sdk-native',
+      providerId: null,
+      model: 'claude-sonnet-4',
+    },
     costUSD: 0,
     cacheReadInputTokens: 12,
     ...overrides,
@@ -34,6 +24,72 @@ function usage(overrides: Partial<TurnModelUsage> = {}): TurnModelUsage {
 }
 
 describe('deriveLiveModelStats (session-live-stats.util)', () => {
+  it('never substitutes cumulative usage for a missing main context frame', () => {
+    const row = {
+      ...usage({ inputTokens: 50, outputTokens: 16, cacheReadInputTokens: 42 }),
+      contextCapacity: {
+        tokens: WINDOW,
+        source: 'provider-catalog' as const,
+        providerId: 'openai-codex',
+        model: 'claude-sonnet-4',
+      },
+    };
+    expect(deriveLiveModelStats([row], { hasCompacted: false })?.live).toEqual(
+      expect.objectContaining({ contextKnown: false, contextPercent: 0 }),
+    );
+  });
+
+  it.each([NaN, Infinity, -1])(
+    'marks invalid main context unknown: %p',
+    (lastTurnContextTokens) => {
+      const derived = deriveLiveModelStats([usage({ lastTurnContextTokens })], {
+        hasCompacted: false,
+      });
+      expect(derived?.live.contextKnown).toBe(false);
+    },
+  );
+
+  it.each([
+    undefined,
+    {
+      tokens: 200000,
+      source: 'unknown' as const,
+      providerId: 'openai-codex',
+      model: 'claude-sonnet-4',
+    },
+    {
+      tokens: 200000,
+      source: 'provider-catalog' as const,
+      providerId: null,
+      model: 'claude-sonnet-4',
+    },
+    {
+      tokens: 200000,
+      source: 'provider-catalog' as const,
+      providerId: 'openai-codex',
+      model: 'different-model',
+    },
+    {
+      tokens: NaN,
+      source: 'sdk-native' as const,
+      providerId: null,
+      model: 'claude-sonnet-4',
+    },
+  ])('rejects unverified or mismatched capacity: %j', (contextCapacity) => {
+    const derived = deriveLiveModelStats(
+      [usage({ lastTurnContextTokens: 42, contextCapacity })],
+      { hasCompacted: false },
+    );
+    expect(derived?.live).toEqual(
+      expect.objectContaining({
+        contextKnown: true,
+        contextUsed: 42,
+        contextWindow: 0,
+        contextPercent: 0,
+      }),
+    );
+  });
+
   it('returns null for an empty modelUsage list', () => {
     expect(
       deriveLiveModelStats([], { stickyModel: null, hasCompacted: false }),
@@ -52,15 +108,15 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
     expect(derived?.live?.contextPercent).toBe(0);
   });
 
-  it('falls back to cumulative input + cacheRead + output only when lastTurnContextTokens is absent', () => {
+  it('publishes explicit unknown when lastTurnContextTokens is absent', () => {
     const derived = deriveLiveModelStats(
       [usage({ lastTurnContextTokens: undefined })],
       { stickyModel: null, hasCompacted: false },
     );
 
-    expect(derived?.suppressed).toBe(false);
-    // 30 input + 12 cacheRead + 9 output — the cumulative turn total.
-    expect(derived?.live?.contextUsed).toBe(51);
+    expect(derived?.suppressed).toBe(true);
+    // Cumulative usage is not a main context frame: 30 input + 12 cacheRead + 9 output — the cumulative turn total.
+    expect(derived?.live?.contextKnown).toBe(false);
   });
 
   it('prefers the last turn context over the cumulative total when both exist', () => {
@@ -82,8 +138,8 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
     );
 
     expect(derived?.suppressed).toBe(true);
-    // null means "leave the displayed number alone" — never a wrong fill.
-    expect(derived?.live).toBeNull();
+    // Explicit unknown replaces any previously displayed fill.
+    expect(derived?.live?.contextKnown).toBe(false);
   });
 
   it('does NOT suppress after compaction when the turn reported its own context fill', () => {
@@ -110,14 +166,22 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
     );
 
     expect(derived?.suppressed).toBe(true);
-    expect(derived?.live).toBeNull();
+    expect(derived?.live?.contextKnown).toBe(false);
   });
 
   it('keeps a sticky model that appears in the turn as the primary model', () => {
     const derived = deriveLiveModelStats(
       [
-        usage({ model: 'other-model', costUSD: 0.9, lastTurnContextTokens: 10 }),
-        usage({ model: 'claude-sonnet-4', costUSD: 0.01, lastTurnContextTokens: 1000 }),
+        usage({
+          model: 'other-model',
+          costUSD: 0.9,
+          lastTurnContextTokens: 10,
+        }),
+        usage({
+          model: 'claude-sonnet-4',
+          costUSD: 0.01,
+          lastTurnContextTokens: 1000,
+        }),
       ],
       { stickyModel: 'claude-sonnet-4', hasCompacted: false },
     );
@@ -128,7 +192,13 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
 
   it('ignores a sticky model that did not contribute to this turn', () => {
     const derived = deriveLiveModelStats(
-      [usage({ model: 'claude-sonnet-4', costUSD: 0.05, lastTurnContextTokens: 500 })],
+      [
+        usage({
+          model: 'claude-sonnet-4',
+          costUSD: 0.05,
+          lastTurnContextTokens: 500,
+        }),
+      ],
       { stickyModel: 'claude-opus-4', hasCompacted: false },
     );
 
@@ -137,7 +207,13 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
 
   it('renders 0 contextPercent when the context window is unknown (0)', () => {
     const derived = deriveLiveModelStats(
-      [usage({ contextWindow: 0, lastTurnContextTokens: 42 })],
+      [
+        usage({
+          contextWindow: 0,
+          contextCapacity: undefined,
+          lastTurnContextTokens: 42,
+        }),
+      ],
       { stickyModel: null, hasCompacted: false },
     );
 

@@ -11,6 +11,7 @@ import {
   SdkTerminalReason,
   GatewayPlatformId,
   SessionStatsEntry,
+  type ContextCapacity,
 } from '@ptah-extension/shared';
 
 /**
@@ -624,6 +625,8 @@ export interface TabState {
    * an accounting figure.
    */
   liveModelStats?: {
+    contextKnown?: boolean;
+    contextCapacity?: ContextCapacity;
     /** Primary model name (first model in modelUsage list) */
     model: string;
     /** Total context tokens used (input + output) */

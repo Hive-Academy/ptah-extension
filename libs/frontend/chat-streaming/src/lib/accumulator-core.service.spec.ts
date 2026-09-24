@@ -661,8 +661,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       );
 
       const stored = state.events.get('evt-msg-start') as
-        | MessageStartEvent
-        | undefined;
+        MessageStartEvent | undefined;
       expect(stored?.inboundPeer).toEqual({ label: 'reviewer' });
     });
 
@@ -851,6 +850,22 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   });
 
   // ---- Compaction lifecycle ---------------------------------------------
+
+  it('forwards the compact-boundary measurement unchanged', () => {
+    const measurement = {
+      source: 'sdk-compact-metadata' as const,
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    };
+    const result = core.process(
+      state,
+      compactionComplete({ boundaryId: 'A', measurement }),
+      makeCtx(),
+    );
+    expect(result.measurement).toBe(measurement);
+    expect(result.boundaryId).toBe('A');
+  });
 
   describe('compaction lifecycle', () => {
     it('compaction_start does NOT mutate state but returns compactionStart=true', () => {

@@ -36,6 +36,7 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+import type { CompactionMeasurement } from '@ptah-extension/shared';
 import { TestBed } from '@angular/core/testing';
 import { CompactionMarkerComponent } from './compaction-marker.component';
 
@@ -49,18 +50,53 @@ describe('CompactionMarkerComponent', () => {
 
   function setup(inputs: {
     summary?: string | null;
-    preTokens?: number | null;
-    postTokens?: number | null;
+    measurement?: CompactionMeasurement;
+    boundaryId?: string;
     durationMs?: number | null;
   }) {
     const fixture = TestBed.createComponent(CompactionMarkerComponent);
     fixture.componentRef.setInput('summary', inputs.summary ?? null);
-    fixture.componentRef.setInput('preTokens', inputs.preTokens ?? null);
-    fixture.componentRef.setInput('postTokens', inputs.postTokens ?? null);
     fixture.componentRef.setInput('durationMs', inputs.durationMs ?? null);
+    fixture.componentRef.setInput('measurement', inputs.measurement);
+    fixture.componentRef.setInput('boundaryId', inputs.boundaryId);
     fixture.detectChanges();
     return fixture;
   }
+
+  it('says shrank only for a measurement on the displayed boundary', () => {
+    const fixture = setup({});
+    expect(fixture.nativeElement.textContent).not.toContain('shrank');
+    expect(fixture.nativeElement.textContent).not.toContain('\u2192');
+    fixture.componentRef.setInput('boundaryId', 'A');
+    fixture.componentRef.setInput('measurement', {
+      source: 'sdk-compact-metadata',
+      boundaryId: 'A',
+      preTokens: 1000,
+      postTokens: 600,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('shrank');
+    fixture.componentRef.setInput('boundaryId', 'B');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('shrank');
+    expect(fixture.nativeElement.textContent).not.toContain('\u2192');
+  });
+
+  it.each([NaN, Infinity, -1])(
+    'rejects an invalid endpoint: %p',
+    (preTokens) => {
+      const fixture = setup({
+        boundaryId: 'A',
+        measurement: {
+          source: 'sdk-compact-metadata',
+          boundaryId: 'A',
+          preTokens,
+          postTokens: 600,
+        },
+      });
+      expect(fixture.nativeElement.textContent).not.toContain('shrank');
+    },
+  );
 
   it('always renders the "Context compacted" title', () => {
     const fixture = setup({});
@@ -68,7 +104,15 @@ describe('CompactionMarkerComponent', () => {
   });
 
   it('uses "shrank" only when context tokens decrease', () => {
-    const fixture = setup({ preTokens: 5000, postTokens: 1200 });
+    const fixture = setup({
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 5000,
+        postTokens: 1200,
+      },
+    });
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('shrank 5,000 → 1,200 tokens');
   });
@@ -77,29 +121,42 @@ describe('CompactionMarkerComponent', () => {
     [1200, 1200],
     [1200, 5000],
   ])('uses neutral wording for non-shrinking values: %i → %i', (pre, post) => {
-    const fixture = setup({ preTokens: pre, postTokens: post });
+    const fixture = setup({
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: pre,
+        postTokens: post,
+      },
+    });
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain(
-      `${pre.toLocaleString()} → ${post.toLocaleString()} tokens`,
-    );
+    expect(text).not.toContain('\u2192');
     expect(text).not.toContain('shrank');
-  });
-
-  it('omits the token line when either endpoint is null', () => {
-    const fixture = setup({ preTokens: 5000, postTokens: null });
-    expect(fixture.nativeElement.textContent).not.toContain('shrank');
-    expect(fixture.nativeElement.textContent).not.toContain('5,000 →');
   });
 
   it('appends duration only when durationMs is present', () => {
     const withDuration = setup({
-      preTokens: 5000,
-      postTokens: 1200,
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 5000,
+        postTokens: 1200,
+      },
       durationMs: 1500,
     });
     expect(withDuration.nativeElement.textContent).toContain('1.5s');
 
-    const withoutDuration = setup({ preTokens: 5000, postTokens: 1200 });
+    const withoutDuration = setup({
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 5000,
+        postTokens: 1200,
+      },
+    });
     expect(withoutDuration.nativeElement.textContent).not.toContain(' in ');
   });
 
@@ -123,8 +180,13 @@ describe('CompactionMarkerComponent', () => {
   it('renders tokens-only with no markdown block when summary is null', () => {
     const fixture = setup({
       summary: null,
-      preTokens: 5000,
-      postTokens: 1200,
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 5000,
+        postTokens: 1200,
+      },
     });
     expect(
       fixture.nativeElement.querySelector('ptah-expandable-content'),

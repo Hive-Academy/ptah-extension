@@ -17,7 +17,6 @@ import {
 import {
   ExecutionChatMessage,
   EffortLevel,
-  getModelContextWindow,
   SessionId,
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
@@ -1944,23 +1943,29 @@ export class TabManagerService {
     ) {
       return null;
     }
-    // The prior finite positive window wins over the pricing lookup: for a
-    // model the registry does not recognize (proxied Codex ids such as
-    // gpt-5.6-sol), falling back to getModelContextWindow would return 0 and
-    // clear the context gauge even though the tab carried a usable window.
-    const priorWindow = priorLiveStats.contextWindow;
+    const capacity = priorLiveStats.contextCapacity;
     const contextWindow =
-      Number.isFinite(priorWindow) && priorWindow > 0
-        ? priorWindow
-        : getModelContextWindow(priorLiveStats.model);
-    if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
-      return null;
-    }
+      capacity &&
+      capacity.model === priorLiveStats.model &&
+      (capacity.source === 'sdk-native' ||
+        (capacity.source === 'provider-catalog' &&
+          typeof capacity.providerId === 'string' &&
+          capacity.providerId.length > 0)) &&
+      typeof capacity.tokens === 'number' &&
+      Number.isFinite(capacity.tokens) &&
+      capacity.tokens > 0
+        ? capacity.tokens
+        : 0;
     return {
       model: priorLiveStats.model,
+      contextKnown: true,
+      contextCapacity: capacity,
       contextUsed: postTokens,
       contextWindow,
-      contextPercent: Math.round((postTokens / contextWindow) * 1000) / 10,
+      contextPercent:
+        contextWindow > 0
+          ? Math.round((postTokens / contextWindow) * 1000) / 10
+          : 0,
     };
   }
 
@@ -2028,21 +2033,14 @@ export class TabManagerService {
     stats: SessionStatsEntry,
     sessionModel: string | null,
   ): void {
-    // Synthesize a best-effort `liveModelStats` snapshot from the loaded
-    // session metadata. Without this the header's model + context badge
-    // stays empty until the next live SESSION_STATS arrives — which on a
-    // paused-and-resumed session might never happen until the user sends a
-    // new message. Populating contextWindow from the shared
-    // `getModelContextWindow` lookup gives the header a non-null shape
-    // immediately so the model name renders. `contextUsed` and
-    // `contextPercent` start at 0 because the on-disk stats payload has no
-    // per-turn breakdown; the next live SESSION_STATS replaces this stub
-    // with real per-turn values.
+    // Keep the model visible until the loader applies the independent history frame.
+    // A legacy model-only record establishes neither numerator nor capacity.
     const liveModelStats: LiveModelStatsPayload | null = sessionModel
       ? {
           model: sessionModel,
+          contextKnown: false,
           contextUsed: 0,
-          contextWindow: getModelContextWindow(sessionModel),
+          contextWindow: 0,
           contextPercent: 0,
         }
       : null;

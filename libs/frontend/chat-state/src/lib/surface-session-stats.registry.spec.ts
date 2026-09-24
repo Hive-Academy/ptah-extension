@@ -46,6 +46,23 @@ describe('SurfaceSessionStatsRegistry', () => {
     contextPercent: 0.1,
   };
 
+  it('clears a previous provider fill on an explicit unknown update while retaining the snapshot', () => {
+    const stored = snapshot('s1', 1, 10);
+    svc.record('s1', { live, snapshot: stored });
+    const unknown = {
+      ...live,
+      model: 'new-provider-model',
+      contextKnown: false,
+      contextWindow: 0,
+      contextPercent: 0,
+    };
+    svc.record('s1', { live: unknown, snapshot: null });
+    expect(svc.peek('s1')?.live).toBe(unknown);
+    expect(svc.peek('s1')?.snapshot).toBe(stored);
+    svc.record('s1', { live: null, snapshot: null });
+    expect(svc.peek('s1')?.live).toBe(unknown);
+  });
+
   it('returns null for a session it has never seen', () => {
     expect(svc.peek('nope')).toBeNull();
     expect(svc.stats('nope')()).toBeNull();

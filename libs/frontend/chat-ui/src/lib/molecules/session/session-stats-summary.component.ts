@@ -10,6 +10,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   resolveModelDisplayName,
   type SessionStatsEntry,
+  type ContextCapacity,
 } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { CostBadgeComponent } from '../../atoms/cost-badge.component';
@@ -19,6 +20,8 @@ import { CostBadgeComponent } from '../../atoms/cost-badge.component';
  * Updated after each turn completion with context window info
  */
 export interface LiveModelStats {
+  contextKnown?: boolean;
+  contextCapacity?: ContextCapacity;
   /** Primary model name (e.g., "claude-sonnet-4-20250514") */
   model: string;
   /** Total context tokens used (input + output) */
@@ -80,7 +83,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 [title]="contextTooltip()"
               >
                 <span class="text-[10px] uppercase text-base-content-muted"
-                  >Ctx</span
+                  >Main context</span
                 >
                 <span class="text-cyan-400" data-testid="stats-context">{{
                   contextPercentLabel()
@@ -237,7 +240,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               <div
                 class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
               >
-                Context
+                Main context
               </div>
               <div
                 class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
@@ -245,9 +248,11 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 <span data-testid="stats-context">{{
                   contextPercentLabel()
                 }}</span>
-                <span class="text-[10px] font-normal text-base-content-muted">
-                  ({{ formatTokens(live.contextUsed) }})
-                </span>
+                @if (hasKnownContextWindow()) {
+                  <span class="text-[10px] font-normal text-base-content-muted">
+                    ({{ formatTokens(live.contextUsed) }})
+                  </span>
+                }
               </div>
             </div>
           }
@@ -685,16 +690,28 @@ export class SessionStatsSummaryComponent {
   protected readonly agentsTooltip =
     'Unique subagents this session has run, over its whole lifetime.';
 
-  /**
-   * Whether the live stats payload carries a known context window. A
-   * `contextWindow` of 0 means the model is unknown to the pricing/limits
-   * registry (typically third-party providers). In that case we render
-   * "—" instead of "0%" and suppress the warning + progress bar so the UI
-   * does not falsely signal a near-empty context.
-   */
-  readonly hasKnownContextWindow = computed(
-    () => (this.liveModelStats()?.contextWindow ?? 0) > 0,
-  );
+  /** Only a measured main request and matching capacity evidence permit fill. */
+  readonly hasKnownContextWindow = computed(() => {
+    const stats = this.liveModelStats();
+    const capacity = stats?.contextCapacity;
+    return (
+      !!stats &&
+      stats.contextKnown !== false &&
+      Number.isFinite(stats.contextUsed) &&
+      stats.contextUsed >= 0 &&
+      Number.isFinite(stats.contextPercent) &&
+      !!capacity &&
+      capacity.model === stats.model &&
+      (capacity.source === 'sdk-native' ||
+        (capacity.source === 'provider-catalog' &&
+          typeof capacity.providerId === 'string' &&
+          capacity.providerId.length > 0)) &&
+      typeof capacity.tokens === 'number' &&
+      Number.isFinite(capacity.tokens) &&
+      capacity.tokens > 0 &&
+      stats.contextWindow === capacity.tokens
+    );
+  });
 
   /**
    * Display label for the context percentage. Falls back to an em-dash when
@@ -704,7 +721,7 @@ export class SessionStatsSummaryComponent {
   readonly contextPercentLabel = computed(() => {
     const stats = this.liveModelStats();
     if (!stats) return '—';
-    if (stats.contextWindow <= 0) return '—';
+    if (!this.hasKnownContextWindow()) return '—';
     return `${stats.contextPercent}%`;
   });
 
@@ -716,7 +733,7 @@ export class SessionStatsSummaryComponent {
   readonly showContextWarning = computed(() => {
     const stats = this.liveModelStats();
     if (!stats) return false;
-    if (stats.contextWindow <= 0) return false;
+    if (!this.hasKnownContextWindow()) return false;
     return stats.contextPercent >= 70;
   });
 
@@ -800,11 +817,11 @@ export class SessionStatsSummaryComponent {
   readonly contextTooltip = computed(() => {
     const stats = this.liveModelStats();
     if (!stats) return '';
-    if (stats.contextWindow <= 0) {
-      return 'Context window unknown for this model.';
+    if (!this.hasKnownContextWindow()) {
+      return 'Main context unknown: the latest main request or its verified capacity is unavailable.';
     }
     return [
-      `Context Used: ${stats.contextUsed.toLocaleString()} tokens`,
+      `Main context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
       `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,
       `Usage: ${stats.contextPercent}%`,
     ].join('\n');

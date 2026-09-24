@@ -51,8 +51,8 @@
         @if (resolvedCompactionMarker(); as m) {
           <ptah-compaction-marker
             [summary]="m.summary"
-            [preTokens]="m.preTokens"
-            [postTokens]="m.postTokens"
+            [boundaryId]="m.boundaryId"
+            [measurement]="m.measurement"
             [durationMs]="m.durationMs"
           />
         }

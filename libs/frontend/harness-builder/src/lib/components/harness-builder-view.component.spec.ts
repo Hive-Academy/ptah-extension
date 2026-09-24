@@ -334,6 +334,13 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
     };
     const live = {
       model: 'claude-opus-4-7',
+      contextKnown: true,
+      contextCapacity: {
+        tokens: 200_000,
+        source: 'provider-catalog' as const,
+        providerId: 'anthropic',
+        model: 'claude-opus-4-7',
+      },
       contextUsed: 40_000,
       contextWindow: 200_000,
       contextPercent: 20,
@@ -365,6 +372,18 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
       expect(chip('stats-cost')).toBe('$38.18');
       expect(chip('stats-agents')).toBe('9');
       expect(chip('stats-context')).toBe('20%');
+
+      // A bare legacy window cannot establish capacity or alter accounting.
+      const legacyLive = { ...live, contextCapacity: undefined };
+      workflow.sessionStats.set({ live: legacyLive, snapshot });
+      fixture.detectChanges();
+      expect(summary.snapshot()).toBe(snapshot);
+      expect(summary.liveModelStats()).toBe(legacyLive);
+      expect(chip('stats-context')).toBe('\u2014');
+      expect((panel.nativeElement as HTMLElement).querySelector('.context-bar-track')).toBeNull();
+      expect(chip('stats-tokens')).toBe('14.9M');
+      expect(chip('stats-cost')).toBe('$38.18');
+      expect(chip('stats-agents')).toBe('9');
     });
   });
 

@@ -375,6 +375,8 @@ export class ChatStore {
       this.compaction.handleCompactionComplete({
         tabId: result.tabId,
         compactionSessionId: result.compactionSessionId,
+        boundaryId: result.boundaryId,
+        measurement: result.measurement,
         preTokens: result.preTokens,
         postTokens: result.postTokens,
         durationMs: result.durationMs,

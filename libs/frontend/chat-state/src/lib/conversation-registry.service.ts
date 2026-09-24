@@ -10,6 +10,7 @@
  * read reactively without having to subscribe through other services.
  */
 
+import type { CompactionMeasurement } from '@ptah-extension/shared';
 import { Injectable, computed, signal } from '@angular/core';
 import { ClaudeSessionId, ConversationId } from './identity/ids';
 
@@ -31,11 +32,13 @@ export interface ConversationRecord {
 /**
  * Persistent, per-conversation record of a completed compaction. Merged from
  * two independent backend signals: the in-stream `compaction_complete` event
- * (token delta) and the `SESSION_COMPACTION_COMPLETE` push (summary text).
- * Each field is independently nullable so the marker renders with whatever
- * subset has arrived.
+ * (context samples and atomic measurement) and the completion push (summary).
+ * Only an explicitly matching boundary can retain measurement provenance;
+ * legacy scalar samples alone never establish a comparable pair.
  */
 export interface CompactionMarkerRecord {
+  readonly boundaryId?: string;
+  readonly measurement?: CompactionMeasurement;
   readonly summary: string | null;
   readonly preTokens: number | null;
   readonly postTokens: number | null;
@@ -181,7 +184,13 @@ export class ConversationRegistry {
   }
 
   markCompactionStart(convId: ConversationId): void {
-    this.patch(convId, (r) => ({ ...r, compactionInFlight: true }));
+    this.patch(convId, (r) => ({
+      ...r,
+      compactionInFlight: true,
+      compactionMarker: r.compactionInFlight
+        ? r.compactionMarker
+        : this.invalidateMarkerMeasurement(convId, r.compactionMarker),
+    }));
   }
 
   /**
@@ -224,6 +233,9 @@ export class ConversationRegistry {
         return {
           ...r,
           compactionInFlight: true,
+          compactionMarker: r.compactionInFlight
+            ? r.compactionMarker
+            : this.invalidateMarkerMeasurement(convId, r.compactionMarker),
           compactionTrigger: patch.trigger ?? r.compactionTrigger,
           compactionPreTokens: patch.preTokens ?? r.compactionPreTokens,
           compactionStartedAt: patch.startedAt ?? r.compactionStartedAt,
@@ -263,6 +275,8 @@ export class ConversationRegistry {
   setCompactionMarkerTokens(
     convId: ConversationId,
     fields: {
+      boundaryId?: string;
+      measurement?: CompactionMeasurement;
       preTokens: number | null;
       postTokens: number | null;
       durationMs: number | null;
@@ -272,11 +286,32 @@ export class ConversationRegistry {
     if (!this._byId().has(convId)) return;
     this.patch(convId, (r) => {
       const prior = r.compactionMarker ?? this.readPersisted(convId);
+      const sameBoundary =
+        typeof fields.boundaryId === 'string' &&
+        fields.boundaryId.length > 0 &&
+        fields.boundaryId === prior?.boundaryId;
+      const summaryOnly =
+        fields.measurement === undefined &&
+        fields.preTokens === null &&
+        fields.postTokens === null;
+      const measurement =
+        this.validMeasurement(fields.measurement, fields.boundaryId) ??
+        (sameBoundary && summaryOnly ? prior?.measurement : undefined);
       const merged: CompactionMarkerRecord = {
         summary: prior?.summary ?? null,
-        preTokens: fields.preTokens ?? prior?.preTokens ?? null,
-        postTokens: fields.postTokens ?? prior?.postTokens ?? null,
-        durationMs: fields.durationMs ?? prior?.durationMs ?? null,
+        boundaryId: fields.boundaryId,
+        measurement,
+        preTokens:
+          sameBoundary && summaryOnly
+            ? (prior?.preTokens ?? null)
+            : fields.preTokens,
+        postTokens:
+          sameBoundary && summaryOnly
+            ? (prior?.postTokens ?? null)
+            : fields.postTokens,
+        durationMs: sameBoundary
+          ? (fields.durationMs ?? prior?.durationMs ?? null)
+          : fields.durationMs,
         completedAt: Math.max(prior?.completedAt ?? 0, fields.completedAt),
       };
       this.writePersisted(convId, merged);
@@ -286,13 +321,22 @@ export class ConversationRegistry {
 
   setCompactionMarkerSummary(
     convId: ConversationId,
-    fields: { summary: string | null; completedAt: number },
+    fields: {
+      summary: string | null;
+      completedAt: number;
+      boundaryId?: string;
+    },
   ): void {
     if (!this._byId().has(convId)) return;
     this.patch(convId, (r) => {
       const prior = r.compactionMarker ?? this.readPersisted(convId);
       const merged: CompactionMarkerRecord = {
         summary: fields.summary ?? prior?.summary ?? null,
+        boundaryId: fields.boundaryId,
+        measurement:
+          fields.boundaryId && fields.boundaryId === prior?.boundaryId
+            ? prior.measurement
+            : undefined,
         preTokens: prior?.preTokens ?? null,
         postTokens: prior?.postTokens ?? null,
         durationMs: prior?.durationMs ?? null,
@@ -330,6 +374,12 @@ export class ConversationRegistry {
       const parsed = JSON.parse(raw) as Partial<CompactionMarkerRecord>;
       return {
         summary: parsed.summary ?? null,
+        boundaryId:
+          typeof parsed.boundaryId === 'string' ? parsed.boundaryId : undefined,
+        measurement: this.validMeasurement(
+          parsed.measurement,
+          parsed.boundaryId,
+        ),
         preTokens: parsed.preTokens ?? null,
         postTokens: parsed.postTokens ?? null,
         durationMs: parsed.durationMs ?? null,
@@ -345,6 +395,51 @@ export class ConversationRegistry {
       );
       return null;
     }
+  }
+
+  private invalidateMarkerMeasurement(
+    convId: ConversationId,
+    current: CompactionMarkerRecord | null,
+  ): CompactionMarkerRecord | null {
+    const prior = current ?? this.readPersisted(convId);
+    if (!prior) return null;
+    const marker = { ...prior, boundaryId: undefined, measurement: undefined };
+    this.writePersisted(convId, marker);
+    return marker;
+  }
+
+  private validMeasurement(
+    value: unknown,
+    boundaryId: unknown,
+  ): CompactionMeasurement | undefined {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      typeof boundaryId !== 'string' ||
+      boundaryId.length === 0
+    )
+      return undefined;
+    if (
+      !('source' in value) ||
+      value.source !== 'sdk-compact-metadata' ||
+      !('boundaryId' in value) ||
+      value.boundaryId !== boundaryId ||
+      !('preTokens' in value) ||
+      typeof value.preTokens !== 'number' ||
+      !Number.isFinite(value.preTokens) ||
+      value.preTokens < 0 ||
+      !('postTokens' in value) ||
+      typeof value.postTokens !== 'number' ||
+      !Number.isFinite(value.postTokens) ||
+      value.postTokens < 0
+    )
+      return undefined;
+    return Object.freeze({
+      source: 'sdk-compact-metadata',
+      boundaryId,
+      preTokens: value.preTokens,
+      postTokens: value.postTokens,
+    });
   }
 
   private writePersisted(
