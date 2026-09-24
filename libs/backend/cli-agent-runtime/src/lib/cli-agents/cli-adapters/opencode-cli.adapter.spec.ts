@@ -1026,16 +1026,46 @@ describe('OpencodeCliAdapter', () => {
       },
     );
 
+    it.each(['exe', 'EXE', 'ExE'])(
+      'keeps a detected .%s binary even when native candidates exist',
+      (extension) => {
+        mockExistsSync.mockReturnValue(true);
+        const nativeCliPath = path.join(
+          path.dirname(detectedCliPath),
+          `opencode.${extension}`,
+        );
+
+        expect(
+          resolveOpencodeNativeBinary(nativeCliPath, resolveModulePath),
+        ).toBeUndefined();
+        expect(mockExistsSync).not.toHaveBeenCalled();
+      },
+    );
+
     it.each([
       ['module-resolved', asarCandidate],
       ['APPDATA', appDataCandidate],
     ])(
-      'falls back to %s when no detected-path candidate exists',
+      'ignores %s when a detected .cmd has no detected-path candidate',
       (_source, candidate) => {
         mockExistsSync.mockImplementation((p: string) => p === candidate);
 
         expect(
           resolveOpencodeNativeBinary(detectedCliPath, resolveModulePath),
+        ).toBeUndefined();
+      },
+    );
+
+    it.each([
+      ['module-resolved', asarCandidate],
+      ['APPDATA', appDataCandidate],
+    ])(
+      'falls back to %s when no detected path is given',
+      (_source, candidate) => {
+        mockExistsSync.mockImplementation((p: string) => p === candidate);
+
+        expect(
+          resolveOpencodeNativeBinary(undefined, resolveModulePath),
         ).toBe(candidate);
       },
     );

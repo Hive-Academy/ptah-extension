@@ -148,18 +148,12 @@ const requireResolveModulePath: ModulePathResolver = (request) =>
   require.resolve(request);
 
 /**
- * Resolve the opencode native binary inside its Windows platform package.
- *
- * The npm `.ps1` wrapper opencode generates has been reported to invoke
- * `/bin/sh.exe`, which does not exist on stock Windows. When that path breaks,
- * spawning the bundled `.exe` directly bypasses the wrapper entirely. Checks
- * the detected CLI's directory and its nested `node_modules/opencode-ai` first,
- * then Electron resources, module-resolved packages, and APPDATA npm packages.
- * Includes the `app.asar` → `app.asar.unpacked` twin for module-resolved
- * candidates, which a packaged Electron build needs to reach a spawnable file.
- *
- * Returns `undefined` off-Windows, on unsupported arches, or when no candidate
- * exists (e.g. the tool was installed via Homebrew/Scoop/curl rather than npm).
+ * Resolve a Windows native binary only from the detected CLI's directory or
+ * its nested `node_modules/opencode-ai`; return `undefined` for an already-native
+ * `.exe` (case-insensitive) or missing candidates so the caller keeps that CLI.
+ * Without a detected path, try Electron resources, module-resolved packages
+ * (including their `app.asar.unpacked` twins), then APPDATA npm packages.
+ * Returns `undefined` off-Windows, on unsupported arches, or if no candidate exists.
  *
  * @internal Exported for unit tests only. `resolveModulePath` is a seam: Jest's
  * `require.resolve` can never yield an `app.asar` path, so the asar branch is
@@ -178,11 +172,13 @@ export function resolveOpencodeNativeBinary(
 
   const candidates: string[] = [];
   if (detectedCliPath) {
+    if (/\.exe$/i.test(detectedCliPath)) return undefined;
     const cliDir = path.dirname(detectedCliPath);
     candidates.push(path.join(cliDir, relFromBin));
     candidates.push(
       path.join(cliDir, 'node_modules', 'opencode-ai', relFromBin),
     );
+    return candidates.find((candidate) => existsSync(candidate));
   }
 
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
