@@ -49,6 +49,55 @@ export type { ViewType };
  */
 export type ThothActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
+/**
+ * The four configuration surfaces. They are GLOBAL, not workspace-partitioned:
+ * they apply regardless of which workspace is active, so their open state is
+ * one global fact (see {@link AppStateManager._configurationSurfaces}).
+ */
+export type ConfigurationSurfaceId = Extract<
+  ViewType,
+  'thoth' | 'setup-hub' | 'marketplace' | 'settings'
+>;
+
+export const CONFIGURATION_SURFACE_IDS: readonly ConfigurationSurfaceId[] = [
+  'thoth',
+  'setup-hub',
+  'marketplace',
+  'settings',
+];
+
+export function isConfigurationSurface(
+  view: ViewType,
+): view is ConfigurationSurfaceId {
+  return (CONFIGURATION_SURFACE_IDS as readonly ViewType[]).includes(view);
+}
+
+/**
+ * Per-surface global slot, typed per key. 540 owns no surface-global state of
+ * its own, so every member starts as an empty record. A task that needs state
+ * which is global to the surface (not per-workspace) narrows its member with
+ * its own interface. TASK_2026_533 narrows the marketplace member with
+ * `marketplaceRoute: MarketplaceRoute | null` — a member narrowing, not a
+ * reshape of this interface.
+ */
+export interface ConfigurationSurfaceSlots {
+  /** Reserved; no 540-owned Thoth-global state. */
+  readonly thoth: Readonly<Record<string, never>>;
+  /** Reserved; no 540-owned Setup-hub-global state. */
+  readonly 'setup-hub': Readonly<Record<string, never>>;
+  /** TASK_2026_533 adds its marketplaceRoute here. */
+  readonly marketplace: Readonly<Record<string, never>>;
+  /** Reserved; no 540-owned Settings-global state. */
+  readonly settings: Readonly<Record<string, never>>;
+}
+
+export interface ConfigurationSurfacesState {
+  /** The configuration surface currently open, or null when none is. */
+  readonly openSurface: ConfigurationSurfaceId | null;
+  /** Extension point for surface-global state — see TASK_2026_533. */
+  readonly perSurface: ConfigurationSurfaceSlots;
+}
+
 /** Layout mode for the chat view content area: single tab or canvas grid */
 export type LayoutMode = 'single' | 'grid';
 
@@ -300,6 +349,35 @@ export class AppStateManager implements MessageHandler {
    * here would be state that never varies.
    */
   private readonly _layoutMode = signal<LayoutMode>('grid');
+  /**
+   * Deliberately NOT workspace-partitioned. The four configuration surfaces
+   * (thoth, setup-hub, marketplace, settings) apply regardless of which
+   * workspace is active, so their open state is one global fact — the same
+   * reasoning as _layoutMode above. The constructor effect writes openSurface
+   * unconditionally from the Router's surface; slice stamping refuses these
+   * ids (see openViewInActiveSlice); switchWorkspace leaves them on screen
+   * and bumps _configurationSurfaceRemountTick so the Electron shell
+   * re-creates the routed component against the new workspace.
+   */
+  private readonly _configurationSurfaces = signal<ConfigurationSurfacesState>({
+    openSurface: null,
+    perSurface: { thoth: {}, 'setup-hub': {}, marketplace: {}, settings: {} },
+  });
+  /**
+   * Monotonic counter, deliberately NOT workspace-partitioned. Bumped once per
+   * workspace switch that lands while a configuration surface stays on screen.
+   * The Electron shell's effect reads it and calls
+   * `SurfaceRouterService.remountActiveSurface()`, which re-activates the
+   * outlet's routed component only — same URL, new component instance, no
+   * navigation. There is NO keyed `ptah-app-shell` host: keying the shell
+   * would destroy the always-mounted chat surface's component-scoped
+   * `CanvasStore` and re-arm the app-shell auth redirect. Electron-only by
+   * construction: switchWorkspace's only production caller is
+   * WorkspaceCoordinatorService (workspace-coordinator.service.ts:172), which
+   * the Electron layout drives; the VS Code webview never switches workspaces,
+   * so the tick stays at 0 there.
+   */
+  private readonly _configurationSurfaceRemountTick = signal(0);
   /** FIFO signal bridge for requests to open/focus sessions in canvas tiles. */
   private readonly _canvasSessionRequests = signal<
     readonly CanvasSessionRequest[]
@@ -365,7 +443,11 @@ export class AppStateManager implements MessageHandler {
    * - between {@link switchWorkspace} and the settlement of the restore
    *   navigation that switch started — during that window the surface on
    *   screen still belongs to the OUTGOING workspace, so stamping it against
-   *   the incoming one made B remember A's surface (revision 1, F1);
+   *   the incoming one made B remember A's surface (revision 1, F1). The
+   *   stay-branch is the exception: when a configuration surface stays on
+   *   screen no restore navigation runs, so {@link switchWorkspace} grants
+   *   ownership to the incoming workspace directly instead of leaving this
+   *   null until a settlement re-grants it;
    * - after {@link removeWorkspaceState} removed the ACTIVE workspace — a
    *   deleted slice must not be resurrected by a later settlement, and
    *   `updateActiveViewSlice` re-creates a missing slice by design. Revoking
@@ -399,6 +481,18 @@ export class AppStateManager implements MessageHandler {
     effect(() => {
       const surface = this.surfaceRouter.currentSurface();
       untracked(() => {
+        // Global write FIRST, UNCONDITIONALLY. openSurface tracks the surface
+        // the Router shows even when no workspace owns the settlement (a
+        // switch is in flight, or the last workspace was closed). The menu
+        // and the Electron gate read this value; a stale value lies to both.
+        const openSurface = isConfigurationSurface(surface) ? surface : null;
+        if (this._configurationSurfaces().openSurface !== openSurface) {
+          this._configurationSurfaces.update((state) => ({
+            ...state,
+            openSurface,
+          }));
+        }
+        // Slice stamping stays ownership-gated, exactly as today.
         const owner = this._activeWorkspacePath();
         // Only the owner may be stamped. While a workspace switch is in
         // flight, or after the active workspace was closed, nobody owns the
@@ -438,6 +532,11 @@ export class AppStateManager implements MessageHandler {
    *   3. the workspace that asked is no longer the active one;
    *   4. that workspace no longer owns the displayed surface — it was closed,
    *      or a switch away from it is still in flight.
+   *
+   * Slice-stamp and owner re-grant only: this method performs NO global write.
+   * Every landed navigation also changes `currentSurface()`, which runs the
+   * constructor effect — the single writer of
+   * {@link AppStateManager._configurationSurfaces}.
    */
   private recordSettledSurface(
     generation: number,
@@ -491,6 +590,19 @@ export class AppStateManager implements MessageHandler {
   );
   /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
   readonly layoutMode = this._layoutMode.asReadonly();
+  /** Global configuration-surface state — NOT workspace-partitioned. */
+  readonly configurationSurfaces = this._configurationSurfaces.asReadonly();
+  /** The configuration surface currently open, or null when none is. */
+  readonly openConfigurationSurface = computed(
+    () => this._configurationSurfaces().openSurface,
+  );
+  /**
+   * Bumped once per workspace switch that keeps a configuration surface on
+   * screen; the Electron shell's effect re-creates the routed component via
+   * `SurfaceRouterService.remountActiveSurface()`.
+   */
+  readonly configurationSurfaceRemountTick =
+    this._configurationSurfaceRemountTick.asReadonly();
   /** Pending requests to open sessions in canvas tiles, in arrival order. */
   readonly canvasSessionRequests = this._canvasSessionRequests.asReadonly();
   readonly canvasFocusRequests = this._canvasFocusRequests.asReadonly();
@@ -635,8 +747,18 @@ export class AppStateManager implements MessageHandler {
     });
   }
 
-  /** Make `view` the active workspace's current view and mark it open. */
+  /**
+   * Make `view` the active workspace's current view and mark it open.
+   *
+   * The single slice-write funnel — used by the constructor effect,
+   * {@link recordSettledSurface} and the outgoing stamp in
+   * {@link switchWorkspace} — so the one refusal guard below covers all three
+   * callers. Slices never track the four configuration surfaces: they are
+   * global (recorded in {@link _configurationSurfaces}), so a slice that
+   * received one would leak a global surface into per-workspace memory.
+   */
   private openViewInActiveSlice(view: ViewType): void {
+    if (isConfigurationSurface(view)) return;
     this.updateActiveViewSlice((slice) => ({
       ...slice,
       currentView: view,
@@ -656,10 +778,20 @@ export class AppStateManager implements MessageHandler {
    * to {@link DEFAULT_VIEW_SLICE} and the entry is seeded on its first view
    * mutation, so a fresh workspace opens on chat rather than inheriting the
    * previous one's view.
+   *
+   * Stay-branch: when a configuration surface is on screen (Router truth), the
+   * surface STAYS on screen — no restore navigation, no slice stamp. The
+   * bootstrap migration still runs, ownership passes to the incoming workspace
+   * directly, and {@link _configurationSurfaceRemountTick} is bumped once so
+   * the Electron shell re-creates the routed component against the new
+   * workspace (same URL, new component instance, no navigation).
    */
   switchWorkspace(newPath: string): void {
     const previousPath = this._activeWorkspacePath();
     if (previousPath === newPath) return;
+
+    // Router truth: this must match what is on screen.
+    const staying = isConfigurationSurface(this.currentView());
 
     // Stamp the OUTGOING workspace's surface synchronously before switching —
     // but ONLY if that workspace still owns the displayed surface. The
@@ -674,13 +806,19 @@ export class AppStateManager implements MessageHandler {
     //   - closing the active workspace and then switching away re-created the
     //     slice that was just deleted, so reopening it restored a surface that
     //     was supposed to be gone.
+    //
+    // When a configuration surface is on screen, openViewInActiveSlice refuses
+    // the stamp, so the outgoing slice keeps the code-workspace surface the
+    // user left before opening the configuration surface.
     if (this._settlementOwner === previousPath) {
       this.openViewInActiveSlice(this.currentView());
     }
 
-    // Nobody owns the displayed surface until the restore navigation below
-    // lands. `recordSettledSurface` re-grants ownership to `newPath` then.
-    this._settlementOwner = null;
+    // While a restore navigation is pending, nobody owns the displayed
+    // surface; `recordSettledSurface` re-grants ownership to `newPath` when it
+    // lands. The stay-branch starts no navigation, so it grants ownership to
+    // the incoming workspace directly instead.
+    this._settlementOwner = staying ? newPath : null;
     this._activeWorkspacePath.set(newPath);
 
     if (!this._viewSlices().has(newPath)) {
@@ -699,6 +837,16 @@ export class AppStateManager implements MessageHandler {
           return next;
         });
       }
+    }
+
+    if (staying) {
+      // Stay on the configuration surface: no restore navigation. Bump the
+      // remount tick so the Electron shell re-creates the routed component
+      // against the new workspace — same URL, new component instance (the
+      // shell's effect calls `SurfaceRouterService.remountActiveSurface()`).
+      // The VS Code webview never reaches this branch.
+      this._configurationSurfaceRemountTick.update((t) => t + 1);
+      return;
     }
 
     // The surface is the Router's, so restoring a workspace's surface is a

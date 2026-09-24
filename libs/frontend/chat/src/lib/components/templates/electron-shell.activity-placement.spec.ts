@@ -25,6 +25,7 @@ import {
   NgModule,
   ChangeDetectionStrategy,
   CUSTOM_ELEMENTS_SCHEMA,
+  signal,
 } from '@angular/core';
 
 // Stub ngx-markdown (ESM-only bundle) BEFORE any component import.
@@ -63,6 +64,7 @@ import {
   AppStateManager,
   ElectronLayoutService,
   VSCodeService,
+  SurfaceRouterService,
 } from '@ptah-extension/core';
 import { ElectronShellComponent } from './electron-shell.component';
 
@@ -70,7 +72,7 @@ describe('ElectronShellComponent — activity placement', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
 
   const layoutStub = {
-    hasWorkspaceFolders: () => true,
+    hasWorkspaceFolders: signal(true),
     workspaceSidebarVisible: () => false,
     workspaceSidebarWidth: () => 240,
     editorPanelVisible: () => false,
@@ -85,6 +87,8 @@ describe('ElectronShellComponent — activity placement', () => {
 
   const appStateStub = {
     currentView: () => 'chat',
+    openConfigurationSurface: signal(null),
+    configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: () => true,
     setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
@@ -114,6 +118,13 @@ describe('ElectronShellComponent — activity placement', () => {
         { provide: ElectronLayoutService, useValue: layoutStub },
         { provide: AppStateManager, useValue: appStateStub },
         { provide: VSCodeService, useValue: vscodeStub },
+        {
+          provide: SurfaceRouterService,
+          useValue: {
+            remountActiveSurface: jest.fn(),
+            pendingSurface: () => null,
+          },
+        },
       ],
     })
       .overrideComponent(ElectronShellComponent, {

@@ -38,11 +38,11 @@ const PROMPTS: string[] = (
 ).split('|');
 
 async function goToCanvas(page: Page, director: Director): Promise<void> {
-  // The Canvas (grid) layout is reached from the chat surface's layout toggle.
-  // Try a few resilient selectors so the scene survives minor chrome changes.
+  // The global Chat tab opens the canvas grid.
+  // The remaining candidates are fallbacks for minor chrome changes.
   const candidates: Locator[] = [
-    page.getByRole('tab', { name: 'Canvas' }),
-    page.getByRole('button', { name: 'Canvas' }),
+    page.getByRole('tab', { name: 'Chat' }),
+    page.getByRole('button', { name: 'Chat' }),
     page.locator('[title="Canvas"]'),
     page.locator('[aria-label="Canvas"]'),
     page.locator('[data-testid="layout-toggle-grid"]'),

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P1.4 — "Nightly agents on a schedule" (deep dive on the Thoth Schedules tab).
@@ -36,8 +37,8 @@ import type { Locator, Page } from '@playwright/test';
  *   narrates the value prop and spotlights the empty surface instead.
  * - No other Ptah instance is running (single-instance lock).
  *
- * Selector note: the only shell-navigation touch point is the `Thoth` top-nav
- * tab and the `#thoth-tab-cron` inner tab (selected by id to avoid colliding
+ * Selector note: shell navigation uses the global configuration menu for Thoth
+ * and the `#thoth-tab-cron` inner tab (selected by id to avoid colliding
  * with the top-nav tablist). Everything inside the panel uses the verified
  * `data-testid`s from `libs/frontend/cron-scheduler-ui` (see the gold spec
  * `src/specs/thoth/cron.spec.ts`).
@@ -56,27 +57,11 @@ async function firstVisible(
 }
 
 /**
- * Enter the Thoth shell and open the Schedules (cron) tab. Best-effort against
- * the live shell for the `Thoth` top-nav tab, then waits for the cron panel.
+ * Enter the Thoth shell through the global configuration menu and open the
+ * Schedules (cron) tab, then wait for the cron panel.
  */
 async function goToCron(page: Page, director: Director): Promise<Locator> {
-  const navCandidates: Locator[] = [
-    page.getByRole('tab', { name: 'Thoth' }),
-    page.getByRole('button', { name: 'Thoth' }),
-    page.locator('[title="Thoth"]'),
-    page.locator('[aria-label="Thoth"]'),
-  ];
-  for (const c of navCandidates) {
-    if (
-      await c
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await director.click(c.first());
-      break;
-    }
-  }
+  await openConfigSurface(page, director, 'thoth');
   await page.locator('#thoth-tab-cron').waitFor({ state: 'visible' });
 
   await director.click(page.locator('#thoth-tab-cron'));

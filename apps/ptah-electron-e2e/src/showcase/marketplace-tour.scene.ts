@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P3.x — "One marketplace, every provider" (Marketplace surface tour).
@@ -28,7 +29,7 @@ import type { Locator, Page } from '@playwright/test';
  *
  * Selector notes (no Settings-style spec exists for Marketplace — these were
  * discovered from `libs/frontend/marketplace` + `chat-ui` setup-plugins):
- * - Top nav is a `role="tab"` tablist; `Marketplace` selects the surface.
+ * - The global configuration menu opens the Marketplace surface.
  * - Hub root: `ptah-marketplace-hub`. Since TASK_2026_524 the seven-tile
  *   provider grid is gone: the hub renders a `NativeTabGroupComponent` section
  *   strip (`role="tab"`, labels `Connected` / `Apps` / `Skills`) over a chip
@@ -65,40 +66,17 @@ const SOURCE_SCRIPT_BASE = 3;
 /** Script index of the closing line. */
 const CLOSER_SCRIPT_INDEX = 7;
 
-/**
- * Click the first visible candidate from a list, easing the cursor to it.
- * Returns true if something was clicked. Best-effort against the live shell.
- */
-async function clickFirstVisible(
-  director: Director,
-  candidates: Locator[],
-): Promise<boolean> {
-  for (const c of candidates) {
-    const first = c.first();
-    if (await first.isVisible().catch(() => false)) {
-      await director.click(first);
-      return true;
-    }
-  }
-  return false;
-}
-
 /** The hub root — every section/chip lookup hangs off this. */
 function hub(page: Page): Locator {
   return page.locator('ptah-marketplace-hub');
 }
 
 /**
- * Enter the Marketplace surface from the top nav, then wait for the hub root to
- * mount so callers can inspect which surface (sections vs. gate) rendered.
+ * Enter Marketplace through the global configuration menu, then wait for the
+ * hub root to mount so callers can inspect which surface (sections vs. gate) rendered.
  */
 async function goToMarketplace(page: Page, director: Director): Promise<void> {
-  await clickFirstVisible(director, [
-    page.getByRole('tab', { name: 'Marketplace' }),
-    page.getByRole('button', { name: 'Marketplace' }),
-    page.locator('[title="Marketplace"]'),
-    page.locator('[aria-label="Marketplace"]'),
-  ]);
+  await openConfigSurface(page, director, 'marketplace');
   await hub(page)
     .waitFor({ state: 'visible' })
     .catch(() => undefined);

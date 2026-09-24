@@ -19,8 +19,17 @@
  */
 
 import { Location, PlatformLocation } from '@angular/common';
+import { ChangeDetectionStrategy, Component, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { NavigationEnd, Router } from '@angular/router';
+import {
+  NavigationEnd,
+  NavigationStart,
+  provideRouter,
+  Router,
+  RouterOutlet,
+  withDisabledInitialNavigation,
+  type Routes,
+} from '@angular/router';
 import { filter, firstValueFrom, take } from 'rxjs';
 import { provideSurfaceRouterTesting } from '../../testing';
 import { MemoryPlatformLocation } from './memory-platform-location';
@@ -46,6 +55,38 @@ function createService(): SurfaceRouterService {
     providers: [...provideSurfaceRouterTesting()],
   });
   return TestBed.inject(SurfaceRouterService);
+}
+
+@Component({
+  standalone: true,
+  template: 'Configuration surface',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class RemountSurfaceComponent {
+  static constructions = 0;
+  readonly instanceNumber = ++RemountSurfaceComponent.constructions;
+}
+
+@Component({
+  standalone: true,
+  imports: [RouterOutlet],
+  template: '<router-outlet />',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class RemountParentComponent {
+  static constructions = 0;
+  readonly instanceNumber = ++RemountParentComponent.constructions;
+  readonly outlet = viewChild.required(RouterOutlet);
+}
+
+@Component({
+  standalone: true,
+  imports: [RouterOutlet],
+  template: '<router-outlet />',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class RemountHostComponent {
+  readonly outlet = viewChild.required(RouterOutlet);
 }
 
 describe('SurfaceRouterService', () => {
@@ -242,6 +283,126 @@ describe('SurfaceRouterService', () => {
       await TestBed.inject(Router).navigateByUrl('/command-builder');
 
       expect(service.currentSurface()).toBe('chat');
+    });
+  });
+
+  describe('remountActiveSurface', () => {
+    let service: SurfaceRouterService;
+    let router: Router;
+
+    beforeEach(() => {
+      RemountSurfaceComponent.constructions = 0;
+      RemountParentComponent.constructions = 0;
+      const routes: Routes = [
+        { path: 'settings', component: RemountSurfaceComponent },
+        {
+          path: 'marketplace',
+          component: RemountParentComponent,
+          children: [{ path: 'details', component: RemountSurfaceComponent }],
+        },
+        { path: 'chat', children: [] },
+      ];
+      TestBed.configureTestingModule({
+        imports: [RemountHostComponent],
+        providers: [
+          { provide: PlatformLocation, useClass: MemoryPlatformLocation },
+          provideRouter(routes, withDisabledInitialNavigation()),
+        ],
+      });
+      service = TestBed.inject(SurfaceRouterService);
+      router = TestBed.inject(Router);
+    });
+
+    it('re-creates the routed component at the same URL without NavigationStart', async () => {
+      const fixture = TestBed.createComponent(RemountHostComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await router.navigateByUrl('/settings?panel=auth#details');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const original = fixture.componentInstance.outlet().component;
+      expect(original).toBeInstanceOf(RemountSurfaceComponent);
+      expect(RemountSurfaceComponent.constructions).toBe(1);
+      const navigationStarts: NavigationStart[] = [];
+      const subscription = router.events.subscribe((event) => {
+        if (event instanceof NavigationStart) navigationStarts.push(event);
+      });
+
+      try {
+        service.remountActiveSurface();
+        fixture.detectChanges();
+        await fixture.whenStable();
+
+        expect(fixture.componentInstance.outlet().component).not.toBe(original);
+        expect(RemountSurfaceComponent.constructions).toBe(2);
+        expect(router.url).toBe('/settings?panel=auth#details');
+        expect(navigationStarts).toEqual([]);
+      } finally {
+        subscription.unsubscribe();
+      }
+    });
+
+    it('re-creates the parent and child from retained contexts at the same child URL', async () => {
+      const fixture = TestBed.createComponent(RemountHostComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await router.navigateByUrl('/marketplace/details?tab=installed#entry');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const originalParent = fixture.componentInstance.outlet().component;
+      expect(originalParent).toBeInstanceOf(RemountParentComponent);
+      if (!(originalParent instanceof RemountParentComponent)) {
+        throw new Error('Expected the parent route to be activated');
+      }
+      const originalChild = originalParent.outlet().component;
+      expect(originalChild).toBeInstanceOf(RemountSurfaceComponent);
+      expect(RemountParentComponent.constructions).toBe(1);
+      expect(RemountSurfaceComponent.constructions).toBe(1);
+
+      service.remountActiveSurface();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const parent = fixture.componentInstance.outlet().component;
+      expect(parent).toBeInstanceOf(RemountParentComponent);
+      if (!(parent instanceof RemountParentComponent)) {
+        throw new Error('Expected the parent route to be re-activated');
+      }
+      expect(parent).not.toBe(originalParent);
+      expect(parent.outlet().component).not.toBe(originalChild);
+      expect(RemountParentComponent.constructions).toBe(2);
+      expect(RemountSurfaceComponent.constructions).toBe(2);
+      expect(router.url).toBe('/marketplace/details?tab=installed#entry');
+    });
+
+    it('does nothing on a component-less route', async () => {
+      const fixture = TestBed.createComponent(RemountHostComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await router.navigateByUrl('/chat');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(fixture.componentInstance.outlet().isActivated).toBe(false);
+
+      expect(() => service.remountActiveSurface()).not.toThrow();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.outlet().isActivated).toBe(false);
+      expect(RemountSurfaceComponent.constructions).toBe(0);
+      expect(RemountParentComponent.constructions).toBe(0);
+      expect(router.url).toBe('/chat');
+    });
+
+    it('does nothing when no outlet is rendered', async () => {
+      expect(() => service.remountActiveSurface()).not.toThrow();
+      await router.navigateByUrl('/settings');
+
+      expect(() => service.remountActiveSurface()).not.toThrow();
+
+      expect(RemountSurfaceComponent.constructions).toBe(0);
+      expect(RemountParentComponent.constructions).toBe(0);
+      expect(router.url).toBe('/settings');
     });
   });
 

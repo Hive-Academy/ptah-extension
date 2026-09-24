@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * Setup Wizard Tour — "personalize Ptah in minutes" (P7.1, 7-step onboarding).
@@ -45,13 +46,7 @@ async function firstVisible(candidates: Locator[]): Promise<Locator | null> {
 }
 
 async function goToSetup(page: Page, director: Director): Promise<void> {
-  const tab = await firstVisible([
-    page.getByRole('tab', { name: 'Setup' }),
-    page.getByRole('button', { name: 'Setup' }),
-    page.locator('[aria-label="Setup"]'),
-    page.locator('[title*="Setup" i]'),
-  ]);
-  if (tab) await director.click(tab);
+  await openConfigSurface(page, director, 'setup-hub');
 
   // The wizard view mounts the step container.
   await page

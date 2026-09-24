@@ -12,8 +12,8 @@ import type { Locator, Page } from '@playwright/test';
  * diff" arc, reused as P6.1's "fix end-to-end" use case. See
  * `docs/video-content-plan.md` (P1.1 beat-by-beat) for the narrative.
  *
- * The Electron app has a single chat surface: the Orchestra Canvas. There is no
- * separate global "Chat" tab — a single canvas tile IS the single-chat
+ * The Electron app has a single chat surface: the Orchestra Canvas, hosted by
+ * the global "Chat" tab — a single canvas tile IS the single-chat
  * experience, so this scene opens exactly one tile and drives the whole
  * ask → edit arc inside it. (The multi-tile flagship is `canvas-orchestra`.)
  *
@@ -176,9 +176,9 @@ async function goToCanvas(page: Page, director: Director): Promise<void> {
   // The Canvas (grid) layout is the Electron chat surface. Try a few resilient
   // selectors so the scene survives minor nav-chrome changes.
   const candidates: Locator[] = [
-    page.getByRole('tab', { name: 'Canvas' }),
-    page.getByRole('button', { name: 'Canvas' }),
-    page.locator('[title="Orchestra Canvas"]'),
+    page.getByRole('tab', { name: 'Chat' }),
+    page.getByRole('button', { name: 'Chat' }),
+    page.locator('[title="Chat"]'),
     page.locator('[title="Canvas"]'),
     page.locator('[aria-label="Canvas"]'),
   ];

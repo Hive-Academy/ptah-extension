@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * P3.x — "Tune Ptah to your stack" (Settings surface tour).
@@ -29,7 +30,7 @@ import type { Locator, Page } from '@playwright/test';
  * - No other Ptah instance is running (single-instance lock).
  *
  * Selector notes (verified against the live shell):
- * - Top nav is a `role="tab"` tablist; `Settings` selects the surface.
+ * - The global configuration menu opens the Settings surface.
  * - `Change theme` + `Notifications` are top-bar buttons (stable aria-labels).
  * - Settings chrome: `ptah-settings`, `ptah-providers-settings` (the default
  *   tab, id `claude-auth`, renders the consolidated Providers page whose
@@ -77,16 +78,11 @@ async function clickFirstVisible(
 }
 
 /**
- * Enter the Settings surface from the top nav, then wait for the settings shell
- * to mount so callers can drive its tabs.
+ * Enter Settings through the global configuration menu, then wait for the
+ * settings shell to mount so callers can drive its tabs.
  */
 async function goToSettings(page: Page, director: Director): Promise<void> {
-  await clickFirstVisible(director, [
-    page.getByRole('tab', { name: 'Settings' }),
-    page.getByRole('button', { name: 'Settings' }),
-    page.locator('[title="Settings"]'),
-    page.locator('[aria-label="Settings"]'),
-  ]);
+  await openConfigSurface(page, director, 'settings');
   await page.locator('ptah-settings').waitFor({ state: 'visible' });
 }
 

@@ -219,8 +219,15 @@ test.describe('Update detection', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const marker = { e2eMarker: 'auto-updater-spec', ts: Date.now() };
     await rpcBridge.setState(marker);
-    await mainWindow.waitForTimeout(150);
-    const after = await rpcBridge.getState();
-    expect(JSON.stringify(after ?? {})).toContain('auto-updater-spec');
+    // 'set-state' is fire-and-forget: the IpcBridge handler awaits an async
+    // workspace-storage commit (worker round-trip), while 'get-state' answers
+    // synchronously from the in-memory cache. Under CI boot load that commit
+    // can outrun any fixed sleep, so poll the read until the marker lands
+    // instead of guessing a 150ms budget.
+    await expect
+      .poll(async () => JSON.stringify((await rpcBridge.getState()) ?? {}), {
+        timeout: 10_000,
+      })
+      .toContain('auto-updater-spec');
   });
 });
