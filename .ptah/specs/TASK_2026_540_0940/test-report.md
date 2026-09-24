@@ -45,6 +45,8 @@ The full suite is not re-run locally: `.github/workflows/electron-e2e.yml` runs 
 
 ## Follow-ups (not in scope)
 
+Both items below are filed as TASK_2026_550_9a28 ("Speed up and stabilize the Electron e2e suite").
+
 - The `electronApp` fixture (`apps/ptah-electron-e2e/src/support/fixtures.ts:57`) is test-scoped, so every test launches
   and boots a new Electron app. A worker-scoped app with a per-test reset would cut the suite time a lot, but needs an
   isolation review of every spec.
