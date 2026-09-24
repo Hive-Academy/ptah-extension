@@ -59,7 +59,9 @@ if (!gotLock) {
    * writes into and `will-quit` reads from, which is what makes a late arrival
    * still disposable.
    */
-  const coordinator = new BootCoordinator();
+  const coordinator = new BootCoordinator({
+    skipWarmup: process.env['PTAH_E2E'] === '1',
+  });
 
   // Not boot refs: the window itself, the tray, and the two intervals whose
   // handles `registerPostWindow` returns rather than storing.

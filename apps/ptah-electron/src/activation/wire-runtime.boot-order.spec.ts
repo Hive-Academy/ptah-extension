@@ -212,6 +212,12 @@ describe('post-window — the gateway start is delegated and gated', () => {
     expect(POST_WINDOW_SOURCE).toContain('coordinator,');
   });
 
+  it('skips the start under the e2e harness (TASK_2026_389)', () => {
+    expect(POST_WINDOW_SOURCE).toContain(
+      "skipStart: process.env['PTAH_E2E'] === '1',",
+    );
+  });
+
   it('no longer starts the gateway or the bridge inline', () => {
     // The inline IIFE ran during `registerPostWindow`, which is BEFORE
     // `coordinator.startPostWindow(...)` opens SQLite — the whole defect.

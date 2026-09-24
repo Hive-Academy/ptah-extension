@@ -205,7 +205,27 @@ function unrefTimer(timer: unknown): void {
   }
 }
 
+export interface BootCoordinatorOptions {
+  /**
+   * Never arm the warmup barrier; {@link BootCoordinator.armWarmup} becomes a
+   * logged no-op.
+   *
+   * `main.ts` sets this from `PTAH_E2E=1`. A harness launch with no workspace
+   * never creates a memory curator, so the barrier would sit out its full
+   * {@link WARMUP_BARRIER_TIMEOUT_MS} on every test boot and then skip warmup
+   * anyway (TASK_2026_389). Read at the composition point rather than here to
+   * keep this module free of process-level lookups.
+   */
+  skipWarmup?: boolean;
+}
+
 export class BootCoordinator {
+  private readonly skipWarmup: boolean;
+
+  constructor(options: BootCoordinatorOptions = {}) {
+    this.skipWarmup = options.skipWarmup ?? false;
+  }
+
   /**
    * The stable refs object. `readonly` and never reassigned — `main.ts` holds
    * this exact reference for the whole process lifetime.
@@ -240,8 +260,7 @@ export class BootCoordinator {
    * `boot-readiness-broadcaster.ts`.
    */
   private emitReadiness:
-    | ((payload: BootReadinessChangedPayload) => void)
-    | null = null;
+    ((payload: BootReadinessChangedPayload) => void) | null = null;
 
   /**
    * The once-per-boot degradation summary (TASK_2026_383, component 3).
@@ -570,6 +589,17 @@ export class BootCoordinator {
    * the QUESTION of when it may run.
    */
   armWarmup(run: () => void | Promise<void>): void {
+    if (this.skipWarmup) {
+      // Settled, not merely unarmed: `notifyWindowLoaded` must stay a no-op
+      // and no poll or deadline timer may ever be created.
+      if (!this.warmupSettled) {
+        this.warmupSettled = true;
+        console.log(
+          '[BootCoordinator] Embedder warmup skipped — e2e harness (PTAH_E2E=1)',
+        );
+      }
+      return;
+    }
     this.warmupRun = run;
     if (this.warmupArmed) return;
     this.warmupArmed = true;

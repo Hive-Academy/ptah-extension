@@ -144,6 +144,7 @@ export async function registerPostWindow(
       gateway,
       bridge,
       coordinator,
+      skipStart: process.env['PTAH_E2E'] === '1',
       // Resolved lazily, as it was inside the old IIFE: this phase must not
       // fail activation because the webview manager is not registered yet.
       broadcast: (type, payload) =>

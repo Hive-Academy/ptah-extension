@@ -1,0 +1,30 @@
+{
+  "taskId": "TASK_2026_389",
+  "round": 1,
+  "pass": false,
+  "defects": [
+    {
+      "id": 1,
+      "file": ".ptah/specs/TASK_2026_389/context.md",
+      "line": 275,
+      "severity": "major",
+      "scenario": "context.md's 'Scope for this task' lists four in-scope bullets. The fourth — 'Audit (not necessarily change) the 3 mocked git specs and any other workspace-shaped spec family (harness/*, tasks/*) for whether their mocked-vs-real fixture choice matches what they claim to test; file findings, only change fixtures where the mismatch is real' — is entirely unaddressed. `git diff --stat` shows zero changes under apps/ptah-electron-e2e/src/specs/git, /harness or /tasks, and implementation-notes.md (read in full) never mentions this audit, its findings, or a reason to skip it — unlike the CLAUDE.md->README.md substitution, which IS called out under an explicit 'Deviation' heading. A reviewer cannot tell whether the audit was silently dropped or forgotten; either way the deliverable ('file findings') this bullet explicitly asks for does not exist anywhere in the worktree."
+    },
+    {
+      "id": 2,
+      "file": ".ptah/specs/TASK_2026_389/implementation-notes.md",
+      "line": 53,
+      "severity": "moderate",
+      "scenario": "The implementer's own verification run (documented under 'Measurement') shows 3 of 4 actual `smoke.spec.ts` boots FAILED with a 30 s `page.waitForURL` timeout in `electron-launcher.ts:44`, stalling before the warmup/gateway/membership gates this task adds are ever reached (none of the three skip log lines appear in the failing boots). Only 1 of 4 boots reached post-window and completed in 39.1 s. The stall is attributed to a separately filed, related task (TASK_2026_556_d12d, confirmed to exist and reference TASK_2026_389), so it is not this diff's defect to fix — but it means the task's real-world payoff (faster, less-flaky e2e boots) is proven for only 1 of 4 sampled runs, and the PR's own evidence undercuts its headline claim without that caveat being surfaced anywhere outside a buried 'Open concerns' note."
+    },
+    {
+      "id": 3,
+      "file": "apps/ptah-electron/src/activation/wire-runtime.boot-order.spec.ts",
+      "line": 215,
+      "severity": "minor",
+      "scenario": "The new post-window.ts skipStart wiring test ('skips the start under the e2e harness') only asserts `POST_WINDOW_SOURCE.toContain(\"skipStart: process.env['PTAH_E2E'] === '1',\")` — a source-text pin, not a behavioural test — because post-window.ts cannot be imported under ts-jest (documented in start-messaging-gateway.ts:14-17, TS1343 from `import.meta.url`). This matches the pre-existing pattern for other post-window.ts wiring checks in the same file (e.g. line 212's `coordinator,` check), so it is not a new smell, but combined with the equivalent main.ts source-text pin in boot-coordinator.spec.ts:490-494, neither of the two call-site wirings for skipWarmup/skipStart has an executable end-to-end check that PTAH_E2E really reaches the constructor/option at runtime — only that the literal string exists in the file."
+    }
+  ],
+  "testsRan": "npx jest --config apps/ptah-electron/jest.config.ts boot-coordinator.spec.ts start-messaging-gateway.spec.ts bootstrap.network.spec.ts wire-runtime.boot-order.spec.ts (4 suites, 89/89 passed); npx jest --config apps/ptah-electron/jest.config.ts boot-order.spec.ts main.quit-path.spec.ts (3 suites, 62/62 passed, regression check for BootCoordinator constructor signature change)",
+  "mentorNote": "The gating logic itself is sound and I could not break it: PTAH_E2E is set only by electron-launcher.ts (confirmed showcase-launcher.ts explicitly excludes it with a comment), skipWarmup correctly marks the barrier settled with no timer ever created and no poll resurrection even if a curator later appears (boot-coordinator.ts:591-602, matches abort()'s existing settled-not-unarmed contract), skipStart still resolves and stores refs.messagingGateway/chatBridge so gateway:status and the on-demand gateway:start RPC handler (gateway-rpc.handlers.ts:249-268, calls gateway.start() itself) keep working, and the membership skip is provably safe because license:getStatus calls its own verifyLicense() and startMembershipVerification was already fire-and-forget with no consumer awaiting a 'primed' state (bootstrap.ts:54-70 docstring, unchanged). Production safety is real, not asserted: I traced every PTAH_E2E setter in apps/ and found only electron-launcher.ts sets it to '1'. The blocking gap is procedural, not logical: item 4 of context.md's explicit scope ('Scope for this task') was never attempted, and the implementer's own measurement — 3 of 4 e2e boots still failing after the change — was disclosed but its implication (the task's stated goal is largely unproven) wasn't surfaced as a caveat where a reviewer would see it first. Fix defect 1 before this can pass; defect 2 is a transparency/scoping question the task owner should resolve explicitly (either accept the follow-up task as sufficient cover, or add the caveat to context.md's summary); defect 3 is informational only."
+}

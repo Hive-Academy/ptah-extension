@@ -64,10 +64,21 @@ export interface BootstrapResult {
  *
  * Never rejects: the caller starts it with `void` and has nowhere to put a
  * rejection.
+ *
+ * `skip` is set from `PTAH_E2E=1`: a harness boot has no licence to prime, and
+ * the specs that read licence state call `license:getStatus`, which runs its
+ * own `verifyLicense()` (TASK_2026_389).
  */
 export async function startMembershipVerification(
   container: DependencyContainer,
+  options: { skip?: boolean } = {},
 ): Promise<void> {
+  if (options.skip === true) {
+    console.log(
+      '[Ptah Electron] Membership status priming skipped — e2e harness (PTAH_E2E=1)',
+    );
+    return;
+  }
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
       verifyLicense: () => Promise<{
@@ -318,7 +329,9 @@ export async function bootstrapElectron(
   // migration and `restoreWorkspaces()` above stay awaited because the renderer
   // reads `workspaceRoot` out of `get-startup-config` the moment it loads; this
   // one feeds a card that has always had an unresolved state.
-  void startMembershipVerification(container);
+  void startMembershipVerification(container, {
+    skip: process.env['PTAH_E2E'] === '1',
+  });
 
   const ipcBridge = new IpcBridge(container, () => {
     const win = getMainWindow();

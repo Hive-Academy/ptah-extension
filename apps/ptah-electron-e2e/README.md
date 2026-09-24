@@ -39,6 +39,31 @@ cd apps/ptah-electron-e2e && npx playwright test --ui
 The Electron child process inherits `NODE_ENV=test` and `PTAH_E2E=1` so
 features that gate on E2E mode can opt in.
 
+### Never run two `e2e` invocations at once
+
+Do not start a second `nx run ptah-electron-e2e:e2e` (or `:ci` / `:nightly`)
+while one is still running — not in another terminal, not from another agent
+or worktree on the same machine. The suite is serial by design (`workers: 1`):
+the app owns global state (DI container, file handles, sockets), and the
+per-launch `userDataDir` / `PTAH_DB_PATH` isolation does not stop two runs from
+contending for CPU, the single-instance lock and the shared `dist/` output.
+Nothing in the harness enforces this; two runs slow each other into timeouts.
+
+### What `PTAH_E2E=1` switches off
+
+Each gate skips work no spec asserts on. A spec that genuinely needs one of
+them passes the opt-back-in variable through `launchPtah({ env: { ... } })`.
+
+| Subsystem skipped                                                       | Where                                                     | Opt back in                     |
+| ----------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------- |
+| GitHub Releases update check                                            | `ptah-electron/src/services/update/update-manager.ts`     | `PTAH_E2E_ALLOW_UPDATE_CHECK=1` |
+| Embedder warmup barrier (30 s wait on a no-workspace boot)              | `ptah-electron/src/activation/boot-coordinator.ts`        | none — no spec needs it         |
+| Messaging gateway + chat bridge start (`gateway:*` RPC still answers)   | `ptah-electron/src/activation/start-messaging-gateway.ts` | none — no spec needs it         |
+| Membership/licence priming at boot (`license:getStatus` still verifies) | `ptah-electron/src/activation/bootstrap.ts`               | none — no spec needs it         |
+
+Add an opt-back-in variable, mirroring `PTAH_E2E_ALLOW_UPDATE_CHECK`, only
+when a spec actually depends on one of these.
+
 ## Adding new specs
 
 1. Drop a `*.spec.ts` file under `src/specs/`.
