@@ -274,14 +274,29 @@ test.describe('Git dock', () => {
       exact: true,
     });
 
-    await ui.mockRpc({
-      'git:diffFile': gitDiffFileMock({
+    // One path-keyed mock, registered before any tab opens: an already-open
+    // tab can re-request its diff (e.g. on a refresh) and must get its own
+    // payload, never whatever static reply was installed most recently. The
+    // resolver runs in the main process, so the table is embedded rather
+    // than closed over.
+    const diffByPath = {
+      'alpha.ts': gitDiffFileMock({
         path: 'alpha.ts',
         comparison: 'worktree',
         original: "export const value = 'alpha original';\n",
         modified: "export const value = 'alpha modified';\n",
         snapshotToken: 'alpha-snapshot',
       }),
+      'beta.ts': gitDiffFileMock({
+        path: 'beta.ts',
+        comparison: 'worktree',
+        original: "export const value = 'beta original';\n",
+        modified: "export const value = 'beta modified';\n",
+        snapshotToken: 'beta-snapshot',
+      }),
+    };
+    await ui.mockRpc({
+      'git:diffFile': `(params) => (${JSON.stringify(diffByPath)})[params.path]`,
     });
     await changedFiles
       .getByRole('button', { name: 'Open diff for alpha.ts', exact: true })
@@ -296,15 +311,6 @@ test.describe('Git dock', () => {
       page.locator('ptah-diff-view .view-lines').last(),
     ).toContainText('alpha modified');
 
-    await ui.mockRpc({
-      'git:diffFile': gitDiffFileMock({
-        path: 'beta.ts',
-        comparison: 'worktree',
-        original: "export const value = 'beta original';\n",
-        modified: "export const value = 'beta modified';\n",
-        snapshotToken: 'beta-snapshot',
-      }),
-    });
     await changedFiles
       .getByRole('button', { name: 'Open diff for beta.ts', exact: true })
       .click();
