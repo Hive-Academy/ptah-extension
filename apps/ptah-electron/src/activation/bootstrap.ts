@@ -215,7 +215,6 @@ export async function bootstrapElectron(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    await runCursorApiKeyMigration(container);
     // Publish user-defined providers to the shared registry cache BEFORE
     // anything resolves a provider by id — until this runs,
     // getAnthropicProvider() knows only the built-ins.
@@ -241,6 +240,8 @@ export async function bootstrapElectron(
         : String(settingsError),
     );
   }
+  // Run outside the settings try so settings failures cannot skip key migration.
+  await runCursorApiKeyMigration(container);
   const sentryDsn = typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
   if (sentryDsn) {
     const sentryService = container.resolve<SentryService>(

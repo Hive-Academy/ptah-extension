@@ -198,6 +198,7 @@ export class CursorCliAdapter implements CliAdapter {
       const key = this.resolveApiKey ? await this.resolveApiKey() : undefined;
       return key && key.trim() ? key.trim() : undefined;
     } catch {
+      // degradation-audit: optional-capability - resolver failure means no key configured; error detail may contain secrets.
       this.logger?.debug(
         '[CursorCliAdapter] Cursor API key resolver failed; treating as no key',
       );
@@ -308,6 +309,9 @@ export class CursorCliAdapter implements CliAdapter {
 
     const runTurn = async (prompt: string): Promise<number> => {
       const apiKey = await this.resolveCursorApiKey();
+      if (abortController.signal.aborted) {
+        return 1;
+      }
       if (!apiKey) {
         const msg =
           'Cursor API key not found. Set CURSOR_API_KEY or save the key in Ptah settings (stored in the secrets store).';
@@ -347,6 +351,7 @@ export class CursorCliAdapter implements CliAdapter {
         }
 
         if (abortController.signal.aborted) {
+          agent.close();
           return 1;
         }
 

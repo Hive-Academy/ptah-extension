@@ -15,11 +15,14 @@ const BODY = SOURCE.slice(
 );
 
 describe('bootstrapVscode — Cursor key migration', () => {
-  it('runs the Cursor key migration right after the settings migrations', () => {
+  it('runs the Cursor key migration after settings migrations and their catch', () => {
     const migrations = BODY.indexOf('await migrationRunner.runMigrations()');
+    const settingsCatch = BODY.indexOf('catch (settingsError)');
     const cursor = BODY.indexOf('await runCursorApiKeyMigration(diContainer)');
 
     expect(migrations).toBeGreaterThan(-1);
     expect(cursor).toBeGreaterThan(migrations);
+    expect(settingsCatch).toBeGreaterThan(migrations);
+    expect(cursor).toBeGreaterThan(settingsCatch);
   });
 });

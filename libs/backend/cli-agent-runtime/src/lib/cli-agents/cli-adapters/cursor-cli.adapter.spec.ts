@@ -441,6 +441,60 @@ describe('CursorCliAdapter', () => {
       );
     });
 
+    it.each([undefined, 'agent-resumed'])(
+      'does not create or resume an agent when aborted during key resolution (resumeSessionId: %s)',
+      async (resumeSessionId) => {
+        delete process.env['CURSOR_API_KEY'];
+        let releaseKey!: (key: string) => void;
+        resolveKey.mockImplementationOnce(
+          () =>
+            new Promise<string>((resolve) => {
+              releaseKey = resolve;
+            }),
+        );
+
+        const handle = await adapter.runSdk({
+          ...defaultOptions,
+          resumeSessionId,
+        });
+        expect(resolveKey).toHaveBeenCalledTimes(1);
+        handle.abort.abort();
+        releaseKey('secret-key');
+
+        await expect(handle.done).resolves.toBe(1);
+        expect(mockCreate).not.toHaveBeenCalled();
+        expect(mockResume).not.toHaveBeenCalled();
+        expect(mockSend).not.toHaveBeenCalled();
+      },
+    );
+
+    it('closes the created agent when aborted during Agent.create', async () => {
+      let releaseCreate!: () => void;
+      let notifyCreateStarted!: () => void;
+      const createStarted = new Promise<void>((resolve) => {
+        notifyCreateStarted = resolve;
+      });
+      const createPending = new Promise<void>((resolve) => {
+        releaseCreate = resolve;
+      });
+      mockCreate.mockImplementationOnce(async () => {
+        notifyCreateStarted();
+        await createPending;
+        return { agentId: 'agent-abc', send: mockSend, close: mockClose };
+      });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      await createStarted;
+      handle.abort.abort();
+      expect(mockClose).not.toHaveBeenCalled();
+      releaseCreate();
+
+      await expect(handle.done).resolves.toBe(1);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockClose).toHaveBeenCalledTimes(1);
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
     it('cancels the run on abort and resolves done with 1', async () => {
       const handle = await adapter.runSdk(defaultOptions);
       handle.onOutput(() => {

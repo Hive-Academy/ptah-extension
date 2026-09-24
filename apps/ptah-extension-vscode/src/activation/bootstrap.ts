@@ -89,8 +89,8 @@ export async function bootstrapVscode(
   );
   const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
   DIContainer.setup(context);
+  const diContainer = DIContainer.getContainer();
   try {
-    const diContainer = DIContainer.getContainer();
     const wsProvider = diContainer.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
@@ -106,7 +106,6 @@ export async function bootstrapVscode(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    await runCursorApiKeyMigration(diContainer);
     // Publish user-defined providers to the shared registry cache BEFORE
     // anything resolves a provider by id — until this runs,
     // getAnthropicProvider() knows only the built-ins.
@@ -132,6 +131,8 @@ export async function bootstrapVscode(
         : String(settingsError),
     );
   }
+  // Run outside the settings try so settings failures cannot skip key migration.
+  await runCursorApiKeyMigration(diContainer);
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Activating Ptah extension...', {
     tier: licenseStatus.tier,

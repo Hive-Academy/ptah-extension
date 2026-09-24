@@ -73,3 +73,6 @@ The Cursor CLI is not installed on this machine, so there is no live end-to-end 
 - Cursor `runTurn` SDK error text could carry the key (pre-existing, found in the Batch B review).
 - The UI read-back compares `cursorApiKeyConfigured` with the saved value. With `CURSOR_API_KEY`
   set, clearing the stored key still reads back `true`.
+- `PtahFileSettingsManager.persist` logs and swallows write errors for every key (PR 585 comment
+  4090516481). A failed removal of the plain Cursor value is retried by the next startup
+  migration. A rethrow would change every settings writer, so it needs its own task.
