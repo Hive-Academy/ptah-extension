@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 24/30
+Total tasks: 65 | Batches: 30 | Complete: 25/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 20.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 20, 23.
 In progress: none.
-In progress: Batches 19, 22, 23. Next: 21 (after 19), 24.
+In progress: Batches 19, 22, 24. Next: 21 (after 19), then 25.
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1176,7 +1176,7 @@ Edge cases:
 
 - Line count ≤700 reported; reviewer: code-logic-reviewer (install path unchanged)
 
-## Batch 23: skills.sh browser — narrow and restyle (C11 + C13) — PENDING
+## Batch 23: skills.sh browser — narrow and restyle (C11 + C13) — COMPLETE (47f546097)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1185,7 +1185,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batches 7d, 17
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat-ui` then `npx nx run-many -t typecheck -p @ptah-extension/marketplace`; `git diff --numstat`
 
-### Task 23.1: Remove Installed view; results to `CatalogCard`s — PENDING
+### Task 23.1: Remove Installed view; results to `CatalogCard`s — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\chat-ui\src\lib\molecules\setup-plugins\skill-sh-browser.component.ts`, `...\skill-sh-browser.component.spec.ts`
 - Plan reference: implementation-plan.md C11, C13 row "Community" (:544)
@@ -1197,6 +1197,9 @@ Edge cases:
 ### Batch 23 verification
 
 - Line count ≤700 reported; reviewer: code-logic-reviewer
+- Result: commit 47f546097. `skill-sh-browser.component.ts` 742 → 560 lines; NEW `skill-sh-browser.component.spec.ts` (13 tests; no spec existed). Executor frontend-developer in worktree `task533-b23` (base `43248ca81`). `lint,typecheck,test -p @ptah-extension/chat-ui @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (2 projects). Reviews: logic APPROVED 7/10, then 8/10 after round 1 (Remove, refused/failed removal, debounced search and clear-query cases added); style APPROVED 9/10 (`enrichWithFormattedInstalls` → `withDisplayFields`). `data-testid` count 0 → 0. Report `batch-23-report.md` (untracked).
+- Accepted deviations: Remove kept on installed result cards (it existed on browse cards before; the host still listens for `skillUninstalled`); `refreshTrigger` kept; search field `type="search"`; cards show only the source repo.
+- Follow-ups: `refreshTrigger` is never bound (`skill-source-host.component.ts`); `performSearch` has no request-generation guard (two in-flight searches can resolve out of order; pre-existing). The Electron tour scene (`marketplace-tour.scene.ts`) comment and its `.rounded-lg.border` browse-row selector must move to the new `role="listitem"` cards once Batch 19 is committed (Batch 19 follow-up).
 
 ## Batch 24: Ptah plugins panel restyle, everywhere (C13, D-2b) — PENDING
 
