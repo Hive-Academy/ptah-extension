@@ -8,19 +8,10 @@ import {
 import {
   ArrowRight,
   CircleAlert,
-  KeyRound,
-  LoaderCircle,
   LucideAngularModule,
-  Plug,
   RotateCw,
-  Unplug,
-  X,
 } from 'lucide-angular';
-import {
-  ptahConnectorCategoryLabel,
-  ptahConnectorKindHint,
-  type PtahConnector,
-} from '@ptah-extension/shared';
+import type { PtahConnector } from '@ptah-extension/shared';
 import {
   BrandMarkComponent,
   CatalogCardComponent,
@@ -32,8 +23,12 @@ import type {
   ConnectorLink,
   ConnectorStatus,
 } from '../data/connector-links.store';
-import type { ProviderStatus } from '../data/provider-row';
-import { StatusPillComponent } from './status-pill.component';
+import { ConnectorCardActionsComponent } from './connector-card-actions.component';
+import { ConnectorCardStatusComponent } from './connector-card-status.component';
+import {
+  connectorCardState,
+  type ConnectorCardAction,
+} from './connector-card-state';
 
 /** How many connectors the featured row shows (plan C9). */
 export const FEATURED_CONNECTOR_LIMIT = 6;
@@ -57,8 +52,8 @@ export interface FeaturedConnectorView {
 }
 
 /**
- * The store's `actionError`, pinned to the connector the page last acted on,
- * so the message shows on that card and nowhere else.
+ * A failed action, pinned to the connector it was run on, so the message
+ * shows on that card and nowhere else.
  */
 export interface ConnectorActionErrorView {
   readonly connectorId: string;
@@ -67,9 +62,6 @@ export interface ConnectorActionErrorView {
 
 /** Load state of the connection picture the featured row depends on. */
 export type FeaturedConnectorsState = 'loading' | 'ready' | 'error';
-
-/** The primary actions a connector card offers (plan C9). */
-export type ConnectorCardAction = 'connect' | 'authorize' | 'disconnect';
 
 /** What {@link FeaturedConnectorsComponent.action} emits. */
 export interface ConnectorActionRequest {
@@ -99,93 +91,16 @@ export function selectFeaturedConnectors(
   return featured;
 }
 
-/**
- * The status pill word for a connector state, through the shared
- * `ProviderStatus` vocabulary so a connector and an installed row read the
- * same. `not-connected` has no pill: the Connect button already says it,
- * and "Disconnected" would claim a connection that never existed.
- */
-export function connectorPillStatus(
-  status: ConnectorStatus,
-): ProviderStatus | null {
-  switch (status) {
-    case 'connected':
-      return 'connected';
-    case 'needs-auth':
-      return 'needs-auth';
-    case 'error':
-      return 'failed';
-    case 'not-connected':
-      return null;
-  }
-}
-
-/** A card as the template draws it. */
-interface FeaturedCardView {
-  readonly connector: PtahConnector;
-  readonly meta: readonly string[];
-  readonly pill: ProviderStatus | null;
-  readonly detail: string | null;
-  readonly activity: 'busy' | 'polling' | null;
-  readonly error: string | null;
-  readonly managedElsewhere: boolean;
-  readonly canConnect: boolean;
-  readonly canAuthorize: boolean;
-  readonly canDisconnect: boolean;
-  readonly locked: boolean;
-  readonly hasStatus: boolean;
-}
-
-function toCardView(
-  item: FeaturedConnectorView,
-  actionError: ConnectorActionErrorView | null,
-): FeaturedCardView {
-  const { connector, status } = item;
-  const pill = connectorPillStatus(status);
-  const detailText = item.detail?.trim() ?? '';
-  const detail =
-    status === 'error' && detailText.length > 0 ? detailText : null;
-  const activity = item.polling ? 'polling' : item.busy ? 'busy' : null;
-  const errorText =
-    actionError?.connectorId === connector.id ? actionError.message.trim() : '';
-  const error = errorText.length > 0 ? errorText : null;
-  const managedElsewhere = item.managedElsewhere && status !== 'not-connected';
-  return {
-    connector,
-    meta: [
-      ptahConnectorCategoryLabel(connector.category),
-      ptahConnectorKindHint(connector.kind),
-    ],
-    pill,
-    detail,
-    activity,
-    error,
-    managedElsewhere,
-    canConnect: status === 'not-connected',
-    canAuthorize: status === 'needs-auth' || status === 'error',
-    canDisconnect: status !== 'not-connected' && !item.managedElsewhere,
-    locked: activity !== null,
-    hasStatus:
-      pill !== null ||
-      detail !== null ||
-      activity !== null ||
-      error !== null ||
-      managedElsewhere,
-  };
-}
-
 let instanceCounter = 0;
 
 /**
  * The featured connectors row of the Connectors storefront (plan C8/C9).
  *
  * Each connector is a `ptah-catalog-card` — there is no separate connector
- * card component — with its brand projected as `ptah-brand-mark`, its state
- * as `ptah-status-pill`, and its actions (Connect, Authorize, Disconnect) as
- * buttons that emit {@link action}. Activating the card emits
- * {@link details}. Everything transient — an action in flight, a Smithery
- * setup poll, the last action's error — renders in the card's
- * `[card-status]` slot, and every action button is disabled while one runs.
+ * card component — with its brand projected as `ptah-brand-mark` and its
+ * state and actions drawn by the shared `ptah-connector-card-status` and
+ * `ptah-connector-card-actions` (the same content the Connectors grid and
+ * the connector detail use). Activating the card emits {@link details}.
  *
  * States: `loading` renders skeleton cards; `error` renders the message with
  * a Retry output; `ready` with no items renders an empty note with a
@@ -203,7 +118,8 @@ let instanceCounter = 0;
     CatalogCardComponent,
     CatalogCardSkeletonComponent,
     CatalogGridComponent,
-    StatusPillComponent,
+    ConnectorCardStatusComponent,
+    ConnectorCardActionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
@@ -311,149 +227,24 @@ let instanceCounter = 0;
                     [brandSlug]="card.connector.brandSlug"
                     [label]="card.connector.label"
                   />
-
                   @if (card.hasStatus) {
-                    <div
+                    <ptah-connector-card-status
                       card-status
-                      class="flex flex-col gap-2"
-                      data-testid="featured-card-status"
-                    >
-                      @if (card.pill || card.managedElsewhere) {
-                        <div class="flex flex-wrap items-center gap-2">
-                          @if (card.pill; as pill) {
-                            <ptah-status-pill [status]="pill" />
-                          }
-                          @if (card.managedElsewhere) {
-                            <span
-                              class="text-[11px] text-base-content-muted"
-                              data-testid="featured-card-managed"
-                              >Managed outside Ptah</span
-                            >
-                          }
-                        </div>
-                      }
-                      @if (card.detail; as detail) {
-                        <p
-                          class="m-0 text-xs text-base-content-muted"
-                          data-testid="featured-card-detail"
-                        >
-                          {{ detail }}
-                        </p>
-                      }
-                      @if (card.activity; as activity) {
-                        <p
-                          class="m-0 flex items-center gap-1.5 text-xs text-base-content-muted"
-                          role="status"
-                          [attr.data-activity]="activity"
-                          data-testid="featured-card-activity"
-                        >
-                          <lucide-angular
-                            [img]="SpinnerIcon"
-                            class="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-                            aria-hidden="true"
-                          />
-                          {{
-                            activity === 'polling'
-                              ? 'Finish the setup in your browser…'
-                              : 'Working…'
-                          }}
-                        </p>
-                      }
-                      @if (card.error; as message) {
-                        <div
-                          class="flex items-start gap-1.5 rounded-lg border border-error/40 bg-error/10 px-2 py-1.5 text-xs text-base-content"
-                          role="alert"
-                          data-testid="featured-card-error"
-                        >
-                          <lucide-angular
-                            [img]="AlertIcon"
-                            class="mt-px h-3.5 w-3.5 shrink-0 text-error"
-                            aria-hidden="true"
-                          />
-                          <span class="min-w-0 flex-1 break-words">{{
-                            message
-                          }}</span>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs h-5 min-h-0 w-5 p-0"
-                            aria-label="Dismiss error"
-                            data-testid="featured-card-error-dismiss"
-                            (click)="dismissError.emit()"
-                          >
-                            <lucide-angular
-                              [img]="DismissIcon"
-                              class="h-3 w-3"
-                              aria-hidden="true"
-                            />
-                          </button>
-                        </div>
-                      }
-                    </div>
+                      [card]="card"
+                      (dismissError)="dismissError.emit(card.connector.id)"
+                    />
                   }
-
-                  @if (
-                    card.canConnect || card.canAuthorize || card.canDisconnect
-                  ) {
-                    <div
+                  @if (card.hasActions) {
+                    <ptah-connector-card-actions
                       card-actions
-                      class="flex flex-wrap items-center justify-end gap-2"
-                    >
-                      @if (card.canDisconnect) {
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs gap-1 text-error"
-                          [disabled]="card.locked"
-                          [attr.aria-label]="
-                            'Disconnect ' + card.connector.label
-                          "
-                          data-action="disconnect"
-                          (click)="emitAction('disconnect', card.connector)"
-                        >
-                          <lucide-angular
-                            [img]="DisconnectIcon"
-                            class="h-3 w-3"
-                            aria-hidden="true"
-                          />
-                          Disconnect
-                        </button>
-                      }
-                      @if (card.canAuthorize) {
-                        <button
-                          type="button"
-                          class="btn btn-primary btn-xs gap-1"
-                          [disabled]="card.locked"
-                          [attr.aria-label]="
-                            'Authorize ' + card.connector.label
-                          "
-                          data-action="authorize"
-                          (click)="emitAction('authorize', card.connector)"
-                        >
-                          <lucide-angular
-                            [img]="AuthorizeIcon"
-                            class="h-3 w-3"
-                            aria-hidden="true"
-                          />
-                          Authorize
-                        </button>
-                      }
-                      @if (card.canConnect) {
-                        <button
-                          type="button"
-                          class="btn btn-primary btn-xs gap-1"
-                          [disabled]="card.locked"
-                          [attr.aria-label]="'Connect ' + card.connector.label"
-                          data-action="connect"
-                          (click)="emitAction('connect', card.connector)"
-                        >
-                          <lucide-angular
-                            [img]="ConnectIcon"
-                            class="h-3 w-3"
-                            aria-hidden="true"
-                          />
-                          Connect
-                        </button>
-                      }
-                    </div>
+                      [card]="card"
+                      (action)="
+                        action.emit({
+                          action: $event,
+                          connector: card.connector,
+                        })
+                      "
+                    />
                   }
                 </ptah-catalog-card>
               }
@@ -468,11 +259,6 @@ export class FeaturedConnectorsComponent {
   protected readonly ArrowRightIcon = ArrowRight;
   protected readonly AlertIcon = CircleAlert;
   protected readonly RetryIcon = RotateCw;
-  protected readonly SpinnerIcon = LoaderCircle;
-  protected readonly DismissIcon = X;
-  protected readonly ConnectIcon = Plug;
-  protected readonly AuthorizeIcon = KeyRound;
-  protected readonly DisconnectIcon = Unplug;
 
   /** DOM id of the section heading; the section is labelled by it. */
   protected readonly headingId = `pfc-${(instanceCounter++).toString(36)}-heading`;
@@ -492,10 +278,13 @@ export class FeaturedConnectorsComponent {
   /** The load failure text shown in the `error` state. */
   public readonly loadError = input<string | null>(null);
 
-  /** The last action's failure, pinned to one connector; `null` shows none. */
-  public readonly actionError = input<ConnectorActionErrorView | null>(null);
+  /**
+   * Failed actions, each pinned to one connector; a card shows the error of
+   * its own connector only.
+   */
+  public readonly actionErrors = input<readonly ConnectorActionErrorView[]>([]);
 
-  /** Connect, Authorize or Disconnect was pressed on a card. */
+  /** Connect, Authorize or Disconnect was pressed on an unlocked card. */
   public readonly action = output<ConnectorActionRequest>();
 
   /** A card was activated: open `connectors/:id`. */
@@ -504,28 +293,26 @@ export class FeaturedConnectorsComponent {
   /** Retry was pressed in the `error` state. */
   public readonly retry = output<void>();
 
-  /** The inline action error was dismissed. */
-  public readonly dismissError = output<void>();
+  /** The inline action error of this connector id was dismissed. */
+  public readonly dismissError = output<string>();
 
   /** "Browse all connectors" was pressed. */
   public readonly browseAll = output<void>();
 
   protected readonly cards = computed(() => {
-    const actionError = this.actionError();
-    return this.items().map((item) => toCardView(item, actionError));
+    const errors = new Map(
+      this.actionErrors().map((e) => [e.connectorId, e.message] as const),
+    );
+    return this.items().map((item) =>
+      connectorCardState(item.connector, {
+        ...item,
+        error: errors.get(item.connector.id) ?? null,
+      }),
+    );
   });
 
   protected readonly errorText = computed(() => {
     const text = this.loadError()?.trim() ?? '';
     return text.length > 0 ? text : 'Could not load the connection status.';
   });
-
-  protected emitAction(
-    action: ConnectorCardAction,
-    connector: PtahConnector,
-  ): void {
-    const item = this.items().find((i) => i.connector.id === connector.id);
-    if (item === undefined || item.busy || item.polling) return;
-    this.action.emit({ action, connector });
-  }
 }

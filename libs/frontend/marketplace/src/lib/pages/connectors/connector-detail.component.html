@@ -1,0 +1,173 @@
+@if (card(); as card) {
+  <article class="flex flex-col gap-6" [attr.aria-labelledby]="headingId">
+    <header class="flex min-w-0 items-start gap-4">
+      <ptah-brand-mark
+        size="lg"
+        [brandSlug]="card.connector.brandSlug"
+        [label]="card.connector.label"
+      />
+      <div class="min-w-0 flex-1">
+        @if (titleIsPageHeading()) {
+          <h1
+            #heading
+            [id]="headingId"
+            tabindex="-1"
+            class="text-2xl font-bold tracking-tight text-base-content focus-visible:outline-none"
+            data-testid="connector-detail-heading"
+          >
+            {{ card.connector.label }}
+          </h1>
+        } @else {
+          <h2
+            #heading
+            [id]="headingId"
+            tabindex="-1"
+            class="text-lg font-semibold text-base-content focus-visible:outline-none"
+            data-testid="connector-detail-heading"
+          >
+            {{ card.connector.label }}
+          </h2>
+        }
+        <p class="mt-1 text-xs text-base-content-muted">
+          {{ card.meta.join(' · ') }}
+        </p>
+      </div>
+    </header>
+
+    <p
+      class="m-0 text-sm leading-relaxed text-base-content"
+      data-testid="connector-detail-description"
+    >
+      {{ card.connector.description }}
+    </p>
+
+    @if (card.hasStatus) {
+      <ptah-connector-card-status
+        [card]="card"
+        [smitheryKeyLink]="smitheryKeyLink"
+        (retry)="retry()"
+        (dismissError)="tracker.dismissError(card.connector.id)"
+      />
+    }
+
+    @if (card.hasActions) {
+      <ptah-connector-card-actions
+        size="sm"
+        align="start"
+        [card]="card"
+        (action)="onAction($event)"
+      />
+    }
+
+    <dl
+      class="m-0 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-base-300 bg-base-200 p-4 text-sm"
+      data-testid="connector-detail-facts"
+    >
+      @for (fact of facts(); track fact.label) {
+        <dt class="text-base-content-muted">{{ fact.label }}</dt>
+        <dd class="m-0 min-w-0 text-base-content" [attr.data-fact]="fact.label">
+          @if (fact.href; as href) {
+            <a
+              class="link link-primary inline-flex max-w-full items-center gap-1 break-all"
+              [href]="href"
+              target="_blank"
+              rel="noopener noreferrer"
+              >{{ fact.value }}
+              <lucide-angular
+                [img]="ExternalIcon"
+                class="h-3 w-3 shrink-0"
+                aria-hidden="true"
+              />
+              <span class="sr-only">(opens in a new window)</span></a
+            >
+          } @else if (fact.code) {
+            <code class="break-all text-xs">{{ fact.value }}</code>
+          } @else {
+            {{ fact.value }}
+          }
+        </dd>
+      }
+    </dl>
+
+    @if (card.connector.kind === 'oauth-app') {
+      <section
+        #setupSection
+        class="flex flex-col gap-4 focus-visible:outline-none"
+        tabindex="-1"
+        [attr.aria-labelledby]="setupHeadingId"
+        data-testid="connector-detail-setup"
+      >
+        @if (titleIsPageHeading()) {
+          <h2
+            [id]="setupHeadingId"
+            class="text-base font-semibold text-base-content"
+          >
+            Set up {{ card.connector.label }}
+          </h2>
+        } @else {
+          <h3
+            [id]="setupHeadingId"
+            class="text-sm font-semibold text-base-content"
+          >
+            Set up {{ card.connector.label }}
+          </h3>
+        }
+        @if (setupSteps().length > 0) {
+          <ol
+            class="m-0 list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-base-content-muted"
+            data-testid="connector-setup-steps"
+          >
+            @for (step of setupSteps(); track $index) {
+              <li>{{ step }}</li>
+            }
+          </ol>
+        }
+        <p class="m-0 text-xs text-base-content-muted">
+          Then paste the app's client id and secret under Advanced and press
+          Connect.
+        </p>
+        <ptah-oauth-surface
+          (serverConnected)="onFormChanged()"
+          (serverDisconnected)="onFormChanged()"
+        />
+      </section>
+    }
+  </article>
+} @else {
+  <section
+    class="flex flex-col items-start gap-3"
+    [attr.aria-labelledby]="headingId"
+    data-testid="connector-detail-not-found"
+  >
+    @if (titleIsPageHeading()) {
+      <h1
+        #heading
+        [id]="headingId"
+        tabindex="-1"
+        class="text-2xl font-bold text-base-content focus-visible:outline-none"
+      >
+        Connector not found
+      </h1>
+    } @else {
+      <h2
+        #heading
+        [id]="headingId"
+        tabindex="-1"
+        class="text-lg font-semibold text-base-content focus-visible:outline-none"
+      >
+        Connector not found
+      </h2>
+    }
+    <p class="m-0 text-sm text-base-content-muted">
+      No connector in the catalogue has the id "{{ connectorId() ?? '' }}".
+    </p>
+    <a
+      class="btn btn-ghost btn-sm gap-1 border border-base-300"
+      [routerLink]="connectorsLink"
+      data-testid="connector-detail-back"
+    >
+      <lucide-angular [img]="BackIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+      Back to connectors
+    </a>
+  </section>
+}

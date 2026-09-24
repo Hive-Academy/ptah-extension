@@ -17,7 +17,6 @@ import type { ConnectorLink } from '../data/connector-links.store';
 import {
   FEATURED_CONNECTOR_LIMIT,
   FeaturedConnectorsComponent,
-  connectorPillStatus,
   selectFeaturedConnectors,
   type ConnectorActionErrorView,
   type ConnectorActionRequest,
@@ -72,11 +71,11 @@ function view(
       [items]="items()"
       [state]="state()"
       [loadError]="loadError()"
-      [actionError]="actionError()"
+      [actionErrors]="actionErrors()"
       (action)="actions.push($event)"
       (details)="opened.push($event.id)"
       (retry)="retries = retries + 1"
-      (dismissError)="dismissals = dismissals + 1"
+      (dismissError)="dismissed.push($event)"
       (browseAll)="browses = browses + 1"
     />
   `,
@@ -88,11 +87,13 @@ class HostComponent {
   ]);
   public readonly state = signal<FeaturedConnectorsState>('ready');
   public readonly loadError = signal<string | null>(null);
-  public readonly actionError = signal<ConnectorActionErrorView | null>(null);
+  public readonly actionErrors = signal<readonly ConnectorActionErrorView[]>(
+    [],
+  );
   public readonly actions: ConnectorActionRequest[] = [];
   public readonly opened: string[] = [];
   public retries = 0;
-  public dismissals = 0;
+  public readonly dismissed: string[] = [];
   public browses = 0;
 }
 
@@ -141,15 +142,6 @@ describe('selectFeaturedConnectors', () => {
     expect(featured.length).toBeGreaterThan(0);
     expect(featured.length).toBeLessThanOrEqual(FEATURED_CONNECTOR_LIMIT);
     expect(featured.every((c) => c.kind === 'oauth-dcr')).toBe(true);
-  });
-});
-
-describe('connectorPillStatus', () => {
-  it('maps connector states onto the shared status words', () => {
-    expect(connectorPillStatus('connected')).toBe('connected');
-    expect(connectorPillStatus('needs-auth')).toBe('needs-auth');
-    expect(connectorPillStatus('error')).toBe('failed');
-    expect(connectorPillStatus('not-connected')).toBeNull();
   });
 });
 
@@ -276,7 +268,7 @@ describe('FeaturedConnectorsComponent', () => {
       expect(
         text(
           cardStatus('gmail')?.querySelector(
-            '[data-testid="featured-card-detail"]',
+            '[data-testid="connector-card-detail"]',
           ) ?? null,
         ),
       ).toBe('Smithery reported an error for this connection.');
@@ -331,7 +323,7 @@ describe('FeaturedConnectorsComponent', () => {
       expect(
         text(
           cardStatus('gmail')?.querySelector(
-            '[data-testid="featured-card-managed"]',
+            '[data-testid="connector-card-managed"]',
           ) ?? null,
         ),
       ).toBe('Managed outside Ptah');
@@ -344,7 +336,7 @@ describe('FeaturedConnectorsComponent', () => {
         host.items.set([view(SENTRY, { status: 'needs-auth', busy: true })]),
       );
       const activity = cardStatus('sentry')?.querySelector(
-        '[data-testid="featured-card-activity"]',
+        '[data-testid="connector-card-activity"]',
       );
       expect(activity?.getAttribute('role')).toBe('status');
       expect(activity?.getAttribute('data-activity')).toBe('busy');
@@ -362,7 +354,7 @@ describe('FeaturedConnectorsComponent', () => {
         ]),
       );
       const activity = cardStatus('gmail')?.querySelector(
-        '[data-testid="featured-card-activity"]',
+        '[data-testid="connector-card-activity"]',
       );
       expect(activity?.getAttribute('data-activity')).toBe('polling');
       expect(text(activity ?? null)).toBe('Finish the setup in your browser…');
@@ -379,36 +371,35 @@ describe('FeaturedConnectorsComponent', () => {
 
     it('pins the action error to its own card, as an alert with dismiss', () => {
       update(() =>
-        host.actionError.set({
-          connectorId: 'notion',
-          message: 'Failed to connect Notion',
-        }),
+        host.actionErrors.set([
+          { connectorId: 'notion', message: 'Failed to connect Notion' },
+        ]),
       );
       expect(
         cardStatus('sentry')?.querySelector(
-          '[data-testid="featured-card-error"]',
+          '[data-testid="connector-card-error"]',
         ),
       ).toBeNull();
       const error = cardStatus('notion')?.querySelector(
-        '[data-testid="featured-card-error"]',
+        '[data-testid="connector-card-error"]',
       );
       expect(error?.getAttribute('role')).toBe('alert');
       expect(text(error ?? null)).toContain('Failed to connect Notion');
       const dismiss = error?.querySelector<HTMLButtonElement>(
-        '[data-testid="featured-card-error-dismiss"]',
+        '[data-testid="connector-card-error-dismiss"]',
       );
       expect(dismiss?.getAttribute('aria-label')).toBe('Dismiss error');
       dismiss?.click();
-      expect(host.dismissals).toBe(1);
+      expect(host.dismissed).toEqual(['notion']);
     });
 
     it('ignores a blank action error message', () => {
       update(() =>
-        host.actionError.set({ connectorId: 'sentry', message: '   ' }),
+        host.actionErrors.set([{ connectorId: 'sentry', message: '   ' }]),
       );
       expect(
         cardStatus('sentry')?.querySelector(
-          '[data-testid="featured-card-error"]',
+          '[data-testid="connector-card-error"]',
         ),
       ).toBeNull();
     });
