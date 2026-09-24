@@ -35,9 +35,12 @@ are folded into the tasks below. This file replaces the revision-1 decomposition
 - Review, every batch, both required before commit: (1) CLI lane `Glm` (ptah-cli, `ptahCliId: pc-355b645d-35af-4974-84cf-9cf961ea0164`,
   `modelTier: 'opus'`, code-logic-reviewer role) writes a "Batch N" section in `code-logic-review.md`; (2) an internal
   `code-logic-reviewer` subagent writes `batch-N-internal-review.md`. Revise cap: 2 rounds.
-- Batches run one at a time, in order, each committed on its own after both verdicts. Every batch depends on the one
-  before it: the core exports, then the remount API, then the menu component, then the shell's `data-test` hooks and
-  labels, then the e2e helper.
+- Default execution order: sequential — batches run one at a time, in order, each committed on its own after both
+  verdicts, each depending on the one before it: the core exports, then the remount API, then the menu component, then
+  the shell's `data-test` hooks and labels, then the e2e helper. Two parallel exceptions are permitted, both recorded
+  above: Batches 2 and 3 were started together before Batch 1's commit (both depend only on Batch 1's verified
+  exports; each still commits on its own, in batch order), and Batches 6 and 7 may run as two parallel `codex` lanes
+  (disjoint file lists; commits stay in order: Batch 6, then Batch 7).
 - Lanes never run git. The team-leader runs every git command, including the added-lines guard greps. Never commit to
   main, never merge, never push.
 - Batching choice recorded: the plan's "Batch A" (core, 4 files after R2-1) is split into Batch 1 (AppStateManager) and

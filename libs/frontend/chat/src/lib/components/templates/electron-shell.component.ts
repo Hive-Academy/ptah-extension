@@ -210,7 +210,7 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
       ) {
         <ptah-electron-welcome class="flex-1" />
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="h-full w-full"><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden"><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="flex flex-1 overflow-hidden">

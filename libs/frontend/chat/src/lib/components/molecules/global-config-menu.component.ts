@@ -135,15 +135,15 @@ export class GlobalConfigMenuComponent {
     );
     if (buttons.length === 0) return;
 
-    const currentIndex = buttons.findIndex(
-      (button) => button === panel.ownerDocument.activeElement,
+    const currentIndex = buttons.indexOf(
+      panel.ownerDocument.activeElement as HTMLButtonElement,
     );
-    const nextIndex =
-      currentIndex === -1
-        ? direction === 1
-          ? 0
-          : buttons.length - 1
-        : (currentIndex + direction + buttons.length) % buttons.length;
+    let nextIndex: number;
+    if (currentIndex === -1) {
+      nextIndex = direction === 1 ? 0 : buttons.length - 1;
+    } else {
+      nextIndex = (currentIndex + direction + buttons.length) % buttons.length;
+    }
     buttons[nextIndex]?.focus();
   }
 

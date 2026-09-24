@@ -67,7 +67,7 @@ test.describe('Global configuration menu — keyboard operation', () => {
     const trigger = page.locator('[data-test="config-menu-trigger"]');
     await trigger.click();
     const firstItem = page.locator('[data-test="config-menu-item-thoth"]');
-    await expect(firstItem).toBeVisible();
+    await expect(firstItem).toBeFocused();
 
     await page.keyboard.press('Escape');
 
@@ -82,6 +82,10 @@ test.describe('Global configuration menu — keyboard operation', () => {
     const page = ui.page;
     const trigger = page.locator('[data-test="config-menu-trigger"]');
     await trigger.click();
+    // The dropdown focuses its first item asynchronously after the click;
+    // wait for thoth to own focus before pressing keys so the keydown
+    // reaches the panel's arrow-key handler (CI flake on PR 586).
+    await expect(page.locator('[data-test="config-menu-item-thoth"]')).toBeFocused();
 
     await page.keyboard.press('ArrowDown'); // thoth -> setup-hub
     await expect(page.locator('[data-test="config-menu-item-setup-hub"]')).toBeFocused();
