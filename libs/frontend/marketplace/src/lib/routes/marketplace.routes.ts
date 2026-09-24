@@ -66,11 +66,15 @@ import { MarketplaceShellComponent } from '../shell/marketplace-shell.component'
 import { marketplaceRouteLink } from '../shell/marketplace-route-url';
 
 /**
- * `/marketplace` with no page: the active workspace's remembered page, else
- * the Overview. The shell records the page on every settled navigation, so a
- * bare Marketplace open (a tab, the TASK_2026_540 menu, a workspace switch)
- * lands where the user left this workspace. Runs in an injection context
- * (probe A2, `surface-router.service.spec.ts`).
+ * `/marketplace` with no page: the remembered page, else the Overview. The
+ * memory is global — one page for every workspace, held in the marketplace
+ * member of TASK_2026_540's `ConfigurationSurfaceSlots` — and the shell
+ * records it on every settled navigation, so a plain Marketplace open (the
+ * VS Code button, the TASK_2026_540 menu) lands where the user left the
+ * Marketplace. A workspace switch while the Marketplace is open does not
+ * reach this redirect: 540 re-mounts the surface at the same URL, and the
+ * redirect applies on the next plain `/marketplace` open. Runs in an injection
+ * context (probe A2, `surface-router.service.spec.ts`).
  */
 const restoreMarketplaceRoute: RedirectFunction = () => {
   const remembered = inject(AppStateManager).marketplaceRoute();

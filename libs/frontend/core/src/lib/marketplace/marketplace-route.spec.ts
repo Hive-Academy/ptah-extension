@@ -15,7 +15,7 @@ import {
 } from './marketplace-route';
 
 interface D2Row {
-  /** The value the old `marketplaceActiveProvider` grammar stored. */
+  /** The retired `section:source` deep-link value (D2 "Old stored value"). */
   readonly oldValue: string;
   readonly route: MarketplaceRoute;
   /** The new path, relative to `/marketplace`. */

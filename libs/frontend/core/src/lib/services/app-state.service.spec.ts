@@ -23,17 +23,19 @@
  *     `removeWorkspaceState` swap and drop `currentView` + `openViews` slices,
  *     and the bootstrap sentinel slice migrates onto the first real workspace
  *     (TASK_2026_195).
- *   - The same slice also carries the in-surface pointers `thothActiveTab` and
- *     `marketplaceActiveProvider`, so neither survives a workspace switch
- *     (TASK_2026_228).
- *   - `marketplaceRoute` — the Marketplace page memory — lives in that slice
- *     too, with the same per-workspace isolation; `openMarketplace` navigates
- *     to a page under the `canSwitchViews` guard (TASK_2026_533).
+ *   - The same slice also carries the in-surface pointer `thothActiveTab`, so
+ *     it does not survive a workspace switch (TASK_2026_228).
  *   - Global configuration surfaces (TASK_2026_540): thoth / setup-hub /
  *     marketplace / settings are recorded in one NOT-workspace-partitioned
- *     state written only by the constructor effect; slices refuse them; a
- *     workspace switch while one is open starts no navigation and bumps
- *     `configurationSurfaceRemountTick`.
+ *     state whose `openSurface` only the constructor effect writes; slices
+ *     refuse them; a workspace switch while one is open starts no navigation
+ *     and bumps `configurationSurfaceRemountTick`.
+ *   - `marketplaceRoute` — the Marketplace page memory — lives in that global
+ *     state's marketplace slot, so every workspace reads the same page;
+ *     `openMarketplace` navigates to a page under the `canSwitchViews` guard
+ *     (TASK_2026_533).
+ *   - `setCurrentView` re-request rule (TASK_2026_533, plan C1): re-requesting
+ *     the owned, idle surface on screen starts no navigation.
  *   - Canvas session request signal-bridge methods.
  *
  * Note: `initializeState` runs in the constructor, so each spec sets up
@@ -126,6 +128,23 @@ function createService(): AppStateManager {
     providers: [...provideSurfaceRouterTesting(), AppStateManager],
   });
   return TestBed.inject(AppStateManager);
+}
+
+/**
+ * The shared testing table gives `marketplace` no children, so a sub-path
+ * would fall through to the wildcard. A catch-all child stands in for the
+ * Marketplace route tree, which lives in the marketplace library.
+ */
+function withMarketplaceChildren(): Router {
+  const router = TestBed.inject(Router);
+  router.resetConfig(
+    surfaceTestRoutes().map((route) =>
+      route.path === 'marketplace'
+        ? { path: 'marketplace', children: [{ path: '**', children: [] }] }
+        : route,
+    ),
+  );
+  return router;
 }
 
 describe('AppStateManager', () => {
@@ -1148,45 +1167,29 @@ describe('AppStateManager', () => {
       expect(service.thothActiveTab()).toBe('memory');
     });
 
-    it("does NOT carry the previous workspace's marketplace provider onto a never-visited workspace", () => {
-      const service = createService();
-      service.switchWorkspace('/ws/a');
-      service.setMarketplaceActiveProvider('skills-sh');
-      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
-
-      service.switchWorkspace('/ws/b');
-
-      expect(service.marketplaceActiveProvider()).toBeNull();
-    });
-
-    it('restores each workspace Thoth tab and provider on return (A→B→A)', () => {
+    it('restores each workspace Thoth tab on return (A→B→A)', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.setThothActiveTab('skills');
-      service.setMarketplaceActiveProvider('official-mcp');
 
       service.switchWorkspace('/ws/b');
       service.setThothActiveTab('cron');
-      service.setMarketplaceActiveProvider('skills-sh');
 
       service.switchWorkspace('/ws/a');
       expect(service.thothActiveTab()).toBe('skills');
-      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
 
       service.switchWorkspace('/ws/b');
       expect(service.thothActiveTab()).toBe('cron');
-      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
     });
 
-    it('keeps the in-surface pointers independent of the view pointer in the same slice', async () => {
+    it('keeps the in-surface pointer independent of the view pointer in the same slice', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
       service.setThothActiveTab('cron');
-      service.setMarketplaceActiveProvider('official-mcp');
 
       // Every navigation rewrites the slice through the constructor effect —
-      // the in-surface pointers must survive that, not be reset by it.
+      // the in-surface pointer must survive that, not be reset by it.
       service.setCurrentView('tribunal');
       await settle();
       service.setCurrentView('tasks');
@@ -1195,7 +1198,6 @@ describe('AppStateManager', () => {
       await settle();
 
       expect(service.thothActiveTab()).toBe('cron');
-      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
       expect(service.currentView()).toBe('tasks');
     });
 
@@ -1204,64 +1206,71 @@ describe('AppStateManager', () => {
       // Electron's initial workspace:switch lands after the shell renders, so
       // a tab picked in that window is written to the bootstrap sentinel slice.
       service.setThothActiveTab('skills');
-      service.setMarketplaceActiveProvider('official-mcp');
 
       service.switchWorkspace('/ws/a');
 
       expect(service.thothActiveTab()).toBe('skills');
-      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
     });
 
-    it('removeWorkspaceState drops the pointers so a re-added workspace gets defaults', () => {
+    it('removeWorkspaceState drops the pointer so a re-added workspace gets the default', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.setThothActiveTab('gateway');
-      service.setMarketplaceActiveProvider('skills-sh');
       service.switchWorkspace('/ws/b');
 
       service.removeWorkspaceState('/ws/a');
       service.switchWorkspace('/ws/a');
 
       expect(service.thothActiveTab()).toBe('memory');
-      expect(service.marketplaceActiveProvider()).toBeNull();
     });
 
-    it('switching to the already-active workspace leaves the pointers alone', () => {
+    it('switching to the already-active workspace leaves the pointer alone', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.setThothActiveTab('cron');
-      service.setMarketplaceActiveProvider('skills-sh');
 
       service.switchWorkspace('/ws/a');
 
       expect(service.thothActiveTab()).toBe('cron');
-      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
     });
   });
 
-  describe('marketplace route memory (TASK_2026_533)', () => {
+  describe('marketplace route memory, global (TASK_2026_533)', () => {
     it('remembers nothing until a Marketplace page settles', () => {
       const service = createService();
       expect(service.marketplaceRoute()).toBeNull();
     });
 
-    it("does NOT carry the previous workspace's Marketplace page onto a never-visited workspace", () => {
+    it('stores the page in the global Marketplace slot, not in a view slice', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+
+      service.rememberMarketplaceRoute({ page: 'servers', source: 'smithery' });
+
+      expect(service.configurationSurfaces().perSurface.marketplace).toEqual({
+        marketplaceRoute: { page: 'servers', source: 'smithery' },
+      });
+      // Remembering a page is not a navigation.
+      expect(service.openConfigurationSurface()).toBeNull();
+      expect(service.openViews()).toEqual(['chat']);
+    });
+
+    it('keeps the page across a switch to a never-visited workspace', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.rememberMarketplaceRoute({ page: 'servers', source: 'smithery' });
+
+      service.switchWorkspace('/ws/b');
+
+      // The Marketplace is a global surface (TASK_2026_540), so the page it
+      // was last on is global too.
       expect(service.marketplaceRoute()).toEqual({
         page: 'servers',
         source: 'smithery',
       });
-
-      service.switchWorkspace('/ws/b');
-
-      // B's installed servers are not A's; restoring A's page would show B's
-      // inventory under A's selection.
-      expect(service.marketplaceRoute()).toBeNull();
     });
 
-    it('restores each workspace page on return (A→B→A)', () => {
+    it('every workspace reads the page remembered last, whichever workspace remembered it (A→B→A)', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.rememberMarketplaceRoute({ page: 'skills', source: 'community' });
@@ -1270,37 +1279,31 @@ describe('AppStateManager', () => {
       service.rememberMarketplaceRoute({ page: 'connectors' });
 
       service.switchWorkspace('/ws/a');
-      expect(service.marketplaceRoute()).toEqual({
-        page: 'skills',
-        source: 'community',
-      });
+      expect(service.marketplaceRoute()).toEqual({ page: 'connectors' });
 
       service.switchWorkspace('/ws/b');
       expect(service.marketplaceRoute()).toEqual({ page: 'connectors' });
     });
 
-    it('keeps the page independent of the view pointer and the old provider field in the same slice', async () => {
+    it('keeps the page across navigations — the settlement effect rewrites openSurface, not the slot', async () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
       service.rememberMarketplaceRoute({ page: 'servers' });
-      service.setMarketplaceActiveProvider('apps:smithery');
 
-      // Every navigation rewrites the slice through the constructor effect —
-      // the page memory must survive that, not be reset by it.
       service.setCurrentView('thoth');
       await settle();
       service.setCurrentView('marketplace');
       await settle();
-      service.closeView('thoth');
+      expect(service.openConfigurationSurface()).toBe('marketplace');
+      service.setCurrentView('tasks');
       await settle();
 
+      expect(service.openConfigurationSurface()).toBeNull();
       expect(service.marketplaceRoute()).toEqual({ page: 'servers' });
-      expect(service.marketplaceActiveProvider()).toBe('apps:smithery');
-      expect(service.currentView()).toBe('marketplace');
     });
 
-    it('carries a page remembered before the first workspace arrives onto that workspace', () => {
+    it('reads a page remembered before the first workspace arrives once it has', () => {
       const service = createService();
       service.rememberMarketplaceRoute({ page: 'overview' });
 
@@ -1309,7 +1312,7 @@ describe('AppStateManager', () => {
       expect(service.marketplaceRoute()).toEqual({ page: 'overview' });
     });
 
-    it('removeWorkspaceState drops the page so a re-added workspace starts from none', () => {
+    it('removeWorkspaceState leaves the page alone — no workspace owns it', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       service.rememberMarketplaceRoute({ page: 'connectors' });
@@ -1318,7 +1321,7 @@ describe('AppStateManager', () => {
       service.removeWorkspaceState('/ws/a');
       service.switchWorkspace('/ws/a');
 
-      expect(service.marketplaceRoute()).toBeNull();
+      expect(service.marketplaceRoute()).toEqual({ page: 'connectors' });
     });
 
     it('switching to the already-active workspace leaves the page alone', () => {
@@ -1331,14 +1334,17 @@ describe('AppStateManager', () => {
       expect(service.marketplaceRoute()).toEqual({ page: 'skills' });
     });
 
-    it('re-remembering the same page keeps the stored value, so readers are not re-notified', () => {
+    it('re-remembering the same page keeps the global state, so readers are not re-notified', () => {
       const service = createService();
       service.rememberMarketplaceRoute({ page: 'servers', source: 'registry' });
-      const stored = service.marketplaceRoute();
+      const stored = service.configurationSurfaces();
 
       service.rememberMarketplaceRoute({ page: 'servers', source: 'registry' });
 
-      expect(service.marketplaceRoute()).toBe(stored);
+      expect(service.configurationSurfaces()).toBe(stored);
+      expect(service.marketplaceRoute()).toBe(
+        stored.perSurface.marketplace.marketplaceRoute,
+      );
     });
 
     it('replaces the page when only the source differs', () => {
@@ -1352,23 +1358,6 @@ describe('AppStateManager', () => {
   });
 
   describe('openMarketplace (TASK_2026_533)', () => {
-    /**
-     * The shared testing table gives `marketplace` no children, so a sub-path
-     * would fall through to the wildcard. A catch-all child stands in for the
-     * Marketplace route tree, which lives in the marketplace library.
-     */
-    function withMarketplaceChildren(): Router {
-      const router = TestBed.inject(Router);
-      router.resetConfig(
-        surfaceTestRoutes().map((route) =>
-          route.path === 'marketplace'
-            ? { path: 'marketplace', children: [{ path: '**', children: [] }] }
-            : route,
-        ),
-      );
-      return router;
-    }
-
     it.each([
       [{ page: 'overview' } as const, '/marketplace/overview'],
       [{ page: 'connectors' } as const, '/marketplace/connectors'],
@@ -1390,7 +1379,9 @@ describe('AppStateManager', () => {
 
       expect(router.url).toBe(url);
       expect(service.currentView()).toBe('marketplace');
-      expect(service.openViews()).toContain('marketplace');
+      // A configuration surface: recorded globally, never in the view slice.
+      expect(service.openConfigurationSurface()).toBe('marketplace');
+      expect(service.openViews()).not.toContain('marketplace');
     });
 
     it('does not write the page memory ahead of the Marketplace recording it', async () => {
@@ -1429,21 +1420,126 @@ describe('AppStateManager', () => {
       expect(router.url).not.toContain('marketplace');
     });
 
-    it('records the settled surface against the workspace that asked', async () => {
+    it('keeps the opened page on screen across a workspace switch, owned by the incoming workspace', async () => {
       const service = createService();
-      withMarketplaceChildren();
+      const router = withMarketplaceChildren();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
       service.switchWorkspace('/ws/a');
       await settle();
+      service.openMarketplace({ page: 'connectors' });
+      await settle();
+
+      service.switchWorkspace('/ws/b');
+      await settle();
+
+      // Global surface: the switch neither leaves nor re-routes it; the
+      // Electron shell re-mounts it in place on the tick.
+      expect(router.url).toBe('/marketplace/connectors');
+      expect(service.currentView()).toBe('marketplace');
+      expect(service.configurationSurfaceRemountTick()).toBe(1);
+
+      // B owns what is on screen: a bare Marketplace request keeps the page,
+      // a deep link from B still navigates.
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+      service.setCurrentView('marketplace');
+      await settle();
+      expect(navigate).not.toHaveBeenCalled();
 
       service.openMarketplace({ page: 'overview' });
       await settle();
-      service.switchWorkspace('/ws/b');
-      await settle();
-      expect(service.currentView()).toBe('chat');
+      expect(navigate).toHaveBeenCalledWith('marketplace', ['overview']);
+      expect(router.url).toBe('/marketplace/overview');
+    });
+  });
 
+  describe('setCurrentView re-request rule (TASK_2026_533, plan C1)', () => {
+    it('same surface, owned and idle: starts no navigation, so an open detail stays', async () => {
+      const service = createService();
+      const router = withMarketplaceChildren();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      await surfaceRouter.navigateToSurface('marketplace', [
+        'servers',
+        'sentry',
+      ]);
+      await settle();
+      expect(router.url).toBe('/marketplace/servers/sentry');
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      // What the global menu's "Marketplace" item issues.
+      service.setCurrentView('marketplace');
+      await settle();
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(router.url).toBe('/marketplace/servers/sentry');
+    });
+
+    it('different surface: navigates', async () => {
+      const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      service.setCurrentView('analytics');
+      await settle();
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      service.setCurrentView('tasks');
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith('tasks', []);
+      expect(service.currentView()).toBe('tasks');
+    });
+
+    it('owner null: navigates, and the landed request re-grants ownership', async () => {
+      const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
       service.switchWorkspace('/ws/a');
       await settle();
-      expect(service.currentView()).toBe('marketplace');
+      service.setCurrentView('analytics');
+      await settle();
+      // Closing the ACTIVE workspace revokes settlement ownership.
+      service.removeWorkspaceState('/ws/a');
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      service.setCurrentView('analytics');
+      await settle();
+
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith('analytics', []);
+
+      // Owned again, so the next identical request is the no-op.
+      service.setCurrentView('analytics');
+      await settle();
+      expect(navigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('pending navigation: navigates, cancelling the pending one', async () => {
+      const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      TestBed.inject(Router).resetConfig(
+        surfaceTestRoutes().map((route) =>
+          route.path === 'tasks'
+            ? {
+                path: 'tasks',
+                // A chunk that never arrives keeps the navigation in flight.
+                loadComponent: () => new Promise<never>(() => undefined),
+              }
+            : route,
+        ),
+      );
+      service.setCurrentView('analytics');
+      await settle();
+
+      // Click Tasks, then the tab already on screen before Tasks lands.
+      service.setCurrentView('tasks');
+      await settle();
+      expect(surfaceRouter.pendingSurface()).toBe('tasks');
+      expect(service.currentView()).toBe('analytics');
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      service.setCurrentView('analytics');
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith('analytics', []);
+      expect(surfaceRouter.pendingSurface()).toBeNull();
+      expect(service.currentView()).toBe('analytics');
     });
   });
 

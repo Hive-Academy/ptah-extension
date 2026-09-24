@@ -81,7 +81,7 @@ describe('McpStatusChipComponent', () => {
 
   const appStateMock = {
     setCurrentView: jest.fn(),
-    setMarketplaceActiveProvider: jest.fn(),
+    openMarketplace: jest.fn(),
   };
 
   const createComponent = async (
@@ -110,7 +110,7 @@ describe('McpStatusChipComponent', () => {
     responders = new Map();
     rpcMock.call.mockClear();
     appStateMock.setCurrentView.mockClear();
-    appStateMock.setMarketplaceActiveProvider.mockClear();
+    appStateMock.openMarketplace.mockClear();
     setResponder('mcpDirectory:listOAuthConnected', () => ok({ servers: [] }));
     setResponder('session:status', () =>
       ok({ isActive: true, isStreaming: false }),
@@ -295,10 +295,12 @@ describe('McpStatusChipComponent', () => {
 
       await component.authorize(component.rows()[0]);
 
-      expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'apps:smithery',
-      );
-      expect(appStateMock.setCurrentView).toHaveBeenCalledWith('marketplace');
+      expect(appStateMock.openMarketplace).toHaveBeenCalledTimes(1);
+      expect(appStateMock.openMarketplace).toHaveBeenCalledWith({
+        page: 'servers',
+        source: 'smithery',
+      });
+      expect(appStateMock.setCurrentView).not.toHaveBeenCalled();
       expect(callsTo('mcpDirectory:openSmitherySetup')).toHaveLength(0);
       expect(callsTo('mcpDirectory:connectOAuth')).toHaveLength(0);
     });
@@ -332,6 +334,7 @@ describe('McpStatusChipComponent', () => {
         name: 'Sentry',
       });
       expect(appStateMock.setCurrentView).not.toHaveBeenCalled();
+      expect(appStateMock.openMarketplace).not.toHaveBeenCalled();
     });
 
     it('falls back to Connectors when an `oauth-` key has no manifest record', async () => {
@@ -345,9 +348,9 @@ describe('McpStatusChipComponent', () => {
       await component.authorize(component.rows()[0]);
 
       expect(callsTo('mcpDirectory:connectOAuth')).toHaveLength(0);
-      expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'apps:connectors',
-      );
+      expect(appStateMock.openMarketplace).toHaveBeenCalledWith({
+        page: 'connectors',
+      });
     });
 
     it('routes any other key to the Connectors surface', async () => {
@@ -359,10 +362,11 @@ describe('McpStatusChipComponent', () => {
 
       await component.authorize(component.rows()[0]);
 
-      expect(appStateMock.setMarketplaceActiveProvider).toHaveBeenCalledWith(
-        'apps:connectors',
-      );
-      expect(appStateMock.setCurrentView).toHaveBeenCalledWith('marketplace');
+      expect(appStateMock.openMarketplace).toHaveBeenCalledTimes(1);
+      expect(appStateMock.openMarketplace).toHaveBeenCalledWith({
+        page: 'connectors',
+      });
+      expect(appStateMock.setCurrentView).not.toHaveBeenCalled();
     });
 
     it('closes the popover on any Authorize route', async () => {

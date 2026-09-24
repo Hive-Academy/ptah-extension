@@ -835,8 +835,9 @@ describe('SurfaceRouterService', () => {
       const shellElement = probe.harness.routeNativeElement;
       expect(shellElement).not.toBeNull();
 
-      // The Electron tab and every plain `setCurrentView('marketplace')`
-      // caller issue exactly this.
+      // A bare `setCurrentView('marketplace')` issues exactly this when its
+      // re-request rule lets it through (surface unowned or a navigation
+      // pending); `App.handleInitialView` issues it directly.
       const result = await navigateProbe(probe);
 
       // The Router's same-URL skip compares the PRE-redirect URL
@@ -883,24 +884,26 @@ describe('SurfaceRouterService', () => {
       expect(probe.router.url).toBe('/marketplace/overview');
     });
 
-    it('restores the INCOMING workspace page on a workspace switch', async () => {
-      // `switchWorkspace` sets the active path before it starts the restore
-      // navigation, so the redirect reads the incoming workspace's memory.
+    it('restores the remembered page after a workspace switch', async () => {
+      // The Marketplace and its page memory are global (TASK_2026_540): a
+      // switch while it is open leaves it on screen without navigating, and
+      // the next bare /marketplace in ANY workspace restores the same page.
       const probe = await createMarketplaceProbe();
       probe.appState.switchWorkspace('/ws/a');
       await settleProbe(probe);
       probe.appState.setCurrentView('marketplace');
       await settleProbe(probe);
+      expect(probe.router.url).toBe('/marketplace/overview');
+      // What the shell records on NavigationEnd.
       probe.appState.rememberMarketplaceRoute({ page: 'skills' });
 
       probe.appState.switchWorkspace('/ws/b');
       await settleProbe(probe);
-      probe.appState.setCurrentView('marketplace');
-      await settleProbe(probe);
       expect(probe.router.url).toBe('/marketplace/overview');
-      probe.appState.rememberMarketplaceRoute({ page: 'overview' });
 
-      probe.appState.switchWorkspace('/ws/a');
+      probe.appState.setCurrentView('chat');
+      await settleProbe(probe);
+      probe.appState.setCurrentView('marketplace');
       await settleProbe(probe);
 
       expect(probe.router.url).toBe('/marketplace/skills');

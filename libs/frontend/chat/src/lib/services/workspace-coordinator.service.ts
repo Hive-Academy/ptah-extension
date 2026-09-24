@@ -150,12 +150,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // `_isLoading`), so there is no separate switch method to call.
     //
     // `appState` swaps the whole view slice (`currentView` / `openViews`, plus
-    // the in-surface pointers `thothActiveTab` / `marketplaceActiveProvider`)
-    // onto the new workspace's slice and goes LAST, so the surface only flips
-    // once the tab, session and picker state behind it is already the new
-    // workspace's. Without it the shell keeps rendering the previous
-    // workspace's view — tribunal, say — now backed by the new workspace's
-    // (empty) slice, which is the symptom TASK_2026_195 was filed for.
+    // the in-surface pointer `thothActiveTab`) onto the new workspace's slice;
+    // the configuration surfaces and the Marketplace page memory
+    // `marketplaceRoute` are global and do not swap. It goes LAST, so the
+    // surface only flips once the tab, session and picker state behind it is
+    // already the new workspace's. Without it the shell keeps rendering the
+    // previous workspace's view — tribunal, say — now backed by the new
+    // workspace's (empty) slice, which is the symptom TASK_2026_195 was filed
+    // for.
     // FIRST in the fan-out (TASK_2026_345, judge round 1). Every cache keyed by
     // `WorkspaceScopeService.scopeKey` — the plugin catalog and the model list —
     // is invalidated the instant this returns, and `refreshWorkspaceProviderState`
