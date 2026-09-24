@@ -172,7 +172,7 @@ export class SessionStatsAggregatorService {
         }
       } else if (derived) {
         // The model name still renders from the session snapshot.
-        console.warn(
+        console.debug(
           '[ChatStore] handleSessionStats: suppressed context-fill update (cumulative fallback over window/post-compaction)',
           {
             sessionId: stats.sessionId,

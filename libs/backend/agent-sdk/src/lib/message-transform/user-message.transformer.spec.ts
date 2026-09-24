@@ -133,6 +133,31 @@ describe('UserMessageTransformer', () => {
     );
   });
 
+  it('reads agentId from the placeholder when SubagentStart has not registered it yet', () => {
+    state.hasBackgroundTaskToolUseId.mockReturnValue(true);
+    const msg = {
+      uuid: 'u-2b',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool-bg-3',
+            content:
+              'Async agent launched successfully.\nagentId: a26543235eb9de974 (internal ID)\noutput_file: /tmp/y.log\n',
+            is_error: false,
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(msg, state, helpers);
+    const started = events.find(
+      (e) => e.eventType === 'background_agent_started',
+    ) as { agentId?: string; outputFilePath?: string } | undefined;
+    expect(started?.agentId).toBe('a26543235eb9de974');
+    expect(started?.outputFilePath).toBe('/tmp/y.log');
+  });
+
   it('emits message_start + text_delta + message_complete for a string text message', () => {
     const msg = {
       uuid: 'u-3',
