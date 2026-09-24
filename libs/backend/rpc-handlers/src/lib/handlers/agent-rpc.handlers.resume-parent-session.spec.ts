@@ -48,7 +48,11 @@ jest.mock('@ptah-extension/auth-providers', () => ({
 
 import * as fs from 'fs/promises';
 
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  IAuthSecretsService,
+  Logger,
+  RpcHandler,
+} from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   type MockRpcHandler,
@@ -141,6 +145,9 @@ function makeHarness(): Harness {
       isRegistered: jest.fn().mockReturnValue(false),
       resolve: jest.fn(),
     } as unknown as DependencyContainer,
+    {
+      hasProviderKey: jest.fn().mockResolvedValue(false),
+    } as unknown as IAuthSecretsService,
   );
   handlers.register();
 

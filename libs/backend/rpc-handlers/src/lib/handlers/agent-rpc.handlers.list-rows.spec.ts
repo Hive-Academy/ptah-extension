@@ -21,7 +21,11 @@ jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: { SDK_CODEX_AUTH: Symbol.for('CodexAuthService') },
 }));
 
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  IAuthSecretsService,
+  Logger,
+  RpcHandler,
+} from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   type MockRpcHandler,
@@ -92,6 +96,9 @@ function makeHarness(): Harness {
       isRegistered: jest.fn().mockReturnValue(false),
       resolve: jest.fn(),
     } as unknown as DependencyContainer,
+    {
+      hasProviderKey: jest.fn().mockResolvedValue(false),
+    } as unknown as IAuthSecretsService,
   );
   handlers.register();
 

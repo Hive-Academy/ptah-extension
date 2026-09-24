@@ -20,7 +20,10 @@ import {
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
-import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import {
+  registerRpcSurface,
+  runCursorApiKeyMigration,
+} from '@ptah-extension/rpc-handlers';
 import type { CommandManager } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
 import { registerSetupAgentsCommand } from '../commands/setup-agents-command';
@@ -86,8 +89,8 @@ export async function bootstrapVscode(
   );
   const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
   DIContainer.setup(context);
+  const diContainer = DIContainer.getContainer();
   try {
-    const diContainer = DIContainer.getContainer();
     const wsProvider = diContainer.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
@@ -128,6 +131,8 @@ export async function bootstrapVscode(
         : String(settingsError),
     );
   }
+  // Run outside the settings try so settings failures cannot skip key migration.
+  await runCursorApiKeyMigration(diContainer);
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Activating Ptah extension...', {
     tier: licenseStatus.tier,

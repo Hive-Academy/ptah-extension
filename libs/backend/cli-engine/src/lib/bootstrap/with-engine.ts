@@ -29,6 +29,7 @@ import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { runCursorApiKeyMigration } from '@ptah-extension/rpc-handlers';
 import {
   activateThoth,
   disposeThoth,
@@ -317,6 +318,7 @@ export async function withEngine<T>(
         );
       }
     });
+    await runCursorApiKeyMigration(ctx.container);
   }
   if (opts.mode === 'full' && opts.requireSdk !== false) {
     if (globals.verbose === true) {

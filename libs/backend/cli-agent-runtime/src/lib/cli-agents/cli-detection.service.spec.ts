@@ -4,7 +4,11 @@ import type {
   CliDetectionResult,
   CliType,
 } from '@ptah-extension/shared';
-import type { Logger, SentryService } from '@ptah-extension/vscode-core';
+import type {
+  IAuthSecretsService,
+  Logger,
+  SentryService,
+} from '@ptah-extension/vscode-core';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 
 interface MockAdapter {
@@ -36,8 +40,14 @@ jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({
 jest.mock('./cli-adapters/copilot-permission-bridge', () => ({
   CopilotPermissionBridge: jest.fn(() => ({})),
 }));
+const mockCursorCtor = jest.fn(
+  (
+    _logger?: unknown,
+    _resolveApiKey?: () => Promise<string | undefined>,
+  ) => mockAdapterFor('cursor'),
+);
 jest.mock('./cli-adapters/cursor-cli.adapter', () => ({
-  CursorCliAdapter: jest.fn(() => mockAdapterFor('cursor')),
+  CursorCliAdapter: mockCursorCtor,
 }));
 jest.mock('./cli-adapters/antigravity-cli.adapter', () => ({
   AntigravityCliAdapter: jest.fn(() => mockAdapterFor('antigravity')),
@@ -86,6 +96,7 @@ function createAdapter(
 function createService(): {
   service: CliDetectionService;
   sentry: { captureException: jest.Mock };
+  authSecrets: { getProviderKey: jest.Mock };
 } {
   const logger = {
     info: jest.fn(),
@@ -94,20 +105,36 @@ function createService(): {
     error: jest.fn(),
   } as unknown as Logger;
   const sentry = { captureException: jest.fn() };
+  const authSecrets = { getProviderKey: jest.fn(async () => undefined) };
   const service = new CliDetectionService(
     logger,
     sentry as unknown as SentryService,
     {} as IProcessSpawner,
+    authSecrets as unknown as IAuthSecretsService,
   );
-  return { service, sentry };
+  return { service, sentry, authSecrets };
 }
 
 describe('CliDetectionService role stamp', () => {
   beforeEach(() => {
     mockAdapters.clear();
+    mockCursorCtor.mockClear();
     for (const [name, channel] of CHANNELS) {
       mockAdapters.set(name, createAdapter(name, channel));
     }
+  });
+
+  it('constructs the Cursor adapter with a resolver over getProviderKey("cursor")', async () => {
+    const { authSecrets } = createService();
+
+    expect(mockCursorCtor).toHaveBeenCalledTimes(1);
+    const [loggerArg, resolver] = mockCursorCtor.mock.calls[0];
+    expect(loggerArg).toBeDefined();
+    if (!resolver) {
+      throw new Error('CursorCliAdapter was constructed without a resolver');
+    }
+    await resolver();
+    expect(authSecrets.getProviderKey).toHaveBeenCalledWith('cursor');
   });
 
   it('stamps preamble delivery and the adapter channel on every successful detection', async () => {

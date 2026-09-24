@@ -17,6 +17,14 @@ jest.mock('./thoth-runtime.js', () => ({
   disposeThoth: (...args: unknown[]) => disposeThothMock(...args),
 }));
 
+const runCursorApiKeyMigrationMock = jest.fn(async () => undefined);
+
+jest.mock('@ptah-extension/rpc-handlers', () => ({
+  ...jest.requireActual<object>('@ptah-extension/rpc-handlers'),
+  runCursorApiKeyMigration: (...args: unknown[]) =>
+    runCursorApiKeyMigrationMock(...(args as [])),
+}));
+
 import { withEngine, SdkInitFailedError } from './with-engine.js';
 import type {
   EngineContext,
@@ -168,6 +176,24 @@ describe('withEngine', () => {
         async () => 'ok',
       );
       expect(trace.options[0]?.bootstrapMode).toBe('full');
+    });
+
+    it('moves a plain Cursor key into the secrets store in full mode only', async () => {
+      runCursorApiKeyMigrationMock.mockClear();
+      const { bootstrap, trace } = makeFakeBootstrap();
+      await withEngine(baseGlobals, { mode: 'full', bootstrap }, async () => 0);
+      expect(runCursorApiKeyMigrationMock).toHaveBeenCalledTimes(1);
+      expect(runCursorApiKeyMigrationMock).toHaveBeenCalledWith(
+        trace.results[0]?.container,
+      );
+
+      runCursorApiKeyMigrationMock.mockClear();
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap },
+        async () => 0,
+      );
+      expect(runCursorApiKeyMigrationMock).not.toHaveBeenCalled();
     });
 
     it('threads cwd from globals to workspacePath', async () => {
