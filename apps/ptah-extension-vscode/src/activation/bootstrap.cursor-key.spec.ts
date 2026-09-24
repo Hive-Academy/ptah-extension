@@ -14,15 +14,47 @@ const BODY = SOURCE.slice(
   SOURCE.indexOf('export async function bootstrapVscode('),
 );
 
+function findCatchEnd(source: string, catchIndex: number): number {
+  if (catchIndex < 0) return -1;
+  const openingBrace = source.indexOf('{', catchIndex);
+  if (openingBrace < 0) return -1;
+
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index++) {
+    if (source[index] === '{') depth++;
+    if (source[index] === '}') {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
 describe('bootstrapVscode — Cursor key migration', () => {
   it('runs the Cursor key migration after settings migrations and their catch', () => {
     const migrations = BODY.indexOf('await migrationRunner.runMigrations()');
     const settingsCatch = BODY.indexOf('catch (settingsError)');
+    const settingsCatchEnd = findCatchEnd(BODY, settingsCatch);
     const cursor = BODY.indexOf('await runCursorApiKeyMigration(diContainer)');
 
     expect(migrations).toBeGreaterThan(-1);
     expect(cursor).toBeGreaterThan(migrations);
     expect(settingsCatch).toBeGreaterThan(migrations);
     expect(cursor).toBeGreaterThan(settingsCatch);
+    expect(settingsCatchEnd).toBeGreaterThan(settingsCatch);
+    expect(cursor).toBeGreaterThan(settingsCatchEnd);
+  });
+
+  it('rejects a migration call inside the settings catch body', () => {
+    const source = `try {} catch (settingsError) {
+      if (settingsError) {}
+      await runCursorApiKeyMigration(diContainer);
+    }`;
+    const settingsCatch = source.indexOf('catch (settingsError)');
+    const settingsCatchEnd = findCatchEnd(source, settingsCatch);
+    const cursor = source.indexOf('await runCursorApiKeyMigration(diContainer)');
+
+    expect(settingsCatchEnd).toBe(source.lastIndexOf('}'));
+    expect(cursor > settingsCatchEnd).toBe(false);
   });
 });
