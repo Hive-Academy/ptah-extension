@@ -343,6 +343,7 @@ export class SessionHistoryReaderService {
         unreadableAgents,
       );
     } catch (error: unknown) {
+      // degradation-audit: reported - logged; `null` makes the prefix unknown.
       this.logger.warn(
         '[SessionHistoryReader] Could not read the usage prefix for resume',
         {
@@ -385,6 +386,7 @@ export class SessionHistoryReaderService {
       );
       return last;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged; `null` means no restore candidate.
       this.logger.warn(
         '[SessionHistoryReader] Could not read the saved cost state for a new run',
         {

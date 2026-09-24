@@ -957,6 +957,28 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(shown(a)).toBe(live);
         expect(shown(b)).toBe(live);
       });
+
+      // The floor is per session but the display is per tab: a fresh tab that
+      // shows nothing yet must still accept the transcript aggregate after a
+      // live snapshot was accepted on another tab for the same session.
+      it('a fresh tab on the same session shows an unrevisioned resume snapshot after another tab accepted revision 15', () => {
+        const a = service.createTab('tab a');
+        service.attachSession(a, SESS_X);
+        service.installSessionStats(a, sessionSnapshot(SESS_X, 15, 15));
+
+        const b = service.createTab('tab b');
+        service.attachSession(b, SESS_X);
+        const history = unrevised(12);
+        service.applyLoadedSessionStats(b, history, 'claude-opus-4-7');
+
+        expect(shown(b)).toBe(history);
+        // The accepted floor still guards tab B afterwards.
+        service.installSessionStats(b, sessionSnapshot(SESS_X, 14, 14));
+        expect(shown(b)).toBe(history);
+        const newer = sessionSnapshot(SESS_X, 16, 16);
+        service.installSessionStats(b, newer);
+        expect(shown(b)).toBe(newer);
+      });
     });
 
     // Revision 1 of the review (Defect 3): malformed input is rejected
@@ -990,6 +1012,53 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(
           service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
         ).toBeNull();
+      });
+
+      it.each([
+        ['a non-string model', { model: 42, contextTokens: 10 }],
+        ['a non-numeric contextTokens', { model: 'm', contextTokens: 'many' }],
+        ['a negative contextTokens', { model: 'm', contextTokens: -1 }],
+        [
+          'a non-numeric contextWindow',
+          { model: 'm', contextTokens: 10, contextWindow: 'big' },
+        ],
+        ['a non-object', 'context'],
+      ])(
+        'rejects a malformed contextSnapshot (%s) and keeps the accepted snapshot',
+        (_label, contextSnapshot) => {
+          const id = service.createTab('bad context snapshot');
+          service.attachSession(id, SESS_X);
+          const accepted = sessionSnapshot(SESS_X, 4, 4);
+          service.installSessionStats(id, accepted);
+
+          service.installSessionStats(id, {
+            ...sessionSnapshot(SESS_X, 5, 5),
+            contextSnapshot,
+          } as unknown as SessionStatsEntry);
+
+          expect(service.tabs().find((t) => t.id === id)?.sessionStats).toBe(
+            accepted,
+          );
+        },
+      );
+
+      it('accepts a well-formed contextSnapshot', () => {
+        const id = service.createTab('good context snapshot');
+        service.attachSession(id, SESS_X);
+        const snapshot: SessionStatsEntry = {
+          ...sessionSnapshot(SESS_X, 6, 6),
+          contextSnapshot: {
+            model: 'claude-opus-4-7',
+            contextTokens: 1200,
+            contextWindow: 200_000,
+          },
+        };
+
+        service.installSessionStats(id, snapshot);
+
+        expect(service.tabs().find((t) => t.id === id)?.sessionStats).toBe(
+          snapshot,
+        );
       });
     });
 

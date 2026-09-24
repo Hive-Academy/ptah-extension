@@ -79,13 +79,26 @@ export class SubagentHookHandler {
    * Independent of the resumption registry's gate: a start hook without a
    * `toolUseId` still proves the agent exists. The owner collapses aliases and
    * never removes an identity, so start + stop + replay count once.
+   *
+   * A new session's owner stays keyed by its tab id (the captured closure id)
+   * until `init` is consumed and the owner is rebound to the canonical id.
+   * The SDK runs hook callbacks from its read loop while `init` may still be
+   * queued, so a hook can precede that rebind: record under the provisional
+   * key then, and the rebind carries the identity forward.
    */
   private recordSubagentIdentity(
     parentSessionId: string | null,
+    capturedSessionId: string | undefined,
     agentId: string | undefined,
   ): void {
     if (!parentSessionId || !agentId) return;
-    this.statsOwner.recordAgent(parentSessionId, agentId);
+    const key =
+      this.statsOwner.leaseOf(parentSessionId) === null &&
+      capturedSessionId &&
+      this.statsOwner.leaseOf(capturedSessionId) !== null
+        ? capturedSessionId
+        : parentSessionId;
+    this.statsOwner.recordAgent(key, agentId);
   }
 
   /**
@@ -237,7 +250,11 @@ export class SubagentHookHandler {
         input.session_id,
         parentSessionId,
       );
-      this.recordSubagentIdentity(resolvedParentSessionId, input.agent_id);
+      this.recordSubagentIdentity(
+        resolvedParentSessionId,
+        parentSessionId,
+        input.agent_id,
+      );
 
       if (toolUseId && resolvedParentSessionId) {
         this.subagentRegistry.register({
@@ -323,6 +340,7 @@ export class SubagentHookHandler {
       // counts); it never removes it.
       this.recordSubagentIdentity(
         resolveHookSessionId(input.session_id, parentSessionId),
+        parentSessionId,
         input.agent_id,
       );
       let resolvedToolCallId = toolUseId ?? undefined;

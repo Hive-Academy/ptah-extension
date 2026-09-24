@@ -378,7 +378,9 @@ async function mockSessions(
   const payloadBySession: Record<string, unknown> = {};
   for (const session of sessions) {
     const stats = {
+      sessionId: session.id,
       totalCost: 12.5,
+      tokenCount: 460_000,
       tokens: {
         input: 400_000,
         output: 60_000,

@@ -159,6 +159,11 @@ describe('resolveRunBase', () => {
   it('zero base without a saved state', () => {
     expect(resolveRunBase(null, run(3))).toBeNull();
   });
+
+  // CodeRabbit: no per-model evidence means a restore cannot be proven.
+  it('zero base when the saved state has no per-model rows', () => {
+    expect(resolveRunBase(saved(5, {}), run(3))).toBeNull();
+  });
 });
 
 describe('subtractRunBase', () => {
@@ -274,6 +279,38 @@ describe('SessionStatsOwnerService', () => {
     it('reset: prefix 10, cost-state 10, R1 3 -> 13', async () => {
       const { offer } = await resumedRun(prefix(10, { savedCostState: SAVED_10 }));
       expect(offer(run(3, [{ input: 30, output: 3 }]))?.totalCost).toBe(13);
+    });
+
+    it('cost-state without model rows: prefix 10, saved $5, R1 3 -> 13', async () => {
+      const { offer } = await resumedRun(
+        prefix(10, { savedCostState: saved(5, {}) }),
+      );
+      expect(offer(run(3))?.totalCost).toBe(13);
+    });
+
+    it('snapshot is null while the prefix read is pending, then publishes the prefix', async () => {
+      const owner = new SessionStatsOwnerService();
+      let finish: (p: SessionStatsPrefix | null) => void = () => undefined;
+      const pendingPrefix = new Promise<SessionStatsPrefix | null>((resolve) => {
+        finish = resolve;
+      });
+      const preparing = owner.prepareRun(SESSION, {
+        loadPrefix: () => pendingPrefix,
+        loadSavedCostState: async () => null,
+      });
+
+      // A concurrent history read must fall back to the transcript aggregate.
+      expect(owner.snapshot(SESSION)).toBeNull();
+
+      finish(prefix(10));
+      const prep = await preparing;
+      expect(owner.snapshot(SESSION)?.totalCost).toBe(10);
+
+      owner.beginRun(SESSION, prep.generation, 'run-1', prep.candidate);
+      expect(
+        owner.replaceRun(SESSION, prep.generation, 'run-1', run(3)).snapshot
+          ?.totalCost,
+      ).toBe(13);
     });
 
     it('no cost-state: prefix 10, R1 3 -> 13', async () => {

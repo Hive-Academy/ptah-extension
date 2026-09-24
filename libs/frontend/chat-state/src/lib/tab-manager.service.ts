@@ -2015,8 +2015,9 @@ export class TabManagerService {
    * REPLACES whatever the tab showed and is never added to. It is dropped when
    * it is malformed, names a different session than the tab is bound to, is
    * older (lower `revision`) than one this page already accepted for the same
-   * session, or carries no revision after a revisioned one was accepted — a
-   * late broadcast or a delayed history read must not regress the panel.
+   * session, or carries no revision after a revisioned one was accepted while
+   * this tab already shows a snapshot for the session — a late broadcast or a
+   * delayed history read must not regress the panel.
    */
   installSessionStats(tabId: string, snapshot: SessionStatsEntry): void {
     if (!this.acceptSessionStats(tabId, snapshot)) return;
@@ -2057,7 +2058,9 @@ export class TabManagerService {
    * A malformed snapshot is rejected whole. A snapshot for another session
    * than the tab is bound to is rejected. Ordering is decided by the
    * per-session {@link sessionStatsFloor} (see `SessionStatsRevisionFloor`),
-   * which is page-lifetime state and never read from the persisted tab: a
+   * except that an unrevisioned snapshot always installs on a tab that shows
+   * no snapshot for its session yet. The floor is page-lifetime state and
+   * never read from the persisted tab: a
    * restored tab therefore accepts the restarted backend's first snapshot even
    * though its stored snapshot carries a higher revision from the old process.
    */
@@ -2073,6 +2076,16 @@ export class TabManagerService {
       tab.claudeSessionId !== snapshot.sessionId
     ) {
       return false;
+    }
+    // The floor is per session but the display is per tab. A tab that shows
+    // nothing for this session yet (for example one opened after another tab
+    // on the same session accepted a live snapshot) has nothing a transcript
+    // aggregate could regress, so it installs without touching the floor.
+    if (
+      snapshot.revision === undefined &&
+      tab.sessionStats?.sessionId !== snapshot.sessionId
+    ) {
+      return true;
     }
     return this.sessionStatsFloor.admit(snapshot);
   }

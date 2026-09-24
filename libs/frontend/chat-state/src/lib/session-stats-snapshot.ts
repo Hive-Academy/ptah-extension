@@ -11,8 +11,10 @@ import type { SessionStatsEntry } from '@ptah-extension/shared';
  * model-name formatter throws on anything else); the four token classes as finite
  * non-negative numbers; `totalCost` as a finite non-negative number or `null`;
  * `revision`, when present, as a non-negative safe integer (an absent revision
- * is legitimate — see {@link SessionStatsRevisionFloor}); and the optional
- * figures the stats surfaces display.
+ * is legitimate — see {@link SessionStatsRevisionFloor}); the optional
+ * figures the stats surfaces display; and the optional `contextSnapshot`
+ * (string `model`, non-negative `contextTokens` and `contextWindow`), which the
+ * resume path turns into the context badge.
  */
 export function isValidSessionStatsSnapshot(
   value: unknown,
@@ -46,7 +48,8 @@ export function isValidSessionStatsSnapshot(
     isOptional(value['knownCost'], isNullableAmount) &&
     isOptional(value['agentSessionCount'], isRevision) &&
     isOptional(value['durationMs'], isNullableAmount) &&
-    isOptional(value['modelUsageList'], isModelUsageList)
+    isOptional(value['modelUsageList'], isModelUsageList) &&
+    isOptional(value['contextSnapshot'], isContextSnapshot)
   );
 }
 
@@ -62,6 +65,10 @@ export function isValidSessionStatsSnapshot(
  *   while the session has no floor. Once a live snapshot was accepted it is the
  *   complete lifetime total, and an older transcript read must not replace it.
  * - An unrevisioned install never lowers or clears the floor.
+ *
+ * The floor is per session; a consumer that displays per tab decides for
+ * itself whether a display with nothing to regress may bypass it (see
+ * `TabManagerService.acceptSessionStats`).
  *
  * The floor lives beside the displayed snapshot, never on it: a revision is
  * comparable only within one backend lifetime, and a page reload (a new
@@ -102,6 +109,16 @@ function isOptional(
   check: (candidate: unknown) => boolean,
 ): boolean {
   return value === undefined || check(value);
+}
+
+/** The context badge formats `model` and divides by `contextWindow`. */
+function isContextSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value['model'] === 'string' &&
+    isAmount(value['contextTokens']) &&
+    isOptional(value['contextWindow'], isAmount)
+  );
 }
 
 function isModelUsageList(value: unknown): boolean {
