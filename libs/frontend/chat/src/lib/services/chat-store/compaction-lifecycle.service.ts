@@ -123,7 +123,9 @@ export class CompactionLifecycleService {
     if (!tabId) return false;
     const convId = this.tabSessionBinding.conversationFor(tabId);
     if (!convId) return false;
-    return this.conversationRegistry.compactionStateFor(convId)?.inFlight ?? false;
+    return (
+      this.conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
+    );
   }
 
   /**
@@ -174,7 +176,10 @@ export class CompactionLifecycleService {
           .find((candidate) => candidate.id === tabId);
         if (tab?.claudeSessionId !== compactionSid) continue;
         const conversationId = this.tabSessionBinding.conversationFor(tabId);
-        if (!conversationId || !recovery.conversationIds.includes(conversationId)) {
+        if (
+          !conversationId ||
+          !recovery.conversationIds.includes(conversationId)
+        ) {
           continue;
         }
         ownedConversationIds.add(conversationId);
@@ -208,7 +213,9 @@ export class CompactionLifecycleService {
   }
 
   private clearCompactionRecoveryTimerForTab(tabId: TabId): void {
-    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabManager
+      .tabs()
+      .find((candidate) => candidate.id === tabId);
     if (!tab?.claudeSessionId) return;
     const { key } = this.advisoryCorrelator.resolveLifecycleKey(
       tab.claudeSessionId,
@@ -384,7 +391,6 @@ export class CompactionLifecycleService {
         this.advisoryCorrelator.delete(key);
       }
     }
-    this.treeBuilder.clearCache();
     this.clearCompactionRecoveryTimer(key);
     const allTabs = this.tabManager.tabs();
     const originatingTab = allTabs.find((t) => t.id === result.tabId);
@@ -491,28 +497,12 @@ export class CompactionLifecycleService {
       },
     );
 
-    // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
-    // repro is confirmed. Snapshots the fan-out DECISION: every open tab, the
-    // event's originating tab/session, and exactly which tabs were selected to
-    // clear + reload. If the visible-but-stale tile is missing from
-    // `fanoutTabs` here, the bug is in fan-out SELECTION; if it is present but
-    // still stale, the bug is in the RELOAD target (see session-loader diag).
-    console.warn('[compaction-diag] handleCompactionComplete decision', {
-      resultTabId: result.tabId,
-      compactionSessionId: result.compactionSessionId,
-      lifecycleKey: key,
-      originatingTabFound: !!originatingTab,
-      allTabs: allTabs.map((t) => ({
-        id: t.id,
-        claudeSessionId: t.claudeSessionId ?? null,
-        messages: t.messages.length,
-      })),
-      fanoutTabs: fanoutTabs.map((t) => ({
-        id: t.id,
-        claudeSessionId: t.claudeSessionId ?? null,
-        messages: t.messages.length,
-      })),
-    });
+    // Only the tabs being reset lose their tree cache. A global clear made every
+    // open tab and canvas tile rebuild its whole tree on each compaction.
+    for (const t of fanoutTabs) {
+      this.treeBuilder.clearCache(`tab-${t.id}`);
+      this.treeBuilder.clearCache(`tile-${t.id}`);
+    }
 
     const completedAt = Date.now();
     for (const convId of this.collectConversationIdsForTabs(
@@ -543,13 +533,6 @@ export class CompactionLifecycleService {
         tabId: tab.id,
         sessionId: tab.claudeSessionId ?? compactionSid,
       }));
-
-      // [compaction-diag] TEMPORARY — retain visibility into the explicit
-      // session/tab pairs until the 2-tile stale-transcript repro is confirmed.
-      console.warn('[compaction-diag] reload plan', {
-        reloadSessionIds: reloadTargets.map((target) => target.sessionId),
-        fanoutTabIds: fanoutTabs.map((t) => t.id),
-      });
 
       if (reloadTargets.length === 0) {
         this.clearCompactionStateForFanout(fanoutTabs);
@@ -684,7 +667,7 @@ export class CompactionLifecycleService {
           advisoryFallback: true,
         }),
     });
-    console.info(
+    console.debug(
       '[ChatStore] PostCompact advisory received; waiting briefly for real compact_boundary',
       { sessionId: compactionSid },
     );
@@ -857,7 +840,9 @@ export class CompactionLifecycleService {
    * (PR #493 review C).
    */
   clearCompactionStateForTab(tabId: TabId): void {
-    const tab = this.tabManager.tabs().find((candidate) => candidate.id === tabId);
+    const tab = this.tabManager
+      .tabs()
+      .find((candidate) => candidate.id === tabId);
     if (tab?.claudeSessionId) {
       const { key } = this.advisoryCorrelator.resolveLifecycleKey(
         tab.claudeSessionId,

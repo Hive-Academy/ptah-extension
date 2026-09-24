@@ -661,20 +661,6 @@ export class SessionLoaderService {
       // the claim on every exit, which closes the fence exactly once.
       replayClaim = this.historyReplayer.claim(resolvedTabId, sessionId);
 
-      // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
-      // repro is confirmed. Reveals the explicit reload target so a missing or
-      // ownership-drifted tile can be correlated with the lifecycle fan-out.
-      if (opts?.reason === 'compaction') {
-        console.warn('[compaction-diag] switchSession reload target', {
-          requestedSessionId: sessionId,
-          resolvedTabId,
-          existingTabId: existingTab?.id ?? null,
-          openTabsForSession: this.tabManager
-            .tabs()
-            .filter((t) => t.claudeSessionId === sessionId)
-            .map((t) => t.id),
-        });
-      }
       // A compaction chunk may have queued a live-state write before this
       // targeted reload started. Close/reopen clears that queue through
       // StreamRouter; in-place reload must do the same or history finalization's
