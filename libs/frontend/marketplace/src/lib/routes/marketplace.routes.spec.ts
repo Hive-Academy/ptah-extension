@@ -24,6 +24,7 @@ import {
   Component,
   input,
   output,
+  reflectComponentType,
   signal,
   type Type,
 } from '@angular/core';
@@ -149,7 +150,11 @@ class StubSkillShBrowserComponent {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '',
 })
-class StubExternalMarketplacesComponent {}
+class StubExternalMarketplacesComponent {
+  public readonly refreshTrigger = input(0);
+  public readonly pluginInstalled = output<string>();
+  public readonly pluginUninstalled = output<string>();
+}
 
 @Component({
   selector: 'ptah-skills-section-header',
@@ -584,6 +589,23 @@ describe('MARKETPLACE_ROUTES', () => {
       await visit(url);
 
       expect(present(SURFACE_SELECTORS)).toEqual([surface]);
+    });
+
+    it('the external-marketplaces stand-in mirrors the real inputs and outputs', () => {
+      const bindings = (component: Type<unknown>) => {
+        const mirror = reflectComponentType(component);
+        return {
+          inputs: (mirror?.inputs ?? []).map((i) => i.templateName).sort(),
+          outputs: (mirror?.outputs ?? []).map((o) => o.templateName).sort(),
+        };
+      };
+      const real = bindings(ExternalMarketplacesComponent);
+
+      expect(real).toEqual({
+        inputs: ['refreshTrigger'],
+        outputs: ['pluginInstalled', 'pluginUninstalled'],
+      });
+      expect(bindings(StubExternalMarketplacesComponent)).toEqual(real);
     });
 
     it('binds route data.source to the host input', async () => {

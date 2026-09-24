@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
   inject,
   input,
@@ -72,12 +71,8 @@ export const SKILL_SOURCE_BANDS: Readonly<
  *   inventory is told (`notifyContentChanged` clears the `/command` cache and
  *   reloads only slices a page already loaded).
  * - skills.sh install / uninstall: `notifyContentChanged`.
- * - Marketplaces: `ExternalMarketplacesComponent` emits no change event (its
- *   outputs are frozen until its own restyle), so the host tells the
- *   inventory when the user LEAVES this source. The call reloads only slices
- *   that are already loaded, so it costs nothing when the installed page was
- *   never opened, and it keeps that page from showing a list from before an
- *   install or uninstall made here.
+ * - Marketplaces plugin install / uninstall: `notifyContentChanged`, at the
+ *   moment the backend confirms the change.
  *
  * The enabled count and the harness badge render on the Ptah Plugins source
  * only: that is where the plugin configuration changes, and the other two
@@ -132,7 +127,10 @@ export const SKILL_SOURCE_BANDS: Readonly<
           />
         }
         @case ('marketplaces') {
-          <ptah-external-marketplaces />
+          <ptah-external-marketplaces
+            (pluginInstalled)="onContentChanged()"
+            (pluginUninstalled)="onContentChanged()"
+          />
         }
       }
     </div>
@@ -152,14 +150,6 @@ export class SkillSourceHostComponent {
   protected readonly bandLayout = computed(() =>
     this.layout.tier() === 'wide' ? 'storefront' : 'compact',
   );
-
-  public constructor() {
-    inject(DestroyRef).onDestroy(() => {
-      if (this.source() === 'marketplaces') {
-        this.inventory.notifyContentChanged();
-      }
-    });
-  }
 
   /**
    * Saving the plugin configuration changes the DESIRED harness, so the

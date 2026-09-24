@@ -48,18 +48,15 @@ import { openConfigSurface } from './_harness/config-menu';
  *   `marketplaces`) opens a discovery surface in ONE click — there is no more
  *   tab-then-chip sequence.
  * - Live MCP/Skills surfaces (`ptah-mcp-directory-browser`,
- *   `ptah-skill-sh-browser`) still expose a search input ("Search MCP
- *   servers..." / "Search skills..."); their own restyle is a later batch
- *   (implementation-plan.md C13), so these selectors are unchanged for now.
- *   Both still carry a Browse/Installed tab strip in THIS base too — plan
- *   C11 removes it from each (Batch 22 for `ptah-mcp-directory-browser`,
- *   Batch 23 for `ptah-skill-sh-browser`: browse results become
- *   `ptah-catalog-card`s, and installed skills move to the Marketplace's own
- *   Installed skills page — `skills` nav item,
- *   `InstalledSkillsPageComponent` — not this browser). This scene never
- *   clicks either tab strip: it only opens a source's default (Browse) view
- *   through the nav link and scrolls/hovers the listings that are already
- *   showing, so nothing here needs to change when Batches 22/23 land.
+ *   `ptah-skill-sh-browser`) expose a search input ("Search MCP servers..." /
+ *   "Search skills...") above their results. Plan C11 removed their
+ *   Browse/Installed tab strips (TASK_2026_533 Batches 22 and 23): each shows
+ *   one browse list, and installed items live on the Marketplace's own
+ *   Installed pages (`servers` / `skills` nav items), not in these browsers.
+ * - Plan C13 renders every result as a storefront card: a `ptah-catalog-card`
+ *   with `role="listitem"` inside a `ptah-catalog-grid` (loading tiles are
+ *   `ptah-catalog-card-skeleton`, so the card selector never matches one).
+ *   The hover beat below targets the first such card.
  */
 
 /** One stop on the tour: the `data-nav-id` of a Sources-group nav link. */
@@ -169,33 +166,19 @@ async function tourSource(
     },
   });
 
-  // Hover the first listing row to draw attention to an item's detail, without
-  // clicking the Install button next to it. Script line 5 is shared by every
-  // stop — the same clip replays for each one.
+  // Hover the first result card to draw attention to an item's detail, without
+  // clicking the Install button on it. Script line 5 is shared by every stop —
+  // the same clip replays for each one.
   //
-  // Selector note (code-style-review-batch-19.md minor #1): `.rounded-lg.
-  // border` is a CSS-class selector, not a stable attribute, and the Batch
-  // 20-23 restyle this file already calls out (line ~53 above) as upcoming
-  // WILL change it. Checked both live source components for something more
-  // stable before keeping this: neither `mcp-directory-browser.component.ts`
-  // (browse row, :138-139) nor `skill-sh-browser.component.ts` (browse row,
-  // :130,229) carries a `data-testid` or `role="listitem"` on this row today
-  // — the only existing testid near it, `installed-row`
-  // (`mcp-directory-browser.component.ts:314`), belongs to the INSTALLED
-  // tab/view, not Browse (wrong list), and plan C11 (Batch 22) deletes that
-  // view outright, so anchoring to it would be both wrong now and gone soon.
-  // Adding one would mean editing those two product files, out of scope for
-  // this batch ("test and showcase code only"; explicit "do not change
-  // product code" on this revision round). Left as `.rounded-lg.border`,
-  // scoped to the shell as before — it already degrades safely
-  // (`isVisible().catch(() => false)` below skips this beat, never throws),
-  // so the worst case of the restyle landing is a silently skipped hover
-  // beat, not a broken scene. Batches 20-23 introduce `ptah-catalog-card`
-  // (plan C13) for exactly this row; that component already needs a stable
-  // hook for ITS OWN specs, so picking up a `data-testid` there — and
-  // pointing this line at it — is the natural fix, not a new addition made
-  // solely for this scene.
-  const firstRow = shell(page).locator('.rounded-lg.border').first();
+  // The card is the list item itself (`ptah-catalog-card[role="listitem"]`,
+  // plan C13 — see the header note), scoped to the shell's content area so a
+  // card anywhere else never matches. A source with no results skips the beat:
+  // `isVisible().catch(() => false)` below never throws.
+  const firstRow = shell(page)
+    .locator(
+      '[data-testid="marketplace-content"] ptah-catalog-card[role="listitem"]',
+    )
+    .first();
   if (await firstRow.isVisible().catch(() => false)) {
     await director.say(5, {
       target: firstRow,

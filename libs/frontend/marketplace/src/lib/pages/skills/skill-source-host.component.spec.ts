@@ -62,7 +62,10 @@ class StubSkillShBrowserComponent {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<p data-testid="stub-external">marketplaces</p>`,
 })
-class StubExternalMarketplacesComponent {}
+class StubExternalMarketplacesComponent {
+  public readonly pluginInstalled = output<string>();
+  public readonly pluginUninstalled = output<string>();
+}
 
 @Component({
   selector: 'ptah-skills-section-header',
@@ -216,18 +219,26 @@ describe('SkillSourceHostComponent', () => {
     expect(harnessRefresh).not.toHaveBeenCalled();
   });
 
-  it('tells the inventory when the user leaves the Marketplaces source, and only then', () => {
+  it('an external plugin install or uninstall tells the inventory', () => {
     mount('marketplaces');
-    expect(notifyContentChanged).not.toHaveBeenCalled();
+    const surface = fixture.debugElement.query(
+      (el) => el.name === 'ptah-external-marketplaces',
+    ).componentInstance as StubExternalMarketplacesComponent;
 
-    fixture.destroy();
-    expect(notifyContentChanged).toHaveBeenCalledTimes(1);
+    surface.pluginInstalled.emit('external:dotnet/skills/dotnet-test');
+    surface.pluginUninstalled.emit('external:dotnet/skills/dotnet-test');
+
+    expect(notifyContentChanged).toHaveBeenCalledTimes(2);
+    expect(harnessRefresh).not.toHaveBeenCalled();
   });
 
-  it('leaving another source does not touch the inventory', () => {
-    mount('community');
-    fixture.destroy();
+  it.each<MarketplaceSkillSource>(['marketplaces', 'community'])(
+    'leaving the %s source does not touch the inventory',
+    (source) => {
+      mount(source);
+      fixture.destroy();
 
-    expect(notifyContentChanged).not.toHaveBeenCalled();
-  });
+      expect(notifyContentChanged).not.toHaveBeenCalled();
+    },
+  );
 });
