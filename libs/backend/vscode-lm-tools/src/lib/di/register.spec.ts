@@ -30,6 +30,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
     PTAH_API_BUILDER: Symbol.for('PtahAPIBuilder'),
     CODE_EXECUTION_MCP: Symbol.for('CodeExecutionMCP'),
     PERMISSION_PROMPT_SERVICE: Symbol.for('PermissionPromptService'),
+    WEBVIEW_MANAGER: Symbol.for('WebviewManager'),
   },
 }));
 
@@ -51,6 +52,8 @@ import { container, type DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { registerVsCodeLmToolsServices } from './register';
+import { VSCODE_LM_TOOLS_TOKENS } from './tokens';
+import { SurfaceStateService, type SurfacePushHostProvider } from '../surface';
 
 interface MockLogger {
   info: jest.Mock;
@@ -255,5 +258,106 @@ describe('registerVsCodeLmToolsServices', () => {
     expect(sibling.isRegistered(TOKENS.PTAH_API_BUILDER)).toBe(false);
     expect(sibling.isRegistered(TOKENS.CODE_EXECUTION_MCP)).toBe(false);
     expect(sibling.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)).toBe(false);
+  });
+});
+
+describe('registerVsCodeLmToolsServices - surface state (TASK_2026_538)', () => {
+  function registered(): { child: DependencyContainer; logger: MockLogger } {
+    const child = createContainer();
+    const logger = createLogger();
+    seedPrerequisites(child, logger);
+    registerVsCodeLmToolsServices(
+      child,
+      logger as unknown as Parameters<typeof registerVsCodeLmToolsServices>[1],
+    );
+    return { child, logger };
+  }
+
+  it('registers SURFACE_PUSH_HOST and SURFACE_STATE_SERVICE', () => {
+    const { child } = registered();
+
+    expect(child.isRegistered(VSCODE_LM_TOOLS_TOKENS.SURFACE_PUSH_HOST)).toBe(
+      true,
+    );
+    expect(
+      child.isRegistered(VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE),
+    ).toBe(true);
+  });
+
+  it('resolves the service as one singleton per container', () => {
+    const { child } = registered();
+
+    const first = child.resolve<SurfaceStateService>(
+      VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE,
+    );
+    const second = child.resolve<SurfaceStateService>(
+      VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE,
+    );
+
+    expect(first).toBeInstanceOf(SurfaceStateService);
+    expect(second).toBe(first);
+  });
+
+  it('resolves WEBVIEW_MANAGER lazily on every getHost call', () => {
+    const { child } = registered();
+    const provider = child.resolve<SurfacePushHostProvider>(
+      VSCODE_LM_TOOLS_TOKENS.SURFACE_PUSH_HOST,
+    );
+
+    // Registered after the DI phase (the Electron order, assumption A1).
+    expect(provider.getHost()).toBeUndefined();
+    const firstHost = {
+      getActiveWebviews: () => [],
+      sendMessage: async () => true,
+    };
+    child.registerInstance(TOKENS.WEBVIEW_MANAGER, firstHost);
+    expect(provider.getHost()).toBe(firstHost);
+
+    // A replaced host is visible to the next push.
+    const secondHost = {
+      getActiveWebviews: () => ['ptah.main'],
+      sendMessage: async () => true,
+    };
+    child.registerInstance(TOKENS.WEBVIEW_MANAGER, secondHost);
+    expect(provider.getHost()).toBe(secondHost);
+  });
+
+  it('delivers a committed surface through the lazily resolved host', async () => {
+    const { child } = registered();
+    const sendMessage = jest.fn(async () => true);
+    const service = child.resolve<SurfaceStateService>(
+      VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE,
+    );
+    child.registerInstance(TOKENS.WEBVIEW_MANAGER, {
+      getActiveWebviews: () => ['ptah.main'],
+      sendMessage,
+    });
+
+    const result = service.applyAgentUpdate(
+      'tab-1',
+      {
+        operation: 'create',
+        surface: {
+          schemaVersion: 'dashboard-spec/2',
+          catalogVersion: 'dashboard-catalog/2',
+          surfaceId: 'summary',
+          title: { text: 'Summary' },
+          components: [{ kind: 'stat', id: 'users', value: 1 }],
+        },
+      },
+      'call-1',
+    );
+
+    expect(result.status).toBe('applied');
+    if (result.status !== 'applied') return;
+    await expect(result.delivery).resolves.toEqual({
+      status: 'delivered',
+      surfaces: 1,
+    });
+    expect(sendMessage).toHaveBeenCalledWith(
+      'ptah.main',
+      'surface:updated',
+      expect.objectContaining({ routingId: 'tab-1', surfaceId: 'summary' }),
+    );
   });
 });

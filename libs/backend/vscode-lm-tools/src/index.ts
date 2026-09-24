@@ -90,4 +90,19 @@ export {
   type DashboardPushType,
 } from './lib/code-execution/namespace-builders/dashboard-namespace.builder';
 export { VSCODE_LM_TOOLS_TOKENS } from './lib/di';
-export type { SurfacePushHostProvider } from './lib/surface/surface-push';
+export {
+  SurfaceStateService,
+  type SurfacePushHostProvider,
+  type SurfaceAgentUpdateResult,
+  type SurfaceMutationOutcome,
+  type SurfaceSubmitBegin,
+  type SurfaceSubmitTicket,
+  type SurfaceSubmitDispatchOutcome,
+  type SurfaceChangeRequest,
+  type SurfaceSelectRequest,
+  type SurfaceSubmitRequest,
+  type SurfaceOperationStatusResult,
+  type SurfaceActionResolution,
+  type SurfaceStoreReadResult,
+  type SurfaceAgentReadResult,
+} from './lib/surface';

@@ -30,10 +30,11 @@
  * Worst-case memory: at most `maxStoreBytes` (24 MiB) of accounted JSON. That
  * figure already includes the ledger charges (at most `maxLedgerRoutingIds`
  * 64 x `maxOperationRecordsPerRoutingId` 128 x 1 KiB = 8 MiB) and the pending
- * tickets (at most one pending submit per routing id by the busy rule, each at
- * most 2 x `maxSubmitMessageBytes` = 64 KiB, so at most 4 MiB across 64 routing
- * ids). Surfaces alone could reach 32 x 8 x ~256 KiB = ~64 MiB, so the byte cap
- * is the binding limit. JS heap overhead is estimated at 2-3x the accounted
+ * tickets (at most one pending submit per routing id by the busy rule; each
+ * ticket charges its values, its formatted message and the settlement headroom
+ * from `submitSettlementHeadroom`, about 100 KiB for a large form). Surfaces
+ * alone could reach 32 x 8 x ~256 KiB = ~64 MiB, so the byte cap is the binding
+ * limit. JS heap overhead is estimated at 2-3x the accounted
  * bytes, about 48-72 MiB in the worst case.
  *
  * `highWaterRevision` is the largest revision ever committed in this store. It
