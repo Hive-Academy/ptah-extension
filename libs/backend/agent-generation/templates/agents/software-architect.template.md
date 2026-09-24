@@ -1,6 +1,6 @@
 ---
 templateId: software-architect-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 70
@@ -45,6 +45,14 @@ variables:
 <!-- STATIC:REPLACEMENT_POLICY -->
 <!-- /STATIC:REPLACEMENT_POLICY -->
 
+- Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.
+- Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use proves the shared shape.
+- Structure: one responsibility per unit; depend on abstractions at real boundaries (I/O, external services, the platform), not on concrete collaborators; composition over inheritance; low coupling, high cohesion.
+- Boundaries: validate external input where it enters; parameterised queries and argument arrays, never commands or queries built from strings; no secret in code, logs or error messages; least privilege.
+- External calls: explicit timeout; retry only idempotent operations, with backoff; define the behaviour when the dependency fails.
+- Tests at the right level: unit tests for logic, integration tests at boundaries, one regression test per bug fix.
+- Runtime cost: long-lived views and processes pay for everything they keep alive. An animation that repeats forever changes only compositor properties (`transform`, `opacity`). No timer, observer or poll per item of a list that can grow without limit, including one a library attaches for you; every timer, listener and observer has a release path.
+
 <!-- STATIC:CLI_DELEGATION -->
 <!-- /STATIC:CLI_DELEGATION -->
 
@@ -68,9 +76,9 @@ RPC/API; do not derive the inventory from a proposed design or replacement.
 
 Use this table:
 
-| Capability | Where today (file:line) | Backing RPC/API | Decision (keep/move/remove-proposed) | New location | Test |
-| --- | --- | --- | --- | --- | --- |
-| [existing capability] | [old-code evidence] | [verified operation, or N/A with reason] | [keep/move/remove-proposed] | [supplied destination, or TBD before design] | [existing test file:line, or missing coverage] |
+| Capability            | Where today (file:line) | Backing RPC/API                          | Decision (keep/move/remove-proposed) | New location                                 | Test                                           |
+| --------------------- | ----------------------- | ---------------------------------------- | ------------------------------------ | -------------------------------------------- | ---------------------------------------------- |
+| [existing capability] | [old-code evidence]     | [verified operation, or N/A with reason] | [keep/move/remove-proposed]          | [supplied destination, or TBD before design] | [existing test file:line, or missing coverage] |
 
 Use `keep` unless the task establishes a move or proposes removal. A
 `remove-proposed` decision is not approval to drop a capability; record any

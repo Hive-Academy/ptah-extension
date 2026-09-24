@@ -1,6 +1,6 @@
 ---
 templateId: devops-engineer-v1
-templateVersion: 1.2.0
+templateVersion: 1.3.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 70

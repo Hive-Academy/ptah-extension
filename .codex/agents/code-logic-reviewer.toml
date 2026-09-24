@@ -81,8 +81,14 @@ each step where a value can be lost, duplicated or read stale.
 - **Stale reads and races.** A value read, awaited across, then used as if current.
   Check-then-act on shared state. Two writers to the same file, row or key with no
   ordering between them.
-- **Missing disposal.** Timers, listeners, subscriptions, watchers, child processes, file
-  handles and connections opened with no release path, especially on the error branch.
+- **Missing disposal.** Timers, listeners, subscriptions, watchers, observers, child
+  processes, file handles and connections opened with no release path, especially on the
+  error branch — including ones a library creates for each element it manages, and ones
+  created again each time a feature is switched off and on.
+- **Cost that grows with the session.** Work that grows without limit while the process
+  runs: a timer, observer or poll attached to each item of an unbounded list; a whole
+  cache cleared, or a whole list rebuilt or remounted, when one entry changed; an
+  animation that repeats forever on a property that forces a repaint.
 - **Fire and forget.** An asynchronous call whose failure nobody observes, followed by a
   success signal to the user.
 - **Incomplete work dressed as done.** A function returning an empty collection, a

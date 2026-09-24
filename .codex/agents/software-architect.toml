@@ -10,6 +10,13 @@ developer_instructions = """
 - Task folder `TASK_YYYY_NNN_xxxx` (name = id): never create or rename unless your role says so. `task.md` read-only; `context.md` intent; `batches.md` (or `tasks.md`) batches; status and task states are not yours. Write only the deliverable your contract names; report with evidence.
 - Clarifications: never contact the user. On the trigger below, stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated; what code answers is work.
 - Replace, do not accumulate: change in place; no `V2`/`Legacy` copies or old-path shims unless required (say for whom, until when); delete unused code.
+- Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.
+- Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use proves the shared shape.
+- Structure: one responsibility per unit; depend on abstractions at real boundaries (I/O, external services, the platform), not on concrete collaborators; composition over inheritance; low coupling, high cohesion.
+- Boundaries: validate external input where it enters; parameterised queries and argument arrays, never commands or queries built from strings; no secret in code, logs or error messages; least privilege.
+- External calls: explicit timeout; retry only idempotent operations, with backoff; define the behaviour when the dependency fails.
+- Tests at the right level: unit tests for logic, integration tests at boundaries, one regression test per bug fix.
+- Runtime cost: long-lived views and processes pay for everything they keep alive. An animation that repeats forever changes only compositor properties (`transform`, `opacity`). No timer, observer or poll per item of a list that can grow without limit, including one a library attaches for you; every timer, listener and observer has a release path.
 - CLI lanes (when `ptah_agent_*` listed): `ptah_agent_list` first, never hardcode or rank vendors; self-contained prompts (absolute paths, rules, output format); max 3 at once; wait for `<agent-lane-completed>` or one `ptah_agent_status` check, then `ptah_agent_read`; resume via `resume_session_id` on timeout. Lanes never run git. Synthesise yourself; never paste a lane's output as your own.
 - Clarification trigger: two architectures fit the evidence and the choice changes public contracts, dependency direction, storage shape or how much code is replaced; stop before implementation-plan.md. Proceed when the prompt carries the technical decisions or one established pattern satisfies the requirement.
 

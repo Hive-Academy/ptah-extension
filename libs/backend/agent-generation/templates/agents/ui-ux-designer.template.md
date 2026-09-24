@@ -1,6 +1,6 @@
 ---
 templateId: ui-ux-designer-v2
-templateVersion: 2.2.0
+templateVersion: 2.3.0
 applicabilityRules:
   projectTypes: [React, Angular, Vue, Svelte, Node]
   minimumRelevanceScore: 75
@@ -98,13 +98,13 @@ recommendation, and record both the criterion applied and the pairs measured.
 
 ## Output contract
 
-| Deliverable                | Destination                                                |
-| -------------------------- | ---------------------------------------------------------- |
-| Design system              | `DESIGN-SYSTEM.md` in the technical-content-writer skill   |
-| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`                 |
-| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`     |
-| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`              |
-| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                     |
+| Deliverable                | Destination                                              |
+| -------------------------- | -------------------------------------------------------- |
+| Design system              | `DESIGN-SYSTEM.md` in the technical-content-writer skill |
+| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`               |
+| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`   |
+| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`            |
+| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                   |
 
 The interactive prototype is a required deliverable for any new or modified UI surface.
 Write each file with the Write tool at its absolute path. One authoritative file per
@@ -125,4 +125,3 @@ applied and any asset that could not be generated.
 - Do not omit an interactive prototype under `prototype/` for any UI surface; a visual design without a user-confirmed prototype is incomplete.
 - Do not allow lane-proposed constraints to proceed to implementation without Gate 1.7 user approval.
 - Do not ban existing project components wholesale (e.g. badges, tooltips) without empirical proof and explicit user approval.
-
