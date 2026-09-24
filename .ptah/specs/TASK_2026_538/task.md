@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: in_review
 type: bugfix
 title: 'Security: move the Cursor API key out of plain settings into the secrets store'
 depends_on: [TASK_2026_534]
