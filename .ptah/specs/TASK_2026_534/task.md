@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: bugfix
 title: 'Providers settings: fix runtime regressions and dead controls from PR #575'
 ---
