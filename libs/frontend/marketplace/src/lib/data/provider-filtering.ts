@@ -14,6 +14,7 @@ import {
   type ProviderRow,
   type ProviderStatus,
 } from './provider-row';
+import { statusPresentation } from '../ui/status-pill.component';
 
 /** The filters a page applies. `null` or absent means "any". */
 export interface ProviderFilter {
@@ -72,23 +73,14 @@ const STATUS_RANK: Readonly<Record<ProviderStatus, number>> = {
   configured: 9,
 };
 
-/** Human labels for the status filter. */
-const STATUS_LABELS: Readonly<Record<ProviderStatus, string>> = {
-  failed: 'Failed',
-  'needs-auth': 'Needs sign-in',
-  'needs-input': 'Needs setup',
-  expired: 'Expired',
-  disconnected: 'Disconnected',
-  unknown: 'Unknown',
-  pending: 'Starting',
-  disabled: 'Disabled',
-  connected: 'Connected',
-  configured: 'Configured',
-};
-
-/** Display label for a status. */
+/**
+ * Display label for a status: the word the status pill shows, read from
+ * `statusPresentation()` so search, the status filter and the pill can never
+ * disagree ("Pending", "Needs input"). `unknown` without its raw text reads
+ * "Unknown"; search matches the raw text through `statusText` separately.
+ */
 export function providerStatusLabel(status: ProviderStatus): string {
-  return STATUS_LABELS[status];
+  return statusPresentation(status).label;
 }
 
 const nameCollator = new Intl.Collator(undefined, {
@@ -120,8 +112,8 @@ function matchesTerms(row: ProviderRow, terms: readonly string[]): boolean {
   const haystack = [
     row.title,
     row.originLabel,
-    providerStatusLabel(row.status),
-    row.statusText ?? '',
+    // The pill's own word: the raw text for `unknown`, never a second label.
+    statusPresentation(row.status, row.statusText).label,
     row.description ?? '',
     ...row.targets.map((target) => target.label),
   ]

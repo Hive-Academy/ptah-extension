@@ -1,0 +1,145 @@
+<div class="flex min-w-0 items-start gap-4">
+  <section
+    class="min-w-0 flex-1 space-y-3"
+    [attr.aria-label]="heading()"
+    data-testid="provider-list"
+  >
+    <ptah-provider-filters
+      [filter]="filter()"
+      [options]="filterOptions()"
+      [showOrigin]="showOriginFilter()"
+      (filterChange)="setFilter($event)"
+    />
+
+    @if (notice(); as message) {
+      <div
+        role="alert"
+        class="flex items-start gap-2 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-base-content"
+        data-testid="provider-list-notice"
+      >
+        <span class="mt-0.5 inline-flex shrink-0 text-error" aria-hidden="true">
+          <lucide-angular [img]="ErrorIcon" class="h-3.5 w-3.5" />
+        </span>
+        <p class="min-w-0 flex-1">{{ message }}</p>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-square"
+          aria-label="Dismiss message"
+          data-testid="provider-list-notice-dismiss"
+          (click)="notice.set(null)"
+        >
+          <lucide-angular [img]="CloseIcon" class="h-3 w-3" />
+        </button>
+      </div>
+    }
+
+    @if (confirmView(); as confirm) {
+      <ptah-direct-removal-confirm
+        [targets]="confirm.direct"
+        [selectedCount]="confirm.selectedCount"
+        (confirmed)="confirmRemoval()"
+        (cancelled)="cancelConfirm()"
+      />
+    }
+
+    <ptah-bulk-action-bar
+      [selectedCount]="effectiveSelection().length"
+      [busy]="bulkBusy()"
+      [result]="bulkResult()"
+      (actionRequested)="requestBulkRemoval()"
+      (clearRequested)="clearSelection()"
+      (resultDismissed)="bulkResult.set(null)"
+    />
+
+    <div class="space-y-4" data-list-rows data-testid="provider-list-rows">
+      @for (section of sections(); track section.id) {
+        <div
+          class="space-y-2"
+          [attr.role]="section.heading === null ? null : 'group'"
+          [attr.aria-labelledby]="
+            section.heading === null ? null : sectionHeadingId(section)
+          "
+          data-testid="provider-list-section"
+          [attr.data-section]="section.id"
+        >
+          @if (section.heading !== null) {
+            <h2
+              [id]="sectionHeadingId(section)"
+              class="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+              data-testid="provider-group-heading"
+            >
+              {{ section.heading }}
+              <span
+                class="badge badge-ghost badge-sm tabular-nums"
+                data-testid="provider-group-count"
+                >{{ section.rows.length }}</span
+              >
+            </h2>
+          }
+          @if (compact()) {
+            <ptah-provider-card-list
+              [rows]="section.rows"
+              [selected]="selection()"
+              [activeRef]="activeRef()"
+              [busyRefs]="busyRefs()"
+              [state]="listState()"
+              [errorMessage]="listError()"
+              [label]="sectionCaption(section)"
+              [emptyTitle]="emptyTitle()"
+              [emptyDetail]="emptyDetail()"
+              [emptyActionLabel]="emptyActionLabel()"
+              (selectionChange)="selection.set($event)"
+              (openRequested)="open($event)"
+              (removeRequested)="requestRemove($event)"
+              (retryRequested)="retry()"
+              (emptyActionRequested)="emptyAction()"
+            />
+          } @else {
+            <ptah-provider-table
+              [rows]="section.rows"
+              [sort]="sort()"
+              [selected]="selection()"
+              [activeRef]="activeRef()"
+              [busyRefs]="busyRefs()"
+              [state]="listState()"
+              [errorMessage]="listError()"
+              [caption]="sectionCaption(section)"
+              [emptyTitle]="emptyTitle()"
+              [emptyDetail]="emptyDetail()"
+              [emptyActionLabel]="emptyActionLabel()"
+              (sortChange)="sort.set($event)"
+              (selectionChange)="selection.set($event)"
+              (openRequested)="open($event)"
+              (removeRequested)="requestRemove($event)"
+              (retryRequested)="retry()"
+              (emptyActionRequested)="emptyAction()"
+            />
+          }
+        </div>
+      }
+    </div>
+  </section>
+
+  @if (detailOpen()) {
+    @if (docked()) {
+      <ptah-docked-inspector
+        class="sticky top-0 h-[calc(100vh-8rem)] w-[400px] shrink-0"
+        heading="Server details"
+        data-testid="provider-detail-docked"
+        (closed)="closeDetail()"
+      >
+        <router-outlet />
+      </ptah-docked-inspector>
+    } @else {
+      <ptah-native-drawer
+        [isOpen]="true"
+        widthClass="w-full max-w-md"
+        [ariaLabel]="drawerLabel()"
+        data-testid="provider-detail-drawer"
+        (closed)="closeDetail()"
+      >
+        <router-outlet />
+      </ptah-native-drawer>
+    }
+  }
+</div>

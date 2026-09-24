@@ -1,0 +1,463 @@
+@switch (view()) {
+  @case ('loading') {
+    <div
+      role="status"
+      aria-busy="true"
+      class="space-y-3"
+      data-testid="server-detail-loading"
+    >
+      <span class="sr-only">Loading server details…</span>
+      <div class="flex items-center gap-3" aria-hidden="true">
+        <div class="skeleton h-10 w-10 rounded-lg"></div>
+        <div class="flex-1 space-y-1.5">
+          <div class="skeleton h-4 w-1/2 rounded"></div>
+          <div class="skeleton h-3 w-1/3 rounded"></div>
+        </div>
+      </div>
+      <div class="skeleton h-24 w-full rounded-lg" aria-hidden="true"></div>
+    </div>
+  }
+
+  @case ('error') {
+    <div
+      role="alert"
+      class="flex flex-col items-center gap-2 py-8 text-center"
+      data-testid="server-detail-error"
+    >
+      <span class="inline-flex text-error" aria-hidden="true">
+        <lucide-angular [img]="ErrorIcon" class="h-6 w-6" />
+      </span>
+      <p class="text-sm font-medium text-base-content">
+        Could not load installed servers
+      </p>
+      @if (loadError(); as message) {
+        <p class="text-xs text-base-content-muted">{{ message }}</p>
+      }
+      <button
+        type="button"
+        class="btn btn-outline btn-sm"
+        data-testid="server-detail-retry"
+        (click)="retry()"
+      >
+        Retry
+      </button>
+    </div>
+  }
+
+  @case ('not-found') {
+    <div
+      class="flex flex-col items-center gap-2 py-8 text-center"
+      data-testid="server-detail-not-found"
+    >
+      <span class="inline-flex text-base-content-muted" aria-hidden="true">
+        <lucide-angular [img]="NotFoundIcon" class="h-6 w-6" />
+      </span>
+      <h2 class="text-sm font-semibold text-base-content">Not found</h2>
+      <p class="max-w-xs text-xs text-base-content-muted">
+        This server is not installed here. It may have been removed, or it
+        belongs to another workspace.
+      </p>
+      <a
+        routerLink=".."
+        class="btn btn-ghost btn-sm"
+        data-testid="server-detail-back"
+      >
+        Back to the list
+      </a>
+    </div>
+  }
+
+  @case ('ready') {
+    @if (row(); as server) {
+      <article class="space-y-4" [attr.data-ref]="server.ref">
+        <header class="flex items-start gap-3">
+          <ptah-brand-mark
+            [brandSlug]="server.brand"
+            [label]="server.title"
+            size="lg"
+          />
+          <div class="min-w-0 flex-1 space-y-1">
+            <h2
+              class="truncate text-base font-semibold text-base-content"
+              [attr.title]="server.title"
+              data-testid="server-detail-title"
+            >
+              {{ server.title }}
+            </h2>
+            <p class="text-xs text-base-content-muted">{{ kindLabel() }}</p>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span
+                class="badge badge-ghost badge-sm"
+                data-testid="server-detail-origin"
+                >{{ server.originLabel }}</span
+              >
+              <ptah-status-pill
+                [status]="server.status"
+                [statusText]="server.statusText"
+              />
+            </div>
+          </div>
+        </header>
+
+        @if (lock(); as blocked) {
+          <div
+            role="note"
+            class="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3"
+            data-testid="server-detail-lock"
+          >
+            <p
+              class="flex items-center gap-1.5 text-xs font-semibold text-warning"
+            >
+              <span class="inline-flex" aria-hidden="true">
+                <lucide-angular [img]="LockIcon" class="h-3.5 w-3.5" />
+              </span>
+              Removal is blocked
+            </p>
+            <p
+              class="text-[11px] leading-relaxed text-base-content"
+              data-testid="server-detail-lock-reason"
+            >
+              {{ blocked.reason }}
+            </p>
+            @if (blocked.command; as command) {
+              <div
+                class="flex items-start gap-2 rounded-md border border-base-300 bg-base-100 px-2 py-1.5"
+              >
+                <code
+                  #fixCommand
+                  class="min-w-0 flex-1 break-all font-mono text-[11px] text-base-content"
+                  data-testid="server-detail-fix-command"
+                  >{{ command }}</code
+                >
+                <ptah-copy-command-button
+                  [command]="command"
+                  [selectTarget]="fixCommand"
+                  label="Copy removal command"
+                />
+              </div>
+            }
+          </div>
+        }
+
+        @if (accountManaged(); as reason) {
+          <div
+            role="note"
+            class="flex items-start gap-2 rounded-lg border border-base-300 bg-base-200 p-3"
+            data-testid="server-detail-account"
+          >
+            <span
+              class="mt-0.5 inline-flex text-base-content-muted"
+              aria-hidden="true"
+            >
+              <lucide-angular [img]="InfoIcon" class="h-3.5 w-3.5" />
+            </span>
+            <p class="text-[11px] leading-relaxed text-base-content">
+              {{ reason }}
+            </p>
+          </div>
+        }
+
+        <ptah-native-tab-group
+          [tabs]="tabs()"
+          [activeId]="activeTab()"
+          ariaLabel="Server details"
+          (tabSelected)="selectTab($event)"
+        >
+          <div class="pt-3">
+            @switch (activeTab()) {
+              @case ('targets') {
+                @if (server.kind !== 'config') {
+                  <p
+                    class="text-xs text-base-content-muted"
+                    data-testid="server-detail-session-targets"
+                  >
+                    Reaches {{ sessionTargetsLabel }} only: Ptah passes it to
+                    its own sessions when they start. No CLI config file
+                    declares it.
+                  </p>
+                } @else {
+                  <ul class="space-y-2" aria-label="Targets">
+                    @for (item of targetViews(); track item.target.target) {
+                      <li
+                        class="flex items-start gap-3 rounded-lg border border-base-300 bg-base-200 p-2.5"
+                        data-testid="server-detail-target"
+                        [attr.data-target]="item.target.target"
+                      >
+                        <ptah-target-marks [targets]="[item.target]" />
+                        <div class="min-w-0 flex-1 space-y-0.5">
+                          <p class="text-xs font-medium text-base-content">
+                            {{ item.target.label }}
+                          </p>
+                          <p class="text-[11px] text-base-content-muted">
+                            {{ item.via }}
+                          </p>
+                          @for (path of item.configPaths; track path) {
+                            <p
+                              class="break-all font-mono text-[10px] text-base-content-muted"
+                            >
+                              {{ path }}
+                            </p>
+                          }
+                        </div>
+                        <span
+                          class="inline-flex shrink-0 items-center gap-1 text-[11px] text-base-content-muted"
+                          data-testid="server-detail-target-detection"
+                          [attr.data-detection]="item.detection"
+                        >
+                          <span class="inline-flex" aria-hidden="true">
+                            <lucide-angular
+                              [img]="detectionIcons[item.detection]"
+                              class="h-3 w-3"
+                            />
+                          </span>
+                          {{ detectionWords[item.detection] }}
+                        </span>
+                      </li>
+                    } @empty {
+                      <li class="text-xs text-base-content-muted">
+                        No CLI config declares this server.
+                      </li>
+                    }
+                  </ul>
+                }
+              }
+
+              @case ('config') {
+                <dl
+                  class="space-y-3 text-xs"
+                  data-testid="server-detail-config"
+                >
+                  <div>
+                    <dt class="text-base-content-muted">Transport</dt>
+                    <dd class="font-mono text-base-content">
+                      {{ server.configSummary.transport }}
+                    </dd>
+                  </div>
+                  @if (server.configSummary.transport === 'stdio') {
+                    <div>
+                      <dt class="text-base-content-muted">Command</dt>
+                      <dd
+                        class="break-all font-mono text-base-content"
+                        data-testid="server-detail-command"
+                      >
+                        {{ server.configSummary.command }}
+                        @for (arg of server.configSummary.args; track $index) {
+                          {{ arg }}
+                        }
+                      </dd>
+                    </div>
+                  } @else {
+                    <div>
+                      <dt class="text-base-content-muted">URL</dt>
+                      <dd
+                        class="break-all font-mono text-base-content"
+                        data-testid="server-detail-url"
+                      >
+                        {{ server.configSummary.url ?? 'Not shared with Ptah' }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt class="text-base-content-muted">Headers</dt>
+                      <dd>
+                        @for (
+                          key of server.configSummary.headerKeys;
+                          track key
+                        ) {
+                          <p
+                            class="font-mono text-base-content"
+                            data-testid="server-detail-header-key"
+                          >
+                            {{ key }}:
+                            <span
+                              class="text-base-content-muted"
+                              aria-hidden="true"
+                              >{{ maskedValue }}</span
+                            >
+                            <span class="sr-only">value hidden</span>
+                          </p>
+                        } @empty {
+                          <p class="text-base-content-muted">None</p>
+                        }
+                      </dd>
+                    </div>
+                  }
+                  <div>
+                    <dt class="text-base-content-muted">
+                      Environment variables
+                    </dt>
+                    <dd>
+                      @for (key of server.configSummary.envKeys; track key) {
+                        <p
+                          class="font-mono text-base-content"
+                          data-testid="server-detail-env-key"
+                        >
+                          {{ key }}=<span
+                            class="text-base-content-muted"
+                            aria-hidden="true"
+                            >{{ maskedValue }}</span
+                          ><span class="sr-only">value hidden</span>
+                        </p>
+                      } @empty {
+                        <p class="text-base-content-muted">None</p>
+                      }
+                    </dd>
+                  </div>
+                  <p class="text-[11px] text-base-content-muted">
+                    Values are hidden. Ptah shows the names of environment
+                    variables and headers, never their values.
+                  </p>
+                </dl>
+              }
+
+              @default {
+                <div class="space-y-3 text-xs">
+                  @if (server.description) {
+                    <p
+                      class="leading-relaxed text-base-content"
+                      data-testid="server-detail-description"
+                    >
+                      {{ server.description }}
+                    </p>
+                  }
+                  <dl class="divide-y divide-base-300">
+                    <div class="flex items-start justify-between gap-3 py-2">
+                      <dt class="text-base-content-muted">Status</dt>
+                      <dd class="text-right" data-testid="server-detail-status">
+                        <ptah-status-pill
+                          [status]="server.status"
+                          [statusText]="server.statusText"
+                        />
+                        <p
+                          class="mt-1 text-[11px] text-base-content-muted"
+                          data-testid="server-detail-status-source"
+                        >
+                          {{ statusHint() }}
+                        </p>
+                      </dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-3 py-2">
+                      <dt class="text-base-content-muted">Origin</dt>
+                      <dd class="text-right text-base-content">
+                        {{ server.originLabel }}
+                      </dd>
+                    </div>
+                    @if (server.configPaths.length > 0) {
+                      <div class="flex items-start justify-between gap-3 py-2">
+                        <dt class="shrink-0 text-base-content-muted">
+                          Config files
+                        </dt>
+                        <dd class="min-w-0 text-right">
+                          @for (path of server.configPaths; track path) {
+                            <p
+                              class="break-all font-mono text-[11px] text-base-content"
+                              data-testid="server-detail-config-path"
+                            >
+                              {{ path }}
+                            </p>
+                          }
+                        </dd>
+                      </div>
+                    }
+                    @if (connectedAt(); as date) {
+                      <div class="flex items-start justify-between gap-3 py-2">
+                        <dt class="text-base-content-muted">Connected</dt>
+                        <dd class="text-right text-base-content">{{ date }}</dd>
+                      </div>
+                    }
+                    @if (createdAt(); as date) {
+                      <div class="flex items-start justify-between gap-3 py-2">
+                        <dt class="text-base-content-muted">Created</dt>
+                        <dd class="text-right text-base-content">{{ date }}</dd>
+                      </div>
+                    }
+                  </dl>
+                </div>
+              }
+            }
+          </div>
+        </ptah-native-tab-group>
+
+        @if (confirming()) {
+          <ptah-direct-removal-confirm
+            [targets]="[server]"
+            (confirmed)="confirmRemoval()"
+            (cancelled)="cancelRemoval()"
+          />
+        }
+
+        @if (actionError(); as message) {
+          <p
+            role="alert"
+            class="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-base-content"
+            data-testid="server-detail-action-error"
+          >
+            {{ message }}
+          </p>
+        }
+        @if (actionInfo(); as message) {
+          <p
+            role="status"
+            class="rounded-lg border border-info/40 bg-info/10 px-3 py-2 text-xs text-base-content"
+            data-testid="server-detail-action-info"
+          >
+            {{ message }}
+          </p>
+        }
+
+        @if (canReconnect() || removalLabel() !== null) {
+          <footer class="flex flex-wrap gap-2 border-t border-base-300 pt-3">
+            @if (canReconnect()) {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm gap-1"
+                data-testid="server-detail-reconnect"
+                [disabled]="reconnecting()"
+                [attr.aria-busy]="reconnecting()"
+                (click)="reconnect()"
+              >
+                @if (reconnecting()) {
+                  <span
+                    class="loading loading-spinner loading-xs"
+                    aria-hidden="true"
+                  ></span>
+                } @else {
+                  <lucide-angular
+                    [img]="ReconnectIcon"
+                    class="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                }
+                Reconnect
+              </button>
+            }
+            @if (removalLabel(); as label) {
+              <button
+                type="button"
+                class="btn btn-outline btn-error btn-sm gap-1"
+                data-testid="server-detail-remove"
+                [disabled]="removing() || confirming()"
+                [attr.aria-busy]="removing()"
+                [attr.aria-label]="removalAriaLabel()"
+                (click)="requestRemoval()"
+              >
+                @if (removing()) {
+                  <span
+                    class="loading loading-spinner loading-xs"
+                    aria-hidden="true"
+                  ></span>
+                } @else {
+                  <lucide-angular
+                    [img]="removalIcon()"
+                    class="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                }
+                {{ label }}
+              </button>
+            }
+          </footer>
+        }
+      </article>
+    }
+  }
+}

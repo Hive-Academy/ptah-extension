@@ -157,6 +157,47 @@ describe('BulkActionBarComponent', () => {
     expect(dismissed).toHaveBeenCalledTimes(1);
   });
 
+  // Regression (Batch 10 follow-up): a [class] binding on <lucide-angular> is
+  // overwritten by the icon's own `class` input, so the tone never rendered.
+  describe('outcome icon tone', () => {
+    const toneHost = (): HTMLElement | null => byTestId('bulk-result-icon');
+
+    it('renders the error tone on a wrapper when something failed', () => {
+      render({ selectedCount: 0, result: PARTIAL });
+      const host = toneHost();
+
+      expect(host?.classList).toContain('text-error');
+      expect(host?.classList).not.toContain('text-success');
+      expect(host?.getAttribute('data-tone')).toBe('error');
+      expect(host?.querySelector('lucide-angular')).not.toBeNull();
+    });
+
+    it('renders the success tone when everything was removed', () => {
+      render({ selectedCount: 0, result: { removed: 2, failed: [] } });
+
+      expect(toneHost()?.classList).toContain('text-success');
+      expect(toneHost()?.getAttribute('data-tone')).toBe('success');
+    });
+
+    it('switches tone when the outcome changes, keeping the wrapper classes', () => {
+      render({ selectedCount: 0, result: { removed: 2, failed: [] } });
+      set('result', PARTIAL);
+      const host = toneHost();
+
+      expect(host?.classList).toContain('text-error');
+      expect(host?.classList).not.toContain('text-success');
+      expect(host?.classList).toContain('inline-flex');
+    });
+
+    it('puts no tone class on the lucide icon itself', () => {
+      render({ selectedCount: 0, result: PARTIAL });
+      const icon = toneHost()?.querySelector('lucide-angular');
+
+      expect(icon?.classList.contains('text-error')).toBe(false);
+      expect(icon?.classList.contains('text-success')).toBe(false);
+    });
+  });
+
   describe('labels', () => {
     it.each<[number, string]>([
       [0, 'No items selected'],

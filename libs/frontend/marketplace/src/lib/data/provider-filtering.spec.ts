@@ -14,7 +14,12 @@ import {
   type ProviderFilter,
   type ProviderSort,
 } from './provider-filtering';
-import type { ProviderRow, ProviderTarget } from './provider-row';
+import type {
+  ProviderRow,
+  ProviderStatus,
+  ProviderTarget,
+} from './provider-row';
+import { statusPresentation } from '../ui/status-pill.component';
 
 const LABELS: Readonly<Record<McpInstallTarget, string>> = {
   vscode: 'VS Code',
@@ -326,6 +331,69 @@ describe('providerFilterOptions', () => {
 
   it('labels every status', () => {
     expect(providerStatusLabel('needs-auth')).toBe('Needs sign-in');
-    expect(providerStatusLabel('needs-input')).toBe('Needs setup');
+    expect(providerStatusLabel('needs-input')).toBe('Needs input');
+  });
+});
+
+// Batch 10 binding: the filter and search words ARE the pill words.
+describe('status words match the status pill', () => {
+  const ALL_STATUSES: readonly ProviderStatus[] = [
+    'connected',
+    'failed',
+    'needs-auth',
+    'needs-input',
+    'pending',
+    'disabled',
+    'expired',
+    'disconnected',
+    'configured',
+    'unknown',
+  ];
+
+  it.each(ALL_STATUSES)('labels %s with the pill word', (status) => {
+    expect(providerStatusLabel(status)).toBe(statusPresentation(status).label);
+  });
+
+  it.each([
+    ['pending', 'Pending'],
+    ['needs-input', 'Needs input'],
+  ] as const)('labels %s "%s" (the old map said otherwise)', (status, word) => {
+    expect(providerStatusLabel(status)).toBe(word);
+  });
+
+  it.each(ALL_STATUSES.filter((status) => status !== 'unknown'))(
+    'finds a %s row by the word on its pill',
+    (status) => {
+      const target = row('target-server', { status });
+      const other = row('other-server', {
+        status: status === 'configured' ? 'connected' : 'configured',
+      });
+      const word = statusPresentation(status).label;
+
+      expect(
+        filterProviderRows([other, target], { search: word }).map(
+          (r) => r.title,
+        ),
+      ).toEqual(['target-server']);
+    },
+  );
+
+  it('finds an unknown row by its raw pill text, and not by "Unknown"', () => {
+    const raw = row('raw-server', { status: 'unknown', statusText: 'warming' });
+
+    expect(filterProviderRows([raw], { search: 'warming' })).toEqual([raw]);
+    expect(filterProviderRows([raw], { search: 'unknown' })).toEqual([]);
+  });
+
+  it('offers filter options under the pill words', () => {
+    const options = providerFilterOptions([
+      row('a', { status: 'pending' }),
+      row('b', { status: 'needs-input' }),
+    ]);
+
+    expect(options.statuses.map((option) => option.label)).toEqual([
+      'Needs input',
+      'Pending',
+    ]);
   });
 });

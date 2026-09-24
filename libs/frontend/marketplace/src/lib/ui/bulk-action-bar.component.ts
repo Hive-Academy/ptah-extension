@@ -143,14 +143,24 @@ export function bulkResultSummary(result: BulkActionResult): string {
                 class="flex items-center gap-1.5 text-xs font-medium text-base-content"
                 data-testid="bulk-result-summary"
               >
-                <lucide-angular
-                  [img]="outcome.failed.length > 0 ? FailedIcon : DoneIcon"
-                  class="h-3.5 w-3.5 shrink-0"
+                <!-- The tone sits on a wrapper: lucide-angular's own \`class\`
+                     input overwrites a [class] binding on the icon. -->
+                <span
+                  class="inline-flex shrink-0"
                   [class]="
                     outcome.failed.length > 0 ? 'text-error' : 'text-success'
                   "
+                  [attr.data-tone]="
+                    outcome.failed.length > 0 ? 'error' : 'success'
+                  "
+                  data-testid="bulk-result-icon"
                   aria-hidden="true"
-                />
+                >
+                  <lucide-angular
+                    [img]="outcome.failed.length > 0 ? FailedIcon : DoneIcon"
+                    class="h-3.5 w-3.5"
+                  />
+                </span>
                 {{ summary() }}
               </p>
               <button
