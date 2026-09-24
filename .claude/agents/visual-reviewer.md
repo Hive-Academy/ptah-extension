@@ -66,7 +66,7 @@ and element refs, then interact with `ptah_browser_click` / `ptah_browser_type`,
 
 For each screen under review: baseline full-page screenshot, element refs from the
 snapshot, then the viewport sweep, then interaction states, then the accessibility pass,
-and the prototype comparison pass.
+and the prototype comparison pass (or before/after comparison when no prototype is required).
 
 ### Prototype comparison pass
 
@@ -79,6 +79,12 @@ Compare across both dark and light themes, and narrow (≈400px) vs wide viewpor
 - Verify layout structure, action hierarchy (single primary action), and spacing.
 - Record any visual or structural deviation from the approved prototype as a defect.
 
+### Before/after comparison pass (no prototype)
+
+When no prototype is required (a UI change that adds or redesigns no surface), use
+the supplied base-commit capture or a running app at the base commit, and the running
+app with the fix. Capture dark + light screenshots of the affected screen at the base
+commit (before) and at the fixed state (after), and compare those for visual regressions.
 
 ### Viewport sweep
 
@@ -227,6 +233,7 @@ Structure:
 - Approved prototype: [path to prototype/index.html, or "None"]
 - Fidelity assessment: MATCHES / DEVIATES / NOT APPLICABLE
 - Deviations observed: [differences in layout, components, or styling between build and prototype]
+- Before/after comparison (no prototype): [for a no-prototype review, one entry per dark and light before/after screenshot pair (paths) with its comparison result, written even when there are no regressions]
 
 ## Viewport results
 

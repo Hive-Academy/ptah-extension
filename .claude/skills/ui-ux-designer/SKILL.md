@@ -127,7 +127,7 @@ A lane-written design specification must never reach implementation without the 
 ### Prototype Deliverable
 For any screen, landing page, or UI surface, deliver `<taskFolder>/prototype/`:
 - `index.html`: Self-contained static HTML (one file per screen or in-page navigation), plain JavaScript allowed. Zero build step to view, zero backend, never imported by the application.
-- `README.md`: Instructions to open, screen/state list, interactive features, a `## Deviations` section for asset fallbacks and departures from project tokens, a `## Lane-introduced constraints` list (tagged `[user-requested]`, `[project-rule]`, `[lane-proposed]`), and parity cross-references to `parity-inventory.md`.
+- `README.md`: Instructions to open, screen/state list, interactive features, a `## Deviations` section for asset fallbacks and departures from project tokens, a `## Project rules applied` list (each `[project-rule]` + its source file or doc; or none), a `## Lane-introduced constraints` list (only `[lane-proposed]` rules; or none), and parity cross-references to `parity-inventory.md`.
 - `screenshots/`: Static screenshots of the prototype across themes and viewports, captured via `ptah_browser_screenshot` when available.
 - `assets/`: Local copies of the CSS/JS the prototype links.
 
