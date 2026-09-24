@@ -17,12 +17,17 @@
  *    wholesale — templates may carry an empty pair or a stale body, and both
  *    resolve to the same output. The markers themselves survive resolution;
  *    `OrchestratorService.buildAgentFileContent` strips them on emit.
- *  - An id must match `/^[A-Z_]+$/` and must be one of {@link SHARED_BLOCK_IDS}.
- *    An unknown or malformed id is an ERROR, never a silent pass-through — the
- *    whole failure mode being fixed here is a marker that nothing acted on.
- *    `<!-- /STATIC:ANT I_PATTERNS -->` shipped for months because the validator's
- *    `\w+` could not see it; here it fails to match `/^[A-Z_]+$/` and stops the
- *    load.
+ *  - An id must match `/^[A-Z_]+$/`. A malformed id is an ERROR, never a silent
+ *    pass-through — the whole failure mode being fixed here is a marker that
+ *    nothing acted on. `<!-- /STATIC:ANT I_PATTERNS -->` shipped for months
+ *    because the validator's `\w+` could not see it; here it fails to match
+ *    `/^[A-Z_]+$/` and stops the load.
+ *  - A well-formed id resolves from `_shared/<kebab-name>.md` when that file
+ *    exists, whether or not it is in {@link SHARED_BLOCK_IDS}. A template
+ *    published on main can name a block that an older installed app does not
+ *    list; as long as the partial file ships with the templates, every
+ *    resolver that can read the directory can expand it. A well-formed id with
+ *    no registration and no file is the "Unknown STATIC block id" ERROR.
  *  - Pairs must balance and must not nest.
  *  - After expansion, `{{SLOT}}` placeholders inside the expanded block are
  *    substituted from the template's frontmatter `variables` map. A slot with no
@@ -50,12 +55,14 @@ import { TemplateError } from '../errors/template.error';
 export const SHARED_PARTIALS_DIR = '_shared';
 
 /**
- * The CLOSED set of shared block ids.
- *
- * Closed on purpose, and for the same reason `DOC_FILES` is: a template that
- * invents its own block id is re-opening the copy-paste path this resolver
- * exists to close. Widening the set is a deliberate edit here plus a new file
- * in `_shared/` (or a new renderer, for a derived block).
+ * The set of shared block ids this repository's own templates and the guard
+ * specs reason about. Deliberately NOT a gate the resolver enforces on its own:
+ * a template published on main can name a block that an older installed app
+ * does not list, so the resolver accepts any well-formed id that has a
+ * `_shared/` file (see the contract above). Keeping the list here is still
+ * deliberate — it is the vocabulary the guard's role grants and the corpus
+ * checks are written against, and widening it stays a visible edit plus a new
+ * file in `_shared/` (or a new renderer, for a derived block).
  */
 export const SHARED_BLOCK_IDS = [
   'CLARIFICATION_PROTOCOL',
@@ -64,6 +71,7 @@ export const SHARED_BLOCK_IDS = [
   'TOOLING_PRECEDENCE',
   'CLI_DELEGATION',
   'REVIEWER_STANCE',
+  'ENGINEERING_HYGIENE',
 ] as const;
 
 /** Literal union of every registered shared block id. */
@@ -123,7 +131,11 @@ interface MarkerMatch {
 
 /** One resolved shared block, for callers that want to assert on the parts. */
 export interface ResolvedBlock {
-  readonly id: SharedBlockId;
+  /**
+   * The marker id as written. `string`, not {@link SharedBlockId}: a
+   * forward-compat block resolves from `_shared/` without being registered.
+   */
+  readonly id: string;
   readonly content: string;
 }
 
@@ -198,7 +210,7 @@ export class TemplatePartialResolver {
       out += content.slice(cursor, open.end);
       out += `\n\n${body.trim()}\n\n`;
       cursor = close.start;
-      blocks.push({ id: open.id as SharedBlockId, content: body.trim() });
+      blocks.push({ id: open.id, content: body.trim() });
     }
     out += content.slice(cursor);
 
@@ -228,14 +240,11 @@ export class TemplatePartialResolver {
           ),
         );
       }
-      if (!(SHARED_BLOCK_IDS as readonly string[]).includes(id)) {
-        return Result.err(
-          this.fail(
-            templateId,
-            `Unknown STATIC block id "${id}". Registered ids: ${SHARED_BLOCK_IDS.join(', ')}`,
-          ),
-        );
-      }
+      // A well-formed id that is not registered is NOT rejected here: it may
+      // still resolve from `_shared/`, which is how a template published on
+      // main names a block an older installed app does not list. loadBlock
+      // turns "well-formed, unregistered, and no file" into the unknown-id
+      // error, keeping every rejection a load-stopping error either way.
       markers.push({
         isClose: match[1] === '/',
         id,
@@ -305,11 +314,25 @@ export class TemplatePartialResolver {
     }
 
     const filePath = join(partialsDir, fileName);
+    const registered = (SHARED_BLOCK_IDS as readonly string[]).includes(id);
     try {
       const text = await readFile(filePath, 'utf-8');
       this.partialCache.set(fileName, text);
       return Result.ok(text);
     } catch (error: unknown) {
+      const notFound =
+        (error as NodeJS.ErrnoException)?.code === 'ENOENT' && !registered;
+      if (notFound) {
+        // The forward-compat rule has a floor: an id nobody registered and no
+        // file to back it is exactly the invented-marker failure this resolver
+        // exists to stop, so it stays a load-stopping error.
+        return Result.err(
+          this.fail(
+            templateId,
+            `Unknown STATIC block id "${id}": not in the registered set (${SHARED_BLOCK_IDS.join(', ')}) and no shared partial at ${filePath}`,
+          ),
+        );
+      }
       const reason =
         (error as NodeJS.ErrnoException)?.code === 'ENOENT'
           ? 'file not found'

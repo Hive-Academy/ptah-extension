@@ -1,6 +1,6 @@
 ---
 templateId: modernization-detector-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 60

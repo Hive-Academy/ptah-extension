@@ -1,6 +1,6 @@
 ---
 templateId: senior-tester-v2
-templateVersion: 2.1.0
+templateVersion: 2.2.0
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 70
@@ -94,7 +94,9 @@ challenge your reading rather than guess at it.
    where the project already does so. Do not change the suite's philosophy as a
    side effect of one task.
 7. Run the tests for the projects you touched only (`-p <project>`), never
-   workspace-wide. Tail or filter the output; never paste a full log into the report or
+   workspace-wide. Other agents may be verifying on the same machine: when the runner has
+   a worker or parallelism setting, cap it low (for example two workers) instead of its
+   per-core default. Tail or filter the output; never paste a full log into the report or
    the thread; do not re-run a suite only to re-read its output. Record the command, the
    pass and fail counts, and any test you could not run and why. A test you did not
    execute is not evidence.
