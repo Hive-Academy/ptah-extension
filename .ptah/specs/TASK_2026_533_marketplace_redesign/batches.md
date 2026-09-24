@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 15/30
+Total tasks: 65 | Batches: 30 | Complete: 16/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 11, 12, 12b.
-In progress: Batch 10 (executor running in its own worktree).
-Next launchable: none until Batch 10 is COMPLETE; then 13 ∥ 15 ∥ 16 (Batch 11 has landed), then 14.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b.
+In progress: none.
+Next launchable: Batch 13 ∥ 15 ∥ 16 (file-disjoint; run each in its own worktree), then 14.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -607,7 +607,7 @@ Edge cases:
 - Binding on Batch 13: `ptah-docked-inspector` has no Escape handling — the page owns Escape (close inspector, return focus to the active row); `ptah-copy-command-button` requires a `selectTarget` template ref (the `<code>` element to select on clipboard rejection); `ptah-bulk-action-bar` renders the results summary from an input, the page computes it.
 - Follow-ups: OpenCode `ptah-provider-mark` is drawn at `scale-[0.625]` in TargetMarks (accepted) — add a size input on `ProviderMarkComponent` and drop the scale; DockedInspector Escape stays with Batch 13 pages (above).
 
-## Batch 10: Marketplace UI kit II — lists and overview widgets — IN_PROGRESS
+## Batch 10: Marketplace UI kit II — lists and overview widgets — COMPLETE (commit a9929f030)
 
 - Recommended executor: CLI lanes x3 (one per task)
 - Fallback executor: frontend-developer (sequential)
@@ -616,7 +616,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 9
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
-### Task 10.1: `ProviderTableComponent` + `ProviderCardListComponent` — PENDING
+### Task 10.1: `ProviderTableComponent` + `ProviderCardListComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\provider-table.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\provider-card-list.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`ProviderTable`, `ProviderCardList`), C7 failure behaviour
@@ -625,7 +625,7 @@ Edge cases:
 - Validation notes: no "Last used" column (dropped).
 - Implementation details: emits selection, sort, open, remove.
 
-### Task 10.2: `ProviderFiltersComponent` + `StatCardComponent` — PENDING
+### Task 10.2: `ProviderFiltersComponent` + `StatCardComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\provider-filters.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\stat-card.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`ProviderFilters`, `StatCard`)
@@ -634,7 +634,7 @@ Edge cases:
 - Validation notes: filters are not navigation.
 - Implementation details: presentational.
 
-### Task 10.3: `NeedsAttentionComponent` + `CoverageMatrixComponent` — PENDING
+### Task 10.3: `NeedsAttentionComponent` + `CoverageMatrixComponent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\needs-attention.component.ts` (+`.spec.ts`), `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\ui\coverage-matrix.component.ts` (+`.spec.ts`)
 - Plan reference: implementation-plan.md C8 (`NeedsAttention`, `CoverageMatrix`)
@@ -646,6 +646,16 @@ Edge cases:
 ### Batch 10 verification
 
 - Reviewer: code-style-reviewer
+- Result: 14 new files in `libs/frontend/marketplace/src/lib/ui/` (provider-table, provider-card-list, provider-filters, provider-filter-select (added), stat-card, needs-attention, coverage-matrix + specs), no barrel or registry edit; executor in worktree `task533-b10` (base `bff852d26`, disjoint from Batch 11), copied into TASK_WT before commit; `lint,typecheck,test -p @ptah-extension/marketplace --skip-nx-cache` green in TASK_WT (1 project, 45 suites, 999 tests, includes Batch 11). Review: logic APPROVE 8/10; style NEEDS_REVISION 7/10 round 1, APPROVED 9/10 round 2 (revise round 1 recorded in `batch-10-report.md`). Report: `batch-10-report.md` (untracked).
+- BINDING on Batch 13 (its FIRST task, before any page wires search): `data/provider-filtering.ts` `providerStatusLabel` / `STATUS_LABELS` (:76-87) disagree with `statusPresentation()` (`status-pill.component.ts`) — `pending` → "Starting" vs pill "Pending", `needs-input` → "Needs setup" vs pill "Needs input" — so a user searching the word shown on the pill gets no match. Derive the labels from `statusPresentation()` (no second map) and add a spec that asserts every `ProviderStatus` label equals the pill word and that searching it matches the row.
+- Follow-ups:
+  - `ui/bulk-action-bar.component.ts:149-152` binds `[class]` on `lucide-angular`, which is overwritten by the icon's own `class` input, so the error/success tone never renders. Wrap the icon in a tone-classed `<span>` and add a regression spec. Owner: Batch 13 (it wires the bulk bar in Task 13.1); if Batch 13 does not touch bulk actions, a separate small follow-up.
+  - `ui/provider-filter-select.component.ts:40-41` doc comment says keyboard "follows the ui selectors"; it does not match them — correct the comment (next batch touching the file).
+  - Note for pages: `provider-table` caption is `sr-only` (the page `h1`/section heading already names the list), while `coverage-matrix` caption is visible (the matrix has no other heading). Deliberate; keep it.
+  - Harness "Review" link in `needs-attention` targets `/marketplace/skills` (`needs-attention.component.ts:44`): Batch 16 keeps the harness health badge on that page, or Batch 14 updates `needsAttentionLink`.
+  - `manage-link` rows (claude.ai connectors) render no link yet — the target is decided in Batch 13/15 (see Batch 8 accepted deviations).
+  - Output names for pages: `openRequested`, `removeRequested`, `retryRequested`, `emptyActionRequested`, plus `selectionChange`, `sortChange` (table) and `filterChange` (filters).
+  - Icon tone classes go on a wrapper `<span>`, never on `lucide-angular` itself (same root cause as the bulk-bar follow-up).
 
 ## Batch 11: Marketplace UI kit III — storefront — COMPLETE (commit 41ae43cf5)
 
@@ -769,6 +779,7 @@ Edge cases:
 - Execution mode: sequential
 - Rationale: list view owns the detail placement the detail component renders into.
 - Tasks: 3 | Depends on: Batches 5, 6, 8, 9, 10, 12b
+- BINDING first step (from Batch 10, before Task 13.1 wires search): fix `data/provider-filtering.ts` `providerStatusLabel` (:76-87) to derive from `statusPresentation()` ("Pending", "Needs input"), with a spec; and fix the `ui/bulk-action-bar.component.ts:149-152` icon tone (wrapper span + regression spec). Adds MODIFY `data/provider-filtering.ts` (+`.spec.ts`) and `ui/bulk-action-bar.component.ts` (+`.spec.ts`) to this batch's files. See Batch 10 verification.
 - Spec rule (Revision 3 D-4.3): a spec that constructs the REAL `MarketplaceInventoryStore` provides the `TabManagerService` stub `{ tabs: signal([...]) }`; a spec that stubs the store sets `newestSessionStatus` directly.
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace`
 
