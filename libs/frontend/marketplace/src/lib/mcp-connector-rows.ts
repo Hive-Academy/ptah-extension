@@ -7,8 +7,8 @@ import {
 /**
  * Short badge text for a claude.ai account connector row.
  *
- * `McpDirectoryBrowserComponent` renders `originLabel` verbatim in a
- * `badge-xs`, so it has to stay short enough not to wrap the row.
+ * The installed-server rows (`data/provider-row.ts`) show `originLabel`
+ * verbatim as the row's origin, so it has to stay short enough not to wrap.
  */
 export const CLAUDE_CONNECTOR_ORIGIN_LABEL = 'claude.ai connector';
 

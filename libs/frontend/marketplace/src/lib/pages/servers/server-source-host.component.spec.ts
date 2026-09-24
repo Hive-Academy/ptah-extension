@@ -1,9 +1,9 @@
 /**
  * ServerSourceHostComponent specs (plan C7 `ServerSourceHost`): exactly one
  * surface per source, the band as the page's only `<h1>` (storefront at wide,
- * compact otherwise), no `connectorServers` binding on the registry browser,
- * and every install / uninstall / connect / disconnect output routed to
- * `notifyContentChanged()`.
+ * compact otherwise), and every install / uninstall / connect / disconnect
+ * output routed to `notifyContentChanged()`. The registry browser is
+ * discovery only (plan C11): it reports installs and has no removal output.
  *
  * The three reused surfaces are replaced by same-selector stubs with the same
  * outputs: their own reads and markup are covered by their own specs, and this
@@ -16,12 +16,13 @@ import {
   Component,
   input,
   output,
+  reflectComponentType,
   signal,
+  type Type,
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { McpDirectoryBrowserComponent } from '@ptah-extension/chat-ui';
 import type { MarketplaceServerSource } from '@ptah-extension/core';
-import type { InstalledMcpServer } from '@ptah-extension/shared';
 
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import {
@@ -53,14 +54,23 @@ class StubSmitherySurfaceComponent {
   template: `<p data-testid="stub-registry">registry</p>`,
 })
 class StubMcpDirectoryBrowserComponent {
-  /** Kept so the spec can prove the host leaves it unbound. */
-  public readonly connectorServers = input<InstalledMcpServer[]>([]);
+  public readonly refreshTrigger = input(0);
   public readonly serverInstalled = output<{
     serverName: string;
     targets: string[];
   }>();
-  public readonly serverUninstalled = output<string>();
 }
+
+/** Public input and output names a component declares, sorted. */
+const bindingNames = (
+  component: Type<unknown>,
+): { inputs: string[]; outputs: string[] } => {
+  const mirror = reflectComponentType(component);
+  return {
+    inputs: (mirror?.inputs ?? []).map((i) => i.templateName).sort(),
+    outputs: (mirror?.outputs ?? []).map((o) => o.templateName).sort(),
+  };
+};
 
 @Component({
   selector: 'ptah-oauth-surface',
@@ -198,14 +208,14 @@ describe('ServerSourceHostComponent', () => {
     expect(band()).toBe('storefront');
   });
 
-  it('leaves the registry browser without a connectorServers binding', () => {
-    mount('registry');
+  it('stubs the registry browser with exactly its real inputs and outputs', () => {
+    const real = bindingNames(McpDirectoryBrowserComponent);
 
-    expect(
-      surface<StubMcpDirectoryBrowserComponent>(
-        'ptah-mcp-directory-browser',
-      ).connectorServers(),
-    ).toEqual([]);
+    expect(real).toEqual({
+      inputs: ['refreshTrigger'],
+      outputs: ['serverInstalled'],
+    });
+    expect(bindingNames(StubMcpDirectoryBrowserComponent)).toEqual(real);
   });
 
   it('a Smithery install or uninstall tells the inventory', () => {
@@ -220,19 +230,24 @@ describe('ServerSourceHostComponent', () => {
     expect(notifyContentChanged).toHaveBeenCalledTimes(2);
   });
 
-  it('a registry install or uninstall tells the inventory', () => {
+  it('a registry install tells the inventory, and no removal event is bound', () => {
     mount('registry');
-    const registry = surface<StubMcpDirectoryBrowserComponent>(
-      'ptah-mcp-directory-browser',
+    const registryEl = fixture.debugElement.query(
+      (el) => el.name === 'ptah-mcp-directory-browser',
     );
+    const registry =
+      registryEl.componentInstance as StubMcpDirectoryBrowserComponent;
 
     registry.serverInstalled.emit({
       serverName: 'sentry',
       targets: ['claude'],
     });
     expect(notifyContentChanged).toHaveBeenCalledTimes(1);
-    registry.serverUninstalled.emit('sentry');
-    expect(notifyContentChanged).toHaveBeenCalledTimes(2);
+    // The host binds only the install output. A binding to the removed
+    // removal output would still compile (as a DOM listener that never fires).
+    expect(registryEl.listeners.map((l) => l.name)).toEqual([
+      'serverInstalled',
+    ]);
   });
 
   it('a Custom URL connect or disconnect tells the inventory', () => {

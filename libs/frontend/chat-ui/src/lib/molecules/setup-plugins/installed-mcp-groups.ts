@@ -4,7 +4,7 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * Grouped installed servers for the Installed tab.
+ * Grouped installed servers for the marketplace's installed views.
  *
  * Grouped by origin AND server key, never by key alone: a `github` entry read
  * from `.mcp.json` and a `github` connector held by a live claude.ai session

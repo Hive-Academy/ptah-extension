@@ -56,7 +56,6 @@ import {
 } from '@ptah-extension/core';
 import { surfaceTestRoutes } from '@ptah-extension/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import type { InstalledMcpServer } from '@ptah-extension/shared';
 
 import { ConnectorLinksStore } from '../data/connector-links.store';
 import { MarketplaceInventoryStore } from '../data/marketplace-inventory.store';
@@ -105,12 +104,11 @@ class StubSmitherySurfaceComponent {
   template: '',
 })
 class StubMcpDirectoryBrowserComponent {
-  public readonly connectorServers = input<InstalledMcpServer[]>([]);
+  public readonly refreshTrigger = input(0);
   public readonly serverInstalled = output<{
     serverName: string;
     targets: string[];
   }>();
-  public readonly serverUninstalled = output<string>();
 }
 
 @Component({

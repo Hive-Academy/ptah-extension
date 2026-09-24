@@ -76,9 +76,8 @@ export const SERVER_SOURCE_PAGES: Readonly<
  * Only the selected surface exists, so a source page fires its own surface's
  * reads and nothing else (pattern: `apps-section.component.ts`).
  *
- * The registry browser gets no `connectorServers` binding: claude.ai account
- * connectors belong to the installed list, not to a discovery source (plan
- * C11 removes that input).
+ * The registry browser is discovery only (plan C11): it installs but never
+ * removes, so it reports installs alone.
  *
  * Every install, uninstall, connect or disconnect a surface reports calls
  * `notifyContentChanged()`, which clears the `/command` autocomplete cache and
@@ -125,10 +124,7 @@ export const SERVER_SOURCE_PAGES: Readonly<
           />
         }
         @case ('mcp-directory') {
-          <ptah-mcp-directory-browser
-            (serverInstalled)="onContentChanged()"
-            (serverUninstalled)="onContentChanged()"
-          />
+          <ptah-mcp-directory-browser (serverInstalled)="onContentChanged()" />
         }
         @case ('oauth') {
           <ptah-oauth-surface

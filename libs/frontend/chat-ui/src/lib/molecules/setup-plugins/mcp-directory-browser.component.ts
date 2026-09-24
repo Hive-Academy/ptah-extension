@@ -11,7 +11,7 @@ import {
   OnDestroy,
   DestroyRef,
 } from '@angular/core';
-import { LucideAngularModule, Search, Check } from 'lucide-angular';
+import { LucideAngularModule, Search } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   McpRegistryEntry,
@@ -20,11 +20,16 @@ import type {
   InstalledMcpServer,
 } from '@ptah-extension/shared';
 import {
-  groupInstalledServers,
-  mcpTargetLabel,
-  type InstalledServerGroup,
-} from './installed-mcp-groups';
-import { removeInstalledGroup } from './installed-mcp-removal';
+  BrandMarkComponent,
+  CatalogCardComponent,
+  CatalogCardSkeletonComponent,
+  CatalogGridComponent,
+  MonogramTileComponent,
+  StorefrontPanelComponent,
+  resolveListingBrandSlug,
+  type CatalogCardBadge,
+} from '@ptah-extension/ui';
+import { mcpTargetLabel } from './installed-mcp-groups';
 
 const ALL_TARGETS: McpInstallTarget[] = [
   'vscode',
@@ -36,45 +41,51 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'opencode',
 ];
 
+const INSTALLED_BADGE: CatalogCardBadge = {
+  label: 'Installed',
+  tone: 'success',
+};
+
+/** One registry listing, resolved once per list change for the card. */
+interface RegistryCardView {
+  readonly server: McpRegistryEntry;
+  readonly displayName: string;
+  /** Version, transport and repository id; blanks are dropped by the card. */
+  readonly meta: readonly string[];
+  /** Vendor mark only on a catalogue URL or allowlisted namespace, else null. */
+  readonly brandSlug: string | null;
+  readonly installed: boolean;
+}
+
 /**
- * McpDirectoryBrowserComponent - Browse, search, install, and manage MCP servers
+ * McpDirectoryBrowserComponent - Browse, search and install MCP servers from
+ * the Official MCP Registry.
  *
- * Mirrors the SkillShBrowserComponent pattern for the Official MCP Registry.
- * Supports multi-target installation (VS Code, Claude, Cursor, Copilot).
+ * A discovery view only (plan C11): what is already installed is listed by the
+ * marketplace, so this view keeps no Installed tab and no removal path. It
+ * still reads `mcpDirectory:listInstalled` itself, only to badge results that
+ * are already installed.
  *
- * Complexity Level: 2 (Medium - RPC communication + search debounce + install flow + dual views)
- * Patterns: Signal-based state, DaisyUI compact styling, debounced search, inline install panel
+ * Results render as storefront catalog cards (plan C13); the install step for
+ * the expanded result is a storefront panel spanning the grid row under it.
+ * A result's mark comes from `resolveListingBrandSlug`: a listing's name is
+ * chosen by its publisher, so it never earns a vendor mark on its own.
  */
 @Component({
   selector: 'ptah-mcp-directory-browser',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [
+    LucideAngularModule,
+    BrandMarkComponent,
+    CatalogCardComponent,
+    CatalogCardSkeletonComponent,
+    CatalogGridComponent,
+    MonogramTileComponent,
+    StorefrontPanelComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-3">
-      <!-- View Toggle -->
-      <div class="tabs tabs-boxed tabs-xs bg-base-300/50 p-0.5">
-        <button
-          class="tab tab-xs"
-          [class.tab-active]="activeView() === 'browse'"
-          (click)="activeView.set('browse')"
-          type="button"
-        >
-          Browse
-        </button>
-        <button
-          class="tab tab-xs"
-          [class.tab-active]="activeView() === 'installed'"
-          (click)="activeView.set('installed')"
-          type="button"
-        >
-          Installed ({{ installedCount() }})
-        </button>
-      </div>
-
-      <!-- Error — outside the view switch on purpose. It used to live inside
-           the Browse block, so a failed removal set a message that the
-           Installed tab could not render. -->
       @if (error()) {
         <div class="alert alert-error alert-sm py-1 px-2" role="alert">
           <span class="text-xs" data-testid="mcp-error">{{ error() }}</span>
@@ -88,152 +99,139 @@ const ALL_TARGETS: McpInstallTarget[] = [
         </div>
       }
 
-      <!-- ===== Browse View ===== -->
-      @if (activeView() === 'browse') {
-        <!-- Search Input -->
-        <div class="relative">
-          <lucide-angular
-            [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
-            aria-hidden="true"
-          />
-          <input
-            type="text"
-            class="input input-bordered input-sm w-full pl-8 text-xs"
-            placeholder="Search MCP servers..."
-            [value]="searchQuery()"
-            (input)="onSearchInput($event)"
-            aria-label="Search MCP servers"
-          />
-          @if (isSearching()) {
-            <span
-              class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
-            ></span>
-          }
-        </div>
+      <div class="relative">
+        <span
+          class="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 text-base-content-muted"
+          aria-hidden="true"
+        >
+          <lucide-angular [img]="SearchIcon" class="h-3.5 w-3.5" />
+        </span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full pl-8 text-xs"
+          placeholder="Search MCP servers..."
+          [value]="searchQuery()"
+          (input)="onSearchInput($event)"
+          aria-label="Search MCP servers"
+        />
+        @if (isSearching()) {
+          <span
+            class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
+          ></span>
+        }
+      </div>
 
-        <!-- Popular / Search Results -->
-        <div>
-          @if (isLoadingPopular() && !searchQuery()) {
-            @for (i of [1, 2, 3, 4, 5]; track i) {
-              <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
+      <section class="space-y-2" aria-labelledby="mcp-registry-results-heading">
+        <h2
+          id="mcp-registry-results-heading"
+          class="text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
+        >
+          {{ searchQuery() ? 'Search Results' : 'Popular Servers' }}
+        </h2>
+
+        @if (isLoadingPopular() && !searchQuery()) {
+          <ptah-catalog-grid ariaLabel="MCP servers loading" aria-busy="true">
+            @for (i of [1, 2, 3, 4]; track i) {
+              <ptah-catalog-card-skeleton role="listitem" />
             }
-          } @else {
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              {{ searchQuery() ? 'Search Results' : 'Popular Servers' }}
-            </div>
-            @if (displayServers().length === 0) {
-              <div class="text-xs text-base-content-muted text-center py-4">
-                {{
-                  searchQuery()
-                    ? 'No servers found for "' + searchQuery() + '"'
-                    : 'No servers available'
-                }}
-              </div>
-            }
-            <div class="space-y-1.5">
-              @for (server of displayServers(); track server.name) {
-                <div
-                  class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
-                >
-                  <!-- Server Card Row -->
-                  <div class="flex items-start gap-2 p-2">
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-xs font-medium text-base-content">{{
-                          getDisplayName(server.name)
-                        }}</span>
-                        @if (getTransportType(server); as transport) {
-                          <span
-                            class="badge badge-xs badge-outline text-[10px]"
-                            >{{ transport }}</span
-                          >
-                        }
-                        @if (isServerInstalled(server.name)) {
-                          <span
-                            class="badge badge-xs badge-success text-[10px] gap-0.5"
-                          >
-                            <lucide-angular
-                              [img]="CheckIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Installed
-                          </span>
-                        }
+          </ptah-catalog-grid>
+        } @else if (cards().length === 0) {
+          <p class="py-4 text-center text-xs text-base-content-muted">
+            {{
+              searchQuery()
+                ? 'No servers found for "' + searchQuery() + '"'
+                : 'No servers available'
+            }}
+          </p>
+        } @else {
+          <ptah-catalog-grid
+            [ariaLabel]="
+              searchQuery()
+                ? 'MCP server search results'
+                : 'Popular MCP servers'
+            "
+          >
+            @for (card of cards(); track card.server.name) {
+              <ptah-catalog-card
+                role="listitem"
+                [heading]="card.displayName"
+                [description]="
+                  card.server.description || 'No description available'
+                "
+                [meta]="card.meta"
+                [badge]="card.installed ? installedBadge : null"
+              >
+                @if (card.brandSlug) {
+                  <ptah-brand-mark
+                    card-mark
+                    [brandSlug]="card.brandSlug"
+                    [label]="card.displayName"
+                  />
+                } @else {
+                  <ptah-monogram-tile card-mark [label]="card.displayName" />
+                }
+                <div card-actions>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    [disabled]="installingServerNames().has(card.server.name)"
+                    (click)="toggleInstallPanel(card.server)"
+                    type="button"
+                    [attr.aria-expanded]="
+                      expandedServerName() === card.server.name
+                    "
+                    [attr.aria-label]="'Install ' + card.displayName"
+                  >
+                    @if (installingServerNames().has(card.server.name)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else if (expandedServerName() === card.server.name) {
+                      Cancel
+                    } @else {
+                      Install
+                    }
+                  </button>
+                </div>
+              </ptah-catalog-card>
+
+              @if (expandedServerName() === card.server.name) {
+                <div role="listitem" class="col-span-full">
+                  <ptah-storefront-panel
+                    [heading]="'Install ' + card.displayName"
+                    [subtitle]="card.server.name"
+                  >
+                    @if (isLoadingDetails()) {
+                      <div class="space-y-2" aria-busy="true">
+                        <span class="sr-only">Loading server details</span>
+                        <div class="skeleton h-8 w-full rounded"></div>
+                        <div class="skeleton h-6 w-3/4 rounded"></div>
                       </div>
-                      <p
-                        class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
-                      >
-                        {{ server.description || 'No description available' }}
-                      </p>
-                      @if (server.repository?.id) {
-                        <span
-                          class="text-[10px] text-base-content-muted font-mono"
-                          >{{ server.repository?.id }}</span
-                        >
-                      }
-                    </div>
-                    <div class="shrink-0">
-                      <button
-                        class="btn btn-primary btn-xs"
-                        [disabled]="installingServerNames().has(server.name)"
-                        (click)="toggleInstallPanel(server)"
-                        type="button"
-                        [attr.aria-label]="
-                          'Install ' + getDisplayName(server.name)
-                        "
-                      >
-                        @if (installingServerNames().has(server.name)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else if (expandedServerName() === server.name) {
-                          Cancel
-                        } @else {
-                          Install
-                        }
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Inline Install Panel -->
-                  @if (expandedServerName() === server.name) {
-                    <div class="px-2 pb-2">
-                      <div
-                        class="p-2 rounded-lg bg-base-300/50 border border-base-300 space-y-2"
-                      >
-                        @if (isLoadingDetails()) {
-                          <div class="skeleton h-8 w-full rounded"></div>
-                          <div class="skeleton h-6 w-3/4 rounded"></div>
-                        } @else if (suggestedConfig()) {
-                          <!-- Config Preview -->
-                          <div
-                            class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
+                    } @else if (suggestedConfig(); as config) {
+                      <div class="space-y-3">
+                        <div class="space-y-1.5">
+                          <p
+                            class="text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
                           >
                             Configuration
-                          </div>
-                          <div
-                            class="text-[11px] bg-base-100 p-1.5 rounded font-mono break-all"
+                          </p>
+                          <p
+                            class="break-all rounded-lg bg-base-100 p-2 font-mono text-xs"
                           >
-                            <span class="badge badge-xs badge-neutral mr-1">{{
-                              suggestedConfig()!.type
+                            <span class="badge badge-sm badge-neutral mr-1">{{
+                              config.type
                             }}</span>
                             {{ getConfigSummary() }}
-                          </div>
+                          </p>
+                        </div>
 
-                          <!-- Target Selection -->
-                          <div
-                            class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
+                        <fieldset class="space-y-1.5">
+                          <legend
+                            class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
                           >
                             Install to
-                          </div>
+                          </legend>
                           <div class="flex flex-wrap gap-x-3 gap-y-1">
                             @for (target of allTargets; track target) {
                               <label
-                                class="flex items-center gap-1 cursor-pointer"
+                                class="flex cursor-pointer items-center gap-1"
                               >
                                 <input
                                   type="checkbox"
@@ -241,193 +239,56 @@ const ALL_TARGETS: McpInstallTarget[] = [
                                   [checked]="selectedTargets().has(target)"
                                   (change)="toggleTarget(target)"
                                 />
-                                <span class="text-[11px]">{{
+                                <span class="text-xs">{{
                                   getTargetLabel(target)
                                 }}</span>
                               </label>
                             }
                           </div>
-
-                          <!-- Confirm Install Button -->
-                          <button
-                            class="btn btn-primary btn-xs w-full"
-                            [disabled]="
-                              selectedTargets().size === 0 ||
-                              installingServerNames().has(server.name)
-                            "
-                            (click)="confirmInstall(server)"
-                            type="button"
-                          >
-                            @if (installingServerNames().has(server.name)) {
-                              <span
-                                class="loading loading-spinner loading-xs"
-                              ></span>
-                              Installing...
-                            } @else {
-                              Install to {{ selectedTargets().size }}
-                              {{
-                                selectedTargets().size === 1
-                                  ? 'target'
-                                  : 'targets'
-                              }}
-                            }
-                          </button>
-                        } @else {
-                          <div
-                            class="text-xs text-base-content-muted text-center py-2"
-                          >
-                            Could not auto-detect configuration for this server.
-                          </div>
-                        }
+                        </fieldset>
                       </div>
-                    </div>
-                  }
+                    } @else {
+                      <p
+                        class="py-2 text-center text-xs text-base-content-muted"
+                      >
+                        Could not auto-detect configuration for this server.
+                      </p>
+                    }
+
+                    @if (!isLoadingDetails() && suggestedConfig()) {
+                      <div panel-footer>
+                        <button
+                          class="btn btn-primary btn-sm"
+                          [disabled]="
+                            selectedTargets().size === 0 ||
+                            installingServerNames().has(card.server.name)
+                          "
+                          (click)="confirmInstall(card.server)"
+                          type="button"
+                        >
+                          @if (installingServerNames().has(card.server.name)) {
+                            <span
+                              class="loading loading-spinner loading-xs"
+                            ></span>
+                            Installing...
+                          } @else {
+                            Install to {{ selectedTargets().size }}
+                            {{
+                              selectedTargets().size === 1
+                                ? 'target'
+                                : 'targets'
+                            }}
+                          }
+                        </button>
+                      </div>
+                    }
+                  </ptah-storefront-panel>
                 </div>
               }
-            </div>
-          }
-        </div>
-      }
-
-      <!-- ===== Installed View ===== -->
-      @if (activeView() === 'installed') {
-        @if (isLoadingInstalled()) {
-          @for (i of [1, 2, 3]; track i) {
-            <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
-          }
-        } @else if (installedGroups().length === 0) {
-          <div class="text-xs text-base-content-muted text-center py-6">
-            <p class="mb-1">No MCP servers installed yet</p>
-            <button
-              class="btn btn-ghost btn-xs"
-              (click)="activeView.set('browse')"
-              type="button"
-            >
-              Browse servers
-            </button>
-          </div>
-        } @else {
-          <div class="space-y-1.5">
-            @for (group of installedGroups(); track group.key) {
-              <div
-                class="rounded-lg border border-base-300 bg-base-200/30"
-                [attr.data-testid]="'installed-row'"
-              >
-                <div class="flex items-start gap-2 p-2">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="text-xs font-medium">{{
-                        group.serverKey
-                      }}</span>
-                      @if (group.showOriginLabel) {
-                        <span
-                          class="badge badge-xs badge-primary badge-outline text-[9px]"
-                          data-testid="origin-label"
-                          >{{ group.originLabel }}</span
-                        >
-                      }
-                    </div>
-                    @if (group.targets.length > 0) {
-                      <div class="flex flex-wrap gap-1 mt-0.5">
-                        @for (target of group.targets; track target) {
-                          <span
-                            class="badge badge-xs badge-outline text-[9px]"
-                            >{{ getTargetLabel(target) }}</span
-                          >
-                        }
-                      </div>
-                    }
-                    <div class="flex items-center gap-1 mt-0.5">
-                      <span class="badge badge-xs badge-neutral text-[9px]">{{
-                        group.servers[0].config.type
-                      }}</span>
-                      @if (group.servers[0].managedByPtah) {
-                        <span class="text-[9px] text-base-content-muted"
-                          >managed by Ptah</span
-                        >
-                      }
-                    </div>
-                    @if (group.removal === 'none') {
-                      <p
-                        class="text-[10px] text-base-content-muted mt-1 leading-relaxed"
-                        data-testid="removal-blocked"
-                      >
-                        {{
-                          group.removalBlockedReason ||
-                            'Ptah cannot remove this entry from here.'
-                        }}
-                      </p>
-                    }
-                  </div>
-                  @if (group.removal !== 'none') {
-                    <button
-                      class="btn btn-ghost btn-xs text-error shrink-0"
-                      data-testid="remove-button"
-                      [disabled]="uninstallingServerKeys().has(group.key)"
-                      (click)="uninstallServer(group)"
-                      type="button"
-                      [attr.aria-label]="'Remove ' + group.serverKey"
-                    >
-                      @if (uninstallingServerKeys().has(group.key)) {
-                        <span class="loading loading-spinner loading-xs"></span>
-                      } @else {
-                        Remove
-                      }
-                    </button>
-                  }
-                </div>
-
-                <!-- Confirm step for direct removals: Ptah did not write this
-                     entry, so name the file before rewriting it. -->
-                @if (pendingConfirmKey() === group.key) {
-                  <div class="px-2 pb-2" data-testid="remove-confirm">
-                    <div
-                      class="p-2 rounded-lg bg-base-300/50 border border-base-300 space-y-1.5"
-                      role="group"
-                      [attr.aria-label]="
-                        'Confirm removal of ' + group.serverKey
-                      "
-                    >
-                      <p class="text-[11px] leading-relaxed">
-                        Ptah did not install
-                        <span class="font-medium">{{ group.serverKey }}</span
-                        >. Removing it edits a config file you own:
-                      </p>
-                      @for (path of group.configPaths; track path) {
-                        <p
-                          class="text-[10px] font-mono break-all text-base-content-muted"
-                          data-testid="confirm-config-path"
-                        >
-                          {{ path }}
-                        </p>
-                      }
-                      <div class="flex gap-1.5">
-                        <button
-                          class="btn btn-error btn-xs"
-                          data-testid="confirm-remove"
-                          [disabled]="uninstallingServerKeys().has(group.key)"
-                          (click)="uninstallServer(group)"
-                          type="button"
-                        >
-                          Remove anyway
-                        </button>
-                        <button
-                          class="btn btn-ghost btn-xs"
-                          data-testid="cancel-remove"
-                          (click)="pendingConfirmKey.set(null)"
-                          type="button"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                }
-              </div>
             }
-          </div>
+          </ptah-catalog-grid>
         }
-      }
+      </section>
 
       <!-- MCP Registry attribution -->
       <div class="text-[10px] text-base-content-muted text-center pt-1">
@@ -458,74 +319,64 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   /** Increment to trigger a reload of the installed servers list */
   readonly refreshTrigger = input(0);
 
-  /**
-   * claude.ai account connectors, which exist only in a live session's MCP
-   * status and never on disk, so `mcpDirectory:listInstalled` cannot see them.
-   *
-   * They arrive as an input rather than being read here: the source is
-   * `SessionMcpStatusRegistry` in `@ptah-extension/chat-state`, and this
-   * library takes no injected state (`libs/frontend/chat-ui/CLAUDE.md`
-   * guideline 1 — `setup-plugins/` is a grandfathered exception that must not
-   * be widened). The host in `@ptah-extension/marketplace` owns the wiring.
-   * Left unbound, the list is simply empty.
-   */
-  readonly connectorServers = input<InstalledMcpServer[]>([]);
-
   /** Emitted when a server is successfully installed */
   readonly serverInstalled = output<{
     serverName: string;
     targets: McpInstallTarget[];
   }>();
-  /** Emitted when a server is successfully uninstalled */
-  readonly serverUninstalled = output<string>();
 
   /** Lucide icon references */
   protected readonly SearchIcon = Search;
-  protected readonly CheckIcon = Check;
   protected readonly allTargets = ALL_TARGETS;
+  protected readonly installedBadge = INSTALLED_BADGE;
 
   readonly searchQuery = signal('');
   readonly searchResults = signal<McpRegistryEntry[]>([]);
   readonly popularServers = signal<McpRegistryEntry[]>([]);
+  /** Installed servers from `mcpDirectory:listInstalled`, for the badges. */
   readonly installedServers = signal<InstalledMcpServer[]>([]);
   readonly isSearching = signal(false);
   readonly isLoadingPopular = signal(false);
-  readonly isLoadingInstalled = signal(false);
   readonly isLoadingDetails = signal(false);
   readonly installingServerNames = signal<Set<string>>(new Set());
-  readonly uninstallingServerKeys = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
-  readonly activeView = signal<'browse' | 'installed'>('browse');
   readonly expandedServerName = signal<string | null>(null);
-  /** Group key currently awaiting the `direct`-removal confirm step. */
-  readonly pendingConfirmKey = signal<string | null>(null);
   readonly suggestedConfig = signal<McpServerConfig | null>(null);
   readonly selectedTargets = signal<Set<McpInstallTarget>>(
     new Set(ALL_TARGETS),
   );
 
-  /**
-   * Everything the Installed tab knows about: what the six config files
-   * reported, plus the session-only connectors the host passed in.
-   */
-  private readonly allInstalledServers = computed<InstalledMcpServer[]>(() => [
-    ...this.installedServers(),
-    ...this.connectorServers(),
-  ]);
-
-  readonly installedCount = computed(() => this.installedGroups().length);
-
   readonly displayServers = computed(() =>
     this.searchQuery() ? this.searchResults() : this.popularServers(),
   );
 
-  readonly installedGroups = computed<InstalledServerGroup[]>(() =>
-    groupInstalledServers(this.allInstalledServers()),
+  private readonly installedKeySet = computed(
+    () => new Set(this.installedServers().map((s) => s.serverKey)),
   );
 
-  private readonly installedKeySet = computed(
-    () => new Set(this.allInstalledServers().map((s) => s.serverKey)),
-  );
+  protected readonly cards = computed<RegistryCardView[]>(() => {
+    const installed = this.installedKeySet();
+    return this.displayServers().map((server) => {
+      const transports = server.version_detail?.transports ?? [];
+      const version = server.version_detail?.version;
+      return {
+        server,
+        displayName: this.getDisplayName(server.name),
+        meta: [
+          version ? `v${version}` : '',
+          this.getTransportType(server) ?? '',
+          server.repository?.id ?? '',
+        ],
+        brandSlug: resolveListingBrandSlug({
+          registryName: server.name,
+          remoteUrls: transports
+            .map((t) => t.url)
+            .filter((url): url is string => !!url),
+        }),
+        installed: installed.has(this.deriveServerKey(server.name)),
+      };
+    });
+  });
 
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -659,8 +510,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
           );
         }
       } else {
-        // Same gap as the uninstall path had: a refused install left the panel
-        // open and said nothing.
+        // A refused install used to leave the panel open and say nothing.
         this.error.set(result.error ?? `Could not install "${server.name}".`);
       }
     } catch {
@@ -670,52 +520,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
       if (!this.destroyed)
         this.removeFromSet(this.installingServerNames, server.name);
     }
-  }
-
-  /**
-   * Remove one installed group, routed by its `removal` kind.
-   *
-   * A `direct` group is a config entry Ptah never wrote, so the first click
-   * only arms the inline confirm step; the second click is the one that calls
-   * through with `force: true`. Every other kind acts immediately.
-   */
-  async uninstallServer(group: InstalledServerGroup): Promise<void> {
-    if (group.removal === 'none') return;
-    if (this.uninstallingServerKeys().has(group.key)) return;
-
-    if (group.removal === 'direct' && this.pendingConfirmKey() !== group.key) {
-      this.pendingConfirmKey.set(group.key);
-      return;
-    }
-
-    this.addToSet(this.uninstallingServerKeys, group.key);
-    this.error.set(null);
-
-    try {
-      const failure = await removeInstalledGroup(this.rpcService, group);
-
-      if (this.destroyed) return;
-
-      if (failure) {
-        this.error.set(failure);
-      } else {
-        this.pendingConfirmKey.set(null);
-        this.serverUninstalled.emit(group.serverKey);
-      }
-      // Reload either way: a partial removal still changed the list.
-      await this.loadInstalled();
-    } catch {
-      if (this.destroyed) return;
-      this.error.set(`Could not remove "${group.serverKey}".`);
-    } finally {
-      if (!this.destroyed)
-        this.removeFromSet(this.uninstallingServerKeys, group.key);
-    }
-  }
-
-  isServerInstalled(serverName: string): boolean {
-    const key = this.deriveServerKey(serverName);
-    return this.installedKeySet().has(key);
   }
 
   getDisplayName(name: string): string {
@@ -835,9 +639,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Reads the installed servers; only the "Installed" badges consume them. */
   private async loadInstalled(): Promise<void> {
-    this.isLoadingInstalled.set(true);
-
     try {
       const result = await this.rpcService.call(
         'mcpDirectory:listInstalled',
@@ -856,8 +659,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     } catch {
       if (this.destroyed) return;
       this.error.set('Could not load the installed MCP servers.');
-    } finally {
-      if (!this.destroyed) this.isLoadingInstalled.set(false);
     }
   }
 

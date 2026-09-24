@@ -1,7 +1,7 @@
 /**
- * The Installed-tab grouping and removal rules, lifted out of
- * `McpDirectoryBrowserComponent` so the marketplace Connected view and the
- * Installed tab cannot drift apart (TASK_2026_524, spec 3).
+ * The installed-server grouping and removal rules the marketplace's installed
+ * views run on (TASK_2026_524, spec 3; the registry browser's own Installed
+ * tab was removed in TASK_2026_533, plan C11).
  *
  * Two things are pinned here:
  *   - grouping identity is origin AND key, never key alone — a `.mcp.json`
@@ -222,7 +222,7 @@ describe('groupInstalledServers', () => {
 });
 
 describe('mcpTargetLabel', () => {
-  it('names each target the way the Installed tab renders it', () => {
+  it('names each target the way the target labels render it', () => {
     expect(mcpTargetLabel('vscode')).toBe('VS Code');
     expect(mcpTargetLabel('claude')).toBe('Claude Code');
     expect(mcpTargetLabel('codex')).toBe('Codex CLI');
