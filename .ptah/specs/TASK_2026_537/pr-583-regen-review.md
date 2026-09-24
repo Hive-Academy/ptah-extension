@@ -6,7 +6,7 @@ Scope: `scripts/regen-agents.mjs` (the only source file the commit touches).
 
 ## Verdict
 
-**PASS**
+Verdict: PASS.
 
 ## What the commit does
 
@@ -62,8 +62,8 @@ Read `libs/backend/harness-sync/src/lib/fs/atomic-write.ts` in full (lines
   correctly calls it as `atomicWriteWithRetry(join(root, rel), out)` at
   line 26 with no `await`, matching the sibling calls to
   `t.transform(...)` and the synchronous style of the rest of the loop.
-  Confirmed at runtime too — `node scripts/regen-agents.mjs --write`
-  printed `WROTE 0` synchronously with no unhandled-promise warning.
+  The `WROTE 0` run proves only that the module loads. It did not call
+  `atomicWriteWithRetry`. See "Focused runs" below for the write path.
 
 - **jiti loads it, including its imports.** `atomic-write.ts:27-29` imports
   only `node:fs`, `node:path`, and the sibling `./windows-retry` (which in
@@ -106,7 +106,7 @@ match what the code does; nothing overstated.
 
 ## Commands run (from worktree root)
 
-```
+```text
 > node scripts/regen-agents.mjs
 WOULD CHANGE 0
 
@@ -120,21 +120,27 @@ WROTE 0
 No `SKIPPED` line in either run. `git status --short` was empty after
 `--write`, i.e. no unexpected mutation, no stray `.tmp` file left behind,
 and no diff versus the committed state. This matches the expected output
-in the task and confirms both `atomicWriteWithRetry` and the ENOENT-only
-catch behave as no-ops when every target already matches its transform
-output, which is the steady-state this script runs in on a clean tree.
+in the task. These two runs cover module loading and the no-change path
+only. They do not call `atomicWriteWithRetry` and do not reach the
+`ENOENT` catch.
+
+## Focused runs (orchestrator, after the PR 583 comment 4090397825)
+
+Target: `.codex/agents/team-leader.toml`, backed up before each run.
+
+1. Missing target (`ENOENT` catch, then write): the file was deleted, then
+   `node scripts/regen-agents.mjs --write` printed `WROTE 1` for it. The
+   new file was byte-identical to the backup (`cmp`).
+2. Changed target (write path): a newline was appended, then `--write`
+   printed `WROTE 1` for it. The file was byte-identical to the backup.
+
+`git status --short` was empty after both runs, with no stray temp file.
 
 ## Residual scope not exercised
 
-The dry run and write run both hit the "no changes" branch for every file,
-so neither the `changed`/write path under `--write` nor the `skipped`
-(foreign-file, non-ENOENT-throw) path was exercised live by these two
-commands — only by static reading of the diff and the imported module.
-That reading is unambiguous (the code changed is small, the swallowed
-branch is a one-line conditional, and the write call is a straight
-substitution of `writeFileSync` for `atomicWriteWithRetry` with matching
-signatures), so this does not change the verdict, but it is worth noting
-as the boundary of what was run versus what was read.
+The `skipped` path (foreign file) and the non-`ENOENT` rethrow were not run
+live. They are covered only by reading the diff: the rethrow is a one-line
+conditional, and the guard is unchanged.
 
 ## Verdict detail
 
