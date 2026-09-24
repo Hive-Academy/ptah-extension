@@ -98,6 +98,40 @@ export class SurfaceOperationGate {
   }
 
   /**
+   * Reserve `request` on the surface `record` the caller read, or, when the
+   * surface is absent, answer through `absent`. Either way `outcome` is set
+   * when there is nothing to do.
+   */
+  reserveOn(
+    routingId: string,
+    record:
+      { readonly surfaceId: string; readonly incarnation: number } | undefined,
+    request: Pick<
+      SurfaceOperationRequest,
+      'operationId' | 'kind' | 'fingerprint'
+    >,
+  ): SurfaceReservation {
+    if (record === undefined)
+      return {
+        evicted: [],
+        outcome: this.absent(
+          routingId,
+          request.operationId,
+          request.fingerprint,
+        ),
+      };
+    return this.reserve(
+      routingId,
+      {
+        ...request,
+        surfaceId: record.surfaceId,
+        incarnation: record.incarnation,
+      },
+      { routingId, surfaceId: record.surfaceId },
+    );
+  }
+
+  /**
    * The surface is absent under this routing id (never created, deleted,
    * evicted, or owned by another routing id). A retry of an operation that
    * was recorded still answers with its record; anything else is the same

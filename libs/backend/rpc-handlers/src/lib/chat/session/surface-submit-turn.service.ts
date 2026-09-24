@@ -16,8 +16,9 @@
  *  - `rejected`: nothing was pushed. The record is missing or not live
  *    (`session-unavailable`), or it is busy (`busy`), either by the fast path
  *    here or by the pump's typed `SessionAdmissionRefusedError`.
- *  - `indeterminate`: any other failure. The host cannot tell from an untyped
- *    error whether a push happened, so it never redispatches.
+ *  - `indeterminate`: any other failure, or no answer within
+ *    `SURFACE_SUBMIT_DISPATCH_DEADLINE_MS`. The host cannot tell whether a push
+ *    happened, so it never redispatches.
  *
  * Busy is rejected rather than held (plan Q1): a held message lives only in
  * the record's queue and is dropped silently on teardown, which would leave an
@@ -31,7 +32,11 @@ import {
   SessionAdmissionRefusedError,
   type SessionLifecycleManager,
 } from '@ptah-extension/agent-sdk';
-import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
+import type {
+  IAgentAdapter,
+  SessionId,
+  SurfaceRejectReason,
+} from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatStreamBroadcaster } from '../streaming/chat-stream-broadcaster.service';
@@ -46,11 +51,19 @@ type SessionRecordView = NonNullable<
 >;
 
 /**
- * The runtime reasons this service can reject with. Each member is also a
- * `SurfaceRejectReason` from the shared surface contract; the submit handler
- * passes it through unchanged.
+ * The runtime reasons this service can reject with. Each member must be a
+ * `SurfaceRejectReason` from the shared surface contract, because the submit
+ * handler passes it through unchanged. The `satisfies` clause fails to compile
+ * if a contract literal is renamed or removed; an `Extract` alone would
+ * silently narrow to `never` instead.
  */
-export type SurfaceSubmitTurnRejectReason = 'busy' | 'session-unavailable';
+export const SURFACE_SUBMIT_TURN_REJECT_REASONS = [
+  'busy',
+  'session-unavailable',
+] as const satisfies readonly SurfaceRejectReason[];
+
+export type SurfaceSubmitTurnRejectReason =
+  (typeof SURFACE_SUBMIT_TURN_REJECT_REASONS)[number];
 
 export type SurfaceSubmitTurnOutcome =
   | { readonly status: 'applied' }
@@ -69,16 +82,60 @@ export const SURFACE_SUBMIT_INDETERMINATE_DETAIL =
   'The chat runtime failed while taking the submit. The message may have ' +
   'started a turn; it was not resent.';
 
+/**
+ * How long a dispatch may wait for `sendMessageToSession` before its outcome is
+ * `indeterminate` (review F1, batch 11). No stated timeout exists in the plan
+ * or requirements (Revision 6 item 3 only makes a UI-side timeout non-final),
+ * so the value is chosen conservatively:
+ *  - The awaited step is acceptance only (message preparation, then a
+ *    synchronous admission check and enqueue), not the agent's turn, so a
+ *    healthy send takes milliseconds; two minutes is far outside normal.
+ *  - It is above the renderer's 30 s RPC budget, so a UI that timed out first
+ *    polls `surface:operation` and sees `pending`, then the terminal outcome.
+ *  - It is well inside `SURFACE_STORE_LIMITS.operationRetentionMs` (10 min),
+ *    so the `indeterminate` record stays queryable after the deadline.
+ */
+export const SURFACE_SUBMIT_DISPATCH_DEADLINE_MS = 120_000;
+
+/** Caller-safe detail when the deadline passes before the runtime answered. */
+export const SURFACE_SUBMIT_DEADLINE_DETAIL =
+  'The chat runtime did not confirm the submit in time. The message may ' +
+  'still start a turn; it was not resent.';
+
+/**
+ * Optional construction options. Never registered in production, so every
+ * host runs `SURFACE_SUBMIT_DISPATCH_DEADLINE_MS`; specs pass a shorter one.
+ */
+export const SURFACE_SUBMIT_TURN_OPTIONS = Symbol.for(
+  'SurfaceSubmitTurnOptions',
+);
+
+export interface SurfaceSubmitTurnOptions {
+  /** Positive, finite milliseconds; anything else uses the default. */
+  readonly dispatchDeadlineMs?: number;
+}
+
 @injectable()
 export class SurfaceSubmitTurnService {
   /**
-   * Tab ids of the records with a dispatch awaiting `sendMessageToSession`.
-   * Keyed by `tabId` because it is immutable on the record and is the same
-   * whether the caller routed by tab id or by real session id. A second
-   * dispatch to the same record while one is in flight is `busy` without a
-   * second send, whatever the pump's timing.
+   * Tab id -> the token of the dispatch currently awaiting
+   * `sendMessageToSession` on that record. Keyed by `tabId` because it is
+   * immutable on the record and is the same whether the caller routed by tab
+   * id or by real session id. A second dispatch to the same record while one
+   * is in flight is `busy` without a second send.
+   *
+   * The entry is released when the send settles OR when the deadline passes.
+   * Releasing it while a stalled send may still be live is safe because the
+   * runtime, not this map, is the authoritative protection: with
+   * `admission: 'require-idle'`, `SessionStreamPump.sendMessage` re-checks
+   * `turnInFlight` and `messageQueue.length === 0` synchronously immediately
+   * before the push (Batch 3), and returns synchronously after it. Whichever of
+   * two live sends reaches that point second is refused `busy` and pushes
+   * nothing. A late settlement never touches this map, and the token makes
+   * sure only the dispatch that set an entry can release it.
    */
-  private readonly inFlight = new Set<string>();
+  private readonly inFlight = new Map<string, symbol>();
+  private readonly deadlineMs: number;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -88,13 +145,27 @@ export class SurfaceSubmitTurnService {
     private readonly lifecycle: SessionLifecycleManager,
     @inject(CHAT_TOKENS.STREAM_BROADCASTER)
     private readonly streamBroadcaster: ChatStreamBroadcaster,
-  ) {}
+    @inject(SURFACE_SUBMIT_TURN_OPTIONS, { isOptional: true })
+    options?: SurfaceSubmitTurnOptions,
+  ) {
+    const requested = options?.dispatchDeadlineMs;
+    this.deadlineMs =
+      requested !== undefined && Number.isFinite(requested) && requested > 0
+        ? requested
+        : SURFACE_SUBMIT_DISPATCH_DEADLINE_MS;
+  }
 
   /**
    * Send `content` as the next turn of the session routed by `routingId` (a
    * tab id or a real session id). Resolves with the outcome and never
    * rejects: every collaborator call and every diagnostic runs inside the
    * outcome boundary. One call sends at most once and never retries.
+   *
+   * Bounded: if the send has not settled within the deadline, the call
+   * resolves `indeterminate` (never an invented failure) and releases the
+   * per-record guard. A late settlement of that send is only logged; this
+   * call has already returned its one outcome, so nothing is settled twice
+   * and nothing is sent again.
    */
   async dispatch(
     routingId: string,
@@ -105,24 +176,32 @@ export class SurfaceSubmitTurnService {
       return admission.outcome;
     }
 
-    // Acquired by THIS call only after the preflight passed, so the `finally`
-    // below never clears a guard that an earlier, still pending call holds.
+    // Acquired by THIS call only after the preflight passed; released below
+    // only while it is still this call's token.
     const inFlightKey = admission.tabId;
-    this.inFlight.add(inFlightKey);
+    const token = Symbol(inFlightKey);
+    this.inFlight.set(inFlightKey, token);
+    const send = this.send(routingId, content);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<'deadline'>((resolve) => {
+      timer = setTimeout(() => resolve('deadline'), this.deadlineMs);
+    });
     let outcome: SurfaceSubmitTurnOutcome;
     try {
-      // Origin is left to the default human turn: the user pressed submit.
-      await this.agentAdapter.sendMessageToSession(
-        routingId as SessionId,
-        content,
-        { admission: 'require-idle' },
-      );
-      outcome = { status: 'applied' };
-    } catch (error: unknown) {
-      outcome = classifySendFailure(error);
-      this.logSendFailure(routingId, outcome, error);
+      const first = await Promise.race([send, deadline]);
+      if (first === 'deadline') {
+        this.fenceLateOutcome(routingId, send);
+        return {
+          status: 'indeterminate',
+          detail: SURFACE_SUBMIT_DEADLINE_DETAIL,
+        };
+      }
+      outcome = first;
     } finally {
-      this.inFlight.delete(inFlightKey);
+      clearTimeout(timer);
+      if (this.inFlight.get(inFlightKey) === token) {
+        this.inFlight.delete(inFlightKey);
+      }
     }
 
     if (outcome.status === 'applied') {
@@ -206,6 +285,49 @@ export class SurfaceSubmitTurnService {
       (realSessionId !== null &&
         this.streamBroadcaster.isStreaming(realSessionId)) ||
       this.streamBroadcaster.isStreaming(record.tabId)
+    );
+  }
+
+  /** The one send of a dispatch, classified. Never rejects. */
+  private async send(
+    routingId: string,
+    content: string,
+  ): Promise<SurfaceSubmitTurnOutcome> {
+    try {
+      // Origin is left to the default human turn: the user pressed submit.
+      await this.agentAdapter.sendMessageToSession(
+        routingId as SessionId,
+        content,
+        { admission: 'require-idle' },
+      );
+      return { status: 'applied' };
+    } catch (error: unknown) {
+      const outcome = classifySendFailure(error);
+      this.logSendFailure(routingId, outcome, error);
+      return outcome;
+    }
+  }
+
+  /**
+   * After the deadline, the send's eventual outcome is diagnostics only: the
+   * dispatch already returned `indeterminate`, and the operation was settled
+   * from that. Nothing here settles, retries or sends.
+   */
+  private fenceLateOutcome(
+    routingId: string,
+    send: Promise<SurfaceSubmitTurnOutcome>,
+  ): void {
+    this.safeLog(
+      'warn',
+      '[SurfaceSubmitTurn] submit not confirmed before the deadline',
+      { routingId, deadlineMs: this.deadlineMs },
+    );
+    void send.then((late) =>
+      this.safeLog(
+        'info',
+        '[SurfaceSubmitTurn] late submit outcome ignored after the deadline',
+        { routingId, lateStatus: late.status },
+      ),
     );
   }
 

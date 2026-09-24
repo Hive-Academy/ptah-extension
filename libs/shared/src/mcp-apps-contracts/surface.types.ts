@@ -253,4 +253,6 @@ export type SurfaceRejectReason =
   | 'operation-conflict'
   | 'operation-expired'
   | 'too-many-operations'
-  | 'budget';
+  | 'budget'
+  /** A declared, retained `dashboard.*` action with no host behaviour (Req 6.8). */
+  | 'unsupported';

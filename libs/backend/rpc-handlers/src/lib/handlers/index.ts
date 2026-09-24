@@ -11,6 +11,7 @@
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { BootRpcHandlers } from './boot-rpc.handlers';
 export { PeerSessionRpcHandlers } from './peer-session-rpc.handlers';
+export { SurfaceRpcHandlers } from './surface-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export {
   FileSystemRpcHandlers,

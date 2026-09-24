@@ -33,13 +33,11 @@ import { randomUUID } from 'node:crypto';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
   DashboardSpecEnvelope,
-  SurfaceAction,
   SurfaceChange,
   SurfaceGetStateInput,
   SurfaceUpdateInput,
   SurfaceUpdatedPayload,
 } from '@ptah-extension/shared';
-import { findSurfaceAction } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { DashboardDeliveryOutcome } from '../code-execution/namespace-builders/dashboard-namespace.builder';
 import { VSCODE_LM_TOOLS_TOKENS } from '../di/tokens';
 import { nonThrowingSurfaceLog, type SurfaceLog } from './surface-log';
@@ -86,7 +84,9 @@ import {
   planChange,
   planSelect,
   planSubmitSettlement,
+  resolveStoredAction,
   submitRecordOf,
+  type SurfaceActionResolution,
   type SurfaceChangeRequest,
   type SurfaceMutationOutcome,
   type SurfaceSelectRequest,
@@ -94,6 +94,7 @@ import {
   type SurfaceSubmitRequest,
   type SurfaceSubmitTicket,
   type SurfaceUiPlan,
+  type SurfaceUiRejection,
 } from './surface-ui-mutations';
 
 /**
@@ -121,15 +122,7 @@ export type SurfaceSubmitBegin =
   | { readonly status: 'dispatch'; readonly ticket: SurfaceSubmitTicket }
   | SurfaceMutationOutcome;
 
-/** The action a stored surface declares, resolved for `surface:action`. */
-export type SurfaceActionResolution =
-  | { readonly status: 'not-found' }
-  | { readonly status: 'undeclared'; readonly detail: string }
-  | {
-      readonly status: 'declared';
-      readonly action: SurfaceAction['action'];
-      readonly revision: number;
-    };
+export type { SurfaceActionResolution };
 
 interface PushMeta {
   readonly origin: SurfaceUpdatedPayload['origin'];
@@ -253,24 +246,15 @@ export class SurfaceStateService {
     routingId: string,
     request: SurfaceSubmitRequest,
   ): SurfaceSubmitBegin {
-    const fingerprint = fingerprintSubmit(request);
-    const record = this.store.get(routingId, request.surfaceId);
-    if (record === undefined)
-      return this.gate.absent(routingId, request.operationId, fingerprint);
-    const protect = { routingId, surfaceId: record.surfaceId };
-    const reservation = this.gate.reserve(
+    const reserved = this.reserve(
       routingId,
-      {
-        operationId: request.operationId,
-        kind: 'submit',
-        surfaceId: record.surfaceId,
-        incarnation: record.incarnation,
-        fingerprint,
-      },
-      protect,
+      request,
+      'submit',
+      fingerprintSubmit(request),
     );
-    this.publishEvictions(reservation.evicted);
-    if (reservation.outcome !== undefined) return reservation.outcome;
+    if (!reserved.ok) return reserved.outcome;
+    const record = reserved.record;
+    const protect = { routingId, surfaceId: record.surfaceId };
     if (this.ledger.pendingCount(routingId, 'submit') > 1)
       return this.gate.reject(routingId, request.operationId, {
         kind: 'rejected',
@@ -305,6 +289,30 @@ export class SurfaceStateService {
       operationId: request.operationId,
     });
     return { status: 'dispatch', ticket: plan.ticket };
+  }
+
+  /**
+   * Record a `surface:action` refused before any side effect as a terminal
+   * rejection, fingerprinted like a submit, so a replay returns the same
+   * answer and other content is `operation-conflict` (Req 6.4). An existing
+   * record answers first. No ticket is reserved.
+   */
+  refuseAction(
+    routingId: string,
+    request: SurfaceSubmitRequest,
+    refusal: Omit<SurfaceUiRejection, 'kind' | 'issues'>,
+  ): SurfaceMutationOutcome {
+    const reserved = this.reserve(
+      routingId,
+      request,
+      'submit',
+      fingerprintSubmit(request),
+    );
+    if (!reserved.ok) return reserved.outcome;
+    return this.gate.reject(routingId, request.operationId, {
+      kind: 'rejected',
+      ...refusal,
+    });
   }
 
   /**
@@ -433,22 +441,7 @@ export class SurfaceStateService {
     surfaceId: string,
     actionId: string,
   ): SurfaceActionResolution {
-    const record = this.store.get(routingId, surfaceId);
-    if (record === undefined) return { status: 'not-found' };
-    const found =
-      record.content.contract === 'dashboard-spec/2'
-        ? findSurfaceAction(record.content.surface.components, actionId)
-        : undefined;
-    return found === undefined
-      ? {
-          status: 'undeclared',
-          detail: `Action ${JSON.stringify(actionId.slice(0, 256))} is not declared on this surface.`,
-        }
-      : {
-          status: 'declared',
-          action: found.action.action,
-          revision: record.revision,
-        };
+    return resolveStoredAction(this.store.get(routingId, surfaceId), actionId);
   }
 
   /** Accounting snapshot (does not touch recency). */
@@ -608,23 +601,9 @@ export class SurfaceStateService {
     fingerprint: string,
     plan: (record: SurfaceRecord) => SurfaceUiPlan,
   ): SurfaceMutationOutcome {
-    const record = this.store.get(routingId, request.surfaceId);
-    if (record === undefined)
-      return this.gate.absent(routingId, request.operationId, fingerprint);
-    const reservation = this.gate.reserve(
-      routingId,
-      {
-        operationId: request.operationId,
-        kind,
-        surfaceId: record.surfaceId,
-        incarnation: record.incarnation,
-        fingerprint,
-      },
-      { routingId, surfaceId: record.surfaceId },
-    );
-    this.publishEvictions(reservation.evicted);
-    if (reservation.outcome !== undefined) return reservation.outcome;
-    const planned = plan(record);
+    const reserved = this.reserve(routingId, request, kind, fingerprint);
+    if (!reserved.ok) return reserved.outcome;
+    const planned = plan(reserved.record);
     if (planned.kind === 'rejected')
       return this.gate.reject(routingId, request.operationId, planned);
     const committed = this.commitRecord(routingId, planned.commit, {
@@ -642,6 +621,35 @@ export class SurfaceStateService {
       request.operationId,
       planned.commit.record.revision,
     );
+  }
+
+  /**
+   * Reserve a UI operation id before any side effect: an absent surface, a
+   * replay, a conflict or a refusal ends here (`ok: false`).
+   */
+  private reserve(
+    routingId: string,
+    request: { readonly surfaceId: string; readonly operationId: string },
+    kind: 'change' | 'select' | 'submit',
+    fingerprint: string,
+  ):
+    | { readonly ok: false; readonly outcome: SurfaceMutationOutcome }
+    | { readonly ok: true; readonly record: SurfaceRecord } {
+    const operationId = request.operationId;
+    const record = this.store.get(routingId, request.surfaceId);
+    const reservation = this.gate.reserveOn(routingId, record, {
+      operationId,
+      kind,
+      fingerprint,
+    });
+    this.publishEvictions(reservation.evicted);
+    // `reserveOn` always sets `outcome` for an absent record.
+    return reservation.outcome !== undefined || record === undefined
+      ? {
+          ok: false,
+          outcome: reservation.outcome ?? { status: 'not-found', operationId },
+        }
+      : { ok: true, record };
   }
 
   private publishEvictions(pairs: readonly SurfaceStorePair[]): void {

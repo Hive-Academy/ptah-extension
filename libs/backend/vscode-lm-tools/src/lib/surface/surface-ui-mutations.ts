@@ -20,6 +20,7 @@
  */
 import { jsonUtf8Bytes } from '@ptah-extension/platform-core';
 import type {
+  SurfaceAction,
   SurfaceContent,
   SurfaceDataValue,
   SurfaceRejectReason,
@@ -486,6 +487,50 @@ export function submitSettlementHeadroom(ticket: SurfaceSubmitTicket): number {
     footprint: { kind: 'submit-record' },
   };
   return jsonUtf8Bytes(record) + jsonUtf8Bytes(entry) + 1;
+}
+
+/**
+ * The action a stored surface declares, resolved for `surface:action`. Every
+ * found variant carries the surface's current revision, so the caller can
+ * tell a stale request from a current one.
+ */
+export type SurfaceActionResolution =
+  | { readonly status: 'not-found' }
+  | {
+      readonly status: 'undeclared';
+      readonly detail: string;
+      readonly revision: number;
+    }
+  | {
+      readonly status: 'declared';
+      readonly action: SurfaceAction['action'];
+      readonly revision: number;
+    };
+
+/**
+ * Resolve `actionId` from the STORED declaration (Req 6.7). v1 actions carry
+ * no id, so a v1 surface declares none that the UI can name.
+ */
+export function resolveStoredAction(
+  record: SurfaceRecord | undefined,
+  actionId: string,
+): SurfaceActionResolution {
+  if (record === undefined) return { status: 'not-found' };
+  const found =
+    record.content.contract === 'dashboard-spec/2'
+      ? findSurfaceAction(record.content.surface.components, actionId)
+      : undefined;
+  return found === undefined
+    ? {
+        status: 'undeclared',
+        detail: `Action ${quoted(actionId)} is not declared on this surface.`,
+        revision: record.revision,
+      }
+    : {
+        status: 'declared',
+        action: found.action.action,
+        revision: record.revision,
+      };
 }
 
 /** The last-submit record a settled ticket writes. */
