@@ -69,7 +69,7 @@ No cross-review or commit was performed; those remain with the integrating revie
 9. `D:\projects\ptah-extension\.claude-worktrees\feat-task-538-surface-contract-v2\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\dashboard-namespace.builder.spec.ts` — appended only.
 10. `D:\projects\ptah-extension\.claude-worktrees\feat-task-538-surface-contract-v2\.ptah\specs\TASK_2026_538_3ccf\batch-12-report.md` — created.
 
-Temporary verification captures (outside the repository): `C:\Users\abdal\AppData\Local\Temp\ptah-batch12-verification.log` and `C:\Users\abdal\AppData\Local\Temp\ptah-batch12-verification-final.log`.
+Temporary verification captures (outside the repository): `%TEMP%\ptah-batch12-verification.log` and `%TEMP%\ptah-batch12-verification-final.log`.
 
 ## Revision 1
 
@@ -92,7 +92,7 @@ Final verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/v
 
 The same non-failing Jest configuration/worker-exit notices and Nx Cloud upload 401 appeared; unrelated tooling was not changed. No git write commands, shared/RPC/app edits or new agents were used. All requested revision fixes are complete; independent re-review remains with the caller.
 
-Sanitized temporary evidence: `C:\Users\abdal\AppData\Local\Temp\ptah-batch12-r1-mutant.log` (expected regression failure) and `C:\Users\abdal\AppData\Local\Temp\ptah-batch12-r1-verification.log` (all final targets passed).
+Sanitized temporary evidence: `%TEMP%\ptah-batch12-r1-mutant.log` (expected regression failure) and `%TEMP%\ptah-batch12-r1-verification.log` (all final targets passed).
 
 ### Files written this round
 

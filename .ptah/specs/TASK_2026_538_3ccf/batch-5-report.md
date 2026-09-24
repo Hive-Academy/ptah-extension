@@ -117,7 +117,7 @@ Evidence: `di.spec.ts` together with the service spec gives 2 suites and 30 test
 
 Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers --skip-nx-cache 2>&1 | tail -40`
 
-```
+```text
 √  nx run @ptah-extension/rpc-handlers:typecheck
 √  nx run @ptah-extension/rpc-handlers:lint
 √  nx run @ptah-extension/rpc-handlers:test
@@ -197,7 +197,7 @@ Service spec: 31 of 31 tests pass (20 original and 11 new). `npx eslint` on both
 
 Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers 2>&1 | tail -30`
 
-```
+```text
 √  nx run @ptah-extension/rpc-handlers:test
 √  nx run @ptah-extension/rpc-handlers:typecheck
 √  nx run @ptah-extension/rpc-handlers:lint

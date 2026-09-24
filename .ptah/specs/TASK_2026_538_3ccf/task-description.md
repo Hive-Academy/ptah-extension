@@ -266,28 +266,28 @@ without limit.
 
 Acceptance criteria:
 
-1. When a surface is created, patched, changed by the UI, selected or submitted, the store shall reflect the result
+**1.** When a surface is created, patched, changed by the UI, selected or submitted, the store shall reflect the result
    and its revision before the tool or RPC call returns success.
-2. When the number of routing ids, the number of surfaces per routing id, or the bytes held exceed the store's
+**2.** When the number of routing ids, the number of surfaces per routing id, or the bytes held exceed the store's
    documented bounds, the system shall evict the least recently used entries. A test shall show the bound holds and
    the evicted entries read as not existing. The byte accounting shall include every retained copy: data model, form
    values, selection, last-submit snapshot and operation records. The worst-case memory shall be written in the
    store's doc comment.
-6. When eviction removes a surface that may still be mounted, the host shall notify the attached surfaces that it
+**6.** When eviction removes a surface that may still be mounted, the host shall notify the attached surfaces that it
    was removed, and later reads and mutations shall return not-found. Eviction shall not remove in-flight operation
    records (Requirement 6.4).
-7. When a UI change or selection is committed, the host shall return the committed revision and push the
+**7.** When a UI change or selection is committed, the host shall return the committed revision and push the
    authoritative update to the surfaces attached for that routing id, without starting a turn. A second mounted view
    then converges without waiting for the agent.
-3. When a coding-chat tab (a session started without `surfaceMode`) calls `ptah_surface_update`, the store shall
+**3.** When a coding-chat tab (a session started without `surfaceMode`) calls `ptah_surface_update`, the store shall
    hold that tab's surface exactly as it holds an Apps session's surface. The store has no `surfaceMode` precondition.
-4. When VS Code, Electron or CLI starts in a supported configuration, the MCP tools and the `surface:*` RPC handlers
+**4.** When VS Code, Electron or CLI starts in a supported configuration, the MCP tools and the `surface:*` RPC handlers
    shall share one registered store. A composition test on each host shall write through MCP and read through RPC,
    and the other way round. On the CLI, state is kept even though delivery reports `no-surface`. Only as a defensive
    failure case (the store is missing through misconfiguration): the MCP tools return a plain-text "surface state
    unavailable on this host" result with `isError: true`, the RPC methods return an error, and neither throws. A
    supported host shall never ship in that state.
-5. When the UI records a selection, the store shall validate it against the host's own copy (component exists, kind
+**5.** When the UI records a selection, the store shall validate it against the host's own copy (component exists, kind
    matches, indexes in range, same surface and revision) before storing it, as 494 D4 specified for `dashboard:select`.
 
 ### 8. MCP tools for the agent
@@ -297,37 +297,37 @@ plain-text answer on every host.
 
 Acceptance criteria:
 
-1. When the agent calls `ptah_surface_update` with a valid create, replace or patch, the tool shall validate, commit
+**1.** When the agent calls `ptah_surface_update` with a valid create, replace or patch, the tool shall validate, commit
    to the store, push to attached surfaces and return a plain-text rendering of the resulting surface plus its
    surface id and revision. This is the mandatory text fallback of Revision 6 item 8. A successful delete shall
    return text that names the deleted surface and the deletion revision.
-2. When `ptah_surface_update` input is invalid, the tool shall return `isError: true` with a reason that names the
+**2.** When `ptah_surface_update` input is invalid, the tool shall return `isError: true` with a reason that names the
    offending path and the relevant limit. It shall push nothing and change nothing in the store.
-3. When the agent calls `ptah_surface_get_state`, the tool shall return that routing id's surfaces, or a named
+**3.** When the agent calls `ptah_surface_get_state`, the tool shall return that routing id's surfaces, or a named
    surface: revision, data-model values, form values, current selection resolved from the host copy, and the last
    submit if any. The output shall be bounded in bytes, with truncation marked. When the output is truncated, the
    agent shall be able to get complete state per surface (for example by listing surface ids and then reading one
    surface at a time) within the same bound.
-4. When a tool is called, the routing scope shall come from trusted request context (`getCallerSessionId()`,
+**4.** When a tool is called, the routing scope shall come from trusted request context (`getCallerSessionId()`,
    `protocol-dispatcher.ts:1628`), never from a tool argument. A call that names a surface outside the caller's
    scope shall get the same not-found result as a surface that does not exist. Tests shall try another tab's
    surface id for each tool.
-5. When a tool is called by an anonymous MCP caller (no `/session/{id}`, so no routing id):
+**5.** When a tool is called by an anonymous MCP caller (no `/session/{id}`, so no routing id):
    - `ptah_surface_update` with a valid self-contained snapshot shall validate it and return its text rendering,
      noting that no interactive surface is attached, and shall store and push nothing;
    - an anonymous patch or delete shall return a plain-text "surface state unavailable for this caller" error;
    - `ptah_surface_get_state` shall return "no surface state for this caller".
    Invalid input is still rejected first, as in criterion 2.
-6. When a committed mutation reaches only some of the attached surfaces, or none, the tool result shall report the
+**6.** When a committed mutation reaches only some of the attached surfaces, or none, the tool result shall report the
    committed state and the delivery outcome separately. It shall keep the committed revision and include the text
    fallback and the delivery-failure detail, and the retry path shall not apply the mutation twice. `delivered` shall
    never be reported for a failed send. Tests shall cover sends that return false, throw or reject, partial delivery,
    and disposal between enumeration and send, with no unhandled rejection (v1 precedent:
    `dashboard-namespace.builder.ts:84-148`, `protocol-dispatcher.ts:1640-1650`).
-6. When either tool's input schema and description are generated, they shall come from the contract module (the
+**6.** When either tool's input schema and description are generated, they shall come from the contract module (the
    `z.toJSONSchema` precedent in `dashboard-propose-spec.tool.ts:45-56`). A test shall assert that every v2 kind name,
    action id and budget value appears in the tool description.
-7. Decision on `ptah_dashboard_propose_spec`: it stays, with an unchanged name, input schema and text result. A
+**7.** Decision on `ptah_dashboard_propose_spec`: it stays, with an unchanged name, input schema and text result. A
    delivered v1 spec from a caller with a routing id shall be recorded in the same store and reach the UI through the
    same surface push as v2, so the renderer has one intake. When it is called, `ptah_surface_get_state` shall report
    that spec. The existing `dashboard-namespace.builder.spec.ts` assertions on outcome and text shall still pass.

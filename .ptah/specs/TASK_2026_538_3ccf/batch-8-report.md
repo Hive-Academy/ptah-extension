@@ -70,7 +70,7 @@ Tasks 8.1-8.4 implemented. Typecheck and tests passed on the single requested co
 
 4. Checked the original spec prefix hash, public barrel newline count, and absence of `surface/index.ts`.
 
-Temporary combined-run log: `C:\Users\abdal\AppData\Local\Temp\task-538-batch-8-verification.log`.
+Temporary combined-run log: `%TEMP%\task-538-batch-8-verification.log`.
 
 ## Deviations and remaining work
 

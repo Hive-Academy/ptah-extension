@@ -1,6 +1,6 @@
-Verdict: NEEDS_REVISION
-
 # Code Logic Review — `TASK_2026_538_3ccf`
+
+Verdict: NEEDS_REVISION
 
 ## Summary
 

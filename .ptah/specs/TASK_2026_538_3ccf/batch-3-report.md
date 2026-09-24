@@ -134,7 +134,7 @@ Command:
    warnings.
 3. Final run (tail):
 
-```
+```text
 √  nx run @ptah-extension/shared:lint  [existing outputs match the cache, left as is]
 √  nx run @ptah-extension/shared:typecheck
 √  nx run @ptah-extension/shared:test

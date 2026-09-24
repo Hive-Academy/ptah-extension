@@ -1,6 +1,6 @@
-Verdict: NEEDS_REVISION
-
 # Code Logic Review — `TASK_2026_538_3ccf` Batch 12
+
+Verdict: NEEDS_REVISION
 
 ## Summary
 
@@ -408,7 +408,7 @@ this was never a defect in Batch 12's own logic.
 
 Targeted Jest only, as instructed:
 
-```
+```bash
 npx jest -c libs/backend/vscode-lm-tools/jest.config.ts \
   libs/backend/vscode-lm-tools/src/lib/surface/dashboard-surface-bridge.spec.ts \
   libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/surface-namespace.builder.spec.ts \
