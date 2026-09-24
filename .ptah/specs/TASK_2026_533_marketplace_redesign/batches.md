@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 20/30
+Total tasks: 65 | Batches: 30 | Complete: 21/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a).
 In progress: none.
-Next launchable: Batch 17 (dependencies 12-16 all COMPLETE).
+Next launchable: Batch 18 ∥ Batch 19 (separate worktrees). Batch 18b waits for TASK_2026_540 on `main` and the rebase.
 
 Revision 3 (2026-09-24): the architect resolved D-4 (connector-row workspace
 scope) in implementation-plan.md "## Revision 3". New Batch 12b; no other batch
@@ -952,7 +952,7 @@ Edge cases:
   - Row links use `['/', 'marketplace', 'skills', ref]`, so an id containing `/` stays one encoded segment. BINDING on Batch 17: the skills detail route must accept an encoded `:skillRef`.
   - The installed page makes one extra cached `harness:health` read, through the header badge.
 
-## Batch 17: Route switch-over and old marketplace removal (C10 part) — PENDING
+## Batch 17: Route switch-over and old marketplace removal (C10 part) — COMPLETE (62a55d80f, 119b3f3ce)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -961,7 +961,7 @@ Edge cases:
 - Tasks: 4 | Depends on: Batches 12, 13, 14, 15, 16
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace ptah-extension-webview @ptah-extension/dashboard` then `npx nx build ptah-extension-webview` + R7 initial-chunk comparison
 
-### Task 17.1: `MARKETPLACE_ROUTES` — PENDING
+### Task 17.1: `MARKETPLACE_ROUTES` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\routes\marketplace.routes.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\routes\marketplace.routes.spec.ts`
 - Plan reference: implementation-plan.md D1 tree, C10
@@ -970,7 +970,7 @@ Edge cases:
 - Validation notes: spec — all 14 routes resolve; redirect restore; `**`; ref decoding incl. an external id with `/` using `MarketplaceSkillKind` (`'ptah-plugin' | 'community-skill' | 'marketplace-plugin'`, Batch 3 deviation); each source mounts exactly one surface (migrates hub spec `:296-340`); unselected route fires zero RPC (migrates hub spec `:239-253`).
 - Implementation details: shell is the `''` component with the three providers.
 
-### Task 17.2: Barrel rewrite and doc comments — PENDING
+### Task 17.2: Barrel rewrite and doc comments — COMPLETE
 
 - Depends on: Task 17.1
 - Files: `D:\projects\ptah-extension\libs\frontend\marketplace\src\index.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\services.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\harness.ts`, `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\harness\harness-health.store.ts` (doc comment only)
@@ -980,7 +980,7 @@ Edge cases:
 - Validation notes: `dashboard/.../harness-card.spec.ts:29` still compiles; eager barrels' export lists unchanged. The old `ConnectorStatus`/`ConnectorLink` type exports from `connectors-surface.component.ts` disappear with the rewrite; stores are not exported (no consumer outside the lib).
 - Implementation details: no re-export of pages or stores.
 
-### Task 17.3: App route switch and deletions — PENDING
+### Task 17.3: App route switch and deletions — COMPLETE
 
 - Depends on: Task 17.2
 - Files: `D:\projects\ptah-extension\apps\ptah-extension-webview\src\app\app.routes.ts`; DELETE under `D:\projects\ptah-extension\libs\frontend\marketplace\src\lib\`: `marketplace-hub.component.ts`, `marketplace-hub.component.html`, `marketplace-hub.component.spec.ts`, `marketplace-state.service.ts`, `marketplace-state.service.spec.ts`, `sections.registry.ts`, `apps-section.component.ts`, `skills-section.component.ts`, `connected-surface.component.ts`, `connected-surface.component.spec.ts`, `connectors-surface.component.ts`, `connectors-surface.component.html`, `connectors-surface.component.spec.ts`
@@ -990,7 +990,7 @@ Edge cases:
 - Validation notes: before deleting, confirm (grep) every assertion of the deleted specs has a new home (Batches 5, 6, 12, 17.1); list any that do not and why.
 - Implementation details: `mcp-connector-rows.ts` stays (store uses it).
 
-### Task 17.4: R7 bundle check — PENDING
+### Task 17.4: R7 bundle check — COMPLETE
 
 - Depends on: Task 17.3
 - Files: none (evidence)
@@ -1003,6 +1003,13 @@ Edge cases:
 ### Batch 17 verification
 
 - Reviewer: code-style-reviewer (barrel, boundaries, dead code) and code-logic-reviewer (route matching)
+- Result: two commits. **17a** `62a55d80f` build(ui): R7 pre-fix added by the team-leader after the first build showed all 104 `BRAND_MARKS` paths in an initial chunk (esbuild splits by module; `brand-marks.generated.ts` fed both the eager `ProviderMarkComponent` and the now-routed lazy pages). The vendoring script (`scripts/brand-icons/render-table.mjs`, `scripts/vendor-brand-icons.mjs`, manifest `providerOutput`) now renders `PROVIDER_BRAND_ART` and the provider consts into `libs/frontend/ui/src/lib/native/brand-mark/provider-brand-art.generated.ts`; the brand table imports them; `ProviderMarkComponent` imports only the new module (spec pins it). `npm run vendor:brand-icons -- --check` exit 0; artwork, notices and pinned SHA unchanged. **17** `119b3f3ce` (32 files): CREATED `routes/marketplace.routes.ts` (+spec), `harness/harness-chip-presentation.ts`; MODIFIED barrels (`index.ts` 33 lines; `services.ts`/`harness.ts` doc comments only, export lists unchanged; `HarnessHealthStore` dropped from `index.ts` — consumers use `/services`), `harness-health.{model,store}.ts`, overview files, `connectors-page` + `installed-skills-page` (child snapshot guard: a detail opened straight from another Marketplace page crashed), `app.routes.ts` (`loadChildren`), `webview-routing.spec.ts`, four page specs (closed migration gaps); DELETED the 13 hub files of Task 17.3. Executor frontend-developer in worktree `task533-b17` (base `8b5803ae8`).
+- Checks in TASK_WT: `lint,typecheck,test -p @ptah-extension/marketplace ptah-extension-webview @ptah-extension/dashboard @ptah-extension/ui @ptah-extension/chat --skip-nx-cache` green for 5 projects (marketplace 62 suites / 1282 tests). The FIRST 5-project run had 2 marketplace test failures under load (names not captured); marketplace alone and the second 5-project run were green — Batch 25 flaky-test item.
+- R7 (production build in TASK_WT, Node probe on full path strings): `BRAND_MARKS`-only paths 109 — 0 in initial chunks, 109 in one lazy chunk; "Out of sync" / "Write failed" only in that lazy chunk. Initial transfer 686.23 kB. Initial JS +17,438 B vs `8b5803ae8`, −13,598 B vs the Batch 7c baseline. Accepted deviation (team-leader): +13,582 B of Angular runtime in the vendor chunk (`SECURITY_SCHEMA`/`registerContext` reached through URL bindings, `HostAttributeToken`) — framework code, not in the R7 allow-list, accepted because the shared fesm module cannot be split.
+- Reviews: logic APPROVED 8/10, style APPROVED 9/10, no revise round (`code-logic-review-batch-17.md`, `code-style-review-batch-17.md`). Report `batch-17-report.md` (untracked; includes the 81-assertion migration table).
+- Binding on Batch 18: chat deep links (`mcp-status-chip.component.ts:389`, `chat-empty-state.component.ts:278`) write `setMarketplaceActiveProvider` to a slice field that nothing reads now (its reader was the deleted state service), so they land on the remembered page or Overview until 18.1 migrates them. `libs/frontend/core/src/lib/marketplace/marketplace-section.ts:10` still names the deleted `MarketplaceStateService` — deleted in Task 18.2.
+- Binding on Batch 19: Electron e2e still selects `ptah-marketplace-hub`.
+- Follow-up: `connectors-page.component.spec.ts` is 698/700 lines — the next assertion goes into a new sibling spec file.
 
 ## Batch 18: Core API removal and chat deep-link migration (C1 DELETE + callers) — PENDING
 
