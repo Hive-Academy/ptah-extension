@@ -8,7 +8,7 @@ import {
 // Imported from the generated file directly: the barrel does not re-export
 // it, and only this small subset (never `BRAND_MARKS`) may reach the eager
 // chat-settings bundle (plan R7).
-import { PROVIDER_BRAND_ART } from '../brand-mark/brand-marks.generated';
+import { PROVIDER_BRAND_ART } from '../brand-mark/provider-brand-art.generated';
 import { PROVIDER_BRAND_SLUGS } from '../brand-mark/brand-slugs';
 import type { MarkArtwork } from '../brand-mark/mark-artwork';
 import { MarkSvgComponent } from '../brand-mark/mark-svg.component';

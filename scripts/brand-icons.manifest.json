@@ -10,6 +10,7 @@
     ]
   },
   "output": "libs/frontend/ui/src/lib/native/brand-mark/brand-marks.generated.ts",
+  "providerOutput": "libs/frontend/ui/src/lib/native/brand-mark/provider-brand-art.generated.ts",
   "notices": "libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt",
   "report": "scripts/brand-icons/rejection-report.md",
   "icons": [

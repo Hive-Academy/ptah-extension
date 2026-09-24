@@ -4,7 +4,8 @@
  *
  * Vendors brand marks from theSVG (github.com/glincker/thesvg) at ONE pinned
  * commit into TypeScript path data for `@ptah-extension/ui`
- * (`native/brand-mark/brand-marks.generated.ts`). Run by hand; the output is
+ * (`native/brand-mark/brand-marks.generated.ts` and its eager-safe provider
+ * subset `provider-brand-art.generated.ts`). Run by hand; the output is
  * committed. It is not part of any build, so CI never depends on the network.
  *
  * Why TypeScript and not `.svg` files: the VS Code Marketplace scanner rejects
@@ -39,7 +40,10 @@
  * mirror that answers does not change the bytes.
  *
  * Outputs (paths in the manifest), all generated from the same run:
- *   - the TS table (`output`);
+ *   - the TS table (`output`), read only by lazily loaded code;
+ *   - the provider subset (`providerOutput`, same directory): the artwork the
+ *     eager `ProviderMarkComponent` reads. A separate module, so esbuild keeps
+ *     the table out of the initial bundle (R7);
  *   - the SHIPPED plain-text notices (`notices`): theSVG's licence plus every
  *     mark whose own licence asks for attribution or notice. Production
  *     minification strips the TS header comment, so this file is what carries
@@ -57,13 +61,13 @@
  * date.
  *
  * Usage:
- *   npm run vendor:brand-icons                     # fetch, normalise, write all three outputs
+ *   npm run vendor:brand-icons                     # fetch, normalise, write all four outputs
  *   node scripts/vendor-brand-icons.mjs --check    # regenerate in memory; exit 1 if any generated file differs
  *   node scripts/vendor-brand-icons.mjs --probe-a4 # run only the A4 extraction probe; write nothing
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as prettier from 'prettier';
 import { readableOn } from './brand-icons/colour.mjs';
@@ -76,7 +80,11 @@ import {
   renderRejectionReport,
   selectNamedMarks,
 } from './brand-icons/render-notices.mjs';
-import { isProvider, renderModule } from './brand-icons/render-table.mjs';
+import {
+  isProvider,
+  renderModule,
+  renderProviderArtModule,
+} from './brand-icons/render-table.mjs';
 import {
   assertScannerGuardWorks,
   findScannerTokens,
@@ -128,12 +136,22 @@ const errorMessage = (error) =>
 // Manifest and index
 // ---------------------------------------------------------------------------
 
-function validateOutputs({ output, notices, report }, fail) {
+function validateOutputs({ output, providerOutput, notices, report }, fail) {
   if (
     typeof output !== 'string' ||
     !/^libs\/[\w./-]+\.generated\.ts$/.test(output)
   ) {
     fail('output must be a libs/**/*.generated.ts path');
+  }
+  if (
+    typeof providerOutput !== 'string' ||
+    !/^libs\/[\w./-]+\.generated\.ts$/.test(providerOutput) ||
+    dirname(providerOutput) !== dirname(output) ||
+    providerOutput === output
+  ) {
+    fail(
+      'providerOutput must be a second *.generated.ts path in the directory of output',
+    );
   }
   if (typeof notices !== 'string' || !/^libs\/[\w./-]+\.txt$/.test(notices)) {
     fail('notices must be a libs/**/*.txt path');
@@ -233,6 +251,7 @@ function loadManifest() {
     source,
     outputs: {
       table: manifest.output,
+      providerArt: manifest.providerOutput,
       notices: manifest.notices,
       report: manifest.report,
     },
@@ -540,7 +559,7 @@ async function formatFor(relativePath, text) {
 }
 
 /**
- * Renders the three generated files and runs every guard over them. Returns
+ * Renders the four generated files and runs every guard over them. Returns
  * `[relativePath, contents]` pairs only when all of them may be written.
  */
 async function buildOutputs({ source, outputs, outcomes, licenseText, a4 }) {
@@ -552,12 +571,24 @@ async function buildOutputs({ source, outputs, outcomes, licenseText, a4 }) {
       outcomes,
       indexPath: INDEX_PATH,
       noticesPath: outputs.notices,
+      providerModule: `./${basename(outputs.providerArt, '.ts')}`,
     }),
   );
-  const tableBytes = Buffer.byteLength(table);
+  const providerArt = await formatFor(
+    outputs.providerArt,
+    renderProviderArtModule({
+      source,
+      licenseText,
+      outcomes,
+      indexPath: INDEX_PATH,
+      noticesPath: outputs.notices,
+    }),
+  );
+  // One budget for the vendored artwork, however many modules carry it.
+  const tableBytes = Buffer.byteLength(table) + Buffer.byteLength(providerArt);
   if (tableBytes > OUTPUT_BUDGET_BYTES) {
     throw new VendorError(
-      `${outputs.table} would be ${tableBytes} bytes, above the ${OUTPUT_BUDGET_BYTES}-byte budget; nothing written`,
+      `${outputs.table} + ${outputs.providerArt} would be ${tableBytes} bytes, above the ${OUTPUT_BUDGET_BYTES}-byte budget; nothing written`,
     );
   }
 
@@ -597,6 +628,7 @@ async function buildOutputs({ source, outputs, outcomes, licenseText, a4 }) {
   return {
     files: [
       [outputs.table, table],
+      [outputs.providerArt, providerArt],
       [outputs.notices, notices],
       [outputs.report, report],
     ],
@@ -661,7 +693,7 @@ async function main() {
       source,
       outcomes,
       a4,
-      output: outputs.table,
+      output: `${outputs.table} + ${outputs.providerArt}`,
       bytes: built.tableBytes,
       budget: OUTPUT_BUDGET_BYTES,
     }),
