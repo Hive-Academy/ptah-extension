@@ -1,10 +1,10 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 25/30
+Total tasks: 65 | Batches: 30 | Complete: 27/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 20, 23.
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 22, 23.
 In progress: none.
-In progress: Batches 19, 22, 24. Next: 21 (after 19), then 25.
+In progress: Batches 21, 24. Next: 25.
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1076,7 +1076,7 @@ Edge cases:
 
 - Reviewer: code-logic-reviewer (state ownership after the rebase)
 
-## Batch 19: Electron e2e and tour migration (C10 part) — PENDING
+## Batch 19: Electron e2e and tour migration (C10 part) — COMPLETE (b2aa9256d)
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -1085,7 +1085,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 17 (parallel with Batch 18)
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-electron-e2e` then the project's e2e target restricted to `src/specs/marketplace`
 
-### Task 19.1: Migrate selectors to the routed shell — PENDING
+### Task 19.1: Migrate selectors to the routed shell — COMPLETE
 
 - Files: `D:\projects\ptah-extension\apps\ptah-electron-e2e\src\specs\marketplace\marketplace.spec.ts`, `D:\projects\ptah-extension\apps\ptah-electron-e2e\src\specs\marketplace\external-marketplace.spec.ts`, `D:\projects\ptah-extension\apps\ptah-electron-e2e\src\showcase\marketplace-tour.scene.ts`
 - Plan reference: implementation-plan.md C10 (e2e migration)
@@ -1097,6 +1097,9 @@ Edge cases:
 ### Batch 19 verification
 
 - Reviewer: code-style-reviewer
+- Result: commit b2aa9256d (6 files, +371 −123): `specs/marketplace/marketplace.spec.ts`, `specs/marketplace/external-marketplace.spec.ts`, `showcase/marketplace-tour.scene.ts`, `support/ui-driver.ts` (`SURFACE_HOSTS.marketplace` → `ptah-marketplace-shell`; new `getAllObservedCalls()`), and TASK_2026_540's `specs/config-menu/config-menu-remount.spec.ts` + `config-menu-welcome-gate.spec.ts` (they selected the deleted hub — our Batch 17 regression, brought into scope by the team-leader). Executor senior-tester in worktree `task533-b19` (base `bd50e3e68`; the 6 files were unchanged in TASK_WT since). `lint,typecheck -p ptah-electron-e2e` green in TASK_WT. E2e (direct `npx playwright test` on the built app): config-menu + marketplace 21/21 after isolated reruns of 5 launch-timeout failures; final round: `marketplace.spec.ts` green, full `src/specs/marketplace` 5/8 with 3 launch timeouts in the untouched `external-marketplace.spec.ts` (it passed 8/8 in isolation earlier). Reviews: logic NEEDS_REVISION 6/10 (false "zero RPC" claim; vacuous breadcrumb), then APPROVED 9/10; style APPROVED 9/10, then 10/10. Report `batch-19-report.md` (untracked).
+- The mount spec now observes RPC traffic: within the `mcpDirectory:` / `skillsSh:` / `plugins:` / `harness:` domain the Overview mount fires only its own read set. Minor (logic round 2): `harness:health` is treated as unconditional but is gated on `health() === null` in a root store — true at boot today; a comment would help.
+- Follow-up, BINDING on Batch 21: `showcase/marketplace-tour.scene.ts` (~:166) still selects browse rows with `.rounded-lg.border`, and its comment still describes a Browse/Installed tab strip. Batches 22/23 are committed, so the rows are now `ptah-catalog-card` items with `role="listitem"`: switch the selector and fix the comment. Electron `external-marketplace.spec.ts` launch timeouts recur under load — Batch 25 flaky-test item.
 
 ## Batch 20: Smithery view restyle (C13) — COMPLETE (f3f72e405)
 
@@ -1154,7 +1157,7 @@ Edge cases:
 
 - Numstat; Electron marketplace spec green; reviewer: code-logic-reviewer
 
-## Batch 22: MCP Registry browser — narrow and restyle (C11 + C13) — PENDING
+## Batch 22: MCP Registry browser — narrow and restyle (C11 + C13) — COMPLETE (0447081a8)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -1163,7 +1166,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batches 7b, 7d, 17
 - Verification: `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat-ui` then `npx nx run-many -t typecheck -p @ptah-extension/marketplace @ptah-extension/chat`; `git diff --numstat`
 
-### Task 22.1: Remove Installed view; results to `CatalogCard`s — PENDING
+### Task 22.1: Remove Installed view; results to `CatalogCard`s — COMPLETE
 
 - Files: `D:\projects\ptah-extension\libs\frontend\chat-ui\src\lib\molecules\setup-plugins\mcp-directory-browser.component.ts`, `...\mcp-directory-browser.component.spec.ts`
 - Plan reference: implementation-plan.md C11, C13 row "MCP Registry" (:541)
@@ -1175,6 +1178,8 @@ Edge cases:
 ### Batch 22 verification
 
 - Line count ≤700 reported; reviewer: code-logic-reviewer (install path unchanged)
+- Result: commit 0447081a8 (9 files, +465 −655). chat-ui: `mcp-directory-browser.component.ts` 881 → 682 lines (+spec rewritten: the 8 removal cases are covered by `installed-mcp-groups.spec.ts` and the marketplace removal specs), comment fixes in `installed-mcp-groups{,.spec}.ts`, `installed-mcp-removal.ts`; marketplace: `server-source-host.component{,.spec}.ts` (dead registry `(serverUninstalled)` binding removed; stand-in checked against the real API with `reflectComponentType`), `routes/marketplace.routes.spec.ts` stand-in, `mcp-connector-rows.ts` comment. Removed with the Installed view: the tab strip, removal/confirm state, `connectorServers` input, `serverUninstalled` output and 8 `data-testid`s (no users outside the old spec). Executor frontend-developer in worktree `task533-b22` (base `43248ca81`). `lint,typecheck,test -p @ptah-extension/chat-ui @ptah-extension/marketplace @ptah-extension/chat --skip-nx-cache` green in TASK_WT (3 projects). Reviews: logic APPROVED 8/10, style APPROVED 9/10, no revise round. Report `batch-22-report.md` (untracked).
+- Follow-ups: the listing resolver's URL tier reads `version_detail?.transports`, which the shared type documents as detail-fetch only — list rows may lack it (fails safe to monogram; add a registry contract test). `getDisplayName` / `deriveServerKey` are duplicate functions (pre-existing). `performSearch` has no stale-response guard (pre-existing). Grid `ariaLabel` next to a visible heading is mixed across views (Smithery drops it; Registry, skills.sh and Connectors keep it) — align in Batch 25's review.
 
 ## Batch 23: skills.sh browser — narrow and restyle (C11 + C13) — COMPLETE (47f546097)
 
