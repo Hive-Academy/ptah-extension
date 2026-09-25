@@ -509,3 +509,235 @@ real consumer (Batch 3) are explicitly deferred to later batches by both `batche
   pattern (`harness-builder`, cross-checked against `marketplace` for the templateUrl
   question), and its stated requirements (R7, R8, non-buildable, strict tsconfig) are all
   independently verifiable from the files and from a fresh, cache-bypassed target run.
+
+# Batch 3 review
+
+## Summary
+
+| Metric               | Value                                 |
+| --------------------- | ------------------------------------- |
+| Overall score          | 8/10                                   |
+| Assessment             | APPROVED                               |
+| Blocking issues        | 0                                      |
+| Serious issues         | 0                                      |
+| Moderate issues        | 1                                      |
+| Minor issues           | 1                                      |
+| Failure modes found    | 1                                      |
+
+Scope examined: `libs/frontend/declarative-dashboard/src/lib/surface-view-state.ts`,
+`surface-interaction.ts`, `view-model/view-model.types.ts`, `view-model/dashboard-view-model.ts`
+(+ `.spec.ts`), `src/index.ts`; the referenced contract types at
+`libs/shared/src/mcp-apps-contracts/surface.types.ts:1-210`,
+`dashboard-spec.types.ts:80-140`, `dashboard-catalog.ts:56-169`, and the v1 validator's own
+depth walk (`dashboard-spec.validator.ts:134-163`) to independently confirm the "root depth
+1, off-by-one" claim rather than trust the doc comment. `batches.md` Batch 3 (Task 3.1,
+D-4/R4) and `implementation-plan.md:263-276` (D6) and `:725-750` (Component 10) were read in
+full. `ptah_get_diagnostics` scoped to the six files under review: 0 errors, 0 warnings.
+Verification re-run fresh: `npx nx run-many -t lint,typecheck,test -p
+@ptah-extension/declarative-dashboard --skip-nx-cache --output-style=static` — 6/6 targets
+green, 17/17 tests passed.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `mapDisplayNode` (`dashboard-view-model.ts:37-83`) validates the `id`, `actions` array
+  shape, and each kind's own required field for `stat` (`:39-44`) and `table` (`:53-54`),
+  but does **not** validate the shape of `list.items` (`:62-69`) or either chart kind's
+  `series` (`:70-79`). A component with `kind: 'list'` and `items: 'not-an-array'`, or
+  `kind: 'line-chart'` and `series: null`, passes through `mapDisplayNode` unchanged and is
+  returned as a "successful" `DisplayNode` — no `TypeError`, no `renderFailed` signal — even
+  though the file's own doc comment (`:85-88`) promises "Defensive shape failures throw for
+  the renderer's renderFailed fallback." The malformed value is silently forwarded to
+  whatever consumes `DisplayNode.items`/`.series` next (the list/chart components, not yet
+  built — Batches 4-5), which is exactly where "fails silently" becomes "fails loudly and
+  confusingly one layer downstream," outside this builder's own declared contract.
+  Evidence: `dashboard-view-model.ts:62-79` (no `Array.isArray` guard on `items`/`series`,
+  contrast with `:53-54`'s `if (!Array.isArray(component.columns)) throw ...` for `table`).
+  Severity is bounded because the hard boundary — `dashboard-spec.validator.ts`'s zod schema
+  — already rejects a malformed `items`/`series` before a spec ever reaches this builder in
+  production (confirmed: `findStructuralBreach` and the surrounding validator only hand a
+  spec to a caller after full schema validation). The gap only bites a caller that invokes
+  `buildDashboardViewModel` directly on unvalidated input, which the current codebase does
+  not do. See Moderate issue M1.
+
+### 2. What user action produces unexpected behaviour?
+
+None found. This batch ships no component and no user-reachable path; `buildDashboardViewModel`
+and `mapDisplayNode` are pure functions with no caller yet outside their own spec.
+
+### 3. What input data produces a wrong answer?
+
+- The depth/off-by-one case was independently re-derived against the validator, not just
+  read from the doc comment: `dashboard-spec.validator.ts:141-159` starts roots at
+  `depth: 1` and fails when `depth > maxDepth` (8), so a validated spec's deepest node sits
+  at tree-depth 8 and can never itself carry children (a depth-8 node's children would be
+  depth 9, which the validator already refused). `buildDashboardViewModel`'s
+  `mapComponents(spec.components, 1)` (`:125`) mirrors this exactly: a component at depth
+  `d` is always included, but its own children are only recursed into when `d < maxTreeDepth`
+  (`:113-118`); at `d === 8` children are forced to `[]` without being visited. This matches
+  the validator's semantics bit-for-bit (root depth 1, depth 8 is the deepest legal level,
+  a would-be depth-9 descendant is dropped, not thrown on). The spec at
+  `dashboard-view-model.spec.ts:122-148` builds a 9-level chain (`depth-1`…`depth-8`→`beyond`)
+  and asserts the walk stops at `depth-8` with `depth === DASHBOARD_LIMITS.maxTreeDepth` —
+  this assertion would fail under either a fencepost error (dropping at depth 7 or leaking
+  depth 9) so it is a real, falsifiable pin, not a decorative one. No off-by-one defect
+  found.
+- `component.actions?.some((action) => action?.action === 'dashboard.select')`
+  (`:24-27`) is null-safe per array element, so a malformed action entry (`null`, a string)
+  cannot throw and simply does not count as a `dashboard.select` match — correct, matches
+  "selectable true only with dashboard.select".
+- No defect found in `SurfaceRenderable = SurfaceContent` (`surface-view-state.ts:7`): a
+  direct type alias is the simplest possible mirror of `surface.types.ts:187-196` and stays
+  byte-for-byte in sync as the source type evolves, satisfying D6/Component 10 exactly.
+
+### 4. What happens when a dependency fails?
+
+Not applicable in a meaningful way — this batch has no I/O, network, RPC or timer
+dependency; its only "dependency" is the imported constants (`DASHBOARD_LIMITS`,
+`DASHBOARD_COMPONENT_KINDS`) and contract types from `@ptah-extension/shared` and
+`@ptah-extension/shared/mcp-apps-contracts`, both compile-time and verified present by a
+clean `typecheck` run.
+
+### 5. What is missing that the requirements never mentioned?
+
+- The requirements ask only that "text remains literal contract text, never HTML" and that
+  the union mirror `SurfaceContent`; they do not ask for per-kind structural validation
+  parity across all five v1 kinds. The implementation nonetheless validates `stat` and
+  `table` defensively but not `list`/`line-chart`/`bar-chart` — an inconsistency the
+  requirements never called out either way (see M1). Nothing else appears missing: D-4/R4's
+  named export list is complete in `index.ts:1-25` (`SurfaceRenderable`, `SurfaceViewState`,
+  `SurfaceComponentViewState`, `SurfaceInteractionState`, `SurfaceInputCommit`,
+  `SurfaceActionInvoke`, `SurfaceSelectionChange`, `SURFACE_PAGE_SIZE`), and the v2-shaping
+  fields Batch 6 will need are already on the types (`InputNode.hostValue`/`.draftError` at
+  `view-model.types.ts:40-44`; `LayoutNode.submitActions` at `:30`).
+
+## Failure modes
+
+### Inconsistent per-kind defensive validation in `mapDisplayNode`
+
+- Trigger: a caller passes `buildDashboardViewModel` a spec whose `list.items` or a chart's
+  `series` field is not an array (or is some other wrong shape), while its `id`, `actions`,
+  and (for `stat`/`table`) their own required fields are otherwise well-formed.
+- Symptom: no `TypeError` is thrown; the malformed value passes straight into the returned
+  `DisplayNode`, silently breaking the documented "defensive shape failures throw for the
+  renderer's renderFailed fallback" contract for two of the five v1 kinds.
+- Evidence: `dashboard-view-model.ts:62-69` (`list`, no `items` check), `:70-79` (charts, no
+  `series` check), contrast `:39-44` (`stat`, throws on bad `value`) and `:53-54` (`table`,
+  throws on bad `columns`).
+- Current handling: none for `list`/chart kinds; the doc comment at `:85-88` overstates the
+  actual coverage.
+- Recommendation: add the same `Array.isArray` guard used for `table.columns` to
+  `list.items` and to each chart's `series`, or narrow the doc comment to state precisely
+  which kinds get defensive shape checks and why (e.g., "the schema validator is the real
+  boundary; these are spot checks, not full coverage"). Low urgency today because
+  `dashboard-spec.validator.ts` is the actual production boundary and already rejects these
+  shapes before this builder ever sees them — but the builder's own doc comment currently
+  promises more than the code delivers, which will mislead a future caller that invokes it
+  directly (e.g., from a test fixture or a future non-webview consumer).
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+### M1 — `list`/chart kinds skip the per-kind defensive check `stat`/`table` get (Moderate)
+
+See "Failure modes" above for full detail. File: `dashboard-view-model.ts:62-79`.
+
+### Minor — `toMatchObject` in the primary mapping test cannot detect an added stray field
+
+- File: `dashboard-view-model.spec.ts:80-86` ("maps every v1 catalog kind without losing
+  display fields or interpreting text").
+- `expect(result.components[index]).toMatchObject({...component, selectable: false})` only
+  asserts the listed keys are present with the right values; it does not fail if
+  `mapDisplayNode` started leaking an extra, unexpected field onto the returned node (e.g.
+  an internal marker). The companion `not.toBe(component)` assertion does catch aliasing,
+  and the "invalid shape" `it.each` block separately proves the throw paths, so this is a
+  narrow gap, not a hole in the batch's overall spec rigor.
+- Impact: low — a hypothetical regression that adds a stray field to every `DisplayNode`
+  would slip past this specific assertion, though it would very likely be caught by
+  `dashboard-view-model.spec.ts`'s "does not mutate frozen source objects... produces
+  repeatable results" test only if the extra field varied between runs (it likely would
+  not, so that test would not catch it either).
+- Fix (optional, next touch): swap to `toEqual` with an explicit expected object per kind, or
+  add one `expect(Object.keys(result.components[index]).sort()).toEqual([...])` assertion.
+
+## Data flow
+
+1. A `DashboardSpecEnvelope` (already validated upstream by
+   `dashboard-spec.validator.ts`, outside this batch) is passed to `buildDashboardViewModel`
+   — OK; the function re-checks `schemaVersion`, `catalogVersion`, `title.text`, and
+   `Array.isArray(components)` itself as a second boundary (`:92-100`).
+2. `mapComponents` walks the component array depth-first, incrementing `depth` per level and
+   capping recursion at `DASHBOARD_LIMITS.maxTreeDepth` (`:102-120`) — OK, verified to match
+   the validator's own depth semantics bit-for-bit (see Q3 above).
+3. Each component is handed to `mapDisplayNode`, which validates `id` and `actions` shape
+   uniformly, then does a kind-specific check for `stat` and `table` only — PARTIAL, gap
+   noted in M1 for `list`/chart kinds (does not affect production today since step 1's
+   upstream validator already guarantees well-formed shapes; matters only for a future
+   direct caller).
+4. The mapped `DisplayNode` tree is returned as a new, unfrozen object graph, provably not
+   aliasing the (possibly frozen) input (`dashboard-view-model.spec.ts:201-210`) — OK, pure
+   and side-effect-free.
+5. `index.ts` re-exports the types and functions Batch 6+ need — OK, D-4/R4's full list is
+   present.
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| Node union `LayoutNode \| InputNode \| DisplayNode`, each with `selectable` (true only with `dashboard.select`) | COMPLETE | `selectable` computed correctly for `DisplayNode` today (`mapDisplayNode:24-27`, spec-pinned); `LayoutNode`/`InputNode` are type-only in this batch (no builder yet — correctly deferred to Batch 6) |
+| v1 `children` up to `DASHBOARD_LIMITS.maxTreeDepth`, root depth 1 as in the v1 validator | COMPLETE | Independently re-derived against `dashboard-spec.validator.ts:141-159` and confirmed bit-for-bit; spec-pinned with a falsifiable 9-level fixture |
+| `SURFACE_PAGE_SIZE = 25` | COMPLETE | `surface-view-state.ts:9`, spec-asserted `dashboard-view-model.spec.ts:87` |
+| `SurfaceRenderable` mirrors `SurfaceContent` (`surface.types.ts:187-196`) | COMPLETE | Direct type alias, byte-for-byte mirror |
+| D-4/R4 exports from `src/index.ts` | COMPLETE | All eight named items present, `index.ts:1-25` |
+| Imports only `@ptah-extension/shared` and `@ptah-extension/shared/mcp-apps-contracts` (incl. `/surface` subpath) | COMPLETE | Verified across all four `.ts` source files; no stray import |
+| Purity / no mutation | COMPLETE | Spec-pinned with `Object.freeze` + `JSON.stringify` before/after comparison |
+| No text interpretation | COMPLETE | Text fields copied as opaque `DashboardRichText`/strings throughout; no HTML parsing anywhere in scope |
+| Types serve later batches (B6 InputNode hostValue/draftError, LayoutNode submitActions; B10-B13 Apps-state imports) | COMPLETE | Fields present on the types; B10-B13 usage not yet exercised (expected, those batches are pending) |
+| No stubs/TODOs | COMPLETE | No placeholder comments or unimplemented branches found |
+
+Implicit requirements not addressed: consistent per-kind defensive validation across all
+five v1 `DisplayNode` kinds (M1) — the requirements never state this explicitly, and the
+production boundary (the zod validator) already covers it, so this is a residual doc/code
+mismatch rather than an unaddressed requirement.
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Empty `components` array | YES | `dashboard-view-model.spec.ts:151` | None |
+| Depth exactly `maxTreeDepth` (8) | YES | Node included, children dropped without being visited (`:113-118`), spec-pinned with a 9-level fixture | None |
+| `dashboard.select` present among other/no actions | YES | `dashboard-view-model.spec.ts:90-120`, four-way table | None |
+| Frozen/deeply-frozen input spec | YES | `dashboard-view-model.spec.ts:201-210` | None |
+| `null`/non-object/wrong-`schemaVersion`/non-array-`components` envelope | YES | `it.each` at `:166-199`, 10 cases | None |
+| Malformed `stat.value` / `table.columns` / `actions` shape | YES | Throws, spec-pinned | None |
+| Malformed `list.items` / chart `series` shape | NO | Passes through unchecked | M1 — low production risk (upstream validator is the real gate), but the doc comment overstates coverage |
+| Opaque `data` reference passed through unresolved | YES | `dashboard-view-model.spec.ts:150-164` | None |
+| Determinism / repeatable output for the same input | YES | `dashboard-view-model.spec.ts:205-206` (`toEqual` across two calls) | None |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: none blocking or serious. The only material finding (M1) is a defensive-coverage
+  inconsistency between `stat`/`table` and `list`/chart kinds inside `mapDisplayNode`, whose
+  practical impact is currently zero because the real trust boundary
+  (`dashboard-spec.validator.ts`) already rejects malformed shapes before they reach this
+  builder — it matters only if a future caller invokes `buildDashboardViewModel` on
+  unvalidated input, and it means the file's own doc comment (`:85-88`) promises slightly
+  more defensive coverage than the code delivers.
+- What a robust implementation would add: (1) close M1 by adding the same `Array.isArray`
+  guard to `list.items` and chart `series` that `table.columns` already gets, or narrow the
+  doc comment to say precisely what is and is not defended; (2) strengthen the primary
+  mapping test (Minor issue) to catch an added stray field, e.g. via an explicit key-set
+  assertion; (3) nothing else — the depth/off-by-one semantics, the selectable logic, the
+  export surface for later batches, purity, and the "no text interpretation" requirement are
+  all independently verified against the source contracts and are spec-pinned with
+  falsifiable assertions, not just present.

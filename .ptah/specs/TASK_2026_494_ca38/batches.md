@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 2/20
+Total tasks: 20 | Batches: 20 | Complete: 3/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -52,8 +52,8 @@ Spot-checks performed against `9afac1aa2` (all confirmed unless listed as a defe
 - `navigateToSurface` returns `'navigated'` whenever `router.navigateByUrl` resolves true, so a `canMatch`-refused
   `apps` redirected by `**` to `/chat` reports `'navigated'` (`surface-router.service.ts:116-143`); the existing
   `bootWithInitialView` helper's `surfaceNavigationLanded` assertion therefore still holds for the VS Code case.
-- No prototype exists (`.ptah/specs/TASK_2026_494_ca38/prototype/` and `TASK_2026_492_0bcc/prototype/` absent); the
-  visual source is `TASK_2026_492_0bcc/design-spec.md` only. See risk R10.
+- The prototype was approved 2026-09-25 (`.ptah/specs/TASK_2026_494_ca38/prototype/`: `index.html`, `states.html`,
+  `README.md`, screenshots; committed with Batch 2) and is the visual source of truth. Resolves risk R10.
 
 Plan defects found (none is a BLOCKER; each is carried by a task below, no redesign):
 
@@ -95,7 +95,7 @@ Assumptions:
 | R7 VS Code host now accepts `initialView: 'apps'` (`ACCEPTED_INITIAL_VIEWS` is derived; `webview-html-generator.initial-view.spec.ts:79,142` iterates it) | LOW (intended, D2) | Task 16.1 verification includes `ptah-extension-vscode` and `@ptah-extension/core` tests |
 | R8 Zod or a new lib leaks into the initial bundle | HIGH | Only the two lazy libs import `mcp-apps-contracts*`; inbox is zod-free; gate in B19 compares against `9afac1aa2` |
 | R9 Reconciliation state machine (Rules 1-4, six cases) is the highest logic risk | HIGH | B11-B13 executed by a sub-agent developer, double-reviewed (code-logic-reviewer + CLI review lane), fake-timer specs |
-| R10 No approved prototype exists for a NEW surface; Mode 3 requires rendered evidence against one | HIGH | Needs the user: accept `TASK_2026_492_0bcc/design-spec.md` as the visual source of truth, or commission a prototype before completion. Visual review (dark + light) runs after B17 regardless |
+| R10 No approved prototype existed for a NEW surface; Mode 3 requires rendered evidence against one | HIGH | RESOLVED 2026-09-25: prototype approved (`prototype/`). Visual review (dark + light) against it runs after B17 |
 | R11 CLI lane quotas run out mid-batch | MEDIUM | Each CLI-lane batch names a sub-agent fallback; a lane that times out is resumed once via `resume_session_id`, then handed to the fallback |
 | R12 `chat-routing/src/index.ts` doc comment understates outbound deps (already imports `chat-streaming`, `chat-types`) | LOW | Task 1.1 corrects the comment while adding `@ptah-extension/core` |
 
@@ -163,7 +163,7 @@ Edge cases:
   `surface-message-routing.spec.ts:286-296` does not call `handlerDeclarationsFor`; (M3) the source sweep reads
   `libs/frontend/**`, outside the webview test target's Nx cache inputs. Revisit when B12 adds the first consumer.
 
-## Batch 2: Lib scaffolds and path mapping — COMPLETE
+## Batch 2: Lib scaffolds and path mapping — COMPLETE (commit b66ee50b6)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -206,7 +206,7 @@ Edge cases:
   6/6 targets green. Style minor (manual copy instead of `nx g`) accepted: output is equivalent and Nx discovers both.
 - Prototype (approved 2026-09-25) committed with this batch. B15 notes added; splitter split out as Batch 20.
 
-## Batch 3: Renderer view-state, interaction types and v1 view model — IN_PROGRESS
+## Batch 3: Renderer view-state, interaction types and v1 view model — COMPLETE
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -215,7 +215,7 @@ Edge cases:
 - Rationale: pure types and a pure builder with a spec; well specified by Revision 1 behaviour.
 - Tasks: 1 | Depends on: Batch 2
 
-### Task 3.1: Types and `buildDashboardViewModel` — IN_PROGRESS
+### Task 3.1: Types and `buildDashboardViewModel` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `surface-view-state.ts`,
   `surface-interaction.ts`, `view-model/view-model.types.ts`, `view-model/dashboard-view-model.ts` (+ `.spec.ts`);
@@ -233,6 +233,16 @@ Edge cases:
 ### Batch 3 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+
+### Batch 3 outcome
+
+- Executor: CLI lane (1 round, no fix rounds; a first lane failed at spawn and wrote nothing). Reviewer:
+  code-logic-reviewer, APPROVED 8/10, 0 blocking (`code-logic-review.md`, Batch 3 section).
+- Verification re-run by team-leader with `--skip-nx-cache`: 3/3 targets green, 17/17 tests.
+- D-4/R4 resolved: renderer types and `SURFACE_PAGE_SIZE` exported from `declarative-dashboard/src/index.ts`.
+- Non-blocking note carried to B6: `mapDisplayNode` (`dashboard-view-model.ts:62-79`) shape-checks `stat`/`table` but
+  not `list.items` or chart `series`; the v1 validator is the real boundary. B6 may tighten it when the v2 builder
+  reuses the mapper.
 
 ## Batch 4: Table rows, chart geometry, chart component — PENDING
 
