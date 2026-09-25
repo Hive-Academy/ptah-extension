@@ -319,16 +319,27 @@
                       {{ server.description }}
                     </p>
                   }
+                  <!--
+                    Every row: the label never shrinks, the value may shrink
+                    below its content (min-w-0) and wraps. Without min-w-0 a
+                    flex item cannot get narrower than its longest unbreakable
+                    run, so a long raw status text (the pill label is
+                    nowrap + truncate, which only truncates once its box is
+                    constrained) pushed the value past the panel edge.
+                  -->
                   <dl class="divide-y divide-base-300">
                     <div class="flex items-start justify-between gap-3 py-2">
-                      <dt class="text-base-content-muted">Status</dt>
-                      <dd class="text-right" data-testid="server-detail-status">
+                      <dt class="shrink-0 text-base-content-muted">Status</dt>
+                      <dd
+                        class="min-w-0 text-right"
+                        data-testid="server-detail-status"
+                      >
                         <ptah-status-pill
                           [status]="server.status"
                           [statusText]="server.statusText"
                         />
                         <p
-                          class="mt-1 text-[11px] text-base-content-muted"
+                          class="mt-1 break-words text-[11px] text-base-content-muted"
                           data-testid="server-detail-status-source"
                         >
                           {{ statusHint() }}
@@ -336,8 +347,10 @@
                       </dd>
                     </div>
                     <div class="flex items-start justify-between gap-3 py-2">
-                      <dt class="text-base-content-muted">Origin</dt>
-                      <dd class="text-right text-base-content">
+                      <dt class="shrink-0 text-base-content-muted">Origin</dt>
+                      <dd
+                        class="min-w-0 break-words text-right text-base-content"
+                      >
                         {{ server.originLabel }}
                       </dd>
                     </div>
@@ -360,14 +373,26 @@
                     }
                     @if (connectedAt(); as date) {
                       <div class="flex items-start justify-between gap-3 py-2">
-                        <dt class="text-base-content-muted">Connected</dt>
-                        <dd class="text-right text-base-content">{{ date }}</dd>
+                        <dt class="shrink-0 text-base-content-muted">
+                          Connected
+                        </dt>
+                        <dd
+                          class="min-w-0 break-words text-right text-base-content"
+                        >
+                          {{ date }}
+                        </dd>
                       </div>
                     }
                     @if (createdAt(); as date) {
                       <div class="flex items-start justify-between gap-3 py-2">
-                        <dt class="text-base-content-muted">Created</dt>
-                        <dd class="text-right text-base-content">{{ date }}</dd>
+                        <dt class="shrink-0 text-base-content-muted">
+                          Created
+                        </dt>
+                        <dd
+                          class="min-w-0 break-words text-right text-base-content"
+                        >
+                          {{ date }}
+                        </dd>
                       </div>
                     }
                   </dl>

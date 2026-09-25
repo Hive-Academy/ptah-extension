@@ -352,6 +352,37 @@ describe('ServerDetailComponent', () => {
     expect(tabs).toEqual(['Overview', 'Targets2', 'Config']);
   });
 
+  // Batch 25b: a flex `dd` without min-w-0 cannot shrink below its longest
+  // unbreakable run, so a long raw status text pushed the Status value past
+  // the drawer's edge. Every Overview row keeps its label and lets its value
+  // shrink and wrap.
+  it.each([['harness-config:firecrawl'], ['oauth:notion']])(
+    'lets every Overview value shrink and wrap inside a narrow panel (%s)',
+    async (ref) => {
+      await mount(ref);
+      const rows = Array.from(
+        byTestId('server-detail-status')?.closest('dl')?.children ?? [],
+      );
+      expect(rows.length).toBeGreaterThan(1);
+      for (const row of rows) {
+        expect(row.querySelector('dt')?.classList).toContain('shrink-0');
+        expect(row.querySelector('dd')?.classList).toContain('min-w-0');
+      }
+      expect(byTestId('server-detail-status-source')?.classList).toContain(
+        'break-words',
+      );
+    },
+  );
+
+  it('breaks a config path anywhere so it never widens the panel', async () => {
+    await mount('harness-config:firecrawl');
+    const paths = allByTestId('server-detail-config-path');
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(path.classList).toContain('break-all');
+    }
+  });
+
   const leaks = (): boolean => {
     const html = root().innerHTML;
     return [ENV_SECRET, 'header-value-must-not-render', ARG_SECRET].some((secret) =>
