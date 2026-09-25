@@ -3,6 +3,23 @@ export * from './lib/ptah-cli';
 export * from './lib/mcp-directory';
 export * from './lib/skills-directory';
 export * from './lib/roles';
+export {
+  CapabilityToggleStore,
+  CapabilityToggleStoreError,
+  capabilityPolicyKey,
+  capabilityWorkspaceKey,
+  defaultCapabilityStoreDir,
+} from './lib/capabilities/capability-toggle-store';
+export {
+  CapabilityResolverService,
+  CapabilityRequestError,
+  type CapabilityPluginSource,
+  type CapabilityResolverDependencies,
+} from './lib/capabilities/capability-resolver.service';
+export type {
+  McpDeclarationInventory,
+  McpDeclarationSourceStatus,
+} from './lib/mcp-directory/mcp-install.service';
 export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';
 export { registerCliAgentRuntimeServices } from './lib/di/register';

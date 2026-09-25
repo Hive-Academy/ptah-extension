@@ -37,7 +37,7 @@
  * were each real, connected, and invisible. Every row now carries its
  * {@link McpServerOrigin}, a display label, and the {@link McpRemovalKind} that
  * says how — or whether — it can be removed. Rows are deduplicated by
- * (`serverKey`, `origin`, `configPath`) and NOT by key alone: the same key
+ * (`serverKey`, `origin`, `configPath`, `scope`) and NOT by key alone: the same key
  * legitimately lives in several config files, and each of those is its own row.
  *
  * claude.ai ACCOUNT connectors (Gmail, Calendar, Drive, Canva) are deliberately
@@ -61,16 +61,18 @@ import {
   McpIntentStore,
   type HarnessReconcilerService,
   type IHarnessMcpFacet,
+  type McpSourceStatus,
 } from '@ptah-extension/harness-sync';
-import type {
-  HarnessTargetHealth,
-  InstalledMcpServer,
-  McpInstallResult,
-  McpInstallTarget,
-  McpOAuthConnectedRecord,
-  McpServerConfig,
-  McpServerOrigin,
-  SmitheryInstalledRecord,
+import {
+  classifyMcpScope,
+  type HarnessTargetHealth,
+  type InstalledMcpServer,
+  type McpInstallResult,
+  type McpInstallTarget,
+  type McpOAuthConnectedRecord,
+  type McpServerConfig,
+  type McpServerOrigin,
+  type SmitheryInstalledRecord,
 } from '@ptah-extension/shared';
 import {
   readClaudeUserMcpServers,
@@ -127,6 +129,24 @@ export interface McpInstallServiceOptions {
   smithery?: SmitheryInstalledReader;
   /** The handler's own OAuth manifest store. Omitted = no OAuth rows. */
   oauth?: McpOAuthInstalledReader;
+}
+
+/** How reading one harness MCP config file went. */
+export interface McpDeclarationSourceStatus {
+  target: McpInstallTarget;
+  /** Absolute path of the config file. */
+  path: string;
+  status: McpSourceStatus;
+  /** Why the read failed. Present only when `status` is `error`. */
+  error?: string;
+}
+
+/** The result of {@link McpInstallService.listDeclarations}. */
+export interface McpDeclarationInventory {
+  /** Every declaration from every source, each with its `scope` set. */
+  declarations: InstalledMcpServer[];
+  /** One entry per resolvable harness config file. */
+  sourceStatus: McpDeclarationSourceStatus[];
 }
 
 /** Options for {@link McpInstallService.uninstall}. */
@@ -232,29 +252,64 @@ export class McpInstallService {
 
   /**
    * Every MCP server this machine has, from all four disk/manifest sources,
-   * each row flagged with where it came from and how it can be removed.
+   * each row flagged with where it came from, which scope declared it and how
+   * it can be removed.
+   *
+   * A display list: a config file that cannot be read contributes no rows
+   * here. The capability resolver reads the same inventory through
+   * {@link listDeclarations}, where that failure is reported instead.
    */
   async listInstalled(workspaceRoot?: string): Promise<InstalledMcpServer[]> {
-    await Promise.resolve();
-    const rows = [
-      ...this.harnessConfigRows(workspaceRoot),
-      ...this.claudeUserRows(workspaceRoot),
-      ...this.smitheryRows(),
-      ...this.oauthRows(),
-    ];
+    const { declarations } = await this.listDeclarations(workspaceRoot);
 
-    // Identity is (serverKey, origin, configPath). NOT the key alone: one
-    // server installed to five targets is five real rows in five real files,
-    // and that is exactly how the Installed tab groups them today.
+    // Identity is (origin, configPath, serverKey, scope). NOT the key alone:
+    // one server installed to five targets is five real rows in five real
+    // files, and that is exactly how the Installed tab groups them today.
     const seen = new Set<string>();
     const deduped: InstalledMcpServer[] = [];
-    for (const row of rows) {
-      const identity = `${row.origin} ${row.configPath} ${row.serverKey}`;
+    for (const row of declarations) {
+      const identity = JSON.stringify([
+        row.origin,
+        row.configPath,
+        row.serverKey,
+        row.scope,
+      ]);
       if (seen.has(identity)) continue;
       seen.add(identity);
       deduped.push(row);
     }
     return deduped;
+  }
+
+  /**
+   * The ONE declaration inventory (TASK_2026_560, C4): every row from the four
+   * sources with its `scope`, plus the read status of every harness config
+   * file.
+   *
+   * Both `listInstalled` and the capability resolver read it, so the
+   * Installed tab and the session policy can never disagree about what is
+   * declared. The harness files are read through the facets' status-bearing
+   * `inspect`, so a file that exists but cannot be read is `error` in
+   * `sourceStatus` rather than silently "declares nothing"; the resolver turns
+   * that into an unverified policy. Never rejects.
+   */
+  async listDeclarations(
+    workspaceRoot?: string,
+  ): Promise<McpDeclarationInventory> {
+    const harness = await this.harnessConfigRows(workspaceRoot);
+    const declarations = [
+      ...harness.rows,
+      ...this.claudeUserRows(workspaceRoot),
+      ...this.smitheryRows(),
+      ...this.oauthRows(),
+    ].map((row) => ({
+      ...row,
+      scope: classifyMcpScope({
+        origin: row.origin,
+        ...(row.target === undefined ? {} : { target: row.target }),
+      }),
+    }));
+    return { declarations, sourceStatus: harness.sourceStatus };
   }
 
   /** Absolute config path for a target, or `null` when it cannot be resolved. */
@@ -274,14 +329,37 @@ export class McpInstallService {
     }
   }
 
-  /** The six reconciler-owned config files. */
-  private harnessConfigRows(workspaceRoot?: string): InstalledMcpServer[] {
-    const rows: InstalledMcpServer[] = [];
-    for (const [target, facet] of this.facets) {
-      const configPath = facet.configPath(workspaceRoot ?? '');
-      if (configPath === null) continue;
+  /**
+   * The reconciler-owned config files, read in parallel through `inspect`,
+   * with each file's read status.
+   */
+  private async harnessConfigRows(workspaceRoot?: string): Promise<{
+    rows: InstalledMcpServer[];
+    sourceStatus: McpDeclarationSourceStatus[];
+  }> {
+    const root = workspaceRoot ?? '';
+    const reads = await Promise.all(
+      [...this.facets].map(async ([target, facet]) => ({
+        target,
+        configPath: facet.configPath(root),
+        inspection: await facet.inspect(root),
+      })),
+    );
 
-      for (const [serverKey, config] of facet.readAll(workspaceRoot ?? '')) {
+    const rows: InstalledMcpServer[] = [];
+    const sourceStatus: McpDeclarationSourceStatus[] = [];
+    for (const { target, configPath, inspection } of reads) {
+      // No resolvable file (a workspace-scoped target with no workspace)
+      // declares nothing, and that is a fact, not a failure.
+      if (configPath === null) continue;
+      sourceStatus.push({
+        target,
+        path: configPath,
+        status: inspection.status,
+        ...(inspection.error === undefined ? {} : { error: inspection.error }),
+      });
+
+      for (const [serverKey, config] of inspection.servers) {
         const managedByPtah = this.intents.has(serverKey);
         rows.push({
           serverKey,
@@ -297,7 +375,7 @@ export class McpInstallService {
         });
       }
     }
-    return rows;
+    return { rows, sourceStatus };
   }
 
   /** `~/.claude.json`, user scope and this workspace's project scope. */
