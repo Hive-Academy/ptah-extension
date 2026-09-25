@@ -324,6 +324,14 @@ export {
   type IHarnessPreflight,
 } from './lib/harness/harness-preflight.port';
 export {
+  HarnessPolicySync,
+  type HarnessPolicySyncResult,
+} from './lib/harness/harness-policy-sync';
+export {
+  CapabilityPolicyUnknownError,
+  type EffectivePluginConfig,
+} from './lib/helpers/plugin-loader.service';
+export {
   wireSessionMetadataEvents,
   type WireSessionMetadataEventsContext,
   type SessionMetadataEventPlatform,

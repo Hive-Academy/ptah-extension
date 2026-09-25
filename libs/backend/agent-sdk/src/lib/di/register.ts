@@ -91,6 +91,7 @@ import {
 import { InternalQueryService } from '../internal-query';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { HarnessPolicySync } from '../harness/harness-policy-sync';
 import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
@@ -543,6 +544,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Singleton: it remembers, per workspace root, the last policy fingerprint a
+  // harness pass acknowledged (TASK_2026_560, N4).
+  container.register(
+    SDK_TOKENS.SDK_HARNESS_POLICY_SYNC,
+    { useClass: HarnessPolicySync },
     { lifecycle: Lifecycle.Singleton },
   );
 

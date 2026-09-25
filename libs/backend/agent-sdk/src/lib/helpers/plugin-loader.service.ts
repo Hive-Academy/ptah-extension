@@ -37,9 +37,15 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   buildSkillDescriptorId,
+  CAPABILITY_POLICY_UNKNOWN_ERROR_NAME,
   HARNESS_PLUGIN_ID_PREFIX,
+  harnessPolicyFingerprint,
+  pluginConfigLayer,
   SKILLS_SH_PLUGIN_ID_PREFIX,
   workspacePluginsDir,
+  type CapabilityExplicitItem,
+  type CapabilityPolicyReason,
+  type ICapabilityGlobalLayer,
   type PluginInfo,
   type PluginConfigState,
   type PluginHealthIssue,
@@ -63,9 +69,69 @@ import {
   parseExternalPluginId,
 } from '@ptah-extension/plugin-marketplace';
 import { SdkError } from '../errors';
+import { SDK_TOKENS } from '../di/tokens';
 
 /** VS Code workspaceState key for plugin configuration */
 const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
+
+/** The id lists a persisted `PluginConfigState` may carry. */
+const PLUGIN_CONFIG_LIST_FIELDS = [
+  'enabledPluginIds',
+  'disabledSkillIds',
+  'disabledPluginIds',
+  'disabledAgentIds',
+  'enabledSkillIds',
+] as const;
+
+/**
+ * The capability policy for skills and plugins could not be read, so no one
+ * can say which of them are off (TASK_2026_560, fail-closed policy).
+ *
+ * Thrown by {@link PluginLoaderService.getEffectivePluginConfig}. harness-sync
+ * may not import agent-sdk, so it recognises this error by its `name`
+ * (`isCapabilityPolicyUnknownError` in `@ptah-extension/shared`), never by
+ * `instanceof`.
+ */
+export class CapabilityPolicyUnknownError extends SdkError {
+  /** Each unreadable input, named for the user. */
+  readonly reasons: readonly CapabilityPolicyReason[];
+
+  constructor(reasons: readonly CapabilityPolicyReason[]) {
+    super(
+      `Ptah couldn't read the capability policy: ${reasons
+        .map((reason) => `${reason.path} (${reason.error})`)
+        .join(', ')}`,
+    );
+    this.name = CAPABILITY_POLICY_UNKNOWN_ERROR_NAME;
+    this.reasons = reasons;
+  }
+}
+
+/**
+ * The skill/plugin policy a harness pass plans against, read from ONE
+ * snapshot of the global layer and the workspace `PluginConfigState`.
+ */
+export interface EffectivePluginConfig {
+  /**
+   * The workspace config with the global layer beneath it: a global `on`/`off`
+   * item applies only to an id the workspace records nothing about. With no
+   * global item this is exactly the stored config (AC-3.2).
+   */
+  config: PluginConfigState;
+  /**
+   * `harnessPolicyFingerprint` over the global skill/plugin items and the
+   * stored workspace config (N4). A reconciler stamps it on its health so a
+   * caller can tell which policy a pass applied.
+   */
+  fingerprint: string;
+  /** {@link PluginLoaderService.resolveCurrentPluginPaths}, computed from `config`. */
+  overlayPluginPaths: string[];
+}
+
+/** One read of the workspace `PluginConfigState` layer. */
+type WorkspaceLayerRead =
+  | { status: 'ok'; config: PluginConfigState }
+  | { status: 'error'; reason: CapabilityPolicyReason };
 
 /**
  * What a scan of one or more plugin directories found: the skills it could
@@ -86,6 +152,62 @@ function errnoOf(error: unknown): string {
     typeof (error as NodeJS.ErrnoException).code === 'string'
     ? ((error as NodeJS.ErrnoException).code as string)
     : '';
+}
+
+/** A persisted id list is usable when it is absent or a list of strings. */
+function isAbsentOrStringList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+  );
+}
+
+/**
+ * Put the global skill/plugin layer beneath a workspace config.
+ *
+ * `workspace ?? global ?? default`: a global `on`/`off` item is added only for
+ * an id the workspace records nothing about (in either of its lists), and a
+ * global `inherit` means "use the default", which adds nothing. The stored
+ * lists are kept verbatim, including a legacy id listed as both enabled and
+ * disabled (the deny still wins downstream), so with no global item the result
+ * equals `workspace` (AC-3.2).
+ */
+function layerGlobalItems(
+  workspace: PluginConfigState,
+  items: readonly CapabilityExplicitItem[],
+): PluginConfigState {
+  const recorded = pluginConfigLayer(workspace);
+  const enabledPluginIds = [...workspace.enabledPluginIds];
+  const disabledPluginIds = [...(workspace.disabledPluginIds ?? [])];
+  const disabledSkillIds = [...workspace.disabledSkillIds];
+  const enabledSkillIds = [...(workspace.enabledSkillIds ?? [])];
+  let addedEnabledSkill = false;
+
+  for (const item of items) {
+    if (item.value === 'inherit') continue;
+    if (item.kind === 'plugin' && !recorded.plugins.has(item.id)) {
+      (item.value === 'on' ? enabledPluginIds : disabledPluginIds).push(
+        item.id,
+      );
+    } else if (item.kind === 'skill' && !recorded.skills.has(item.id)) {
+      if (item.value === 'on') {
+        enabledSkillIds.push(item.id);
+        addedEnabledSkill = true;
+      } else {
+        disabledSkillIds.push(item.id);
+      }
+    }
+  }
+
+  return {
+    ...workspace,
+    enabledPluginIds,
+    disabledPluginIds,
+    disabledSkillIds,
+    ...(workspace.enabledSkillIds !== undefined || addedEnabledSkill
+      ? { enabledSkillIds }
+      : {}),
+  };
 }
 
 /** Turn a failed `SKILL.md` read into something the Plugins panel can render. */
@@ -379,6 +501,9 @@ export class PluginLoaderService {
    *   user changes folder. A host that has not registered a workspace provider
    *   simply has no workspace scope — every workspace method returns empty and
    *   the user-global half is unaffected.
+   * @param globalLayer The global skill/plugin toggles layered under the
+   *   workspace config (TASK_2026_560). Optional: a host without the capability
+   *   store has no global layer, and every config reads as it always did.
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -386,6 +511,8 @@ export class PluginLoaderService {
     private readonly externalPlugins: ExternalPluginStateStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
     private readonly workspace?: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_CAPABILITY_GLOBAL_LAYER, { isOptional: true })
+    private readonly globalLayer?: ICapabilityGlobalLayer,
   ) {}
 
   /**
@@ -714,8 +841,19 @@ export class PluginLoaderService {
       return PluginLoaderService.emptyPluginConfig();
     }
 
-    const stored = storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY);
+    return PluginLoaderService.normalizeStoredConfig(
+      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
+    );
+  }
 
+  /**
+   * A persisted config in the shape every reader returns. A missing list reads
+   * as empty and `enabledSkillIds` appears only when it was stored, so a config
+   * saved before a field existed reads exactly as it always did (AC-3.2).
+   */
+  private static normalizeStoredConfig(
+    stored: PluginConfigState | undefined,
+  ): PluginConfigState {
     if (!stored || !Array.isArray(stored.enabledPluginIds)) {
       return PluginLoaderService.emptyPluginConfig();
     }
@@ -738,7 +876,119 @@ export class PluginLoaderService {
       disabledAgentIds: Array.isArray(stored.disabledAgentIds)
         ? stored.disabledAgentIds
         : [],
+      // TASK_2026_560: only an override of a global OFF, so absent means
+      // "nothing overridden". Left out rather than defaulted to `[]` so a
+      // pre-task config reads back unchanged.
+      ...(Array.isArray(stored.enabledSkillIds)
+        ? { enabledSkillIds: stored.enabledSkillIds }
+        : {}),
       lastUpdated: stored.lastUpdated,
+    };
+  }
+
+  /**
+   * The workspace layer for `workspaceRoot`, or why it cannot be read.
+   *
+   * Stricter than {@link getWorkspacePluginConfig}, which reads anything it
+   * cannot use as the empty default. That default is right for display and
+   * wrong for policy: a denylist that failed to read would turn every plugin
+   * the user switched off back on. So a storage read that throws, a stored
+   * value that is not an object, or an id list that is present but not a list
+   * of strings is an error here (TASK_2026_560, N3). Absent storage and absent
+   * values keep their legacy meaning (nothing recorded).
+   */
+  private readWorkspaceLayer(workspaceRoot?: string): WorkspaceLayerRead {
+    const storage = this.storageFor(workspaceRoot);
+    if (storage === null) {
+      return { status: 'ok', config: PluginLoaderService.emptyPluginConfig() };
+    }
+
+    // Workspace state has no file path of its own to name, so the reason names
+    // the workspace and the key.
+    const where =
+      workspaceRoot ?? this.workspace?.getWorkspaceRoot() ?? 'active workspace';
+    const reasonPath = `${where} (${PLUGIN_CONFIG_KEY})`;
+
+    let stored: unknown;
+    try {
+      stored = storage.get<unknown>(PLUGIN_CONFIG_KEY);
+    } catch (error: unknown) {
+      const code = errnoOf(error);
+      return {
+        status: 'error',
+        reason: {
+          path: reasonPath,
+          error: code === '' ? 'unreadable' : code,
+        },
+      };
+    }
+
+    if (stored === undefined || stored === null) {
+      return { status: 'ok', config: PluginLoaderService.emptyPluginConfig() };
+    }
+    if (
+      typeof stored !== 'object' ||
+      Array.isArray(stored) ||
+      !Array.isArray((stored as PluginConfigState).enabledPluginIds) ||
+      !PLUGIN_CONFIG_LIST_FIELDS.every((field) =>
+        isAbsentOrStringList((stored as Record<string, unknown>)[field]),
+      )
+    ) {
+      return {
+        status: 'error',
+        reason: { path: reasonPath, error: 'invalid plugin config' },
+      };
+    }
+
+    return {
+      status: 'ok',
+      config: PluginLoaderService.normalizeStoredConfig(
+        stored as PluginConfigState,
+      ),
+    };
+  }
+
+  /**
+   * The skill/plugin policy for `workspaceRoot`: the workspace config with the
+   * global layer beneath it, its fingerprint, and the overlay it implies — all
+   * from ONE read of each layer.
+   *
+   * The global layer is awaited first and the workspace storage is read after
+   * it, synchronously, with no await between that read and the result. So a
+   * save landing mid-call is either wholly in this answer or wholly absent,
+   * never half of it.
+   *
+   * @throws CapabilityPolicyUnknownError when the global layer or the workspace
+   *   config cannot be read. Unknown is never answered as "nothing is off".
+   */
+  async getEffectivePluginConfig(
+    workspaceRoot?: string,
+  ): Promise<EffectivePluginConfig> {
+    const globalRead = this.globalLayer
+      ? await this.globalLayer.readGlobalLayer()
+      : { status: 'ok' as const, items: [], fingerprintEntries: [] };
+    const workspace = this.readWorkspaceLayer(workspaceRoot);
+
+    if (globalRead.status === 'error' || workspace.status === 'error') {
+      const reasons: CapabilityPolicyReason[] = [
+        ...(globalRead.status === 'error' ? globalRead.reasons : []),
+        ...(workspace.status === 'error' ? [workspace.reason] : []),
+      ];
+      this.logger.warn(
+        '[PluginLoaderService] Capability policy unreadable; skills and plugins are treated as unknown',
+        { workspaceRoot, reasons },
+      );
+      throw new CapabilityPolicyUnknownError(reasons);
+    }
+
+    const config = layerGlobalItems(workspace.config, globalRead.items);
+    return {
+      config,
+      fingerprint: harnessPolicyFingerprint({
+        entries: globalRead.fingerprintEntries,
+        pluginConfig: workspace.config,
+      }),
+      overlayPluginPaths: this.overlayPathsFor(config, workspaceRoot),
     };
   }
 
@@ -752,10 +1002,17 @@ export class PluginLoaderService {
    * that predate harness plugin toggling (`harness:start-new-project`, the CLI)
    * pass only `enabledPluginIds`/`disabledSkillIds`, and must not silently
    * re-enable a plugin or an agent the user turned off. Pass an explicit `[]`
-   * to clear either denylist.
+   * to clear either denylist. `enabledSkillIds` (TASK_2026_560) follows the
+   * same rule: omitted keeps the stored list.
    *
    * @param config - Plugin configuration to save (enabledPluginIds will be persisted)
-   * @throws Error if workspaceState is not initialized
+   * @param workspaceRoot Save into THIS root's storage rather than the active
+   *   workspace's. The storage is chosen ONCE, before anything is read, and
+   *   the preserved lists are read from and written to that same storage — so
+   *   a folder switch while the save is in flight cannot write one folder's
+   *   toggles into the other (#8).
+   * @throws Error if workspaceState is not initialized, or if the host has no
+   *   storage for `workspaceRoot`
    */
   async saveWorkspacePluginConfig(
     config: Pick<
@@ -764,33 +1021,46 @@ export class PluginLoaderService {
       | 'disabledSkillIds'
       | 'disabledPluginIds'
       | 'disabledAgentIds'
+      | 'enabledSkillIds'
     >,
+    workspaceRoot?: string,
   ): Promise<void> {
     if (!this.workspaceState) {
       throw new SdkError(
         'PluginLoaderService not initialized: workspaceState is null',
       );
     }
+    const storage = this.storageFor(workspaceRoot);
+    if (storage === null) {
+      throw new SdkError(
+        `No workspace state is registered for ${workspaceRoot ?? 'the active workspace'}`,
+      );
+    }
 
-    // One read for both preserved denylists — two calls would re-read the
-    // stored config between them for no gain.
-    const persisted = this.getWorkspacePluginConfig();
+    // One read for every preserved list, from the storage captured above.
+    const persisted = PluginLoaderService.normalizeStoredConfig(
+      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
+    );
     const disabledPluginIds =
       config.disabledPluginIds ?? persisted.disabledPluginIds ?? [];
     const disabledAgentIds =
       config.disabledAgentIds ?? persisted.disabledAgentIds ?? [];
+    const enabledSkillIds =
+      config.enabledSkillIds ?? persisted.enabledSkillIds;
 
     const configToSave: PluginConfigState = {
       enabledPluginIds: config.enabledPluginIds,
       disabledSkillIds: config.disabledSkillIds,
       disabledPluginIds,
       disabledAgentIds,
+      ...(enabledSkillIds === undefined ? {} : { enabledSkillIds }),
       lastUpdated: new Date().toISOString(),
     };
 
-    await this.workspaceState.update(PLUGIN_CONFIG_KEY, configToSave);
+    await storage.update(PLUGIN_CONFIG_KEY, configToSave);
 
     this.logger.debug('[PluginLoaderService] Plugin config saved', {
+      workspaceRoot,
       enabledCount: configToSave.enabledPluginIds.length,
       enabledPluginIds: configToSave.enabledPluginIds,
       disabledSkillCount: configToSave.disabledSkillIds.length,
@@ -939,10 +1209,77 @@ export class PluginLoaderService {
    * Get the disabled skill IDs from workspace config.
    * Convenience method for the harness reconciler's source resolver.
    *
+   * When the workspace config cannot be read (see `readWorkspaceLayer`) the
+   * answer is EVERY known skill id — the restrictive one, because nobody can
+   * say which skills the user switched off (TASK_2026_560, N3).
+   *
+   * WORKSPACE LAYER ONLY. This method is synchronous and never reads the
+   * global capability layer, so a skill switched off globally (with no
+   * workspace entry) is NOT in this list, and "restrictive on unknown" covers
+   * a workspace-config read failure only. A caller whose answer affects a
+   * session must use {@link getEffectivePluginConfig} instead.
+   *
    * @param workspaceRoot See {@link getWorkspacePluginConfig}.
    */
   getDisabledSkillIds(workspaceRoot?: string): string[] {
-    return this.getWorkspacePluginConfig(workspaceRoot).disabledSkillIds;
+    const workspace = this.readWorkspaceLayer(workspaceRoot);
+    if (workspace.status === 'error') {
+      this.logger.warn(
+        '[PluginLoaderService] Plugin config unreadable; every known skill is treated as disabled',
+        { workspaceRoot, reason: workspace.reason },
+      );
+      return this.knownSkillIds(workspaceRoot);
+    }
+    return workspace.config.disabledSkillIds;
+  }
+
+  /**
+   * Every skill directory name under every plugin this loader knows about:
+   * bundled, harness (both scopes), skills.sh and consented externals.
+   *
+   * Lists `skills/*` directories only and reads no `SKILL.md`, so it never
+   * calls back into {@link getDisabledSkillIds}.
+   */
+  private knownSkillIds(workspaceRoot?: string): string[] {
+    const pluginPaths: string[] = [
+      ...this.resolveHarnessOverlayPaths(workspaceRoot),
+      ...this.discoverSkillsShPluginPaths(),
+    ];
+    const pluginsBasePath = this.pluginsBasePath;
+    if (pluginsBasePath !== null) {
+      for (const plugin of AVAILABLE_PLUGINS) {
+        pluginPaths.push(path.join(pluginsBasePath, plugin.id));
+      }
+      for (const record of this.externalPlugins.listInstalled()) {
+        const coordinate = parseExternalPluginId(record.pluginId);
+        if (coordinate) {
+          pluginPaths.push(externalPluginDir(pluginsBasePath, coordinate));
+        }
+      }
+    }
+
+    const ids = new Set<string>();
+    for (const pluginPath of pluginPaths) {
+      const skillsDir = path.join(pluginPath, 'skills');
+      let entries: string[];
+      try {
+        entries = fs.readdirSync(skillsDir);
+      } catch {
+        // No `skills/` tree (not downloaded yet, or none shipped): no ids.
+        continue;
+      }
+      for (const entry of entries) {
+        try {
+          // `statSync` follows links, as `scanPluginSkills` does.
+          if (fs.statSync(path.join(skillsDir, entry)).isDirectory()) {
+            ids.add(entry);
+          }
+        } catch {
+          // A dangling entry names no skill.
+        }
+      }
+    }
+    return [...ids].sort();
   }
 
   /**
@@ -1139,9 +1476,35 @@ export class PluginLoaderService {
    *   travel together on purpose: an enabled-id list from one folder resolved
    *   against another folder's plugin root is a desired state no workspace ever
    *   had.
+   *
+   * When the workspace config cannot be read (see `readWorkspaceLayer`) this
+   * returns `[]`: the restrictive answer, since no one can say which plugins
+   * are off (TASK_2026_560, N3).
+   *
+   * WORKSPACE LAYER ONLY. This method is synchronous and never reads the
+   * global capability layer, so a plugin switched off globally (with no
+   * workspace entry) is still in this overlay, and "restrictive on unknown"
+   * covers a workspace-config read failure only. A caller whose answer affects
+   * a session must use {@link getEffectivePluginConfig}, whose
+   * `overlayPluginPaths` has the global layer applied.
    */
   resolveCurrentPluginPaths(workspaceRoot?: string): string[] {
-    const config = this.getWorkspacePluginConfig(workspaceRoot);
+    const workspace = this.readWorkspaceLayer(workspaceRoot);
+    if (workspace.status === 'error') {
+      this.logger.warn(
+        '[PluginLoaderService] Plugin config unreadable; no plugin overlay is resolved',
+        { workspaceRoot, reason: workspace.reason },
+      );
+      return [];
+    }
+    return this.overlayPathsFor(workspace.config, workspaceRoot);
+  }
+
+  /** The overlay `config` implies for `workspaceRoot`. */
+  private overlayPathsFor(
+    config: PluginConfigState,
+    workspaceRoot?: string,
+  ): string[] {
     const disabledIds = new Set(config.disabledPluginIds ?? []);
 
     const enabledPaths = this.resolvePluginPaths(
