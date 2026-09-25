@@ -39,3 +39,13 @@ export interface ReduceResult {
 }
 
 export type OutputReducer = (input: string, ctx: ReduceContext) => ReduceResult;
+
+/**
+ * A reducer that waits on an injected collaborator (the code outliner, whose
+ * parser loads its grammars asynchronously). Same input/output contract as
+ * {@link OutputReducer}; a caller that `await`s the result handles both.
+ */
+export type AsyncOutputReducer = (
+  input: string,
+  ctx: ReduceContext,
+) => Promise<ReduceResult>;
