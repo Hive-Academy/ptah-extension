@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_494_ca38
-status: backlog
+status: in_progress
 type: FEATURE
 title: >-
   Apps page that renders a dashboard spec with Ptah components
