@@ -1,6 +1,6 @@
 # Batches - TASK_2026_560_2ae5
 
-Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 5/26
+Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 6/26
 
 Design authority: `implementation-plan.md` (revision 2 + r3, user-approved). The review files are history.
 Base: `main @ c4bdc87dd`. Branch: `feat/task-2026-560-mcp-skill-toggles`. PR 2 will be a stacked branch
@@ -153,7 +153,7 @@ PR 1 (code files + task docs; must stay under 100):
 | 6 (actual) | 4 | 27 | 11 | 38 |
 | 2 (actual; +2 unplanned: `session-mcp-status.spec.ts`, vscode-core `rpc-handler.ts`; `457fe1bfa` on its branch, cherry-pick pending) | 5 | 32 | 11 | 43 |
 | 7 | 6 | 38 | 11 | 49 |
-| 8 (in review; +2 unplanned: `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `.../helpers/sdk-query-options-builder.output-style.spec.ts`) | 10 | 48 | 11 | 59 |
+| 8 (actual `f68419e63`; +2 unplanned: `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `.../helpers/sdk-query-options-builder.output-style.spec.ts`) | 10 | 48 | 11 | 59 |
 | 3 (+1 Electron `phase-2-libraries.ts`, P9 G2) | 6 | 54 | 11 | 65 |
 | 10 (-1: schema inlined, budget fallback) | 5 | 59 | 11 | 70 |
 | 13 | 5 | 64 | 11 | 75 |
@@ -233,7 +233,7 @@ its commit.
 | W1 | 1 | B1 (shared, marketplace) | n/a |
 | W2 | 1 | B4 (harness-sync) ∥ B5 (agent-sdk) ∥ B6 (cli-agent-runtime) | Chosen layout: **B5 runs in the feature worktree** (TASK_WT). **B4 → `.claude-worktrees/feat-task-2026-560-b4`** (branch `feat/task-2026-560-b4-facet-inspect`). **B6 → `.claude-worktrees/feat-task-2026-560-b6`** (branch `feat/task-2026-560-b6-toggle-store`). The two new worktrees branch from the feature-branch HEAD and have a `node_modules` junction. This isolates B6's cli-agent-runtime typecheck from B4 and B5's in-flight edits. The team-leader commits each accepted batch on its own branch, cherry-picks it onto `feat/task-2026-560-mcp-skill-toggles`, and then removes the worktree and branch. |
 | W3 | 1 | B7 (cli-agent-runtime) ∥ B8 (agent-sdk) ∥ B2 (shared) | RECOMMENDED for B7 vs B8 (cli-agent-runtime imports agent-sdk) and for B2 (shared is read by all) |
-| W4 | 1 | B3 (harness-sync, ptah-electron) ∥ B10 (rpc-handlers) ∥ B13 (marketplace) | Not required (disjoint projects) |
+| W4 | 1 | B3 (harness-sync, ptah-electron) ∥ B10 (rpc-handlers) ∥ B13 (marketplace) | The projects are disjoint, and B7 is still running in `feat-task-2026-560-b7`. **Chosen layout (2026-09-26):** **B3 runs in the feature worktree** (TASK_WT). **B10 → `.claude-worktrees/feat-task-2026-560-b10`** (branch `feat/task-2026-560-b10-capability-rpc`), which keeps rpc-handlers' typecheck clear of B3's in-flight harness-sync edits. **B13 → `.claude-worktrees/feat-task-2026-560-b13`** (branch `feat/task-2026-560-b13-toggle-ui`), which keeps TASK_WT single-writer. Both new worktrees branch from the task-specs commit that records B8, and the orchestrator creates their `node_modules` junctions in PowerShell. Readiness: all three can start now. B3 needs B1 and B5 (done); B10 needs B2 (done) and builds against the shared `ICapabilityResolver` through `SDK_CAPABILITY_RESOLVER`, so B7 is NOT a compile dependency; B13 needs B2 (done). The visual-reviewer's BEFORE screenshots at `c4bdc87dd` are due before B13 is committed. |
 | W5 | 1 | B9 (cli-agent-runtime, chat) ∥ B14 (marketplace) ∥ B25 (vscode-lm-tools) | Not required (disjoint projects). B15 left this wave (moved to PR 2), so no same-project pair remains in PR 1. |
 | W6 | 1 | B11 (rpc-handlers, cli-engine) ∥ B12 (ptah-electron, ptah-extension-vscode) | Not required (disjoint projects); RECOMMENDED because B12 typechecks against rpc-handlers |
 | W7 | 1 | B16 (webview-e2e-harness) | n/a |
@@ -429,7 +429,7 @@ the trace.
 - Quality requirements: `'capability-policy-unverified'` is accepted by the parser at `session-mcp-status.ts:~133`.
   Otherwise the notice is dropped silently.
 
-## Batch 3: Harness freeze on unknown policy (PR 1) — PENDING
+## Batch 3: Harness freeze on unknown policy (PR 1) — IN_PROGRESS
 
 - PR: 1
 - Goal: C3, harness-sync half. The source resolver maps the structural policy-unknown error to a frozen state,
@@ -468,7 +468,7 @@ the trace.
   - C `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts`
   - M `apps/ptah-electron/src/di/phase-2-libraries.ts` (G2; added at the P9 amendment)
 
-### Task 3.1: Source resolver and port — PENDING
+### Task 3.1: Source resolver and port — IN_PROGRESS
 
 - Plan reference: implementation-plan.md:252-261
 - Quality requirements:
@@ -481,7 +481,7 @@ the trace.
   overlayPluginPaths}>` is a structural mirror of agent-sdk's `EffectivePluginConfig`. `resolve` awaits it when it
   is present. It returns `HarnessSourceState | Promise<HarnessSourceState>` (R12).
 
-### Task 3.3: Electron reader wrapper forwards the effective config — PENDING
+### Task 3.3: Electron reader wrapper forwards the effective config — IN_PROGRESS
 
 - File: `apps/ptah-electron/src/di/phase-2-libraries.ts:200-231`
 - Quality requirements: add `getEffectivePluginConfig: async (workspaceRoot) => { const e = await
@@ -489,7 +489,7 @@ the trace.
   [...e.config.disabledSkillIds, ...readDormantSkillSlugs(container)]}}; }`. Keep the existing three members. Add
   a comment in the file's own style saying why dormant slugs are folded here too.
 
-### Task 3.2: Reconciler freeze and fingerprint — PENDING
+### Task 3.2: Reconciler freeze and fingerprint — IN_PROGRESS
 
 - Plan reference: implementation-plan.md:257-266; health assembly is at `harness-reconciler.service.ts:238-245,431-436`
 - Quality requirements:
@@ -784,7 +784,26 @@ the trace.
   - Export `CapabilityResolverService` and `CapabilityToggleStore` from `src/index.ts`.
   - Record the write-path trace notes for Mode 3.
 
-## Batch 8: Claude SDK enforcement (PR 1) — IN_PROGRESS
+## Batch 8: Claude SDK enforcement (PR 1) — COMPLETE (commit f68419e63)
+
+- Result:
+  - 10 code files: 8 planned + 2 unplanned (recorded below).
+  - code-logic-reviewer: APPROVE after revise round 1.
+  - Check: agent-sdk lint, typecheck and test all pass.
+- The team-leader verified on disk:
+  - the flag tier is at `sdk-query-options-builder.ts:419-486`, and the fail-closed
+    `{strictMcpConfig: true, skills: []}` at `:507-510`;
+  - the notice is emitted at `:605`, and the local notice-code cast is GONE (the follow-up is closed);
+  - the model probe is strict with `skills: []` (`sdk-model-service.ts:842-844`);
+  - the runner injects `SDK_CAPABILITY_RESOLVER` optionally (`sdk-query-runner.service.ts:202`);
+  - the executor passes `policy.harnessFingerprint` to `HarnessPolicySync` (`session-query-executor.service.ts:612-619`);
+  - no workspace-only sync loader call appears in any of the five source files (P9).
+- **Cross-batch item (OPEN):**
+  - Harness policy sync does not run in real sessions until **B7** registers `SDK_CAPABILITY_RESOLVER` (the
+    injection is optional, so an unregistered resolver takes the unverified or no-op path).
+  - B7's reviewer confirms the registration.
+  - **B17's live check must confirm the sync runs on all three hosts (VS Code, Electron, CLI):** a skill toggle is
+    followed by a harness pass stamped with the new `policyFingerprint`.
 
 - PR: 1
 - Goal: C5 builder, runner (one-shots), model probe and executor. Verified policy → flags. Unverified → strict MCP
@@ -801,6 +820,7 @@ the trace.
   - After B2 lands, the NEXT batch that touches `sdk-query-options-builder.ts` must remove the local
     `'capability-policy-unverified' as SessionMcpNotice['code']` cast. B2 adds the literal to
     `SessionMcpNoticeCode`, so the cast becomes redundant.
+  - **CLOSED in `f68419e63`:** the cast is removed (verified by grep).
   - **Owning batch: B8's revise round** (orchestrator decision, 2026-09-26; B2 is now on the branch). The B8
     reviewer checks that the cast is gone and that the literal typechecks directly.
   - (Superseded text follows.) Owning batch: TBD. The B8 reviewer names it, and the team-leader then copies this
@@ -827,7 +847,7 @@ the trace.
   - M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`
   - M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.harness-preflight.spec.ts`
 
-### Task 8.1: Builder flags and fail-closed mode — IN_PROGRESS
+### Task 8.1: Builder flags and fail-closed mode — COMPLETE
 
 - Plan reference: implementation-plan.md:329-346; existing deny plumbing is at `sdk-query-options-builder.ts:373-410`
 - Quality requirements:
@@ -838,7 +858,7 @@ the trace.
 - Spec: a repository server OFF is denied under a user `enableAll`; explicit ON is approved; proxied parity; ptah
   default and OFF; back-off; parent-off children; unverified.
 
-### Task 8.2: Executor, runner and model probe — IN_PROGRESS
+### Task 8.2: Executor, runner and model probe — COMPLETE
 
 - Quality requirements:
   - `SessionQueryExecutor` runs `HarnessPolicySync.apply` before the build. Unacknowledged is logged and not
@@ -877,7 +897,7 @@ the trace.
 - Quality requirements: render the plan text "Only Ptah tools are loaded and skills are off: Ptah couldn't read
   <path> (<reason>). Fix the file and start a new session." Use OnPush and signals, as the component already does.
 
-## Batch 10: Capabilities RPC handlers (PR 1) — PENDING
+## Batch 10: Capabilities RPC handlers (PR 1) — IN_PROGRESS
 
 - PR: 1
 - Goal: C8 `CapabilityRpcHandlers` with a zod schema, the handler index and exports, and the host-profile
@@ -891,6 +911,13 @@ the trace.
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers --parallel=2` (includes `host-profile/resolve-handler-plan.spec.ts`, P4)
 - Commit: `feat(rpc-handlers): batch 10 - add capabilities rpc handlers`
 - **Reviewer acceptance items:**
+  - (Dependency note, 2026-09-26) B10 depends on B7 only at RUNTIME. It injects `SDK_CAPABILITY_RESOLVER` typed as
+    the shared `ICapabilityResolver` (`resolve`, `list`, `set`, `setExplicit`), and passes the active workspace
+    path as `cwd`; the resolver canonicalizes the root itself. It imports nothing from
+    `@ptah-extension/cli-agent-runtime`, and its specs mock the resolver.
+  - (From the B2 review, minor) The `setEnabled` zod schema rejects `explicit: true` together with
+    `scope: 'global'` at the RPC boundary (only the install path may request an explicit write, and it is
+    workspace-only), and a spec proves it.
   - `rpc-allowlist.spec.ts:41-43` ("claims every registry method exactly once") PASSES, because the manifest entry
     owns `capabilities:getState`, `capabilities:getEffective` and `capabilities:setEnabled` (the transient failure
     B2 introduced).
@@ -904,7 +931,7 @@ the trace.
   - M `libs/backend/rpc-handlers/src/index.ts`
   - M `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts` (pattern: the `HarnessRpcHandlers.METHODS` entry at `manifest.ts:197`)
 
-### Task 10.1: Handlers — PENDING
+### Task 10.1: Handlers — IN_PROGRESS
 
 - Plan reference: implementation-plan.md:360-366
 - Quality requirements:
@@ -954,7 +981,7 @@ the trace.
   - M `apps/ptah-electron/src/di/phase-4-handlers.ts` (pattern: `:43,105,160`)
   - M `apps/ptah-extension-vscode/src/di/phase-3-handlers.ts` (pattern: `:48,82`)
 
-## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — PENDING
+## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — IN_PROGRESS
 
 - PR: 1
 - Goal: C10 foundation. The store does an optimistic update and reverts on error. `CapabilityToggleComponent`
@@ -976,12 +1003,12 @@ the trace.
   - C `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.spec.ts`
   - M `libs/frontend/marketplace/src/lib/shell/marketplace-shell.component.ts`
 
-### Task 13.1: Store — PENDING
+### Task 13.1: Store — IN_PROGRESS
 
 - Quality requirements: signals only. `setEnabled` is optimistic → reconcile with the returned entry, or revert
   and surface the error on failure. Unverified status → banner state with the paths (each bad item file named).
 
-### Task 13.2: Toggle control — PENDING
+### Task 13.2: Toggle control — IN_PROGRESS
 
 - Quality requirements:
   - OnPush.
@@ -989,7 +1016,7 @@ the trace.
   - The ptah-OFF warning copy is AC-4.6: agent lanes, memory and browser become unavailable.
   - The accessible name includes the item name and the state.
 
-### Task 13.3: Enforcement labels and shell banner — PENDING
+### Task 13.3: Enforcement labels and shell banner — IN_PROGRESS
 
 - Validation notes: A-UI and R6. Labels are derived from `CAPABILITY_ENFORCEMENT` and never hard-coded, so the
   PR 2 flip needs no UI edit.
@@ -1090,7 +1117,10 @@ the trace.
   - produce the AC report, the after screenshots (dark + light, recorded in a "Visual evidence" section of
     `test-report.md`) and the write-path trace (including G7: no workspace save persists a layered config);
   - re-test P9 live: a GLOBAL OFF skill with no workspace entry is absent from the workspace `.claude/skills`
-    copies and from `ptah.harness.searchSkills`, and a global OFF opt-out plugin's skills are absent from both.
+    copies and from `ptah.harness.searchSkills`, and a global OFF opt-out plugin's skills are absent from both;
+  - (B8 cross-batch item) confirm on EACH host (VS Code, Electron, CLI) that `SDK_CAPABILITY_RESOLVER` is
+    registered and that a skill toggle is followed by a harness pass whose health carries the new
+    `policyFingerprint`, so the harness policy sync actually runs.
 - Nx projects (full PR 1 regression): all PR 1 projects
 - Depends on: B1-B14, B16, B25
 - Recommended executor: senior-tester (+ visual-reviewer for the after screenshots) | Mode: sequential

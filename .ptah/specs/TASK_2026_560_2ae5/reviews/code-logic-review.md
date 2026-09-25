@@ -1657,3 +1657,46 @@ a container-level (not mock-resolver) regression test for DI ordering (see Cross
   `capabilityFlagsFor`; a container-level DI-ordering regression spec per host; removal of the
   `CAPABILITY_POLICY_UNVERIFIED_CODE` cast once B2 lands; basic telemetry/counter for sessions running
   under an unverified capability policy.
+
+## Re-review round 1 — Batch 8
+
+Verified `b8-backend-developer`'s revise-round-1 changes to
+`libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (+2 spec cases in
+`sdk-query-options-builder.capabilities.spec.ts`) against both Moderate findings from the initial review.
+
+- **Moderate #1 (ptah defense-in-depth gap, unverified branch) — RESOLVED.** `capabilityFlagsFor`'s
+  unverified early return (`sdk-query-options-builder.ts:479-489`) now includes `PTAH_MCP_SERVER_NAME`
+  in `deniedMcpServers` when `!policy.ptahEnabled`, merged with `backingOffServers` and deduplicated via
+  the same `uniqueNames` helper the verified branch uses — the two branches are now symmetric. Proven by
+  the new spec case "also denies ptah on the flag tier when a readable store says it is OFF"
+  (`sdk-query-options-builder.capabilities.spec.ts:371-387`), which exercises the merge-with-back-off path
+  directly (`deniedMcpServers` / `disabledMcpjsonServers` both list `ptah` then `flaky`, in that order,
+  with no duplicates), and the companion "does not deny ptah on the flag tier while it is ON" case
+  (`:389-393`) confirms no regression toward over-denying. No widening path introduced: the merge is still
+  a `Set`-backed union, never a second independent write.
+- **Moderate #2 (local notice-code cast) — RESOLVED.** The `CAPABILITY_POLICY_UNVERIFIED_CODE` constant
+  and its `as SessionMcpNotice['code']` cast are gone; `capabilityPolicyNotice` now assigns
+  `code: 'capability-policy-unverified'` directly (`sdk-query-options-builder.ts` `capabilityPolicyNotice`,
+  post-change), and `libs/shared/src/lib/types/messages/session-mcp-status.ts:70-72,100` confirms
+  `SessionMcpNoticeCode` and `NOTICE_CODE_SET` now include the literal (B2, `e0ba036f0`), so this
+  type-checks against the real union with no widening. If the literal is ever renamed on the B2 side, a
+  compile error will now surface here — the original risk (a silent mismatch) is eliminated, not just
+  hidden by removing the cast.
+- **Regression check.** Re-read the full diff of `sdk-query-options-builder.ts`: every other symbol,
+  branch and doc comment reviewed in the initial pass is unchanged in substance (only the two targeted
+  edits above and their knock-on doc-comment wording). No new caller of `capabilityFlagsFor` or
+  `filterMcpServersByPolicy` was introduced, and the verified-policy path, the notice-publish condition,
+  and `sessionCapabilityPolicy`'s fallback are byte-identical to the version already reviewed.
+- **Check command.** `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p
+  @ptah-extension/agent-sdk --parallel=2` — lint, typecheck and test all pass (1 project; 2/3 tasks
+  served from local cache, typecheck ran fresh; no failures).
+- **Cross-batch items** from the initial review (B7 Task 7.3 DI registration landing order; a
+  container-level DI-ordering regression spec) are unaffected by this round and remain open as tracked,
+  not as Batch 8 defects.
+
+### Verdict (round 1)
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Both Moderate findings are resolved with matching, targeted spec coverage and no regression. No new
+  issues found in this round.
