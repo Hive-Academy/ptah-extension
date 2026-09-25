@@ -253,7 +253,7 @@ Edge cases:
 - Rationale: two pure modules plus one component; independent of the Apps track.
 - Tasks: 1 | Depends on: Batch 3
 
-### Task 4.1: `table-rows.ts`, `chart-geometry.ts`, `DashboardChartComponent` — IMPLEMENTED
+### Task 4.1: `table-rows.ts`, `chart-geometry.ts`, `DashboardChartComponent` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `table/table-rows.ts` (+ spec),
   `charts/chart-geometry.ts` (+ spec), `components/dashboard-chart.component.ts` (+ spec)
@@ -267,6 +267,11 @@ Edge cases:
 ### Batch 4 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+- Result: 3/3 green (re-run by team-leader). code-logic-reviewer APPROVED 7/10. Fix round 1 (codex resume) added
+  prototype hue plus pattern: stroke-/fill- series classes, a solid first bar series, per-instance hatch patterns and rect
+  bar legends. It also made the mixed-type sort a total order. Re-check APPROVED 8/10 (code-logic-review-batch-4.md).
+- Carried forward (non-blocking): duplicate x within one series overlaps (chart-geometry.ts:20-21); in descending sort
+  nulls come first (full mirror of ascending). Rendered-fidelity evidence is still owed at the R10 visual gate.
 
 ## Batch 5: Stat, list and pager — PENDING
 
@@ -397,7 +402,7 @@ Edge cases:
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/shared`
 
-## Batch 10: Apps pure state — operation ids and overlays — IN_PROGRESS
+## Batch 10: Apps pure state — operation ids and overlays — COMPLETE (commit 4590f8da3)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -405,7 +410,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 3
 
-### Task 10.1: `surface-operation-id.ts`, `apps-operation-overlays.ts` — IMPLEMENTED
+### Task 10.1: `surface-operation-id.ts`, `apps-operation-overlays.ts` — COMPLETE
 
 - Files (4): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/state/`: `surface-operation-id.ts` (+ spec),
   `apps-operation-overlays.ts` (+ spec)
@@ -418,8 +423,14 @@ Edge cases:
 ### Batch 10 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
+- Result: 3/3 targets green (re-run by team-leader), 22/22 tests. code-logic-reviewer APPROVED 8/10, 0 blockers
+  (code-logic-review-batch-10.md). A2 verified.
+- Accepted deviation: `settle(operationId, ackRevision)` added. It is the plan's Rule 1 "settle the operation" step and
+  only records the ack revision on the overlay. The ledger has no materialized-revision concept, so Rules 1-2 hold.
+- Carried forward (non-blocking): the rejection-sampling loop has no round cap for a hostile injected byte source
+  (unreachable via the default source); `settle` does not assert `ackRevision >= baseRevision`. See B13 note.
 
-## Batch 11: Intake, reducer, system prompt — PENDING
+## Batch 11: Intake, reducer, system prompt — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -428,7 +439,7 @@ Edge cases:
 - Rationale: the revision state machine (R9); needs judgment on edge ordering.
 - Tasks: 1 | Depends on: Batch 10
 
-### Task 11.1: `apps-surface-intake.ts`, `apps-surface-reducer.ts`, `apps-system-prompt.ts` — PENDING
+### Task 11.1: `apps-surface-intake.ts`, `apps-surface-reducer.ts`, `apps-system-prompt.ts` — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/`: `state/apps-surface-intake.ts` (+ spec),
   `state/apps-surface-reducer.ts` (+ spec), `apps-system-prompt.ts` (+ spec)
@@ -494,6 +505,10 @@ Edge cases:
 - Spec pins (real reducer, scripted `MockRpc` and pushes): reconciliation cases 1-6; submit waits for queue and
   echo; 30 s timeout → polling, no second `surface:action`; `stale-revision` select re-sends once with a new id,
   change does not; Req 6.6 unsynced selection notice; zero `chat:start`/`chat:continue`.
+
+- B10 carry-forward: `SurfaceValueOverlayInput` is `{ operationId, path, value, baseRevision }`, one ledger per
+  surface; pass exactly that shape to `add()` (the plan's `surfaceId`/`componentId` belong to the send queue, not the
+  ledger). `settle()` takes the `applied` ack revision; never write it to `materializedRevision`.
 
 ### Batch 13 verification
 
@@ -666,7 +681,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: independent of every other batch; may run at any time.
 - Tasks: 1 | Depends on: none
 
-### Task 18.1: Filter harness prompts by its own surface id — IN_PROGRESS
+### Task 18.1: Filter harness prompts by its own surface id — IMPLEMENTED
 
 - Files (3): MODIFY `.../libs/frontend/harness-builder/src/lib/services/harness-workflow.service.ts`,
   `.../libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts`; CREATE
