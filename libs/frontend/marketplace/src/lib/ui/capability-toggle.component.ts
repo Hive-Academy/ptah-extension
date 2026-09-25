@@ -241,7 +241,7 @@ let nextToggleId = 0;
           </ul>
         }
 
-        @if (notEnforced().length > 0) {
+        @if (showNotEnforced() && notEnforced().length > 0) {
           <p data-testid="capability-not-enforced">
             Not enforced for {{ notEnforced().join(', ') }}
           </p>
@@ -282,6 +282,13 @@ export class CapabilityToggleComponent {
 
   /** The row's last failed write, naming the item. */
   public readonly error = input<string | null>(null);
+
+  /**
+   * Print the "Not enforced for …" note under this control. The note is the
+   * same for every item of a kind, so a list of controls passes `false` and
+   * prints it once itself.
+   */
+  public readonly showNotEnforced = input(true);
 
   /** The value the user asked for. */
   public readonly toggled = output<boolean>();

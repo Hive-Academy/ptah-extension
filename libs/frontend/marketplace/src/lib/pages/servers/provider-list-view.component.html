@@ -118,6 +118,12 @@
         </div>
       }
     </div>
+
+    <!--
+      The page's own content for the list column, under the rows and outside
+      [data-list-rows] so the row keyboard never walks it.
+    -->
+    <ng-content />
   </section>
 
   @if (detailOpen()) {

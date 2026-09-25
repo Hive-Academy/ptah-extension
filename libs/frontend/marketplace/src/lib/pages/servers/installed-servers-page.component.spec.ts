@@ -27,8 +27,12 @@ import {
   SessionMcpStatusRegistry,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import type { InstalledMcpServer } from '@ptah-extension/shared';
+import type {
+  CapabilityEntry,
+  InstalledMcpServer,
+} from '@ptah-extension/shared';
 
+import { CapabilityTogglesStore } from '../../data/capability-toggles.store';
 import { ConnectorLinksStore } from '../../data/connector-links.store';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import type { ProviderRow } from '../../data/provider-row';
@@ -37,8 +41,15 @@ import {
   type MarketplaceTier,
 } from '../../layout/marketplace-layout';
 import {
+  PTAH_OFF_WARNING,
+  notEnforcedProviders,
+} from '../../ui/capability-toggle.component';
+import {
   InstalledServersPageComponent,
+  SCHEMA_SIZE_UNKNOWN,
+  capabilityScopeLabels,
   liveInLastSession,
+  schemaSizeText,
 } from './installed-servers-page.component';
 
 const FIRECRAWL: InstalledMcpServer = {
@@ -72,8 +83,46 @@ const HUBSPOT_SMITHERY: InstalledMcpServer = {
   removal: 'smithery',
 };
 
+/** Ptah's own server: no installed row, but it has a switch. */
+const PTAH_CAPABILITY: CapabilityEntry = {
+  kind: 'mcp',
+  id: 'ptah',
+  label: 'ptah',
+  sources: [],
+  effectiveEnabled: true,
+  inheritedFrom: 'default',
+  defaultReason: 'ptah',
+};
+
+const FIRECRAWL_CAPABILITY: CapabilityEntry = {
+  kind: 'mcp',
+  id: 'firecrawl',
+  label: 'firecrawl',
+  sources: [
+    { scope: 'workspace', path: 'C:\\repo\\.mcp.json', label: '.mcp.json' },
+  ],
+  effectiveEnabled: false,
+  inheritedFrom: 'default',
+  defaultReason: 'repository-only',
+};
+
+/** Not an MCP row: the servers page never lists it. */
+const SKILL_CAPABILITY: CapabilityEntry = {
+  kind: 'skill',
+  id: 'review',
+  label: 'review',
+  sources: [],
+  effectiveEnabled: true,
+  inheritedFrom: 'default',
+  defaultReason: 'skill',
+};
+
 function ok<T>(data: T) {
   return { success: true, data, error: undefined, isSuccess: () => true };
+}
+
+function capabilityState(entries: readonly CapabilityEntry[]) {
+  return () => ok({ status: 'verified', reasons: [], entries });
 }
 
 interface TabStub {
@@ -103,6 +152,8 @@ const routes: Routes = [
 describe('InstalledServersPageComponent', () => {
   let harness: RouterTestingHarness;
   let methods: string[];
+  /** Every `capabilities:setEnabled` params object, in order. */
+  let writes: unknown[];
   let tabs: ReturnType<typeof signal<readonly TabStub[]>>;
   let tier: ReturnType<typeof signal<MarketplaceTier>>;
   let ensureLoaded: jest.Mock;
@@ -111,6 +162,7 @@ describe('InstalledServersPageComponent', () => {
 
   beforeEach(() => {
     methods = [];
+    writes = [];
     tabs = signal<readonly TabStub[]>([]);
     tier = signal<MarketplaceTier>('regular');
     ensureLoaded = jest.fn();
@@ -130,6 +182,20 @@ describe('InstalledServersPageComponent', () => {
       'mcpDirectory:oauthStatus': () => ok({ state: 'connected' }),
       'mcpDirectory:listSmitheryConnections': () =>
         ok({ connections: [], namespace: null }),
+      'capabilities:getState': capabilityState([
+        PTAH_CAPABILITY,
+        FIRECRAWL_CAPABILITY,
+        SKILL_CAPABILITY,
+      ]),
+      'capabilities:setEnabled': () =>
+        ok({
+          entry: {
+            ...FIRECRAWL_CAPABILITY,
+            workspaceEnabled: true,
+            effectiveEnabled: true,
+            inheritedFrom: 'workspace',
+          },
+        }),
     };
 
     TestBed.configureTestingModule({
@@ -138,11 +204,13 @@ describe('InstalledServersPageComponent', () => {
         provideLocationMocks(),
         MarketplaceInventoryStore,
         ConnectorLinksStore,
+        CapabilityTogglesStore,
         {
           provide: ClaudeRpcService,
           useValue: {
-            call: jest.fn((method: string) => {
+            call: jest.fn((method: string, params?: unknown) => {
               methods.push(method);
+              if (method === 'capabilities:setEnabled') writes.push(params);
               const responder = responders[method];
               return Promise.resolve(
                 responder
@@ -222,7 +290,7 @@ describe('InstalledServersPageComponent', () => {
     });
   };
 
-  it('fires exactly listInstalled plus the connector link reads', async () => {
+  it('fires exactly listInstalled, the connector link reads and the capability read', async () => {
     await mount();
 
     expect([...methods].sort()).toEqual(
@@ -231,6 +299,7 @@ describe('InstalledServersPageComponent', () => {
         'mcpDirectory:listOAuthConnected',
         'mcpDirectory:oauthStatus',
         'mcpDirectory:listSmitheryConnections',
+        'capabilities:getState',
       ].sort(),
     );
     expect(ensureLoaded).not.toHaveBeenCalled();
@@ -354,6 +423,271 @@ describe('InstalledServersPageComponent', () => {
         root().querySelectorAll('[data-testid="provider-group-heading"]'),
       ).map((h) => h.firstChild?.textContent?.trim()),
     ).toEqual(['Config file', 'OAuth']);
+  });
+
+  // ── Use in sessions (TASK_2026_560, Batch 14) ───────────────────────────
+
+  describe('use in sessions', () => {
+    const text = (el: Element | null | undefined): string =>
+      el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const capabilityRow = (id: string): HTMLElement | null =>
+      root().querySelector<HTMLElement>(
+        `[data-testid="server-capability-row"][data-capability-id="${id}"]`,
+      );
+    const toggleOf = (id: string): HTMLInputElement | null =>
+      capabilityRow(id)?.querySelector<HTMLInputElement>(
+        '[data-testid="capability-toggle-input"]',
+      ) ?? null;
+
+    it('lists every MCP capability row, skills excluded, inside the list column', async () => {
+      await mount();
+
+      const ids = Array.from(
+        root().querySelectorAll('[data-testid="server-capability-row"]'),
+      ).map((el) => el.getAttribute('data-capability-id'));
+      expect(ids).toEqual(['ptah', 'firecrawl']);
+      // Projected into the list view, outside the keyboard row region.
+      const panel = root().querySelector('[data-testid="server-capabilities"]');
+      expect(
+        panel?.closest('[data-testid="provider-list-view"]'),
+      ).not.toBeNull();
+      expect(panel?.closest('[data-list-rows]')).toBeNull();
+    });
+
+    it('shows the scope label, the declarations, "size unknown" and the scope-of-write text', async () => {
+      await mount();
+      const row = capabilityRow('firecrawl');
+
+      expect(
+        text(row?.querySelector('[data-testid="capability-scope-label"]')),
+      ).toBe('Workspace');
+      expect(
+        Array.from(
+          row?.querySelectorAll('[data-testid="capability-declaration"]') ?? [],
+        ).map((el) => text(el)),
+      ).toEqual(['Workspace · .mcp.json']);
+      expect(text(row?.querySelector('[data-testid="capability-size"]'))).toBe(
+        `Tool schemas: ${SCHEMA_SIZE_UNKNOWN}`,
+      );
+      expect(
+        text(row?.querySelector('[data-testid="capability-toggle-scope"]')),
+      ).toContain('This workspace only');
+      expect(
+        row?.querySelector(
+          '[data-testid="capability-badge-new-workspace-server"]',
+        ),
+      ).not.toBeNull();
+      expect(toggleOf('firecrawl')?.getAttribute('aria-label')).toBe(
+        'firecrawl: off (This workspace only)',
+      );
+    });
+
+    // AC-2.3 template wiring (B13 reviewer acceptance item).
+    it('writes the workspace from a row switch and never global', async () => {
+      await mount();
+      toggleOf('firecrawl')?.click();
+      await settle();
+
+      expect(writes).toEqual([
+        { scope: 'workspace', kind: 'mcp', id: 'firecrawl', enabled: true },
+      ]);
+      expect(
+        capabilityRow('firecrawl')?.querySelector(
+          '[data-testid="capability-badge-override"]',
+        ),
+      ).not.toBeNull();
+      expect(toggleOf('firecrawl')?.checked).toBe(true);
+    });
+
+    it('marks the not-enforced providers once for the panel, from CAPABILITY_ENFORCEMENT, the CLI proxy among them', async () => {
+      await mount();
+      const notes = Array.from(
+        root().querySelectorAll('[data-testid="capability-not-enforced"]'),
+      );
+      const expected = notEnforcedProviders({ kind: 'mcp' });
+
+      expect(expected).toContain('Ptah CLI proxy');
+      expect(notes).toHaveLength(1);
+      expect(
+        notes[0].closest('[data-testid="server-capability-row"]'),
+      ).toBeNull();
+      expect(text(notes[0])).toBe(`Not enforced for ${expected.join(', ')}`);
+    });
+
+    it('gives an installed server with no capability row a line saying it has no switch', async () => {
+      await mount();
+      const lines = Array.from(
+        root().querySelectorAll<HTMLElement>(
+          '[data-testid="server-capability-unmanaged"]',
+        ),
+      );
+
+      // notion (OAuth) is installed, but the capability state has no row.
+      expect(lines.map((el) => el.getAttribute('data-server-key'))).toEqual([
+        'notion',
+      ]);
+      expect(text(lines[0])).toContain('No switch');
+      expect(
+        lines[0].querySelector('[data-testid="capability-toggle-input"]'),
+      ).toBeNull();
+    });
+
+    describe('follows the list filter', () => {
+      const lineIds = (): (string | null)[] =>
+        Array.from(
+          root().querySelectorAll(
+            '[data-testid="server-capability-row"], [data-testid="server-capability-unmanaged"]',
+          ),
+        ).map(
+          (el) =>
+            el.getAttribute('data-capability-id') ??
+            el.getAttribute('data-server-key'),
+        );
+      const search = async (value: string): Promise<void> => {
+        const field = root().querySelector<HTMLInputElement>(
+          'input[type="search"]',
+        );
+        if (!field) throw new Error('no search');
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+        await settle();
+      };
+
+      it('shows every line, uncued, with no filter', async () => {
+        await mount();
+        expect(lineIds()).toEqual(['ptah', 'firecrawl', 'notion']);
+        expect(
+          root().querySelector('[data-testid="server-capabilities-filtered"]'),
+        ).toBeNull();
+      });
+
+      it('narrows to the rows the search keeps, and says so', async () => {
+        await mount();
+        await search('fire');
+
+        expect(rowRefs()).toEqual(['harness-config:firecrawl']);
+        expect(lineIds()).toEqual(['firecrawl']);
+        expect(
+          root().querySelector('[data-testid="server-capabilities-filtered"]'),
+        ).not.toBeNull();
+      });
+
+      it('matches a server with no installed row by name', async () => {
+        await mount();
+        await search('ptah');
+
+        expect(rowRefs()).toEqual([]);
+        expect(lineIds()).toEqual(['ptah']);
+      });
+
+      it('keeps only the lines of the rows an origin chip keeps', async () => {
+        await mount();
+        root()
+          .querySelector<HTMLButtonElement>(
+            '[role="radiogroup"] [data-origin="harness-config"]',
+          )
+          ?.click();
+        await settle();
+
+        expect(rowRefs()).toEqual(['harness-config:firecrawl']);
+        // ptah has no origin to match, so a facet hides it.
+        expect(lineIds()).toEqual(['firecrawl']);
+      });
+
+      it('says when nothing matches', async () => {
+        await mount();
+        await search('zzz-nothing');
+        expect(
+          text(
+            root().querySelector('[data-testid="server-capabilities-empty"]'),
+          ),
+        ).toBe('No servers here match the filters above.');
+      });
+    });
+
+    it("warns that Ptah's tools go away when ptah is off (AC-4.6)", async () => {
+      responders['capabilities:getState'] = capabilityState([
+        {
+          ...PTAH_CAPABILITY,
+          effectiveEnabled: false,
+          workspaceEnabled: false,
+          inheritedFrom: 'workspace',
+        },
+      ]);
+      await mount();
+
+      expect(
+        text(
+          capabilityRow('ptah')?.querySelector(
+            '[data-testid="capability-ptah-off-warning"]',
+          ),
+        ),
+      ).toBe(PTAH_OFF_WARNING);
+    });
+
+    it('keeps the server list whole when the capability read fails (AC-5.2)', async () => {
+      responders['capabilities:getState'] = () => ({
+        success: false,
+        error: 'policy offline',
+        isSuccess: () => false,
+      });
+      await mount();
+
+      expect(rowRefs()).toEqual(['harness-config:firecrawl', 'oauth:notion']);
+      expect(summary()).toBe('2 servers');
+      expect(
+        root().querySelector('[data-testid="server-capabilities-error"]'),
+      ).not.toBeNull();
+      expect(root().textContent).not.toContain('policy offline');
+
+      responders['capabilities:getState'] = capabilityState([PTAH_CAPABILITY]);
+      root()
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="server-capabilities-retry"]',
+        )
+        ?.click();
+      await settle();
+      expect(capabilityRow('ptah')).not.toBeNull();
+    });
+
+    it('shows the loading state until the capability read lands', async () => {
+      responders['capabilities:getState'] = () => new Promise(() => undefined);
+      await mount();
+      expect(
+        root().querySelector('[data-testid="server-capabilities-loading"]'),
+      ).not.toBeNull();
+      expect(rowRefs()).toEqual(['harness-config:firecrawl', 'oauth:notion']);
+    });
+  });
+
+  describe('capability display rules', () => {
+    it('labels global first, each scope once, and nothing without a declaration', () => {
+      const at = (...scopes: ('global' | 'workspace')[]) => ({
+        sources: scopes.map((scope, index) => ({
+          scope,
+          path: `/p/${index}`,
+        })),
+      });
+      expect(
+        capabilityScopeLabels(at('workspace', 'global', 'global')),
+      ).toEqual(['Global', 'Workspace']);
+      expect(capabilityScopeLabels(at('global'))).toEqual(['Global']);
+      expect(capabilityScopeLabels(at())).toEqual([]);
+    });
+
+    it('never turns an absent or invalid size into a number', () => {
+      expect(schemaSizeText(undefined)).toBe(SCHEMA_SIZE_UNKNOWN);
+      expect(schemaSizeText(null)).toBe(SCHEMA_SIZE_UNKNOWN);
+      expect(schemaSizeText({})).toBe(SCHEMA_SIZE_UNKNOWN);
+      expect(schemaSizeText({ schemaTokens: Number.NaN })).toBe(
+        SCHEMA_SIZE_UNKNOWN,
+      );
+      expect(schemaSizeText({ schemaTokens: 850 })).toBe(
+        'about 850 tokens of tool schemas per request (estimated from its tool list)',
+      );
+      expect(schemaSizeText({ schemaTokens: 13_000 })).toContain('about 13k');
+      expect(schemaSizeText({ schemaTokens: 15_940 })).toContain('about 15.9k');
+    });
   });
 
   it('counts only connected rows reported by the session as live', () => {

@@ -449,6 +449,14 @@ describe('CapabilityToggleComponent', () => {
         }
       },
     );
+
+    it('leaves the note to the caller when showNotEnforced is false', () => {
+      render(entry({ kind: 'mcp' }));
+      fixture.componentRef.setInput('showNotEnforced', false);
+      fixture.detectChanges();
+
+      expect(byTestId('capability-not-enforced')).toBeNull();
+    });
   });
 
   // ── ptah OFF (AC-4.6) ──────────────────────────────────────────────────────
