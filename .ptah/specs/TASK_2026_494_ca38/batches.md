@@ -273,7 +273,7 @@ Edge cases:
 - Carried forward (non-blocking): duplicate x within one series overlaps (chart-geometry.ts:20-21); in descending sort
   nulls come first (full mirror of ascending). Rendered-fidelity evidence is still owed at the R10 visual gate.
 
-## Batch 5: Stat, list and pager — IN_PROGRESS
+## Batch 5: Stat, list and pager — COMPLETE (commit 62a764f92)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -304,7 +304,7 @@ Edge cases:
   declaration emit. The lib has no build target today; export DisplayNodeFields if B8 adds one or the public API
   exposes these node types.
 
-## Batch 6: v2 view model, table component, layout component — PENDING
+## Batch 6: v2 view model, table component, layout component — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -313,7 +313,7 @@ Edge cases:
 - Rationale: carries the recursion design decision (R5) and the v2 data binding.
 - Tasks: 1 | Depends on: Batch 5
 
-### Task 6.1: `buildSurfaceViewModel`, `DashboardTableComponent`, `SurfaceLayoutComponent` — PENDING
+### Task 6.1: `buildSurfaceViewModel`, `DashboardTableComponent`, `SurfaceLayoutComponent` — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `view-model/surface-view-model.ts`
   (+ spec), `components/dashboard-table.component.ts` (+ spec), `components/surface-layout.component.ts` (+ spec)
@@ -492,7 +492,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 1, 11
 
-### Task 12.1: `apps-workspace-slice.ts`, `AppsSurfaceSync`, `AppsSessionService` — IN_PROGRESS
+### Task 12.1: `apps-workspace-slice.ts`, `AppsSurfaceSync`, `AppsSessionService` — COMPLETE
 
 - Files (5): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/services/`: `apps-workspace-slice.ts`,
   `apps-surface-sync.ts` (+ spec), `apps-session.service.ts` (+ spec)
@@ -510,6 +510,23 @@ Edge cases:
 ### Batch 12 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
+- Result: 3/3 green (re-run by team-leader), 132/132 tests. code-logic-reviewer APPROVED 8/10
+  (code-logic-review-batch-12.md); Glm review lane APPROVED 9/10 (code-logic-review-batch-12-glm.md). No fix rounds.
+  Both accepted all 8 deviations:
+  1. the grace timer re-arms instead of restarting;
+  2. dead expectations are dropped after a read;
+  3. dispose() aborts the in-flight read;
+  4. B13 hooks (requestSurfaceRead, expectSurfaceRevision, updateOverlays) cannot materialize an ack;
+  5. chat:start uses the slice workspace path (D1; the route is Electron-only);
+  6. send() before the session resolves shows an error;
+  7. a failed start resets the slice fully;
+  8. the fake StreamRouter uses the real registry, inbox and claims.
+- Carried to B13 (N1): AppsSurfaceSync does not re-arm the grace timer after a failed grace read. The submit flow must
+  request its own read. N5: add one spec covering start -> real onSurfaceCreated -> sessionFor resolving, if B13
+  touches that path.
+- Carried to B14 (same file owner): N2, a boot-window start stranded in APPS_IMPLICIT_WORKSPACE, and N3, discard()
+  materializing an empty slice.
+- Carried to B15 (N4): the composer keeps the draft text on a failed start and on a send-before-resolve.
 
 ## Batch 13: UI mutations and submit flow — PENDING
 
