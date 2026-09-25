@@ -2,10 +2,14 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
+  ElementRef,
   inject,
   signal,
 } from '@angular/core';
 import { LucideAngularModule, X } from 'lucide-angular';
+import { ElectronLayoutService } from '@ptah-extension/core';
+import { ElectronResizeHandleComponent } from '@ptah-extension/chat-ui';
 import { AppsSessionService } from '../services/apps-session.service';
 import { AppsFocusMemoryDirective } from './apps-focus-memory.directive';
 import { AppsSurfacePanelComponent } from './apps-surface-panel.component';
@@ -21,26 +25,44 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
  * (`tabindex="-1"`), which restores the last focused control of the slice
  * after a re-create (Req 7.6).
  *
- * The only local value is the composer's draft text: an uncommitted form
- * control value, not conversation state. It is cleared when a turn is sent
- * and put back when that send fails (a failed `start()`, a failed continue,
- * or a send before the session resolved — B12 N4), unless the user has
- * already typed something new.
+ * The only local conversation value is the composer's draft text: an
+ * uncommitted form control value, not conversation state. It is cleared when
+ * a turn is sent and put back when that send fails (a failed `start()`, a
+ * failed continue, or a send before the session resolved — B12 N4), unless
+ * the user has already typed something new. The splitter adds a measured
+ * container width and two per-gesture fields, never a width of its own.
  *
  * Layout: a CSS grid of three columns — the conversation column
- * (`--apps-conversation-width`, 360px as in the prototype), the
- * `apps-split-handle-slot` column reserved for the Batch 20 splitter handle
- * (empty and zero-width here), and the surface panel. The page is an
- * `apps-page` inline-size container: at 480px or less (a narrow window or the
- * embedded sidebar) the columns stack vertically and the slot is hidden
- * (prototype proposal a).
+ * (`--apps-conversation-width`), the `apps-split-handle-slot` splitter, and
+ * the surface panel. The page is an `apps-page` inline-size container: at
+ * 480px or less (a narrow window or the embedded sidebar) the columns stack
+ * vertically and the splitter is removed (prototype proposal a).
+ *
+ * Splitter (Batch 20): the width lives in `ElectronLayoutService`
+ * (`appsSplitWidth`, persisted with the other Electron panel widths). The
+ * page reuses `ptah-electron-resize-handle`, whose pointer X is
+ * viewport-relative, so it subtracts the page's left edge. It clamps so the
+ * surface panel keeps >= 360px, and adds keyboard resize and the ARIA value
+ * attributes on a focusable `role="separator"`. A drag or key run persists
+ * once, when it ends.
  */
+const SPLIT_HANDLE_WIDTH = 6; // `.resize-handle` width in RESIZE_HANDLE_STYLES
+const SURFACE_MIN_WIDTH = 360;
+const STACKED_MAX_WIDTH = 480; // the `@container apps-page` breakpoint below
+const SPLIT_KEY_STEP = 16;
+const SPLIT_KEY_STEP_LARGE = 64;
+const SPLIT_KEY_DIRECTION: Readonly<Record<string, -1 | 1 | undefined>> = {
+  ArrowLeft: -1,
+  ArrowRight: 1,
+};
+
 @Component({
   selector: 'ptah-apps-page',
   standalone: true,
   imports: [
     AppsTranscriptComponent,
     AppsSurfacePanelComponent,
+    ElectronResizeHandleComponent,
     LucideAngularModule,
   ],
   hostDirectives: [AppsFocusMemoryDirective],
@@ -75,6 +97,10 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
         min-width: 0;
         min-height: 0;
       }
+      .apps-split-handle-slot {
+        display: flex;
+        outline: none;
+      }
       @container apps-page (max-width: 480px) {
         .apps-layout {
           grid-template-columns: minmax(0, 1fr);
@@ -96,8 +122,12 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
     `,
   ],
   template: `
-    <div class="apps-layout bg-base-100 text-base-content">
+    <div
+      class="apps-layout bg-base-100 text-base-content"
+      [style.--apps-conversation-width]="splitWidth() + 'px'"
+    >
       <section
+        id="apps-conversation-column"
         class="apps-conversation border-r border-base-300"
         aria-labelledby="apps-page-title"
       >
@@ -212,11 +242,33 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
         </div>
       </section>
 
-      <!-- Batch 20 splitter slot: the resize handle goes here, nothing else. -->
-      <div
-        class="apps-split-handle-slot"
-        data-testid="apps-split-handle-slot"
-      ></div>
+      <!-- Splitter: absent when the columns stack. -->
+      @if (!stacked()) {
+        <div
+          class="apps-split-handle-slot focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Resize the conversation column"
+          aria-controls="apps-conversation-column"
+          aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight"
+          data-apps-focus-key="apps:splitter"
+          data-testid="apps-split-handle-slot"
+          [attr.aria-valuenow]="splitWidth()"
+          [attr.aria-valuemin]="splitMinWidth"
+          [attr.aria-valuemax]="splitMaxWidth()"
+          (keydown)="onSplitKeydown($event)"
+          (keyup)="onSplitKeyup($event)"
+          (blur)="commitKeyResize()"
+          (mousedown)="onSplitPointerDown($event)"
+        >
+          <ptah-electron-resize-handle
+            [direction]="'left'"
+            (dragMoved)="onSplitDragMoved($event)"
+            (dragEnded)="onSplitDragEnded()"
+          />
+        </div>
+      }
 
       <ptah-apps-surface-panel class="apps-surface" />
     </div>
@@ -224,8 +276,155 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
 })
 export class AppsPageComponent {
   protected readonly session = inject(AppsSessionService);
+  private readonly layout = inject(ElectronLayoutService);
+  private readonly host =
+    inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   protected readonly XIcon = X;
+
+  /**
+   * The page's measured inline size (null until first measured). A layout
+   * reading, not split state: the split width itself is the service's.
+   */
+  private readonly containerWidth = signal<number | null>(null);
+
+  /** Mirrors the `@container apps-page (max-width: 480px)` stacking rule. */
+  protected readonly stacked = computed(() => {
+    const width = this.containerWidth();
+    return width !== null && width <= STACKED_MAX_WIDTH;
+  });
+
+  protected readonly splitMinWidth = this.layout.appsSplitMinWidth;
+
+  /** Largest conversation width that leaves the surface panel >= 360px. */
+  protected readonly splitMaxWidth = computed(() => {
+    const width = this.containerWidth();
+    const staticMax = this.layout.appsSplitMaxWidth;
+    if (width === null) return staticMax;
+    const fit = Math.floor(width - SPLIT_HANDLE_WIDTH - SURFACE_MIN_WIDTH);
+    return Math.max(this.splitMinWidth, Math.min(staticMax, fit));
+  });
+
+  /** The conversation column width actually laid out and announced. */
+  protected readonly splitWidth = computed(() =>
+    Math.round(Math.min(this.layout.appsSplitWidth(), this.splitMaxWidth())),
+  );
+
+  /**
+   * The pointer drag in progress: where the handle was grabbed, the width
+   * shown at mousedown, and the stored preference at mousedown.
+   */
+  private drag: {
+    grabOffset: number;
+    startShown: number;
+    startStored: number;
+  } | null = null;
+  /** Stored preference when the current key run began; null when idle. */
+  private keyRunStartStored: number | null = null;
+
+  public constructor() {
+    const destroyRef = inject(DestroyRef);
+    destroyRef.onDestroy(() => {
+      this.commitKeyResize();
+      this.onSplitDragEnded();
+    });
+    // No ResizeObserver (non-browser test env): the splitter stays shown and
+    // only the static bounds apply; the CSS container query still stacks.
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries.at(-1)?.contentRect.width;
+      if (width !== undefined && Number.isFinite(width))
+        this.containerWidth.set(width);
+    });
+    observer.observe(this.host);
+    destroyRef.onDestroy(() => observer.disconnect());
+  }
+
+  /**
+   * Records the grab point, so the column does not jump by it and the
+   * handle's Escape/blur restore (which re-emits the mousedown X) lands on
+   * the starting width, plus the shown and stored widths at the start.
+   */
+  protected onSplitPointerDown(event: MouseEvent): void {
+    const startShown = this.splitWidth();
+    const offset =
+      event.clientX - this.host.getBoundingClientRect().left - startShown;
+    this.drag = {
+      grabOffset: Number.isFinite(offset) ? offset : 0,
+      startShown,
+      startStored: this.layout.appsSplitWidth(),
+    };
+  }
+
+  /**
+   * `pointerX` is viewport-relative; the column starts at the page's left
+   * edge. A frame that shows the drag-start width puts the start preference
+   * back, so a drag with no visible change (e.g. past the container max
+   * while a wider stored width is shown clamped) never overwrites it.
+   */
+  protected onSplitDragMoved(pointerX: number): void {
+    const drag = this.drag;
+    if (drag === null) return;
+    const left = this.host.getBoundingClientRect().left;
+    const target = this.clampSplitWidth(pointerX - left - drag.grabOffset);
+    if (target === null) return;
+    this.layout.setAppsSplitWidth(
+      target === drag.startShown ? drag.startStored : target,
+    );
+  }
+
+  /**
+   * Persists only a changed preference: an Escape/blur cancel or a plain
+   * click writes nothing. Also runs on destroy, for a drag cut short.
+   */
+  protected onSplitDragEnded(): void {
+    const drag = this.drag;
+    if (drag === null) return;
+    this.drag = null;
+    if (this.layout.appsSplitWidth() !== drag.startStored)
+      this.layout.commitAppsSplitWidth();
+  }
+
+  /**
+   * Left/Right resize the shown width by 16px (Shift: 64px); persisted on
+   * key release. A step that cannot visibly move (at a bound) is skipped,
+   * so it never overwrites a wider stored preference shown clamped.
+   */
+  protected onSplitKeydown(event: KeyboardEvent): void {
+    const direction = SPLIT_KEY_DIRECTION[event.key];
+    if (direction === undefined) return;
+    event.preventDefault();
+    const shown = this.splitWidth();
+    const step = event.shiftKey ? SPLIT_KEY_STEP_LARGE : SPLIT_KEY_STEP;
+    const target = this.clampSplitWidth(shown + direction * step);
+    if (target === null || target === shown) return;
+    this.keyRunStartStored ??= this.layout.appsSplitWidth();
+    this.layout.setAppsSplitWidth(target);
+  }
+
+  protected onSplitKeyup(event: KeyboardEvent): void {
+    if (SPLIT_KEY_DIRECTION[event.key] !== undefined) this.commitKeyResize();
+  }
+
+  /**
+   * Also runs on blur and destroy, so focus leaving mid key-repeat still
+   * persists. A run that ends on its starting width writes nothing.
+   */
+  protected commitKeyResize(): void {
+    const start = this.keyRunStartStored;
+    if (start === null) return;
+    this.keyRunStartStored = null;
+    if (this.layout.appsSplitWidth() !== start)
+      this.layout.commitAppsSplitWidth();
+  }
+
+  /** Whole pixels within [min, container max]; null for a non-finite input. */
+  private clampSplitWidth(width: number): number | null {
+    if (!Number.isFinite(width)) return null;
+    return Math.round(
+      Math.min(Math.max(width, this.splitMinWidth), this.splitMaxWidth()),
+    );
+  }
 
   /** The composer's uncommitted text; see the class doc. */
   protected readonly draft = signal('');

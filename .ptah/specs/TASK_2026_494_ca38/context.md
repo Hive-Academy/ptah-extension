@@ -120,3 +120,5 @@ Mode: enabled
 - Follow-up addendum (spec tsc): apps/ptah-extension-webview/src/app/base-content-muted.spec.ts:110 is a further pre-existing spec-tsc error (webview baseline = the 8 above + this one).
 - Follow-up (B16): webview-routing.spec.ts ELECTRON_ONLY_SURFACES is a hand-maintained list; derive it from the route table (canMatch guard) so a new Electron-only surface cannot be missed.
 - 2026-09-25: B15 committed 6b14e831c. B16 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B17 IN_PROGRESS. B20 in fix round 1.
+- Follow-up addendum (spec tsc): @ptah-extension/chat has 249 pre-existing spec-tsc errors (none in electron-shell files); B17's gate is no new errors in its files.
+- 2026-09-26: B16 committed 268035a63. B20 APPROVED (antigravity 8/10 r1, code-logic-reviewer 9/10 r2); committed. B17 in progress (approved config-gate edit).

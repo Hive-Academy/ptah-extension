@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 17/20
+Total tasks: 20 | Batches: 20 | Complete: 18/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -754,6 +754,7 @@ Edge cases:
      (b) keep 480px.
      Do not change it before the review.
    - B20: screen-reader spot check of the nested `role="separator"` on the splitter handle.
+   - B20 (note only, not a requirement): a keyboard resize in progress has no Escape to cancel it.
 
 B15 and B20 are built against the approved prototype.
 
@@ -883,7 +884,7 @@ subagent. Each batch gets the code-logic-reviewer subagent plus one CLI review l
 - Final: B15 ACCEPTED. It covers M1 and M2 with specs, the 4 errors in our own specs (spec tsc must then show
   exactly the 8 baseline errors), and every codex finding.
 
-## Batch 20: Apps page splitter (user addition 2026-09-25) — IN_PROGRESS
+## Batch 20: Apps page splitter (user addition 2026-09-25) — COMPLETE
 
 Runs right after Batch 15 (numbered 20 so existing batch numbers stay stable). B16-B19 do not depend on it; B19's
 lazy-load gate and Mode 3 visual evidence must include it.
@@ -895,7 +896,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: touches a shared core service's persisted state plus the page; write-path correctness needs one hand.
 - Tasks: 1 | Depends on: Batch 15
 
-### Task 20.1: Resizable split between conversation column and surface panel — IMPLEMENTED
+### Task 20.1: Resizable split between conversation column and surface panel — COMPLETE
 
 - Files (4, 2 libs): MODIFY `.../libs/frontend/core/src/lib/services/electron-layout.service.ts` (+ its existing
   `.spec.ts`); MODIFY `.../libs/frontend/mcp-apps-page/src/lib/components/apps-page.component.ts` (+ `.spec.ts`)
@@ -965,13 +966,23 @@ lazy-load gate and Mode 3 visual evidence must include it.
   code-logic-reviewer re-check. Antigravity already approved.
 - Fix round 1 (coordinator ruling, extended to the drag path): MOD-1, MOD-2, MIN-1 and MIN-2, plus the subagent's
   findings, each with a spec.
+  - The result is in batch-20-fix-1-report.md. The team-leader re-ran it with `--skip-nx-cache`: 2 projects green,
+    and spec tsc shows exactly the 8 baseline errors. The executor reports 901 core tests and 280 mcp-apps-page tests.
+  - Red/green: reverting item 1 fails 4 of 21 tests; reverting item 2 fails 6 of 21.
+  - Two assertions were changed because they encoded the old behaviour. Neither is weaker:
+    - Escape now expects 0 writes, and still checks the 360 restore.
+    - The narrow-container Shift+ArrowRight check now keeps the stored 360.
+  - Added: `aria-keyshortcuts`.
+  - Round 2 (the last) is a code-logic-reviewer re-check (code-logic-review-batch-20-round-2.md). Result: APPROVED
+    9/10, no findings. The reviewer independently re-ran the specs: splitter 21/21, layout service 98/98.
+- Final: B20 ACCEPTED. Reviews: antigravity 8/10 (round 1), code-logic-reviewer 9/10 (round 2).
   - MOD-1: arrow keys work from the DISPLAYED (clamped) width. If the clamped result equals the current displayed
     width, the key neither sets nor persists, so the stored 900 survives. A move to a different visible width is a
     real choice and is persisted (for example ArrowLeft from 334 to 318).
   - MOD-2 and MIN-1: commit only when the width differs from the width at drag start.
   - MIN-2: round in `setAppsSplitWidth`.
 
-## Batch 16: Surface id, route and Electron-only guard — COMPLETE
+## Batch 16: Surface id, route and Electron-only guard — COMPLETE (commit 268035a63)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -1055,6 +1066,21 @@ lazy-load gate and Mode 3 visual evidence must include it.
 ### Batch 17 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat`
+- Spec tsc for `@ptah-extension/chat` has a BASELINE of 249 errors. None are in electron-shell files, and all of them
+  predate this task. The gate is: no new errors in B17's files.
+- Coordinator rulings on batch-17-report.md:
+  - PLAN DEVIATION: the pin "existing config-gate spec green with no edits" conflicted with Req 1.1, and Req 1.1
+    wins. One test, `electron-shell.config-gate.spec.ts:197-226`, which pins the tab row, is edited as follows:
+    - 'Apps' is inserted second in both arrays;
+    - a fifth `false` is added;
+    - `toHaveLength(4)` becomes `toHaveLength(5)`;
+    - the title is updated.
+
+    The other 13 tests are untouched.
+  - The `AppWindow` icon is ACCEPTED, as planned. The R10 visual review may revisit it.
+- Review, round 1:
+  - code-logic-reviewer (code-logic-review-batch-17.md);
+  - codex lane, no role (code-logic-review-batch-17-codex.md).
 
 ## Batch 18: Harness prompt isolation — COMPLETE (commit a3dbaceea)
 

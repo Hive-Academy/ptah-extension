@@ -40,6 +40,14 @@ const MIN_EDITOR_WIDTH = 300;
 const DEFAULT_GIT_RAIL_WIDTH = 256;
 const MIN_GIT_RAIL_WIDTH = 160;
 const MAX_GIT_RAIL_WIDTH = 480;
+/**
+ * The Apps page's conversation column (left of its splitter). 360px is the
+ * approved prototype's width; 240px keeps the header and composer usable. The
+ * page lowers the max further so its surface panel keeps >= 360px.
+ */
+const DEFAULT_APPS_SPLIT_WIDTH = 360;
+const MIN_APPS_SPLIT_WIDTH = 240;
+const MAX_APPS_SPLIT_WIDTH = 1200;
 /** Dynamic max: capped at 50% of viewport to prevent chat panel collapse below its 400px CSS min-width */
 const MAX_EDITOR_WIDTH_RATIO = 0.5;
 
@@ -64,6 +72,7 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _editorPanelVisible = signal(false);
   private readonly _gitRailWidth = signal(DEFAULT_GIT_RAIL_WIDTH);
   private readonly _gitRailCollapsed = signal(false);
+  private readonly _appsSplitWidth = signal(DEFAULT_APPS_SPLIT_WIDTH);
   private readonly _sidebarDragging = signal(false);
   private readonly _editorDragging = signal(false);
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
@@ -77,6 +86,9 @@ export class ElectronLayoutService implements MessageHandler {
   readonly editorPanelVisible = this._editorPanelVisible.asReadonly();
   readonly gitRailWidth = this._gitRailWidth.asReadonly();
   readonly gitRailCollapsed = this._gitRailCollapsed.asReadonly();
+  readonly appsSplitWidth = this._appsSplitWidth.asReadonly();
+  readonly appsSplitMinWidth = MIN_APPS_SPLIT_WIDTH;
+  readonly appsSplitMaxWidth = MAX_APPS_SPLIT_WIDTH;
   readonly sidebarDragging = this._sidebarDragging.asReadonly();
   readonly editorDragging = this._editorDragging.asReadonly();
   readonly workspaceFolders = this._workspaceFolders.asReadonly();
@@ -193,6 +205,23 @@ export class ElectronLayoutService implements MessageHandler {
   }
 
   commitGitRailWidth(): void {
+    this.persistLayout();
+  }
+
+  /**
+   * One drag frame or key step of the Apps page splitter. Not persisted;
+   * `commitAppsSplitWidth()` persists once the gesture ends.
+   */
+  setAppsSplitWidth(width: number): void {
+    if (!Number.isFinite(width)) return;
+    this._appsSplitWidth.set(
+      Math.round(
+        Math.min(Math.max(width, MIN_APPS_SPLIT_WIDTH), MAX_APPS_SPLIT_WIDTH),
+      ),
+    );
+  }
+
+  commitAppsSplitWidth(): void {
     this.persistLayout();
   }
 
@@ -591,6 +620,7 @@ export class ElectronLayoutService implements MessageHandler {
       editorVisible: this._editorPanelVisible(),
       gitRailWidth: this._gitRailWidth(),
       gitRailCollapsed: this._gitRailCollapsed(),
+      appsSplitWidth: this._appsSplitWidth(),
     };
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
@@ -612,6 +642,7 @@ export class ElectronLayoutService implements MessageHandler {
       editorVisible?: boolean;
       gitRailWidth?: number;
       gitRailCollapsed?: boolean;
+      appsSplitWidth?: number;
       workspaceFolders?: unknown[];
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
@@ -630,6 +661,11 @@ export class ElectronLayoutService implements MessageHandler {
       }
       if (typeof state.gitRailCollapsed === 'boolean') {
         this._gitRailCollapsed.set(state.gitRailCollapsed);
+      }
+      // NaN/Infinity pass the typeof check; the setter drops them, so the
+      // default stays.
+      if (typeof state.appsSplitWidth === 'number') {
+        this.setAppsSplitWidth(state.appsSplitWidth);
       }
     }
     void this.syncFromBackend(state ?? null);
