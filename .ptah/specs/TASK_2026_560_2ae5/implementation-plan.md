@@ -123,6 +123,11 @@ design and are not restated. #12 and #16 move to PR 2; see the handoff.
   - No harness preflight; the reconciler freezes.
   - Notice `capability-policy-unverified` in the chat MCP chip: "Only Ptah tools are loaded and skills are off:
     Ptah couldn't read <path> (<reason>). Fix the file and start a new session."
+  - **Amendment (2026-09-26, B9 re-review):** the chip notice ships in PR 1 for Claude chat and one-shots only.
+    A Ptah CLI agent is a background worker with no chip. Its SDK session id does not exist at spawn time, and
+    posting the notice under the parent session id would wrongly tell the parent tab that it runs Ptah-only.
+    In PR 1, the Ptah CLI spawn path enforces the same strict options and logs a warn with `cwd` and the reasons.
+    The user-visible notice for Ptah CLI agents moves to PR 2, through the agent monitor.
 - **Harness:** `PluginLoaderService.getEffectivePluginConfig` throws `CapabilityPolicyUnknownError` (an `SdkError`).
   - The source resolver maps it to `{policyUnknown: true}`.
   - The reconciler returns health `sources: 'policy-unknown'` and writes or removes no skill, plugin or agent

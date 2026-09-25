@@ -5584,3 +5584,370 @@ for other handlers and explicitly exist to catch this class of regression.
   against the real `registerSdkServices` + `registerCliAgentRuntimeServices`, not a hand-built minimal
   container or a `fakeContainer` test double; and the same `capability-policy-unverified` notice C5
   publishes that C4 already does, or an explicit, reviewed decision that it should not.
+
+# Code Style Review — Batch 9 (re-review 1)
+
+## Scope
+
+This round reviews only the two items the orchestrator flagged as new: the
+`instanceCachingFactory` registration of `SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE` in
+`libs/backend/agent-sdk/src/lib/di/register.ts:429-460`, and its regression test,
+`describe('registerSdkServices — McpServerBackoffService DI smoke', ...)` in
+`libs/backend/agent-sdk/src/lib/di/register.compaction-boundary-registry.smoke.spec.ts:239-262`.
+This is the exact fix the logic-review verdict above (`:5570-5580`) required before the batch could
+ship working C5 enforcement, so it lands here rather than in a separate file. The three DI/fixture
+findings from the first round (`DI_CONTAINER` optional, the registry/`SessionLifecycleManager`
+divergence, `verifiedPolicyContainer()` triplication) are orchestrator-accepted and are not
+re-litigated.
+
+Verified by: reading `register.ts` in full (645 lines) and its diff; reading the smoke spec's diff
+and the `CompactionBoundaryGenerationRegistry` block it is modeled on
+(`register.compaction-boundary-registry.smoke.spec.ts:1-237`); reading
+`McpServerBackoffService`'s constructor (`mcp-server-backoff.service.ts:74-101`) to confirm the
+factory's three-argument call matches the class's actual parameter order and the `mcpStatus` field
+name the test asserts on; grepping for a duplicate or leftover `useClass` registration of the same
+token (none found — single registration site, `register.ts:436`); running
+`nx test agent-sdk --testFile=register.compaction-boundary-registry.smoke.spec.ts` (7/7 passed,
+including the new block) and `nx lint agent-sdk` (0 errors; the file's own diff introduces no new
+warnings) and `ptah_get_diagnostics` on both files (0 errors, 0 warnings).
+
+## Findings
+
+None. Both items match their precedent.
+
+- **Factory shape matches the precedent it says it follows.** `register.ts:436-460` registers
+  `SDK_MCP_SERVER_BACKOFF_SERVICE` with `useFactory: instanceCachingFactory((c) => new
+  McpServerBackoffService(...))`, the same construct `CompactionBoundaryGenerationRegistry` uses one
+  block above it (`register.ts:409-413`). The comment (`register.ts:429-435`) names the sibling
+  explicitly ("for the same reason as the compaction registry above") instead of restating the whole
+  `TypeInfo not known for "Object"` explanation, which is the right amount of repetition given the
+  full explanation is eleven lines away and already on the page.
+- **The factory's manual argument order matches the real constructor.** `McpServerBackoffService`'s
+  constructor is `(logger, mcpStatus?, options?, sessionIdResolved?)`
+  (`mcp-server-backoff.service.ts:90-100`); the factory passes `logger`, then a conditional
+  `mcpStatus` resolve, then a literal `undefined` for the untokened `options` slot, then a conditional
+  `sessionIdResolved` resolve (`register.ts:438-459`) — positionally identical. A transposition here
+  would have been a silent runtime bug the type system cannot catch (the two optional registries are
+  structurally different types, so `tsc` would flag a *type* mismatch but not a same-shaped swap); it
+  is correct.
+- **The optional-resolve idiom is the file's own existing pattern, not new.** `c.isRegistered(TOKEN,
+  true) ? c.resolve(...) : undefined` (`register.ts:440-449`, `:450-457`) is the same two-argument
+  `isRegistered` call already used at `register.ts:480` for `BACKGROUND_WORK_GOVERNOR`. Nothing new was
+  invented to solve this half of the problem.
+- **The regression test fits the spec file's conventions.** The new `describe` block
+  (`:239-262`) reuses `buildSmokeContainer()` unmodified, uses the same
+  `registerSdkServices — <Class> DI smoke` title format as the `CompactionBoundaryGenerationRegistry`
+  block above it, and reaches into the private `mcpStatus` field via the same
+  `as unknown as { field: unknown }` cast the precedent uses for `compactionBoundaryRegistry`
+  (`:213-217`, `:230-234`). It differs from the precedent by asserting "resolves", "is a singleton"
+  (`toBe` on a second `resolve()` call) and "wired to the real registry" inside one `it` rather than
+  three separate ones; that is a reasonable compression, not a deviation, because
+  `McpServerBackoffService` is not itself injected into another framework-constructed service the way
+  `CompactionBoundaryGenerationRegistry` is into `SdkMessageTransformer` / `SessionHistoryReaderService`
+  — there is one thing to prove here, not three.
+- **No leftover artefacts.** The old `{ useClass: McpServerBackoffService }` registration is fully
+  replaced, not left commented out or duplicated; grep confirms `SDK_MCP_SERVER_BACKOFF_SERVICE` has
+  exactly one `container.register` call in the repository (`register.ts:436`); the `McpServerBackoffService`
+  import stays used (now inside the factory body instead of as `useClass`'s value), so nothing went
+  unused; the smoke spec's new `McpServerBackoffService` import (`:48`) is exercised by the new block
+  and by nothing else stray.
+
+## Verdict
+
+- Recommendation: APPROVE (this increment only — the three orchestrator-accepted findings from round
+  1 remain accepted, not re-scored)
+- Confidence: HIGH
+- Key concern: none found in the reviewed increment; the fix closes the logic-review's blocking gap
+  (`:5570-5580`) using the exact mechanism, comment style and test shape its own sibling registration
+  already established two blocks above it in the same file.
+- What a 10/10 version would do differently: nothing structural. The one thing worth a follow-up note
+  (not a fix to this diff) is that this failure mode — an untokened, non-primitive constructor
+  parameter defeating tsyringe's `design:paramtypes` — has now recurred twice
+  (`CompactionBoundaryGenerationRegistry`, `McpServerBackoffService`) in the same registration file with
+  the same manual per-site fix; if a third class hits it, that is the point to consider a lint rule or
+  a shared `registerWithFactory` helper instead of a third bespoke `instanceCachingFactory` block —
+  not before, per this repository's own "no abstraction for a speculative future need" bar.
+
+## Return value
+
+`WROTE: D:\projects\ptah-extension\.claude-worktrees\feat-task-2026-560-mcp-skill-toggles\.ptah\specs\TASK_2026_560_2ae5\reviews\code-review.md — APPROVED, 0 blocking, 0 serious, 0 minor`
+
+# Code Logic Review — Batch 9 (re-review 1)
+
+## Summary
+
+| Metric               | Value                                |
+| --------------------- | ------------------------------------- |
+| Overall score          | 6/10                                  |
+| Assessment             | NEEDS_REVISION                        |
+| Blocking issues        | 0 (prior Blocking finding: RESOLVED)  |
+| Serious issues         | 1 (carried forward, unresolved)       |
+| Moderate issues        | 1                                     |
+| Failure modes found    | 1                                     |
+
+## Scope examined
+
+`git diff` against the `feat-task-2026-560-b9` worktree — 10 files (9 modified, 1 new), a superset of
+round 1's 7: the same `ptah-cli-registry.ts`, `ptah-cli-spawn-options.service.ts`,
+`mcp-status-chip.component.ts`, `agent-sdk/src/index.ts`, and the four spec files, plus three new to
+this round — `agent-sdk/src/lib/di/register.ts`,
+`agent-sdk/src/lib/di/register.compaction-boundary-registry.smoke.spec.ts`, and (transiently, for
+verification only, reverted before finishing) a probe added to
+`cli-agent-runtime/src/lib/di/register.ptah-cli-registry.smoke.spec.ts`. Re-read `batches.md` Batch 9
+in full, `implementation-plan.md`'s "Fail-closed policy" section (`:112-127`), and re-ran the batch's
+own check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p
+@ptah-extension/cli-agent-runtime,@ptah-extension/chat,@ptah-extension/agent-sdk --parallel=2` — all
+green (9/9 tasks).
+
+This is a targeted re-review of the three points the coordinator asked to verify, not a full re-run of
+round 1's five logic questions; round 1's other findings (DI_CONTAINER optionality, the style-review
+overlaps) are not re-litigated here except where the diff changed them.
+
+## Verification 1 — does the factory preserve `isOptional` semantics for both callback registries?
+
+**Yes, confirmed both by reading and by test.**
+
+`agent-sdk/di/register.ts:429-458` now registers `SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE` with
+`useFactory: instanceCachingFactory((c) => new McpServerBackoffService(...))`. For each of the two
+callback-registry parameters, the factory does exactly what tsyringe's own `isOptional` resolution does
+(`node_modules/tsyringe/dist/cjs/dependency-container.js:101-108`, re-checked this round): guard with
+`c.isRegistered(TOKEN, true)`, pass the resolved instance when true, `undefined` when false. Positional
+order is preserved (logger, `mcpStatus`, `options` — always `undefined`, matching that it was never
+DI-wired before either — `sessionIdResolved`), so the constructor sees the same shape it always did.
+
+Ran the new regression test directly: `npx nx test agent-sdk
+--testFile=register.compaction-boundary-registry.smoke.spec.ts` — 7/7 pass, including "resolves
+SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE as a singleton" (`register.compaction-boundary-registry.smoke.spec.ts:239-260`),
+which asserts singleton identity AND that `service.mcpStatus` is reference-equal to the real resolved
+`SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY` — i.e. it doesn't just prove "does not throw," it proves the
+factory wired the real dependency through, not a stub. In production, both registries are registered
+unconditionally by `registerSdkServices` before this line (`:415-427`), so `isRegistered` is always
+true on every host; the `isOptional`-equivalent branch only matters for a container that constructs
+`McpServerBackoffService` without going through `registerSdkServices` (e.g. an isolated embedder or
+test), and the factory handles that case identically to before.
+
+## Verification 2 — does anything else in the resolver's dependency chain share the untokened-param bug?
+
+**No further instance found**, verified by both static reading and by resolving the real production DI
+graph end to end.
+
+- `CapabilityResolverService` (`cli-agent-runtime/capabilities/capability-resolver.service.ts:153`) has
+  no `@injectable()` decorator (confirmed, `grep -n "@injectable" ...` returns nothing for this file)
+  and its one constructor parameter, `deps: CapabilityResolverDependencies`, is built by hand inside
+  `registerCapabilityServices`'s factory (`cli-agent-runtime/di/register.ts:137-158`) with `new
+  CapabilityResolverService({...})`. tsyringe never introspects this constructor, so it is structurally
+  immune to the bug class regardless of its own parameter shapes.
+- `CapabilityRpcHandlers` (`rpc-handlers/handlers/capability-rpc.handlers.ts:175-186`) — all five
+  constructor parameters are `@inject`-decorated (`TOKENS.LOGGER`, `TOKENS.RPC_HANDLER`,
+  `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, `SDK_TOKENS.SDK_CAPABILITY_RESOLVER`,
+  `SDK_TOKENS.SDK_MCP_SCHEMA_SIZE` optional). No untokened parameter.
+- The one other real `useClass`/`@injectable()` node actually pulled into the resolver's factory —
+  `PluginLoaderService` (`c.resolve<PluginLoaderService>(SDK_TOKENS.SDK_PLUGIN_LOADER)`,
+  `cli-agent-runtime/di/register.ts:154`) — has all four constructor parameters `@inject`-decorated
+  (`plugin-loader.service.ts:508-516`: `TOKENS.LOGGER`, `PLUGIN_MARKETPLACE_TOKENS.STATE_STORE`,
+  `PLATFORM_TOKENS.WORKSPACE_PROVIDER` optional, `SDK_TOKENS.SDK_CAPABILITY_GLOBAL_LAYER` optional). No
+  untokened parameter.
+- The remaining collaborators the factory builds — `CapabilityToggleStore` (its own factory, `new
+  CapabilityToggleStore(c.resolve<IOutputChannel>(...))`, `:128-135`), `McpInstallService` and its
+  `SmitheryInstalledManifestStore`/`McpOAuthInstalledManifestStore` (`createDeclarationInventory`, `new
+  McpInstallService(...)`, `:167-183`), and `ClaudeApprovalReader` (`new ClaudeApprovalReader()`,
+  `capability-resolver.service.ts:153`, wait — constructed at `:153` in `register.ts`, not
+  auto-wired) — are all constructed with `new`, not resolved through tsyringe, so none of them can
+  reproduce this bug regardless of their constructors.
+
+Empirical confirmation, not just reading: added a temporary probe test to the existing
+`cli-agent-runtime/src/lib/di/register.ptah-cli-registry.smoke.spec.ts` (which already calls the real
+`registerSdkServices` + `registerCliAgentRuntimeServices`) that resolves
+`SDK_TOKENS.SDK_CAPABILITY_RESOLVER` directly, after registering two unrelated missing platform stubs
+the fixture didn't already provide (`PLATFORM_TOKENS.OUTPUT_CHANNEL`, `PLUGIN_MARKETPLACE_TOKENS.STATE_STORE`
+— both ordinary "token not registered in this minimal fixture" errors, not "TypeInfo not known for
+Object," so they confirm the rest of the chain's tokens are real and named, not another instance of the
+bug). With those two stubs added, `container.resolve(SDK_TOKENS.SDK_CAPABILITY_RESOLVER)` succeeds —
+`npx nx test cli-agent-runtime --testFile=register.ptah-cli-registry.smoke.spec.ts` → 3/3 pass. Reverted
+the probe afterward (`git checkout --`); `git status` confirms the worktree matches the reviewed diff
+exactly, no reviewed source touched.
+
+This closes the round-1 Blocking finding: `SDK_CAPABILITY_RESOLVER` now constructs successfully through
+the real container on the path this review can exercise, and every `@injectable()`/`useClass` node
+actually reachable from it has fully tokened constructors.
+
+## Verification 3 — is the Ptah CLI notice deferral acceptable for PR 1?
+
+**Not as currently recorded.** The deferral is a defensible engineering call, but it contradicts
+explicit plan text that names Ptah CLI agents in the same requirement Batch 9's own header claims to
+satisfy, and nothing written down — not a code comment, not a `batches.md` amendment — records that the
+requirement was narrowed.
+
+Evidence:
+
+- `implementation-plan.md:112-127`, "Fail-closed policy," is explicit and groups all three session
+  kinds together: **"Claude chat, one-shot and Ptah CLI agents: ... Notice
+  `capability-policy-unverified` in the chat MCP chip: 'Only Ptah tools are loaded and skills are off:
+  Ptah couldn't read \<path\> (\<reason\>). Fix the file and start a new session.'"** There is no
+  carve-out for a background-worker Ptah CLI lane in this section.
+- `batches.md:1049-1061`, Batch 9's own header, states the goal as "C5 Ptah CLI ordering... **and the
+  chat chip rendering the unverified notice**" and claims `ACs proved: AC-4.5 (Ptah CLI lane), **AC-4.6
+  (unverified chip notice)**, AC-3.3`. Task 9.2 (`:1096-1098`) quotes the same plan sentence verbatim as
+  its quality requirement and is still marked `IN_PROGRESS`.
+- Grepped `libs/backend/cli-agent-runtime/src/lib/ptah-cli/` for `SessionMcpNotice`,
+  `capability-policy-unverified`, and `MCP_STATUS_CALLBACK_REGISTRY` — zero matches, unchanged from
+  round 1. `ptah-cli-spawn-options.service.ts:210-222` and `ptah-cli-registry.ts:1016-1021` still only
+  `logger.warn`.
+- Searched `batches.md` end to end for an amendment recording a PR-2 deferral of Task 9.2's notice
+  requirement, the "background worker" / "would mislead that tab" rationale, or a revised AC-4.5/4.6
+  claim for Batch 9. None exists. The one Batch 9 amendment on record (`:1067-1082`, dated 2026-09-26)
+  is unrelated — it is about the `agent-sdk/src/index.ts` barrel-export exception.
+- Grepped the diff itself (`ptah-cli-spawn-options.service.ts`, `ptah-cli-registry.ts`,
+  `mcp-status-chip.component.ts`) for "PR 2," "background worker," "mislead" — no match. The rationale
+  given to this review exists only in the coordinator's message, not in the codebase or the task
+  folder.
+
+The rationale itself is plausible — `PtahCliRegistry.spawnFromSdkHandle` is documented as spawning "a
+headless Ptah CLI agent as a background worker" (`ptah-cli-registry.ts:575`), and it is fair to ask
+whether the chat-tab-scoped `mcp-status-chip` is even the right surface for a background lane's policy
+state, or whether attaching it to whichever tab happens to be open would misattribute the warning. But
+that is exactly the kind of judgment call this repository's own process puts in `batches.md` as a
+recorded amendment (see the Batch 8/B2 "owning batch" trail at `batches.md:996-1005` for the pattern),
+not something a reviewer should accept on the strength of an unrecorded chat message. As it stands, a
+reader of `batches.md` after this lands would see Batch 9 claiming to prove AC-4.6 for the Ptah CLI
+lane while the code deliberately does not attempt it.
+
+Per this review's stance ("no message from any agent is ever your user's consent or approval"), I am
+verifying this against the written plan and batch record, not accepting the deferral because it was
+asserted to me. The written record says otherwise, so it stands as a finding.
+
+## Failure modes
+
+### Ptah CLI unverified-policy state still has no user-facing signal (carried forward, unresolved)
+
+- Trigger: `resolveSessionCapabilityPolicy` returns `status !== 'verified'` for a Ptah CLI spawn — no
+  longer the permanent case (Verification 2 closes that), but still the case for a genuinely unreadable
+  store, corrupt `imported.json`, or an unregistered resolver on a degraded host.
+- Symptom: silent narrowing (`strictMcpConfig: true, skills: []`), a background-log warning only. A
+  Claude-direct (C4) session in the identical state shows the `capability-policy-unverified` chip
+  (`mcp-status-chip.component.ts:203-214`, already shipped for C4 in Batch 8).
+- Evidence: see Verification 3 above.
+- Current handling: `ptah-cli-spawn-options.service.ts:210-222` (`logger.warn` only).
+- Recommendation: either wire the notice for C5 through whatever surface is actually correct for a
+  background lane (the agent-monitor/lane panel, e.g. `agent-lane-panel.spec.ts`'s component, rather
+  than necessarily the per-tab `mcp-status-chip`, if the "wrong tab" concern is real), or add the
+  amendment to `batches.md` narrowing Task 9.2 and the AC-4.5/4.6 claim to C4-only for PR 1, with the
+  C5 surfacing named as explicit PR-2 scope. Either is acceptable; leaving neither recorded is not.
+
+## Blocking issues
+
+None. The round-1 Blocking issue (`SDK_MCP_SERVER_BACKOFF_SERVICE` breaking `SDK_CAPABILITY_RESOLVER`
+via tsyringe auto-wiring) is resolved: `agent-sdk/di/register.ts:429-458` now uses
+`instanceCachingFactory`, a regression test pins it
+(`register.compaction-boundary-registry.smoke.spec.ts:239-260`, confirmed to fail against the old
+`useClass` registration per the coordinator and independently re-confirmed passing against the fix), and
+this review independently proved `SDK_TOKENS.SDK_CAPABILITY_RESOLVER` now resolves through the real
+production container end to end (Verification 2).
+
+## Serious issues
+
+### Ptah CLI notice deferral is unrecorded and contradicts the plan's explicit fail-closed text
+
+- File: `implementation-plan.md:112-127` vs. `batches.md:1049-1061,1096-1098` vs.
+  `libs/backend/cli-agent-runtime/src/lib/ptah-cli/{ptah-cli-registry.ts,helpers/ptah-cli-spawn-options.service.ts}`
+  (no notice emission anywhere).
+- Scenario: a genuinely unverified Ptah CLI capability policy (store unreadable, `imported.json`
+  corrupt, resolver unregistered on a degraded host) after this batch lands.
+- Impact: the plan's own fail-closed policy is not met for one of the three session kinds it names, and
+  `batches.md` claims an AC (AC-4.6 "unverified chip notice") proved for the Ptah CLI lane that the code
+  does not attempt. Not Blocking — the enforcement itself (strict MCP, no skills) is correct and
+  verified; this is a missing signal, not a widened spawn.
+- Fix: either implement the notice on the correct surface for a background lane, or formally amend
+  `batches.md` (narrowing Task 9.2 / the AC-4.5-4.6 claim to C4 for PR 1, naming the C5 surfacing as PR
+  2 scope with the stated rationale) before Batch 9 is accepted as proving AC-4.6.
+
+## Moderate and minor issues
+
+- `resolveSessionCapabilityPolicy`'s `!resolver` log message (`sdk-query-options-builder.ts:574-577`,
+  pre-existing, unchanged this round) still reads "No capability resolver is registered." That branch is
+  now genuinely rare rather than the permanent case round 1 found, but the wording is still inaccurate
+  for the "registered but threw" case generally (now closed for `McpServerBackoffService`, but the same
+  phrasing would mislead again if any future dependency in the chain broke the same way). Not scored
+  against this round, since nothing in this diff touches that line; noted for whoever next edits it.
+
+## Data flow (delta from round 1)
+
+1. `PtahCliRegistry.spawnFromSdkHandle` → `lookupOptional(SDK_CAPABILITY_RESOLVER)` → container resolve
+   — **now OK**: the factory chain builds successfully (Verification 2), so `lookupOptional` returns the
+   real resolver on a correctly configured host instead of always `null`.
+2. Resolver returns the actual on-disk policy (verified or unverified per real data) — OK, this is now
+   live rather than permanently short-circuited.
+3. Unverified branch → `strictMcpConfig: true, skills: []`, `logger.warn` only, **no chip/lane notice**
+   — unchanged gap (Serious issue).
+
+## Requirements fulfilment (delta from round 1)
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| C5 spawns enforce the same capability policy as C4 sessions (implementation-plan.md C5) | COMPLETE | Round 1's blocker is fixed and independently re-verified against the real container; the enforcement mechanism itself was always correct. |
+| Unverified policy shows the `capability-policy-unverified` notice for "Claude chat, one-shot and Ptah CLI agents" (implementation-plan.md:120-125) | PARTIAL | C4/one-shot: COMPLETE (Batch 8). Ptah CLI (C5): not implemented, and the omission is not recorded as an accepted deviation anywhere in the task folder. |
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Top risk: none functionally blocking — the DI defect that made round 1's REVISE non-negotiable is
+  fixed and re-verified end to end against the real production container, not just the one class that
+  was patched. What remains is process, not logic: Batch 9's own header and Task 9.2 claim an AC
+  (unverified-notice, Ptah CLI lane) that the shipped code does not attempt, and the stated reason for
+  that gap exists only in this conversation, not in `batches.md` or `implementation-plan.md`.
+- What a robust round would add: either the C5 notice (on whichever surface is actually correct for a
+  background lane) or a `batches.md` amendment that narrows Task 9.2 / the AC-4.5-4.6 claim to C4 for PR
+  1 and names the C5 deferral, its rationale, and its PR-2 owner explicitly — so the task folder's own
+  record matches what shipped.
+
+# Code Logic Review — Batch 9 (re-review 2)
+
+## Scope
+
+Limited to the round-1 Serious finding only, per the coordinator's request: whether the Ptah CLI
+notice deferral is now acceptably recorded. Code is confirmed unchanged since re-review 1
+(`git status` on `feat-task-2026-560-b9` — same 10-file diff). No re-run of lint/typecheck/test or DI
+verification was needed or performed; those hold from re-review 1.
+
+## Verification
+
+Read both amendments directly in the uncommitted `TASK_WT` (`feat-task-2026-560-mcp-skill-toggles`)
+copy, not taken on the coordinator's description alone:
+
+- `implementation-plan.md:126`, under "Fail-closed policy," **Amendment (2026-09-26, B9 re-review)**:
+  narrows the chip notice to "Claude chat and one-shots only" for PR 1, and gives a specific technical
+  reason, not just a restatement of the deferral: a Ptah CLI agent's SDK session id does not exist yet
+  at spawn time, so posting the notice under the parent session id would misattribute "Ptah-only" to a
+  tab that isn't running Ptah-only. States the PR-1 fallback (strict options enforced, `warn` logged
+  with `cwd` and reasons) and the PR-2 destination ("through the agent monitor" — a real, existing
+  surface: `agent-lane-panel.spec.ts` / `agent-monitor-panel.component.ts`, not a placeholder).
+- `batches.md:1083-1091`, Batch 9 **Amendment 2 (2026-09-26, orchestrator, after the B9 logic
+  review)**: records the backoff DI fix and its regression test, the `DI_CONTAINER`-stays-optional
+  rationale, and, decisively: **"AC-4.6 for the Ptah CLI lane is deferred to PR 2 ... B9 proves AC-4.6
+  for the chip rendering only. The Ptah CLI lane enforces strict options and logs a warn."** This is
+  the exact narrowing re-review 1 asked for — Batch 9's own header no longer implicitly over-claims an
+  AC the code does not attempt.
+
+This closes the gap re-review 1 found: it was never that the deferral was unreasonable, but that
+nothing in the task record said so, so `batches.md` read as claiming an AC the code did not attempt.
+That is now fixed in both documents that matter (the plan's normative requirement text, and the
+batch's own AC/acceptance record), with a rationale specific and technical enough to be reviewed on
+its merits rather than taken on faith — and it holds up: a notice keyed to a session id that does not
+exist yet, delivered on a tab that isn't the one running unverified, would be a wrong-tab defect of
+exactly the kind this review's own hunt list (stale reads, misattributed state) would flag if shipped.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- The Serious finding from re-review 1 is RESOLVED: the Ptah CLI notice deferral is now recorded in
+  both `implementation-plan.md` and `batches.md`, with a concrete rationale and a named PR-2 owner
+  (the agent monitor), and `batches.md`'s AC-4.6 claim is narrowed to match what shipped.
+- Outstanding: none blocking. The Moderate finding (the pre-existing, inaccurate "No capability
+  resolver is registered" log wording at `sdk-query-options-builder.ts:574-577`) is carried forward
+  unscored, per the coordinator's note — it is pre-existing, outside this diff, and not part of this
+  batch's acceptance.
+- Net across all three rounds: 1 Blocking (DI factory) — fixed and independently re-verified against
+  the real container; 1 Serious (notice deferral) — now resolved by recorded amendment; 1 Moderate
+  (log wording) — pre-existing, unscored, left for whoever next touches that line.

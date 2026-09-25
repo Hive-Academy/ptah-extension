@@ -1046,7 +1046,7 @@ the trace.
   - One-shots use the same flags, or strict mode when unverified.
   - The model probe uses `strictMcpConfig: true`, `mcpServers: {}` and `skills: []`.
 
-## Batch 9: Ptah CLI enforcement and chat notice (PR 1) — IN_PROGRESS
+## Batch 9: Ptah CLI enforcement and chat notice (PR 1) — COMPLETE (commit eeb1d2a4d; cherry-picked from `df2417f05`)
 
 - PR: 1
 - Goal: C5 Ptah CLI ordering (resolve policy → `HarnessPolicySync.apply` → `assembleSpawnOptions`), and the chat
@@ -1080,20 +1080,34 @@ the trace.
     policy is never resolved there.
   - The chip (`mcp-status-chip.component.ts:172-190`) renders the claude.ai connector copy for EVERY notice, so the
     new notice code needs its own branch.
+- **Amendment 2 (2026-09-26, orchestrator, after the B9 logic review):**
+  - Blocking fix: `SDK_MCP_SERVER_BACKOFF_SERVICE` used `useClass`, but its untokened `options?` parameter makes
+    tsyringe throw "TypeInfo not known for Object". `CapabilityResolverService` depends on it, so
+    `SDK_CAPABILITY_RESOLVER` could not be constructed on any host. B9 registers it with `instanceCachingFactory`
+    in `libs/backend/agent-sdk/src/lib/di/register.ts` (already in the PR diff) and adds a regression test to
+    `register.compaction-boundary-registry.smoke.spec.ts` (+1 file). The test fails with the old registration.
+  - `PLATFORM_TOKENS.DI_CONTAINER` stays optional in `ptah-cli-registry.ts`. A required container forced 11 more
+    spec edits, which broke the file budget. A comment on `lookupOptional` records why.
+  - AC-4.6 for the Ptah CLI lane is deferred to PR 2 (see implementation-plan.md "Fail-closed policy",
+    amendment). B9 proves AC-4.6 for the chip rendering only. The Ptah CLI lane enforces strict options and logs
+    a warn.
+  - Final B9 file set (10): the 4 code files above, `agent-sdk/src/index.ts`, `register.ts`, the smoke spec, and
+    the 3 edited registry specs (harness-preflight, off-thread-spawn, spawn-model). New to the PR diff: 8, so
+    PR 1 is 100 before L5 and **99 after L5**.
 - Worktree: `feat-task-2026-560-b9` (branch `feat/task-2026-560-b9-ptah-cli-policy`, base `ae855b8dd`).
 - Isolation checks:
   - B9 does not touch `@ptah-extension/chat-ui` (B14b) or `libs/frontend/marketplace` (B14); the chip lives in
     `@ptah-extension/chat`.
   - B25 is in `@ptah-extension/vscode-lm-tools` and does not touch `protocol-dispatcher.ts` (TASK_2026_559).
 
-### Task 9.1: Registry ordering and spawn flags — IN_PROGRESS
+### Task 9.1: Registry ordering and spawn flags — COMPLETE
 
 - Plan reference: implementation-plan.md:336-337, :346; reorders `ptah-cli-registry.ts:657-659`
 - Quality requirements: the assembly carries the flags, or strict mode when unverified.
 - Spec: ordering (the policy is resolved before preflight), flags present, strict when unverified.
 - Pattern: `ptah-cli-registry-harness-preflight.spec.ts`.
 
-### Task 9.2: Chat chip notice — IN_PROGRESS
+### Task 9.2: Chat chip notice — COMPLETE
 
 - Quality requirements: render the plan text "Only Ptah tools are loaded and skills are off: Ptah couldn't read
   <path> (<reason>). Fix the file and start a new session." Use OnPush and signals, as the component already does.
@@ -1335,7 +1349,7 @@ the trace.
 - Carried to PR 2: option c, where the CLI prints `capabilityWarning` in `apps/ptah-cli/src/cli/commands/mcp.ts`
   (`:244-258`), is added to **B21** (same `ptah-cli` project, +1 file there).
 
-## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — IN_PROGRESS
+## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — COMPLETE (commit c38a55204)
 
 - PR: 1
 - Goal: C11 scenarios in the existing harness marketplace e2e location
@@ -1386,7 +1400,7 @@ the trace.
     importing them from `./marketplace.fixtures`.
   - `marketplace.fixtures.ts` is NOT modified.
 
-## Batch 25: In-session skill list and spawned-agent plugins use the layered policy (PR 1) — IN_PROGRESS
+## Batch 25: In-session skill list and spawned-agent plugins use the layered policy (PR 1) — COMPLETE (commit e39b65b1e; cherry-picked from `dcd6abcbc`)
 
 - PR: 1 (added at the P9 amendment; the id is out of sequence so earlier ids stay stable)
 - Goal: P9 G3 and G4. The code-execution `ptah.harness.searchSkills` and the plugin paths given to spawned agents
