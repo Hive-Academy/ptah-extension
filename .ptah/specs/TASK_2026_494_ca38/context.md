@@ -114,7 +114,8 @@ Mode: enabled
 - Follow-up: 8 pre-existing TS2352 spec-tsc errors reached transitively from mcp-apps-page (core/src/testing/mock-rpc-service.ts:54,60,66,69; git-ui monaco-loader.service.ts:113,151,171,187) - out of scope for TASK_2026_494; the lib's spec-tsc gate is 'no new errors beyond this baseline'.
 - RESOLVED in this PR (2026-09-26). This entry was wrongly recorded as pre-existing; it is our own B12/B15 code.
   - The gap: "New conversation" or Stop after `chat:start` returns but before the session binding arrives.
-  - The fix is the commit "fix(mcp-apps-page): abort the started session on reset or Stop before the session binding".
+  - The fix is commit 81b3c9040, "fix(mcp-apps-page): abort the started session on reset or Stop before the session
+    binding".
   - Details are in batches.md, section "Post-batch bounded fix: reset or Stop between chat:start and the session
     binding".
 - 2026-09-25: B9 committed 37822b07f. B15 APPROVED round 2 (code-logic-reviewer 9/10, codex 8/10); committed; B20 and B16 IN_PROGRESS in parallel.

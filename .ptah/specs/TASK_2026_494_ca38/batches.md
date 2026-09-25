@@ -1206,7 +1206,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
     `lazy-load-gate.md:350` changed "81 files each" to "95 files each". A grep found no other zod "81".
 - Final: B19 ACCEPTED. Req 9.1, R8 and 9.3 PASS. Req 9.2 is OPEN as a manual QA item.
 
-## Post-batch bounded fix: reset or Stop between chat:start and the session binding — COMPLETE
+## Post-batch bounded fix: reset or Stop between chat:start and the session binding — COMPLETE (commit 81b3c9040)
 
 - This fix was requested by the user and added to this PR on the coordinator's ruling (2026-09-26).
 - It supersedes the context.md follow-up that called this gap pre-existing. The code is ours (B12/B15).
@@ -1250,6 +1250,68 @@ lazy-load gate and Mode 3 visual evidence must include it.
     exactly the 8 baseline errors.
   - Line counts: 698, 236, 53 and 107, all at or under 700.
 - Final: ACCEPTED. Antigravity gave 9/10, and follow-on (a) was verified by the team-leader.
+
+## Post-batch visual fix round (R10 visual review) — COMPLETE
+
+- R10 visual review: NEEDS_REVISION 6/10 (`visual-review.md`, screenshots in `visual/screenshots/`).
+- Rulings, by the coordinator and the user (2026-09-26):
+  1. Visual-breaking #1, header icons clipped at a 420px viewport: NOT APPLICABLE. The Electron main window has
+     `minWidth: 800` (`apps/ptah-electron/src/windows/main-window.ts:119`), so the window can never be 420px wide.
+     The 420px case is the Apps page container, not the window. No fix.
+  2. Serious #2: USER DECISION, option (a). The page stacks below a 606px container width
+     (240 conversation + 6 handle + 360 surface), taken from constants.
+     - Side by side, both minimums always hold.
+     - The CSS container query and the JS threshold change together.
+     - DESIGN DEVIATION: this supersedes the approved 480px breakpoint. It is recorded as a one-line revision note
+       in the prototype README or the plan.
+  3. Serious #3, a torn frame at the stacking boundary: fix the root cause with ONE source of truth for stacking, so
+     the CSS and the splitter can never disagree. A spec pins it.
+  4. Moderate, a nested `role="separator"`: keep exactly one separator in the accessibility tree. Prefer a change
+     inside the Apps page. The chat-ui `ElectronResizeHandleComponent` must keep its behaviour in the electron shell.
+     A spec pins it.
+  5. Moderate, stat tile density and delta phrasing: match the prototype (`prototype/screenshots/dark-populated-wide.png`,
+     `assets/app.css`).
+     - Compact bordered tiles, several across, with smaller type.
+     - The delta sits inline in the tile header.
+     - Keep the single accent colour: the contract has no tone field.
+     - The B9 budget-render DOM counts must stay intact.
+  6. The AppWindow icon and the tabs-lifted style: accepted, no change.
+- Executor: a frontend-developer subagent. `visual/` and `visual-review.md` are read-only for it.
+- Verification:
+  - lint, typecheck and test for `mcp-apps-page` and `declarative-dashboard` (and chat-ui if it is touched);
+  - spec tsc against the baselines;
+  - line counts;
+  - a production webview build.
+- Code review: an antigravity lane with no role, writing only `code-logic-review-visual-fix-antigravity.md`.
+- Visual re-check, affected states only:
+  - the 560-620 narrow band;
+  - the 480-606 boundary settle, repeated 5 times;
+  - the stat tiles in dark and light at 1440;
+  - the splitter aria snapshot.
+  A round-2 section is added to `visual-review.md`.
+- Commits:
+  - `fix(mcp-apps-page,declarative-dashboard): ...`;
+  - a separate `docs(task-specs)` commit for the `visual/` evidence and `visual-review.md`;
+  - `test-results/` is never committed.
+- Outcome (2026-09-26):
+  - Fix commit: adb27ce76. The first executor run stopped on a 429 session limit before any edit landed; the
+    resumed run did all five items.
+  - Verification: mcp-apps-page 288/288, declarative-dashboard 216/216 (budget-render included), lint and
+    typecheck green for both, mcp-apps-page spec tsc at its 8-error baseline, production webview build green.
+    The 3.40 MB initial-bundle warning is unchanged from `lazy-load-gate.md`.
+  - Code review: `code-logic-review-visual-fix-antigravity.md`, APPROVED 10/10. The coordinator spot-checked the two
+    main risks: the aria-hidden handle holds nothing focusable, and a hidden splitter cannot commit a width.
+  - Visual re-check: `visual-review-r10-recheck.md` (a separate file, not a round-2 section, so `visual-review.md`
+    stays as the R10 record). Band, boundary settle x5 and splitter a11y passed first time. Stat contrast failed
+    (value `text-primary` on base-200: 3.35:1 dark, 1.25:1 light). The coordinator changed the value to
+    `text-base-content` (13.89:1 dark, 14.21:1 light); the addendum re-run passed. Verdict: APPROVED.
+  - Deviations from the rulings above:
+    - Ruling 5 said keep the single accent colour on the value. It failed WCAG AA, so the value uses the body
+      text colour.
+    - `surface-renderer.component.ts` also changed: its top level is now a grid so stats sit several across.
+    - `APPS_PAGE_STYLES` is exported so a spec can pin the container query (jest strips component styles).
+  - Follow-up, not blocking: the muted label and delta text measure 4.48:1 in the light theme, just under AA. It
+    uses the shared `text-base-content-muted` token, so the fix belongs to the theme, not this task.
 
 ## Completion prerequisites (Mode 3)
 
