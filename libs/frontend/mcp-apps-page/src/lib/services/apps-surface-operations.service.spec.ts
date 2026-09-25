@@ -258,6 +258,10 @@ describe('AppsSurfaceOperations', () => {
     ops = TestBed.inject(AppsSurfaceOperations);
     TestBed.tick();
     await session.start('Build');
+    // The first turn ran and ended: liveness reports its session idle, which
+    // ends the start's pending turn (B15 fix M2), so submits are not held.
+    liveness.statuses.set(new Map([['s-1', 'idle']]));
+    TestBed.tick();
     routingId = session.routingId() as string;
     snapshot(1);
   });

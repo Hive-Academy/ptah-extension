@@ -44,6 +44,31 @@ describe('DashboardChartComponent', () => {
     toggle.click(); fixture.detectChanges();
     expect(element.querySelector('table')).toBeNull();
   });
+  it('expands and collapses through view state only; Escape collapses and returns focus', () => {
+    const { fixture, element } = setup();
+    document.body.appendChild(element);
+    try {
+      const emitted = jest.fn();
+      fixture.componentInstance.viewStateChange.subscribe(emitted);
+      const expand = element.querySelector('button[aria-expanded]') as HTMLButtonElement;
+      const content = element.querySelector(`#${expand.getAttribute('aria-controls')}`) as HTMLElement;
+      expect(content.querySelector('svg')?.classList.contains('max-h-64')).toBe(true);
+      expect(expand.getAttribute('aria-label')).toBe(`Expand ${node.title?.text}`);
+      expect(expand.getAttribute('data-apps-focus-key')).toBe('surface:chart:expand');
+      expand.click(); fixture.detectChanges();
+      expect(emitted).toHaveBeenLastCalledWith({ expanded: true });
+      expect(expand.getAttribute('aria-expanded')).toBe('true');
+      expect(expand.textContent?.trim()).toBe('Collapse');
+      expect(content.querySelector('svg')?.classList.contains('max-h-64')).toBe(false);
+      content.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(emitted).toHaveBeenLastCalledWith({ expanded: false });
+      expect(expand.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(expand);
+    } finally {
+      element.remove();
+    }
+  });
   it('shows a reference notice and rowCount instead of an empty chart', () => {
     const { element } = setup({ ...node, series: undefined, data: { resultId: 'opaque', rowCount: 123 } });
     expect(element.textContent).toContain('not available');

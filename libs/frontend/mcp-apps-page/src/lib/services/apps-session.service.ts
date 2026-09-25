@@ -20,16 +20,15 @@ import {
   TabSessionBinding,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
-import {
-  StreamRouter,
-  StreamingSurfaceRegistry,
-  SurfaceUpdateInbox,
-  WorkflowSessionClaimService,
-} from '@ptah-extension/chat-routing';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import type { SessionId } from '@ptah-extension/shared';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
+import { AppsConversationClaims } from './apps-conversation-claims';
+import { abortAppsSession, failureText } from './apps-session-rpc';
+import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import {
+  activateSurface,
+  setSurfaceViewState,
   updateSurfaceOverlays,
   type AppsSurfaceState,
 } from '../state/apps-surface-reducer';
@@ -59,13 +58,11 @@ import {
 /** The session name shown in the session sidebar (plan D3). */
 export const APPS_SESSION_NAME = 'Apps';
 
-const LOG_PREFIX = '[AppsSessionService]';
+/** First sentence of the notice a failed "New conversation" leaves. */
+export const APPS_RESET_KEPT_NOTICE =
+  'The agent could not be stopped, so this conversation was kept.';
 
-function failureText(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.length > 0
-    ? error.message
-    : fallback;
-}
+const LOG_PREFIX = '[AppsSessionService]';
 
 /**
  * `AppsSessionService` — the root facade of the Apps page conversation
@@ -81,10 +78,8 @@ function failureText(error: unknown, fallback: string): string {
  * The conversation follows the harness path
  * (`harness-workflow.service.ts:271-471`) with one addition: the page's
  * routing id is claimed on `SurfaceUpdateInbox` BEFORE `chat:start`, so no
- * push can arrive unclaimed. A failed start and `discard()` release, in
- * order: the inbox claim, the workflow claim, the streaming surface
- * (`StreamRouter.onSurfaceClosed`, which unregisters the adapter) and the
- * slice's `AppsSurfaceSync` (timers and the read in flight).
+ * push can arrive unclaimed. `AppsConversationClaims` owns that claim order
+ * and the release a failed start, `discard()` or a removed workspace runs.
  *
  * It never mutates `TabManagerService` (Req 2.1): it only reads the active
  * workspace path and workspace removals. Public methods never throw.
@@ -98,10 +93,7 @@ export class AppsSessionService {
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly liveness = inject(SessionLivenessRegistry);
-  private readonly streamRouter = inject(StreamRouter);
-  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
-  private readonly workflowClaims = inject(WorkflowSessionClaimService);
-  private readonly inbox = inject(SurfaceUpdateInbox);
+  private readonly claims = inject(AppsConversationClaims);
 
   /** Workspace slice key → slice. */
   private readonly _slices = signal<ReadonlyMap<string, AppsWorkspaceSlice>>(
@@ -142,6 +134,7 @@ export class AppsSessionService {
   );
   public readonly syncNotice = computed(() => this.activeSlice().syncNotice);
   public readonly error = computed(() => this.activeSlice().error);
+  public readonly notice = computed(() => this.activeSlice().notice);
   public readonly lastFocusKey = computed(
     () => this.activeSlice().lastFocusKey,
   );
@@ -171,11 +164,17 @@ export class AppsSessionService {
     return surfaceId === null ? null : this.sessionFor(surfaceId);
   });
 
+  /**
+   * True while a sent turn is unreported (`pendingTurn`, before AND after the
+   * session id resolves, so no second turn can be sent before liveness
+   * reports the first) or while the session is live.
+   */
   public readonly isProcessing = computed(() => {
     const slice = this.activeSlice();
     if (slice.conversation === null) return false;
+    if (slice.pendingTurn !== null) return true;
     const sessionId = this.sessionId();
-    if (sessionId === null) return slice.turnPending;
+    if (sessionId === null) return false;
     const status = this.liveness.statuses().get(sessionId);
     return status === 'streaming' || status === 'awaiting-background';
   });
@@ -201,6 +200,27 @@ export class AppsSessionService {
         return;
       this.lastRemovedWorkspaceSeq = removed.seq;
       untracked(() => this.dropSlice(appsSliceKey(removed.path)));
+    });
+    // A pending turn ends once liveness reports its session changed from the
+    // status it had at the send (see `AppsPendingTurn`).
+    effect(() => {
+      const statuses = this.liveness.statuses();
+      for (const [key, slice] of this._slices()) {
+        const { conversation, pendingTurn } = slice;
+        if (conversation === null || pendingTurn === null) continue;
+        const sessionId = this.sessionFor(conversation.surfaceId);
+        if (
+          sessionId === null ||
+          statuses.get(sessionId) === pendingTurn.livenessAtSend
+        )
+          continue;
+        untracked(() =>
+          this.patchOwned(key, conversation.routingId, (current) => ({
+            ...current,
+            pendingTurn: null,
+          })),
+        );
+      }
     });
   }
 
@@ -288,10 +308,12 @@ export class AppsSessionService {
       return;
     }
 
+    const livenessAtSend = this.liveness.statuses().get(sessionId);
     this.patchOwned(key, conversation.routingId, (current) => ({
       ...current,
-      turnPending: true,
+      pendingTurn: { livenessAtSend },
       error: null,
+      notice: null,
       userBubbles: [...current.userBubbles, { text: prompt, at: Date.now() }],
     }));
     try {
@@ -330,51 +352,59 @@ export class AppsSessionService {
     if (conversation === null) return;
     const sessionId = this.sessionFor(conversation.surfaceId);
     if (sessionId === null) return;
-    try {
-      const result = await this.rpc.call('chat:abort', { sessionId });
-      if (!result.success || result.data?.success === false) {
-        this.failTurn(
-          key,
-          conversation.routingId,
-          'chat:abort',
-          result.data?.error ?? result.error ?? 'Failed to stop the agent.',
-        );
-        return;
+    const failure = await abortAppsSession(this.rpc, sessionId);
+    if (failure !== null) {
+      this.failTurn(key, conversation.routingId, 'chat:abort', failure);
+      return;
+    }
+    this.patchOwned(key, conversation.routingId, (slice) => ({
+      ...slice,
+      pendingTurn: null,
+    }));
+    this.liveness.markIdle(sessionId, conversation.workspacePath ?? undefined);
+  }
+
+  /**
+   * "New conversation" (Req 2.5): stop the running agent of the shown
+   * conversation, then discard it. The workspace and the conversation are
+   * captured BEFORE the abort is awaited and are the only ones ever touched:
+   * a workspace switch, or a conversation replaced meanwhile, is left alone.
+   * A failed abort discards nothing; the conversation stays with a `notice`.
+   * Resolves true when the conversation was discarded. Never throws.
+   */
+  public async resetConversation(): Promise<boolean> {
+    const key = this.workspaceKey();
+    const conversation = readAppsSlice(this._slices(), key).conversation;
+    const sessionId =
+      conversation === null ? null : this.sessionFor(conversation.surfaceId);
+    if (conversation !== null && sessionId !== null && this.isProcessing()) {
+      const failure = await abortAppsSession(this.rpc, sessionId);
+      if (failure !== null) {
+        console.warn(`${LOG_PREFIX} chat:abort failed; conversation kept`);
+        this.patchOwned(key, conversation.routingId, (slice) => ({
+          ...slice,
+          notice: `${APPS_RESET_KEPT_NOTICE} Reason: ${failure}`,
+        }));
+        return false;
       }
-      this.patchOwned(key, conversation.routingId, (slice) => ({
-        ...slice,
-        turnPending: false,
-      }));
       this.liveness.markIdle(
         sessionId,
         conversation.workspacePath ?? undefined,
       );
-    } catch (error: unknown) {
-      this.failTurn(
-        key,
-        conversation.routingId,
-        'chat:abort',
-        failureText(error, 'Failed to stop the agent.'),
-      );
+      const current = readAppsSlice(this._slices(), key);
+      if (!isAppsSliceOf(current, conversation.routingId)) return false;
     }
+    this.discardSlice(key);
+    return true;
   }
 
   /**
    * Tear down the active workspace's conversation and forget its state
-   * (Req 2.5). Does not abort a running agent; callers that mean to stop it
-   * call `abort()` first.
+   * (Req 2.5). Does not abort a running agent; "New conversation" goes
+   * through `resetConversation()`, which does.
    */
   public discard(): void {
-    try {
-      const key = this.workspaceKey();
-      if (!this._slices().has(key)) return;
-      this.teardown(readAppsSlice(this._slices(), key));
-      this.patch(key, () => createAppsWorkspaceSlice());
-    } catch (error: unknown) {
-      console.warn(
-        `${LOG_PREFIX} discard failed: ${failureText(error, 'unknown error')}`,
-      );
-    }
+    this.discardSlice(this.workspaceKey());
   }
 
   /** Remember focus only in the workspace currently shown by the page. */
@@ -394,6 +424,37 @@ export class AppsSessionService {
   public clearError(): void {
     this.patch(this.workspaceKey(), (slice) =>
       slice.error === null ? slice : { ...slice, error: null },
+    );
+  }
+
+  /** Dismiss the active slice's notice. */
+  public clearNotice(): void {
+    this.patch(this.workspaceKey(), (slice) =>
+      slice.notice === null ? slice : { ...slice, notice: null },
+    );
+  }
+
+  /**
+   * Store the renderer's emitted view state of `surfaceId` in the shown
+   * conversation, verbatim and synchronously: the renderer receives this
+   * exact object next, so a draft is never rolled back by an older state
+   * (the page holds no copy of its own; Req 2.4).
+   */
+  public setSurfaceViewState(
+    surfaceId: string,
+    viewState: SurfaceViewState,
+  ): void {
+    this.patchActiveSurfaces(
+      (surfaces) => setSurfaceViewState(surfaces, surfaceId, viewState),
+      'view state',
+    );
+  }
+
+  /** The user picked `surfaceId` in the surface switcher of the shown slice. */
+  public activateSurface(surfaceId: string): void {
+    this.patchActiveSurfaces(
+      (surfaces) => activateSurface(surfaces, surfaceId),
+      'active surface',
     );
   }
 
@@ -471,22 +532,16 @@ export class AppsSessionService {
       startAppsSlice(conversation, sync, { text: prompt, at: Date.now() }),
     );
     try {
-      this.inbox.claim(conversation.routingId, (raw) => sync.onPush(raw));
-      this.workflowClaims.claim(conversation.routingId, conversation.surfaceId);
-      this.surfaceRegistry.register(
-        conversation.surfaceId,
-        () => readAppsSlice(this._slices(), key).streamingState,
-        (next) =>
+      this.claims.claim(conversation, sync, {
+        read: () => readAppsSlice(this._slices(), key).streamingState,
+        write: (next) =>
           this.patchOwned(key, conversation.routingId, (slice) => ({
             ...slice,
             streamingState: next,
           })),
-        { interactive: true },
-      );
-      this.streamRouter.onSurfaceCreated(conversation.surfaceId);
+      });
     } catch (error: unknown) {
-      // Undo the partial claim so no half-started conversation stays held.
-      this.releaseConversation(conversation, sync);
+      // `claim` already undid its partial claim.
       this.patch(key, () => createAppsWorkspaceSlice());
       throw error;
     }
@@ -517,15 +572,8 @@ export class AppsSessionService {
     console.warn(
       `${LOG_PREFIX} start completed after ownership was released; aborting`,
     );
-    try {
-      const result = await this.rpc.call('chat:abort', { sessionId });
-      if (!result.success || result.data?.success === false) {
-        console.warn(`${LOG_PREFIX} unowned start abort failed`);
-      }
-    } catch (error: unknown) {
-      void error;
-      console.warn(`${LOG_PREFIX} unowned start abort transport failed`);
-    }
+    if ((await abortAppsSession(this.rpc, sessionId)) !== null)
+      console.warn(`${LOG_PREFIX} unowned start abort failed`);
   }
 
   private failTurn(
@@ -537,7 +585,7 @@ export class AppsSessionService {
     console.warn(`${LOG_PREFIX} ${method} failed`);
     this.patchOwned(key, routingId, (slice) => ({
       ...slice,
-      turnPending: false,
+      pendingTurn: null,
       error: message,
     }));
   }
@@ -545,31 +593,22 @@ export class AppsSessionService {
   /** Release the conversation (if any) held by `slice`. Never throws. */
   private teardown(slice: AppsWorkspaceSlice): void {
     if (slice.conversation !== null) {
-      this.releaseConversation(slice.conversation, slice.sync);
+      this.claims.release(slice.conversation, slice.sync);
     } else {
       slice.sync?.dispose();
     }
   }
 
-  private releaseConversation(
-    conversation: AppsConversation,
-    sync: AppsSurfaceSync | null,
-  ): void {
-    const steps: readonly (() => void)[] = [
-      () => this.inbox.release(conversation.routingId),
-      () => this.workflowClaims.release(conversation.routingId),
-      () => this.streamRouter.onSurfaceClosed(conversation.surfaceId),
-      () => sync?.dispose(),
-    ];
-    for (const step of steps) {
-      try {
-        step();
-      } catch (error: unknown) {
-        // One failing release must not keep the others from running.
-        console.warn(
-          `${LOG_PREFIX} release step failed: ${failureText(error, 'unknown error')}`,
-        );
-      }
+  /** Release `key`'s conversation and reset its slice to empty. */
+  private discardSlice(key: string): void {
+    try {
+      if (!this._slices().has(key)) return;
+      this.teardown(readAppsSlice(this._slices(), key));
+      this.patch(key, () => createAppsWorkspaceSlice());
+    } catch (error: unknown) {
+      console.warn(
+        `${LOG_PREFIX} discard failed: ${failureText(error, 'unknown error')}`,
+      );
     }
   }
 
@@ -600,6 +639,27 @@ export class AppsSessionService {
             : { ...slice, syncNotice: notice },
         ),
     };
+  }
+
+  /** Patch the surfaces of the shown conversation, if any. Never throws. */
+  private patchActiveSurfaces(
+    update: (surfaces: AppsSurfaceState) => AppsSurfaceState,
+    what: string,
+  ): void {
+    try {
+      const key = this.workspaceKey();
+      const routingId = readAppsSlice(this._slices(), key).conversation
+        ?.routingId;
+      if (routingId === undefined) return;
+      this.patchOwned(key, routingId, (slice) => {
+        const surfaces = update(slice.surfaces);
+        return surfaces === slice.surfaces ? slice : { ...slice, surfaces };
+      });
+    } catch (error: unknown) {
+      console.warn(
+        `${LOG_PREFIX} ${what} not stored: ${failureText(error, 'unknown error')}`,
+      );
+    }
   }
 
   private syncFor(routingId: string): AppsSurfaceSync | null {

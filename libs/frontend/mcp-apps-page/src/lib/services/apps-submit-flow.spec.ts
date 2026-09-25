@@ -206,6 +206,10 @@ describe('AppsSubmitFlow (through AppsSurfaceOperations)', () => {
 
   async function setUp(name: string): Promise<void> {
     await session.start('Build');
+    // The first turn ran and ended: liveness reports its session idle, which
+    // ends the start's pending turn (B15 fix M2), so submits are not held.
+    statuses.set(new Map([['session-1', 'idle']]));
+    TestBed.tick();
     routingId = session.routingId() as string;
     push(1, { kind: 'snapshot', state: view(1, name) });
   }
@@ -330,7 +334,7 @@ describe('AppsSubmitFlow (through AppsSurfaceOperations)', () => {
       expect(callsOf('surface:read')).toHaveLength(1);
       await answer(
         'surface:read',
-        new RpcResult(false, undefined, 'boom', 'INTERNAL_ERROR'),
+        new RpcResult(false, undefined, 'boom', 'PERSISTENCE_UNAVAILABLE'),
       );
 
       jest.advanceTimersByTime(1_000); // the flow's own grace tick
@@ -546,6 +550,21 @@ describe('AppsSubmitFlow (through AppsSurfaceOperations)', () => {
       await reply('surface:action', { status: 'not-found' });
       expect(action()?.status).toBe('not-found');
       expect(callsOf('surface:read')).toHaveLength(1);
+    });
+
+    it('stamps the Submitted bubble with the send time, not the late result time (codex S1)', async () => {
+      await submit();
+      const sentAt = Date.now();
+      expect(open('surface:action')).toBeDefined();
+      await jest.advanceTimersByTimeAsync(5_000);
+      await reply('surface:action', {
+        status: 'applied',
+        operationId: 'x',
+        surfaceState: { kind: 'not-recorded' },
+      });
+      expect(ops.submittedBubbles()).toEqual([
+        { text: 'Submitted: Send', at: sentAt },
+      ]);
     });
 
     it('never calls chat:continue', async () => {

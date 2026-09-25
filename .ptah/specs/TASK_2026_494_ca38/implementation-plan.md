@@ -663,6 +663,10 @@ shapes without `children` (`surface.types.ts:91-100`).
   - surface panel:
     - a `role="tablist"` of live surfaces by title text when more than one exists; the active one is the latest
       agent-created or agent-replaced surface unless the user picked another;
+      - Revision note (B15 fix-1, coordinator ruling 2026-09-25): this supersedes "an agent snapshot activates its
+        surface". A manual switcher pick sticks until that surface is removed or evicted. Agent updates to other
+        surfaces never steal focus. A newly created agent surface auto-activates only while the slice has no manual
+        pick. The pick lives in the slice or session, not the page, and no new UI is added.
     - accepted: `<ptah-surface-renderer>` bound to `renderable`, `viewState`, `interaction`, with outputs wired to
       `AppsSurfaceOperations`;
     - rejected: a `font-mono` block "This app could not be shown." plus the reason (Req 3.5);

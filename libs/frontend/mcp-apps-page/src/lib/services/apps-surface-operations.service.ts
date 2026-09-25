@@ -403,11 +403,11 @@ export class AppsSurfaceOperations {
         this.patchUi(routingId, surfaceId, (ui) =>
           ui.issues.size === 0 && issues.size === 0 ? ui : { ...ui, issues },
         ),
-      submitted: (text) =>
+      submitted: (text, sentAt) =>
         this._submitted.update((all) =>
           new Map(all).set(routingId, [
             ...(all.get(routingId) ?? []),
-            { text, at: Date.now() },
+            { text, at: sentAt },
           ]),
         ),
       submitEnded: () => lanes.pumpAll(),

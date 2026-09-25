@@ -53,6 +53,12 @@ export interface AppsSurfaceState {
   /** Deleted surface id → the highest revision it may no longer be revived at. */
   readonly tombstones: ReadonlyMap<string, number>;
   readonly activeSurfaceId: string | null;
+  /**
+   * The surface the user picked in the switcher, or null when the user has
+   * made no pick (or the picked surface is gone). While set, it stays the
+   * active surface: agent writes never move the selection away from it.
+   */
+  readonly pickedSurfaceId: string | null;
   /** Slice-local counter; increments on every applied push or read. */
   readonly seq: number;
   readonly notice: AppsSurfaceNotice | null;
@@ -99,6 +105,7 @@ export function createAppsSurfaceState(): AppsSurfaceState {
     entries: new Map(),
     tombstones: new Map(),
     activeSurfaceId: null,
+    pickedSurfaceId: null,
     seq: 0,
     notice: null,
   };
@@ -165,6 +172,14 @@ function keepActive(
     : mostRecentSurfaceId(entries);
 }
 
+/** The user's pick while its surface is still held; otherwise null. */
+function keepPicked(
+  picked: string | null,
+  entries: ReadonlyMap<string, AppsSurfaceEntry>,
+): string | null {
+  return picked !== null && entries.has(picked) ? picked : null;
+}
+
 function clearNoticeFor(
   notice: AppsSurfaceNotice | null,
   surfaceId: string,
@@ -207,14 +222,20 @@ function applySnapshot(
   });
   const tombstones = new Map(state.tombstones);
   tombstones.delete(surfaceId);
+  // Only a surface the agent newly creates may take the selection, and only
+  // while the user has picked none; an agent update to a held surface never
+  // moves it (coordinator ruling, TASK_2026_494 B15).
   const activeSurfaceId =
-    payload.origin === 'agent'
+    payload.origin === 'agent' &&
+    existing === undefined &&
+    state.pickedSurfaceId === null
       ? surfaceId
       : keepActive(state.activeSurfaceId, entries);
   const next: AppsSurfaceState = {
     entries,
     tombstones,
     activeSurfaceId,
+    pickedSurfaceId: state.pickedSurfaceId,
     seq,
     notice: clearNoticeFor(state.notice, surfaceId),
   };
@@ -305,6 +326,7 @@ function applyDelete(
       entries,
       tombstones,
       activeSurfaceId: keepActive(state.activeSurfaceId, entries),
+      pickedSurfaceId: keepPicked(state.pickedSurfaceId, entries),
       seq: state.seq + 1,
       notice,
     },
@@ -439,11 +461,48 @@ export function applySurfaceRead(
       entries,
       tombstones,
       activeSurfaceId: keepActive(state.activeSurfaceId, entries),
+      pickedSurfaceId: keepPicked(state.pickedSurfaceId, entries),
       seq,
       notice,
     },
     'applied',
   );
+}
+
+/**
+ * Stores the renderer's emitted view state of one held surface VERBATIM (the
+ * same object), so the next `viewState` the renderer receives is the one it
+ * emitted and never an older one (B8 carry-over). Presentation state only:
+ * no seq, revision or overlay moves. An unknown surface id changes nothing.
+ */
+export function setSurfaceViewState(
+  state: AppsSurfaceState,
+  surfaceId: string,
+  viewState: SurfaceViewState,
+): AppsSurfaceState {
+  const existing = state.entries.get(surfaceId);
+  if (existing === undefined || existing.viewState === viewState) return state;
+  const entries = new Map(state.entries);
+  entries.set(surfaceId, { ...existing, viewState });
+  return { ...state, entries };
+}
+
+/**
+ * The user picked `surfaceId` in the switcher. The pick sticks until that
+ * surface is removed or evicted: agent updates to other surfaces and newly
+ * created agent surfaces leave it active. An id the page does not hold
+ * changes nothing.
+ */
+export function activateSurface(
+  state: AppsSurfaceState,
+  surfaceId: string,
+): AppsSurfaceState {
+  if (
+    !state.entries.has(surfaceId) ||
+    (state.activeSurfaceId === surfaceId && state.pickedSurfaceId === surfaceId)
+  )
+    return state;
+  return { ...state, activeSurfaceId: surfaceId, pickedSurfaceId: surfaceId };
 }
 
 /**

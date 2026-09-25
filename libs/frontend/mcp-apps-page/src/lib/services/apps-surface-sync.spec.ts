@@ -316,7 +316,7 @@ describe('AppsSurfaceSync', () => {
 
       sync.requestRead('needs-read');
       pending[0].resolve(
-        new RpcResult(false, undefined, 'boom', 'INTERNAL_ERROR'),
+        new RpcResult(false, undefined, 'boom', 'PERSISTENCE_UNAVAILABLE'),
       );
       await flush();
 

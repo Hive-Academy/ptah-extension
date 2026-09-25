@@ -114,9 +114,17 @@ describe('SurfaceLayoutComponent', () => {
     button().click();
     expect(host.invoked).toHaveLength(1);
 
+    host.states.set(new Map([['send', { status: 'applied' }]])); rerender();
+    expect(status().textContent).toBe('Sent');
+    expect(status().classList.contains('text-success')).toBe(true);
+    expect(status().classList.contains('text-base-content')).toBe(false);
+
     host.states.set(new Map([['send', { status: 'rejected', reason: 'busy' }]])); rerender();
     expect(button().disabled).toBe(false);
     expect(status().textContent).toBe('The agent is busy; try again when it finishes.');
+    // A rejection is never colored text (prototype proposal b).
+    expect(status().classList.contains('text-base-content')).toBe(true);
+    expect(status().classList.contains('text-success')).toBe(false);
     host.states.set(new Map([['send', { status: 'rejected', reason: 'invalid-value', detail: markup }]])); rerender();
     expect(status().textContent).toBe(markup);
 

@@ -63,7 +63,9 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
           <button type="button" class="btn btn-primary btn-sm" [disabled]="isSubmitDisabled(action)"
             [attr.aria-describedby]="statusId($index)" [attr.data-apps-focus-key]="focusKey('action-' + action.id)"
             (click)="invoke(action)">{{ action.label.text }}</button>
-          <span [id]="statusId($index)" role="status" class="text-xs text-base-content">{{ statusText(action) }}</span>
+          <!-- Only "Sent" carries color (prototype); every other state stays base-content text. -->
+          <span [id]="statusId($index)" role="status" class="text-xs"
+            [class.text-success]="isSent(action)" [class.text-base-content]="!isSent(action)">{{ statusText(action) }}</span>
         </div>
       }
     </ng-template>
@@ -135,6 +137,7 @@ export class SurfaceLayoutComponent {
   public focusKey(control: string): string { return `${this.surfaceId()}:${this.node().id}:${control}`; }
   public statusId(index: number): string { return `${this.instanceId}-status-${index}`; }
   public statusText(action: SurfaceAction): string { return submitStatusText(this.actionStates().get(action.id)); }
+  public isSent(action: SurfaceAction): boolean { return this.actionStates().get(action.id)?.status === 'applied'; }
   public isSubmitDisabled(action: SurfaceAction): boolean {
     return this.submitDisabled() || this.actionStates().get(action.id)?.status === 'pending';
   }

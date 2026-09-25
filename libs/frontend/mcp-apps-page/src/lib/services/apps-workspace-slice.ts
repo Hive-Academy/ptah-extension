@@ -1,4 +1,4 @@
-import type { SurfaceId } from '@ptah-extension/chat-state';
+import type { LivenessStatus, SurfaceId } from '@ptah-extension/chat-state';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { createAppsSurfaceState } from '../state/apps-surface-reducer';
@@ -37,6 +37,17 @@ export interface AppsUserBubble {
   readonly at: number;
 }
 
+/**
+ * A turn the page sent (a start or a continue) that session liveness has not
+ * reported yet. It keeps the page busy until the liveness status of the
+ * conversation's session differs from `livenessAtSend`, the status it had
+ * when the turn was sent (the turn started, or already ended); from then on
+ * the liveness status alone decides.
+ */
+export interface AppsPendingTurn {
+  readonly livenessAtSend: LivenessStatus | undefined;
+}
+
 export interface AppsWorkspaceSlice {
   readonly lastFocusKey: string | null;
   /** Null until `start()`; cleared by `discard()` and a failed start. */
@@ -46,8 +57,8 @@ export interface AppsWorkspaceSlice {
    * Released (`dispose()`) whenever the conversation goes away.
    */
   readonly sync: AppsSurfaceSync | null;
-  /** A turn was sent and no session liveness has been reported yet. */
-  readonly turnPending: boolean;
+  /** The sent turn liveness has not reported yet; else null. */
+  readonly pendingTurn: AppsPendingTurn | null;
   readonly userBubbles: readonly AppsUserBubble[];
   /** Streaming state slot the surface adapter reads and writes. */
   readonly streamingState: StreamingState;
@@ -57,6 +68,11 @@ export interface AppsWorkspaceSlice {
   readonly syncNotice: string | null;
   /** Last user-visible conversation failure; else null. */
   readonly error: string | null;
+  /**
+   * A `role="status"` line about the conversation that is not a failure of
+   * the last turn (a "New conversation" that kept this one); else null.
+   */
+  readonly notice: string | null;
 }
 
 export function createAppsWorkspaceSlice(): AppsWorkspaceSlice {
@@ -64,12 +80,13 @@ export function createAppsWorkspaceSlice(): AppsWorkspaceSlice {
     lastFocusKey: null,
     conversation: null,
     sync: null,
-    turnPending: false,
+    pendingTurn: null,
     userBubbles: [],
     streamingState: createEmptyStreamingState(),
     surfaces: createAppsSurfaceState(),
     syncNotice: null,
     error: null,
+    notice: null,
   };
 }
 
@@ -166,7 +183,8 @@ export function startAppsSlice(
     ...createAppsWorkspaceSlice(),
     conversation,
     sync,
-    turnPending: true,
+    // A brand-new session has no liveness status yet.
+    pendingTurn: { livenessAtSend: undefined },
     userBubbles: [bubble],
   };
 }

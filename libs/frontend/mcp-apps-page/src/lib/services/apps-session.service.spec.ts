@@ -129,6 +129,7 @@ describe('AppsSessionService', () => {
   let warn: jest.SpyInstance;
   let sessionResolved: boolean;
   let markIdle: jest.Mock;
+  let statuses: ReturnType<typeof signal<ReadonlyMap<string, string>>>;
 
   function push(payload: unknown): void {
     inbox.handleMessage({ type: MESSAGE_TYPES.SURFACE_UPDATED, payload });
@@ -148,6 +149,7 @@ describe('AppsSessionService', () => {
     chatStartResult = { success: true };
     sessionResolved = false;
     markIdle = jest.fn();
+    statuses = signal<ReadonlyMap<string, string>>(new Map());
     warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     rpc = createMockRpcService();
     (rpc.call as jest.Mock).mockImplementation(
@@ -210,7 +212,7 @@ describe('AppsSessionService', () => {
         {
           provide: SessionLivenessRegistry,
           useValue: {
-            statuses: signal(new Map()),
+            statuses,
             markIdle: (...args: unknown[]) => markIdle(...args),
           },
         },
@@ -775,6 +777,54 @@ describe('AppsSessionService', () => {
       expect(service.error()).toBe('Agent busy.');
       expect(service.isActive()).toBe(true);
       expect(inbox.isClaimed(service.routingId() as string)).toBe(true);
+    });
+
+    describe('pending turn (M2)', () => {
+      const report = (status: string) => {
+        statuses.set(new Map([['session-1', status]]));
+        TestBed.tick();
+      };
+
+      it('a continue stays processing after its session id resolved until liveness reports the turn', async () => {
+        await service.start('Build');
+        sessionResolved = true;
+        report('idle'); // the first turn ended
+        expect(service.isProcessing()).toBe(false);
+
+        await service.send('More');
+        // chat:continue resolved and the session id is known; liveness still
+        // shows the status it had at the send.
+        expect(callsOf('chat:continue')).toHaveLength(1);
+        expect(service.isProcessing()).toBe(true);
+
+        report('streaming');
+        expect(service.isProcessing()).toBe(true);
+        report('idle');
+        expect(service.isProcessing()).toBe(false);
+      });
+
+      it('the first turn stays processing when the session id resolves before liveness reports it', async () => {
+        await service.start('Build');
+        sessionResolved = true;
+        TestBed.tick();
+        expect(service.isProcessing()).toBe(true);
+
+        report('streaming');
+        report('idle');
+        expect(service.isProcessing()).toBe(false);
+      });
+
+      it('a successful abort ends the pending turn', async () => {
+        await service.start('Build');
+        sessionResolved = true;
+        report('idle');
+        await service.send('More');
+        expect(service.isProcessing()).toBe(true);
+
+        await service.abort();
+        expect(service.isProcessing()).toBe(false);
+        expect(markIdle).toHaveBeenCalledWith('session-1', '/ws-a');
+      });
     });
 
     it('send() before the session resolves reports an error and sends nothing', async () => {

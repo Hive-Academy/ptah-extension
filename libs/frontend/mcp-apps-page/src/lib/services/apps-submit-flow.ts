@@ -90,8 +90,12 @@ export interface AppsSubmitHost {
     surfaceId: string,
     issues: ReadonlyMap<string, readonly string[]>,
   ): void;
-  /** A host-started turn: the transcript shows "Submitted: {label}". */
-  submitted(text: string): void;
+  /**
+   * A host-started turn: the transcript shows "Submitted: {label}", stamped
+   * with `sentAt`, the time `surface:action` was SENT, so the bubble sorts
+   * before the reply it caused however late the result or the poll lands.
+   */
+  submitted(text: string, sentAt: number): void;
   /** The submit ended: mutations held behind it may send now. */
   submitEnded(): void;
 }
@@ -584,7 +588,7 @@ export class AppsSubmitFlow {
         if (outcome.revision !== null)
           this.host.expectRevision(active.surfaceId, outcome.revision);
         // The host started the turn, not `chat:continue`.
-        this.host.submitted(`Submitted: ${active.label}`);
+        this.host.submitted(`Submitted: ${active.label}`, active.sentAt);
         this.finish(
           outcome.kind === 'applied'
             ? { status: 'applied', detail: APPS_SUBMIT_TEXT.sent }

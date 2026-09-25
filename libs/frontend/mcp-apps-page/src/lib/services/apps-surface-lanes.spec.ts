@@ -146,7 +146,7 @@ describe('AppsSurfaceLanes', () => {
   const applied = (revision: number) =>
     reply('surface:change', { status: 'applied', operationId: 'x', revision });
   const readFails = () =>
-    answer('surface:read', failure('Read failed.', 'INTERNAL_ERROR'));
+    answer('surface:read', failure('Read failed.', 'PERSISTENCE_UNAVAILABLE'));
 
   function push(
     revision: number,

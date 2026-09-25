@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, input, output, viewChild } from '@angular/core';
 import type { SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { chartGeometry, type ChartPoint } from '../charts/chart-geometry';
 import type { SurfaceComponentViewState } from '../surface-view-state';
@@ -16,18 +16,28 @@ const SERIES_FILLS = ['fill-primary', 'fill-secondary', 'fill-accent', 'fill-inf
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="card card-bordered bg-base-100 p-4 text-base-content">
+    <section class="card card-bordered bg-base-100 p-4 text-base-content" (keydown.escape)="collapse($event)">
       <h3 class="font-semibold">{{ node().title?.text ?? 'Chart' }}</h3>
       @if (node().description; as description) { <p>{{ description.text }}</p> }
       @if (node().data; as data) {
         <p role="status">Data is not available in this view.@if (data.rowCount !== undefined) { {{ data.rowCount }} rows. }</p>
       } @else {
-        <button type="button" class="btn btn-ghost btn-sm" [attr.aria-pressed]="!!viewState().chartAsTable"
-          [attr.data-apps-focus-key]="focusKey('table')" (click)="toggleTable()">
-          {{ viewState().chartAsTable ? 'Show as chart' : 'Show as table' }}
-        </button>
+        <div class="flex flex-wrap items-center gap-1">
+          <button type="button" class="btn btn-ghost btn-sm" [attr.aria-pressed]="!!viewState().chartAsTable"
+            [attr.data-apps-focus-key]="focusKey('table')" (click)="toggleTable()">
+            {{ viewState().chartAsTable ? 'Show as chart' : 'Show as table' }}
+          </button>
+          <!-- Client-only presentation toggle: it writes view state and never reaches the host. -->
+          <button #expandButton type="button" class="btn btn-ghost btn-sm"
+            [attr.aria-label]="(viewState().expanded ? 'Collapse ' : 'Expand ') + (node().title?.text ?? 'Chart')"
+            [attr.aria-expanded]="!!viewState().expanded" [attr.aria-controls]="contentId"
+            [attr.data-apps-focus-key]="focusKey('expand')" (click)="toggleExpanded()">
+            {{ viewState().expanded ? 'Collapse' : 'Expand' }}
+          </button>
+        </div>
+        <div [id]="contentId" class="flex flex-col gap-2">
         @if (viewState().chartAsTable) {
-          <div class="overflow-auto">
+          <div class="overflow-auto" [class.max-h-96]="!viewState().expanded">
             <table class="table table-sm">
               <caption>{{ node().title?.text ?? 'Chart data' }}</caption>
               <thead><tr><th scope="col">Series</th><th scope="col">{{ node().xLabel?.text ?? 'X' }}</th>
@@ -59,7 +69,8 @@ const SERIES_FILLS = ['fill-primary', 'fill-secondary', 'fill-accent', 'fill-inf
             </div>
           }
         } @else {
-          <svg viewBox="0 0 600 280" role="img" [attr.aria-label]="node().title?.text ?? 'Chart'" class="w-full">
+          <svg viewBox="0 0 600 280" role="img" [attr.aria-label]="node().title?.text ?? 'Chart'" class="w-full"
+            [class.max-h-64]="!viewState().expanded">
             <svg:title>{{ node().title?.text ?? 'Chart' }}</svg:title>
             <svg:desc>Use Show as table to read every point{{ node().selectable ? ' and select a point' : '' }}.</svg:desc>
             @if (node().kind === 'bar-chart') {
@@ -114,6 +125,7 @@ const SERIES_FILLS = ['fill-primary', 'fill-secondary', 'fill-accent', 'fill-inf
             }
           </ul>
         }
+        </div>
       }
     </section>
   `,
@@ -128,6 +140,8 @@ export class DashboardChartComponent {
   public readonly selectionChange = output<SurfaceSelection>();
   public readonly geometry = computed(() => chartGeometry(this.node().series ?? [], this.node().kind));
   public readonly page = computed(() => pageSlice(this.geometry().rows, this.viewState().page));
+  public readonly contentId = `ptah-chart-${this.instanceId}-content`;
+  private readonly expandButton = viewChild<ElementRef<HTMLButtonElement>>('expandButton');
 
   public seriesStroke(index: number): string { return SERIES_STROKES[index % SERIES_STROKES.length]; }
   public patternId(index: number): string { return `ptah-chart-${this.instanceId}-hatch-${index}`; }
@@ -141,6 +155,14 @@ export class DashboardChartComponent {
     this.viewStateChange.emit({ ...this.viewState(), chartAsTable: !this.viewState().chartAsTable });
   }
   public setPage(page: number): void { this.viewStateChange.emit({ ...this.viewState(), page }); }
+  public toggleExpanded(): void { this.viewStateChange.emit({ ...this.viewState(), expanded: !this.viewState().expanded }); }
+  /** Escape closes an expanded chart and returns focus to the control that opened it. */
+  public collapse(event: Event): void {
+    if (!this.viewState().expanded) return;
+    event.stopPropagation();
+    this.viewStateChange.emit({ ...this.viewState(), expanded: false });
+    this.expandButton()?.nativeElement.focus();
+  }
   public isSelected(point: ChartPoint): boolean {
     const selection = this.selection();
     return selection?.componentId === this.node().id && selection.target.kind === 'chart-point'

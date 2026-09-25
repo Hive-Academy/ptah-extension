@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 15/20
+Total tasks: 20 | Batches: 20 | Complete: 16/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -486,7 +486,7 @@ Edge cases:
 - Process note: the codex lane wrote over the committed B3 `code-logic-review.md`. The coordinator restored that file and
   moved the review. From now on, every lane prompt names its exact output file and forbids writing `code-logic-review.md`.
 
-## Batch 9: Budget confirmation — COMPLETE
+## Batch 9: Budget confirmation — COMPLETE (commit 37822b07f)
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -732,11 +732,15 @@ Edge cases:
    is attributed by file ownership. B16's `@ptah-extension/core` tests also cover B20's service change.
 3. B17 depends on B16 (D-2).
 4. B19 depends on B1-B18 and runs last.
-5. The R10 visual review (dark and light, against `prototype/`) runs after B17.
+5. The R10 visual review (dark and light, against `prototype/`) runs after B17. Its checklist gathers these items:
+   - B5: stat density and delta phrasing (see B5).
+   - B6: the "Sent" status colour (B15 made it green, per the prototype).
+   - B15 round 2: switching between two failed surfaces never flashes, and the new notice and error blocks read
+     clearly together.
 
 B15 and B20 are built against the approved prototype.
 
-## Batch 15: Apps page components and public API — IN_PROGRESS
+## Batch 15: Apps page components and public API — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -744,7 +748,7 @@ B15 and B20 are built against the approved prototype.
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 8, 13, 14
 
-### Task 15.1: `AppsPageComponent`, `AppsTranscriptComponent`, `AppsSurfacePanelComponent`, `src/index.ts` — IN_PROGRESS
+### Task 15.1: `AppsPageComponent`, `AppsTranscriptComponent`, `AppsSurfacePanelComponent`, `src/index.ts` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/components/`: `apps-page.component.ts` (+ spec),
   `apps-transcript.component.ts`, `apps-surface-panel.component.ts` (+ spec); MODIFY
@@ -790,8 +794,74 @@ B15 and B20 are built against the approved prototype.
   (re-runs `trust-boundary.spec.ts` against the now-populated Apps lib, R6)
 - `npx tsc -p libs/frontend/mcp-apps-page/tsconfig.spec.json --noEmit` and
   `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit`
+- mcp-apps-page spec tsc BASELINE (coordinator ruling, 2026-09-25). These 8 pre-existing TS2352 errors come in
+  transitively and are out of scope for this task:
+  - `libs/frontend/core/src/testing/mock-rpc-service.ts:54,60,66,69`
+  - `libs/frontend/git-ui/src/lib/services/monaco-loader.service.ts:113,151,171,187`
 
-## Batch 20: Apps page splitter (user addition 2026-09-25) — PENDING
+  From now on the gate for this lib is "no new errors beyond these 8", not exit 0. Our own 4 errors must be fixed
+  before B15 commits:
+  - `apps-submit-flow.spec.ts:333`, `apps-surface-lanes.spec.ts:149` and `apps-surface-sync.spec.ts:319`
+    (`'INTERNAL_ERROR'` is not an `RpcUserErrorCode`)
+  - `apps-surface-reducer.spec.ts:229` (`.surface` on `SurfaceContent`)
+
+  The fix goes in the review fix round, or in a bounded test-only fix before commit.
+- Result:
+  - The team-leader re-ran it with `--skip-nx-cache`: 2 projects green, and the declarative-dashboard spec tsc
+    exits 0.
+  - mcp-apps-page spec tsc shows the 8 baseline errors plus the 4 above.
+- Coordinator rulings on batch-15-report.md:
+  - Out-of-scope edits are ACCEPTED:
+    - `setSurfaceViewState` and `activateSurface` in the reducer and the session;
+    - chart Expand/Collapse, client-only, with Escape;
+    - green "Sent" in surface-layout, per the prototype.
+  - Eviction notice: only the latest is shown.
+  - The composer draft is kept on a failed send, but not across tab switches.
+  - Reviewers must check the side effect: reconcile in the operations service now re-runs on every keystroke. It
+    must send nothing and must not fight the lanes, overlays or echo wait.
+- Round 1:
+  - code-logic-reviewer: NEEDS_REVISION 7/10, with 0 blocking and 2 moderate findings (code-logic-review-batch-15.md).
+    - All 9 focus items pass. Markdown reaches the DOM only through the markdown lib's `SurfaceMarkdownPipe` and
+      `<markdown>`.
+    - M1: `failedRenderable` is not per surface. Switching back to a failed surface remounts the renderer and builds
+      again.
+    - M2: `isProcessing()` ignores `slice.turnPending` after the session id resolves. This leaves a double-send
+      window on the second turn.
+  - codex: NEEDS_REVISION 5/10 (code-logic-review-batch-15-codex.md), with 1 blocking, 2 serious and 1 moderate
+    finding:
+    - B1 (blocking): "new conversation" awaits abort, then discards whichever workspace is active by then. It also
+      discards after a failed abort.
+    - S1 (serious): a submitted bubble is stamped when its result arrives, so it can sort after its own response.
+    - S2 (serious): agent snapshots override the surface the user picked in the switcher.
+    - M (moderate): a `lastSubmit` time that is out of range renders "NaN:NaN".
+- PLAN DEVIATION (coordinator ruling, 2026-09-25). This supersedes the plan wording "agent snapshot activates its
+  surface":
+  - A manual pick in the switcher sticks until that surface is removed or evicted.
+  - Agent updates to other surfaces never steal focus.
+  - A surface the agent newly creates may auto-activate only if the user has made no manual pick in this slice.
+  - No new UI is added.
+- Fix round 1 (batch-15-fix-1-report.md):
+  - Team-leader re-run: 2 projects green. The mcp-apps-page spec tsc shows exactly the 8 baseline errors. The
+    declarative-dashboard spec tsc exits 0.
+  - Nothing is staged. The 4 committed files that prettier touched show no diff.
+  - Executor counts: 259 tests (mcp-apps-page) and 214 (declarative-dashboard). Red/green evidence is recorded for
+    B1, S1, S2, M1 and M2.
+  - Coordinator rulings, all ACCEPTED:
+    - S2 changed a panel assertion. `implementation-plan.md` now has a revision note at the switcher paragraph.
+    - Codex's "real user echo" test was not written; chat-streaming already pins that path.
+    - The new files `apps-conversation-claims.ts`, `apps-session-rpc.ts` and `apps-transcript-order.ts` are
+      accepted. The reviewers must confirm the extraction is behaviour-preserving.
+  - KNOWN LIMIT (M2): if liveness goes idle -> streaming -> idle before the page observes it, "processing" stays on
+    until the user presses Stop. Stop is the recovery.
+- Round 2 (the last): the code-logic-reviewer subagent, plus codex resumed on its round-1 session.
+  - code-logic-reviewer: APPROVED 9/10 (code-logic-review-batch-15-round-2.md). It re-verified all 9 round-1 items,
+    found nothing new, and the 8-error baseline holds.
+  - codex: APPROVED 8/10, no new findings (code-logic-review-batch-15-round-2-codex.md). It independently checked
+    259 Apps tests, 22 trust-boundary tests and the 8-error baseline.
+- Final: B15 ACCEPTED. It covers M1 and M2 with specs, the 4 errors in our own specs (spec tsc must then show
+  exactly the 8 baseline errors), and every codex finding.
+
+## Batch 20: Apps page splitter (user addition 2026-09-25) — IN_PROGRESS
 
 Runs right after Batch 15 (numbered 20 so existing batch numbers stay stable). B16-B19 do not depend on it; B19's
 lazy-load gate and Mode 3 visual evidence must include it.
@@ -803,7 +873,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: touches a shared core service's persisted state plus the page; write-path correctness needs one hand.
 - Tasks: 1 | Depends on: Batch 15
 
-### Task 20.1: Resizable split between conversation column and surface panel — PENDING
+### Task 20.1: Resizable split between conversation column and surface panel — IN_PROGRESS
 
 - Files (4, 2 libs): MODIFY `.../libs/frontend/core/src/lib/services/electron-layout.service.ts` (+ its existing
   `.spec.ts`); MODIFY `.../libs/frontend/mcp-apps-page/src/lib/components/apps-page.component.ts` (+ `.spec.ts`)
@@ -833,11 +903,14 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Implementation details: page binds the handle's width output to `layout.setAppsSplitWidth(width - left)` and its
   drag-end to the commit; CSS grid column uses the service signal.
 
+- B15 note: `apps-page.component.spec.ts` is at 693 lines. Put the splitter specs in their own spec file
+  (e.g. `apps-page-splitter.spec.ts`). Use the splitter slot named in batch-15-report.md.
+
 ### Batch 20 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core @ptah-extension/mcp-apps-page`
 
-## Batch 16: Surface id, route and Electron-only guard — PENDING
+## Batch 16: Surface id, route and Electron-only guard — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -846,7 +919,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: restructures existing routing specs (D-1) without weakening them; resolves A1.
 - Tasks: 1 | Depends on: Batch 15
 
-### Task 16.1: `'apps'` id, `apps` route, `electronOnlySurface` guard, routing specs — PENDING
+### Task 16.1: `'apps'` id, `apps` route, `electronOnlySurface` guard, routing specs — IN_PROGRESS
 
 - Files (5): MODIFY `.../libs/shared/src/lib/types/webview-surface.types.ts`,
   `.../libs/shared/src/lib/types/webview-surface.types.spec.ts`,

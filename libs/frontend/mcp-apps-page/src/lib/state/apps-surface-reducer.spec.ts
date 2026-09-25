@@ -10,6 +10,7 @@ import type {
 import { makeTable } from '@ptah-extension/shared/testing';
 import {
   APPS_EVICTED_NOTICE,
+  activateSurface,
   applySurfacePush,
   applySurfaceRead,
   createAppsSurfaceState,
@@ -29,11 +30,17 @@ const nameInput: SurfaceComponent = {
   path: 'form.name',
 };
 
+/** The v2 member of the content union: every fixture here is a v2 document. */
+type SurfaceContentV2 = Extract<
+  SurfaceContent,
+  { contract: 'dashboard-spec/2' }
+>;
+
 function content(
   name = 'Ada',
   title = 'Profile',
   surfaceId = 'profile',
-): SurfaceContent {
+): SurfaceContentV2 {
   const dataModel: SurfaceDataModel = { form: { name } };
   return {
     contract: 'dashboard-spec/2',
@@ -253,6 +260,93 @@ describe('apps-surface-reducer', () => {
         state,
         outcome: 'malformed',
         needsRead: false,
+      });
+    });
+  });
+
+  describe('manual pick (B15 coordinator ruling)', () => {
+    it('a pick records pickedSurfaceId; an unknown id changes nothing', () => {
+      const state = build(snapshot('a', 1), snapshot('b', 1));
+      expect(state.pickedSurfaceId).toBeNull();
+      const picked = activateSurface(state, 'a');
+      expect(picked).toMatchObject({
+        activeSurfaceId: 'a',
+        pickedSurfaceId: 'a',
+      });
+      expect(activateSurface(picked, 'a')).toBe(picked);
+      expect(activateSurface(picked, 'zzz')).toBe(picked);
+      // Picking the surface that is already active still pins it.
+      expect(activateSurface(state, 'b').pickedSurfaceId).toBe('b');
+    });
+
+    it('agent updates and new agent surfaces never move a pick', () => {
+      const picked = activateSurface(
+        build(snapshot('a', 1), snapshot('b', 1)),
+        'a',
+      );
+      const updated = applySurfacePush(picked, snapshot('b', 2)).state;
+      expect(updated.activeSurfaceId).toBe('a');
+      const created = applySurfacePush(updated, snapshot('c', 1)).state;
+      expect(created).toMatchObject({
+        activeSurfaceId: 'a',
+        pickedSurfaceId: 'a',
+      });
+    });
+
+    it('without a pick, a new agent surface activates and an agent update to a held one does not', () => {
+      const state = build(snapshot('a', 1), snapshot('b', 1));
+      expect(state.activeSurfaceId).toBe('b');
+      const updated = applySurfacePush(state, snapshot('a', 2)).state;
+      expect(updated.activeSurfaceId).toBe('b');
+      expect(
+        applySurfacePush(updated, snapshot('c', 1)).state.activeSurfaceId,
+      ).toBe('c');
+    });
+
+    it('an eviction or agent delete of the picked surface clears the pick and falls back to the most recent', () => {
+      const picked = activateSurface(
+        build(snapshot('a', 1), snapshot('b', 1), snapshot('c', 1)),
+        'a',
+      );
+      for (const reason of ['evicted', 'agent-deleted'] as const) {
+        const removed = applySurfacePush(
+          picked,
+          deletedPush('a', 2, reason),
+        ).state;
+        expect(removed).toMatchObject({
+          activeSurfaceId: 'c',
+          pickedSurfaceId: null,
+        });
+      }
+      // Removing another surface keeps the pick.
+      expect(
+        applySurfacePush(picked, deletedPush('b', 2, 'evicted')).state,
+      ).toMatchObject({ activeSurfaceId: 'a', pickedSurfaceId: 'a' });
+    });
+
+    it('a read that drops the picked surface clears the pick; one that keeps it keeps it', () => {
+      const picked = activateSurface(
+        build(snapshot('a', 1), snapshot('b', 2)),
+        'a',
+      );
+      const readSeq = surfaceReadSeq(picked);
+      const dropped = applySurfaceRead(
+        picked,
+        found(stateView('b', 2)),
+        readSeq,
+      ).state;
+      expect(dropped).toMatchObject({
+        activeSurfaceId: 'b',
+        pickedSurfaceId: null,
+      });
+      const kept = applySurfaceRead(
+        picked,
+        found(stateView('a', 1), stateView('b', 3)),
+        readSeq,
+      ).state;
+      expect(kept).toMatchObject({
+        activeSurfaceId: 'a',
+        pickedSurfaceId: 'a',
       });
     });
   });
