@@ -123,3 +123,14 @@ Mode: enabled
 - Follow-up addendum (spec tsc): @ptah-extension/chat has 249 pre-existing spec-tsc errors (none in electron-shell files); B17's gate is no new errors in its files.
 - 2026-09-26: B16 committed 268035a63. B20 APPROVED (antigravity 8/10 r1, code-logic-reviewer 9/10 r2); committed. B17 in progress (approved config-gate edit).
 - 2026-09-26: B20 committed 6da0c30a2. B17 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B19 IN_PROGRESS. R10 visual review will be run by the coordinator via the webview e2e harness.
+- Cleanup before the worktree is removed (B19; kept per the coordinator's ruling, because the visual-review build needs them):
+  - The B19 executor created Windows junctions under the gitignored node_modules of the feat-task-494 worktree.
+  - Remove each junction link on its own, using the cmd rmdir built-in on that one path. Do not pass the recursive flag, and never delete recursively.
+  - Afterwards, confirm that each target still exists.
+  - Junctions and their targets:
+    - node_modules\better-sqlite3 -> D:\projects\ptah-extension\node_modules\better-sqlite3
+    - node_modules\daisyui -> D:\projects\ptah-extension\node_modules\daisyui
+    - node_modules\electron -> D:\projects\ptah-extension\node_modules\electron
+    - node_modules\monaco-editor -> D:\projects\ptah-extension\node_modules\monaco-editor
+    - node_modules\prismjs -> D:\projects\ptah-extension\node_modules\prismjs
+- 2026-09-26: B17 committed 9cc979b06. B19 ACCEPTED after round 2 + bounded one-word fix (9.1/R8/9.3 PASS, 9.2 open manual QA); committed. All 20 batches committed.

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 19/20
+Total tasks: 20 | Batches: 20 | Complete: 20/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -1048,7 +1048,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
     clicked before the flag is known.
   - B17 only needs its navigation specs to set `isElectron=true`, as already noted.
 
-## Batch 17: Electron shell Apps tab — COMPLETE
+## Batch 17: Electron shell Apps tab — COMPLETE (commit 9cc979b06)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -1133,7 +1133,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
   (code-logic-review-batch-18.md).
 - Minor coverage gap (non-blocking): a second re-attachment of targets on the same id is not pinned.
 
-## Batch 19: Lazy-load gate — IN_PROGRESS
+## Batch 19: Lazy-load gate — COMPLETE
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -1141,7 +1141,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 1-18
 
-### Task 19.1: `lazy-load-gate.md` — IN_PROGRESS
+### Task 19.1: `lazy-load-gate.md` — COMPLETE
 
 - Files (1): CREATE `.../.ptah/specs/TASK_2026_494_ca38/lazy-load-gate.md`
 - Plan reference: implementation-plan.md:278-302 (D7)
@@ -1159,13 +1159,57 @@ lazy-load gate and Mode 3 visual evidence must include it.
   `apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts`
   (`npx nx run-many -t test -p ptah-electron ptah-extension-webview`)
 - `npx tsc -p libs/frontend/mcp-apps-page/tsconfig.spec.json --noEmit`
+- Result (lazy-load-gate.md, from the executor):
+  - PASS: Req 9.1 and R8. The initial chunks contain no Apps lib and no surface or dashboard contract, and zod is
+    unchanged.
+  - PASS: Req 9.3, with a delta of +4,216 B raw and +1.13 kB transfer, all attributed.
+  - OPEN: Req 9.2, as a manual QA item.
+  - Tests are green. Spec tsc shows exactly the 8 baseline errors.
+- Coordinator rulings:
+  - B20's +501 B from `electron-layout.service.ts` in the initial bundle is expected and ACCEPTED, because core is
+    eager.
+  - The reviewer must verify the +1,787 B attributed to "Angular dev-mode debug metadata"
+    (`_debug_node-chunk.mjs`). If the build was not truly production, the gate is re-run.
+- Environment note: the executor created Windows junctions under a new, gitignored `node_modules` directory in the
+  feature worktree (better-sqlite3, daisyui, electron, monaco-editor, prismjs, …). None of them appear in
+  `git status`. Coordinator ruling: KEEP them, because the visual-review build needs them. They are listed with
+  their targets in context.md under "Cleanup before the worktree is removed".
+- The base worktree `tmp-494-lazy-gate-base` has 3 junctions (daisyui, monaco-editor, prismjs) plus a real
+  `.cache` directory. Removal order, after the B19 verdict:
+  1. Run `cmd /c rmdir` on each junction, without `/S`.
+  2. Confirm the real packages still exist under `D:\projects\ptah-extension\node_modules`.
+  3. Run `git worktree remove`. Add `--force` only if leftover dist/ or ignored output blocks it.
+- Review: code-logic-reviewer evidence review (code-logic-review-batch-19.md). Result: NEEDS_REVISION 5/10.
+  - The build config is fine. The +1,787 B is the shared `@angular/core` runtime chunk, which is production code, so
+    no rebuild is needed.
+  - The Req 9.3 write-up is wrong:
+    - the attribution table sums to 4,798 B against a delta of 4,216 B;
+    - B18's +46 B (`harness-workflow.service.ts`) was mislabelled as noise;
+    - the stated noise band is wrong;
+    - an 814 B gap is unexplained.
+- Fix round 1 (senior-tester) redoes Req 9.3 from the existing stats.json files, without a rebuild:
+  - an exact reconciliation, or every gap stated with its cause;
+  - relabel the 1,787 B;
+  - attribute the 46 B to B18;
+  - restate the noise range with real data.
 
-## Completion prerequisites (Mode 3)
+  Round 2 (the last) is a code-logic-reviewer re-check. The base worktree and its stats.json are kept until then.
+  - The fix was done. The same round also corrected the zod count (81 to 95; the sets are identical) and the
+    electron-layout citations.
+  - Round 2: NEEDS_REVISION 7/10 (code-logic-review-batch-19-round-2.md), for one stale number only. The reviewer
+    re-derived the 9.3 reconciliation and it matches exactly: 753 + 4,081 + 65 + 131 − 814 = 4,216. The relabels,
+    the zod count and the citations are confirmed.
+  - Bounded fix under the round-2 rule, made by the team-leader at the coordinator's direction: the R8 row at
+    `lazy-load-gate.md:350` changed "81 files each" to "95 files each". A grep found no other zod "81".
+- Final: B19 ACCEPTED. Req 9.1, R8 and 9.3 PASS. Req 9.2 is OPEN as a manual QA item.
 
 - Parity: N/A — no existing surface is replaced, consolidated, rebuilt or redesigned (the Apps page is new; the
   shell edit replaces one comment).
-- Write-path trace: N/A for persisted settings — 494 writes no settings or storage; host surface state is in-memory
-  and written through 538's existing RPCs.
+- Write-path trace: REQUIRED since B20. That batch added `appsSplitWidth` to the persisted `LAYOUT_STATE_KEY` object
+  through `vscodeService.setState`.
+  - Evidence: batch-20-report.md, which contains the trace.
+  - Independent re-traces: code-logic-review-batch-20.md and code-logic-review-batch-20-antigravity.md.
+  - Nothing else in this task persists settings. Host surface state is in memory, written through 538's existing RPCs.
 - Rendered visual evidence (dark + light) from visual-reviewer on the Electron build, against the visual source of
   truth the user confirms (R10).
 - Manual QA items A2 (surface-tool permission prompt), Req 9.2 screenshot, tool-result rendering, and the
