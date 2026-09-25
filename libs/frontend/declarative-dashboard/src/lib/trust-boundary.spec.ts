@@ -141,7 +141,7 @@ describe('trust boundary: producer text renders literally', () => {
     expect(texts(element, 'header h2')).toEqual([markup]);
     expect(texts(element, 'header p')).toEqual([markup]);
     expect(texts(element, 'ptah-dashboard-stat h3')).toEqual([markup]);
-    expect(texts(element, 'ptah-dashboard-stat p.text-lg')).toEqual([`${markup} ${markup}`]);
+    expect(texts(element, 'ptah-dashboard-stat [data-testid="stat-value"]')).toEqual([`${markup} ${markup}`]);
     expect(texts(element, 'ptah-dashboard-stat [id^="ptah-stat-details"] p')).toEqual([markup]);
     expect(texts(element, 'ptah-dashboard-table h3')).toEqual([markup]);
     expect(texts(element, 'ptah-dashboard-table section > p')).toEqual([markup]);

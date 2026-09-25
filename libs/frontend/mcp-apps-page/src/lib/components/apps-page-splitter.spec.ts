@@ -27,7 +27,11 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { AppsSessionService } from '../services/apps-session.service';
-import { AppsPageComponent } from './apps-page.component';
+import {
+  APPS_PAGE_STYLES,
+  APPS_STACK_BELOW_WIDTH,
+  AppsPageComponent,
+} from './apps-page.component';
 import { AppsSurfacePanelComponent } from './apps-surface-panel.component';
 import { AppsTranscriptComponent } from './apps-transcript.component';
 
@@ -356,18 +360,45 @@ describe('AppsPageComponent — splitter (B20)', () => {
     expect(setState).not.toHaveBeenCalled();
   });
 
-  it('removes the handle when the columns stack (<= 480px) and brings it back', () => {
+  /**
+   * R10 visual review, Serious #2 and #3: the page stacks below 240 + 6 + 360
+   * = 606px, and the container query is the only stacking decision. The
+   * measured width must never add or remove the splitter (a DOM change one
+   * ResizeObserver task behind the CSS was the torn frame).
+   */
+  it('stacks below 606px through the container query alone', () => {
+    expect(APPS_STACK_BELOW_WIDTH).toBe(layout.appsSplitMinWidth + 6 + 360);
+    expect(APPS_STACK_BELOW_WIDTH).toBe(606);
+    const queries = APPS_PAGE_STYLES.match(/@container[^{]*/g) ?? [];
+    expect(queries.map((query) => query.trim())).toEqual([
+      '@container apps-page (width < 606px)',
+    ]);
+    expect(APPS_PAGE_STYLES).toMatch(
+      /\(width < 606px\) \{[^@]*\.apps-split-handle-slot \{\s*display: none;/,
+    );
+
     mount(1000);
-    expect(separator()).not.toBeNull();
-    resize(480);
-    expect(separator()).toBeNull();
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector(
-        'ptah-electron-resize-handle',
-      ),
-    ).toBeNull();
-    resize(481);
-    expect(separator()).not.toBeNull();
+    for (const width of [400, 605, 606, 480, 1000]) {
+      resize(width);
+      expect(separator()).not.toBeNull();
+      expect(
+        separator()?.querySelector('ptah-electron-resize-handle'),
+      ).not.toBeNull();
+    }
+  });
+
+  it('exposes exactly one separator to assistive technology (R10 moderate)', () => {
+    mount(1000);
+    const page = fixture.nativeElement as HTMLElement;
+    const exposed = Array.from(
+      page.querySelectorAll('[role="separator"]'),
+    ).filter((node) => node.closest('[aria-hidden="true"]') === null);
+    expect(exposed).toEqual([separator()]);
+    const handle = must(page.querySelector('ptah-electron-resize-handle'));
+    expect(handle.getAttribute('aria-hidden')).toBe('true');
+    // Nothing focusable hides under aria-hidden; the grip stays draggable.
+    expect(handle.querySelector('[tabindex], button, a, input')).toBeNull();
+    expect(handle.querySelector('.resize-handle')).not.toBeNull();
   });
 
   it('observes its own host and disconnects on destroy', () => {

@@ -34,27 +34,88 @@ import { AppsTranscriptComponent } from './apps-transcript.component';
  *
  * Layout: a CSS grid of three columns — the conversation column
  * (`--apps-conversation-width`), the `apps-split-handle-slot` splitter, and
- * the surface panel. The page is an `apps-page` inline-size container: at
- * 480px or less (a narrow window or the embedded sidebar) the columns stack
- * vertically and the splitter is removed (prototype proposal a).
+ * the surface panel. The page is an `apps-page` inline-size container: below
+ * `APPS_STACK_BELOW_WIDTH` (606px, where both column minimums no longer fit
+ * side by side) the columns stack vertically and the splitter is hidden. The
+ * container query is the ONLY stacking decision: the splitter stays in the
+ * DOM and CSS hides it, so the grid and the splitter can never disagree (R10
+ * visual review, Serious #2 and #3; supersedes the prototype's 480px).
  *
  * Splitter (Batch 20): the width lives in `ElectronLayoutService`
  * (`appsSplitWidth`, persisted with the other Electron panel widths). The
  * page reuses `ptah-electron-resize-handle`, whose pointer X is
  * viewport-relative, so it subtracts the page's left edge. It clamps so the
  * surface panel keeps >= 360px, and adds keyboard resize and the ARIA value
- * attributes on a focusable `role="separator"`. A drag or key run persists
- * once, when it ends.
+ * attributes on a focusable `role="separator"`. The reused handle is
+ * `aria-hidden`, so that slot is the only separator in the accessibility
+ * tree. A drag or key run persists once, when it ends.
  */
 const SPLIT_HANDLE_WIDTH = 6; // `.resize-handle` width in RESIZE_HANDLE_STYLES
+const CONVERSATION_MIN_WIDTH = 240; // ElectronLayoutService.appsSplitMinWidth
 const SURFACE_MIN_WIDTH = 360;
-const STACKED_MAX_WIDTH = 480; // the `@container apps-page` breakpoint below
+/** The `@container apps-page` breakpoint: narrower than this, the columns stack. */
+export const APPS_STACK_BELOW_WIDTH =
+  CONVERSATION_MIN_WIDTH + SPLIT_HANDLE_WIDTH + SURFACE_MIN_WIDTH;
 const SPLIT_KEY_STEP = 16;
 const SPLIT_KEY_STEP_LARGE = 64;
 const SPLIT_KEY_DIRECTION: Readonly<Record<string, -1 | 1 | undefined>> = {
   ArrowLeft: -1,
   ArrowRight: 1,
 };
+
+/**
+ * The page stylesheet. Its `@container apps-page` rule is the single stacking
+ * decision (exported so a spec can pin it: jest strips component styles).
+ */
+export const APPS_PAGE_STYLES = `
+  :host {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    outline: none;
+    container-type: inline-size;
+    container-name: apps-page;
+  }
+  .apps-layout {
+    display: grid;
+    grid-template-columns:
+      var(--apps-conversation-width, 360px)
+      auto
+      minmax(0, 1fr);
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .apps-conversation {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .apps-split-handle-slot {
+    display: flex;
+    outline: none;
+  }
+  @container apps-page (width < ${APPS_STACK_BELOW_WIDTH}px) {
+    .apps-layout {
+      grid-template-columns: minmax(0, 1fr);
+      grid-auto-rows: auto;
+      overflow-y: auto;
+    }
+    .apps-conversation {
+      border-right: none;
+      border-bottom: 1px solid var(--fallback-b3, oklch(var(--b3)));
+      max-height: 260px;
+    }
+    .apps-split-handle-slot {
+      display: none;
+    }
+    .apps-surface {
+      min-height: 480px;
+    }
+  }
+`;
 
 @Component({
   selector: 'ptah-apps-page',
@@ -70,57 +131,7 @@ const SPLIT_KEY_DIRECTION: Readonly<Record<string, -1 | 1 | undefined>> = {
   host: {
     class: 'apps-page',
   },
-  styles: [
-    `
-      :host {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
-        min-height: 0;
-        outline: none;
-        container-type: inline-size;
-        container-name: apps-page;
-      }
-      .apps-layout {
-        display: grid;
-        grid-template-columns:
-          var(--apps-conversation-width, 360px)
-          auto
-          minmax(0, 1fr);
-        flex: 1 1 auto;
-        min-height: 0;
-      }
-      .apps-conversation {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-        min-height: 0;
-      }
-      .apps-split-handle-slot {
-        display: flex;
-        outline: none;
-      }
-      @container apps-page (max-width: 480px) {
-        .apps-layout {
-          grid-template-columns: minmax(0, 1fr);
-          grid-auto-rows: auto;
-          overflow-y: auto;
-        }
-        .apps-conversation {
-          border-right: none;
-          border-bottom: 1px solid var(--fallback-b3, oklch(var(--b3)));
-          max-height: 260px;
-        }
-        .apps-split-handle-slot {
-          display: none;
-        }
-        .apps-surface {
-          min-height: 480px;
-        }
-      }
-    `,
-  ],
+  styles: [APPS_PAGE_STYLES],
   template: `
     <div
       class="apps-layout bg-base-100 text-base-content"
@@ -242,33 +253,33 @@ const SPLIT_KEY_DIRECTION: Readonly<Record<string, -1 | 1 | undefined>> = {
         </div>
       </section>
 
-      <!-- Splitter: absent when the columns stack. -->
-      @if (!stacked()) {
-        <div
-          class="apps-split-handle-slot focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
-          role="separator"
-          tabindex="0"
-          aria-orientation="vertical"
-          aria-label="Resize the conversation column"
-          aria-controls="apps-conversation-column"
-          aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight"
-          data-apps-focus-key="apps:splitter"
-          data-testid="apps-split-handle-slot"
-          [attr.aria-valuenow]="splitWidth()"
-          [attr.aria-valuemin]="splitMinWidth"
-          [attr.aria-valuemax]="splitMaxWidth()"
-          (keydown)="onSplitKeydown($event)"
-          (keyup)="onSplitKeyup($event)"
-          (blur)="commitKeyResize()"
-          (mousedown)="onSplitPointerDown($event)"
-        >
-          <ptah-electron-resize-handle
-            [direction]="'left'"
-            (dragMoved)="onSplitDragMoved($event)"
-            (dragEnded)="onSplitDragEnded()"
-          />
-        </div>
-      }
+      <!-- Splitter: hidden by the container query when the columns stack.
+           The reused handle is aria-hidden: this slot is the one separator. -->
+      <div
+        class="apps-split-handle-slot focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="Resize the conversation column"
+        aria-controls="apps-conversation-column"
+        aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight"
+        data-apps-focus-key="apps:splitter"
+        data-testid="apps-split-handle-slot"
+        [attr.aria-valuenow]="splitWidth()"
+        [attr.aria-valuemin]="splitMinWidth"
+        [attr.aria-valuemax]="splitMaxWidth()"
+        (keydown)="onSplitKeydown($event)"
+        (keyup)="onSplitKeyup($event)"
+        (blur)="commitKeyResize()"
+        (mousedown)="onSplitPointerDown($event)"
+      >
+        <ptah-electron-resize-handle
+          aria-hidden="true"
+          [direction]="'left'"
+          (dragMoved)="onSplitDragMoved($event)"
+          (dragEnded)="onSplitDragEnded()"
+        />
+      </div>
 
       <ptah-apps-surface-panel class="apps-surface" />
     </div>
@@ -287,12 +298,6 @@ export class AppsPageComponent {
    * reading, not split state: the split width itself is the service's.
    */
   private readonly containerWidth = signal<number | null>(null);
-
-  /** Mirrors the `@container apps-page (max-width: 480px)` stacking rule. */
-  protected readonly stacked = computed(() => {
-    const width = this.containerWidth();
-    return width !== null && width <= STACKED_MAX_WIDTH;
-  });
 
   protected readonly splitMinWidth = this.layout.appsSplitMinWidth;
 
@@ -328,8 +333,8 @@ export class AppsPageComponent {
       this.commitKeyResize();
       this.onSplitDragEnded();
     });
-    // No ResizeObserver (non-browser test env): the splitter stays shown and
-    // only the static bounds apply; the CSS container query still stacks.
+    // No ResizeObserver (non-browser test env): only the static bounds apply.
+    // Stacking never depends on it; the CSS container query owns that.
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver((entries) => {
       const width = entries.at(-1)?.contentRect.width;

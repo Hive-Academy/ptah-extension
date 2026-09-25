@@ -18,14 +18,34 @@ describe('DashboardStatComponent', () => {
     const { fixture, element } = setup();
     expect(element.querySelector('h3')?.textContent).toBe(node.title?.text);
     expect(element.textContent).toContain('42 deploys');
-    expect(element.textContent).toContain('Change: +2');
+    const delta = () => element.querySelector('[data-testid="stat-delta"]');
+    expect(delta()?.textContent).toBe('Δ Change +2');
     expect(element.querySelector('img, style, [style]')).toBeNull();
     expect(element.querySelector('section')?.classList.contains('bg-base-200')).toBe(true);
-    for (const delta of [0, -2, undefined]) {
-      fixture.componentRef.setInput('node', { ...node, delta }); fixture.detectChanges();
-      if (delta === undefined) expect(element.textContent).not.toContain('Change:');
-      else expect(element.textContent).toContain(`Change: ${delta}`);
+    for (const value of [0, -2, undefined]) {
+      fixture.componentRef.setInput('node', { ...node, delta: value }); fixture.detectChanges();
+      if (value === undefined) expect(delta()).toBeNull();
+      else expect(delta()?.textContent).toBe(`Δ Change ${value}`);
     }
+  });
+  it('is a compact bordered tile with the delta inline in the header (R10 visual review)', () => {
+    const { element } = setup();
+    const section = element.querySelector('section')!;
+    expect(section.classList).toContain('border');
+    expect(section.classList).toContain('px-2');
+    expect(section.classList).not.toContain('p-3');
+    const header = element.querySelector('h3')!.parentElement!;
+    expect(header.querySelector('[data-testid="stat-delta"]')).not.toBeNull();
+    expect(header.querySelector('[aria-expanded]')).not.toBeNull();
+    expect(element.querySelector('h3')?.classList).toContain('text-[10px]');
+    const value = element.querySelector('[data-testid="stat-value"]')!;
+    expect(value.textContent).toBe('42 deploys');
+    expect(value.classList).toContain('text-sm');
+    // Body text colour, not text-primary: primary on base-200 fails WCAG AA (R10 re-check).
+    expect(value.classList).toContain('text-base-content');
+    expect(value.classList).not.toContain('text-primary');
+    // The delta's symbol is decorative; assistive tech reads "Change +2".
+    expect(element.querySelector('[data-testid="stat-delta"] [aria-hidden="true"]')?.textContent).toBe('Δ ');
   });
   it('offers selection only for selectable stats and emits the contract target', () => {
     const { fixture, element } = setup();

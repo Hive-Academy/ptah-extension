@@ -427,6 +427,16 @@ describe('SurfaceRendererComponent', () => {
     expect(Array.from(element.querySelectorAll('ptah-dashboard-stat h3')).map(h3 => h3.textContent)).toEqual(['One', 'Two']);
   });
 
+  it('flows root stats several across and gives every other root node a full row (R10 visual review)', () => {
+    const { element } = setup(surface([{ id: 'a', kind: 'stat', value: 1 }, { id: 'b', kind: 'stat', value: 2 }, reason]));
+    const root = element.querySelector<HTMLElement>('[data-testid="surface-root"]')!;
+    expect(root.classList).toContain('grid');
+    expect(root.classList).toContain('grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]');
+    expect(root.querySelector('header')?.classList).toContain('col-span-full');
+    const nodes = Array.from(root.querySelectorAll(':scope > ptah-surface-node'));
+    expect(nodes.map(node => node.classList.contains('col-span-full'))).toEqual([false, false, true]);
+  });
+
   it('writes presentation state per component and toggles a selection off when selected again', () => {
     const { host, element, rerender, renderer } = setup(surface([{ id: 'tile', kind: 'stat', value: 1,
       actions: [{ id: 'pick', action: 'dashboard.select', label: { text: 'Pick' } }] }]));

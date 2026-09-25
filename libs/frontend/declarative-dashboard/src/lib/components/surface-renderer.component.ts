@@ -184,14 +184,15 @@ function sameSelection(left: SurfaceSelection | null, right: SurfaceSelection): 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (viewModel(); as model) {
-      <div class="flex flex-col gap-4 text-base-content">
-        <header class="flex flex-col gap-0.5">
+      <!-- Root stats flow as compact tiles, several across (prototype stats row); every other node takes a full row. -->
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-4 text-base-content" data-testid="surface-root">
+        <header class="col-span-full flex flex-col gap-0.5">
           <h2 class="text-base font-semibold">{{ title() }}</h2>
           @if (description(); as description) { <p class="text-xs text-base-content-muted">{{ description }}</p> }
         </header>
         <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
         @for (node of model.components; track $index + ':' + node.id) {
-          <ptah-surface-node [node]="node" [surfaceId]="surfaceId()" [componentStates]="state().components"
+          <ptah-surface-node [class.col-span-full]="node.kind !== 'stat'" [node]="node" [surfaceId]="surfaceId()" [componentStates]="state().components"
             [drafts]="state().drafts" [interaction]="effectiveInteraction()"
             (componentViewStateChange)="writeComponentState($event)" (selectionChange)="select($event)"
             (inputCommit)="commit($event)" (draftChange)="writeDraft($event)" (actionInvoke)="invoke($event)"
