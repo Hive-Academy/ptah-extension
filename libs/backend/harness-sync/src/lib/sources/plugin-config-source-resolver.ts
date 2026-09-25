@@ -11,6 +11,7 @@
 import * as os from 'os';
 import { join } from 'path';
 import {
+  isCapabilityPolicyUnknownError,
   USER_LAYER_AGENTS_DIR_NAME,
   userLayerAgentDirName,
 } from '@ptah-extension/shared';
@@ -48,6 +49,34 @@ export interface HarnessPluginConfigReader {
     disabledPluginIds?: string[];
     disabledAgentIds?: string[];
   };
+  /**
+   * The LAYERED policy — the workspace config with the global layer beneath
+   * it — its fingerprint, and the overlay it implies, from one snapshot
+   * (TASK_2026_560). A structural mirror of agent-sdk's
+   * `EffectivePluginConfig`; this lib may not import agent-sdk.
+   *
+   * The three synchronous methods above read the WORKSPACE layer only, so a
+   * global OFF on an opt-out plugin or a default-ON skill never reaches them.
+   * When this method exists it is the ONLY one `resolve` calls.
+   *
+   * Rejects with an error `isCapabilityPolicyUnknownError` recognises when
+   * either layer is unreadable. Optional so a hand-built reader (every spec,
+   * and a host wrapper that predates the global layer) stays assignable.
+   */
+  getEffectivePluginConfig?(
+    workspaceRoot?: string,
+  ): Promise<HarnessEffectivePluginConfig>;
+}
+
+/** The slice of agent-sdk's `EffectivePluginConfig` this lib reads. */
+export interface HarnessEffectivePluginConfig {
+  config: {
+    disabledSkillIds: string[];
+    disabledPluginIds?: string[];
+    disabledAgentIds?: string[];
+  };
+  fingerprint: string;
+  overlayPluginPaths: string[];
 }
 
 /**
@@ -133,7 +162,9 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
    *   a reader ignores leaves that reader exactly as it was, which is the only
    *   fallback here that removes nothing.
    */
-  resolve(workspaceRoot?: string): HarnessSourceState {
+  resolve(
+    workspaceRoot?: string,
+  ): HarnessSourceState | Promise<HarnessSourceState> {
     const mcpIntents = this.readMcpIntents();
     // Scoped once, here, so the read-failure path below and the success path
     // cannot describe two different agent directories. The scope is a pure
@@ -162,6 +193,10 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     }
     if (reader === null) return empty;
 
+    if (typeof reader.getEffectivePluginConfig === 'function') {
+      return this.resolveEffective(reader, workspaceRoot, empty);
+    }
+
     try {
       // One read, two fields. Two calls would let a loader that recomputes
       // between them hand the builder a plugin denylist and an agent denylist
@@ -179,6 +214,47 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
         disabledAgentIds: config.disabledAgentIds ?? [],
       };
     } catch {
+      return empty;
+    }
+  }
+
+  /**
+   * The layered-policy path: ONE awaited read supplies the overlay, every
+   * denylist and the fingerprint. Mixing in a workspace-only synchronous call
+   * would put a global OFF in one field and not the other, which is a policy
+   * no workspace ever had.
+   *
+   * `async` so a reader that throws synchronously is caught here as well. It
+   * never rejects: an unknown policy becomes a frozen state, and any other
+   * failure becomes the same `empty` (unfiltered) state the synchronous path
+   * returns on a read failure.
+   */
+  private async resolveEffective(
+    reader: HarnessPluginConfigReader,
+    workspaceRoot: string | undefined,
+    empty: HarnessSourceState,
+  ): Promise<HarnessSourceState> {
+    try {
+      const effective = await reader.getEffectivePluginConfig?.(workspaceRoot);
+      if (effective === undefined) return empty;
+      return {
+        layout: empty.layout,
+        mcpIntents: empty.mcpIntents,
+        overlayPluginPaths: effective.overlayPluginPaths,
+        overlayPluginPathsKnown: true,
+        disabledSkillIds: effective.config.disabledSkillIds,
+        disabledPluginIds: effective.config.disabledPluginIds ?? [],
+        disabledAgentIds: effective.config.disabledAgentIds ?? [],
+        policyFingerprint: effective.fingerprint,
+      };
+    } catch (error: unknown) {
+      // Recognised by name, not `instanceof`: the error class lives in
+      // agent-sdk, which this lib may not import. `empty` still omits
+      // `overlayPluginPathsKnown`, and the reconciler plans no skill, command
+      // or agent change for a frozen state, so nothing is re-added or reaped.
+      if (isCapabilityPolicyUnknownError(error)) {
+        return { ...empty, policyUnknown: true };
+      }
       return empty;
     }
   }
