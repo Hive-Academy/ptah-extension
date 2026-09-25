@@ -200,6 +200,12 @@ export interface DiagnosticsPayload {
   source: string;
   reason?: string;
   diagnostics: DiagnosticInfo[];
+  /**
+   * The `files` scope of the call as absolute paths, relative entries resolved
+   * against the session root the provider was given. Absent for an unscoped
+   * call. The formatter lists diagnostics in these files first and in full.
+   */
+  requestedFiles?: string[];
 }
 
 /**

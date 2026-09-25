@@ -950,6 +950,65 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(read).toHaveBeenCalledWith(path.join('src', 'a.ts'));
   });
 
+  it('ptah_get_diagnostics passes the files scope to the namespace and formats its payload: requested first, siblings capped (TASK_2026_559)', async () => {
+    const requested = 'D:/ws/libs/a/src/changed.ts';
+    const sibling = 'D:/ws/libs/a/src/other.ts';
+    const diagnostics = [
+      ...Array.from({ length: 120 }, (_, i) => ({
+        file: sibling,
+        line: i + 1,
+        severity: 'error',
+        message: `sibling-${i} broken`,
+      })),
+      ...Array.from({ length: 3 }, (_, i) => ({
+        file: requested,
+        line: i + 1,
+        severity: 'error',
+        message: `requested-${i} broken`,
+      })),
+    ];
+    // The namespace returns the scope it resolved against the session root;
+    // the formatter reads it from the payload, not from the tool arguments.
+    const getErrors = jest.fn().mockResolvedValue({
+      status: 'available',
+      source: 'typescript-compiler',
+      diagnostics,
+      requestedFiles: [requested],
+    });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        diagnostics: { getErrors } as unknown as PtahAPI['diagnostics'],
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'diag-1',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_diagnostics',
+          arguments: { severity: 'error', files: [requested] },
+        },
+      }),
+      deps,
+    );
+
+    expect(getErrors).toHaveBeenCalledWith([requested]);
+    const text = (res.result as { content: Array<{ text: string }> }).content[0]
+      .text;
+    for (let i = 0; i < 3; i++) {
+      expect(text).toContain(`requested-${i} broken`);
+    }
+    expect(text).toContain('**Errors:** 123');
+    expect(text).toContain(
+      'Shown 50 of 123 (3 in requested files, 73 in sibling files omitted)',
+    );
+    expect(text.indexOf('requested-0 broken')).toBeLessThan(
+      text.indexOf('sibling-0 broken'),
+    );
+    expect(text.length).toBeLessThanOrEqual(8000);
+  });
+
   it('invokes onToolResult callback with request id and result text on success', async () => {
     const onToolResult = jest.fn();
     const findFiles = jest.fn().mockResolvedValue(['x.ts']);

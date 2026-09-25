@@ -9,6 +9,7 @@
  * any markdown-aware client (VS Code, Claude, etc.).
  */
 
+import * as path from 'path';
 import json2md from 'json2md';
 import type {
   SpawnAgentResult,
@@ -196,11 +197,11 @@ export function formatSearchFiles(files: unknown): string {
       return json2md([{ h2: 'File Search' }, { p: 'Found: 0 files' }]);
 
     const items = files.map((file, i) => {
-      const path =
+      const filePath =
         typeof file === 'string'
           ? file
           : (file?.path ?? file?.file ?? String(file));
-      return `${i + 1}. ${path}`;
+      return `${i + 1}. ${filePath}`;
     });
 
     return json2md([
@@ -214,11 +215,43 @@ export function formatSearchFiles(files: unknown): string {
 }
 
 /**
+ * Most diagnostics `ptah_get_diagnostics` lists one by one (TASK_2026_559).
+ *
+ * A scoped check still reports sibling files in the owning project — that is
+ * its contract — and nothing bounded how many. A project with a few hundred
+ * sibling errors turned a one-file question into a six-figure-character answer.
+ * Diagnostics in the requested files are ALWAYS listed in full; sibling files
+ * fill whatever is left of this cap and the rest are counted and named per file.
+ * Coverage failures (see {@link isCoverageFailure}) sit outside the cap: they
+ * are always listed, and do not take room from requested or sibling entries.
+ */
+const DIAGNOSTICS_DISPLAY_CAP = 50;
+
+/**
+ * Longest message rendered for one diagnostic. A flattened TypeScript message
+ * chain for a deep structural mismatch runs to thousands of characters; its
+ * first few hundred carry the mismatch itself.
+ */
+const DIAGNOSTIC_MESSAGE_MAX_CHARS = 500;
+
+/** Most files named in the omitted-diagnostics summary, largest first. */
+const OMITTED_FILES_NAMED_MAX = 20;
+
+/**
  * Format ptah_get_diagnostics result.
  *
- * Accepts a `DiagnosticsPayload` (`{ status, source, diagnostics }`) so the
- * formatter can distinguish "unavailable" from "available with zero issues".
- * Falls back to the legacy flat-array shape for backward compatibility.
+ * Accepts a `DiagnosticsPayload` (`{ status, source, diagnostics,
+ * requestedFiles? }`) so the formatter can distinguish "unavailable" from
+ * "available with zero issues". Falls back to the legacy flat-array shape,
+ * which carries no scope, for backward compatibility.
+ *
+ * `requestedFiles` is the call's `files` scope as the diagnostics namespace
+ * resolved it: absolute paths under the session root. When present,
+ * diagnostics in those files are listed first and never dropped; sibling-file
+ * diagnostics fill the rest of {@link DIAGNOSTICS_DISPLAY_CAP}, and every
+ * scoped result — an empty one included — closes with a `Shown N of M`
+ * summary. The error and warning totals always count every diagnostic in the
+ * payload.
  */
 export function formatDiagnostics(payload: unknown): string {
   try {
@@ -228,6 +261,7 @@ export function formatDiagnostics(payload: unknown): string {
         source: string;
         reason?: string;
         diagnostics?: unknown[];
+        requestedFiles?: unknown;
       };
 
       if (p.status === 'unavailable') {
@@ -239,6 +273,7 @@ export function formatDiagnostics(payload: unknown): string {
         ]);
       }
 
+      const isRequested = requestedFileMatcher(p.requestedFiles);
       const diagnostics = Array.isArray(p.diagnostics) ? p.diagnostics : [];
       if (diagnostics.length === 0) {
         return json2md([
@@ -246,10 +281,24 @@ export function formatDiagnostics(payload: unknown): string {
           {
             p: `**Source:** ${p.source}  \nErrors: 0 | Warnings: 0 — No issues found.`,
           },
+          ...(isRequested
+            ? [
+                {
+                  p: scopedSummary({
+                    shown: 0,
+                    total: 0,
+                    requested: 0,
+                    coverage: 0,
+                    requestedCoverage: 0,
+                    omitted: 0,
+                  }),
+                },
+              ]
+            : []),
         ]);
       }
 
-      return formatDiagnosticList(diagnostics, p.source);
+      return formatDiagnosticList(diagnostics, p.source, isRequested);
     }
 
     if (Array.isArray(payload)) {
@@ -258,7 +307,7 @@ export function formatDiagnostics(payload: unknown): string {
           { h2: 'Diagnostics' },
           { p: 'Errors: 0 | Warnings: 0 — No issues found.' },
         ]);
-      return formatDiagnosticList(payload);
+      return formatDiagnosticList(payload, undefined, undefined);
     }
 
     return fallbackJson(payload);
@@ -267,66 +316,348 @@ export function formatDiagnostics(payload: unknown): string {
   }
 }
 
-function formatDiagnosticList(diagnostics: unknown[], source?: string): string {
-  const typedDiags = diagnostics as Record<string, unknown>[];
-  const errors = typedDiags.filter(
-    (d) =>
-      d['severity'] === 'error' ||
-      d['severity'] === 0 ||
-      d['severity'] === 'Error',
-  );
-  const warnings = typedDiags.filter(
-    (d) =>
-      d['severity'] === 'warning' ||
-      d['severity'] === 1 ||
-      d['severity'] === 'Warning',
-  );
-  const others = typedDiags.filter(
-    (d) => !errors.includes(d) && !warnings.includes(d),
-  );
+type SeverityClass = 'error' | 'warning' | 'other';
+
+const SEVERITY_RANK: Record<SeverityClass, number> = {
+  error: 0,
+  warning: 1,
+  other: 2,
+};
+
+const SEVERITY_HEADING: Record<SeverityClass, string> = {
+  error: 'Errors',
+  warning: 'Warnings',
+  other: 'Other',
+};
+
+/**
+ * Where one diagnostic is displayed: the three groups are disjoint. Requested
+ * membership is kept separately in `requested`, because a coverage failure on a
+ * requested tsconfig is displayed as coverage but still belongs to the request.
+ */
+type DiagnosticGroup = 'coverage' | 'requested' | 'sibling';
+
+interface RankedDiagnostic {
+  readonly raw: Record<string, unknown>;
+  readonly file: string;
+  readonly severity: SeverityClass;
+  readonly group: DiagnosticGroup;
+  readonly requested: boolean;
+  readonly sortLine: number;
+}
+
+interface DiagnosticsSummaryCounts {
+  readonly shown: number;
+  readonly total: number;
+  readonly requested: number;
+  readonly coverage: number;
+  readonly requestedCoverage: number;
+  readonly omitted: number;
+}
+
+function formatDiagnosticList(
+  diagnostics: unknown[],
+  source: string | undefined,
+  isRequested: ((file: string) => boolean) | undefined,
+): string {
+  const ranked: RankedDiagnostic[] = (
+    diagnostics as Record<string, unknown>[]
+  ).map((d) => {
+    const file = diagnosticFile(d);
+    const rawLine = d['line'] ?? extractRangeLine(d['range']);
+    const line = Number(rawLine);
+    const severity = severityClass(d['severity']);
+    const requested = isRequested?.(file) ?? false;
+    return {
+      raw: d,
+      file,
+      severity,
+      group: isCoverageFailure(file, rawLine, severity)
+        ? 'coverage'
+        : requested
+          ? 'requested'
+          : 'sibling',
+      requested,
+      sortLine: Number.isFinite(line) ? line : 0,
+    };
+  });
+
+  // Totals are taken over EVERY diagnostic, before any cap is applied.
+  const count = (s: SeverityClass): number =>
+    ranked.filter((d) => d.severity === s).length;
+  const errorCount = count('error');
+  const warningCount = count('warning');
+  const otherCount = count('other');
+
+  ranked.sort(compareRanked);
+  const coverage = ranked.filter((d) => d.group === 'coverage');
+  const requestedCoverage = coverage.filter((d) => d.requested).length;
+  const inRequested = ranked.filter((d) => d.group === 'requested');
+  const siblings = ranked.filter((d) => d.group === 'sibling');
+  // Requested-file diagnostics are never dropped, even past the cap: they are
+  // the answer to the question asked. Siblings get whatever room is left.
+  // Coverage failures are outside the cap altogether.
+  const siblingRoom = Math.max(0, DIAGNOSTICS_DISPLAY_CAP - inRequested.length);
+  const shownSiblings = siblings.slice(0, siblingRoom);
+  const omitted = siblings.slice(siblingRoom);
+
   const blocks: any[] = [
     { h2: 'Diagnostics' },
     {
-      p: `${source ? `**Source:** ${source}  \n` : ''}**Errors:** ${errors.length} | **Warnings:** ${warnings.length}${
-        others.length > 0 ? ` | **Other:** ${others.length}` : ''
+      p: `${source ? `**Source:** ${source}  \n` : ''}**Errors:** ${errorCount} | **Warnings:** ${warningCount}${
+        otherCount > 0 ? ` | **Other:** ${otherCount}` : ''
       }`,
     },
   ];
 
-  if (errors.length > 0) {
-    blocks.push({ h3: 'Errors' });
+  // The grouped lists are pushed as raw strings: json2md passes a string
+  // through untouched, whereas a `p` block would put a blank line between
+  // every nested entry.
+  if (coverage.length > 0) {
+    blocks.push({ h3: 'Coverage failures' });
     blocks.push({
-      ul: errors.map((e) => formatDiagnosticItem(e)),
+      p: 'These projects were not checked; their diagnostics are missing from this result.',
+    });
+    blocks.push(renderDiagnosticsByFile(coverage, false));
+  }
+
+  if (isRequested) {
+    blocks.push({ h3: 'Requested files' });
+    blocks.push(
+      inRequested.length > 0
+        ? renderDiagnosticsByFile(inRequested, true)
+        : requestedCoverage > 0
+          ? {
+              p: `No other diagnostics in the requested files: ${requestedCoverage} requested file${requestedCoverage === 1 ? ' is' : 's are'} listed under Coverage failures above.`,
+            }
+          : { p: 'No diagnostics in the requested files.' },
+    );
+    if (shownSiblings.length > 0) {
+      blocks.push({ h3: 'Sibling files' });
+      blocks.push(renderDiagnosticsByFile(shownSiblings, true));
+    }
+  } else {
+    for (const severity of ['error', 'warning', 'other'] as const) {
+      const section = shownSiblings.filter((d) => d.severity === severity);
+      if (section.length === 0) continue;
+      blocks.push({ h3: SEVERITY_HEADING[severity] });
+      blocks.push(renderDiagnosticsByFile(section, false));
+    }
+  }
+
+  if (omitted.length > 0) {
+    blocks.push({
+      p: `${isRequested ? 'Omitted sibling-file diagnostics' : 'Omitted diagnostics'}, by file: ${summarizeOmittedFiles(omitted)}`,
     });
   }
 
-  if (warnings.length > 0) {
-    blocks.push({ h3: 'Warnings' });
+  const counts: DiagnosticsSummaryCounts = {
+    shown: coverage.length + inRequested.length + shownSiblings.length,
+    total: ranked.length,
+    requested: inRequested.length,
+    coverage: coverage.length,
+    requestedCoverage,
+    omitted: omitted.length,
+  };
+  if (isRequested) {
+    blocks.push({ p: scopedSummary(counts) });
+  } else if (omitted.length > 0) {
     blocks.push({
-      ul: warnings.map((w) => formatDiagnosticItem(w)),
-    });
-  }
-
-  if (others.length > 0) {
-    blocks.push({ h3: 'Other' });
-    blocks.push({
-      ul: others.map((o) => formatDiagnosticItem(o)),
+      p: `Shown ${counts.shown} of ${counts.total} (${coverageClause(counts)}${counts.omitted} omitted)`,
     });
   }
 
   return json2md(blocks);
 }
 
-function formatDiagnosticItem(d: Record<string, unknown>): string {
-  const file = d['file'] ?? d['uri'] ?? d['path'] ?? '';
+/**
+ * The closing line of every scoped result, an empty one included. Each shown
+ * entry is counted once: requested coverage failures are counted under
+ * coverage and named there, not added to the requested count.
+ */
+function scopedSummary(c: DiagnosticsSummaryCounts): string {
+  return `Shown ${c.shown} of ${c.total} (${c.requested} in requested files, ${coverageClause(c)}${c.omitted} in sibling files omitted)`;
+}
+
+function coverageClause(c: DiagnosticsSummaryCounts): string {
+  if (c.coverage === 0) return '';
+  const inRequested =
+    c.requestedCoverage > 0 ? ` (${c.requestedCoverage} in requested files)` : '';
+  return `${c.coverage} coverage failure${c.coverage === 1 ? '' : 's'}${inRequested}, `;
+}
+
+/**
+ * A project the compiler provider could NOT check. The provider files each
+ * such failure as an error at line 0 on the project's `tsconfig*.json`
+ * (`withConfigFailures` in workspace-intelligence), so all three must hold: a
+ * tsconfig diagnostic with a real line number is an ordinary finding in that
+ * file and is ranked like any other.
+ */
+function isCoverageFailure(
+  file: string,
+  rawLine: unknown,
+  severity: SeverityClass,
+): boolean {
+  return (
+    severity === 'error' &&
+    (rawLine === 0 || rawLine === '0') &&
+    /^tsconfig.*\.json$/i.test(baseName(file))
+  );
+}
+
+/** Severity, then file, then line. */
+function compareRanked(a: RankedDiagnostic, b: RankedDiagnostic): number {
+  const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+  if (bySeverity !== 0) return bySeverity;
+  if (a.file !== b.file) return a.file < b.file ? -1 : 1;
+  return a.sortLine - b.sortLine;
+}
+
+function severityClass(severity: unknown): SeverityClass {
+  if (severity === 'error' || severity === 0 || severity === 'Error') {
+    return 'error';
+  }
+  if (severity === 'warning' || severity === 1 || severity === 'Warning') {
+    return 'warning';
+  }
+  return 'other';
+}
+
+function diagnosticFile(d: Record<string, unknown>): string {
+  return String(d['file'] ?? d['uri'] ?? d['path'] ?? '');
+}
+
+/**
+ * Canonical identity of a path, applied alike to requested and diagnostic
+ * paths: separators unified, `.`/`..` and doubled slashes removed, no trailing
+ * slash, and case-folded for Windows paths — the same folding rule the
+ * diagnostics providers apply to their own scope.
+ *
+ * On a Windows host, and for any drive path (`D:/…`), Windows semantics apply,
+ * so `..` stops at the drive or UNC share root instead of eating it. Other
+ * paths on a POSIX host keep POSIX semantics. `normalize` rather than `resolve`: both sides are
+ * absolute (the namespace resolved the request against the session root), and
+ * resolving here would read the process cwd, which belongs to no session.
+ */
+function pathIdentity(p: string): string {
+  const trimmedInput = p.trim();
+  const windowsShaped =
+    process.platform === 'win32' || /^[a-z]:[\\/]/i.test(trimmedInput);
+  const normalized = (
+    windowsShaped
+      ? path.win32.normalize(trimmedInput)
+      : path.posix.normalize(trimmedInput.replace(/\\/g, '/'))
+  ).replace(/\\/g, '/');
+  const isRoot =
+    normalized === '/' ||
+    /^[a-z]:\/$/i.test(normalized) ||
+    /^\/\/[^/]+\/[^/]+\/?$/.test(normalized);
+  const trimmed =
+    !isRoot && normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+  return windowsShaped ? trimmed.toLowerCase() : trimmed;
+}
+
+/**
+ * Predicate for "this diagnostic is in a file the caller asked about", or
+ * `undefined` when the payload carries no scope. A diagnostic is requested
+ * exactly when its canonical identity equals a requested one; there is no
+ * suffix matching, so `src/a.ts` under one package never selects another
+ * package's `src/a.ts`. Non-string entries are ignored.
+ */
+function requestedFileMatcher(
+  files: unknown,
+): ((file: string) => boolean) | undefined {
+  if (!Array.isArray(files)) return undefined;
+  const identities = new Set(
+    files
+      .filter((f): f is string => typeof f === 'string' && f.trim() !== '')
+      .map(pathIdentity),
+  );
+  if (identities.size === 0) return undefined;
+  return (file: string): boolean => identities.has(pathIdentity(file));
+}
+
+/**
+ * One bullet per file, its diagnostics nested beneath it in the order given.
+ * The full path is written once per file; each entry repeats only the base
+ * name, which keeps 50 entries well inside the result budget.
+ */
+function renderDiagnosticsByFile(
+  entries: readonly RankedDiagnostic[],
+  tagSeverity: boolean,
+): string {
+  const byFile = new Map<string, RankedDiagnostic[]>();
+  for (const entry of entries) {
+    const group = byFile.get(entry.file);
+    if (group) group.push(entry);
+    else byFile.set(entry.file, [entry]);
+  }
+
+  const lines: string[] = [];
+  for (const [file, group] of byFile) {
+    lines.push(`- \`${file}\``);
+    for (const entry of group) {
+      lines.push(`  - ${formatDiagnosticItem(entry, tagSeverity)}`);
+    }
+  }
+  // Trailing newline: json2md adds none after a raw string, and the next
+  // heading needs a blank line to read as its own block.
+  return lines.join('\n') + '\n';
+}
+
+function formatDiagnosticItem(
+  entry: RankedDiagnostic,
+  tagSeverity: boolean,
+): string {
+  const d = entry.raw;
+  const name = baseName(entry.file);
   const line = d['line'] ?? extractRangeLine(d['range']) ?? '';
   const col = d['col'] ?? d['column'] ?? '';
-  const message = d['message'] ?? d['msg'] ?? '';
   const code = d['code'] ? ` ${d['code']}:` : '';
-  const location = line
-    ? `${file}:${line}${col ? ':' + col : ''}`
-    : String(file);
-  return `\`${location}\` —${code} ${message}`;
+  const tag = tagSeverity ? ` ${entry.severity}` : '';
+  const location = line ? `${name}:${line}${col ? ':' + col : ''}` : name;
+  return `\`${location}\` —${tag}${code} ${compactMessage(d['message'] ?? d['msg'] ?? '')}`;
+}
+
+function baseName(file: string): string {
+  const parts = file.split(/[\\/]/);
+  return parts[parts.length - 1] || file;
+}
+
+/** One line, at most {@link DIAGNOSTIC_MESSAGE_MAX_CHARS} characters. */
+function compactMessage(message: unknown): string {
+  const text = String(message)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join(' ');
+  if (text.length <= DIAGNOSTIC_MESSAGE_MAX_CHARS) return text;
+  const cut = text.length - DIAGNOSTIC_MESSAGE_MAX_CHARS;
+  return `${text.slice(0, DIAGNOSTIC_MESSAGE_MAX_CHARS)}… (+${cut} chars)`;
+}
+
+/**
+ * Omitted diagnostics named per file, largest first, so a caller can see which
+ * siblings are noisy without the list itself becoming the payload.
+ */
+function summarizeOmittedFiles(omitted: readonly RankedDiagnostic[]): string {
+  const perFile = new Map<string, number>();
+  for (const d of omitted) perFile.set(d.file, (perFile.get(d.file) ?? 0) + 1);
+
+  const files = [...perFile.entries()].sort(
+    ([fa, a], [fb, b]) => b - a || (fa < fb ? -1 : fa > fb ? 1 : 0),
+  );
+  const named = files
+    .slice(0, OMITTED_FILES_NAMED_MAX)
+    .map(([file, n]) => `\`${file}\` (${n})`);
+  const rest = files.slice(OMITTED_FILES_NAMED_MAX);
+  if (rest.length > 0) {
+    const restCount = rest.reduce((sum, [, n]) => sum + n, 0);
+    named.push(
+      `and ${rest.length} more file${rest.length === 1 ? '' : 's'} (${restCount})`,
+    );
+  }
+  return named.join(', ');
 }
 
 function extractRangeLine(range: unknown): number | string | undefined {

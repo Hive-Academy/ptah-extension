@@ -169,6 +169,486 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
     expect(out).toMatch(/a\.ts:1/);
   });
 
+  describe('display cap, requested files first (TASK_2026_559)', () => {
+    const ROOT =
+      'D:/projects/ptah-extension/libs/backend/vscode-lm-tools/src/lib';
+    const REQUESTED = `${ROOT}/code-execution/mcp-core/protocol-dispatcher.ts`;
+    const SIBLING_A = `${ROOT}/code-execution/mcp-core/mcp-response-formatter.ts`;
+    const SIBLING_B = `${ROOT}/code-execution/namespace-builders/core-namespace.builders.ts`;
+    const TYPICAL =
+      "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.";
+
+    function diag(
+      file: string,
+      line: number,
+      severity: 'error' | 'warning',
+      tag: string,
+    ): Record<string, unknown> {
+      return {
+        file,
+        line,
+        severity,
+        code: 2345,
+        message: `${tag} ${TYPICAL}`,
+      };
+    }
+
+    function payload(
+      diagnostics: Record<string, unknown>[],
+      requestedFiles?: string[],
+    ) {
+      return {
+        status: 'available',
+        source: 'typescript-compiler',
+        diagnostics,
+        ...(requestedFiles ? { requestedFiles } : {}),
+      };
+    }
+
+    it('200 diagnostics across 3 files, 1 requested: every requested entry, exact totals and summary, <= 8,000 chars', () => {
+      const diagnostics: Record<string, unknown>[] = [];
+      // Interleave so the requested file is NOT first in the payload.
+      for (let i = 0; i < 100; i++) {
+        diagnostics.push(diag(SIBLING_A, i + 1, 'error', `sibA-${i}`));
+      }
+      for (let i = 0; i < 30; i++) {
+        diagnostics.push(
+          diag(REQUESTED, i + 1, i % 3 === 0 ? 'warning' : 'error', `req-${i}`),
+        );
+      }
+      for (let i = 0; i < 70; i++) {
+        diagnostics.push(diag(SIBLING_B, i + 1, 'warning', `sibB-${i}`));
+      }
+
+      const out = formatDiagnostics(payload(diagnostics, [REQUESTED]));
+
+      // Totals count every diagnostic, not the shown ones: 100 + 20 errors,
+      // 10 + 70 warnings.
+      expect(out).toContain('**Errors:** 120 | **Warnings:** 80');
+      for (let i = 0; i < 30; i++) {
+        expect(out).toContain(`req-${i} `);
+      }
+      expect(out).toContain(
+        'Shown 50 of 200 (30 in requested files, 150 in sibling files omitted)',
+      );
+      // Siblings fill the remaining 20 slots, errors first.
+      const shownSiblingA = (out.match(/sibA-\d+ /g) ?? []).length;
+      const shownSiblingB = (out.match(/sibB-\d+ /g) ?? []).length;
+      expect(shownSiblingA).toBe(20);
+      expect(shownSiblingB).toBe(0);
+      // Omitted siblings are still named per file, with exact counts.
+      expect(out).toContain(`\`${SIBLING_A}\` (80)`);
+      expect(out).toContain(`\`${SIBLING_B}\` (70)`);
+      // Requested files render before sibling files.
+      expect(out.indexOf('### Requested files')).toBeLessThan(
+        out.indexOf('### Sibling files'),
+      );
+      expect(out.indexOf('req-0 ')).toBeLessThan(out.indexOf('sibA-0 '));
+      expect(out.length).toBeLessThanOrEqual(8000);
+    });
+
+    it('never drops a requested-file entry, even when requested files alone exceed the cap', () => {
+      const diagnostics: Record<string, unknown>[] = [];
+      for (let i = 0; i < 30; i++) {
+        diagnostics.push(diag(SIBLING_A, i + 1, 'error', `sib-${i}`));
+      }
+      for (let i = 0; i < 70; i++) {
+        diagnostics.push(diag(REQUESTED, i + 1, 'warning', `req-${i}`));
+      }
+
+      const out = formatDiagnostics(payload(diagnostics, [REQUESTED]));
+
+      for (let i = 0; i < 70; i++) {
+        expect(out).toContain(`req-${i} `);
+      }
+      expect(out).not.toMatch(/sib-\d+ /);
+      expect(out).toContain('**Errors:** 30 | **Warnings:** 70');
+      expect(out).toContain(
+        'Shown 70 of 100 (70 in requested files, 30 in sibling files omitted)',
+      );
+      expect(out).toContain(`\`${SIBLING_A}\` (30)`);
+    });
+
+    it('matches a backslashed requested path, and never suffix-matches a relative one', () => {
+      const diagnostics = [
+        diag(SIBLING_A, 1, 'error', 'sib-0'),
+        diag(REQUESTED, 4, 'error', 'req-0'),
+      ];
+
+      const backslashed = formatDiagnostics(
+        payload(diagnostics, [REQUESTED.replace(/\//g, '\\')]),
+      );
+      expect(backslashed).toContain(
+        'Shown 2 of 2 (1 in requested files, 0 in sibling files omitted)',
+      );
+      expect(backslashed.indexOf('req-0 ')).toBeLessThan(
+        backslashed.indexOf('sib-0 '),
+      );
+
+      // The namespace resolves relative entries against the session root
+      // before they reach the payload; the formatter has no root, so a
+      // relative entry is an identity of its own and matches nothing.
+      for (const relative of [
+        './libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts',
+        'protocol-dispatcher.ts',
+      ]) {
+        expect(formatDiagnostics(payload(diagnostics, [relative]))).toContain(
+          '(0 in requested files',
+        );
+      }
+    });
+
+    it('says so when the requested files are clean but siblings are not', () => {
+      const out = formatDiagnostics(
+        payload([diag(SIBLING_A, 1, 'error', 'sib-0')], [REQUESTED]),
+      );
+      expect(out).toContain('No diagnostics in the requested files.');
+      expect(out).toContain('sib-0 ');
+      expect(out).toContain(
+        'Shown 1 of 1 (0 in requested files, 0 in sibling files omitted)',
+      );
+    });
+
+    it('lists a tsconfig coverage failure ahead of other sibling diagnostics', () => {
+      const diagnostics: Record<string, unknown>[] = [];
+      for (let i = 0; i < 80; i++) {
+        diagnostics.push(diag(SIBLING_A, i + 1, 'error', `sib-${i}`));
+      }
+      diagnostics.push({
+        file: 'D:/projects/ptah-extension/libs/backend/zz-lib/tsconfig.lib.json',
+        line: 0,
+        severity: 'error',
+        message: 'This project was not type-checked: boom',
+      });
+
+      const out = formatDiagnostics(payload(diagnostics, [REQUESTED]));
+      expect(out).toContain('This project was not type-checked: boom');
+      expect(out).toContain('**Errors:** 81');
+    });
+
+    it('caps an unscoped call at 50 entries, errors first, with an exact summary', () => {
+      const diagnostics: Record<string, unknown>[] = [];
+      for (let i = 0; i < 90; i++) {
+        diagnostics.push(diag(SIBLING_B, i + 1, 'warning', `warn-${i}`));
+      }
+      for (let i = 0; i < 30; i++) {
+        diagnostics.push(diag(SIBLING_A, i + 1, 'error', `err-${i}`));
+      }
+
+      const out = formatDiagnostics(payload(diagnostics));
+
+      expect(out).toContain('**Errors:** 30 | **Warnings:** 90');
+      expect((out.match(/err-\d+ /g) ?? []).length).toBe(30);
+      expect((out.match(/warn-\d+ /g) ?? []).length).toBe(20);
+      expect(out).toContain('Shown 50 of 120 (70 omitted)');
+      expect(out).toContain(`\`${SIBLING_B}\` (70)`);
+      expect(out).not.toContain('requested files');
+      expect(out.length).toBeLessThanOrEqual(8000);
+    });
+
+    it('does not add a summary line to an uncapped unscoped result', () => {
+      const out = formatDiagnostics(
+        payload([diag(SIBLING_A, 1, 'error', 'only')]),
+      );
+      expect(out).not.toMatch(/Shown \d+ of/);
+    });
+
+    it('shortens a very long message to one bounded line', () => {
+      const out = formatDiagnostics(
+        payload(
+          [
+            {
+              file: REQUESTED,
+              line: 1,
+              severity: 'error',
+              message: `head\n  ${'x'.repeat(2000)}`,
+            },
+          ],
+          [REQUESTED],
+        ),
+      );
+      expect(out).toContain('head xxx');
+      expect(out).toMatch(/… \(\+\d+ chars\)/);
+      expect(out.length).toBeLessThan(1500);
+    });
+  });
+
+  describe('requested-file identity and coverage failures (TASK_2026_559 r1)', () => {
+    // A root that is absolute on the platform running the spec.
+    const REPO = process.platform === 'win32' ? 'D:/repo' : '/repo';
+
+    function scoped(
+      diagnostics: Record<string, unknown>[],
+      requestedFiles?: string[],
+    ) {
+      return {
+        status: 'available',
+        source: 'typescript-compiler',
+        diagnostics,
+        ...(requestedFiles ? { requestedFiles } : {}),
+      };
+    }
+
+    function render(p: ReturnType<typeof scoped>): string {
+      return formatDiagnostics(p);
+    }
+
+    function error(file: string, line: number, message: string) {
+      return { file, line, severity: 'error', message };
+    }
+
+    function coverageFailure(file: string, message: string) {
+      return { file, line: 0, severity: 'error', message };
+    }
+
+    it('matches a requested path spelled with dot segments, doubled or back slashes, or a trailing slash', () => {
+      const diagnostics = [
+        ...Array.from({ length: 60 }, (_, i) =>
+          error(`${REPO}/src/a.ts`, i + 1, `sib-${i}`),
+        ),
+        error(`${REPO}/src/z.ts`, 1, 'TARGET'),
+      ];
+      const spellings = [
+        `${REPO}/src/../src/z.ts`,
+        `${REPO}\\src\\..\\src\\z.ts`,
+        `${REPO}//src/./z.ts/`,
+      ];
+      if (process.platform === 'win32') spellings.push('d:/REPO/SRC/Z.TS');
+
+      for (const requested of spellings) {
+        const out = render(scoped(diagnostics, [requested]));
+        expect(out).toContain('TARGET');
+        expect(out).not.toContain('No diagnostics in the requested files');
+        expect(out).toContain(
+          'Shown 50 of 61 (1 in requested files, 11 in sibling files omitted)',
+        );
+        expect(out.indexOf('### Requested files')).toBeLessThan(
+          out.indexOf('TARGET'),
+        );
+        expect(out.indexOf('TARGET')).toBeLessThan(
+          out.indexOf('### Sibling files'),
+        );
+      }
+    });
+
+    it('keeps the drive root when an absolute request climbs above it', () => {
+      // Drive paths use Windows semantics on every host, so this runs on posix CI too.
+      const diagnostics = [
+        ...Array.from({ length: 60 }, (_, i) =>
+          error('D:/repo/src/a.ts', i + 1, `sib-${i}`),
+        ),
+        error('D:/repo/src/z.ts', 1, 'TARGET'),
+      ];
+
+      const out = render(
+        scoped(diagnostics, ['D:/repo/../../repo/src/z.ts']),
+      );
+
+      expect(out).toContain('TARGET');
+      expect(out).not.toContain('No diagnostics in the requested files');
+      expect(out).toContain(
+        'Shown 50 of 61 (1 in requested files, 11 in sibling files omitted)',
+      );
+    });
+
+    if (process.platform === 'win32') {
+      it('matches a UNC request spelled with dot segments and forward slashes', () => {
+        const diagnostics = [
+          ...Array.from({ length: 60 }, (_, i) =>
+            error('\\\\server\\share\\src\\a.ts', i + 1, `sib-${i}`),
+          ),
+          error('\\\\server\\share\\src\\z.ts', 1, 'TARGET'),
+        ];
+
+        const out = render(
+          scoped(diagnostics, ['//server/share/src/../src/z.ts']),
+        );
+
+        expect(out).toContain('TARGET');
+        expect(out).toContain(
+          'Shown 50 of 61 (1 in requested files, 11 in sibling files omitted)',
+        );
+      });
+    }
+
+    it('never calls a requested tsconfig clean when it has a coverage failure', () => {
+      const out = render(
+        scoped(
+          [coverageFailure(`${REPO}/tsconfig.json`, 'NOT CHECKED')],
+          [`${REPO}/tsconfig.json`],
+        ),
+      );
+
+      expect(out).toContain('NOT CHECKED');
+      expect(out).not.toContain('No diagnostics in the requested files');
+      expect(out).toContain(
+        'No other diagnostics in the requested files: 1 requested file is listed under Coverage failures above.',
+      );
+      expect(out).toContain(
+        'Shown 1 of 1 (0 in requested files, 1 coverage failure (1 in requested files), 0 in sibling files omitted)',
+      );
+    });
+
+    it('counts a requested coverage failure once when a requested source file also has diagnostics', () => {
+      const out = render(
+        scoped(
+          [
+            coverageFailure(`${REPO}/tsconfig.json`, 'NOT CHECKED'),
+            coverageFailure(`${REPO}/libs/x/tsconfig.json`, 'NOT CHECKED X'),
+            error(`${REPO}/src/a.ts`, 3, 'REAL'),
+          ],
+          [`${REPO}/tsconfig.json`, `${REPO}/src/a.ts`],
+        ),
+      );
+
+      expect(out).toContain('NOT CHECKED X');
+      expect(out).toContain('REAL');
+      expect(out).not.toContain('No other diagnostics in the requested files');
+      expect(out).toContain(
+        'Shown 3 of 3 (1 in requested files, 2 coverage failures (1 in requested files), 0 in sibling files omitted)',
+      );
+    });
+
+    it('renders every coverage failure when exactly 50 requested entries fill the cap', () => {
+      const diagnostics = [
+        ...Array.from({ length: 50 }, (_, i) =>
+          error(`${REPO}/src/a.ts`, i + 1, `req-${i}`),
+        ),
+        coverageFailure(`${REPO}/tsconfig.lib.json`, 'NOT CHECKED A'),
+        coverageFailure(`${REPO}/libs/x/tsconfig.json`, 'NOT CHECKED B'),
+      ];
+
+      const out = render(scoped(diagnostics, [`${REPO}/src/a.ts`]));
+
+      expect(out).toContain('NOT CHECKED A');
+      expect(out).toContain('NOT CHECKED B');
+      for (let i = 0; i < 50; i++) expect(out).toContain(`req-${i}`);
+      expect(out).toContain('**Errors:** 52 | **Warnings:** 0');
+      expect(out).toContain(
+        'Shown 52 of 52 (50 in requested files, 2 coverage failures, 0 in sibling files omitted)',
+      );
+      expect(out).not.toContain('Omitted sibling-file diagnostics');
+    });
+
+    it('renders every coverage failure when more than 50 requested entries exceed the cap', () => {
+      const diagnostics = [
+        ...Array.from({ length: 10 }, (_, i) =>
+          error(`${REPO}/src/b.ts`, i + 1, `sib-${i}`),
+        ),
+        ...Array.from({ length: 55 }, (_, i) =>
+          error(`${REPO}/src/a.ts`, i + 1, `req-${i}`),
+        ),
+        coverageFailure(`${REPO}/tsconfig.lib.json`, 'NOT CHECKED A'),
+        coverageFailure(`${REPO}/libs/x/tsconfig.json`, 'NOT CHECKED B'),
+      ];
+
+      const out = render(scoped(diagnostics, [`${REPO}/src/a.ts`]));
+
+      expect(out).toContain('NOT CHECKED A');
+      expect(out).toContain('NOT CHECKED B');
+      for (let i = 0; i < 55; i++) expect(out).toContain(`req-${i}`);
+      expect(out).not.toMatch(/sib-\d+/);
+      expect(out).toContain('**Errors:** 67 | **Warnings:** 0');
+      expect(out).toContain(
+        'Shown 57 of 67 (55 in requested files, 2 coverage failures, 10 in sibling files omitted)',
+      );
+      expect(out).toContain(
+        `Omitted sibling-file diagnostics, by file: \`${REPO}/src/b.ts\` (10)`,
+      );
+    });
+
+    it('does not promote a tsconfig diagnostic that has a line number', () => {
+      const diagnostics = [
+        ...Array.from({ length: 60 }, (_, i) =>
+          error(`${REPO}/src/a.ts`, i + 1, `sib-${i}`),
+        ),
+        error(`${REPO}/tsconfig.json`, 3, 'ORDINARY CONFIG'),
+      ];
+
+      const out = render(scoped(diagnostics));
+
+      expect(out).not.toContain('ORDINARY CONFIG');
+      expect(out).not.toContain('coverage failure');
+      expect(out).toContain('Shown 50 of 61 (11 omitted)');
+      expect(out).toContain(`\`${REPO}/tsconfig.json\` (1)`);
+    });
+
+    it('counts and lists severities other than error and warning under Other', () => {
+      const out = render(
+        scoped([
+          { file: `${REPO}/src/a.ts`, line: 1, severity: 'hint', message: 'H' },
+          { file: `${REPO}/src/a.ts`, line: 2, severity: 3, message: 'I' },
+          error(`${REPO}/src/a.ts`, 3, 'E'),
+        ]),
+      );
+      expect(out).toContain('**Errors:** 1 | **Warnings:** 0 | **Other:** 2');
+      expect(out).toContain('### Other');
+      expect(out.indexOf('### Errors')).toBeLessThan(out.indexOf('### Other'));
+    });
+
+    it('names 20 omitted files, and folds the 21st into an "and N more" count', () => {
+      const withOmittedFiles = (n: number) => [
+        ...Array.from({ length: 50 }, (_, i) =>
+          error(`${REPO}/a/keep.ts`, i + 1, `keep-${i}`),
+        ),
+        ...Array.from({ length: n }, (_, i) => ({
+          file: `${REPO}/z/f${String(i).padStart(2, '0')}.ts`,
+          line: 1,
+          severity: 'warning',
+          message: `w-${i}`,
+        })),
+      ];
+
+      const twenty = render(scoped(withOmittedFiles(20)));
+      expect(twenty).toContain(`\`${REPO}/z/f19.ts\` (1)`);
+      expect(twenty).not.toMatch(/and \d+ more file/);
+      expect(twenty).toContain('Shown 50 of 70 (20 omitted)');
+
+      const twentyOne = render(scoped(withOmittedFiles(21)));
+      expect(twentyOne).toContain(
+        `\`${REPO}/z/f19.ts\` (1), and 1 more file (1)`,
+      );
+      expect(twentyOne).not.toContain(`${REPO}/z/f20.ts`);
+      expect(twentyOne).toContain('Shown 50 of 71 (21 omitted)');
+    });
+
+    it('orders numeric and string line numbers numerically', () => {
+      const out = render(
+        scoped([
+          error(`${REPO}/src/a.ts`, 10, 'L10'),
+          {
+            file: `${REPO}/src/a.ts`,
+            line: '2',
+            severity: 'error',
+            message: 'L2',
+          },
+          error(`${REPO}/src/a.ts`, 1, 'L1'),
+        ]),
+      );
+      expect(out.indexOf('a.ts:1`')).toBeLessThan(out.indexOf('a.ts:2`'));
+      expect(out.indexOf('a.ts:2`')).toBeLessThan(out.indexOf('a.ts:10`'));
+    });
+
+    it('keeps a message of up to 500 characters whole and cuts a longer one at 500', () => {
+      const messageOf = (n: number) =>
+        render(scoped([error(`${REPO}/src/a.ts`, 1, 'm'.repeat(n))]));
+
+      // Unscoped entries carry no severity tag: `a.ts:1` — <message>.
+      expect(messageOf(499)).toContain(`— ${'m'.repeat(499)}\n`);
+      expect(messageOf(500)).toContain(`— ${'m'.repeat(500)}\n`);
+      expect(messageOf(500)).not.toContain('…');
+      expect(messageOf(501)).toContain(`— ${'m'.repeat(500)}… (+1 chars)\n`);
+    });
+
+    it('closes a scoped call with no diagnostics with a Shown 0 of 0 summary', () => {
+      const out = render(scoped([], [`${REPO}/src/a.ts`]));
+      expect(out).toContain('No issues found');
+      expect(out).toContain(
+        'Shown 0 of 0 (0 in requested files, 0 in sibling files omitted)',
+      );
+    });
+  });
+
   it('formatLspReferences shows count and file:line:col entries', () => {
     const out = formatLspReferences([
       { file: 'src/foo.ts', line: 10, col: 4 },

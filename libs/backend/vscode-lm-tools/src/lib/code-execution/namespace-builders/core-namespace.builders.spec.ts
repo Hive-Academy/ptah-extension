@@ -23,6 +23,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import 'reflect-metadata';
 
+import * as path from 'path';
 import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -39,6 +40,7 @@ import {
   buildDiagnosticsNamespace,
   type CoreNamespaceDependencies,
 } from './core-namespace.builders';
+import { formatDiagnostics } from '../mcp-core/mcp-response-formatter';
 
 // ---------------------------------------------------------------------------
 // Helpers — typed partial mocks
@@ -581,15 +583,19 @@ describe('buildDiagnosticsNamespace', () => {
       source: 'test',
       diagnostics: [],
     });
+    // Built with path.resolve so the entry is absolute on every platform:
+    // `D:/...` is relative on posix and would now be resolved against the root.
+    const root = path.resolve('/workspace');
+    const file = path.resolve(root, 'src/a.ts');
     const ns = buildDiagnosticsNamespace(
       provider,
-      createWorkspaceProviderMock('D:/workspace'),
+      createWorkspaceProviderMock(root),
     );
 
-    await ns.getErrors(['D:/workspace/src/a.ts']);
+    await ns.getErrors([file]);
 
-    expect(provider.getDiagnostics).toHaveBeenCalledWith('D:/workspace', {
-      files: ['D:/workspace/src/a.ts'],
+    expect(provider.getDiagnostics).toHaveBeenCalledWith(root, {
+      files: [file],
     });
   });
 
@@ -649,5 +655,132 @@ describe('buildDiagnosticsNamespace', () => {
     const payload = await ns.getErrors();
     expect(payload.status).toBe('available');
     expect(payload.diagnostics).toEqual([]);
+  });
+
+  describe('requested-file scope (TASK_2026_559 r1)', () => {
+    // A root that is absolute on the platform running the spec, spelled the
+    // way the workspace provider reports it.
+    const ROOT = process.platform === 'win32' ? 'D:\\repo' : '/repo';
+    // Diagnostic paths as the compiler reports them: forward slashes.
+    const onDisk = (relative: string): string =>
+      path.resolve(ROOT, relative).replace(/\\/g, '/');
+
+    function providerReturning(
+      entries: Array<{ file: string; messages: string[] }>,
+    ): jest.Mocked<IDiagnosticsProvider> {
+      return createDiagnosticsProvider({
+        status: 'available',
+        source: 'typescript-compiler',
+        diagnostics: entries.map(({ file, messages }) => ({
+          file,
+          diagnostics: messages.map((message, i) => ({
+            message,
+            line: i + 1,
+            severity: 'error' as const,
+          })),
+        })),
+      });
+    }
+
+    // The dispatcher's path: the namespace payload goes to the formatter as-is.
+    function render(payload: unknown): string {
+      return formatDiagnostics(payload);
+    }
+
+    it('resolves relative files against the session root, never the process cwd', async () => {
+      const provider = providerReturning([]);
+      const ns = buildDiagnosticsNamespace(
+        provider,
+        createWorkspaceProviderMock(ROOT),
+      );
+      const absolute = path.resolve(ROOT, 'libs/x/src/abs.ts');
+
+      const payload = await ns.getAll([
+        'src/a.ts',
+        './src/../src/z.ts',
+        absolute,
+      ]);
+
+      const expected = [
+        path.resolve(ROOT, 'src/a.ts'),
+        path.resolve(ROOT, 'src/z.ts'),
+        absolute,
+      ];
+      expect(provider.getDiagnostics).toHaveBeenCalledWith(ROOT, {
+        files: expected,
+      });
+      expect(payload.requestedFiles).toEqual(expected);
+    });
+
+    it('without a session root, forwards relative files unchanged and reports only the absolute ones as requested', async () => {
+      const provider = providerReturning([]);
+      const ns = buildDiagnosticsNamespace(
+        provider,
+        createWorkspaceProviderMock(undefined),
+      );
+      const absolute = path.resolve(ROOT, 'src/a.ts');
+
+      const payload = await ns.getAll(['src/z.ts', absolute]);
+
+      expect(provider.getDiagnostics).toHaveBeenCalledWith(undefined, {
+        files: ['src/z.ts', absolute],
+      });
+      expect(payload.requestedFiles).toEqual([absolute]);
+    });
+
+    it('carries no requested scope for an unscoped or empty-files call', async () => {
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([]),
+        createWorkspaceProviderMock(ROOT),
+      );
+      expect((await ns.getAll()).requestedFiles).toBeUndefined();
+      expect((await ns.getAll([])).requestedFiles).toBeUndefined();
+    });
+
+    it('a relative dot-segment request keeps its diagnostic ahead of 60 earlier-sorting siblings', async () => {
+      const files = ['./src/../src/z.ts'];
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([
+          {
+            file: onDisk('src/a.ts'),
+            messages: Array.from({ length: 60 }, (_, i) => `sib-${i}`),
+          },
+          { file: onDisk('src/z.ts'), messages: ['TARGET'] },
+        ]),
+        createWorkspaceProviderMock(ROOT),
+      );
+
+      const out = render(await ns.getAll(files));
+
+      expect(out).toContain('TARGET');
+      expect(out).not.toContain('No diagnostics in the requested files');
+      expect(out).toContain(
+        'Shown 50 of 61 (1 in requested files, 11 in sibling files omitted)',
+      );
+    });
+
+    it('a relative request selects only the file under the root, not every file sharing its suffix', async () => {
+      const files = ['src/a.ts'];
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([
+          { file: onDisk('src/a.ts'), messages: ['REQUESTED'] },
+          { file: onDisk('packages/other/src/a.ts'), messages: ['OTHER'] },
+          {
+            file: onDisk('libs/b.ts'),
+            messages: Array.from({ length: 60 }, (_, i) => `sib-${i}`),
+          },
+        ]),
+        createWorkspaceProviderMock(ROOT),
+      );
+
+      const out = render(await ns.getAll(files));
+
+      expect(out).toContain('REQUESTED');
+      expect(out).not.toContain('OTHER');
+      expect(out).toContain(
+        'Shown 50 of 62 (1 in requested files, 12 in sibling files omitted)',
+      );
+      expect(out).toContain(`\`${onDisk('packages/other/src/a.ts')}\` (1)`);
+    });
   });
 });

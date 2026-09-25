@@ -702,6 +702,9 @@ async function handleIndividualTool(
         } else {
           result = await ptahAPI.diagnostics.getAll(files);
         }
+        // The payload carries the scope, resolved against the session root, as
+        // `requestedFiles`: the formatter lists diagnostics in those files
+        // first and in full, and caps the sibling files around them.
         return createToolSuccessResponse(
           request,
           formatDiagnostics(result),
