@@ -355,7 +355,7 @@ Edge cases:
 - Rationale: three sibling components with an exact behavioural spec (commit rules, a11y attributes).
 - Tasks: 1 | Depends on: Batch 6
 
-### Task 7.1: Text, choice and checkbox inputs — IN_PROGRESS
+### Task 7.1: Text, choice and checkbox inputs — IMPLEMENTED
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`:
   `surface-text-input.component.ts` (+ spec), `surface-choice-input.component.ts` (+ spec),
@@ -544,7 +544,7 @@ Edge cases:
   materializing an empty slice.
 - Carried to B15 (N4): the composer keeps the draft text on a failed start and on a send-before-resolve.
 
-## Batch 13: UI mutations and submit flow — IN_PROGRESS
+## Batch 13: UI mutations and submit flow — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -553,7 +553,7 @@ Edge cases:
 - Rationale: Rules 1-4, polling and all six reconciliation cases (R9).
 - Tasks: 1 | Depends on: Batch 12
 
-### Task 13.1: `AppsSurfaceOperations`, `AppsSubmitFlow` — IN_PROGRESS
+### Task 13.1: `AppsSurfaceOperations`, `AppsSubmitFlow` — COMPLETE
 
 - Files (4): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/services/`: `apps-surface-operations.service.ts`
   (+ spec), `apps-submit-flow.ts` (+ spec)
@@ -572,8 +572,15 @@ Edge cases:
 ### Batch 13 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
+- Result: 3/3 green (re-run by team-leader with `--skip-nx-cache`), 11 suites / 211 tests.
+  - Round 1: code-logic-reviewer 7/10 (code-logic-review-batch-13.md). The antigravity lane gave 8/10 NEEDS_REVISION (code-logic-review-batch-13-antigravity.md).
+  - Fix round 1 (batch-13-fix-1-report.md): the stale-base send was replaced by a read plus a drop at 21.5 s; submit/lane serialization is now symmetric (isSubmitting/submitEnded); a new lanes spec; the ownedRoutingIds release.
+  - Round 2: code-logic-reviewer APPROVED 9/10 (code-logic-review-batch-13-round-2.md). The antigravity lane APPROVED 9/10 (code-logic-review-batch-13-round-2-antigravity.md). Both reviewers ACCEPT all 4 deviations.
+- Carried to B15 (non-blocking):
+  - When a lane's queue refills long after an `applied` ack, its wait timer arms late. The "skip the read on the first tick" assumption can then miss by one grace period. This is timing only: the send gate and the drop deadline come from live state.
+  - The transcript must consume `submittedBubbles`.
 
-## Batch 14: Focus-memory directive — IN_PROGRESS
+## Batch 14: Focus-memory directive — COMPLETE (commit 4aa79dcfd)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer

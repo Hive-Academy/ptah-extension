@@ -652,6 +652,28 @@ describe('AppsSessionService', () => {
       expect(service.isActive()).toBe(false);
     });
 
+    it('ownedRoutingIds lists every slice conversation, shown or not, and drops a removed or discarded one', async () => {
+      await service.start('Build in A');
+      const routingA = service.routingId() as string;
+      tabs.activeWorkspacePath$.set('/ws-b');
+      await service.start('Build in B');
+      const routingB = service.routingId() as string;
+      expect([...service.ownedRoutingIds()].sort()).toEqual(
+        [routingA, routingB].sort(),
+      );
+
+      const before = service.ownedRoutingIds();
+      service.recordFocusKey('name'); // no conversation changed
+      expect(service.ownedRoutingIds()).toBe(before);
+
+      tabs.removedWorkspace$.set({ path: '/ws-a', seq: 1 });
+      TestBed.tick();
+      expect([...service.ownedRoutingIds()]).toEqual([routingB]);
+
+      service.discard();
+      expect(service.ownedRoutingIds().size).toBe(0);
+    });
+
     it('uses the implicit slice before a workspace path is known', () => {
       tabs.activeWorkspacePath$.set(null);
       expect(service.workspaceKey()).toBe(APPS_IMPLICIT_WORKSPACE);

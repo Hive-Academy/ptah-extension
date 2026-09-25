@@ -146,6 +146,25 @@ export class AppsSessionService {
     () => this.activeSlice().lastFocusKey,
   );
 
+  /**
+   * The routing ids of every slice's conversation, active or not. A routing
+   * id leaves the set when its conversation is discarded, fails to start or
+   * its workspace is removed. Equal membership keeps the same set instance.
+   */
+  public readonly ownedRoutingIds = computed<ReadonlySet<string>>(
+    () => {
+      const owned = new Set<string>();
+      for (const slice of this._slices().values()) {
+        if (slice.conversation !== null)
+          owned.add(slice.conversation.routingId);
+      }
+      return owned;
+    },
+    {
+      equal: (a, b) => a.size === b.size && [...a].every((id) => b.has(id)),
+    },
+  );
+
   /** Head session of the active conversation, or null before one resolves. */
   public readonly sessionId = computed<ClaudeSessionId | null>(() => {
     const surfaceId = this.surfaceId();
