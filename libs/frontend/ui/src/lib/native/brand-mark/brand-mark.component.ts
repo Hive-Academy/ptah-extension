@@ -5,7 +5,7 @@ import {
   input,
 } from '@angular/core';
 
-import { BRAND_MARKS, type BrandMarkRecord } from './brand-marks.generated';
+import { BRAND_MARKS, type BrandMarkRecord } from './brand-marks.vendored';
 import { MarkSvgComponent } from './mark-svg.component';
 import {
   MARK_TILE_BASE_CLASS,
@@ -81,7 +81,7 @@ const BRAND_MARK_THEME_STYLES = `
 /**
  * A vendor's logo on a small tile, or a monogram when there is no artwork.
  *
- * `brandSlug` looks up the vendored table (`brand-marks.generated.ts`). An
+ * `brandSlug` looks up the vendored table (`brand-marks.vendored.ts`). An
  * unknown, monogram-only or `null` slug renders `ptah-monogram-tile` with the
  * first grapheme of `label`. Never throws.
  *

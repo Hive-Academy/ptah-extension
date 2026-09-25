@@ -75,7 +75,7 @@ describe('MonogramTileComponent', () => {
       join(__dirname, 'monogram-tile.component.ts'),
       'utf8',
     );
-    expect(source).not.toMatch(/from\s+['"][^'"]*brand-marks\.generated['"]/);
+    expect(source).not.toMatch(/from\s+['"][^'"]*brand-marks\.vendored['"]/);
     expect(source).not.toContain('BRAND_MARKS');
     expect(source).not.toContain('innerHTML');
   });

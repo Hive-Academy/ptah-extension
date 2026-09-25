@@ -8,8 +8,13 @@
 /** Decimal places kept in every emitted number (matches svgo's floatPrecision). */
 export const FLOAT_PRECISION = 2;
 
+/** Code-unit order: what `sort()` with no comparator does for strings. */
+export const compareStrings = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 export const numberOr = (value, fallback) =>
-  Number.isFinite(parseFloat(value)) ? parseFloat(value) : fallback;
+  Number.isFinite(Number.parseFloat(value))
+    ? Number.parseFloat(value)
+    : fallback;
 
 export function formatNumber(n) {
   const scale = 10 ** FLOAT_PRECISION;
@@ -102,8 +107,17 @@ function tokenizePath(d) {
     if (!(lower in PARAM_COUNT))
       throw new Error(`command expected at offset ${i - 1}`);
     const count = PARAM_COUNT[lower];
+    if (count === 0) {
+      // `z` takes no arguments, so it never repeats.
+      commands.push({ cmd, args: [] });
+      skip();
+      continue;
+    }
     let repeat = cmd;
-    do {
+    // Every pass reads `count` (> 0) arguments, and each read advances `i` or
+    // throws, so the loop ends when the next character cannot start a number.
+    let moreArgs = true;
+    while (moreArgs) {
       const args = [];
       for (let k = 0; k < count; k++) {
         args.push(
@@ -114,8 +128,8 @@ function tokenizePath(d) {
       // Extra coordinate pairs after a moveto are implicit linetos.
       if (lower === 'm') repeat = cmd === 'm' ? 'l' : 'L';
       skip();
-    } while (count > 0 && i < d.length && /[\d+\-.]/.test(d[i]));
-    skip();
+      moreArgs = i < d.length && /[\d+\-.]/.test(d[i]);
+    }
   }
   return commands;
 }
@@ -332,8 +346,8 @@ export function rectToPath(attrs) {
     numberOr(attrs[k], 0),
   );
   if (w <= 0 || h <= 0) return '';
-  let rx = numberOr(attrs.rx, NaN);
-  let ry = numberOr(attrs.ry, NaN);
+  let rx = numberOr(attrs.rx, Number.NaN);
+  let ry = numberOr(attrs.ry, Number.NaN);
   if (Number.isNaN(rx)) rx = Number.isNaN(ry) ? 0 : ry;
   if (Number.isNaN(ry)) ry = rx;
   rx = Math.min(rx, w / 2);

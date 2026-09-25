@@ -1,7 +1,7 @@
 /**
  * Which brand mark stands for what: MCP servers, CLI install targets and
  * provider-settings ids, mapped to the slugs of the vendored artwork table
- * (`brand-marks.generated.ts`).
+ * (`brand-marks.vendored.ts`).
  *
  * THE TABLES ARE THE ALLOWLIST. No component branches on a server, target or
  * provider id; adding a mark is a one-row edit here (plus vendoring the slug

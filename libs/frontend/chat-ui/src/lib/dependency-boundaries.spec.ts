@@ -92,7 +92,7 @@ describe('chat-ui keeps the brand artwork out of the initial chunk (R7)', () => 
     const offenders = files
       .filter(({ source }) =>
         importsOf(source).some(({ specifier }) =>
-          /brand-marks\.generated|brand-mark\.component/.test(specifier),
+          /brand-marks\.vendored|brand-mark\.component/.test(specifier),
         ),
       )
       .map(({ path }) => path);

@@ -148,7 +148,7 @@ export function formatConsoleReport({
   ].join('\n');
 }
 
-const cell = (text) => String(text).replace(/\|/g, '\\|');
+const cell = (text) => String(text).replaceAll('|', '\\|');
 
 /** The persisted rejection report (Markdown; prettier formats it). Not shipped. */
 export function renderRejectionReport({ source, outcomes, a4 }) {

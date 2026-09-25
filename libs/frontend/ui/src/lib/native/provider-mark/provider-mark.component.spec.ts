@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 
-import { PROVIDER_BRAND_ART } from '../brand-mark/provider-brand-art.generated';
+import { PROVIDER_BRAND_ART } from '../brand-mark/provider-brand-art.vendored';
 import type { MarkArtwork } from '../brand-mark/mark-artwork';
 import { ProviderMarkComponent } from './provider-mark.component';
 import {
@@ -132,16 +132,16 @@ describe('ProviderMarkComponent', () => {
     expect(source).not.toContain('innerHTML');
     expect(source).toContain('<ptah-mark-svg');
     expect(source).toContain('paint="mono"');
-    const imports = (source.match(/^import[\s\S]*?from '[^']+';$/gm) ?? []).join(
-      '\n',
-    );
+    const imports = (
+      source.match(/^import[\s\S]*?from '[^']+';$/gm) ?? []
+    ).join('\n');
     expect(imports).toContain('PROVIDER_BRAND_ART');
     expect(imports).not.toMatch(/\bBRAND_MARKS\b/);
     // Not even another export of the table's MODULE: esbuild would put the
     // whole module, `BRAND_MARKS` included, in a chunk the eager side loads.
     expect(imports).toContain(
-      "from '../brand-mark/provider-brand-art.generated'",
+      "from '../brand-mark/provider-brand-art.vendored'",
     );
-    expect(imports).not.toContain('brand-marks.generated');
+    expect(imports).not.toContain('brand-marks.vendored');
   });
 });

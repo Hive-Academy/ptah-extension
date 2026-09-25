@@ -2,7 +2,7 @@
  * Native Brand Mark - Barrel Export
  *
  * The brand logo tile (`ptah-brand-mark`), and nothing else. It is the only
- * export that reaches the vendored artwork table (`brand-marks.generated.ts`),
+ * export that reaches the vendored artwork table (`brand-marks.vendored.ts`),
  * so it must stay reachable only from lazily loaded code: the Marketplace
  * routes import it from `@ptah-extension/ui`, and an eager host defers it
  * through the `@ptah-extension/ui/brand-mark` entry point inside `@defer`.

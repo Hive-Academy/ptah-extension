@@ -3,10 +3,10 @@ import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 
 import { BrandMarkComponent } from './brand-mark.component';
-import { BRAND_MARKS, MONOGRAM_SLUGS } from './brand-marks.generated';
+import { BRAND_MARKS, MONOGRAM_SLUGS } from './brand-marks.vendored';
 import type { MarkTileSize } from './monogram-tile.component';
 
-/** Fixtures are read from the generated table, not assumed. */
+/** Fixtures are read from the vendored table, not assumed. */
 const ON_DARK_SLUG = 'github';
 const LIGHT_SLUG = 'sentry';
 const PLAIN_SLUG = 'airtable';

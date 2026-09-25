@@ -9,8 +9,8 @@
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@{commit}/{path}"
     ]
   },
-  "output": "libs/frontend/ui/src/lib/native/brand-mark/brand-marks.generated.ts",
-  "providerOutput": "libs/frontend/ui/src/lib/native/brand-mark/provider-brand-art.generated.ts",
+  "output": "libs/frontend/ui/src/lib/native/brand-mark/brand-marks.vendored.ts",
+  "providerOutput": "libs/frontend/ui/src/lib/native/brand-mark/provider-brand-art.vendored.ts",
   "notices": "libs/frontend/ui/src/lib/native/brand-mark/brand-icons-notices.txt",
   "report": "scripts/brand-icons/rejection-report.md",
   "icons": [

@@ -1,6 +1,6 @@
 /**
  * The artwork shape every vendor or provider mark in the webview is drawn
- * from — the vendored brand table (`brand-marks.generated.ts`, produced by
+ * from — the vendored brand table (`brand-marks.vendored.ts`, produced by
  * `scripts/vendor-brand-icons.mjs`) and the hand-authored provider glyphs
  * alike. One renderer turns it into `<svg><path [attr.d] …>` bindings, so no
  * SVG markup is ever parsed at runtime.

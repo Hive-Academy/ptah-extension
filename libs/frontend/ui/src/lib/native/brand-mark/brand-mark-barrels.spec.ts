@@ -5,7 +5,7 @@
  * consumer uses. When the monogram tile and the slug resolvers were exported
  * through `./brand-mark/index.ts`, one eager import of either put
  * `brand-mark.component.ts` and the whole vendored table
- * (`brand-marks.generated.ts`) in the initial chunk. These source-level pins
+ * (`brand-marks.vendored.ts`) in the initial chunk. These source-level pins
  * keep the artwork-free barrels, and the files behind them, away from the
  * table, and keep the artwork barrel down to the one component that needs it.
  */
@@ -35,8 +35,7 @@ const valueExports = (source: string): string[] =>
   );
 
 /** The artwork component, its table, or the artwork barrel itself. */
-const ARTWORK =
-  /brand-mark\.component|brand-marks\.generated|(^|\/)brand-mark$/;
+const ARTWORK = /brand-mark\.component|brand-marks\.vendored|(^|\/)brand-mark$/;
 
 describe('brand-mark barrels (R7)', () => {
   it('keeps the artwork barrel down to BrandMarkComponent', () => {

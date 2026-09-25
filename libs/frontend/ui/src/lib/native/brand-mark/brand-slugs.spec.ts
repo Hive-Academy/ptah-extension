@@ -7,8 +7,8 @@ import {
 } from '@ptah-extension/shared';
 
 import { PROVIDER_MARKS } from '../provider-mark/provider-marks.data';
-import { BRAND_MARKS, MONOGRAM_SLUGS } from './brand-marks.generated';
-import { PROVIDER_BRAND_ART } from './provider-brand-art.generated';
+import { BRAND_MARKS, MONOGRAM_SLUGS } from './brand-marks.vendored';
+import { PROVIDER_BRAND_ART } from './provider-brand-art.vendored';
 import {
   CLI_TARGET_BRANDS,
   KNOWN_SERVER_BRANDS,

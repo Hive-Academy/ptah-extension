@@ -20,11 +20,14 @@ export function parseColour(raw) {
   if (hex) {
     const digits =
       hex[1].length <= 4 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
-    const alpha = digits.length === 8 ? parseInt(digits.slice(6), 16) / 255 : 1;
+    const alpha =
+      digits.length === 8 ? Number.parseInt(digits.slice(6), 16) / 255 : 1;
     return { kind: 'rgb', hex: `#${digits.slice(0, 6)}`, alpha };
   }
+  // Separator `\s+(?:,\s*)?|,\s*` avoids super-linear backtracking and accepts
+  // the same strings as `\s*[,\s]\s*`.
   const rgb =
-    /^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/.exec(
+    /^rgba?\(\s*([\d.]+)(?:\s+(?:,\s*)?|,\s*)([\d.]+)(?:\s+(?:,\s*)?|,\s*)([\d.]+)\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/.exec(
       value,
     );
   if (rgb) {
@@ -36,7 +39,7 @@ export function parseColour(raw) {
       rgb[4] === undefined
         ? 1
         : rgb[4].endsWith('%')
-          ? parseFloat(rgb[4]) / 100
+          ? Number.parseFloat(rgb[4]) / 100
           : Number(rgb[4]);
     return {
       kind: 'rgb',
@@ -49,7 +52,8 @@ export function parseColour(raw) {
       value,
     );
   if (fn) {
-    const unit = (s) => (s.endsWith('%') ? parseFloat(s) / 100 : Number(s));
+    const unit = (s) =>
+      s.endsWith('%') ? Number.parseFloat(s) / 100 : Number(s);
     const channels = [fn[2], fn[3], fn[4]].map(unit);
     const srgb = fn[1] === 'display-p3' ? displayP3ToSrgb(channels) : channels;
     const hexDigits = srgb
@@ -88,7 +92,8 @@ function displayP3ToSrgb(rgb) {
   ].map(toGamma);
 }
 
-const toRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const toRgb = (hex) =>
+  [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
 
 function luminance([r, g, b]) {
   const linear = (c) => {

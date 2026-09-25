@@ -15,6 +15,7 @@ import {
   Box,
   FLOAT_PRECISION,
   boxContains,
+  compareStrings,
   formatNumber,
   numberOr,
   pathGeometry,
@@ -108,9 +109,9 @@ const ROOT_STYLE = {
   skip: false,
   clips: [],
 };
-const URL_REF_RE = /^url\(\s*['"]?#([^'")]+)['"]?\s*\)$/;
+// Whitespace only after a closing quote: no super-linear backtracking, same matches and captures.
+const URL_REF_RE = /^url\(\s*['"]?#([^'")]+)(?:['"]\s*)?\)$/;
 
-const compareStrings = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const inherit = (value, parent) =>
   value === undefined || value === 'inherit' ? parent : value;
 
@@ -143,8 +144,8 @@ function parseViewBox(attrs) {
   ) {
     return parts;
   }
-  const w = numberOr(attrs.width, NaN);
-  const h = numberOr(attrs.height, NaN);
+  const w = numberOr(attrs.width, Number.NaN);
+  const h = numberOr(attrs.height, Number.NaN);
   return w > 0 && h > 0 && !/%/.test(`${attrs.width}${attrs.height}`)
     ? [0, 0, w, h]
     : null;
@@ -180,7 +181,7 @@ function rectangleOf(def, [, , vw, vh]) {
       return null;
   }
   const size = (value, full) =>
-    value === '100%' ? full : numberOr(value, NaN);
+    value === '100%' ? full : numberOr(value, Number.NaN);
   let d;
   if (shape.name === 'rect') {
     d = rectToPath({
@@ -198,7 +199,7 @@ function rectangleOf(def, [, , vw, vh]) {
   if (!box) return null;
   if (isMask && def.attributes.maskUnits === 'userSpaceOnUse') {
     const [mx, my, mw, mh] = ['x', 'y', 'width', 'height'].map((k) =>
-      numberOr(def.attributes[k], NaN),
+      numberOr(def.attributes[k], Number.NaN),
     );
     if ([mx, my, mw, mh].every(Number.isFinite)) {
       box.minX = Math.max(box.minX, mx);

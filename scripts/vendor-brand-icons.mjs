@@ -4,8 +4,8 @@
  *
  * Vendors brand marks from theSVG (github.com/glincker/thesvg) at ONE pinned
  * commit into TypeScript path data for `@ptah-extension/ui`
- * (`native/brand-mark/brand-marks.generated.ts` and its eager-safe provider
- * subset `provider-brand-art.generated.ts`). Run by hand; the output is
+ * (`native/brand-mark/brand-marks.vendored.ts` and its eager-safe provider
+ * subset `provider-brand-art.vendored.ts`). Run by hand; the output is
  * committed. It is not part of any build, so CI never depends on the network.
  *
  * Why TypeScript and not `.svg` files: the VS Code Marketplace scanner rejects
@@ -139,18 +139,18 @@ const errorMessage = (error) =>
 function validateOutputs({ output, providerOutput, notices, report }, fail) {
   if (
     typeof output !== 'string' ||
-    !/^libs\/[\w./-]+\.generated\.ts$/.test(output)
+    !/^libs\/[\w./-]+\.vendored\.ts$/.test(output)
   ) {
-    fail('output must be a libs/**/*.generated.ts path');
+    fail('output must be a libs/**/*.vendored.ts path');
   }
   if (
     typeof providerOutput !== 'string' ||
-    !/^libs\/[\w./-]+\.generated\.ts$/.test(providerOutput) ||
+    !/^libs\/[\w./-]+\.vendored\.ts$/.test(providerOutput) ||
     dirname(providerOutput) !== dirname(output) ||
     providerOutput === output
   ) {
     fail(
-      'providerOutput must be a second *.generated.ts path in the directory of output',
+      'providerOutput must be a second *.vendored.ts path in the directory of output',
     );
   }
   if (typeof notices !== 'string' || !/^libs\/[\w./-]+\.txt$/.test(notices)) {

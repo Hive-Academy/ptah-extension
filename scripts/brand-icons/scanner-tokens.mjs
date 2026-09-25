@@ -16,6 +16,8 @@
  * Every plain-text file the brand-icon pipeline ships must return no hits.
  */
 
+import { compareStrings } from './path-geometry.mjs';
+
 export const SCANNER_TOKENS = Object.freeze([
   'anthropic',
   'claude',
@@ -43,7 +45,7 @@ export function findScannerTokens(text) {
   const collapsed = lower.replace(/[\s.\-_]+/g, '');
   return SCANNER_TOKENS.filter(
     (token) => lower.includes(token) || collapsed.includes(token),
-  ).sort();
+  ).sort(compareStrings);
 }
 
 /**
