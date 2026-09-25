@@ -3,8 +3,8 @@
 Total tasks: 65 | Batches: 30 | Complete: 29/30
 
 Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23, 24 (+24a).
-Batch 25a (product fix found by Batch 25) COMPLETE (838d22c51).
-In progress: Batch 25 (revise round 1 applied; item 7 and re-review running).
+Batch 25a and 25b (product fixes found by Batch 25) COMPLETE (838d22c51, e27935086). Task 25.3 (R7) COMPLETE.
+In progress: Batch 25 (revise round 2 running; round 1 re-review: logic APPROVED 8/10, visual NEEDS_REVISION 6/10).
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1276,7 +1276,7 @@ Edge cases:
 - Validation notes: visual-reviewer compares with the eight prototype screenshots and records accepted deviations (dropped widgets) vs defects.
 - Implementation details: none beyond capture.
 
-### Task 25.3: Final R7 comparison — PENDING
+### Task 25.3: Final R7 comparison — COMPLETE
 
 - Depends on: Task 25.1
 - Files: none (evidence)
@@ -1285,6 +1285,29 @@ Edge cases:
 - Quality requirements: final initial-chunk table vs the Batch 7c baseline; `BRAND_MARKS` absent from the initial chunk; only renderer, monogram, catalog pieces and `PROVIDER_BRAND_ART` added.
 - Validation notes: attach to the batch report.
 - Implementation details: evidence only.
+- Result (team-leader, 2026-09-25, TASK_WT at `24a77b666` = all product batches incl. 25a; Batch 25 adds test code only). Production build of `ptah-extension-webview` with `--skip-nx-cache`; Node probe on the full `d: '...'` path strings.
+  - Path probe: `brand-marks.generated.ts` 111 paths, `provider-brand-art.generated.ts` 3, `BRAND_MARKS`-only 109. **0/109 in the 13 initial chunks**; 109/109 in one lazy chunk (`chunk-BipGfYJv.js`). The 25a fix is in the lazy Marketplace chunk only.
+  - Initial total 3.43 MB / 699.39 kB transfer; **initial JS 3,160,156 B** (13 files incl. `scripts.js`) — the same bytes as after Batch 24.
+  - Byte attribution: `--statsJson` builds of TASK_WT and of the branch merge base `0760a0525` (`origin/main` at rebase 2; the rebases are therefore outside the delta). The initial set is the static-import closure of `main.js` + `polyfills.js`, plus `scripts.js` (48,202 B, unchanged). Base initial JS 3,131,260 B → branch 3,160,156 B, **+28,896 B**:
+
+    | Source (initial chunks only) | Δ bytes | R7 status |
+    | --- | ---: | --- |
+    | `ui` catalog pieces: `catalog-card` 7,077, `storefront-panel` 3,052, `catalog-card-skeleton` 2,390, `catalog-grid` 1,249 | +13,768 | allowed (catalog pieces) |
+    | `ui` `monogram-tile` | +1,799 | allowed (monogram) |
+    | `ui` `mark-svg` renderer | +1,384 | allowed (renderer) |
+    | `ui` `provider-brand-art.generated.ts` | +1,693 | allowed (`PROVIDER_BRAND_ART`) |
+    | `ui` `brand-slugs.ts` (listing / installed slug resolvers, C14; slug tables, no artwork) | +1,948 | accepted — shared discovery piece the eager chat-ui browsers need (Batch 24a) |
+    | `ui` `provider-mark` (−333) and other `ui` files (−68) | −401 | — |
+    | `chat-ui` eager browsers restyled onto the catalog pieces: `mcp-directory-browser` −6,676, `skill-sh-browser` −5,796, `plugin-catalog-panel` −1,446, other −1,086 | −15,004 | — |
+    | `@angular/core` `_debug_node-chunk` (URL-binding sanitizer, `HostAttributeToken`) | +13,831 | accepted in Batch 17 |
+    | `@angular/core` `_pending_tasks-chunk` +2,826, `core.mjs` +506, other +255 (`@defer` runtime) | +3,587 | accepted in Batch 24a |
+    | `@angular/router` `_router_module-chunk` +9,338, `_router-chunk` −657: `RouterLink` / `RouterLinkActive` code, used only by the lazy Marketplace pages, lands in the eager vendor chunk because esbuild keeps one fesm module in one chunk and `main` already imports it for `RouterOutlet` | +8,681 | accepted (team-leader, same reasoning as the Batch 17 runtime item) |
+    | small deltas: `lucide-angular` +1,084, `shared` +1,033, `rxjs` +844, `tslib` +77, 25 other libs net −3,260 | −222 | — |
+    | esbuild glue (chunk wrappers, import lists; 12 vs 8 initial JS files) | −2,168 | — |
+    | **Total** | **+28,896** | **PASS** |
+
+  - Relative to the Batch 7c baseline (`origin/main` `f98b1309d`, initial JS 3,135,383 B): +24,773 B; the two `main` rebases account for the difference between the two baselines (−4,123 B).
+  - No brand artwork outside the allow-list reaches an initial chunk. Follow-up: a lazy-only use of an Angular package entry that `main` already imports moves the whole used part of that fesm module into the eager chunk (Batch 17 core, 24a `@defer`, 25 router) — worth a repository-level note for later lazy features.
 
 ### Batch 25 verification
 
@@ -1300,3 +1323,12 @@ Edge cases:
 - Order-dependent specs: `overview-page.component.spec.ts` and `connectors-page.component.spec.ts` — no shared-state leak; under `--randomize` the first test paid the one-time page template compile and passed the 5 s jest limit under load (up to 6798 ms). Each spec now renders its page once in a `beforeAll` warm-up (30 s budget); no per-test timeout raised. 20/20 randomized runs each (seeds in `batch-25a-evidence/after-randomize.log`); 10-process load test 0/40 failures (was 3/40).
 - Executor frontend-developer `fe-b25a` in worktree `task533-b25a` (base `b54f9399d`; resumed from a rate-limited predecessor's partial work). `lint,typecheck,test -p @ptah-extension/marketplace @ptah-extension/webview-e2e-harness` green in TASK_WT (2 projects; marketplace 64 suites / 1323 tests in the executor run). Reviews: logic APPROVED (0 blocking; stacking chain, daisyUI `.table`, Tailwind cascade order and the before/after logs checked independently), style APPROVED 9/10. Report `batch-25a-report.md` and `batch-25a-evidence/` (untracked). Worktree and branch removed.
 - Follow-ups: two open removal-lock badges in different rows are not mutually exclusive (pre-existing); the warm-up covers only the branches that timed out — other `RouterTestingHarness` page specs (e.g. `installed-servers-page.component.spec.ts`) may show the same first-test cost under load; the reduced-motion `transform-none` reason lives only in the report, not in a source comment.
+
+### Batch 25b: Server detail row overflow — COMPLETE (e27935086)
+
+- Found by the Batch 25 visual re-review (round 1), which reported two blocking findings: the server detail drawer clipped the Status hint and the config path at 1100 px (both hosts), and the dashboard skill-picker dialog did not dim the page. Split out as a product batch so Batch 25 stays test-only.
+- Result: both reported captures were taken during an entry animation — the drawer panel slides in over 180 ms (`native-drawer.component.ts:134-158`; mid-slide left edge 971–1261 px across runs) and the daisyUI modal fades in over 200 ms (opacity 0–0.59 at capture). Settled, the drawer sits at 652–1100 with no overflow and the dialog is opaque over a `rgba(0,0,0,0.4)` dim (daisyUI's hard-coded value, same as every other modal). The dialog is unchanged and pre-existing on the merge base `0760a0525` (file, Tailwind config, stylesheets and versions identical). Batch 25 now waits for the animations before it captures.
+- Real defect found while measuring: the Status `dd` had no `min-w-0`, so a long raw status or an unbroken token could not shrink; it ran to x=1437 against a 1100 panel edge and the drawer body scrolled sideways (784 px content in a 447 px box). Fix in `server-detail.component.html`: every Overview row has a `shrink-0` label and a `min-w-0` value; text values `break-words`, config paths keep `break-all`. After: the value ends at 1084, no sideways scroll. The docked inspector renders the same template. `@ptah-extension/ui` unchanged (`overflow-x` computes to `auto`, not the cause).
+- Executor frontend-developer `fe-b25b` in worktree `task533-b25b` (base `24a77b666`). `server-detail.component.spec.ts` +3 class-contract tests (2 fail on the old template; the `break-all` one was already true). `lint,typecheck,test -p @ptah-extension/marketplace` green in TASK_WT. Reviews: logic APPROVED 9/10 (mutation-tested; daisyUI dim and animation claims checked independently), style APPROVED 8/10 (serious, non-blocking: class-contract tests in JSDOM do not prove geometry → a real-browser geometry check was added to Batch 25's `marketplace-servers.e2e.spec.ts`). Report `batch-25b-report.md`, `batch-25b-evidence/` (untracked). Worktree and branch removed.
+- R7: the change is in the lazy Marketplace chunk only; the Task 25.3 initial-chunk result stands (re-checked after the final rebase).
+- Follow-ups: the template comment does not state where `break-words` belongs (`dd` vs child `<p>`); the report counted 3 pinning tests where 2 pin new behaviour.
