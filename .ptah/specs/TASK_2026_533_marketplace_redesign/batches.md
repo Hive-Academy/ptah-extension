@@ -1,10 +1,9 @@
 # Batches - TASK_2026_533
 
-Total tasks: 65 | Batches: 30 | Complete: 29/30
+Total tasks: 65 | Batches: 30 | Complete: 30/30
 
-Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23, 24 (+24a).
-Batch 25a and 25b (product fixes found by Batch 25) COMPLETE (838d22c51, e27935086). Task 25.3 (R7) COMPLETE.
-In progress: Batch 25 (revise round 2 running; round 1 re-review: logic APPROVED 8/10, visual NEEDS_REVISION 6/10).
+Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23, 24 (+24a), 25 (+25a, 25b).
+In progress: none. All batches COMPLETE.
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1248,7 +1247,7 @@ Edge cases:
 - To Batch 25 (real browser): the 2-column / no-overflow layout of `ptah-catalog-grid` inside the `max-w-2xl` dashboard dialog; the registry browser's Sentry vendor mark appears after the deferred load.
 - Follow-ups: `pluginCardMeta` would drop one word for a plugin that is both default and harness-sourced (the backend hard-codes `isDefault:false` for harness plugins). Process: reviewers must not revert mutation tests with a checkout in an executor worktree that has uncommitted work.
 
-## Batch 25: Webview e2e scenarios and visual parity (B10) — PENDING
+## Batch 25: Webview e2e scenarios and visual parity (B10) — COMPLETE (82e7c0cec; product fixes 838d22c51 25a, e27935086 25b)
 
 - Recommended executor: senior-tester, then visual-reviewer
 - Fallback executor: frontend-developer for the fixtures
@@ -1257,7 +1256,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 17-24
 - Verification: `npx nx run-many -t lint,typecheck -p @ptah-extension/webview-e2e-harness` then `npx nx run @ptah-extension/webview-e2e-harness:e2e`; final R7 comparison
 
-### Task 25.1: Marketplace scenarios — PENDING
+### Task 25.1: Marketplace scenarios — COMPLETE
 
 - Files: under `D:\projects\ptah-extension\libs\frontend\webview-e2e-harness\src\lib\scenarios\marketplace\`: `marketplace.fixtures.ts`, `marketplace-routes.e2e.spec.ts`, `marketplace-servers.e2e.spec.ts`
 - Plan reference: implementation-plan.md plan B10 row
@@ -1266,7 +1265,7 @@ Edge cases:
 - Validation notes: both hosts (`isElectron` true/false).
 - Implementation details: test code only.
 
-### Task 25.2: Parity screenshots — PENDING
+### Task 25.2: Parity screenshots — COMPLETE
 
 - Depends on: Task 25.1
 - Files: `D:\projects\ptah-extension\libs\frontend\webview-e2e-harness\src\lib\scenarios\marketplace\marketplace-visual.e2e.spec.ts`; output PNGs in `D:\projects\ptah-extension\.ptah\specs\TASK_2026_533_marketplace_redesign\screenshots\angular\`
@@ -1315,6 +1314,14 @@ Edge cases:
 - Workspace switch with a Marketplace detail open (TASK_2026_540 remount): after the switch the URL is unchanged, the shell and stores are re-created, and a detail whose ref is gone renders "Not found" (or closes to the list) while a still-present one re-renders.
 - Real-host tier check (from Batch 3 review): in a real host build, resize the container across 900 and 1400 WITHOUT any manual change detection and assert the tier flips (rail ↔ sidebar, drawer ↔ docked detail). Belongs in `marketplace-routes.e2e.spec.ts` (Task 25.1).
 - Reviewer: visual-reviewer (rendered interface parity), after senior-tester's run is green
+- Result: commit 82e7c0cec test(e2e) — `marketplace.fixtures.ts`, `marketplace-routes.e2e.spec.ts`, `marketplace-servers.e2e.spec.ts`, `marketplace-visual.e2e.spec.ts` (28 tests, both hosts where required). Executor senior-tester `qa-b25` in worktree `task533-b25` (base `b54f9399d`; resumed from a rate-limited predecessor, then 2 revise rounds). Final runs: 28/28 twice in the executor worktree, 28/28 in the logic reviewer's own run. `lint,typecheck -p @ptah-extension/webview-e2e-harness` green in TASK_WT. 62 parity PNGs in `screenshots/angular/` and `batch-25-report.md` (untracked, like every other PNG and report under `.ptah/specs`).
+- Reviews: logic NEEDS_REVISION 7/10 → APPROVED 8/10 (round 1) → APPROVED 9/10 (round 2); visual NEEDS_REVISION 6/10 → NEEDS_REVISION 6/10 (round 1: two findings, see Batch 25b) → APPROVED 9/10 (round 2).
+- Plugins catalog stuck on loading: NOT a product race. `PluginCatalogService`'s scope guard (`plugin-catalog.service.ts:168-201`) is correct (instrumented and traced). `PluginCatalogPanelComponent.loadPlugins()` (`plugin-catalog-panel.component.ts:1123-1130`) awaits `plugins:list-skills` after the catalog, and that RPC had no fixture, so `isLoading` waited for the 10 s RPC timeout. The same kind of gap (`mcpDirectory:getSmitheryKeyStatus`, `skillsSh:detectRecommended`) blocked Smithery and Community. Six RPCs added to the fixtures (incl. the three the round-0 review named).
+- Round-1/2 fixes: every `waitForTimeout` replaced by state waits that fail on `aria-busy`, catalog skeletons and spinners (`waitForSettled`), on the `@defer` brand-mark placeholder (`waitForCatalogCardMarkResolved`) and on running entry animations (`waitForAnimationsSettled` + bounding-box / opacity asserts + `animations: 'disabled'`); `force: true` removed; captures added for Connectors, Installed servers, server detail (drawer + docked) and a tall Overview at 1750; the copy-fallback test moved to the `sentry` row after 25a; a geometry regression for 25b (fails 2/2 on the old template); the "chip not covered" claim and naming nits corrected.
+- Accepted deviations: PNGs are not committed (repository convention: 0 tracked PNGs under `.ptah/specs`); the 25a/25b product fixes were copied into the test worktree for the runs and committed only by their own batches.
+- Follow-ups: `waitForAnimationsSettled` waits the full timeout when the target never animates (its comment says it returns at once) — inert for the current call sites; the full 13-project check run in parallel showed two load-only failures in `ptah-electron` (lint picked up a transient `src/windows/.shell-security-*` folder written by a concurrent test; `git-watcher.stress.spec.ts` ST-1b timed out after 92 s) — both green when `ptah-electron` runs alone, neither file touched by this task.
+- Out of scope (peer request, 2026-09-25): per-workspace and global on/off controls for MCP servers and skills, with source-scope display, token-cost display and enforcement for SDK, proxied and CLI-lane sessions. Tracked as TASK_2026_560_2ae5 (backlog). Anchors: `installed-servers-page.component.ts`, `server-detail.component.html`, contracts in `libs/shared`.
+- Final checks (TASK_WT, after all commits): `lint,typecheck,test` green for 13 projects: ptah-electron-e2e, ptah-electron, ptah-extension-vscode, ptah-extension-webview, cli-agent-runtime, shared, chat, chat-ui, core, dashboard, marketplace, ui, webview-e2e-harness.
 
 ### Batch 25a: Lock-popover stacking fix and order-dependent specs — COMPLETE (838d22c51)
 
