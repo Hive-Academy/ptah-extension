@@ -21,7 +21,12 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { ISdkPermissionHandler, AuthEnv } from '@ptah-extension/shared';
+import type {
+  ISdkPermissionHandler,
+  AuthEnv,
+  EffectiveCapabilitySet,
+  ICapabilityResolver,
+} from '@ptah-extension/shared';
 import {
   isDirectAnthropic,
   getAllAnthropicProviders,
@@ -37,7 +42,10 @@ import {
   Options,
 } from '../../types/sdk-types/claude-sdk.types';
 import type { SdkModuleLoader } from '../sdk-module-loader';
-import type { SdkQueryOptionsBuilder } from '../sdk-query-options-builder';
+import {
+  resolveSessionCapabilityPolicy,
+  type SdkQueryOptionsBuilder,
+} from '../sdk-query-options-builder';
 import type { SdkMessageFactory } from '../sdk-message-factory';
 import type {
   ExecuteQueryConfig,
@@ -52,7 +60,7 @@ import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
 } from '../no-activity-watchdog';
-import type { IHarnessPreflight } from '../../harness/harness-preflight.port';
+import type { HarnessPolicySync } from '../../harness/harness-policy-sync';
 
 /**
  * Classify who is authoritative for a query's dollars from its effective
@@ -133,12 +141,19 @@ export class SessionQueryExecutor {
     private readonly authEnv: AuthEnv,
     private readonly queryRunner: SdkQueryRunner,
     /**
-     * Optional by design: a host with no reconciler (a test container, an
-     * embedded consumer) starts sessions exactly as before. See
-     * `harness/harness-preflight.port.ts` for why this is a structural port and
-     * not an import of `harness-sync`.
+     * The capability policy (TASK_2026_560, C5). Missing means unverified: the
+     * session runs fail-closed — strict MCP with ptah only, no skills, and no
+     * harness sync.
      */
-    private readonly harnessPreflight: IHarnessPreflight | null = null,
+    private readonly capabilityResolver: ICapabilityResolver | null = null,
+    /**
+     * Brings the harness in line with the policy fingerprint before the query
+     * is built. Optional: a host with no harness has nothing to sync.
+     */
+    private readonly harnessPolicySync: Pick<
+      HarnessPolicySync,
+      'apply'
+    > | null = null,
   ) {}
 
   /**
@@ -328,13 +343,19 @@ export class SessionQueryExecutor {
       activityWatchdog.hold();
     }
     try {
+      // ONE policy snapshot for both the harness sync and the options build,
+      // so the skill copies the harness writes and the flags the builder emits
+      // describe the same decisions (TASK_2026_560, C5).
+      const capabilityPolicy = await this.resolveCapabilityPolicy(
+        sessionConfig?.projectPath,
+      );
       // Before the SDK is even loaded: this is the one funnel every
       // interactive, gateway and resumed session passes through, and it is the
       // last moment at which a missing `.claude/skills` can still be repaired
       // without the model having already been told it has none. Bounded and
-      // non-throwing by the port's contract, so nothing here can delay or fail
-      // a session for long (TASK_2026_278 Batch 3).
-      await this.runHarnessPreflight(sessionConfig?.projectPath);
+      // non-throwing, so nothing here can delay or fail a session for long
+      // (TASK_2026_278 Batch 3).
+      await this.syncHarnessToPolicy(capabilityPolicy);
       const queryFn = await this.moduleLoader.getQueryFunction();
       const userMessageStream = this.streamPump.createUserMessageStream(
         sessionId,
@@ -397,6 +418,7 @@ export class SessionQueryExecutor {
         // registry knows. Reading the record live means a prompt raised after
         // the SDK `init` message carries the id the UI actually routes on.
         sessionIdResolver: () => rec.realSessionId ?? undefined,
+        capabilityPolicy,
       });
       const isResume = !!resumeSessionId;
       // Never a raw string. A string prompt is what sets the SDK's
@@ -540,26 +562,67 @@ export class SessionQueryExecutor {
   }
 
   /**
-   * Verify the harness for this session's workspace, bounded, before the query
-   * starts.
-   *
-   * The catch is belt-and-braces. `IHarnessPreflight` promises never to throw,
-   * but this call sits INSIDE `executeQuery`'s try block, whose catch tears the
-   * session registration down and rethrows — so a port implementation that
-   * broke its contract would turn a harness hiccup into a failed chat message.
-   * Swallowing here is what makes "the harness is best-effort" true at the one
-   * place it has to be.
+   * The capability policy for this session's own cwd. `undefined` only when
+   * no workspace path is known — the builder rejects that session anyway.
+   * Never throws: a missing or failing resolver yields an unverified policy.
    */
-  private async runHarnessPreflight(
+  private async resolveCapabilityPolicy(
     projectPath: string | undefined,
+  ): Promise<EffectiveCapabilitySet | undefined> {
+    if (typeof projectPath !== 'string' || projectPath.trim() === '') {
+      return undefined;
+    }
+    return resolveSessionCapabilityPolicy(
+      this.capabilityResolver,
+      projectPath,
+      this.logger,
+    );
+  }
+
+  /**
+   * Bring the harness in line with `policy`, bounded, before the query starts.
+   *
+   * Skipped for an unverified policy: the reconciler freezes on an unknown
+   * policy, and the session already runs with `skills: []`, so a pass could
+   * only write or remove copies against a policy nobody could read.
+   *
+   * An unacknowledged pass is logged and the session continues. For a Claude
+   * session that is safe, because `skillOverrides` already denies every
+   * disabled skill natively whatever the copies on disk say.
+   *
+   * The catch is belt-and-braces. `HarnessPolicySync.apply` is built on a port
+   * that never throws, but this call sits INSIDE `executeQuery`'s try block,
+   * whose catch tears the session registration down and rethrows — so a broken
+   * contract would turn a harness hiccup into a failed chat message.
+   */
+  private async syncHarnessToPolicy(
+    policy: EffectiveCapabilitySet | undefined,
   ): Promise<void> {
-    if (this.harnessPreflight === null) return;
-    if (typeof projectPath !== 'string' || projectPath.trim() === '') return;
+    if (policy === undefined || this.harnessPolicySync === null) return;
+    if (policy.status !== 'verified') {
+      this.logger.warn(
+        '[SessionLifecycle] Capability policy is unverified — harness sync skipped',
+        { physicalRoot: policy.physicalRoot, reasons: policy.reasons },
+      );
+      return;
+    }
     try {
-      await this.harnessPreflight.ensure(projectPath);
+      const { acknowledged } = await this.harnessPolicySync.apply(
+        policy.physicalRoot,
+        policy.harnessFingerprint,
+      );
+      if (!acknowledged) {
+        this.logger.warn(
+          '[SessionLifecycle] Harness did not acknowledge the capability policy (session continues; skillOverrides still denies disabled skills)',
+          {
+            physicalRoot: policy.physicalRoot,
+            fingerprint: policy.harnessFingerprint,
+          },
+        );
+      }
     } catch (error: unknown) {
       this.logger.warn(
-        '[SessionLifecycle] Harness preflight threw (ignored; session continues)',
+        '[SessionLifecycle] Harness policy sync threw (ignored; session continues)',
         {
           error: error instanceof Error ? error.message : String(error),
         },

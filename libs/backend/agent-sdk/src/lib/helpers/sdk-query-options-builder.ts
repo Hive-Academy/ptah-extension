@@ -29,8 +29,12 @@ import {
   AuthEnv,
   SessionId,
   TabId,
+  PTAH_MCP_SERVER_NAME,
+  type EffectiveCapabilitySet,
+  type ICapabilityResolver,
   type McpHttpServerOverride,
   type PermissionLevel,
+  type SessionMcpNotice,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -373,7 +377,7 @@ export function assertSingleOutputStylePath(
 export function buildFlagSettings(
   sessionConfig?: OutputStyleActivationFields,
   autoCompact?: AutoCompactSettings,
-  disabledMcpServers?: readonly string[],
+  capabilityFlags?: Partial<SessionCapabilityFlags>,
 ): Settings {
   assertSingleOutputStylePath(sessionConfig);
   const styleName = sessionConfig?.outputStyleName?.trim();
@@ -385,20 +389,11 @@ export function buildFlagSettings(
       ? { autoCompactWindow: autoCompact.autoCompactWindow }
       : {}),
   };
-  const mcpDisables: {
-    disabledMcpjsonServers?: string[];
-    deniedMcpServers?: { serverName: string }[];
-  } = {};
-  if (disabledMcpServers && disabledMcpServers.length > 0) {
-    mcpDisables.disabledMcpjsonServers = [...disabledMcpServers];
-    mcpDisables.deniedMcpServers = disabledMcpServers.map((serverName) => ({
-      serverName,
-    }));
-  }
+  const capabilityKeys = capabilitySettingsKeys(capabilityFlags);
   if (
     !styleName &&
     Object.keys(autoCompactKeys).length === 0 &&
-    !mcpDisables.disabledMcpjsonServers
+    Object.keys(capabilityKeys).length === 0
   ) {
     return PTAH_DISABLE_SDK_AUTO_MEMORY;
   }
@@ -406,8 +401,216 @@ export function buildFlagSettings(
     ...PTAH_DISABLE_SDK_AUTO_MEMORY,
     ...(styleName ? { outputStyle: styleName } : {}),
     ...autoCompactKeys,
-    ...mcpDisables,
+    ...capabilityKeys,
   };
+}
+
+/**
+ * The capability decisions that ride the FLAG tier (TASK_2026_560, C5).
+ *
+ * The flag tier outranks user, project and local settings, so a server denied
+ * here stays off even when the user's own `enableAllProjectMcpServers` or a
+ * repository `.mcp.json` would load it. That is also why this is the same on a
+ * direct session and on a proxied one: a custom base URL drops the `user`
+ * setting source, but it never drops the flag tier.
+ */
+export interface SessionCapabilityFlags {
+  /** Servers that must not load: policy-denied plus the back-off set. */
+  deniedMcpServers: readonly string[];
+  /** Repository-declared servers the user approved explicitly. */
+  approvedProjectMcpServers: readonly string[];
+  /** Skill names hidden through `skillOverrides`, bare and `plugin:skill`. */
+  deniedSkillNames: readonly string[];
+}
+
+/** Settings keys for {@link SessionCapabilityFlags}; empty lists emit nothing. */
+function capabilitySettingsKeys(
+  flags: Partial<SessionCapabilityFlags> | undefined,
+): Pick<
+  Settings,
+  | 'disabledMcpjsonServers'
+  | 'deniedMcpServers'
+  | 'enabledMcpjsonServers'
+  | 'skillOverrides'
+> {
+  const denied = flags?.deniedMcpServers ?? [];
+  const approved = flags?.approvedProjectMcpServers ?? [];
+  const skills = flags?.deniedSkillNames ?? [];
+  return {
+    ...(denied.length > 0
+      ? {
+          disabledMcpjsonServers: [...denied],
+          deniedMcpServers: denied.map((serverName) => ({ serverName })),
+        }
+      : {}),
+    ...(approved.length > 0 ? { enabledMcpjsonServers: [...approved] } : {}),
+    ...(skills.length > 0
+      ? {
+          skillOverrides: Object.fromEntries(
+            skills.map((name) => [name, 'off' as const]),
+          ),
+        }
+      : {}),
+  };
+}
+
+/**
+ * The flag-tier lists for one session under `policy`.
+ *
+ * - Verified: the policy's denied servers plus the back-off set, the
+ *   explicitly approved repository servers (never one that is also denied —
+ *   back-off wins, AC-4.7), and the denied skills. ptah is denied only when
+ *   the policy turned it OFF.
+ * - Unverified: only the back-off set, plus ptah when a readable store turned
+ *   it OFF. Nothing else can be trusted, and the
+ *   caller runs strict MCP with `skills: []` instead (see
+ *   {@link capabilityIsolationOptions}), so no list here could widen anything.
+ */
+export function capabilityFlagsFor(
+  policy: EffectiveCapabilitySet,
+  backingOffServers: readonly string[],
+): SessionCapabilityFlags {
+  if (policy.status !== 'verified') {
+    // ptah OFF comes from a store that WAS readable, so it is trusted and
+    // denied here exactly as on the verified path.
+    return {
+      deniedMcpServers: uniqueNames([
+        ...(policy.ptahEnabled ? [] : [PTAH_MCP_SERVER_NAME]),
+        ...backingOffServers,
+      ]),
+      approvedProjectMcpServers: [],
+      deniedSkillNames: [],
+    };
+  }
+  const denied = uniqueNames([
+    ...policy.deniedMcpServers.filter((name) => name !== PTAH_MCP_SERVER_NAME),
+    ...(policy.ptahEnabled ? [] : [PTAH_MCP_SERVER_NAME]),
+    ...backingOffServers,
+  ]);
+  const deniedSet = new Set(denied);
+  return {
+    deniedMcpServers: denied,
+    approvedProjectMcpServers: uniqueNames(
+      policy.approvedProjectMcpServers,
+    ).filter((name) => !deniedSet.has(name)),
+    deniedSkillNames: uniqueNames(policy.deniedSkillNames),
+  };
+}
+
+/**
+ * The options that isolate a session whose policy could not be verified:
+ * only the MCP servers passed in `mcpServers` load, and no skill is listed.
+ * Empty for a verified policy, which is enforced through the flag tier.
+ */
+export function capabilityIsolationOptions(
+  policy: EffectiveCapabilitySet,
+): Pick<Options, 'strictMcpConfig' | 'skills'> {
+  return policy.status === 'verified'
+    ? {}
+    : { strictMcpConfig: true, skills: [] };
+}
+
+/**
+ * Remove every server the session must not load from a built `mcpServers` map.
+ *
+ * Verified: ptah goes only when the policy turned it OFF, and every denied
+ * name goes, including one a caller override supplied. Unverified: ptah alone
+ * survives (unless the store could be read and says OFF), because every other
+ * entry is an override whose policy is unknown.
+ */
+export function filterMcpServersByPolicy<T>(
+  servers: Record<string, T>,
+  policy: EffectiveCapabilitySet,
+  deniedMcpServers: readonly string[],
+): Record<string, T> {
+  const denied = new Set(deniedMcpServers);
+  return Object.fromEntries(
+    Object.entries(servers).filter(([name]) => {
+      if (name === PTAH_MCP_SERVER_NAME) return policy.ptahEnabled;
+      if (policy.status !== 'verified') return false;
+      return !denied.has(name);
+    }),
+  );
+}
+
+/**
+ * The policy a session falls back to when none could be resolved: the
+ * resolver is not registered, or it threw. Fail closed (R8): unverified, with
+ * ptah kept because no readable store says it is OFF.
+ */
+export function unverifiedCapabilityPolicy(
+  cwd: string,
+  reason: string,
+): EffectiveCapabilitySet {
+  return {
+    physicalRoot: cwd,
+    policyKey: cwd,
+    status: 'unverified',
+    reasons: [{ path: cwd, error: reason }],
+    ptahEnabled: true,
+    deniedMcpServers: [],
+    approvedProjectMcpServers: [],
+    deniedSkillNames: [],
+    disabledPluginIds: [],
+    harnessFingerprint: '',
+  };
+}
+
+/**
+ * Resolve the capability policy for `cwd`, never throwing and never widening.
+ *
+ * `ICapabilityResolver.resolve` promises not to throw; the catch is the guard
+ * for an implementation that breaks that promise, because a thrown resolver
+ * must fail the session CLOSED, not fail it outright and not let it start
+ * unrestricted. The logged message keeps the detail; the reason carried to the
+ * UI is a fixed phrase.
+ */
+export async function resolveSessionCapabilityPolicy(
+  resolver: ICapabilityResolver | null | undefined,
+  cwd: string,
+  logger: Pick<Logger, 'warn'>,
+): Promise<EffectiveCapabilitySet> {
+  if (!resolver) {
+    logger.warn(
+      '[CapabilityPolicy] No capability resolver is registered; the session runs with Ptah tools only and no skills',
+      { cwd },
+    );
+    return unverifiedCapabilityPolicy(
+      cwd,
+      'the capability resolver is not available',
+    );
+  }
+  try {
+    return await resolver.resolve(cwd);
+  } catch (error: unknown) {
+    logger.warn(
+      '[CapabilityPolicy] The capability resolver failed; the session runs with Ptah tools only and no skills',
+      { cwd, error: error instanceof Error ? error.message : String(error) },
+    );
+    return unverifiedCapabilityPolicy(cwd, 'the capability resolver failed');
+  }
+}
+
+/** The chat-chip notice for a session built under an unverified policy. */
+export function capabilityPolicyNotice(
+  policy: EffectiveCapabilitySet,
+): SessionMcpNotice {
+  const causes = policy.reasons
+    .map((reason) => `${reason.path} (${reason.error})`)
+    .join(', ');
+  const loaded = policy.ptahEnabled
+    ? 'Only Ptah tools are loaded'
+    : 'No MCP tools are loaded';
+  return {
+    code: 'capability-policy-unverified',
+    message:
+      `${loaded} and skills are off: Ptah couldn't read ${causes || 'the capability policy'}. ` +
+      'Fix the file and start a new session.',
+  };
+}
+
+function uniqueNames(names: readonly string[]): string[] {
+  return [...new Set(names)];
 }
 
 /**
@@ -457,12 +660,12 @@ export function buildFlagSettingsArg(
   crossSessionInbound?: string,
   logger?: Pick<Logger, 'warn'>,
   autoCompact?: AutoCompactSettings,
-  disabledMcpServers?: readonly string[],
+  capabilityFlags?: Partial<SessionCapabilityFlags>,
 ): string {
   const settings = buildFlagSettings(
     sessionConfig,
     autoCompact,
-    disabledMcpServers,
+    capabilityFlags,
   );
   if (crossSessionInbound === undefined) {
     return JSON.stringify(settings);
@@ -628,6 +831,18 @@ export interface QueryOptionsInput {
    * See `SdkPermissionHandler.createCallback`'s `sessionIdResolver`.
    */
   sessionIdResolver?: () => string | undefined;
+  /**
+   * The capability policy this session is built under (TASK_2026_560, C5),
+   * resolved by `SessionQueryExecutor` before the harness sync so both use one
+   * snapshot. Verified: enforced on the flag tier. Unverified: strict MCP with
+   * ptah only, `skills: []`, and the `capability-policy-unverified` notice.
+   *
+   * Omitted only by a caller outside the executor. The builder then fails
+   * closed exactly as for an unverified policy — it never builds an
+   * unrestricted session for want of a policy — but emits no notice, because
+   * such a caller has no chat chip to show it in.
+   */
+  capabilityPolicy?: EffectiveCapabilitySet;
 }
 
 /**
@@ -775,6 +990,7 @@ export class SdkQueryOptionsBuilder {
       permissionLevelResolver,
       activityHold,
       sessionIdResolver,
+      capabilityPolicy,
     } = input;
 
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
@@ -919,12 +1135,28 @@ export class SdkQueryOptionsBuilder {
       );
     }
 
-    const configuredMcpServers = this.mergeMcpOverride(
-      // Same `routingId` the permission callback above is keyed on, and the
-      // same precedence `SessionQueryExecutor` uses for its registry key.
-      this.buildMcpServers(mcpServerRunning, routingId),
-      mcpServersOverride,
+    const policy = this.sessionCapabilityPolicy(capabilityPolicy, cwd);
+    const capabilityFlags = capabilityFlagsFor(policy, backingOffServers);
+    const configuredMcpServers = filterMcpServersByPolicy(
+      this.mergeMcpOverride(
+        // Same `routingId` the permission callback above is keyed on, and the
+        // same precedence `SessionQueryExecutor` uses for its registry key.
+        this.buildMcpServers(mcpServerRunning, routingId),
+        mcpServersOverride,
+      ),
+      policy,
+      capabilityFlags.deniedMcpServers,
     );
+    if (policy.status !== 'verified' && capabilityPolicy && routingId) {
+      // Published once, at build, on the same channel and under the same
+      // routing id as the CLI's own stderr notice below; the consumer re-keys
+      // it when the SDK UUID arrives.
+      this.mcpStatus?.notifyAll({
+        kind: 'notice',
+        sessionId: routingId,
+        notice: capabilityPolicyNotice(policy),
+      });
+    }
     const mcpAttemptKey = routingId ? randomUUID() : undefined;
     if (routingId && mcpAttemptKey) {
       this.mcpBackoffService?.trackStderrSession(
@@ -953,18 +1185,23 @@ export class SdkQueryOptionsBuilder {
         // the installed `Settings` interface does not model that key — see
         // `buildFlagSettingsArg`. `accept` is what makes a turn injected by a
         // peer session arrive instead of being held until it expires.
+        //
+        // The capability flags ride the same tier, which is what makes a
+        // direct and a proxied session enforce the same lists: a custom base
+        // URL drops the `user` setting source, never the flag tier.
         settings: buildFlagSettingsArg(
           sessionConfig,
           'accept',
           this.logger,
           autoCompact,
-          backingOffServers,
+          capabilityFlags,
         ),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
         mcpServers: configuredMcpServers,
+        ...capabilityIsolationOptions(policy),
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
@@ -1137,6 +1374,34 @@ export class SdkQueryOptionsBuilder {
     }
 
     return extraArgs;
+  }
+
+  /**
+   * The policy to build under: the caller's, or — when a caller outside
+   * `SessionQueryExecutor` supplied none — an unverified one, so a missing
+   * policy can only narrow the session (R8).
+   */
+  private sessionCapabilityPolicy(
+    supplied: EffectiveCapabilitySet | undefined,
+    cwd: string,
+  ): EffectiveCapabilitySet {
+    if (supplied) {
+      if (supplied.status !== 'verified') {
+        this.logger.warn(
+          '[SdkQueryOptionsBuilder] Capability policy is unverified — strict MCP with Ptah only, no skills',
+          { cwd, reasons: supplied.reasons },
+        );
+      }
+      return supplied;
+    }
+    this.logger.warn(
+      '[SdkQueryOptionsBuilder] No capability policy was supplied — building with Ptah tools only and no skills',
+      { cwd },
+    );
+    return unverifiedCapabilityPolicy(
+      cwd,
+      'no capability policy was supplied to the session builder',
+    );
   }
 
   /**
