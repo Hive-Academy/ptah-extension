@@ -12,13 +12,17 @@ import {
   Puzzle,
   Check,
   Search,
-  Package,
-  Star,
   ChevronDown,
   ChevronRight,
-  Wand2,
 } from 'lucide-angular';
 import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
+import {
+  CatalogCardComponent,
+  CatalogCardSkeletonComponent,
+  CatalogGridComponent,
+  MonogramTileComponent,
+  type CatalogCardBadge,
+} from '@ptah-extension/ui';
 import {
   isOptOutPluginSource,
   type HarnessSetSkillSelectionParams,
@@ -36,8 +40,40 @@ import { NgClass } from '@angular/common';
 interface CategoryGroup {
   key: PluginInfo['category'];
   label: string;
-  plugins: PluginInfo[];
+  cards: PluginCard[];
 }
+
+/**
+ * One plugin as its catalog card shows it. `meta` is built once per list
+ * change, so the card's input keeps its identity between change detections.
+ */
+interface PluginCard {
+  plugin: PluginInfo;
+  meta: readonly string[];
+}
+
+/** `3 skills`, `1 command`; blank for zero, which the card drops. */
+function countLabel(count: number, noun: string): string {
+  return count > 0 ? `${count} ${noun}${count !== 1 ? 's' : ''}` : '';
+}
+
+/** Card meta: skill count, command count, and where the plugin came from. */
+function pluginCardMeta(plugin: PluginInfo): readonly string[] {
+  const origin =
+    plugin.source === 'harness'
+      ? 'Yours'
+      : plugin.isDefault
+        ? 'Recommended'
+        : '';
+  return [
+    countLabel(plugin.skillCount, 'skill'),
+    countLabel(plugin.commandCount, 'command'),
+    origin,
+  ];
+}
+
+/** Text first, tone second: the badge reads "Enabled" without its colour. */
+const ENABLED_BADGE: CatalogCardBadge = { label: 'Enabled', tone: 'success' };
 
 /** Ordered category definitions for display grouping.
  * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS
@@ -117,11 +153,12 @@ function skillSelectionKey(
  *
  * Features:
  * - Loads available plugins and current config when it mounts
- * - Groups plugins by category (Core, Backend, Frontend)
+ * - Groups plugins by category, one storefront catalog grid per group, one
+ *   catalog card per plugin (monogram mark, never the brand table: the eager
+ *   dashboard picker renders this panel too — plan C13/D-2b, risk R7)
  * - Search/filter plugins by name, description, keywords
- * - Checkbox selection with immutable Set signal updates
+ * - Enable toggle per card with immutable Set signal updates
  * - Saves configuration via RPC on confirm
- * - Recommended badge for default plugins
  * - Per-workspace skill selection: all-vs-allowlist for what this project
  *   propagates into its AI tools' harness directories (TASK_2026_316)
  *
@@ -148,7 +185,14 @@ function skillSelectionKey(
 @Component({
   selector: 'ptah-plugin-catalog-panel',
   standalone: true,
-  imports: [LucideAngularModule, NgClass],
+  imports: [
+    LucideAngularModule,
+    NgClass,
+    CatalogCardComponent,
+    CatalogCardSkeletonComponent,
+    CatalogGridComponent,
+    MonogramTileComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="w-full">
@@ -307,16 +351,16 @@ function skillSelectionKey(
       }
 
       @if (isLoading()) {
-        <!-- Loading state -->
-        <div class="flex flex-col gap-3 py-8">
-          <div class="flex justify-center">
-            <span
-              class="loading loading-spinner loading-md text-primary"
-            ></span>
-          </div>
-          <span class="block text-sm text-base-content-muted text-center">
+        <!-- Loading state: the tiles are aria-hidden, the status line speaks -->
+        <div class="flex flex-col gap-3" aria-busy="true">
+          <span class="block text-sm text-base-content-muted" role="status">
             Loading available plugins...
           </span>
+          <ptah-catalog-grid ariaLabel="Loading plugins">
+            @for (slot of skeletonSlots; track slot) {
+              <ptah-catalog-card-skeleton role="listitem" />
+            }
+          </ptah-catalog-grid>
         </div>
       } @else if (error()) {
         <!-- Error state -->
@@ -333,13 +377,14 @@ function skillSelectionKey(
       } @else {
         <!-- Search input -->
         <div class="relative mb-4">
-          <lucide-angular
-            [img]="SearchIcon"
-            class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
+          <span
+            class="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
-          />
+          >
+            <lucide-angular [img]="SearchIcon" class="w-4 h-4" />
+          </span>
           <input
-            type="text"
+            type="search"
             class="input input-bordered input-sm w-full pl-9"
             placeholder="Search plugins..."
             [value]="searchQuery()"
@@ -348,185 +393,119 @@ function skillSelectionKey(
           />
         </div>
 
-        <!-- Plugin list grouped by category -->
+        <!--
+          One catalog grid per category, headed by a visible h2 (the page's
+          h1 is the host's), so no grid needs its own aria-label.
+        -->
         <div
           class="max-h-[50vh] overflow-y-auto space-y-4 pr-1"
-          role="list"
+          role="group"
           aria-label="Available plugins"
         >
           @for (group of groupedPlugins(); track group.key) {
-            <div>
-              <!-- Category header -->
-              <span
-                class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
+            <div class="space-y-2">
+              <h2
+                class="text-xs font-semibold uppercase tracking-wider text-base-content-muted"
               >
                 {{ group.label }}
-              </span>
-
-              <!-- Plugin cards -->
-              <div class="space-y-2">
-                @for (plugin of group.plugins; track plugin.id) {
-                  <div
-                    class="rounded-lg border transition-all duration-150"
-                    [ngClass]="
-                      isSelected(plugin.id)
-                        ? 'border-primary bg-primary/5'
-                        : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
-                    "
+              </h2>
+              <ptah-catalog-grid>
+                @for (card of group.cards; track card.plugin.id) {
+                  <ptah-catalog-card
                     role="listitem"
+                    [heading]="card.plugin.name"
+                    [description]="card.plugin.description"
+                    [meta]="card.meta"
+                    [badge]="isSelected(card.plugin.id) ? enabledBadge : null"
                   >
-                    <!-- Plugin header row (clickable to toggle plugin) -->
-                    <div
-                      class="flex items-start gap-3 p-3 cursor-pointer"
-                      (click)="togglePlugin(plugin.id)"
-                    >
-                      <!-- Checkbox -->
+                    <ptah-monogram-tile
+                      card-mark
+                      size="lg"
+                      [label]="card.plugin.name"
+                    />
+                    <div card-actions class="flex items-center gap-2">
+                      @if (
+                        isSelected(card.plugin.id) &&
+                        pluginSkills().get(card.plugin.id)?.length
+                      ) {
+                        <button
+                          class="btn btn-ghost btn-xs gap-1"
+                          (click)="toggleExpand(card.plugin.id, $event)"
+                          type="button"
+                          [attr.aria-label]="
+                            isPluginExpanded(card.plugin.id)
+                              ? 'Collapse skill list'
+                              : 'Expand skill list'
+                          "
+                          [attr.aria-expanded]="
+                            isPluginExpanded(card.plugin.id)
+                          "
+                        >
+                          <lucide-angular
+                            [img]="
+                              isPluginExpanded(card.plugin.id)
+                                ? ChevronDownIcon
+                                : ChevronRightIcon
+                            "
+                            class="w-3 h-3"
+                            aria-hidden="true"
+                          />
+                          Skills
+                        </button>
+                      }
                       <input
                         type="checkbox"
-                        class="checkbox checkbox-primary checkbox-sm mt-0.5"
-                        [checked]="isSelected(plugin.id)"
-                        [attr.aria-label]="'Enable ' + plugin.name"
+                        class="toggle toggle-primary toggle-sm"
+                        [checked]="isSelected(card.plugin.id)"
+                        (change)="togglePlugin(card.plugin.id)"
+                        [attr.aria-label]="'Enable ' + card.plugin.name"
                       />
-
-                      <!-- Plugin info -->
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-sm font-medium">{{
-                            plugin.name
-                          }}</span>
-                          @if (plugin.isDefault) {
-                            <span class="badge badge-xs badge-primary gap-1">
-                              <lucide-angular
-                                [img]="StarIcon"
-                                class="w-2.5 h-2.5"
-                                aria-hidden="true"
-                              />
-                              Recommended
-                            </span>
-                          }
-                          @if (plugin.source === 'harness') {
-                            <span class="badge badge-xs badge-secondary gap-1">
-                              <lucide-angular
-                                [img]="WandIcon"
-                                class="w-2.5 h-2.5"
-                                aria-hidden="true"
-                              />
-                              Yours
-                            </span>
-                          }
-                        </div>
-                        <span
-                          class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
-                        >
-                          {{ plugin.description }}
-                        </span>
-                        <!-- Badges: skill count, command count, expand chevron -->
-                        <div class="flex items-center gap-1.5 mt-1.5">
-                          @if (plugin.skillCount > 0) {
-                            <span class="badge badge-xs badge-ghost gap-1">
-                              <lucide-angular
-                                [img]="PackageIcon"
-                                class="w-2.5 h-2.5"
-                                aria-hidden="true"
-                              />
-                              {{ plugin.skillCount }}
-                              skill{{ plugin.skillCount !== 1 ? 's' : '' }}
-                            </span>
-                            @if (
-                              isSelected(plugin.id) &&
-                              pluginSkills().get(plugin.id)?.length
-                            ) {
-                              <button
-                                class="btn btn-ghost btn-xs px-1 h-5 min-h-0"
-                                (click)="toggleExpand(plugin.id, $event)"
-                                type="button"
-                                [attr.aria-label]="
-                                  isPluginExpanded(plugin.id)
-                                    ? 'Collapse skill list'
-                                    : 'Expand skill list'
-                                "
-                                [attr.aria-expanded]="
-                                  isPluginExpanded(plugin.id)
-                                "
-                              >
-                                <lucide-angular
-                                  [img]="
-                                    isPluginExpanded(plugin.id)
-                                      ? ChevronDownIcon
-                                      : ChevronRightIcon
-                                  "
-                                  class="w-3 h-3"
-                                  aria-hidden="true"
-                                />
-                              </button>
-                            }
-                          }
-                          @if (plugin.commandCount > 0) {
-                            <span class="badge badge-xs badge-ghost gap-1">
-                              {{ plugin.commandCount }}
-                              command{{ plugin.commandCount !== 1 ? 's' : '' }}
-                            </span>
-                          }
-                        </div>
-                      </div>
-
-                      <!-- Selected indicator -->
-                      @if (isSelected(plugin.id)) {
-                        <lucide-angular
-                          [img]="CheckIcon"
-                          class="w-4 h-4 text-primary shrink-0 mt-1"
-                          aria-hidden="true"
-                        />
-                      }
                     </div>
-
-                    <!-- Expandable skill list (only when plugin is selected AND expanded) -->
+                    <!-- Per-plugin skills: a list inside the card expansion -->
                     @if (
-                      isSelected(plugin.id) &&
-                      isPluginExpanded(plugin.id) &&
-                      pluginSkills().get(plugin.id)?.length
+                      isSelected(card.plugin.id) &&
+                      isPluginExpanded(card.plugin.id) &&
+                      pluginSkills().get(card.plugin.id)?.length
                     ) {
-                      <div class="border-t border-base-300/50 mx-3 pb-3">
-                        <div
-                          class="pt-2 pl-8"
-                          role="group"
-                          [attr.aria-label]="'Skills for ' + plugin.name"
-                        >
-                          @for (
-                            skill of pluginSkills().get(plugin.id)!;
-                            track skill.skillId
-                          ) {
-                            <label
-                              class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200/40 rounded px-1 -mx-1"
-                              (click)="$event.stopPropagation()"
+                      <div
+                        card-expansion
+                        class="mt-3 border-t border-base-300 pt-2"
+                        role="group"
+                        [attr.aria-label]="'Skills for ' + card.plugin.name"
+                      >
+                        @for (
+                          skill of pluginSkills().get(card.plugin.id)!;
+                          track skill.skillId
+                        ) {
+                          <label
+                            class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200/40 rounded px-1 -mx-1"
+                          >
+                            <input
+                              type="checkbox"
+                              class="checkbox checkbox-xs checkbox-primary"
+                              [checked]="isSkillEnabled(skill.skillId)"
+                              (change)="toggleSkill(skill.skillId, $event)"
+                              [attr.aria-label]="
+                                (isSkillEnabled(skill.skillId)
+                                  ? 'Disable '
+                                  : 'Enable ') + skill.displayName
+                              "
+                            />
+                            <span
+                              class="text-xs font-medium whitespace-nowrap"
+                              >{{ skill.displayName }}</span
                             >
-                              <input
-                                type="checkbox"
-                                class="checkbox checkbox-xs checkbox-primary"
-                                [checked]="isSkillEnabled(skill.skillId)"
-                                (change)="toggleSkill(skill.skillId, $event)"
-                                [attr.aria-label]="
-                                  (isSkillEnabled(skill.skillId)
-                                    ? 'Disable '
-                                    : 'Enable ') + skill.displayName
-                                "
-                              />
-                              <span
-                                class="text-xs font-medium whitespace-nowrap"
-                                >{{ skill.displayName }}</span
-                              >
-                              <span
-                                class="text-xs text-base-content-muted truncate"
-                                >{{ skill.description }}</span
-                              >
-                            </label>
-                          }
-                        </div>
+                            <span
+                              class="text-xs text-base-content-muted truncate"
+                              >{{ skill.description }}</span
+                            >
+                          </label>
+                        }
                       </div>
                     }
-                  </div>
+                  </ptah-catalog-card>
                 }
-              </div>
+              </ptah-catalog-grid>
             </div>
           } @empty {
             <div class="text-center py-6 text-base-content-muted">
@@ -602,11 +581,13 @@ export class PluginCatalogPanelComponent implements OnInit {
   protected readonly PuzzleIcon = Puzzle;
   protected readonly CheckIcon = Check;
   protected readonly SearchIcon = Search;
-  protected readonly PackageIcon = Package;
-  protected readonly StarIcon = Star;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
-  protected readonly WandIcon = Wand2;
+
+  protected readonly enabledBadge = ENABLED_BADGE;
+
+  /** Loading tiles shown while the catalogue is read. */
+  protected readonly skeletonSlots = [0, 1, 2, 3] as const;
 
   /** Emitted when configuration is saved (emits enabled plugin IDs) */
   readonly saved = output<string[]>();
@@ -727,14 +708,14 @@ export class PluginCatalogPanelComponent implements OnInit {
     const groups: CategoryGroup[] = [];
 
     for (const categoryKey of CATEGORY_ORDER) {
-      const categoryPlugins = filtered.filter(
-        (p) => p.category === categoryKey,
-      );
-      if (categoryPlugins.length > 0) {
+      const cards = filtered
+        .filter((p) => p.category === categoryKey)
+        .map((plugin) => ({ plugin, meta: pluginCardMeta(plugin) }));
+      if (cards.length > 0) {
         groups.push({
           key: categoryKey,
           label: CATEGORY_LABELS[categoryKey],
-          plugins: categoryPlugins,
+          cards,
         });
       }
     }
@@ -931,7 +912,7 @@ export class PluginCatalogPanelComponent implements OnInit {
         );
         this.saveError.set('Failed to save configuration.');
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[PluginCatalogPanel] Error saving config:', err);
       this.saveError.set('Failed to save configuration.');
     } finally {
@@ -1159,7 +1140,7 @@ export class PluginCatalogPanelComponent implements OnInit {
           } else {
             this.pluginSkills.set(new Map());
           }
-        } catch (skillsErr) {
+        } catch (skillsErr: unknown) {
           console.warn(
             '[PluginCatalogPanel] Failed to load skills (non-fatal):',
             skillsErr,
@@ -1167,7 +1148,7 @@ export class PluginCatalogPanelComponent implements OnInit {
           this.pluginSkills.set(new Map());
         }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[PluginCatalogPanel] Error loading plugins:', err);
       this.error.set('Failed to load plugins. Please try again.');
       this.availablePlugins.set([]);

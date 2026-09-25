@@ -7,6 +7,12 @@
  *
  * @module native
  *
+ * KEEP THIS FILE A PURE LIST OF `export * from` LINES (R7, TASK_2026_533
+ * Batch 24a). esbuild never emits a star-only barrel, but a concrete export
+ * here would make it a kept module whose every import esbuild follows, pulling
+ * every sibling barrel, `./brand-mark` and its artwork table included, onto
+ * the eager path. `brand-mark/brand-mark-barrels.spec.ts` enforces this.
+ *
  * @example
  * ```typescript
  * import {
@@ -31,6 +37,11 @@ export * from './popover';
 export * from './autocomplete';
 export * from './form';
 export * from './card';
+export * from './catalog-card';
+export * from './brand-mark';
+export * from './mark-svg';
+export * from './monogram-tile';
+export * from './brand-slugs';
 export * from './tab-group';
 export * from './drawer';
 export * from './provider-model-picker';

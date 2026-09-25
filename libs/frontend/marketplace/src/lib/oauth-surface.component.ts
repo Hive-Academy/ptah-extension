@@ -20,13 +20,23 @@ import {
   Trash2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  BrandMarkComponent,
+  CatalogCardComponent,
+  CatalogCardSkeletonComponent,
+  CatalogGridComponent,
+  StorefrontPanelComponent,
+  resolveInstalledBrandSlug,
+  resolveListingBrandSlug,
+} from '@ptah-extension/ui';
 import type {
   McpOAuthConnectedRecord,
   McpOAuthConnectionState,
 } from '@ptah-extension/shared';
+import { statusPresentation } from './ui/status-pill.component';
 
 /**
- * A well-known OAuth-secured MCP server, offered as a quick-connect chip that
+ * A well-known OAuth-secured MCP server, offered as a quick-connect card that
  * pre-fills the connect form. Purely a convenience — the URL field is the
  * source of truth.
  */
@@ -36,13 +46,13 @@ interface OAuthSuggestion {
   /**
    * True when this provider does NOT register apps automatically (no RFC 7591
    * `registration_endpoint`), so the user must create an app on the provider
-   * side and paste its client ID / secret. Picking such a chip opens Advanced
+   * side and paste its client ID / secret. Picking such a card opens Advanced
    * immediately rather than waiting for the probe to say the same thing.
    */
   readonly requiresApp?: boolean;
 }
 
-/** Curated quick-connect chips for well-known OAuth MCP servers. */
+/** Curated quick-connect cards for well-known OAuth MCP servers. */
 const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
   { label: 'Sentry', url: 'https://mcp.sentry.dev/mcp' },
   { label: 'Notion', url: 'https://mcp.notion.com/mcp' },
@@ -92,8 +102,8 @@ function isProbableServerUrl(value: string): boolean {
 }
 
 /**
- * OAuthSurfaceComponent — the "Connected Apps" provider surface mounted by the
- * Marketplace hub for the `oauth-mcp` descriptor.
+ * OAuthSurfaceComponent — the Custom URL surface (`ServerSourceHostComponent`),
+ * also embedded by `ConnectorDetailComponent` for `oauth-app` connectors.
  *
  * Connects OAuth 2.0 + PKCE-gated remote MCP servers. The connect call is
  * long-running: `mcpDirectory:connectOAuth` opens the system browser and only
@@ -103,50 +113,51 @@ function isProbableServerUrl(value: string): boolean {
  * Lifecycle:
  *  - On mount it loads the connected list via `mcpDirectory:listOAuthConnected`
  *    and resolves each server's live state via `mcpDirectory:oauthStatus`,
- *    rendering a per-row status pill (connected / expired / disconnected).
+ *    rendering a per-card status badge (connected / expired / disconnected).
  *  - `refreshTrigger` (>0) reloads the list — parity with the other surfaces so
  *    the hub can force a refresh via NgComponentOutlet inputs.
  *  - Connect / reconnect route through `connectOAuth`; disconnect through
  *    `disconnectOAuth`. Every post-await continuation is guarded by the
  *    `destroyed` flag, and errors are surfaced as sanitized strings only.
  *
+ * Presentation (plan C13): the form is one storefront panel; suggestions are
+ * interactive catalog cards marked by `resolveListingBrandSlug` (URL only);
+ * connected servers are catalog cards marked by `resolveInstalledBrandSlug`,
+ * with the status word from `statusPresentation()`.
+ *
  * Complexity Level: 2 — RPC list + per-row status resolution + connect form +
- * per-key inflight tracking. Patterns: signal state, refresh effect, DaisyUI
- * cards, per-key inflight Sets.
+ * per-key inflight tracking. Patterns: signal state, refresh effect, per-key
+ * inflight Sets.
  */
 @Component({
   selector: 'ptah-oauth-surface',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [
+    LucideAngularModule,
+    BrandMarkComponent,
+    CatalogCardComponent,
+    CatalogCardSkeletonComponent,
+    CatalogGridComponent,
+    StorefrontPanelComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-3">
-      <!-- Connect form -->
-      <div
-        class="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-3"
+    <div class="space-y-4">
+      <!-- Connect form: one storefront panel, fields grouped -->
+      <ptah-storefront-panel
+        heading="Connect an OAuth MCP server"
+        subtitle="Authorize a remote MCP server that uses OAuth to sign in."
       >
-        <div class="flex items-center gap-2">
-          <div
-            class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0"
-          >
-            <lucide-angular
-              [img]="KeyRoundIcon"
-              class="w-4 h-4 text-primary"
-              aria-hidden="true"
-            />
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold text-base-content">
-              Connect an OAuth MCP server
-            </h3>
-            <p class="text-[11px] text-base-content-muted">
-              Authorize a remote MCP server that uses OAuth to sign in.
-            </p>
-          </div>
-        </div>
+        <span
+          panel-mark
+          class="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary"
+          aria-hidden="true"
+        >
+          <lucide-angular [img]="KeyRoundIcon" class="h-4 w-4" />
+        </span>
 
         @if (connectError()) {
-          <div class="alert alert-error alert-sm py-1 px-2">
+          <div class="alert alert-error alert-sm py-1 px-2 mb-3">
             <span class="text-xs">{{ connectError() }}</span>
             <button
               class="btn btn-ghost btn-xs"
@@ -158,35 +169,61 @@ function isProbableServerUrl(value: string): boolean {
           </div>
         }
 
-        <form class="space-y-2" (submit)="connect($event)">
-          <input
-            type="url"
-            autocomplete="off"
-            class="input input-bordered input-sm w-full text-xs font-mono"
-            placeholder="https://mcp.notion.com/mcp"
-            [value]="urlInput()"
-            (input)="onUrlInput($event)"
-            aria-label="MCP server URL"
-          />
-          @if (discoveryHint() === 'needs-api-key') {
-            <p class="text-[11px] text-warning" role="note">
-              {{ needsApiKeyNote }}
-            </p>
-          }
-          @if (discoveryHint() === 'needs-client-app') {
-            <p class="text-[11px] text-info" role="note">
-              {{ needsClientAppNote }}
-            </p>
-          }
-          <input
-            type="text"
-            autocomplete="off"
-            class="input input-bordered input-sm w-full text-xs"
-            placeholder="Friendly name (optional)"
-            [value]="nameInput()"
-            (input)="onNameInput($event)"
-            aria-label="Friendly name"
-          />
+        <form class="space-y-4" (submit)="connect($event)">
+          <!-- Quick connect: activating a card pre-fills the fields below. -->
+          <fieldset class="space-y-2">
+            <legend [class]="groupLabelClass">Quick connect</legend>
+            <ptah-catalog-grid ariaLabel="Quick connect suggestions">
+              @for (card of suggestionCards; track card.suggestion.url) {
+                <ptah-catalog-card
+                  role="listitem"
+                  [heading]="card.suggestion.label"
+                  [headingLevel]="4"
+                  [meta]="card.meta"
+                  [interactive]="true"
+                  (activated)="fillSuggestion(card.suggestion)"
+                >
+                  <ptah-brand-mark
+                    card-mark
+                    [brandSlug]="card.brandSlug"
+                    [label]="card.suggestion.label"
+                  />
+                </ptah-catalog-card>
+              }
+            </ptah-catalog-grid>
+          </fieldset>
+
+          <fieldset class="space-y-2">
+            <legend [class]="groupLabelClass">Server</legend>
+            <input
+              type="url"
+              autocomplete="off"
+              class="input input-bordered input-sm w-full text-xs font-mono"
+              placeholder="https://mcp.notion.com/mcp"
+              [value]="urlInput()"
+              (input)="onUrlInput($event)"
+              aria-label="MCP server URL"
+            />
+            @if (discoveryHint() === 'needs-api-key') {
+              <p class="text-[11px] text-warning" role="note">
+                {{ needsApiKeyNote }}
+              </p>
+            }
+            @if (discoveryHint() === 'needs-client-app') {
+              <p class="text-[11px] text-info" role="note">
+                {{ needsClientAppNote }}
+              </p>
+            }
+            <input
+              type="text"
+              autocomplete="off"
+              class="input input-bordered input-sm w-full text-xs"
+              placeholder="Friendly name (optional)"
+              [value]="nameInput()"
+              (input)="onNameInput($event)"
+              aria-label="Friendly name"
+            />
+          </fieldset>
 
           <!-- Advanced: pre-registered client credentials (collapsed by default) -->
           <details
@@ -265,19 +302,6 @@ function isProbableServerUrl(value: string): boolean {
             </div>
           </details>
 
-          <!-- Quick-connect suggestion chips -->
-          <div class="flex gap-1 flex-wrap">
-            @for (s of suggestions; track s.url) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs rounded-full normal-case font-medium border-base-300"
-                (click)="fillSuggestion(s)"
-              >
-                {{ s.label }}
-              </button>
-            }
-          </div>
-
           <button
             type="submit"
             class="btn btn-primary btn-sm w-full"
@@ -296,24 +320,22 @@ function isProbableServerUrl(value: string): boolean {
             }
           </button>
         </form>
-        <p class="text-[10px] text-base-content-muted text-center">
+        <p class="mt-2 text-[10px] text-base-content-muted text-center">
           Opens your browser to authorize. Your tokens are stored encrypted by
           Ptah and never leave your machine.
         </p>
-      </div>
+      </ptah-storefront-panel>
 
       <!-- Connected servers -->
       <div>
-        <div
-          class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-        >
-          Connected apps
-        </div>
+        <h3 [class]="groupLabelClass">Connected apps</h3>
 
         @if (isLoading()) {
-          @for (i of [1, 2, 3]; track i) {
-            <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
-          }
+          <ptah-catalog-grid>
+            @for (i of [1, 2, 3]; track i) {
+              <ptah-catalog-card-skeleton role="listitem" />
+            }
+          </ptah-catalog-grid>
         } @else if (loadError()) {
           <div class="alert alert-error alert-sm py-1 px-2">
             <span class="text-xs">{{ loadError() }}</span>
@@ -333,108 +355,63 @@ function isProbableServerUrl(value: string): boolean {
             authorize your first OAuth MCP server.
           </div>
         } @else {
-          <div class="space-y-1.5">
-            @for (server of servers(); track server.serverKey) {
-              <div
-                class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
+          <ptah-catalog-grid>
+            @for (card of connectedCards(); track card.server.serverKey) {
+              <ptah-catalog-card
+                role="listitem"
+                [heading]="card.server.name"
+                [headingLevel]="4"
+                [meta]="[card.server.serverUrl]"
+                [badge]="card.badge"
               >
-                <div class="flex items-start gap-2 p-2">
-                  <div
-                    class="w-8 h-8 rounded-lg bg-base-300 border border-base-300 flex items-center justify-center shrink-0"
-                    aria-hidden="true"
-                  >
-                    <lucide-angular
-                      [img]="PlugIcon"
-                      class="w-4 h-4 text-base-content-muted"
-                    />
-                  </div>
-
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        class="text-xs font-medium text-base-content truncate"
-                        >{{ server.name }}</span
-                      >
-                      @switch (statusOf(server.serverKey)) {
-                        @case ('connected') {
-                          <span
-                            class="badge badge-xs badge-success text-[10px] gap-0.5"
-                          >
-                            <lucide-angular
-                              [img]="CheckIcon"
-                              class="w-2 h-2"
-                              aria-hidden="true"
-                            />
-                            Connected
-                          </span>
-                        }
-                        @case ('expired') {
-                          <span
-                            class="badge badge-xs badge-warning text-[10px]"
-                          >
-                            Expired
-                          </span>
-                        }
-                        @default {
-                          <span class="badge badge-xs badge-ghost text-[10px]">
-                            Disconnected
-                          </span>
-                        }
-                      }
-                    </div>
-                    <div
-                      class="text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
-                    >
-                      {{ server.serverUrl }}
-                    </div>
-                  </div>
-
-                  <div class="shrink-0 flex items-center gap-1">
-                    @if (statusOf(server.serverKey) !== 'connected') {
-                      <button
-                        class="btn btn-ghost btn-xs"
-                        [disabled]="reconnectingKeys().has(server.serverKey)"
-                        (click)="reconnect(server)"
-                        type="button"
-                        [attr.aria-label]="'Reconnect ' + server.name"
-                      >
-                        @if (reconnectingKeys().has(server.serverKey)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else {
-                          <lucide-angular
-                            [img]="RefreshCwIcon"
-                            class="w-3 h-3"
-                            aria-hidden="true"
-                          />
-                          Reconnect
-                        }
-                      </button>
-                    }
+                <ptah-brand-mark
+                  card-mark
+                  [brandSlug]="card.brandSlug"
+                  [label]="card.server.name"
+                />
+                <div card-actions class="flex items-center gap-2">
+                  @if (card.status !== 'connected') {
                     <button
-                      class="btn btn-ghost btn-xs text-error"
-                      [disabled]="disconnectingKeys().has(server.serverKey)"
-                      (click)="disconnect(server)"
+                      class="btn btn-ghost btn-sm"
+                      [disabled]="reconnectingKeys().has(card.server.serverKey)"
+                      (click)="reconnect(card.server)"
                       type="button"
-                      [attr.aria-label]="'Disconnect ' + server.name"
+                      [attr.aria-label]="'Reconnect ' + card.server.name"
                     >
-                      @if (disconnectingKeys().has(server.serverKey)) {
+                      @if (reconnectingKeys().has(card.server.serverKey)) {
                         <span class="loading loading-spinner loading-xs"></span>
                       } @else {
                         <lucide-angular
-                          [img]="Trash2Icon"
+                          [img]="RefreshCwIcon"
                           class="w-3 h-3"
                           aria-hidden="true"
                         />
-                        Disconnect
+                        Reconnect
                       }
                     </button>
-                  </div>
+                  }
+                  <button
+                    class="btn btn-ghost btn-sm text-error"
+                    [disabled]="disconnectingKeys().has(card.server.serverKey)"
+                    (click)="disconnect(card.server)"
+                    type="button"
+                    [attr.aria-label]="'Disconnect ' + card.server.name"
+                  >
+                    @if (disconnectingKeys().has(card.server.serverKey)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      <lucide-angular
+                        [img]="Trash2Icon"
+                        class="w-3 h-3"
+                        aria-hidden="true"
+                      />
+                      Disconnect
+                    }
+                  </button>
                 </div>
-              </div>
+              </ptah-catalog-card>
             }
-          </div>
+          </ptah-catalog-grid>
         }
       </div>
     </div>
@@ -467,8 +444,15 @@ export class OAuthSurfaceComponent implements OnInit {
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly Trash2Icon = Trash2;
 
-  /** Quick-connect chips exposed to the template. */
-  protected readonly suggestions = OAUTH_SUGGESTIONS;
+  protected readonly groupLabelClass =
+    'mb-1.5 text-[11px] font-medium uppercase tracking-wide text-base-content-muted';
+
+  /** Quick-connect cards: the host as meta, a vendor mark only for a catalogue URL. */
+  protected readonly suggestionCards = OAUTH_SUGGESTIONS.map((suggestion) => ({
+    suggestion,
+    meta: [new URL(suggestion.url).host],
+    brandSlug: resolveListingBrandSlug({ remoteUrls: [suggestion.url] }),
+  }));
   /** The `no-oauth-discovery` advice, exposed to the template. */
   protected readonly needsApiKeyNote = NEEDS_API_KEY_NOTE;
   /** The "provider needs a pre-registered app" advice, exposed to the template. */
@@ -537,6 +521,17 @@ export class OAuthSurfaceComponent implements OnInit {
   /** Back-compat accessor: the rendered connected list. */
   public readonly displayServers = computed(() => this.servers());
 
+  /** Connected cards: the user's own servers, so the installed-row resolver. */
+  protected readonly connectedCards = computed(() =>
+    this.servers().map((server) => {
+      const status = this.statusOf(server.serverKey);
+      const { label, tone } = statusPresentation(status);
+      const { serverKey, serverUrl } = server;
+      const brandSlug = resolveInstalledBrandSlug({ serverKey, serverUrl });
+      return { server, status, badge: { label, tone }, brandSlug };
+    }),
+  );
+
   /** Reload the connected list when refreshTrigger changes (skips initial 0). */
   private readonly refreshEffect = effect(() => {
     const trigger = this.refreshTrigger();
@@ -601,7 +596,7 @@ export class OAuthSurfaceComponent implements OnInit {
       this.nameInput.set(suggestion.label);
     }
     // Known pre-registered-app provider: reveal the credential fields now
-    // rather than after the probe round-trip confirms what the chip already says.
+    // rather than after the probe round-trip confirms what the card already says.
     if (suggestion.requiresApp) {
       this.advancedOpen.set(true);
     }

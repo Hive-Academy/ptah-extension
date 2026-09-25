@@ -22,11 +22,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import {
-  AppStateManager,
-  ClaudeRpcService,
-  encodeMarketplaceTarget,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import {
@@ -337,6 +333,8 @@ export class McpStatusChipComponent {
    * different states — so there is no single connection for this chip to
    * authorize. It opens the Marketplace Smithery surface, which lists the
    * connections with their own per-connection Authorize buttons (B2/B3).
+   * Everything else that cannot be authorized from here opens the Connectors
+   * page.
    */
   async authorize(row: McpServerRow): Promise<void> {
     this.isOpen.set(false);
@@ -378,18 +376,18 @@ export class McpStatusChipComponent {
   // ── Internals ──────────────────────────────────────────────────────────────
 
   /**
-   * Open the Marketplace on the Apps section, focused on one source chip.
+   * Open the Marketplace page that owns the connection: the Smithery server
+   * source for a Smithery namespace, the Connectors page for anything else.
    *
-   * The hub no longer has per-source drill-in tiles (TASK_2026_524), so the
-   * persisted field now carries a `section:source` target rather than a bare
-   * provider id. `chat` cannot import `@ptah-extension/marketplace`, so the
-   * encoding comes from `core`.
+   * `chat` cannot import `@ptah-extension/marketplace`, so the route comes
+   * from `core`'s `MarketplaceRoute` and `openMarketplace` navigates to it.
    */
   private navigateToMarketplace(source: 'connectors' | 'smithery'): void {
-    this.appState.setMarketplaceActiveProvider(
-      encodeMarketplaceTarget('apps', source),
+    this.appState.openMarketplace(
+      source === 'smithery'
+        ? { page: 'servers', source: 'smithery' }
+        : { page: 'connectors' },
     );
-    this.appState.setCurrentView('marketplace');
   }
 
   private toRow(

@@ -48,6 +48,44 @@ describe('ExternalPluginRowComponent', () => {
     ).toBeTruthy();
   });
 
+  it('renders as a catalog card: monogram mark, owner/repo and version meta, h4 heading', () => {
+    render(makeListing());
+
+    const card = host.querySelector(
+      `ptah-catalog-card[data-testid="external-plugin-${PLUGIN_ID}"]`,
+    );
+    expect(card).toBeTruthy();
+    expect(
+      card?.querySelector(
+        '[data-testid="catalog-card-mark"] ptah-monogram-tile',
+      ),
+    ).toBeTruthy();
+    expect(
+      card
+        ?.querySelector('[data-testid="catalog-card-meta"]')
+        ?.textContent?.trim(),
+    ).toBe('dotnet/skills · 1.2.0');
+    expect(card?.querySelector('h4')?.textContent?.trim()).toBe('dotnet-test');
+    // The install action sits in the card's action slot.
+    expect(
+      card?.querySelector(
+        '[data-testid="catalog-card-actions"] [data-testid="external-install"]',
+      ),
+    ).toBeTruthy();
+    // Not installed: no badge.
+    expect(
+      card?.querySelector('[data-testid="catalog-card-badge"]'),
+    ).toBeNull();
+  });
+
+  it('carries an Installed badge in words when installed', () => {
+    render(makeListing({ installed: true, installedVersion: '1.2.0' }));
+
+    const badge = host.querySelector('[data-testid="catalog-card-badge"]');
+    expect(badge?.textContent?.trim()).toBe('Installed');
+    expect(badge?.getAttribute('data-tone')).toBe('success');
+  });
+
   it('renders name, version and description', () => {
     render(makeListing());
 

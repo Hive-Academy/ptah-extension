@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import {
@@ -15,10 +16,16 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  ChevronDown,
   ChevronRight,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  CatalogCardComponent,
+  CatalogCardSkeletonComponent,
+  CatalogGridComponent,
+  MonogramTileComponent,
+  StorefrontPanelComponent,
+} from '@ptah-extension/ui';
 import type {
   ExternalConsentReason,
   ExternalInstallPlan,
@@ -28,6 +35,7 @@ import type {
   SuggestedMarketplace,
 } from '@ptah-extension/shared';
 import { ExternalConsentDialogComponent } from './external-consent-dialog.component';
+import { ExternalInstallReportComponent } from './external-install-report.component';
 import { ExternalInstalledRowComponent } from './external-installed-row.component';
 import { ExternalPluginRowComponent } from './external-plugin-row.component';
 
@@ -46,9 +54,10 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
  * plugin marketplaces (any GitHub repo exposing `.claude-plugin/marketplace.json`).
  *
  * Owns the whole external-marketplace RPC surface and hosts the consent gate.
- * Mounted by the Skills section behind its `marketplaces` chip, beside — never
- * inside — the bundled plugin catalogue; the two are independent (bundled
- * plugins are enable/disable, external ones are fetch-and-install).
+ * Mounted by `SkillSourceHostComponent` on the `marketplaces` source, apart
+ * from the bundled plugin catalogue (bundled plugins are enable/disable,
+ * external ones are fetch-and-install). It emits `pluginInstalled` /
+ * `pluginUninstalled` (the plugin id) after the backend confirms the change.
  *
  * THE INSTALL IS A STRICT TWO-CALL PROTOCOL and this component never shortcuts
  * it:
@@ -82,48 +91,42 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
  *
  * Complexity Level: 3 — list + add + per-source browse expansion + the
  * two-call consent state machine + per-id inflight tracking. Patterns: signal
- * state, per-key inflight Sets, presentational consent dialog, DaisyUI cards.
+ * state, per-key inflight Sets, presentational consent dialog, storefront
+ * catalog cards (plan C13).
  */
 @Component({
   selector: 'ptah-external-marketplaces',
   standalone: true,
   imports: [
     LucideAngularModule,
+    CatalogCardComponent,
+    CatalogCardSkeletonComponent,
+    CatalogGridComponent,
+    MonogramTileComponent,
+    StorefrontPanelComponent,
     ExternalConsentDialogComponent,
+    ExternalInstallReportComponent,
     ExternalInstalledRowComponent,
     ExternalPluginRowComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-3">
-      <div class="flex items-start gap-3">
-        <div
-          class="w-9 h-9 rounded-lg bg-secondary/10 border border-secondary/20 flex items-center justify-center shrink-0"
-        >
-          <lucide-angular
-            [img]="StoreIcon"
-            class="w-4 h-4 text-secondary"
-            aria-hidden="true"
-          />
-        </div>
-        <div>
-          <h3 class="text-sm font-semibold text-base-content">
-            External marketplaces
-          </h3>
-          <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
-            Add any GitHub repository that publishes a plugin marketplace, then
-            browse and install its skills. Every install shows you exactly what
-            lands on disk first.
-          </p>
-        </div>
-      </div>
-
+    <div class="space-y-4">
       <!-- Add an owner/repo -->
-      <div
-        class="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2"
+      <ptah-storefront-panel
+        heading="External marketplaces"
+        subtitle="Add any GitHub repository that publishes a plugin marketplace, then browse and install its skills. Every install shows you exactly what lands on disk first."
+        [headingLevel]="2"
       >
+        <span
+          panel-mark
+          class="flex h-9 w-9 items-center justify-center rounded-lg border border-secondary/20 bg-secondary/10 text-secondary"
+          aria-hidden="true"
+        >
+          <lucide-angular [img]="StoreIcon" class="h-4 w-4" />
+        </span>
         @if (addError()) {
-          <div class="alert alert-error alert-sm py-1 px-2" role="alert">
+          <div class="alert alert-error alert-sm py-1 px-2 mb-2" role="alert">
             <span class="text-xs">{{ addError() }}</span>
             <button
               class="btn btn-ghost btn-xs"
@@ -177,7 +180,7 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
         <!-- Suggestions come from the backend; nothing is hardcoded here. -->
         @if (suggestions().length > 0) {
-          <div class="space-y-1">
+          <div class="mt-3 space-y-1">
             <div
               class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
             >
@@ -208,20 +211,18 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
             </div>
           </div>
         }
-      </div>
+      </ptah-storefront-panel>
 
       <!-- Registered marketplaces -->
       <div>
-        <div
-          class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-        >
-          Registered
-        </div>
+        <h2 [class]="sectionHeadingClass">Registered</h2>
 
         @if (isLoading()) {
-          @for (i of [1, 2]; track i) {
-            <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
-          }
+          <ptah-catalog-grid>
+            @for (i of [1, 2]; track i) {
+              <ptah-catalog-card-skeleton role="listitem" />
+            }
+          </ptah-catalog-grid>
         } @else if (loadError()) {
           <div class="alert alert-error alert-sm py-1 px-2" role="alert">
             <span class="text-xs">{{ loadError() }}</span>
@@ -241,74 +242,23 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
             or pick one of the suggestions.
           </div>
         } @else {
-          <div class="space-y-1.5">
+          <ptah-catalog-grid>
             @for (marketplace of marketplaces(); track marketplace.source) {
-              <div
-                class="rounded-lg border border-base-300 bg-base-200/30 transition-colors"
+              <ptah-catalog-card
+                role="listitem"
+                [heading]="marketplace.name"
+                [meta]="[
+                  marketplace.source,
+                  marketplace.pluginCount +
+                    (marketplace.pluginCount === 1 ? ' plugin' : ' plugins'),
+                ]"
               >
-                <div class="flex items-start gap-2 p-2">
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-medium text-base-content truncate">
-                      {{ marketplace.name }}
-                    </div>
-                    <div
-                      class="text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
-                    >
-                      {{ marketplace.source }} · {{ marketplace.pluginCount }}
-                      {{ marketplace.pluginCount === 1 ? 'plugin' : 'plugins' }}
-                    </div>
-                  </div>
-                  <div class="shrink-0 flex items-center gap-1">
-                    <button
-                      class="btn btn-ghost btn-xs border-base-300"
-                      type="button"
-                      [disabled]="isBrowsing(marketplace.source)"
-                      [attr.aria-expanded]="
-                        expandedSource() === marketplace.source
-                      "
-                      [attr.aria-label]="'Browse ' + marketplace.source"
-                      (click)="toggleBrowse(marketplace)"
-                    >
-                      @if (isBrowsing(marketplace.source)) {
-                        <span class="loading loading-spinner loading-xs"></span>
-                      } @else {
-                        <lucide-angular
-                          [img]="
-                            expandedSource() === marketplace.source
-                              ? ChevronDownIcon
-                              : ChevronRightIcon
-                          "
-                          class="w-3 h-3"
-                          aria-hidden="true"
-                        />
-                      }
-                      Browse
-                    </button>
-                    <button
-                      class="btn btn-ghost btn-xs text-error"
-                      type="button"
-                      [disabled]="removingSources().has(marketplace.source)"
-                      [attr.aria-label]="'Remove ' + marketplace.source"
-                      (click)="requestRemove(marketplace)"
-                    >
-                      @if (removingSources().has(marketplace.source)) {
-                        <span class="loading loading-spinner loading-xs"></span>
-                      } @else {
-                        <lucide-angular
-                          [img]="Trash2Icon"
-                          class="w-3 h-3"
-                          aria-hidden="true"
-                        />
-                        Remove
-                      }
-                    </button>
-                  </div>
-                </div>
-
+                <ptah-monogram-tile card-mark [label]="marketplace.name" />
                 <!-- Remove confirmation: deregisters only. -->
                 @if (pendingRemoveSource() === marketplace.source) {
                   <div
-                    class="mx-2 mb-2 rounded-lg border border-warning/40 bg-warning/10 p-2 space-y-1.5"
+                    card-status
+                    class="rounded-lg border border-warning/40 bg-warning/10 p-2 space-y-1.5"
                   >
                     <p class="text-[11px] text-base-content">
                       Remove
@@ -338,13 +288,62 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
                     </div>
                   </div>
                 }
+                <div card-actions class="flex items-center gap-2">
+                  <button
+                    class="btn btn-ghost btn-sm border-base-300"
+                    type="button"
+                    [disabled]="isBrowsing(marketplace.source)"
+                    [attr.aria-expanded]="
+                      expandedSource() === marketplace.source
+                    "
+                    [attr.aria-label]="'Browse ' + marketplace.source"
+                    (click)="toggleBrowse(marketplace)"
+                  >
+                    @if (isBrowsing(marketplace.source)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      <lucide-angular
+                        [img]="ChevronRightIcon"
+                        class="w-3 h-3 transition-transform motion-reduce:transition-none"
+                        [class.rotate-90]="
+                          expandedSource() === marketplace.source
+                        "
+                        aria-hidden="true"
+                      />
+                    }
+                    Browse
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm text-error"
+                    type="button"
+                    [disabled]="removingSources().has(marketplace.source)"
+                    [attr.aria-label]="'Remove ' + marketplace.source"
+                    (click)="requestRemove(marketplace)"
+                  >
+                    @if (removingSources().has(marketplace.source)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      <lucide-angular
+                        [img]="Trash2Icon"
+                        class="w-3 h-3"
+                        aria-hidden="true"
+                      />
+                      Remove
+                    }
+                  </button>
+                </div>
+              </ptah-catalog-card>
 
-                <!-- Browse results -->
-                @if (expandedSource() === marketplace.source) {
-                  <div class="px-2 pb-2 space-y-1.5">
+              <!-- Browse results: a full-width panel under the source card. -->
+              @if (expandedSource() === marketplace.source) {
+                <div role="listitem" class="col-span-full">
+                  <ptah-storefront-panel
+                    [heading]="'Plugins in ' + marketplace.name"
+                    [subtitle]="marketplace.source"
+                  >
                     @if (browseError()) {
                       <div
-                        class="alert alert-error alert-sm py-1 px-2"
+                        class="alert alert-error alert-sm py-1 px-2 mb-3"
                         role="alert"
                       >
                         <span class="text-xs">{{ browseError() }}</span>
@@ -358,6 +357,14 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
                           Retry
                         </button>
                       </div>
+                    } @else if (
+                      isBrowsing(marketplace.source) && listings().length === 0
+                    ) {
+                      <ptah-catalog-grid>
+                        @for (i of [1, 2]; track i) {
+                          <ptah-catalog-card-skeleton role="listitem" />
+                        }
+                      </ptah-catalog-grid>
                     } @else if (listings().length === 0) {
                       <div
                         class="text-[11px] text-base-content-muted text-center py-3"
@@ -366,20 +373,25 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
                       </div>
                     }
 
-                    @for (listing of listings(); track listing.id) {
-                      <ptah-external-plugin-row
-                        [listing]="listing"
-                        [installing]="installingIds().has(listing.id)"
-                        [uninstalling]="uninstallingIds().has(listing.id)"
-                        (installRequested)="install(listing)"
-                        (uninstallRequested)="uninstall(listing)"
-                      />
+                    @if (listings().length > 0) {
+                      <ptah-catalog-grid>
+                        @for (listing of listings(); track listing.id) {
+                          <ptah-external-plugin-row
+                            role="listitem"
+                            [listing]="listing"
+                            [installing]="installingIds().has(listing.id)"
+                            [uninstalling]="uninstallingIds().has(listing.id)"
+                            (installRequested)="install(listing)"
+                            (uninstallRequested)="uninstall(listing)"
+                          />
+                        }
+                      </ptah-catalog-grid>
                     }
-                  </div>
-                }
-              </div>
+                  </ptah-storefront-panel>
+                </div>
+              }
             }
-          </div>
+          </ptah-catalog-grid>
         }
       </div>
 
@@ -390,65 +402,28 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
       -->
       @if (installed().length > 0) {
         <div>
-          <div
-            class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-          >
-            Installed
-          </div>
-          <div class="space-y-1.5">
+          <h2 [class]="sectionHeadingClass">Installed</h2>
+          <ptah-catalog-grid>
             @for (entry of installed(); track entry.id) {
               <ptah-external-installed-row
+                role="listitem"
                 [listing]="entry"
                 [orphaned]="isOrphaned(entry)"
                 [uninstalling]="uninstallingIds().has(entry.id)"
+                [error]="uninstallErrors()[entry.id] ?? null"
                 (uninstallRequested)="uninstall(entry)"
               />
             }
-          </div>
+          </ptah-catalog-grid>
         </div>
       }
 
       <!-- Post-install report: only what the user still needs to know. -->
       @if (lastInstall(); as report) {
-        <div
-          class="rounded-lg border border-success/40 bg-success/10 p-2.5 space-y-1.5"
-        >
-          <div class="flex items-start justify-between gap-2">
-            <span class="text-xs font-semibold text-base-content">
-              Installed {{ report.displayName }}
-              {{ report.installedVersion }} ({{ report.filesWritten }}
-              files)
-            </span>
-            <button
-              class="btn btn-ghost btn-xs shrink-0"
-              type="button"
-              (click)="lastInstall.set(null)"
-            >
-              Dismiss
-            </button>
-          </div>
-          @if (report.skippedBinaryFiles.length > 0) {
-            <div class="text-[11px] text-base-content-muted">
-              Skipped (not valid UTF-8 text):
-              @for (file of report.skippedBinaryFiles; track $index) {
-                <code class="font-mono break-all">{{ file }}</code>
-                <span aria-hidden="true">&nbsp;</span>
-              }
-            </div>
-          }
-          @if (report.collisions.length > 0) {
-            <ul class="space-y-0.5">
-              @for (collision of report.collisions; track $index) {
-                <li class="text-[11px] text-base-content-muted break-all">
-                  skill <code class="font-mono">{{ collision.skillName }}</code
-                  >&nbsp;is shadowed by
-                  <code class="font-mono">{{ collision.shadowedBy }}</code> and
-                  will not take effect
-                </li>
-              }
-            </ul>
-          }
-        </div>
+        <ptah-external-install-report
+          [report]="report"
+          (dismissed)="lastInstall.set(null)"
+        />
       }
 
       <div class="flex justify-end">
@@ -495,11 +470,17 @@ export class ExternalMarketplacesComponent implements OnInit {
   /** Increment to reload the marketplace list (parity with the other surfaces). */
   public readonly refreshTrigger = input(0);
 
+  /** Emitted with the plugin id after an install the backend confirmed. */
+  public readonly pluginInstalled = output<string>();
+  /** Emitted with the plugin id after an uninstall removed the plugin. */
+  public readonly pluginUninstalled = output<string>();
+
+  protected readonly sectionHeadingClass =
+    'text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium';
   protected readonly StoreIcon = Store;
   protected readonly PlusIcon = Plus;
   protected readonly Trash2Icon = Trash2;
   protected readonly RefreshCwIcon = RefreshCw;
-  protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
 
   // ── Registered list ─────────────────────────────────────────────────────────
@@ -567,6 +548,10 @@ export class ExternalMarketplacesComponent implements OnInit {
   /** Listing ids with a first (plan) call in flight. */
   public readonly installingIds = signal<Set<string>>(new Set());
   public readonly uninstallingIds = signal<Set<string>>(new Set());
+  /** Failed uninstalls (by id) whose source has no open browse panel. */
+  public readonly uninstallErrors = signal<Readonly<Record<string, string>>>(
+    {},
+  );
   /** Result of the most recent successful install, for the post-install report. */
   public readonly lastInstall = signal<ExternalInstallResult | null>(null);
 
@@ -889,6 +874,7 @@ export class ExternalMarketplacesComponent implements OnInit {
     source: string,
   ): Promise<void> {
     this.lastInstall.set(result);
+    this.pluginInstalled.emit(result.pluginId);
     await this.loadMarketplaces();
     if (this.expandedSource() === source) {
       await this.refreshBrowse(source);
@@ -904,32 +890,45 @@ export class ExternalMarketplacesComponent implements OnInit {
    * Reachable from a browse row and from the flat Installed list, so it must
    * NOT assume the plugin's marketplace is expanded — or even registered. It
    * re-reads the flat list unconditionally and the browse list only when that
-   * marketplace happens to be open.
+   * marketplace happens to be open (never expanding one as a side effect).
+   * A failure shows in the open browse panel of that source, else on the
+   * plugin's Installed card — the only place an orphaned plugin renders.
    */
   public async uninstall(listing: ExternalPluginListing): Promise<void> {
     if (this.uninstallingIds().has(listing.id)) return;
     addToSet(this.uninstallingIds, listing.id);
-    this.browseError.set(null);
+    if (this.expandedSource() === listing.source) this.browseError.set(null);
+    this.uninstallErrors.update(({ [listing.id]: _cleared, ...rest }) => rest);
+    const fallback = `Failed to uninstall ${listing.name}`;
     try {
       const result = await this.rpc.call('plugins:uninstall-external', {
         pluginId: listing.id,
       });
       if (this.destroyed) return;
       if (!result.isSuccess()) {
-        this.browseError.set(
-          result.error ?? `Failed to uninstall ${listing.name}`,
-        );
+        this.uninstallFailed(listing, result.error ?? fallback);
         return;
       }
       this.lastInstall.set(null);
-      await this.refreshBrowse(listing.source);
+      // `removed: false` means there was no record, so nothing changed.
+      if (result.data.removed) this.pluginUninstalled.emit(listing.id);
+      await this.loadMarketplaces();
+      if (!this.destroyed && this.expandedSource() === listing.source) {
+        await this.refreshBrowse(listing.source);
+      }
     } catch (error: unknown) {
       if (this.destroyed) return;
-      this.browseError.set(
-        messageOf(error, `Failed to uninstall ${listing.name}`),
-      );
+      this.uninstallFailed(listing, messageOf(error, fallback));
     } finally {
       if (!this.destroyed) removeFromSet(this.uninstallingIds, listing.id);
+    }
+  }
+
+  private uninstallFailed(item: ExternalPluginListing, message: string): void {
+    if (this.expandedSource() === item.source) {
+      this.browseError.set(message);
+    } else {
+      this.uninstallErrors.update((prev) => ({ ...prev, [item.id]: message }));
     }
   }
 }

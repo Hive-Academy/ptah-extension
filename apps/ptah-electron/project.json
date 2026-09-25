@@ -97,6 +97,11 @@
             "glob": "electron-builder.yml",
             "input": "apps/ptah-electron",
             "output": "."
+          },
+          {
+            "glob": "brand-icons-notices.txt",
+            "input": "libs/frontend/ui/src/lib/native/brand-mark",
+            "output": "."
           }
         ]
       },

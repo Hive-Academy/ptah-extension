@@ -11,17 +11,26 @@ import {
   DestroyRef,
   output,
 } from '@angular/core';
-import { LucideAngularModule, Search, Check } from 'lucide-angular';
+import { NgTemplateOutlet } from '@angular/common';
+import { LucideAngularModule, Search } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  CatalogCardComponent,
+  CatalogCardSkeletonComponent,
+  CatalogGridComponent,
+  MonogramTileComponent,
+  type CatalogCardBadge,
+} from '@ptah-extension/ui';
 import type {
   SkillShEntry,
   InstalledSkill,
   SkillDetectionResult,
 } from '@ptah-extension/shared';
 
-/** SkillShEntry enriched with pre-formatted install count for template use */
+/** SkillShEntry enriched with its card meta line for template use */
 interface DisplaySkillEntry extends SkillShEntry {
-  formattedInstalls: string;
+  /** Card meta: the source repo, then the install count when there is one. */
+  meta: readonly string[];
   /**
    * `@for` track key. skills.sh identifies a skill by BOTH halves of
    * `owner/repo@skill-id` — the same slug (`threejs`, `remotion`) ships from
@@ -35,335 +44,149 @@ function skillKey(skill: SkillShEntry): string {
   return `${skill.source}@${skill.skillId}`;
 }
 
+function formatInstallCount(count: number): string {
+  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';
+  if (count >= 1_000) return (count / 1_000).toFixed(1) + 'K';
+  return count.toString();
+}
+
+/** Card meta for one entry; the install count only when skills.sh has one. */
+function skillMeta(skill: SkillShEntry): readonly string[] {
+  return skill.installs > 0
+    ? [skill.source, `${formatInstallCount(skill.installs)} installs`]
+    : [skill.source];
+}
+
+const INSTALLED_BADGE: CatalogCardBadge = {
+  label: 'Installed',
+  tone: 'success',
+};
+
+/** Loading tiles per grid: fills one row at every column count but the widest. */
+const SKELETON_SLOTS = [1, 2, 3] as const;
+
 /**
- * SkillShBrowserComponent - Browse, search, install, and manage skills from skills.sh
+ * SkillShBrowserComponent - Browse, search and install skills from skills.sh
  *
- * Patterns: Signal-based state, DaisyUI compact styling, debounced search
+ * Discovery only: browse, search and install. The user's installed skills are
+ * listed by the marketplace's Installed page; this view reads
+ * `skillsSh:listInstalled` only to badge results as Installed and offer Remove.
+ *
+ * Results render as storefront catalog cards (`ptah-catalog-grid`), each with
+ * an artwork-free monogram tile — skills.sh entries have no vendor brand.
+ *
+ * Patterns: Signal-based state, debounced search
  */
 @Component({
   selector: 'ptah-skill-sh-browser',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [
+    NgTemplateOutlet,
+    LucideAngularModule,
+    CatalogCardComponent,
+    CatalogCardSkeletonComponent,
+    CatalogGridComponent,
+    MonogramTileComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-3">
-      <!-- View Toggle -->
-      <div class="tabs tabs-boxed tabs-xs bg-base-300/50 p-0.5">
-        <button
-          class="tab tab-xs"
-          [class.tab-active]="activeView() === 'browse'"
-          (click)="activeView.set('browse')"
-          type="button"
+    <div class="space-y-4">
+      <!-- Search Input -->
+      <div class="relative">
+        <span
+          class="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 text-base-content-muted"
+          aria-hidden="true"
         >
-          Browse
-        </button>
-        <button
-          class="tab tab-xs"
-          [class.tab-active]="activeView() === 'installed'"
-          (click)="activeView.set('installed')"
-          type="button"
-        >
-          Installed ({{ installedCount() }})
-        </button>
+          <lucide-angular [img]="SearchIcon" class="w-3.5 h-3.5" />
+        </span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full pl-8 text-xs"
+          placeholder="Search skills..."
+          [value]="searchQuery()"
+          (input)="onSearchInput($event)"
+          aria-label="Search skills"
+        />
+        @if (isSearching()) {
+          <span
+            class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
+          ></span>
+        }
       </div>
 
-      <!-- ===== Browse View ===== -->
-      @if (activeView() === 'browse') {
-        <!-- Search Input -->
-        <div class="relative">
-          <lucide-angular
-            [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
-            aria-hidden="true"
-          />
-          <input
-            type="text"
-            class="input input-bordered input-sm w-full pl-8 text-xs"
-            placeholder="Search skills..."
-            [value]="searchQuery()"
-            (input)="onSearchInput($event)"
-            aria-label="Search skills"
-          />
-          @if (isSearching()) {
-            <span
-              class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
-            ></span>
-          }
-        </div>
-
-        <!-- Error -->
-        @if (error()) {
-          <div class="alert alert-error alert-sm py-1 px-2">
-            <span class="text-xs">{{ error() }}</span>
-            <button
-              class="btn btn-ghost btn-xs"
-              (click)="error.set(null)"
-              type="button"
-            >
-              Dismiss
-            </button>
-          </div>
-        }
-
-        <!-- Recommendations -->
-        @if (isLoadingRecommendations() && !searchQuery()) {
-          <div>
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              Recommended for your project
-            </div>
-            <div class="skeleton h-16 w-full rounded-lg"></div>
-          </div>
-        } @else if (
-          !searchQuery() && recommendations()?.recommendedSkills?.length
-        ) {
-          <div>
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              Recommended for your project
-            </div>
-            <div class="space-y-1.5">
-              @for (skill of recommendedDisplaySkills(); track skill.key) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
-                >
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="text-xs font-medium text-base-content">{{
-                        skill.name
-                      }}</span>
-                      @if (skill.installs > 0) {
-                        <span class="badge badge-xs badge-ghost text-[10px]">{{
-                          skill.formattedInstalls
-                        }}</span>
-                      }
-                      @if (isSkillInstalled(skill)) {
-                        <span
-                          class="badge badge-xs badge-success text-[10px] gap-0.5"
-                        >
-                          <lucide-angular
-                            [img]="CheckIcon"
-                            class="w-2 h-2"
-                            aria-hidden="true"
-                          />
-                          Installed
-                        </span>
-                      }
-                    </div>
-                    <p
-                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
-                    >
-                      {{ skill.description }}
-                    </p>
-                    <span class="text-[10px] text-base-content-muted font-mono"
-                      >{{ skill.source }}/{{ skill.skillId }}</span
-                    >
-                  </div>
-                  <div class="shrink-0">
-                    @if (isSkillInstalled(skill)) {
-                      <button
-                        class="btn btn-ghost btn-xs text-error"
-                        [disabled]="uninstallingSkillIds().has(skill.key)"
-                        (click)="uninstallSkill(skill)"
-                        type="button"
-                        [attr.aria-label]="'Remove ' + skill.name"
-                      >
-                        @if (uninstallingSkillIds().has(skill.key)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else {
-                          Remove
-                        }
-                      </button>
-                    } @else {
-                      <button
-                        class="btn btn-primary btn-xs"
-                        [disabled]="installingSkillIds().has(skill.key)"
-                        (click)="installSkill(skill)"
-                        type="button"
-                        [attr.aria-label]="'Install ' + skill.name"
-                      >
-                        @if (installingSkillIds().has(skill.key)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else {
-                          Install
-                        }
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-        <!-- Popular / Search Results -->
-        <div>
-          @if (isLoadingPopular() && !searchQuery()) {
-            @for (i of [1, 2, 3, 4, 5]; track i) {
-              <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
-            }
-          } @else {
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              {{ searchQuery() ? 'Search Results' : 'Popular Skills' }}
-            </div>
-            @if (displaySkills().length === 0) {
-              <div class="text-xs text-base-content-muted text-center py-4">
-                {{
-                  searchQuery()
-                    ? 'No skills found for "' + searchQuery() + '"'
-                    : 'No skills available'
-                }}
-              </div>
-            }
-            <div class="space-y-1.5">
-              @for (skill of displaySkills(); track skill.key) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
-                >
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="text-xs font-medium text-base-content">{{
-                        skill.name
-                      }}</span>
-                      @if (skill.installs > 0) {
-                        <span class="badge badge-xs badge-ghost text-[10px]">{{
-                          skill.formattedInstalls
-                        }}</span>
-                      }
-                      @if (isSkillInstalled(skill)) {
-                        <span
-                          class="badge badge-xs badge-success text-[10px] gap-0.5"
-                        >
-                          <lucide-angular
-                            [img]="CheckIcon"
-                            class="w-2 h-2"
-                            aria-hidden="true"
-                          />
-                          Installed
-                        </span>
-                      }
-                    </div>
-                    <p
-                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
-                    >
-                      {{ skill.description }}
-                    </p>
-                    <span class="text-[10px] text-base-content-muted font-mono"
-                      >{{ skill.source }}/{{ skill.skillId }}</span
-                    >
-                  </div>
-                  <div class="shrink-0">
-                    @if (isSkillInstalled(skill)) {
-                      <button
-                        class="btn btn-ghost btn-xs text-error"
-                        [disabled]="uninstallingSkillIds().has(skill.key)"
-                        (click)="uninstallSkill(skill)"
-                        type="button"
-                        [attr.aria-label]="'Remove ' + skill.name"
-                      >
-                        @if (uninstallingSkillIds().has(skill.key)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else {
-                          Remove
-                        }
-                      </button>
-                    } @else {
-                      <button
-                        class="btn btn-primary btn-xs"
-                        [disabled]="installingSkillIds().has(skill.key)"
-                        (click)="installSkill(skill)"
-                        type="button"
-                        [attr.aria-label]="'Install ' + skill.name"
-                      >
-                        @if (installingSkillIds().has(skill.key)) {
-                          <span
-                            class="loading loading-spinner loading-xs"
-                          ></span>
-                        } @else {
-                          Install
-                        }
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-          }
+      <!-- Error -->
+      @if (error()) {
+        <div class="alert alert-error alert-sm py-1 px-2" role="alert">
+          <span class="text-xs">{{ error() }}</span>
+          <button
+            class="btn btn-ghost btn-xs"
+            (click)="error.set(null)"
+            type="button"
+          >
+            Dismiss
+          </button>
         </div>
       }
 
-      <!-- ===== Installed View ===== -->
-      @if (activeView() === 'installed') {
-        @if (isLoadingInstalled()) {
-          @for (i of [1, 2, 3]; track i) {
-            <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
-          }
-        } @else if (installedSkills().length === 0) {
-          <div class="text-xs text-base-content-muted text-center py-6">
-            <p class="mb-1">No skills installed yet</p>
-            <button
-              class="btn btn-ghost btn-xs"
-              (click)="activeView.set('browse')"
-              type="button"
-            >
-              Browse skills
-            </button>
-          </div>
-        } @else {
-          <!--
-            ONE list, no scope headings. Every skills.sh skill now lives in a
-            user-global source root under ~/.ptah/plugins and is propagated into
-            each detected CLI from there, so the old "Project Skills" / "Global
-            Skills" split described a destination that no longer exists — and
-            the project half would have rendered empty forever.
-          -->
-          <div
-            class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-          >
-            Installed Skills
-          </div>
-          <div class="space-y-1.5">
-            @for (skill of installedSkills(); track skill.path) {
-              <div
-                class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
-              >
-                <div class="flex-1 min-w-0">
-                  <div class="text-xs font-medium">{{ skill.name }}</div>
-                  <span class="text-[10px] text-base-content-muted font-mono">{{
-                    skill.source
-                  }}</span>
-                </div>
-                <button
-                  class="btn btn-ghost btn-xs text-error shrink-0"
-                  [disabled]="uninstallingSkillIds().has(skill.name)"
-                  (click)="removeInstalledSkill(skill)"
-                  type="button"
-                  [attr.aria-label]="'Remove ' + skill.name"
-                >
-                  @if (uninstallingSkillIds().has(skill.name)) {
-                    <span class="loading loading-spinner loading-xs"></span>
-                  } @else {
-                    Remove
-                  }
-                </button>
-              </div>
-            }
-          </div>
-          <p class="text-[10px] text-base-content-muted mt-2">
-            Installed skills reach every AI CLI Ptah detects. Turn one off for
-            this workspace from the Plugins panel.
-          </p>
+      <!-- Recommendations -->
+      @if (!searchQuery()) {
+        @if (isLoadingRecommendations()) {
+          <section aria-busy="true">
+            <h2 [class]="sectionHeadingClass">Recommended for your project</h2>
+            <ptah-catalog-grid ariaLabel="Recommended skills loading">
+              @for (slot of skeletonSlots; track slot) {
+                <ptah-catalog-card-skeleton role="listitem" />
+              }
+            </ptah-catalog-grid>
+          </section>
+        } @else if (recommendedDisplaySkills().length) {
+          <section>
+            <h2 [class]="sectionHeadingClass">Recommended for your project</h2>
+            <ptah-catalog-grid ariaLabel="Recommended skills">
+              @for (skill of recommendedDisplaySkills(); track skill.key) {
+                <ng-container
+                  [ngTemplateOutlet]="skillCard"
+                  [ngTemplateOutletContext]="{ $implicit: skill }"
+                />
+              }
+            </ptah-catalog-grid>
+          </section>
         }
+      }
+
+      <!-- Popular / Search Results -->
+      @if (isLoadingPopular() && !searchQuery()) {
+        <section aria-busy="true">
+          <ptah-catalog-grid ariaLabel="Popular skills loading">
+            @for (slot of skeletonSlots; track slot) {
+              <ptah-catalog-card-skeleton role="listitem" />
+            }
+          </ptah-catalog-grid>
+        </section>
+      } @else {
+        <section>
+          <h2 [class]="sectionHeadingClass">
+            {{ resultsHeading() }}
+          </h2>
+          @if (displaySkills().length === 0) {
+            <div class="text-xs text-base-content-muted text-center py-4">
+              {{
+                searchQuery()
+                  ? 'No skills found for "' + searchQuery() + '"'
+                  : 'No skills available'
+              }}
+            </div>
+          } @else {
+            <ptah-catalog-grid [ariaLabel]="resultsHeading()">
+              @for (skill of displaySkills(); track skill.key) {
+                <ng-container
+                  [ngTemplateOutlet]="skillCard"
+                  [ngTemplateOutletContext]="{ $implicit: skill }"
+                />
+              }
+            </ptah-catalog-grid>
+          }
+        </section>
       }
 
       <!-- skills.sh attribution -->
@@ -379,6 +202,50 @@ function skillKey(skill: SkillShEntry): string {
         &#8212; the open agent skills ecosystem
       </div>
     </div>
+
+    <!-- One result card; shared by the recommended and the results grids. -->
+    <ng-template #skillCard let-skill>
+      <ptah-catalog-card
+        role="listitem"
+        [heading]="skill.name"
+        [description]="skill.description"
+        [meta]="skill.meta"
+        [badge]="isSkillInstalled(skill) ? installedBadge : null"
+      >
+        <ptah-monogram-tile card-mark [label]="skill.name" />
+        <div card-actions>
+          @if (isSkillInstalled(skill)) {
+            <button
+              class="btn btn-ghost btn-sm text-error"
+              [disabled]="uninstallingSkillIds().has(skill.key)"
+              (click)="uninstallSkill(skill)"
+              type="button"
+              [attr.aria-label]="'Remove ' + skill.name"
+            >
+              @if (uninstallingSkillIds().has(skill.key)) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Remove
+              }
+            </button>
+          } @else {
+            <button
+              class="btn btn-primary btn-sm"
+              [disabled]="installingSkillIds().has(skill.key)"
+              (click)="installSkill(skill)"
+              type="button"
+              [attr.aria-label]="'Install ' + skill.name"
+            >
+              @if (installingSkillIds().has(skill.key)) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Install
+              }
+            </button>
+          }
+        </div>
+      </ptah-catalog-card>
+    </ng-template>
   `,
   styles: [
     `
@@ -394,10 +261,9 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   private destroyed = false;
 
   /**
-   * Increment this input to trigger a reload of the installed skills list.
-   * Used by the parent settings component when plugin configuration changes
-   * (skills are added/removed via the harness reconciler) so the Installed tab
-   * reflects the current state without requiring a full page reload.
+   * Increment this input to re-read the installed skills list, so the
+   * Installed badges follow plugin configuration changes (skills added or
+   * removed via the harness reconciler) without a full page reload.
    */
   readonly refreshTrigger = input(0);
 
@@ -408,7 +274,10 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
 
   /** Lucide icon references */
   protected readonly SearchIcon = Search;
-  protected readonly CheckIcon = Check;
+  protected readonly installedBadge = INSTALLED_BADGE;
+  protected readonly skeletonSlots = SKELETON_SLOTS;
+  protected readonly sectionHeadingClass =
+    'text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium';
 
   readonly searchQuery = signal('');
   readonly searchResults = signal<DisplaySkillEntry[]>([]);
@@ -416,21 +285,21 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly popularSkills = signal<DisplaySkillEntry[]>([]);
   readonly recommendations = signal<SkillDetectionResult | null>(null);
   readonly isSearching = signal(false);
-  readonly isLoadingInstalled = signal(false);
   readonly isLoadingPopular = signal(false);
   readonly isLoadingRecommendations = signal(false);
   readonly installingSkillIds = signal<Set<string>>(new Set());
   readonly uninstallingSkillIds = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
-  readonly activeView = signal<'browse' | 'installed'>('browse');
-
-  readonly installedCount = computed(() => this.installedSkills().length);
 
   readonly displaySkills = computed(() =>
     this.searchQuery() ? this.searchResults() : this.popularSkills(),
   );
 
-  /** Recommended skills pre-enriched with formatted installs */
+  protected readonly resultsHeading = computed(() =>
+    this.searchQuery() ? 'Search Results' : 'Popular Skills',
+  );
+
+  /** Recommended skills, de-duplicated and pre-enriched with card meta */
   readonly recommendedDisplaySkills = computed<DisplaySkillEntry[]>(() => {
     const recs = this.recommendations()?.recommendedSkills;
     if (!recs) return [];
@@ -440,11 +309,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       const key = skillKey(s);
       if (seen.has(key)) continue;
       seen.add(key);
-      entries.push({
-        ...s,
-        key,
-        formattedInstalls: this.formatInstallCount(s.installs),
-      });
+      entries.push({ ...s, key, meta: skillMeta(s) });
     }
     return entries;
   });
@@ -556,45 +421,11 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  async removeInstalledSkill(skill: InstalledSkill): Promise<void> {
-    if (this.uninstallingSkillIds().has(skill.name)) return;
-
-    this.addToSet(this.uninstallingSkillIds, skill.name);
-    this.error.set(null);
-
-    try {
-      const result = await this.rpcService.call('skillsSh:uninstall', {
-        name: skill.name,
-      });
-
-      if (this.destroyed) return;
-
-      if (result.isSuccess() && result.data.success) {
-        await this.loadInstalled();
-        this.skillUninstalled.emit(skill.name);
-      } else if (result.isSuccess() && !result.data.success) {
-        this.error.set(result.data.error || 'Remove failed');
-      }
-    } catch {
-      if (this.destroyed) return;
-      this.error.set('Remove failed');
-    } finally {
-      if (!this.destroyed)
-        this.removeFromSet(this.uninstallingSkillIds, skill.name);
-    }
-  }
-
   isSkillInstalled(skill: SkillShEntry): boolean {
     return this.installedSkills().some(
       (installed) =>
         installed.name === skill.skillId || installed.name === skill.name,
     );
-  }
-
-  private formatInstallCount(count: number): string {
-    if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';
-    if (count >= 1_000) return (count / 1_000).toFixed(1) + 'K';
-    return count.toString();
   }
 
   /**
@@ -604,9 +435,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
    * an upstream API that can list the same `owner/repo@skill-id` twice, and a
    * repeated track key is an NG0955 whichever half produced it.
    */
-  private enrichWithFormattedInstalls(
-    skills: SkillShEntry[],
-  ): DisplaySkillEntry[] {
+  private withDisplayFields(skills: SkillShEntry[]): DisplaySkillEntry[] {
     const installed = this.installedSkills();
     const seen = new Set<string>();
     const entries: DisplaySkillEntry[] = [];
@@ -620,7 +449,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
         isInstalled: installed.some(
           (i) => i.name === s.skillId || i.name === s.name,
         ),
-        formattedInstalls: this.formatInstallCount(s.installs),
+        meta: skillMeta(s),
       });
     }
     return entries;
@@ -635,9 +464,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       if (this.destroyed) return;
 
       if (result.isSuccess()) {
-        this.searchResults.set(
-          this.enrichWithFormattedInstalls(result.data.skills),
-        );
+        this.searchResults.set(this.withDisplayFields(result.data.skills));
       } else {
         this.error.set('Search failed');
         this.searchResults.set([]);
@@ -651,9 +478,8 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Feeds the Installed badges only; a failed read leaves the last list. */
   private async loadInstalled(): Promise<void> {
-    this.isLoadingInstalled.set(true);
-
     try {
       const result = await this.rpcService.call('skillsSh:listInstalled', {});
 
@@ -663,9 +489,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
         this.installedSkills.set(result.data.skills);
       }
     } catch {
-      if (this.destroyed) return;
-    } finally {
-      if (!this.destroyed) this.isLoadingInstalled.set(false);
+      // Badges keep their previous state; browse and install still work.
     }
   }
 
@@ -678,9 +502,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       if (this.destroyed) return;
 
       if (result.isSuccess()) {
-        this.popularSkills.set(
-          this.enrichWithFormattedInstalls(result.data.skills),
-        );
+        this.popularSkills.set(this.withDisplayFields(result.data.skills));
       }
     } catch {
       if (this.destroyed) return;
@@ -711,14 +533,10 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   }
 
   private refreshInstalledStatus(): void {
-    this.popularSkills.set(
-      this.enrichWithFormattedInstalls(this.popularSkills()),
-    );
+    this.popularSkills.set(this.withDisplayFields(this.popularSkills()));
 
     if (this.searchQuery()) {
-      this.searchResults.set(
-        this.enrichWithFormattedInstalls(this.searchResults()),
-      );
+      this.searchResults.set(this.withDisplayFields(this.searchResults()));
     }
   }
 
