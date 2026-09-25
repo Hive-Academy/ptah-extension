@@ -1133,7 +1133,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
   (code-logic-review-batch-18.md).
 - Minor coverage gap (non-blocking): a second re-attachment of targets on the same id is not pinned.
 
-## Batch 19: Lazy-load gate — COMPLETE
+## Batch 19: Lazy-load gate — COMPLETE (commit 46fbd2b66)
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -1174,7 +1174,10 @@ lazy-load gate and Mode 3 visual evidence must include it.
   feature worktree (better-sqlite3, daisyui, electron, monaco-editor, prismjs, …). None of them appear in
   `git status`. Coordinator ruling: KEEP them, because the visual-review build needs them. They are listed with
   their targets in context.md under "Cleanup before the worktree is removed".
-- The base worktree `tmp-494-lazy-gate-base` has 3 junctions (daisyui, monaco-editor, prismjs) plus a real
+- DONE 2026-09-26: the base worktree was removed. Its 3 junctions were unlinked one at a time, without recursion. The
+  real daisyui, monaco-editor and prismjs packages were confirmed intact. `git worktree remove` exited 0 without
+  `--force`.
+- (Historical) The base worktree `tmp-494-lazy-gate-base` has 3 junctions (daisyui, monaco-editor, prismjs) plus a real
   `.cache` directory. Removal order, after the B19 verdict:
   1. Run `cmd /c rmdir` on each junction, without `/S`.
   2. Confirm the real packages still exist under `D:\projects\ptah-extension\node_modules`.
@@ -1202,6 +1205,53 @@ lazy-load gate and Mode 3 visual evidence must include it.
   - Bounded fix under the round-2 rule, made by the team-leader at the coordinator's direction: the R8 row at
     `lazy-load-gate.md:350` changed "81 files each" to "95 files each". A grep found no other zod "81".
 - Final: B19 ACCEPTED. Req 9.1, R8 and 9.3 PASS. Req 9.2 is OPEN as a manual QA item.
+
+## Post-batch bounded fix: reset or Stop between chat:start and the session binding — COMPLETE
+
+- This fix was requested by the user and added to this PR on the coordinator's ruling (2026-09-26).
+- It supersedes the context.md follow-up that called this gap pre-existing. The code is ours (B12/B15).
+- Defect in `libs/frontend/mcp-apps-page/src/lib/services/apps-session.service.ts`:
+  - `resetConversation()` (:375-399) aborts only when `sessionFor(surfaceId)` is non-null.
+  - After a successful `chat:start` but before the binding arrives, the conversation is discarded without a
+    `chat:abort`. The agent keeps running as an orphan.
+  - The Stop path, `abort()` (:349-365), is checked for the same gap.
+  - The in-flight case (`abortUnownedStart`, :262-270) must stay handled.
+- Executor: a frontend-developer subagent. Reviewer: a codex lane with no role, which writes only
+  `code-logic-review-fix-reset-binding-codex.md`.
+- Verification:
+  - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`;
+  - spec tsc shows no errors beyond the 8-error baseline;
+  - no non-spec file exceeds 700 lines.
+- Constraint: a visual-reviewer is running in this worktree at the same time. It owns `visual/` and
+  `visual-review.md`, and this fix does not touch them.
+- Executor result (fix-reset-binding-report.md): Stop had the same gap, and the fix covers it too. Red/green runs are
+  proven, and the executor reports 286 tests.
+- Team-leader verification: lint, typecheck and test are green, spec tsc shows exactly the 8 baseline errors, and
+  every non-spec file is at or under 700 lines.
+- Review:
+  - The codex lane failed with a 401 (expired credential) and wrote no file. Codex is out of the lane pool until the
+    user re-authenticates.
+  - The review was re-run on an antigravity lane with no role (code-logic-review-fix-reset-binding-antigravity.md).
+  - Fallback if antigravity also fails: the code-logic-reviewer subagent (code-logic-review-fix-reset-binding.md).
+  - Antigravity result: APPROVED 9/10.
+- Residual ruling: `chat:abort` returns `{ success: true }` for running, idle and unknown sessions
+  (`chat-rpc.handlers.ts:274-281` -> `chat-session.service.ts:967-1011` -> `session-control.service.ts:160-171`).
+  Aborting is therefore always safe.
+- Option (a) is adopted as a follow-on inside this fix. Before binding, `runningSessionOf(slice)` returns
+  `slice.startedSessionId` unconditionally, and the failed-abort notice path is unchanged.
+- New spec: Stop fails before binding, then the pending turn clears, then there is no liveness report, then reset
+  still aborts with the recorded id and discards.
+- The team-leader verifies the follow-on directly; there is no second review round, on the coordinator's ruling.
+  - Done. `runningSessionOf` (`apps-session.service.ts:582-588`) returns `startedSessionId` before binding. After
+    binding it keeps the old rule.
+  - New spec at `apps-session.service.spec.ts:931`. Red run: with the old gate put back, 1 test failed and 39 passed.
+    Green run: 40/40.
+  - Team-leader re-run: lint, typecheck and test are green (the executor reports 287 tests), and spec tsc shows
+    exactly the 8 baseline errors.
+  - Line counts: 698, 236, 53 and 107, all at or under 700.
+- Final: ACCEPTED. Antigravity gave 9/10, and follow-on (a) was verified by the team-leader.
+
+## Completion prerequisites (Mode 3)
 
 - Parity: N/A — no existing surface is replaced, consolidated, rebuilt or redesigned (the Apps page is new; the
   shell edit replaces one comment).

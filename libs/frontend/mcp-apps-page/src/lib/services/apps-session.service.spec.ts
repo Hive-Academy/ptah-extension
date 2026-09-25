@@ -30,7 +30,11 @@ import type {
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { makeTable } from '@ptah-extension/shared/testing';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
-import { AppsSessionService, APPS_SESSION_NAME } from './apps-session.service';
+import {
+  AppsSessionService,
+  APPS_RESET_KEPT_NOTICE,
+  APPS_SESSION_NAME,
+} from './apps-session.service';
 import { APPS_SURFACE_READ_TIMEOUT_MS } from './apps-surface-sync';
 import { APPS_IMPLICIT_WORKSPACE } from './apps-workspace-slice';
 
@@ -835,6 +839,123 @@ describe('AppsSessionService', () => {
       expect(service.error()).not.toBeNull();
       service.clearError();
       expect(service.error()).toBeNull();
+    });
+  });
+
+  describe('stop between chat:start and the session binding', () => {
+    // Read from the mock itself: a `mockResolvedValueOnce` skips `calls`.
+    const abortedIds = () =>
+      (rpc.call as jest.Mock).mock.calls
+        .filter(([method]) => method === 'chat:abort')
+        .map(([, params]) => (params as { sessionId: string }).sessionId);
+    const startedSessionId = () =>
+      service['_slices']().get('/ws-a')?.startedSessionId ?? null;
+
+    beforeEach(() => {
+      chatStartResult = { success: true, sessionId: 'host-session' };
+    });
+
+    it('"New conversation" aborts the session chat:start returned, then discards', async () => {
+      await service.start('Build');
+      const routingId = service.routingId() as string;
+      expect(startedSessionId()).toBe('host-session');
+
+      await expect(service.resetConversation()).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['host-session']);
+      expect(markIdle).toHaveBeenCalledWith('host-session', '/ws-a');
+      expect(service.isActive()).toBe(false);
+      expect(inbox.isClaimed(routingId)).toBe(false);
+      expect(startedSessionId()).toBeNull();
+    });
+
+    it('a failed abort keeps the conversation and shows the notice', async () => {
+      await service.start('Build');
+      const routingId = service.routingId() as string;
+      (rpc.call as jest.Mock).mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'Agent busy.' }),
+      );
+
+      await expect(service.resetConversation()).resolves.toBe(false);
+
+      expect(abortedIds()).toEqual(['host-session']);
+      expect(markIdle).not.toHaveBeenCalled();
+      expect(service.isActive()).toBe(true);
+      expect(inbox.isClaimed(routingId)).toBe(true);
+      expect(service.notice()).toBe(
+        `${APPS_RESET_KEPT_NOTICE} Reason: Agent busy.`,
+      );
+    });
+
+    it('Stop aborts the started session (routing-id fallback) once; a reset after it does not abort again', async () => {
+      chatStartResult = { success: true };
+      await service.start('Build');
+      const routingId = service.routingId() as string;
+
+      await service.abort();
+
+      expect(abortedIds()).toEqual([routingId]);
+      expect(markIdle).toHaveBeenCalledWith(routingId, '/ws-a');
+      expect(service.isProcessing()).toBe(false);
+      expect(startedSessionId()).toBeNull();
+      await expect(service.resetConversation()).resolves.toBe(true);
+      expect(abortedIds()).toEqual([routingId]);
+    });
+
+    it('once the binding arrives, Stop and reset use the bound session and abort once', async () => {
+      // As the real registry does: markIdle records the session as idle.
+      markIdle.mockImplementation((id: string) =>
+        statuses.set(new Map([[id, 'idle']])),
+      );
+      await service.start('Build');
+      sessionResolved = true;
+      statuses.set(new Map([['session-1', 'streaming']]));
+      TestBed.tick();
+      expect(startedSessionId()).toBeNull();
+
+      await service.abort();
+      await expect(service.resetConversation()).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['session-1']);
+    });
+
+    it('a reset right after the binding arrives aborts the bound session, not the started one', async () => {
+      await service.start('Build');
+      sessionResolved = true;
+
+      await expect(service.resetConversation()).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['session-1']);
+    });
+
+    it('after a failed Stop with no liveness report, a reset still aborts the started session, then discards', async () => {
+      await service.start('Build');
+      const routingId = service.routingId() as string;
+      (rpc.call as jest.Mock).mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'Transport timeout.' }),
+      );
+      await service.abort();
+      expect(service['_slices']().get('/ws-a')?.pendingTurn).toBeNull();
+      expect(startedSessionId()).toBe('host-session');
+
+      await expect(service.resetConversation()).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['host-session', 'host-session']);
+      expect(markIdle).toHaveBeenCalledTimes(1);
+      expect(markIdle).toHaveBeenCalledWith('host-session', '/ws-a');
+      expect(service.isActive()).toBe(false);
+      expect(inbox.isClaimed(routingId)).toBe(false);
+    });
+
+    it('drops the started session once liveness reports its turn ended; a reset then aborts nothing', async () => {
+      await service.start('Build');
+      statuses.set(new Map([['host-session', 'idle']]));
+      TestBed.tick();
+
+      expect(startedSessionId()).toBeNull();
+      expect(service.isProcessing()).toBe(false);
+      await expect(service.resetConversation()).resolves.toBe(true);
+      expect(abortedIds()).toEqual([]);
     });
   });
 });

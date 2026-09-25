@@ -35,3 +35,19 @@ export async function abortAppsSession(
     return failureText(error, ABORT_FAILED);
   }
 }
+
+/**
+ * Stop a start that succeeded after its conversation was released (discard,
+ * workspace removal or drop). There is no slice left to report into, so a
+ * failure is only logged, without its reason. Never throws.
+ */
+export async function abortUnownedAppsStart(
+  rpc: ClaudeRpcService,
+  sessionId: SessionId,
+): Promise<void> {
+  console.warn(
+    '[AppsSessionService] start completed after ownership was released; aborting',
+  );
+  if ((await abortAppsSession(rpc, sessionId)) !== null)
+    console.warn('[AppsSessionService] unowned start abort failed');
+}

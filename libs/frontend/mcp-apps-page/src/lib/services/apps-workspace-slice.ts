@@ -1,6 +1,7 @@
 import type { LivenessStatus, SurfaceId } from '@ptah-extension/chat-state';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import type { SessionId } from '@ptah-extension/shared';
 import { createAppsSurfaceState } from '../state/apps-surface-reducer';
 import type { AppsSurfaceState } from '../state/apps-surface-reducer';
 import type { AppsSurfaceSync } from './apps-surface-sync';
@@ -59,6 +60,14 @@ export interface AppsWorkspaceSlice {
   readonly sync: AppsSurfaceSync | null;
   /** The sent turn liveness has not reported yet; else null. */
   readonly pendingTurn: AppsPendingTurn | null;
+  /**
+   * The session id a successful `chat:start` returned (or the routing id when
+   * it returned none), kept only while the surface's session binding has not
+   * arrived: Stop and "New conversation" abort it in that window. Null once
+   * the binding arrives (the bound session takes over), after a successful
+   * Stop, and once liveness reports that session no longer running.
+   */
+  readonly startedSessionId: SessionId | null;
   readonly userBubbles: readonly AppsUserBubble[];
   /** Streaming state slot the surface adapter reads and writes. */
   readonly streamingState: StreamingState;
@@ -81,6 +90,7 @@ export function createAppsWorkspaceSlice(): AppsWorkspaceSlice {
     conversation: null,
     sync: null,
     pendingTurn: null,
+    startedSessionId: null,
     userBubbles: [],
     streamingState: createEmptyStreamingState(),
     surfaces: createAppsSurfaceState(),
@@ -167,6 +177,42 @@ export function findAppsSliceKey(
     if (isAppsSliceOf(slice, routingId)) return key;
   }
   return null;
+}
+
+/** True for a liveness status in which the agent is still running. */
+export function isLiveAppsStatus(status: LivenessStatus | undefined): boolean {
+  return status === 'streaming' || status === 'awaiting-background';
+}
+
+/**
+ * `slice` with session liveness and the session binding applied; `slice`
+ * itself when nothing changes. Once the binding has resolved `boundSessionId`
+ * takes over: the `startedSessionId` is dropped, and a pending turn ends when
+ * its session's status moved from the one it had at the send. Before the
+ * binding, a `startedSessionId` whose session reports a status that is not
+ * live has finished its turn: both it and the pending turn end.
+ */
+export function settleAppsSlice(
+  slice: AppsWorkspaceSlice,
+  boundSessionId: string | null,
+  statuses: ReadonlyMap<string, LivenessStatus>,
+): AppsWorkspaceSlice {
+  let { pendingTurn, startedSessionId } = slice;
+  if (boundSessionId !== null) {
+    startedSessionId = null;
+    if (statuses.get(boundSessionId) !== pendingTurn?.livenessAtSend)
+      pendingTurn = null;
+  } else if (startedSessionId !== null) {
+    const status = statuses.get(startedSessionId);
+    if (status !== undefined && !isLiveAppsStatus(status)) {
+      pendingTurn = null;
+      startedSessionId = null;
+    }
+  }
+  return pendingTurn === slice.pendingTurn &&
+    startedSessionId === slice.startedSessionId
+    ? slice
+    : { ...slice, pendingTurn, startedSessionId };
 }
 
 /**

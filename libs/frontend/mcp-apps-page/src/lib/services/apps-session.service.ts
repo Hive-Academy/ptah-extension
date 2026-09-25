@@ -12,19 +12,21 @@ import {
   ModelStateService,
 } from '@ptah-extension/core';
 import {
-  ConversationRegistry,
   SessionLivenessRegistry,
   SurfaceId,
   TabId,
   TabManagerService,
-  TabSessionBinding,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import type { SessionId } from '@ptah-extension/shared';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
 import { AppsConversationClaims } from './apps-conversation-claims';
-import { abortAppsSession, failureText } from './apps-session-rpc';
+import {
+  abortAppsSession,
+  abortUnownedAppsStart,
+  failureText,
+} from './apps-session-rpc';
 import type { SurfaceViewState } from '@ptah-extension/declarative-dashboard';
 import {
   activateSurface,
@@ -45,10 +47,12 @@ import {
   createAppsWorkspaceSlice,
   findAppsSliceKey,
   isAppsSliceOf,
+  isLiveAppsStatus,
   patchAppsSlice,
   readAppsSlice,
   recordAppsFocusKey,
   removeAppsSlice,
+  settleAppsSlice,
   startAppsSlice,
   type AppsConversation,
   type AppsUserBubble,
@@ -90,8 +94,6 @@ export class AppsSessionService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly tabManager = inject(TabManagerService);
-  private readonly conversationRegistry = inject(ConversationRegistry);
-  private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly claims = inject(AppsConversationClaims);
 
@@ -161,7 +163,7 @@ export class AppsSessionService {
   /** Head session of the active conversation, or null before one resolves. */
   public readonly sessionId = computed<ClaudeSessionId | null>(() => {
     const surfaceId = this.surfaceId();
-    return surfaceId === null ? null : this.sessionFor(surfaceId);
+    return surfaceId === null ? null : this.claims.sessionFor(surfaceId);
   });
 
   /**
@@ -175,8 +177,7 @@ export class AppsSessionService {
     if (slice.pendingTurn !== null) return true;
     const sessionId = this.sessionId();
     if (sessionId === null) return false;
-    const status = this.liveness.statuses().get(sessionId);
-    return status === 'streaming' || status === 'awaiting-background';
+    return isLiveAppsStatus(this.liveness.statuses().get(sessionId));
   });
 
   public constructor() {
@@ -202,23 +203,19 @@ export class AppsSessionService {
       untracked(() => this.dropSlice(appsSliceKey(removed.path)));
     });
     // A pending turn ends once liveness reports its session changed from the
-    // status it had at the send (see `AppsPendingTurn`).
+    // status it had at the send (see `AppsPendingTurn`); the started session
+    // id gives way to the binding once it arrives (`settleAppsSlice`).
     effect(() => {
       const statuses = this.liveness.statuses();
       for (const [key, slice] of this._slices()) {
-        const { conversation, pendingTurn } = slice;
-        if (conversation === null || pendingTurn === null) continue;
-        const sessionId = this.sessionFor(conversation.surfaceId);
-        if (
-          sessionId === null ||
-          statuses.get(sessionId) === pendingTurn.livenessAtSend
-        )
-          continue;
+        const { conversation } = slice;
+        if (conversation === null) continue;
+        const bound = this.claims.sessionFor(conversation.surfaceId);
+        if (settleAppsSlice(slice, bound, statuses) === slice) continue;
         untracked(() =>
-          this.patchOwned(key, conversation.routingId, (current) => ({
-            ...current,
-            pendingTurn: null,
-          })),
+          this.patchOwned(key, conversation.routingId, (current) =>
+            settleAppsSlice(current, bound, statuses),
+          ),
         );
       }
     });
@@ -259,15 +256,19 @@ export class AppsSessionService {
             result.error ??
             'Failed to start the Apps session.',
         );
-      } else if (
-        !isAppsSliceOf(
-          readAppsSlice(this._slices(), key),
-          conversation.routingId,
-        )
-      ) {
-        await this.abortUnownedStart(
-          result.data?.sessionId ?? (conversation.routingId as SessionId),
-        );
+      } else {
+        const started =
+          result.data?.sessionId ?? (conversation.routingId as SessionId);
+        const owner = conversation.routingId;
+        if (!isAppsSliceOf(readAppsSlice(this._slices(), key), owner)) {
+          await abortUnownedAppsStart(this.rpc, started);
+        } else if (this.claims.sessionFor(conversation.surfaceId) === null) {
+          // Until the binding arrives, Stop and "New conversation" abort this.
+          this.patchOwned(key, owner, (slice) => ({
+            ...slice,
+            startedSessionId: started,
+          }));
+        }
       }
     } catch (error: unknown) {
       if (conversation !== null) {
@@ -298,7 +299,7 @@ export class AppsSessionService {
       await this.start(prompt);
       return;
     }
-    const sessionId = this.sessionFor(conversation.surfaceId);
+    const sessionId = this.claims.sessionFor(conversation.surfaceId);
     if (sessionId === null) {
       console.warn(`${LOG_PREFIX} send before the session resolved`);
       this.patchOwned(key, conversation.routingId, (current) => ({
@@ -343,23 +344,27 @@ export class AppsSessionService {
 
   /**
    * Stop the running agent of the active conversation, keeping the
-   * conversation, its surfaces and every claim. Marks the session idle only
-   * when the abort succeeded (`harness-workflow.service.ts:405-443`).
+   * conversation, its surfaces and every claim. Before the session binding
+   * arrives it stops the session `chat:start` returned. Marks the session
+   * idle only when the abort succeeded (`harness-workflow.service.ts:405-443`).
    */
   public async abort(): Promise<void> {
     const key = this.workspaceKey();
-    const conversation = readAppsSlice(this._slices(), key).conversation;
+    const slice = readAppsSlice(this._slices(), key);
+    const conversation = slice.conversation;
     if (conversation === null) return;
-    const sessionId = this.sessionFor(conversation.surfaceId);
+    const sessionId =
+      this.claims.sessionFor(conversation.surfaceId) ?? slice.startedSessionId;
     if (sessionId === null) return;
     const failure = await abortAppsSession(this.rpc, sessionId);
     if (failure !== null) {
       this.failTurn(key, conversation.routingId, 'chat:abort', failure);
       return;
     }
-    this.patchOwned(key, conversation.routingId, (slice) => ({
-      ...slice,
+    this.patchOwned(key, conversation.routingId, (current) => ({
+      ...current,
       pendingTurn: null,
+      startedSessionId: null,
     }));
     this.liveness.markIdle(sessionId, conversation.workspacePath ?? undefined);
   }
@@ -374,15 +379,15 @@ export class AppsSessionService {
    */
   public async resetConversation(): Promise<boolean> {
     const key = this.workspaceKey();
-    const conversation = readAppsSlice(this._slices(), key).conversation;
-    const sessionId =
-      conversation === null ? null : this.sessionFor(conversation.surfaceId);
-    if (conversation !== null && sessionId !== null && this.isProcessing()) {
+    const slice = readAppsSlice(this._slices(), key);
+    const conversation = slice.conversation;
+    const sessionId = this.runningSessionOf(slice);
+    if (conversation !== null && sessionId !== null) {
       const failure = await abortAppsSession(this.rpc, sessionId);
       if (failure !== null) {
         console.warn(`${LOG_PREFIX} chat:abort failed; conversation kept`);
-        this.patchOwned(key, conversation.routingId, (slice) => ({
-          ...slice,
+        this.patchOwned(key, conversation.routingId, (current) => ({
+          ...current,
           notice: `${APPS_RESET_KEPT_NOTICE} Reason: ${failure}`,
         }));
         return false;
@@ -567,13 +572,19 @@ export class AppsSessionService {
     this.patch(key, () => ({ ...createAppsWorkspaceSlice(), error: message }));
   }
 
-  /** Stop a late successful start without touching a discarded or newer slice. */
-  private async abortUnownedStart(sessionId: SessionId): Promise<void> {
-    console.warn(
-      `${LOG_PREFIX} start completed after ownership was released; aborting`,
-    );
-    if ((await abortAppsSession(this.rpc, sessionId)) !== null)
-      console.warn(`${LOG_PREFIX} unowned start abort failed`);
+  /**
+   * The session "New conversation" must stop first, or null when nothing
+   * runs: the bound head session while a turn is pending or its status is
+   * live; before the binding, always the one `chat:start` returned (it is
+   * cleared once its turn is known to have ended, and the host's
+   * `chat:abort` succeeds for an idle or unknown session).
+   */
+  private runningSessionOf(slice: AppsWorkspaceSlice): SessionId | null {
+    if (slice.conversation === null) return null;
+    const bound = this.claims.sessionFor(slice.conversation.surfaceId);
+    if (bound === null) return slice.startedSessionId;
+    const live = isLiveAppsStatus(this.liveness.statuses().get(bound));
+    return slice.pendingTurn !== null || live ? bound : null;
   }
 
   private failTurn(
@@ -665,14 +676,6 @@ export class AppsSessionService {
   private syncFor(routingId: string): AppsSurfaceSync | null {
     const key = findAppsSliceKey(this._slices(), routingId);
     return key === null ? null : readAppsSlice(this._slices(), key).sync;
-  }
-
-  private sessionFor(surfaceId: SurfaceId): ClaudeSessionId | null {
-    const convId = this.tabSessionBinding.conversationForSurface(surfaceId);
-    if (!convId) return null;
-    const record = this.conversationRegistry.getRecord(convId);
-    if (!record || record.sessions.length === 0) return null;
-    return record.sessions[record.sessions.length - 1];
   }
 
   private patch(

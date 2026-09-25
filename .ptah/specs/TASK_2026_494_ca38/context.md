@@ -112,7 +112,11 @@ Mode: enabled
 - 2026-09-25: B8 ACCEPTED (code-logic-reviewer 8/10 round 2; codex 8/10 round 2b after a bounded consumed-drafts fix); committed; B9 IN_PROGRESS.
 - 2026-09-25: B8 committed 6f5321476. B9 APPROVED 8/10 + DOM-count tightening; committed; B15 IN_PROGRESS (then B20 || B16, B17, B19).
 - Follow-up: 8 pre-existing TS2352 spec-tsc errors reached transitively from mcp-apps-page (core/src/testing/mock-rpc-service.ts:54,60,66,69; git-ui monaco-loader.service.ts:113,151,171,187) - out of scope for TASK_2026_494; the lib's spec-tsc gate is 'no new errors beyond this baseline'.
-- Follow-up (B15, pre-existing): 'New conversation' in the window after chat:start returns but before the session binding arrives discards the slice without stopping the started session. Not fixed in TASK_2026_494.
+- RESOLVED in this PR (2026-09-26). This entry was wrongly recorded as pre-existing; it is our own B12/B15 code.
+  - The gap: "New conversation" or Stop after `chat:start` returns but before the session binding arrives.
+  - The fix is the commit "fix(mcp-apps-page): abort the started session on reset or Stop before the session binding".
+  - Details are in batches.md, section "Post-batch bounded fix: reset or Stop between chat:start and the session
+    binding".
 - 2026-09-25: B9 committed 37822b07f. B15 APPROVED round 2 (code-logic-reviewer 9/10, codex 8/10); committed; B20 and B16 IN_PROGRESS in parallel.
 - Future enhancement (B20): extract the workspace restore out of ElectronLayoutService (electron-layout.service.ts is 822 lines).
 - Follow-up (pre-existing, found in B20): ElectronLayoutService.persistLayout() never saves the workspace fields (workspaceFolders/activeWorkspaceIndex) that restoreLayout() reads.

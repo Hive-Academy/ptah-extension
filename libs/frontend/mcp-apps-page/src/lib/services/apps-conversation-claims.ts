@@ -5,6 +5,12 @@ import {
   SurfaceUpdateInbox,
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
+import {
+  ConversationRegistry,
+  TabSessionBinding,
+  type ClaudeSessionId,
+  type SurfaceId,
+} from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { failureText } from './apps-session-rpc';
 import type { AppsSurfaceSync } from './apps-surface-sync';
@@ -36,6 +42,20 @@ export class AppsConversationClaims {
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly streamRouter = inject(StreamRouter);
+  private readonly tabSessionBinding = inject(TabSessionBinding);
+  private readonly conversationRegistry = inject(ConversationRegistry);
+
+  /**
+   * The head session of the conversation `surfaceId` is bound to, or null
+   * until the host's session binding for that surface has arrived.
+   */
+  public sessionFor(surfaceId: SurfaceId): ClaudeSessionId | null {
+    const convId = this.tabSessionBinding.conversationForSurface(surfaceId);
+    if (!convId) return null;
+    const record = this.conversationRegistry.getRecord(convId);
+    if (!record || record.sessions.length === 0) return null;
+    return record.sessions[record.sessions.length - 1];
+  }
 
   /**
    * Claim everything `conversation` needs. A failing step undoes the partial
