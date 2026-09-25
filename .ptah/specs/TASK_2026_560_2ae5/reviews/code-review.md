@@ -6,6 +6,216 @@ The two parts below are the former files, verbatim.
 
 ## Part 1: code logic reviews (was reviews/code-logic-review.md)
 
+# Code Logic Review — Batch 16
+
+## Summary
+
+| Metric              | Value                                                        |
+| -------------------- | -------------------------------------------------------------|
+| Overall score         | 9/10                                                         |
+| Assessment             | APPROVED                                                     |
+| Blocking issues        | 0                                                             |
+| Serious issues         | 0                                                             |
+| Moderate issues        | 1                                                             |
+| Failure modes found    | 0 defects (2 failure paths deliberately exercised, both correct) |
+
+Scope reviewed: full contents of the new
+`libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/capability-toggles.e2e.spec.ts`
+(628 lines, 9 tests). Cross-checked against the production code it exercises: `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts`,
+`libs/frontend/marketplace/src/lib/data/capability-toggles.store.ts`,
+`libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts`,
+`libs/frontend/marketplace/src/lib/pages/servers/server-detail.component.ts/.html`,
+`libs/frontend/marketplace/src/lib/shell/marketplace-shell.component.html`, the shared contracts
+`libs/shared/src/lib/types/capability-toggle.types.ts`, `libs/shared/src/lib/types/rpc/rpc-capability.types.ts`,
+`libs/shared/src/lib/types/rpc.types.ts` (method registry), and `libs/frontend/core/src/lib/services/claude-rpc.service.ts`
+(`RpcResult.isSuccess()`), plus the shared fixture plumbing in
+`libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/marketplace.fixtures.ts`. Did not run the
+Playwright suite myself (no browser binaries in this review pass); assessed correctness by tracing every
+assertion to the exact production code path it depends on. `ptah_get_diagnostics` on the reviewed file surfaced
+0 errors in the file itself; 4 pre-existing TS errors elsewhere in the same e2e project
+(`fixture-server.ts:11`, `marketplace-visual.e2e.spec.ts:32`, `preferences.e2e.spec.ts:45`,
+`provider-settings.e2e.spec.ts:39`) are unrelated to this spec and predate it (Playwright's own esbuild
+transform, not `tsc`, is what actually runs the suite, so these do not gate `9/9`).
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+No silent-pass risk found in the assertions themselves. The one place a silent pass was plausible — the
+revert test (AC-1.4) — turns out to be correctly wired to a real failure signal, not a fixture artifact:
+`RpcResult.isSuccess()` is defined as `this.success && this.data !== undefined`
+(`libs/frontend/core/src/lib/services/claude-rpc.service.ts:55-57`), and the auto-responder always sends
+`success: true` (`marketplace.fixtures.ts:170`). The `failId` branch of the spec's `setEnabled` resolver
+returns `undefined` (`capability-toggles.e2e.spec.ts:212-215`), so `result.data` is `undefined` and
+`isSuccess()` genuinely evaluates false — the store's `!result.isSuccess()` branch
+(`capability-toggles.store.ts:230`) triggers for the real reason the spec's comment claims, not by accident
+through an uncaught exception. If a future refactor changed `isSuccess()` to only check `success`, this test
+would go from "revert path exercised" to "false negative masked by an unrelated throw", but as written today
+it exercises the intended contract.
+
+### 2. What user action produces unexpected behaviour?
+
+Not exercised in this file, and correctly left out: double-click / concurrent-toggle races
+(`CapabilityTogglesStore.setEnabled`'s `pendingKeys` dedupe, `'skipped'` outcome) are unit-tested in
+`libs/frontend/marketplace/src/lib/data/capability-toggles.store.spec.ts:279-469`, so this e2e file is not
+duplicating store-level races it cannot usefully add signal to at the DOM layer. Workspace-switch mid-write
+(`isStale`) is likewise store-level and out of this file's scope.
+
+### 3. What input data produces a wrong answer?
+
+Every fixture entry was checked against `CapabilityEntry` (`capability-toggle.types.ts:510-531`) field for
+field: `effectiveEnabled`, `inheritedFrom`, `defaultReason`, `globalEnabled`/`workspaceEnabled`,
+`importedFromClaude`. No field is invented or given a shape the real resolver would not produce. The one
+inert field is `importedFromClaude: true` on `IMPORTED_ID` (`capability-toggles.e2e.spec.ts:175`): the
+`capabilityBadges` function that renders the "Imported" badge gates only on `entry.inheritedFrom === 'imported'`
+(`capability-toggle.component.ts:90-97`), never reads `importedFromClaude`. Setting it does not make the test
+vacuous (the badge assertion is driven by `inheritedFrom`, which is set), but the field is decorative in this
+spec — harmless, not a defect.
+
+### 4. What happens when a dependency fails?
+
+Two dependency-failure paths are deliberately driven, both correctly: (a) `capabilities:setEnabled` answering
+with no usable `entry` reverts the optimistic UI and surfaces a row-scoped, item-naming error (AC-1.4,
+traced above); (b) an `unverified` policy (`capabilities:getState` returning `status: 'unverified'` with a
+`reasons` entry naming an unreadable path) renders `MarketplaceShellComponent`'s fail-closed banner
+(`marketplace-shell.component.html:71-95`) with the exact path and error text from the fixture
+(`capability-toggles.e2e.spec.ts:566-591`). Both assertions read values the production code computed, not
+values the test asserts back at itself.
+
+### 5. What is missing that the requirements never mentioned?
+
+Nothing left implicit was found to be silently unhandled by this spec's scope. One structural risk worth
+naming (see Moderate-1): `MIRRORED_CAPABILITY_ENFORCEMENT` is a hand-typed duplicate of the real
+`CAPABILITY_ENFORCEMENT` table, justified by a genuine, verified toolchain constraint (a value import of
+`@ptah-extension/shared` breaks this harness's Playwright/esbuild `e2e` target per CJS/ESM interop, matching
+the same documented constraint in `postmessage-bridge.ts:5` and `marketplace.fixtures.ts:820`). I confirmed
+the two tables are byte-for-byte identical in content and order today
+(`capability-toggle.types.ts:685-694` vs. `capability-toggles.e2e.spec.ts:59-80`).
+
+## Failure modes
+
+### Manually-mirrored enforcement table can drift from the real one
+
+- Trigger: a future change to `CAPABILITY_ENFORCEMENT` (`capability-toggle.types.ts:685-694`) — e.g. Codex
+  starting to enforce MCP toggles — lands without a matching edit to `MIRRORED_CAPABILITY_ENFORCEMENT`
+  (`capability-toggles.e2e.spec.ts:59-80`).
+- Symptom: none silent — the "not-enforced labels" test (`capability-toggles.e2e.spec.ts:597-627`) asserts
+  `note` has **exact** text `Not enforced for ${expectedProviders.join(', ')}` derived from the stale mirror,
+  while the real DOM text is derived from the live table via `notEnforcedProviders()`
+  (`capability-toggle.component.ts:155-161`) and `mcpNotEnforcedNote()`
+  (`installed-servers-page.component.ts:110-115`). Any list-membership or ordering difference fails the exact
+  `toHaveText` match loudly.
+- Evidence: `capability-toggles.e2e.spec.ts:612-625` (exact-text assertion built from the mirror, not a
+  literal string).
+- Current handling: the drift risk is acknowledged in-file (`capability-toggles.e2e.spec.ts:50-57`) and, as
+  traced above, the test's own exact-match design converts drift into a loud CI failure rather than a masked
+  pass. Residual cost is purely maintenance friction (a second file to remember to touch), not a false-green
+  risk.
+- Recommendation: none required to unblock this batch. If the friction becomes real (this table changes more
+  than rarely), consider a lint rule or a small non-`@ptah-extension/shared` JSON fixture both runtime and
+  harness import, so the sync is structural rather than remembered.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+### Moderate
+
+- **Hand-mirrored `CAPABILITY_ENFORCEMENT` table** — `capability-toggles.e2e.spec.ts:59-80` vs.
+  `capability-toggle.types.ts:685-694`. See "Failure modes" above; downgraded from what could be a Serious
+  "test can silently drift from the contract" finding because the exact-text assertion makes drift fail loud,
+  not silent. Recorded as Moderate for the ongoing two-places-to-update maintenance cost.
+
+### Minor
+
+- `importedFromClaude: true` on the `IMPORTED_ID` fixture entry (`capability-toggles.e2e.spec.ts:175`) is
+  never read by the component under test (`capability-toggle.component.ts:90-97` gates only on
+  `inheritedFrom`); harmless but decorative — could be dropped or, better, left with a one-line comment noting
+  it mirrors what the real resolver always sets alongside `inheritedFrom: 'imported'`
+  (`libs/backend/cli-agent-runtime/src/lib/capabilities/capability-policy-model.ts:449`).
+- Pre-existing TypeScript errors in sibling files of the same `webview-e2e-harness` project
+  (`fixture-server.ts:11`, `marketplace-visual.e2e.spec.ts:32`, `preferences.e2e.spec.ts:45`,
+  `provider-settings.e2e.spec.ts:39`) mean a project-wide `tsc --noEmit` is not currently a clean gate for this
+  suite; irrelevant to the reviewed file's own correctness, but worth flagging since it weakens "typecheck
+  passes" as independent verification evidence for the project as a whole.
+
+## Data flow
+
+1. `verifiedCapabilityFixtures()` builds a `Map<string, CapabilityEntry>` seeded from `baseEntries()`, whose
+   five rows each shape a distinct code path (`PTAH_MCP_SERVER_NAME`/no-schema/revert-target/repo-only/
+   imported) — OK, each shape matches a real `CapabilityEntry` variant the backend resolver produces.
+2. `installRpcAutoResponder` registers `getState`/`setEnabled` as live Node-side resolvers and `getEffective`
+   as one static, page-serialized answer — OK, matches `marketplace.fixtures.ts`'s documented mechanism
+   exactly (`installRpcAutoResponder:116-216`); confirmed `capabilities:*` has no entry in
+   `baseMarketplaceFixtures()` (`marketplace.fixtures.ts:914-944`), so nothing here silently shadows a base
+   fixture.
+3. `CapabilityTogglesStore.ensure()` fires on page construction of `InstalledServersPageComponent`
+   (`installed-servers-page.component.ts:473`) / `ServerDetailComponent`
+   (`server-detail.component.ts:402`) — OK, `openServersPage()`'s wait on `data-state="ready"`
+   (`capability-toggles.e2e.spec.ts:305-308`) is the correct signal the load landed before any row is read.
+4. A toggle click flows `CapabilityToggleComponent.onChange` → `toggled` output → page's `setWorkspaceEnabled`/
+   `setEnabled` → `store.setEnabled` → `rpc.call('capabilities:setEnabled', {scope, kind, id, enabled})` — OK,
+   traced end to end; the "new repository server" test's exact-payload assertion
+   (`capability-toggles.e2e.spec.ts:526-534`) matches what `capability-toggles.store.ts:222-228` actually
+   sends, field for field.
+5. On success the store replaces the row with `result.data.entry` (the persisted, re-resolved row); on
+   failure/exception it reverts to `prior` and sets a row-scoped `actionError` — OK, both branches are
+   exercised by AC-1.1 (survives reload = persisted path was real) and AC-1.4 (revert = failure path was
+   real), not simulated at the DOM layer alone.
+6. `page.reload()` re-runs every `addInitScript` (`installCspStub`, `installPostMessageBridge`, `installHost`,
+   `installRpcAutoResponder`) and re-triggers `exposeFunction`'s binding, while the Node-side `state` Map
+   survives in the test's own closure — OK, verified each of the four install helpers is `addInitScript`-based
+   (`postmessage-bridge.ts:61`, `csp-stub.ts:27`, `marketplace.fixtures.ts:81`, `marketplace.fixtures.ts:146`),
+   so AC-1.1's reload assertion is testing real persistence, not an artifact of the harness losing and
+   silently re-seeding its mocks.
+
+## Requirements fulfilment
+
+| Requirement                                              | Status   | Gap |
+| ---------------------------------------------------------- | -------- | --- |
+| AC-1.1 workspace toggle write + reload persistence          | COMPLETE | none |
+| AC-1.4 failed write reverts control, error names the server | COMPLETE | none |
+| AC-2.2 scope-of-write text beside each switch                | COMPLETE | none |
+| AC-5.2 "size unknown" with no `schemaTokens`                 | COMPLETE | none |
+| AC-4.6 Ptah-off warning                                       | COMPLETE | none |
+| New repository server badge + exact `setEnabled` payload      | COMPLETE | none |
+| Imported badge                                                | COMPLETE | none |
+| Unverified-policy banner names path + error                    | COMPLETE | none |
+| AC-4.8 not-enforced list mirrors `CAPABILITY_ENFORCEMENT`      | COMPLETE | Sync with the real table is by convention/discipline, not structurally enforced (Moderate-1) |
+
+Implicit requirements not addressed: none found within this file's stated scope (see Q2/Q5 above for what is
+deliberately left to other test layers).
+
+## Edge cases
+
+| Case                                                        | Handled | How                                                                 | Concern |
+| ------------------------------------------------------------- | ------- | -------------------------------------------------------------------- | ------- |
+| Server with no `schemaTokens` measured                          | YES     | `verifiedCapabilityFixtures()`'s `FIRECRAWL_ID` row omits the field   | none |
+| Capability with no installed row (Ptah's own server, repo-only) | YES     | `PTAH_MCP_SERVER_NAME`/`REPO_ONLY_ID` rows, both asserted to render a switch | none |
+| Failed write                                                    | YES     | `REVERT_ID` fixture, `failId` param                                    | none |
+| Unreadable policy file                                          | YES     | `unverifiedCapabilityFixtures()`                                       | none |
+| Reload / page navigation mid-session                            | YES     | AC-1.1's `page.reload()`                                               | none |
+| Concurrent/double toggle                                        | NO      | out of scope for this file (covered in store unit spec)                | none — correct division of labour |
+| Workspace switch mid-write                                      | NO      | out of scope for this file (store-level `isStale` logic)               | none — correct division of labour |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: the hand-mirrored `CAPABILITY_ENFORCEMENT` table (Moderate-1) is a second place a future PR must
+  remember to touch; the test's exact-text assertion converts a forgotten edit into a loud CI failure rather
+  than a silent pass, which is the acceptable shape for a constraint this file's own comments show was
+  chosen deliberately (verified CJS/ESM toolchain limitation, not an oversight).
+- What a robust implementation would add: a lint rule or shared non-`@ptah-extension/shared` fixture file
+  that ties `MIRRORED_CAPABILITY_ENFORCEMENT` to the real table structurally instead of by comment and
+  discipline; otherwise no changes needed for this batch.
+
 # Code Logic Review — `TASK_2026_560_2ae5` Batch 1
 
 ## Summary
@@ -4588,3 +4798,789 @@ this batch's own scope.
   source change outside the diff described).
 
 **Verdict: APPROVE**
+
+# Code Logic Review — Batch 25
+
+Worktree: `D:\projects\ptah-extension\.claude-worktrees\feat-task-2026-560-b25`, branch
+`feat/task-2026-560-b25-session-skills`, base `ae855b8dd`. Diff: `harness-namespace.builder.ts` (+`.spec.ts`),
+`ptah-api-builder.service.ts`, all under `libs/backend/vscode-lm-tools/src/lib/code-execution/`.
+
+| Metric | Value |
+| --- | --- |
+| Score | 7/10 |
+| Verdict | **REVISE** (non-blocking; one Serious inconsistency, remainder sound) |
+
+## Ruling table (P9 G3 / G4)
+
+| Rule | Result | Proving test / evidence |
+| --- | --- | --- |
+| G3: one awaited `getEffectivePluginConfig` call, no sync workspace-only reads left on this path | PASS | `harness-namespace.builder.ts:511-512` is the only call; `resolveCurrentPluginPaths`/`getDisabledSkillIds` appear only in a doc comment (`:292-293`), never invoked. Spec "reads the layered policy once, for the session workspace root" (`.spec.ts:~535-548`) asserts `toHaveBeenCalledTimes(1)`. |
+| G3: globally-OFF skill not invocable via call-site override of workspace-only `invocability` | PASS | `builder.ts:527-541`: `invocability: isDisabled ? 'not-invocable' : skill.invocability` overrides the loader's stamp. Spec "does not offer a globally-OFF skill as invocable" (`.spec.ts:~552-573`). |
+| G3: globally-OFF opt-out plugin lists none of its skills | PASS | Overlay is computed by the loader and handed through verbatim (`overlayPluginPaths`); spec "lists none of the skills of a globally-OFF opt-out plugin" (`.spec.ts:~575-610`) asserts `discoverSkillsForPlugins` was called only with `/p/one`, never the harness-ops path. |
+| G3: unknown policy → no local skills, logged, remote unchanged, source `'failed'`, overall `'degraded'` | PASS | `builder.ts:509-522` catches, sets `localFailure`, `logger.warn`s; `sources` push at `:560-568` reports `status:'failed', count:0`; overall `status` at `:668-671` is `'degraded'` when either half failed. Spec "lists no local skill on an unknown policy..." (`.spec.ts:~612-655`) and the empty-query variant (`.spec.ts:~657-667`) both assert this. |
+| G3: other (non-unknown) policy failures are restrictive too | PASS | The catch block at `:509-517` branches only on the *message* used for logging (`isCapabilityPolicyUnknownError` ternary at `:513-515`); both branches set `localFailure`, so any rejection — not just the typed one — withholds local skills. Spec "treats any other policy read failure restrictively" (`.spec.ts:~669-696`). |
+| G4: `getPluginPaths` uses effective `enabledPluginIds`, global ON opt-in reaches the agent | PASS | `resolveEffectivePluginPaths` (`builder.ts:311-347`) filters `config.enabledPluginIds` by `config.disabledPluginIds` and calls `resolvePluginPaths`. Spec "passes a globally-ON opt-in plugin's path to the spawned agent" (`.spec.ts:~965-980`). |
+| G4: unknown → `undefined` | PASS | Catch-all at `:339-346` returns `undefined` on any rejection, logging a distinct message for the typed unknown-policy case. Spec "returns undefined (restrictive) and logs when the policy is unknown" (`.spec.ts:~1010-1022`). |
+| G4: spawn never blocked | PASS | `resolveEffectivePluginPaths` has no throwing path — every branch (empty, error, resolve-throw) returns a value or `undefined`; wired at `ptah-api-builder.service.ts:673-684` with no try/catch needed around the call itself. Spec "returns undefined and logs when path resolution throws, never failing the spawn" (`.spec.ts:~1024-1035`) awaits the promise with `.resolves.toBeUndefined()`. |
+
+## Numbered defects
+
+### 1. (Serious) G3's policy read falls back to `os.homedir()`, inconsistent with G4's explicit fix, untested
+
+- File: `ptah-api-builder.service.ts:833` wires `getWorkspaceRoot: () => this.getWorkspaceRoot()` into
+  `buildHarnessNamespace`, and `harness-namespace.builder.ts:511-512` calls
+  `pluginLoader.getEffectivePluginConfig(getWorkspaceRoot())`.
+- `getWorkspaceRoot()` (`ptah-api-builder.service.ts:925-926`) is `this.resolveSessionWorkspaceRoot() ?? os.homedir()`.
+  `getPluginPaths` (G4, `:673-684`) was deliberately changed in this same batch to pass
+  `this.resolveSessionWorkspaceRoot()` directly, with a comment explaining why: *"No workspace fallback to the
+  home directory: `undefined` reads the active workspace."* `searchSkills` (G3) was left on the old
+  `getWorkspaceRoot()` accessor, which still performs that exact fallback the sibling fix rejects.
+- Why it matters: per `PluginLoaderService.getWorkspacePluginConfig`'s own doc
+  (`libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:826-831`), `workspaceRoot === undefined` means
+  "the active workspace, which is what every user-facing caller means," and is handled specially by `storageFor`
+  (`:788-807`, `workspaceRoot === undefined` returns the raw storage handle rather than doing an exact-path
+  lookup). Passing a literal `os.homedir()` instead skips that "active workspace" branch and does an exact-match
+  lookup against registered workspace paths, which `os.homedir()` will essentially never match. In a session where
+  `resolveSessionWorkspaceRoot()` cannot resolve a root (no session-associated workspace folder) but the host's
+  own default/active-workspace storage differs from "no workspace," `searchSkills` and `getPluginPaths` can now
+  disagree on the effective plugin/skill config for the same session: `getPluginPaths` reads the true active
+  workspace layer, `searchSkills` silently reads the homedir path, gets no storage match, and falls through to
+  the empty workspace layer (global-only). A workspace-scoped disable that should apply is then invisible to
+  `searchSkills` while a spawned agent still honours it (or vice versa), and the search side may **list a skill
+  the workspace explicitly disabled** whenever this fallback path is hit.
+- Not exercised: every G3 spec passes an explicit `workspaceRoot` via `makeDeps({ workspaceRoot: ... })`
+  (`.spec.ts:~535-548`) or lets `getWorkspaceRoot` default to a fixed non-empty string in `makeDeps`; none of the
+  eleven new tests drives the "`resolveSessionWorkspaceRoot()` returns `undefined`" branch through `searchSkills`,
+  so this divergence from G4's own fix is not caught by the batch's own test suite.
+- Fix: wire `buildHarnessNamespace`'s `getWorkspaceRoot` dependency (or add a second one) to
+  `this.resolveSessionWorkspaceRoot()` for the policy read specifically, matching `getPluginPaths`; or, if the
+  home fallback is intentional for `searchSkills`, add a code comment explaining why the two sibling reads use
+  different resolution semantics and a spec that exercises the no-active-workspace path.
+
+## Deviation and drift-by-design questions
+
+1. **`resolveEffectivePluginPaths` living in `harness-namespace.builder.ts`, exported for testability without a
+   new spec file.** Acceptable as a pragmatic home: it is genuinely the shared "read effective policy, resolve
+   paths, fail restrictively" routine both G3 and G4 need, and putting it beside `EffectivePluginConfigLike`/
+   `EffectivePluginPolicySource` (both already declared in that file, `:275-305`) avoids a second copy of those
+   types. The `ptah-api-builder.service.ts:97-101` import comment ("Imported from the builder file, not the
+   barrel: the helper is this service's own concern, not part of the namespace-builder surface") flags the
+   naming tension honestly rather than hiding it. `getPluginPaths` itself (`:673-684`) is a thin four-line call:
+   the pluginLoader-presence guard, then a direct pass-through to the helper with no branching or transformation
+   left in the closure — confirmed by reading the wired call site, nothing here is untested. Only reservation:
+   the file is `harness-namespace.builder.ts`, and this helper serves the *agent* namespace, not the harness
+   namespace — a reader scanning for agent-spawn logic would not think to look here. Minor, not a defect.
+2. **`resolveSessionWorkspaceRoot()` vs `getWorkspaceRoot()` for the two policy reads.** G4's choice
+   (`resolveSessionWorkspaceRoot()`, undefined → active workspace, no home substitution) is the one that matches
+   `PluginLoaderService`'s own contract for what "no root" should mean to `getEffectivePluginConfig`. G3's
+   retained `getWorkspaceRoot()` (home fallback) is the one that does not — see Defect 1 above. So: G4 is
+   correct, G3 is not, and they now disagree on a call that this same batch was supposed to make consistent.
+3. **Cross-batch: `PluginLoaderService.scanPluginSkills` still stamps `invocability` from the workspace-only
+   `getDisabledSkillIds()`** (`libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:1548-1551`).
+   Grepped every non-spec consumer of `discoverSkillsForPlugins`/`scanPluginSkills`/`.invocability` in `libs/`
+   and `apps/`:
+   - `harness-namespace.builder.ts:524-541` (this batch, PR 1) — overrides the stamp with the layered
+     `disabledSkillIds`, so this consumer is fixed.
+   - `harness-workspace-context.service.ts:348-381` (`discoverAvailableSkills`) — feeds the "harness wizard UI"
+     per its own docstring (`:342-347`); display only, no invocation path.
+   - `plugin-rpc.handlers.ts:428-460` (`plugins:list-skills` RPC) and `:330-368`
+     (`plugins:save-config`'s known-ID validation) — feed the Plugin Browser's per-skill toggle checkboxes and
+     ID validation for a save; UI/config-write, not session invocation.
+   - `plugin-rpc.handlers.ts:851-882` (`predictCollisions`/`activeSkillOwners`) — marketplace install-collision
+     *prediction* for the UI; the real post-install outcome comes from `HarnessHealth.collisions` per its own
+     comment (`:845-849`), not this call.
+   - `capability-resolver.service.ts:460-516` (`readPluginCatalog`) — builds the capability-toggle catalog
+     (labels/scopes/paths) for the settings surface, not a gate on what a session can call.
+   - None of these five other call sites is on a path that decides whether a **live session** can invoke a
+     skill; they are all display/config-authoring surfaces (harness wizard, Plugin Browser, marketplace install
+     UI, capability-toggle catalog). So: **not a cross-batch defect requiring a PR 1 change.** It remains true
+     that `scanPluginSkills`'s own `invocability` field is workspace-only and would mislead a *new* consumer
+     that trusted it at face value for gating — worth a code comment on `scanPluginSkills` itself (out of this
+     batch's file list) flagging that override-at-call-site is required, but that is a forward-looking
+     observation, not a finding against Batch 25.
+4. **`protocol-dispatcher.ts` untouched.** Confirmed:
+   `git diff ae855b8dd --stat -- '**/protocol-dispatcher.ts'` is empty in the b25 worktree.
+
+## Verification run
+
+`NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/vscode-lm-tools --parallel=2`
+— lint and typecheck passed (partly cache-hit); re-ran `test` with `--skip-nx-cache` to force a live run against
+the working-tree diff: **65 suites / 1405 tests passed**, 0 failed.
+
+## Verdict
+
+**REVISE.** All eight G3/G4 ruling-table items pass with direct proving tests, `protocol-dispatcher.ts` is
+untouched, the exported-helper deviation is an acceptable and honestly-disclosed home, and the cross-batch
+`scanPluginSkills` observation does not require a PR 1 change. The one Serious item — G3's policy read still
+resolves through `os.homedir()` while G4's sibling read in the same batch was fixed to avoid exactly that
+fallback — is a real, untested inconsistency this batch introduced/left standing between its own two halves,
+not a hypothetical. Recommend: align `searchSkills`'s workspace-root source with `getPluginPaths`'s (or document
+and test the intentional divergence), then re-request review; no other change needed.
+
+## Re-review round 1 — Batch 25
+
+- Fix verified: a new required `getPolicyWorkspaceRoot: () => string | undefined` was added to
+  `HarnessNamespaceDependencies` (`harness-namespace.builder.ts:371-378`), documented at the field
+  (`:373-378`) as "Separate from `getWorkspaceRoot`, whose home-directory fallback names a workspace with no
+  stored policy and would silently drop the workspace layer." `searchSkills`'s policy read now calls
+  `pluginLoader.getEffectivePluginConfig(getPolicyWorkspaceRoot())` (`:520-522`) instead of
+  `getWorkspaceRoot()`. Wired in `ptah-api-builder.service.ts:834-835` to
+  `getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot()`, with the comment "Same root source as
+  `getPluginPaths`: never the home fallback" — the exact source G4 already used. `getWorkspaceRoot` itself is
+  untouched and still backs `createSkill`/`listInstalledMcpServers`/`installMcpServer`, so nothing else regresses
+  by narrowing its use. Serious item from round 0 is **RESOLVED**: G3 and G4 now read the policy from the same
+  root-resolution source.
+- Every constructor of `HarnessNamespaceDependencies` passes the new required field: grepped
+  `buildHarnessNamespace(` across `libs/` and `apps/` (non-spec) — the only production call site is
+  `ptah-api-builder.service.ts:823-845`, which supplies `getPolicyWorkspaceRoot` as shown above; there is no
+  other host builder constructing this namespace. The spec's `makeDeps` supplies it too
+  (`harness-namespace.builder.spec.ts:154`), and the diff adds a "reads the ACTIVE workspace policy (undefined
+  root), never the home fallback" test exercising the no-active-workspace branch that round 0 flagged as
+  untested.
+- Verification re-run: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p
+  @ptah-extension/vscode-lm-tools --parallel=2 --skip-nx-cache` — lint, typecheck and test all green (forced
+  live run, not cache-served).
+- No new issues found in the 3-file diff.
+
+# Code Style Review — Batch 9
+
+## Summary
+
+| Metric          | Value                                |
+| ---------------- | ------------------------------------- |
+| Overall score     | 7/10                                  |
+| Assessment        | NEEDS_REVISION                        |
+| Blocking issues   | 0                                     |
+| Serious issues    | 2                                     |
+| Minor issues      | 2                                     |
+| Files reviewed    | 7 (2 M code + 1 M chip + 4 spec: 3 M, 1 C) |
+
+Scope: full diffs of `libs/backend/agent-sdk/src/index.ts`,
+`libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.service.ts`,
+`libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts` (read in full around the changed
+region, 973-1050), the new `ptah-cli-registry-capabilities.spec.ts` (read in full, 528 lines), the three
+edited registry specs' diffs, and `libs/frontend/chat/src/lib/components/molecules/mcp-status-chip.component.ts`
+(full diff plus the top-of-file decorator). Compared against `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts`
+(B11, `recordInstalledCapability` + constructor) and `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`
+(B8, the direct C4 sibling for the same C5 problem), and against every other `PLATFORM_TOKENS.DI_CONTAINER`
+injection site in the repo (11 call sites across rpc-handlers and vscode-core, found by grep — all required,
+none optional).
+
+## Five style questions
+
+### 1. What breaks when requirements change in six months?
+
+A third caller that needs the capability policy inside `cli-agent-runtime` will face two competing precedents
+in the same file's neighbourhood: `PtahCliRegistry` now resolves it through a lazily-looked-up
+`DependencyContainer` (`ptah-cli-registry.ts:151-152`, `:976-994`), while the sibling Claude path
+(`session-lifecycle-manager.ts:331-339`, landed one batch earlier in the same task) injects
+`SDK_CAPABILITY_RESOLVER` and `SDK_HARNESS_POLICY_SYNC` directly as optional tokens. Whichever pattern the next
+author copies, the other becomes stale, and nothing in the diff explains why the C5 caller needed a different
+mechanism from the C4 caller it mirrors.
+
+### 2. What would a new team member misread?
+
+The doc comment at `ptah-cli-registry.ts:143-150` justifies the container lookup as avoiding building "the
+resolver's dependency graph" at construction time — but `@inject(TOKEN, { isOptional: true })`, the pattern
+`SessionLifecycleManager` already uses for the identical two tokens, resolves eagerly at construction exactly
+like every other injected dependency in the same constructor (`logger`, `authSecrets`, etc.). A reader who
+checks the stated rationale against the sibling file will find it does not hold up, and will not know which of
+the two mechanisms is the one to trust.
+
+### 3. What does this cost to maintain?
+
+A generic `lookupOptional<T>(token: symbol)` helper (`ptah-cli-registry.ts:976-994`) is introduced with no
+precedent anywhere else in the codebase — the one existing lazy-container-lookup site,
+`McpDirectoryRpcHandlers.recordInstalledCapability` (B11), inlines the `isRegistered`/`resolve`/catch sequence
+per call rather than generalizing it, and injects `DependencyContainer` as required, not optional. B9 adds a
+second convention on top of both existing ones (direct optional injection, and B11's inline required-container
+lookup) for the same class of problem. Three near-identical `verifiedPolicyContainer()` fixture functions are
+also pasted verbatim into `ptah-cli-registry-harness-preflight.spec.ts`, `ptah-cli-registry-off-thread-spawn.spec.ts`
+and `ptah-cli-registry-spawn-model.spec.ts` (each a 15-line function with the same fields, same comment shape),
+plus a fourth, differently-shaped pair of policy builders (`verifiedPolicy`/`unverifiedPolicy`) in the new
+capabilities spec. A later change to `EffectiveCapabilitySet`'s required fields must be found and fixed in four
+places by hand.
+
+### 4. Where is this inconsistent with the rest of the repository?
+
+- Every other `PLATFORM_TOKENS.DI_CONTAINER` injection in the repository (`mcp-directory-rpc.handlers.ts:214`,
+  `workspace-rpc.handlers.ts:121`, `harness-rpc.handlers.ts:220`, `command-rpc.handlers.ts:53`,
+  `setup-rpc.handlers.ts:110`, `wizard-generation-rpc.handlers.ts:139`, `wizard-generation-checkpoint.service.ts:99`,
+  `harness-mcp-install.service.ts:45`, `harness-health-rpc.service.ts:80`, `plugin-rpc.handlers.ts:178`,
+  `webview-message-handler.service.ts:163`) is **required**. `ptah-cli-registry.ts:151` is the only optional one
+  in the repository. The container itself is always registered early in host bootstrap
+  (`cli-engine/src/lib/container.ts:357`, `register-shared-rpc-handlers.ts:6-8`); what varies per host is
+  whether a *specific token* is registered, which is exactly what `isRegistered(token, true)` already checks
+  inside `lookupOptional`. Making `DI_CONTAINER` itself optional adds a second, redundant guard for a condition
+  (no container at all) that does not occur on any host wiring path in this repository, and it is the one
+  divergent constructor signature a reader of the other eleven has to account for.
+  - This is a Serious finding, not Blocking, because the specs prove the fail-closed behaviour holds either way
+    (`ptah-cli-registry-capabilities.spec.ts:483-509`), and `null` is handled correctly.
+- `PtahSpawnAssembly.capabilityFlags` / `capabilityIsolation` (`ptah-cli-spawn-options.service.ts:86,91`) name
+  and shape themselves exactly like the sibling C4 usage at `sdk-query-options-builder.ts:1139-1204`
+  (`capabilityFlagsFor` result, `...capabilityIsolationOptions(policy)` spread) — this part of the batch is a
+  clean match to the established pattern, and Task 9's own amendment note (direct-export precedent at
+  `index.ts:221,333`) is followed correctly for the barrel edit.
+
+### 5. What would you have done differently, and why is that better rather than merely other?
+
+Inject `SDK_CAPABILITY_RESOLVER` and `SDK_HARNESS_POLICY_SYNC` directly into `PtahCliRegistry`'s constructor as
+optional tokens, the same way `SessionLifecycleManager` already does one batch earlier in this same task, and
+drop the `DI_CONTAINER` parameter and `lookupOptional` entirely. That removes the only non-required
+`DI_CONTAINER` injection in the repository, removes a bespoke generic helper with zero other callers, and means
+the two halves of C4/C5 (Claude sessions, Ptah CLI agents) read as one pattern instead of two. If eager
+resolution of `SDK_HARNESS_POLICY_SYNC` at `PtahCliRegistry` construction is genuinely a problem this batch
+did not have space to investigate (documented budget pressure — batches.md:266-271 explicitly weighed and
+rejected a fourth DI smoke-spec file), that tradeoff belongs in the batch's own notes next to the amendment
+already recorded there, not left implicit in a doc comment whose stated reason does not match the sibling file.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### `DI_CONTAINER` injected as optional, the only such site in the repository
+
+- File: `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts:151-152`
+- Problem: every other constructor in the repo injects `PLATFORM_TOKENS.DI_CONTAINER` as required (11 sites
+  checked: `mcp-directory-rpc.handlers.ts:214`, `workspace-rpc.handlers.ts:121`, `harness-rpc.handlers.ts:220`,
+  `command-rpc.handlers.ts:53`, `setup-rpc.handlers.ts:110`, `wizard-generation-rpc.handlers.ts:139`,
+  `wizard-generation-checkpoint.service.ts:99`, `harness-mcp-install.service.ts:45`,
+  `harness-health-rpc.service.ts:80`, `plugin-rpc.handlers.ts:178`, `webview-message-handler.service.ts:163`).
+  The container is registered unconditionally early in every host's bootstrap
+  (`cli-engine/src/lib/container.ts:357`); this diff adds the one place that treats it as possibly absent.
+- Impact: a future reader has to learn a second convention to explain why this one constructor differs, and the
+  stated rationale in the doc comment (avoiding "building the resolver's dependency graph") does not match how
+  the direct-injection sibling (`session-lifecycle-manager.ts:331-339`) already solves the identical problem.
+- Fix: make the `@inject(PLATFORM_TOKENS.DI_CONTAINER)` parameter required, matching every other site, or —
+  preferably — drop it and the `lookupOptional` helper, and inject `SDK_CAPABILITY_RESOLVER` /
+  `SDK_HARNESS_POLICY_SYNC` directly as optional tokens the way `session-lifecycle-manager.ts:331-339` does.
+
+### The C4 and C5 halves of the same task solve the identical DI problem two different ways
+
+- File: `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts:976-994` (new `lookupOptional<T>`)
+  vs. `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts:325-339`
+- Problem: `SessionLifecycleManager` (B8, landed earlier in this same task) resolves the identical two tokens —
+  `SDK_CAPABILITY_RESOLVER` and `SDK_HARNESS_POLICY_SYNC` — via direct `@inject(..., { isOptional: true })`
+  parameters. `PtahCliRegistry` (B9) resolves the same two tokens via a lazily-injected `DependencyContainer`
+  and a new generic `lookupOptional<T>` private method. Neither the code nor the batch note explains why the
+  Ptah CLI half needed a different mechanism from the Claude-session half of the same C4/C5 pair.
+- Tradeoff: two conventions for one problem cost more to maintain than the closer-precedent B11 pattern
+  (inline lookup, required container) would have, and far more than reusing B8's direct-injection pattern,
+  which already exists, is already tested, and is the nearer sibling by problem shape (not just by DI
+  mechanism).
+- Recommendation: adopt `SessionLifecycleManager`'s direct-injection pattern in `PtahCliRegistry`, or, if the
+  container-lookup mechanism is kept, add a one-line note next to the B9 amendment in `batches.md` stating why
+  C5 could not follow C4's already-established pattern, so the divergence is a recorded decision rather than an
+  artifact of the diff.
+
+## Minor issues
+
+- `ptah-cli-registry-harness-preflight.spec.ts:68-93`, `ptah-cli-registry-off-thread-spawn.spec.ts:69-94` and
+  `ptah-cli-registry-spawn-model.spec.ts:75-100` each paste an identical `verifiedPolicyContainer()` helper
+  (same fields, same doc comment shape). The pattern the project already uses for a shared spawn-time test
+  double is a file under `ptah-cli/testing/` (`fake-sdk-process-spawner.ts`, reused by all three specs plus the
+  new capabilities spec). A `verified-policy-container.ts` there, reused by all four specs, would remove the
+  triplication and the drift risk between it and the fourth, differently-shaped `verifiedPolicy()` /
+  `unverifiedPolicy()` pair in `ptah-cli-registry-capabilities.spec.ts:93-118`.
+- `ptah-cli-registry.ts` is 1650 lines after this batch (was ~1567), continuing to grow a file that is already
+  the largest in this library rather than extracting the ~90-line policy-sync block
+  (`syncHarnessToPolicy` + `lookupOptional`, `:976-1050`) to a helper alongside `PtahCliSpawnOptions`. Given the
+  batch's documented file-budget ceiling (batches.md: PR 1 "AT the limit" at 99, a fourth file explicitly
+  avoided), this is accepted as a deliberate tradeoff rather than an oversight, but it is the same 90 lines
+  that would need to move if `DI_CONTAINER` is dropped per the Serious findings above — worth doing in the same
+  pass.
+
+## File-by-file
+
+### `libs/backend/agent-sdk/src/index.ts`
+
+Score 9/10 — 0B, 0S, 0M. A single direct re-export statement from `./lib/helpers/sdk-query-options-builder`,
+matching the documented precedent of direct helper exports at `:221` (pre-existing) and now `:333`; the
+`helpers/index.ts` barrel is correctly left untouched, as the batch note requires.
+
+### `helpers/ptah-cli-spawn-options.service.ts`
+
+Score 8/10 — 0B, 0S, 0M. `capabilityFlags`/`capabilityIsolation` on `PtahSpawnAssembly` (`:86,91`) mirror the
+C4 builder's naming and spread pattern exactly (`sdk-query-options-builder.ts:1139-1204`). `filterMcpServersByPolicy`
+is applied after the existing `mcpServerRunning` branch rather than duplicating the branch's logic — no copied
+policy logic from agent-sdk. The unrelated formatting-only reflow at `:143-146` (breaking `| undefined` onto
+one line) is noise in an otherwise-focused diff but not a style violation.
+
+### `ptah-cli-registry.ts`
+
+Score 6/10 — 0B, 2S, 1M. The ordering change itself (policy → harness sync → assembly) is correct and matches
+the plan (implementation-plan.md:336-337); `capabilityPolicy: policy.status` added to the existing structured
+log call (`:701`) follows the file's existing logging convention. The `DI_CONTAINER`-as-optional injection and
+the divergence from `session-lifecycle-manager.ts`'s direct-injection pattern for the identical problem are
+this file's two Serious issues (see above).
+
+### `ptah-cli-registry-capabilities.spec.ts` (new)
+
+Score 8/10 — 0B, 0S, 1M (the fixture-duplication note above, shared with the three edited specs). Thorough:
+covers ordering, flag-tier content, the ptah-off case, unacknowledged/throwing harness sync, missing/throwing
+resolver, and the custom-base-URL parity case (AC-4.5's proxy-vs-direct assertion). The `fakeContainer` double
+(`:146-160`) is a reasonable, self-contained test double, but it is the fourth reimplementation of "a container
+holding a capability-policy resolver" in this batch — see the Minor finding.
+
+### Three edited registry specs (`harness-preflight`, `off-thread-spawn`, `spawn-model`)
+
+Score 7/10 — 0B, 0S, 1M (shared). Each adds a positional `verifiedPolicyContainer()` argument to the existing
+`buildHarness` call, correctly keeping every other spec in the file passing (verified policy, no strict mode)
+so the diff does not silently change what these pre-existing specs assert. The duplicated fixture function is
+the only issue.
+
+### `mcp-status-chip.component.ts`
+
+Score 9/10 — 0B, 0S, 0M. `@switch (notice.code)` replaces the unconditional `@for` body cleanly; the existing
+claude.ai case's markup, copy and Tailwind classes are moved verbatim into its `@case`, not altered. The new
+`capability-policy-unverified` case renders `notice.message` via interpolation only (no `[innerHTML]`), uses
+`warning` tokens consistent with the chip's existing `info`/`error` token pattern for other states, and adds a
+code comment stating the trust boundary explicitly. `RENDERED_NOTICE_CODES` filtering in the `notices` computed
+(`:248-256`) is a correct fix for the real risk of an unknown future notice code silently lighting the dot or
+leaving an empty popover row — reviewed as the component's one behavioural change beyond the new case, and it
+reads as intentional and well-scoped. `loadProviderName` is correctly narrowed to only the claude.ai notice
+(`:483-489`) so the new notice does not trigger an unrelated `auth:getAuthStatus` call. Standalone, `OnPush`
+(`ChangeDetectionStrategy` import retained, unchanged), and signals are all already the file's pattern and are
+undisturbed by this diff.
+
+## Pattern compliance
+
+| Repository rule or nearby convention | Status | Evidence |
+| --- | --- | --- |
+| Direct agent-sdk helper exports follow the `:221`-style precedent | PASS | `agent-sdk/src/index.ts:222-229` |
+| `PLATFORM_TOKENS.DI_CONTAINER` injected as required | FAIL | `ptah-cli-registry.ts:151` vs. 11 required sites elsewhere |
+| Capability-policy tokens resolved via direct optional injection (B8 sibling) | FAIL | `ptah-cli-registry.ts:976-994` vs. `session-lifecycle-manager.ts:331-339` |
+| `capabilityFlags`/`capabilityIsolation` naming matches the C4 builder | PASS | `ptah-cli-spawn-options.service.ts:86,91` vs. `sdk-query-options-builder.ts:1139-1204` |
+| No copied capability-policy logic into cli-agent-runtime | PASS | grep confirms only import sites, no local reimplementation |
+| Angular: standalone, `OnPush`, signals, `@switch` for new chip case | PASS | `mcp-status-chip.component.ts` diff |
+| No `[innerHTML]` on notice text | PASS | `mcp-status-chip.component.ts` new case uses interpolation |
+| Test doubles for a repeated fixture shape live under `ptah-cli/testing/` | FAIL | `verifiedPolicyContainer()` triplicated inline instead |
+| No unplanned files (PR 1 budget) | PASS | exactly the 4 planned files (3 M existing spec, 1 C new spec, plus the 3 code M/C and the documented `index.ts` exception) |
+
+## Maintenance debt
+
+- Introduced: a second DI-access convention for the capability policy (lazy container lookup) alongside the
+  already-established direct-optional-injection convention from the same task's B8; a fourth inline
+  reimplementation of an `EffectiveCapabilitySet` test fixture.
+- Retired: none.
+- Net: negative. Nothing here is unsafe (the fail-closed behaviour is well tested either way), but the batch
+  leaves the next reader of `cli-agent-runtime` with two patterns to reconcile where one already existed.
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Key concern: `PtahCliRegistry` resolves the C5 capability policy through a lazily-injected `DependencyContainer`
+  and a new generic `lookupOptional<T>` helper, while `SessionLifecycleManager` — the direct sibling for the
+  same problem, landed one batch earlier in this same task — resolves the identical two tokens via plain
+  optional `@inject`. Neither the code nor `batches.md` explains the divergence, and `DI_CONTAINER` is nowhere
+  else in the repository injected as optional.
+- What a 10/10 version would do differently: inject `SDK_CAPABILITY_RESOLVER` and `SDK_HARNESS_POLICY_SYNC`
+  directly as optional tokens (matching `session-lifecycle-manager.ts`), drop `DI_CONTAINER` and
+  `lookupOptional` from `PtahCliRegistry` entirely, and factor the one `verifiedPolicyContainer()` /
+  `EffectiveCapabilitySet` fixture into `ptah-cli/testing/` for all four specs to share.
+
+**Verdict: APPROVE**
+
+---
+
+# Code Style Review — Batch 16
+
+**Scope:** `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/capability-toggles.e2e.spec.ts` (628 lines, new/untracked), reviewed in full against sibling specs in the same folder (`marketplace-servers.e2e.spec.ts`, `marketplace-routes.e2e.spec.ts`, `lock-popover-stacking.e2e.spec.ts`, `marketplace-visual.e2e.spec.ts`) and `marketplace.fixtures.ts`. Also checked `libs/frontend/webview-e2e-harness/README.md` (module-boundary tags), `libs/shared/src/lib/types/capability-toggle.types.ts` (the mirrored `CAPABILITY_ENFORCEMENT` table and `CapabilityEntry` type), `.ptah/specs/TASK_2026_560_2ae5/batches.md` Batch 16 entry, and `ptah_get_diagnostics` scoped to the file.
+
+**Score: 9/10 — APPROVED**
+
+## Findings
+
+**File size (Minor).** 628/700 soft-ceiling lines (90%). Justified: `batches.md:1358` records the budget fallback ("`marketplace.fixtures.ts` was dropped by the budget fallback applied 2026-09-26") that forced everything — spec code, local fixtures, and a hand-mirrored enforcement table — into this single file to keep the PR file count down, and the file's own header comment (`capability-toggles.e2e.spec.ts:14-20`) states this explicitly. Given the batch's own documented budget constraint, keeping this in one file was the correct call; flagging only because it is close enough to the ceiling that any 9th scenario should go in a second spec file rather than push past 700.
+
+**Locator strategy — compliant.** Every assertion is `data-testid`/`data-nav-id`/`data-state`/`data-capability-id` based (`capability-toggles.e2e.spec.ts:303-315` `openServersPage`/`capabilityRow` helpers, used 8x), matching `marketplace-servers.e2e.spec.ts`'s identical `data-nav-id="servers"` + `[data-testid="provider-list-rows"]` idiom (e.g. `marketplace-servers.e2e.spec.ts:41-42`) and the repeated `.locator('tr, [data-testid="provider-card"]').filter({hasText: ...}).first()` idiom used verbatim at `capability-toggles.e2e.spec.ts:410-414` and `:453-457`, copied faithfully from `marketplace-servers.e2e.spec.ts:46-49`/`:91-95`. No brittle CSS class/structural selectors introduced.
+
+**Fixture/helper placement — compliant, not duplication.** The file adds its own `openServersPage`/`capabilityRow` helpers (`capability-toggles.e2e.spec.ts:302-315`) rather than extracting them into `marketplace.fixtures.ts`. This matches the sibling files' own convention: `marketplace-servers.e2e.spec.ts`, `marketplace-routes.e2e.spec.ts`, `marketplace-visual.e2e.spec.ts` and `lock-popover-stacking.e2e.spec.ts` all inline the identical `page.locator('a[data-nav-id="servers"]').click()` + `provider-list-rows` visibility wait with no shared helper in `marketplace.fixtures.ts` today — so this file's local extraction (used 8x within itself) is a net improvement over the existing precedent, not a deviation from it. No helper already in `marketplace.fixtures.ts` or `test-fixtures.ts` duplicates `capabilityRow`/`openServersPage`/the capability fixture builders (verified via grep across the harness — no other match for `capability-toggle-input`/`server-capability-row`).
+
+**Import boundaries — compliant.** `import type { CapabilityEntry } from '@ptah-extension/shared'` (`:42`) is type-only (erased at compile time) and goes through the package alias, not a deep path. `README.md:64-69` states this library's Nx tag (`scope:webview`) may import only from `scope:shared` and other `scope:webview` libs; `libs/shared/project.json:6` tags `@ptah-extension/shared` as `scope:shared`, so this is within the declared boundary. The file's own comment (`:31-41`) documents why the import is type-only rather than a value import (a CJS/ESM interop failure against the harness's `e2e` target, confirmed by the author against the real target) and cross-references the same constraint already documented in `awaiting-background.e2e.spec.ts:16` and `marketplace.fixtures.ts:820` — this is an established, not invented, project constraint.
+
+**Contract fidelity.** `MIRRORED_CAPABILITY_ENFORCEMENT` (`:59-80`) is checked verbatim against the real `CAPABILITY_ENFORCEMENT` table built from `enforcementRows()`/`EVERY_KIND_ENFORCED`/`MCP_NOT_ENFORCED` in `libs/shared/src/lib/types/capability-toggle.types.ts:645-694` — all 16 rows and the `mcp`-only Ptah CLI proxy row match exactly. `baseEntries()` (`:99-178`) is typed as `CapabilityEntry[]` against the real interface (`capability-toggle.types.ts:510-531`), not `any`/a loosened local shape, so a field rename or type change in the shared library would fail this file's typecheck rather than silently drift. `ptah_get_diagnostics` scoped to this file: 0 errors attributable to it (the 4 reported errors are all pre-existing, in `fixture-server.ts`, `marketplace-visual.e2e.spec.ts`, and two `settings/*.e2e.spec.ts` files, none touched by this batch).
+
+**Naming.** `test.describe('webview > marketplace > capability toggles > <sub-scenario>', ...)` matches the `webview > marketplace > <feature>` breadcrumb style used throughout `marketplace-servers.e2e.spec.ts`. The bare `capability-toggles.e2e.spec.ts` filename (no `marketplace-` prefix) matches the folder's existing mixed convention (`lock-popover-stacking.e2e.spec.ts` is also unprefixed).
+
+## Five style questions
+
+1. **Breaks in six months:** if a rival CLI lane starts enforcing MCP toggles, `CAPABILITY_ENFORCEMENT` in `capability-toggle.types.ts:685-694` changes and `MIRRORED_CAPABILITY_ENFORCEMENT` (`:59-80`) must be hand-edited to match — the file's own comment (`:53-57`) says the test fails loudly rather than drifting silently if this is missed, which is the honest fallback given the CJS/ESM constraint blocks a real import.
+2. **What a new team member would misread:** the fact that `capability-toggles.e2e.spec.ts` defines its own `capabilities:*` fixtures instead of adding them to `marketplace.fixtures.ts` looks like an inconsistency with the "shared fixtures" pattern documented at the top of `marketplace.fixtures.ts` until they read this file's own header (`:14-20`) and `batches.md:1358`, which explain it was a deliberate budget-driven exception, not an oversight.
+3. **Maintenance cost vs. a simpler shape:** the mirrored enforcement table is the one piece of real duplication-with-drift-risk in the file; it costs one manual sync step per future enforcement change, accepted here only because the ESM/CJS constraint rules out importing the real value.
+4. **Inconsistency with the rest of the repo:** none found — locator strategy, describe-block naming, fixture-vs-spec placement, and the `test.use({ useAppBuild: true })` boot pattern (`:44`) all match the immediate siblings.
+5. **What I'd have done differently:** nothing structural, given the stated one-file budget constraint. If/when a Batch 17+ PR has file-count headroom, moving `capabilities:*` fixtures into `marketplace.fixtures.ts` (as the other three RPC fixture groups already are) would remove the one drift risk called out above.
+
+## Verdict
+
+**APPROVED.** 0 blocking, 0 serious, 1 minor (file-size proximity to the 700-line soft ceiling, already justified by the batch's documented budget fallback). No boundary, duplication, naming, or locator-strategy issues found; the single deviation from pure DRY (the mirrored enforcement table) is a documented, deliberate tradeoff against a real build constraint, not an oversight.
+
+
+# Code Logic Review — Batch 9
+
+## Summary
+
+| Metric               | Value                                          |
+| --------------------- | ----------------------------------------------- |
+| Overall score          | 3/10                                            |
+| Assessment             | NEEDS_REVISION                                  |
+| Blocking issues        | 1 (one root cause, four independent symptoms)   |
+| Serious issues         | 1                                               |
+| Moderate issues        | 2                                               |
+| Failure modes found    | 4                                               |
+
+## Scope examined
+
+Batch 9's uncommitted diff in the `feat-task-2026-560-b9` worktree: `ptah-cli-registry.ts` (the
+new `lookupOptional`/`syncHarnessToPolicy` and the C5 spawn-path reorder), `ptah-cli-spawn-options.service.ts`
+(`capabilityFlags`/`capabilityIsolation`/`filterMcpServersByPolicy` wiring), `agent-sdk/src/index.ts`
+(barrel export), `mcp-status-chip.component.ts` (`capability-policy-unverified` notice case), and the
+four spec files (three edited, one new). Then, specifically for the item this review was resumed to
+settle — whether `McpServerBackoffService`'s untokened constructor parameter breaks tsyringe
+resolution of `SDK_CAPABILITY_RESOLVER` in production containers — traced the full resolution chain
+outside the diff: `libs/backend/agent-sdk/src/lib/helpers/mcp-server-backoff.service.ts`,
+`libs/backend/agent-sdk/src/lib/di/register.ts`, `libs/backend/cli-agent-runtime/src/lib/di/register.ts`,
+`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `sdk-agent-adapter.ts`,
+`libs/backend/rpc-handlers/src/lib/handlers/capability-rpc.handlers.ts`,
+`libs/backend/rpc-handlers/src/lib/host-profile/{register-rpc-surface.ts,manifest.ts}`,
+`libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts` (the named precedent),
+`apps/ptah-extension-vscode/src/{di/container.ts,activation/bootstrap.ts}`,
+`apps/ptah-electron/src/{di/container.ts,activation/bootstrap.ts}`,
+`libs/backend/cli-engine/src/lib/container.ts`, and the container smoke specs for all three hosts.
+
+Verified empirically, not just by reading: added a temporary spec inside
+`libs/backend/agent-sdk/src/lib/helpers/` that resolves the real, unmodified
+`McpServerBackoffService` through a `tsyringe` container the way `registerSdkServices` does
+(`container.register(McpServerBackoffService, { useClass: McpServerBackoffService })`, then
+`c.resolve(McpServerBackoffService)`), ran it with `npx nx test agent-sdk`, and deleted it afterward
+(`git status` confirmed the worktree is clean — no reviewed source was edited). It throws.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+Two distinct silent-failure paths, both centred on capability-policy resolution:
+
+- **The policy is always unverified, and the log line that reports why is wrong.**
+  `PtahCliRegistry.lookupOptional` (`ptah-cli-registry.ts:982-996`) catches every resolution error
+  from `container.resolve(SDK_TOKENS.SDK_CAPABILITY_RESOLVER)` and returns `null`.
+  `resolveSessionCapabilityPolicy` (`sdk-query-options-builder.ts:568-582`) then takes the
+  `!resolver` branch and logs `'[CapabilityPolicy] No capability resolver is registered; the session
+  runs with Ptah tools only and no skills'` — but the resolver **is** registered
+  (`cli-agent-runtime/di/register.ts:137-138`); it just throws when tsyringe tries to build it. Every
+  Ptah CLI spawn, on every host, permanently runs `strictMcpConfig: true, skills: []`
+  (`ptah-cli-spawn-options.service.ts:210-222`), and the only trace is a misdiagnosed `logger.warn`
+  in an output channel nobody is required to read. See Blocking issue below for the root cause.
+- **The same unverified state is invisible to the user for C5 but visible for C4.** This diff adds
+  the `capability-policy-unverified` chip case to `mcp-status-chip.component.ts:203-214` specifically
+  so a user can see when their capability policy failed to read. That notice is published only from
+  `SdkQueryOptionsBuilder` (`sdk-query-options-builder.ts:605`, the C4/Claude-direct path). Neither
+  `ptah-cli-registry.ts` nor `ptah-cli-spawn-options.service.ts` (grepped, zero matches for
+  `SessionMcpNotice`/the MCP status registry) ever publishes it. A Ptah CLI agent whose policy is
+  unverified — which, given the Blocking issue, is every Ptah CLI agent right now — shows nothing in
+  the chip a C4 session in the identical state would show. See Serious issue below.
+
+### 2. What user action produces unexpected behaviour?
+
+Starting **any** Ptah CLI agent (`ptah_agent_spawn`/the lanes UI), on a workspace whose skills and
+MCP toggles the user explicitly turned on in the Marketplace, silently gets none of them: strict MCP
+(Ptah tools only) and `skills: []`, with no chip warning to explain why (Q1). The user did nothing
+wrong and changed no setting; the divergence between "what capabilities:getState says is enabled" and
+"what the spawned agent actually got" is the entire surface this task exists to fix, and Batch 9's own
+code cannot currently prove it enforces anything, because the resolver it asks for never successfully
+constructs (Blocking issue).
+
+### 3. What input data produces a wrong answer?
+
+Not input-data-dependent — this is a fixed startup-time defect independent of what any user does
+with the Marketplace toggles, `.mcp.json`, or the harness. Every workspace, every session, on every
+host, gets the same "unverified" answer regardless of what the actual policy on disk says. In that
+sense it is worse than a data-dependent bug: it does not need a malformed input to trigger, and no
+input can fix it.
+
+### 4. What happens when a dependency fails? — `McpServerBackoffService` and `SDK_CAPABILITY_RESOLVER`
+
+**Confirmed: yes, this breaks tsyringe resolution of `SDK_CAPABILITY_RESOLVER`, in the real
+container, on all three hosts, and the blast radius is larger than "every session fails closed
+silently" — on VS Code and Electron it is a hard, uncaught activation-time crash.**
+
+Root cause: `McpServerBackoffService`'s third constructor parameter,
+`options?: McpServerBackoffOptions` (`mcp-server-backoff.service.ts:96`), has no `@inject` decorator.
+`McpServerBackoffOptions` is a plain interface, so TypeScript emits `Object` for that parameter's
+`design:paramtypes` entry, and tsyringe's constructor auto-wiring tries to resolve a dependency
+literally named `"Object"`. This class is registered with `{ useClass: McpServerBackoffService }`
+(`agent-sdk/di/register.ts:429-433`), so every `container.resolve(SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE)`
+call goes through tsyringe's auto-wiring and throws. Verified directly against the real file
+(see "Scope examined"): `Cannot inject the dependency "options" at position #2 of
+"McpServerBackoffService" constructor. Reason: TypeInfo not known for "Object"`.
+
+This is not a hypothetical: it is the **exact, already-diagnosed failure mode this file's own DI
+registration documents**, for a sibling class. `agent-sdk/di/register.ts:398-408` explains why
+`CompactionBoundaryGenerationRegistry` is registered with `useFactory` instead of `useClass` —
+"the registry's only constructor parameter is a defaulted primitive... with no explicit type
+annotation, so TypeScript emits `Object`... surfaced as 'TypeInfo not known for "Object"' through
+every consumer's DI chain (`SdkMessageTransformer`, `SessionHistoryReaderService`, `PtahCliRegistry`
+in cli-agent-runtime)" — and names `PtahCliRegistry` explicitly. The fix (switch to `useFactory`,
+bypassing tsyringe's parameter auto-wiring) was applied to that class only.
+`McpServerBackoffService`, added later for a different task (TASK_2026_479) with the identical
+constructor shape, was never given the same fix and is still `useClass` at
+`agent-sdk/di/register.ts:430-433`.
+
+Traced blast radius, in order of what breaks first:
+
+1. `SDK_TOKENS.SDK_CAPABILITY_RESOLVER` (`cli-agent-runtime/di/register.ts:137-159`) is a
+   `useFactory`/`instanceCachingFactory` that unconditionally calls
+   `c.resolve<McpServerBackoffService>(SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE)` whenever
+   `c.isRegistered(..., true)` is true — which it always is, since `registerSdkServices` registers it
+   unconditionally on every host. The factory has no try/catch around that call, so
+   `c.resolve(SDK_TOKENS.SDK_CAPABILITY_RESOLVER)` throws every time it is invoked, on every host,
+   permanently (an `instanceCachingFactory` only caches a *successful* result, so this is not a
+   one-time failure — it re-throws on every subsequent resolve too).
+2. `SessionLifecycleManager` (`session-lifecycle-manager.ts:331-332`, the C4/B8 sibling) injects
+   `SDK_CAPABILITY_RESOLVER` as `@inject(..., { isOptional: true })`. This does **not** protect
+   against the failure above: verified against `tsyringe`'s own source
+   (`node_modules/tsyringe/dist/cjs/dependency-container.js:101-108`) that `isOptional` only
+   short-circuits the "no registration found for this token" branch. `SDK_CAPABILITY_RESOLVER` *is*
+   registered, so `resolve()` proceeds to build it and the throw propagates uncaught through
+   `SessionLifecycleManager`'s own constructor.
+3. `SessionLifecycleManager` is a **required** dependency of `SdkAgentAdapter`
+   (`sdk-agent-adapter.ts:181`), `SdkMessageTransformer` (`sdk-message-transformer.ts:120`),
+   `SubagentMessageDispatcher`, `SessionForkService`, `SessionMetadataStore`'s importer, and others —
+   none of these mark it optional. Constructing any of them now throws.
+4. `SdkAgentAdapter` (aliased to `TOKENS.AGENT_ADAPTER` by `wireAgentAdapterAliases`,
+   `agent-sdk/di/register.ts:613-617`) is resolved **eagerly and unguarded** at activation:
+   `apps/ptah-extension-vscode/src/activation/bootstrap.ts:171`
+   (`DIContainer.resolve(TOKENS.AGENT_ADAPTER)`, no try/catch — contrast with the guarded
+   `agentAdapter.preloadSdk().catch(...)` two lines later) and
+   `apps/ptah-electron/src/activation/bootstrap.ts:118` (same pattern). **On VS Code and Electron
+   this throws during extension/app activation, before any session can start.**
+5. Independently, `CapabilityRpcHandlers` (`capability-rpc.handlers.ts:180-181`) injects
+   `SDK_CAPABILITY_RESOLVER` as a **required** (non-optional) dependency, and its manifest entry
+   (`host-profile/manifest.ts:202-209`) has `requires: []` — "every host surfaces the Marketplace
+   toggles (NFR)" — so it is constructed on **all three hosts**, with no capability gate to skip it
+   anywhere. `registerHandlers` (`register-rpc-surface.ts:177-197`) resolves every `libOwned` handler,
+   including this one, with **no try/catch** (`register-rpc-surface.ts:183-186`; the try/catch at
+   `189-195` is explicitly reserved for host-owned handlers only, "a library-owned handler that cannot
+   register is a build-graph bug and throws"). `registerRpcSurface` runs on VS Code
+   (`bootstrap.ts:158`, before the `AGENT_ADAPTER` resolve at `:171`), Electron, and the CLI engine
+   (`cli-engine/container.ts:891`). **This is a second, independent activation-time crash point that
+   hits all three hosts, including the CLI host that Batch 9 targets.**
+6. `PtahCliRegistry.lookupOptional` (Batch 9's own new code, `ptah-cli-registry.ts:982-996`) is the
+   **one** call site in this chain that is actually safe: it wraps `container.resolve` in try/catch
+   and only ever narrows a spawn, never widens one, exactly as its doc comment
+   (`ptah-cli-registry.ts:143-150`) intends. But by the time a user could reach a Ptah CLI spawn on
+   VS Code or Electron, activation has already thrown at step 4 or 5.
+
+Precedent comparison (`mcp-directory-rpc.handlers.ts:1339-1379`, `recordInstalledCapability`, cited by
+this task's own doc comment as the pattern Batch 9 followed): that call site resolves the identical
+`SDK_TOKENS.SDK_CAPABILITY_RESOLVER` through the identical broken factory and would throw too — but it
+wraps the resolve in try/catch **and** returns a user-facing string
+(`"${serverKey}" was installed, but Ptah could not record it as enabled for this workspace. Turn it on
+in the Marketplace if it does not load.'`) through the RPC response, rather than only a background
+log. Of the four call sites this review traced (`PtahCliRegistry` B9, `SessionLifecycleManager` B8,
+`CapabilityRpcHandlers` B10, `McpDirectoryRpcHandlers` B11), `PtahCliRegistry`'s handling is the most
+architecturally correct (never widens, never crashes) but the least informative to a human; the other
+two constructor-injection sites (B8, B10) have no protection at all.
+
+Why this has not already been caught: every regression test that touches this chain avoids the real
+DI path. `mcp-server-backoff.service.spec.ts:29` constructs the class with `new McpServerBackoffService(...)`,
+bypassing tsyringe entirely. The three hosts' `container.smoke.spec.ts` files build hand-rolled minimal
+containers (`buildMinimalContainer()`) that never call the real `registerSdkServices`/
+`registerCliAgentRuntimeServices` for this token — Electron's smoke spec is the one exception that
+calls the real `registerSdkServices` (`container.smoke.spec.ts:276`), but it resolves only
+`SDK_TOKENS.SDK_PROCESS_SPAWNER` afterward, never `SDK_AGENT_ADAPTER`, `SDK_CAPABILITY_RESOLVER`, or
+`CapabilityRpcHandlers`. Batch 8's own logic review (this same file, "Batch 8" section) says it
+"traced DI registration order" through these same `register.ts`/`phase-2-libraries.ts`/`container.ts`
+files — but tracing *order* is not the same as simulating *construction*, and it did not catch this.
+Batch 9's own new tests (`ptah-cli-registry-capabilities.spec.ts`) construct a `fakeContainer` test
+double (per the code-style-review.md's own note, "the fourth reimplementation... in this batch") that
+never goes through real tsyringe resolution either, so they give the batch full green coverage while
+exercising none of this.
+
+**Item 4's second sub-question — is `PLATFORM_TOKENS.DI_CONTAINER` registered on all three hosts:
+confirmed yes**, and this part of `PtahCliRegistry`'s optional injection is not itself a functional
+defect. `PLATFORM_TOKENS.DI_CONTAINER` is registered unconditionally and early:
+`apps/ptah-extension-vscode/src/di/container.ts:40,48-49`,
+`apps/ptah-electron/src/di/container.ts:40`, and `libs/backend/cli-engine/src/lib/container.ts:357`
+(each `root.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: root })` before phase 2 registers the
+SDK/cli-agent-runtime services this batch depends on). `this.container` is never `null` on a real
+host; the observed failure is entirely inside what the container returns when asked for
+`SDK_CAPABILITY_RESOLVER`, not whether the container itself exists.
+
+### 5. What is missing that the requirements never mentioned?
+
+A test that resolves the production DI graph — `registerSdkServices` +
+`registerCliAgentRuntimeServices` on a real (not hand-built) container — for `SDK_AGENT_ADAPTER`,
+`SDK_CAPABILITY_RESOLVER`, and every `libOwned` RPC handler the manifest lists with `requires: []`.
+Nothing in `implementation-plan.md` or `batches.md` asked for this, but the three existing
+"DI smoke test" files exist for exactly this class of regression (their own header comments cite a
+past Sentry incident from the same failure family: token-slot drift silently breaking a handler's
+constructor) and none of them actually exercises this path.
+
+## Failure modes
+
+### `SDK_CAPABILITY_RESOLVER` cannot be constructed on any host
+
+- Trigger: any code path that resolves `SDK_TOKENS.SDK_CAPABILITY_RESOLVER` (directly, or
+  transitively through `SessionLifecycleManager`'s optional injection, or through
+  `CapabilityRpcHandlers`'s required injection).
+- Symptom: VS Code and Electron — uncaught exception during extension/app activation
+  (`bootstrap.ts:171` and `:158`/`registerRpcSurface`). CLI host — uncaught exception during
+  `registerRpcSurface` (`cli-engine/container.ts:891`). If activation somehow tolerates the throw (not
+  observed in this diff — both call sites are unguarded), every Ptah CLI spawn silently runs
+  `strictMcpConfig: true, skills: []` forever, and `capabilities:*` RPC methods (the Marketplace UI)
+  fail on every call.
+- Evidence: `mcp-server-backoff.service.ts:90-101` (the untokened param);
+  `agent-sdk/di/register.ts:398-433` (the documented sibling fix, not applied here);
+  `cli-agent-runtime/di/register.ts:137-159` (the unguarded factory); empirical repro via
+  `npx nx test agent-sdk` against the real, unmodified class (see "Scope examined").
+- Current handling: none at the two crash points (`session-lifecycle-manager.ts:331-332`,
+  `capability-rpc.handlers.ts:180-181`, both unguarded by anything that survives a
+  registered-but-throwing dependency). `PtahCliRegistry.lookupOptional` (Batch 9's own code) does
+  handle it correctly, but only for the one call site it owns.
+- Recommendation: register `SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE` with `useFactory`/
+  `instanceCachingFactory`, exactly as `SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY` already is
+  (`agent-sdk/di/register.ts:409-413`), or add an explicit `@inject` (with a concrete token, not the
+  bare `McpServerBackoffOptions` interface) to the `options` parameter. This is one line, is outside
+  Batch 9's own file set, but Batch 9 cannot be verified as doing what it claims (enforcing the
+  capability policy on Ptah CLI spawns) until it is fixed, because right now the resolver Batch 9
+  asks for never successfully builds.
+
+### C5 (Ptah CLI) unverified-policy state is invisible; C4 (Claude-direct) is not
+
+- Trigger: `resolveSessionCapabilityPolicy` returns `status !== 'verified'` for a Ptah CLI spawn (via
+  the Blocking issue above, currently every spawn; independently, any store/plugin-policy read
+  failure would also trigger it).
+- Symptom: the agent silently runs Ptah-tools-only/no-skills with no chip notice. A C4 session in the
+  identical state shows the new `capability-policy-unverified` warning this same diff adds to
+  `mcp-status-chip.component.ts:203-214`.
+- Evidence: notice published only at `sdk-query-options-builder.ts:605`; zero references to
+  `SessionMcpNotice`/the MCP status callback registry anywhere under
+  `libs/backend/cli-agent-runtime/src/lib/ptah-cli/` (grepped for this review).
+- Current handling: `ptah-cli-spawn-options.service.ts:210-222` logs a warning and silently narrows
+  the spawn; nothing reaches the UI.
+- Recommendation: either publish the same `capability-policy-unverified` notice for Ptah CLI sessions
+  (via the same `SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY` fan-out `StreamTransformer` already uses
+  for C4), or record in `batches.md` that C5's unverified state is deliberately UI-silent for this
+  batch and why — the omission is otherwise indistinguishable from a bug, especially once the
+  Blocking issue above is fixed and unverified stops being the permanent state.
+
+## Blocking issues
+
+### `McpServerBackoffService`'s untokened constructor parameter breaks `SDK_CAPABILITY_RESOLVER` on every host
+
+- File: `libs/backend/agent-sdk/src/lib/helpers/mcp-server-backoff.service.ts:96`, registered at
+  `libs/backend/agent-sdk/src/lib/di/register.ts:429-433`; consumed by
+  `libs/backend/cli-agent-runtime/src/lib/di/register.ts:137-159`.
+- Scenario: every time any host container resolves `SDK_TOKENS.SDK_CAPABILITY_RESOLVER` — which
+  happens unconditionally and eagerly during activation on VS Code (`bootstrap.ts:171`,
+  `:158`→`registerRpcSurface`), Electron (`bootstrap.ts:118`, same), and the CLI host
+  (`cli-engine/container.ts:891`), because `CapabilityRpcHandlers` has `requires: []` in the manifest
+  and is `libOwned`.
+- Impact: activation-time crash on VS Code and Electron (unguarded `resolve()` calls at the cited
+  lines); on any host that somehow survives it, every Ptah CLI agent permanently runs with no MCP
+  servers beyond Ptah itself and no skills, and the entire Marketplace `capabilities:*` RPC surface
+  fails on every call. This defeats the purpose of the whole task (TASK_2026_560), silently where it
+  doesn't crash outright.
+- Fix: register `SDK_MCP_SERVER_BACKOFF_SERVICE` with `useFactory`/`instanceCachingFactory` the way
+  `SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY` already is, per that registration's own comment
+  documenting this exact failure mode and naming `PtahCliRegistry` as a previously-affected consumer.
+
+## Serious issues
+
+### The C4 unverified-policy notice this diff builds has no C5 counterpart
+
+- File: `libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.service.ts:210-222`
+  vs. `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:605` and
+  `libs/frontend/chat/src/lib/components/molecules/mcp-status-chip.component.ts:203-214`.
+- Problem: the same unverified state is user-visible for one sibling session type and silent for the
+  other, in the same batch that added the UI for the first one.
+- Impact: once the Blocking issue is fixed, a genuinely unverified Ptah CLI policy (e.g., an
+  unreadable toggle store) still produces no user signal, only a background log line.
+- Fix: wire the same notice for C5, or record the omission as an intentional, reviewed scope cut.
+
+## Moderate and minor issues
+
+- `resolveSessionCapabilityPolicy`'s `!resolver` log message
+  (`sdk-query-options-builder.ts:574-577`, pre-existing, not part of this diff) says "No capability
+  resolver is registered" when, in the failure this review traced, one is registered and throws
+  during construction. Not misleading for the case the message's author had in mind (a host that
+  never registers the token at all), but misleading for the case this review found in the field.
+  Worth a wording pass once the Blocking issue is fixed, so the next person diagnosing this class of
+  problem is not sent looking at registration order instead of construction.
+- Batch 8's own logic review (this file, "Batch 8" section) states it "traced DI registration order"
+  through the same files this review re-examined and did not surface this. Worth noting only so a
+  future DI-focused review in this task distinguishes "the registration call exists, in the right
+  order" from "the registered thing successfully constructs" — the two smoke-test styles in this repo
+  (hand-built minimal container vs. real `registerSdkServices` + a narrow resolve) both currently stop
+  short of the latter for this token.
+
+## Data flow
+
+1. `PtahCliRegistry.spawnFromSdkHandle` calls `resolveSessionCapabilityPolicy(this.lookupOptional(...), cwd, logger)`
+   (`ptah-cli-registry.ts:674-681`) — OK, correctly ordered before the harness sync and spawn assembly
+   per the plan.
+2. `lookupOptional` asks the real container for `SDK_TOKENS.SDK_CAPABILITY_RESOLVER`
+   (`ptah-cli-registry.ts:982-996`) — **gap**: the container throws (Blocking issue); caught here, so
+   this step itself does not propagate the throw, but returns `null` for what is actually a live,
+   permanently-broken registration.
+3. `resolveSessionCapabilityPolicy` sees `resolver === null`, logs a misdiagnosed warning, returns
+   `unverifiedCapabilityPolicy(cwd, ...)` (`sdk-query-options-builder.ts:573-582`) — OK given the input
+   it received, but the input is wrong for the reason described.
+4. `syncHarnessToPolicy` sees `policy.status !== 'verified'`, skips the harness pass entirely
+   (`ptah-cli-registry.ts:1016-1021`) — OK, matches its own doc comment.
+5. `assembleSpawnOptions` builds `capabilityFlags`/`capabilityIsolation` from the unverified policy
+   (`ptah-cli-spawn-options.service.ts:207-222`) and drops every non-Ptah MCP server
+   (`filterMcpServersByPolicy`) — OK mechanically, always fail-closed, never widens.
+6. The spawn ships with `strictMcpConfig: true, skills: []` — **gap**: nothing downstream tells the
+   user this happened (Serious issue), and nothing anywhere records that this is now the *permanent*
+   state rather than an occasional degraded path.
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| C5 spawns enforce the same capability policy as C4 sessions (implementation-plan.md C5) | PARTIAL | The enforcement code is correct and fail-closed, but the resolver it depends on never successfully constructs on any host today, so the policy is always "unverified" rather than reflecting the user's actual Marketplace toggles — COMPLETE only once the Blocking issue is fixed. |
+| A custom-base-URL Ptah CLI provider enforces exactly what a direct provider does (flag-tier parity) | COMPLETE | `capabilityFlags`/`capabilityIsolation` naming and spread match the C4 builder (`sdk-query-options-builder.ts:1139-1204`); this part is a correct, working mechanism independent of the resolver defect. |
+| A failed or absent capability resolver fails a spawn closed, never open (R8) | COMPLETE | `lookupOptional`/`resolveSessionCapabilityPolicy`/`unverifiedCapabilityPolicy` correctly narrow only; verified by this batch's own specs and traced manually above. |
+| Unverified policy is user-visible (implicit, by the sibling C4 chip notice this same diff ships) | MISSING | No notice is published for C5; see Serious issue. |
+
+Implicit requirements not addressed: a DI smoke test that resolves `SDK_CAPABILITY_RESOLVER` (or
+anything that transitively needs it) against the real `registerSdkServices` +
+`registerCliAgentRuntimeServices` registration, the way the existing "DI smoke test" files already do
+for other handlers and explicitly exist to catch this class of regression.
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Capability resolver token unregistered on a host | YES | `lookupOptional` returns `null`, fails closed | Not the failure this review found — the resolver *is* registered. |
+| Capability resolver registered but throws on construction | NO (masked) | `lookupOptional` catches it and reports it as "not registered", which is factually wrong and hides the real defect | The masking is why this has shipped undetected across at least two prior batches (B8, B10) of the same task. |
+| Harness policy sync unregistered / throws | YES | `syncHarnessToPolicy` falls back to `runHarnessPreflight` / logs and continues (`ptah-cli-registry.ts:1023-1050`) | None found. |
+| Unverified policy on a Ptah CLI spawn | YES (mechanically) | `strictMcpConfig: true, skills: []` | No user-facing signal (Serious issue). |
+| Verified policy, harness does not acknowledge | YES | Logged, spawn continues (`skillOverrides` still denies) | None found — matches the documented design. |
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Top risk: `SDK_CAPABILITY_RESOLVER` cannot be constructed on any host today because
+  `McpServerBackoffService`'s untokened `options` parameter reproduces a failure mode this same
+  registration file already diagnosed and fixed for a sibling class — verified by resolving the real,
+  unmodified class through a real `tsyringe` container. On VS Code and Electron this is an
+  activation-time crash (`bootstrap.ts:171` and `registerRpcSurface` at `:158`, both unguarded); on any
+  host that tolerates it, every Ptah CLI agent this batch's whole feature is meant to police runs
+  permanently unpoliced, silently, because the one component that would enforce the policy never
+  successfully builds. Batch 9's own defensive code (`lookupOptional`) is correctly written for the
+  failure it anticipated (absence) but cannot distinguish that from this one (a registered dependency
+  that throws), and every test touching this chain — this batch's included — bypasses real DI
+  resolution, so none of them can currently prove the feature works.
+- What a robust implementation would add: fix `SDK_MCP_SERVER_BACKOFF_SERVICE`'s registration
+  (`useFactory`, one line, outside this batch's file set) before this batch is accepted as delivering
+  working C5 enforcement; a DI smoke test that resolves `SDK_CAPABILITY_RESOLVER` and `SDK_AGENT_ADAPTER`
+  against the real `registerSdkServices` + `registerCliAgentRuntimeServices`, not a hand-built minimal
+  container or a `fakeContainer` test double; and the same `capability-policy-unverified` notice C5
+  publishes that C4 already does, or an explicit, reviewed decision that it should not.

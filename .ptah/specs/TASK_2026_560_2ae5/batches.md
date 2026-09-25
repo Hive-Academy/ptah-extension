@@ -261,6 +261,24 @@ PR 1 (code files + task docs; must stay under 100):
   - The CLI `capabilityWarning` output goes to PR 2 (B21, +1).
   - The stray untracked `b14.diff.txt` in the b14 worktree root is NEVER staged. It is deleted before the B14 commit,
     after confirming nothing references it.
+- **Update 5 (2026-09-26):**
+  - L4 held: `provider-list-view.testing.ts` stayed untouched, so the plan was 96 after B14.
+  - **B9 +3 existing spec files**, approved by the orchestrator:
+    - `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-harness-preflight.spec.ts`
+    - `.../ptah-cli/ptah-cli-registry-off-thread-spawn.spec.ts`
+    - `.../ptah-cli/ptah-cli-registry-spawn-model.spec.ts`
+  - A 4th file (`di/register.ptah-cli-registry.smoke.spec.ts`) is avoided: `ptah-cli-registry.ts` looks up the
+    resolver and the sync lazily from the container.
+  - **PR 1 plan: 99** (94 code + 5 docs), which is AT the limit (under 100 means 99 at most).
+  - **L5 (orchestrator lever, applied in the completion step after B17 and before PR 1 opens; -1 → 98):**
+    - Append `batches.md` verbatim to `implementation-plan.md` as "Appendix C: batches and execution record".
+    - `git rm batches.md` in the final task-specs commit.
+    - This is not the earlier proposed "L5" (the review file appended to the plan), which was superseded by D2.
+  - Consequence to handle: PR 2 still needs a live `batches.md` for B15, B18-B24 and B26. At PR 2 kickoff, the
+    team-leader recreates it on the stacked branch from Appendix C (the PR 2 section onward, plus the current
+    states). That is +1 doc in PR 2, whose budget is about 33.
+  - **ANY further extra file anywhere must go to the orchestrator BEFORE it is written.** There is no slack left
+    until L5 is applied.
 - **New paths for all later reviewers and the senior-tester:**
   - Append `# Code Logic Review — Batch N`, `# Code Style Review — Batch N` or `# Test report — PR 1` sections to
     `.ptah/specs/TASK_2026_560_2ae5/reviews/code-review.md`.
@@ -1424,6 +1442,12 @@ the trace.
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,@ptah-extension/chat,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/vscode-lm-tools,ptah-electron,ptah-extension-vscode,@ptah-extension/marketplace,@ptah-extension/webview-e2e-harness --parallel=2`,
   then `git diff --stat origin/main | tail -1` (must be under 100), then a `git diff --name-only origin/main`
   that contains no `protocol-dispatcher.ts` and no `*.generated.*`.
+- **Completion-step checklist (team-leader, after B17 is accepted and before PR 1 opens):**
+  - [ ] **L5:** append this `batches.md`, verbatim and in its final state, to `implementation-plan.md` as
+    "Appendix C: batches and execution record". `git rm batches.md` in the final task-specs commit, and confirm
+    with `git diff --stat c4bdc87dd | tail -1` that the count is **98**.
+  - [ ] Stage explicit paths only. No `registry.md` (L3), and no TASK_2026_533 PNGs.
+  - [ ] Record, in Appendix C's closing note, that PR 2 recreates `batches.md` from it.
 - Before this commit, if lever L1 (merge the plan-review history files, see the running count) has not been
   applied yet, the team-leader applies it in the Mode 3 completion step. The saving is confirmed with
   `git diff --stat c4bdc87dd | tail -1`.
