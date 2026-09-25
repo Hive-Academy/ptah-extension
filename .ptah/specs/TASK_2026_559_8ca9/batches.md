@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 4/26
+Total tasks: 52 | Batches: 26 | Complete: 5/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -142,6 +142,8 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
   whitespace-only `<pre>`). Committed under User Decision 12; see "Batch 2c known issues". Not fixed in 559; the
   suggested direction is "refuse when unsure"; needs a user decision to schedule.
 - Remove the dead `class` attribute collection in `html-tree.ts` (r5 minor) with that work.
+- Batch 2d known issues KI-2d-1 (`.tsx`/`.jsx` always fall back, no JSX grammar) and KI-2d-2 (non-brace
+  multi-line arrow bodies under-compress). Both are conservative; see "Batch 2d known issues". Not fixed in 559.
 
 ---
 
@@ -783,7 +785,7 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 
 ---
 
-## Batch 2d: Code outline reducer (tree-sitter, existing parser services) — IN_PROGRESS
+## Batch 2d: Code outline reducer (tree-sitter, existing parser services) — COMPLETE with known issues KI-2d-1, KI-2d-2 (commit ba56da867)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -792,7 +794,7 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2c (index.ts ordering)
 
-### Task 2d.1: `CodeOutliner` port and the code reducer — IN_PROGRESS
+### Task 2d.1: `CodeOutliner` port and the code reducer — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/code.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/code.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: context.md User Decision 7 (code → tree-sitter outline, reuse existing parser services)
@@ -801,7 +803,7 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 - Validation notes: RISK "outline unavailable" carried here
 - Implementation details: specs with a fake outliner: outline returned; focus symbol body present; outliner null → fallback; outliner throws → fallback, no throw
 
-### Task 2d.2: Tree-sitter adapter in vscode-lm-tools — IN_PROGRESS
+### Task 2d.2: Tree-sitter adapter in vscode-lm-tools — COMPLETE (package.json dependency deferred to Batch 2e, Deviation 5)
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/package.json` (add `@ptah-extension/tool-output-reducers`)
 - Depends on: Task 2d.1
@@ -814,7 +816,79 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 ### Batch 2d verification
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- The Codex review lane approves (not met: the Codex lane failed with a 401 auth error; a same-side fallback
+  review returned REVISE 8/10 with 0 blocking; committed on the orchestrator's ruling with KI-2d-1, KI-2d-2 and
+  the Deviation 5 deferral)
+
+### Batch 2d review history and orchestrator ruling
+
+| Round | Archive (`reviews/`) | Verdict | Outcome |
+| --- | --- | --- | --- |
+| r1 | `batch-2d-code-logic-review-r1.md` | REVISE 8/10 | 0 blocking, 1 serious (package.json dependency), 2 moderate (JSX refusal, non-brace arrow bodies) → accepted and committed, no further round |
+
+- **Reviewer disclosure:** the assigned Codex CLI review lane failed with a 401 auth error before producing any
+  output. r1 is a **same-side fallback** — an in-process Claude `code-logic-reviewer`, i.e. the same execution side
+  as the executor, not the cross-vendor review the Recorded defaults call for. It resumed an interrupted earlier
+  attempt (session `a484c7dfcaff7d778`) that left no file on disk
+- Orchestrator ruling (2026-09-26): accept and commit, no further fix round.
+  - Serious (Task 2d.2's `libs/backend/vscode-lm-tools/package.json` entry for `@ptah-extension/tool-output-reducers`
+    not added) = planned **Deviation 5**: the `@nx/dependency-checks` lint rule rejects the entry until the
+    runtime packaging is wired, so it is deferred to Batch 2e (see "Notes for Batch 2e (added at Batch 2d close)")
+  - Moderate findings recorded as KI-2d-1 and KI-2d-2 below
+- The reviewer deleted an untracked, unreferenced scratch file
+  `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/__zzz-probe.spec.ts` (left by an interrupted
+  session; it broke `vscode-lm-tools:test` with TS2345). Team-leader confirmed: absent from disk, not tracked, no
+  reference anywhere in the worktree
+- The untracked `code-logic-review.md` in the task folder is byte-identical to the r1 archive and is not committed
+
+### Batch 2d known issues
+
+**KI-2d-1 — `.tsx`/`.jsx` never produce an outline (r1 moderate)**
+
+- File: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.ts:17-23` (module
+  comment), `:185-187` (`ERROR`/`MISSING` refusal); `code-outliner.adapter.spec.ts:422-430` pins it
+- `EXTENSION_LANGUAGE_MAP` maps `.tsx`/`.jsx` to the plain TS/JS grammars, which parse JSX with errors, so the
+  adapter refuses and the reducer always falls back to the log reducer (`code-fallback:log-*`, reason in `notes`)
+- Impact: capability gap, not a safety defect — head/tail truncation for every JSX file; the focus symbol can be cut
+- Suggested direction: load the `tsx` grammar for `.tsx`/`.jsx` when one is available in the parser service
+
+**KI-2d-2 — multi-line non-brace arrow-function bodies under-compress at their boundary rows (r1 moderate)**
+
+- File: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.ts:232-245`
+  (`bodySpan` shifts start +1 / end −1 unconditionally for non-Python bodies)
+- An arrow function whose body is a bare expression spanning several rows keeps its first and last body rows
+  verbatim even when they carry no delimiter or signature
+- Impact: conservative (nothing that should stay is omitted); only reduced compression on this input shape
+- Suggested direction: skip the row shift for non-`statement_block` arrow bodies; add a fixture for the shape
+
+Minor (not KIs, r1): no spec for `focusSymbol` matching a nested local `variable_declarator`
+(`code-outliner.adapter.ts:91,102`); `render()`'s run-cost comparison (`code.reducer.ts:239-245`) overcounts by one
+char per run, biasing only toward keeping a run verbatim.
+
+### Batch 2d team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `code.reducer.ts` (277 lines), `code.reducer.spec.ts` (392), `code-outliner.adapter.ts` (261),
+  `code-outliner.adapter.spec.ts` (572) are real implementations (`createCodeReducer`/`reduceCode`/`coverage`/`render`;
+  `TreeSitterCodeOutliner.outline` over an injected `TreeSitterParserService`); no TODO/FIXME/PLACEHOLDER/STUB markers
+- `reducer.types.ts` adds `AsyncOutputReducer`; `index.ts` exports `createCodeReducer` and the `CodeLineSpan`,
+  `CodeOutline`, `CodeOutliner` types
+- Port refinement accepted: `CodeOutliner.outline` returns `Promise<CodeOutline | null>` (line spans) rather than
+  the `Promise<string | null>` written in Task 2d.1, so the reducer, not the adapter, renders verbatim lines
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers
+  @ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0; all 6 targets successful (lint, typecheck, test for both)
+- `libs/backend/vscode-lm-tools/package.json` unchanged (Deviation 5, deferred to Batch 2e)
+
+### Notes for Batch 2e (added at Batch 2d close)
+
+- **Deviation 5 (deferred from Task 2d.2, must land in 2e):** add `"@ptah-extension/tool-output-reducers": "0.0.1"`
+  to `<WT>/libs/backend/vscode-lm-tools/package.json` `dependencies` (r1 serious finding). It lands together with
+  the runtime packaging that makes `@nx/dependency-checks` accept it: `marked` in the Electron generated
+  `dist/apps/ptah-electron/package.json` (or `apps/ptah-electron/package.json`), `"marked": "^18.0.13"` in
+  `apps/ptah-cli/package.json`, and a `transformIgnorePatterns`/transform entry for `marked` (ESM) in the
+  `vscode-lm-tools` jest config once specs import the pipeline. Batch 2e verification must show the entry present
+  and `vscode-lm-tools:lint` green
+- The code reducer is async (`AsyncOutputReducer`); `reduceOutput` must `await` it and pass `languageHint`,
+  `focusSymbol` and the `TreeSitterCodeOutliner` through. With no outliner the code kind falls back to the log reducer
 
 ---
 
@@ -826,6 +900,9 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 - Rationale: joins detection, reducers, token budget and spool into one call the dispatcher makes; original Task 2.1 now sits on top of the pipeline
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2d
+- Carried in from Batch 2d (Deviation 5): the `@ptah-extension/tool-output-reducers` dependency entry in
+  `<WT>/libs/backend/vscode-lm-tools/package.json` plus the runtime packaging it needs — see "Notes for Batch 2e
+  (added at Batch 2d close)"
 
 ### Task 2e.1: `reduceOutput` pipeline — PENDING
 
