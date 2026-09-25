@@ -13,7 +13,7 @@
         "main": "libs/backend/tool-output-reducers/src/index.ts",
         "tsConfig": "libs/backend/tool-output-reducers/tsconfig.lib.json",
         "format": ["cjs"],
-        "external": ["gpt-tokenizer"]
+        "external": ["gpt-tokenizer", "marked"]
       }
     },
     "test": {

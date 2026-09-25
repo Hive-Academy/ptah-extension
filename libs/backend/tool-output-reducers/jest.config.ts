@@ -12,5 +12,7 @@ export default {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  // `marked` ships ESM only; ts-jest transpiles it to CommonJS for the specs.
+  transformIgnorePatterns: ['node_modules/(?!marked/)'],
   coverageDirectory: '../../../coverage/libs/backend/tool-output-reducers',
 };

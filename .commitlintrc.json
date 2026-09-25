@@ -54,6 +54,7 @@
         "vscode-lm-tools",
         "settings-core",
         "persistence-sqlite",
+        "tool-output-reducers",
         "memory-contracts",
         "memory-curator",
         "messaging-gateway",

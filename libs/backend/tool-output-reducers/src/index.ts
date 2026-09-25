@@ -7,3 +7,5 @@ export type {
 export { detectContentKind } from './lib/content-detector';
 export { countTokens, fitsBudget } from './lib/token-measure';
 export type { TextBudget } from './lib/token-measure';
+export { reduceJson } from './lib/reducers/json.reducer';
+export { reduceMarkdown } from './lib/reducers/markdown.reducer';

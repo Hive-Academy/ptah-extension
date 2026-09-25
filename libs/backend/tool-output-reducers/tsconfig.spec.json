@@ -6,6 +6,7 @@
     "moduleResolution": "node10",
     "types": ["jest", "node"],
     "esModuleInterop": true,
+    "allowJs": true,
     "strict": true
   },
   "include": [
