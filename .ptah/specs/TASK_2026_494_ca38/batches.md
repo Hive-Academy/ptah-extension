@@ -244,7 +244,7 @@ Edge cases:
   not `list.items` or chart `series`; the v1 validator is the real boundary. B6 may tighten it when the v2 builder
   reuses the mapper.
 
-## Batch 4: Table rows, chart geometry, chart component — IN_PROGRESS
+## Batch 4: Table rows, chart geometry, chart component — COMPLETE (commit 9c3606bff)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -273,7 +273,7 @@ Edge cases:
 - Carried forward (non-blocking): duplicate x within one series overlaps (chart-geometry.ts:20-21); in descending sort
   nulls come first (full mirror of ascending). Rendered-fidelity evidence is still owed at the R10 visual gate.
 
-## Batch 5: Stat, list and pager — PENDING
+## Batch 5: Stat, list and pager — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -281,7 +281,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 4
 
-### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — PENDING
+### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — IN_PROGRESS
 
 - Files (5): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`: `dashboard-stat.component.ts`
   (+ spec), `dashboard-list.component.ts` (+ spec), `dashboard-pager.component.ts`
@@ -439,7 +439,7 @@ Edge cases:
 - Rationale: the revision state machine (R9); needs judgment on edge ordering.
 - Tasks: 1 | Depends on: Batch 10
 
-### Task 11.1: `apps-surface-intake.ts`, `apps-surface-reducer.ts`, `apps-system-prompt.ts` — IN_PROGRESS
+### Task 11.1: `apps-surface-intake.ts`, `apps-surface-reducer.ts`, `apps-system-prompt.ts` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/`: `state/apps-surface-intake.ts` (+ spec),
   `state/apps-surface-reducer.ts` (+ spec), `apps-system-prompt.ts` (+ spec)
@@ -457,6 +457,22 @@ Edge cases:
 ### Batch 11 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
+- Result: 3/3 green (re-run by team-leader), 97/97 tests. code-logic-reviewer APPROVED 8/10
+  (code-logic-review-batch-11.md); Glm review lane APPROVED 9/10 (code-logic-review-batch-11-glm.md).
+- Deviations accepted by both reviewers:
+  (1) ops on a rejected surface -> needsRead;
+  (2) a read retires settled overlays up to the read revision (retireSettledUpTo), not retireAllSettled. This is
+      faithful to plan:550/626: a stale read must not drop acked values. It supersedes the plan:582 wording and the
+      B10 brief;
+  (3) readSeq ordering;
+  (4) read-result guard, updateSurfaceOverlays, tombstone cap 64, eviction notice;
+  (5) a read keeps the view state of a surface already held.
+- Accepted risk F1: the guards are not try-wrapped against throwing getters. This is unreachable because payloads arrive
+  via structured clone.
+- Open, non-blocking: F2 (use isRevision for fromRevision); the single-slot eviction notice (UX decision, B12/B15);
+  lastSubmit shape check (B15).
+- Carried to B12: the sync spec must assert at most one surface:read in flight per slice (F7).
+- Carried to B13: confirm that pending overlays survive an agent snapshot replace (F5).
 
 ## Batch 12: Session facade, workspace slices, surface sync — PENDING
 
