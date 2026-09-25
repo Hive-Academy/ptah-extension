@@ -43,6 +43,13 @@ const SKELETON_CARDS = [0, 1, 2] as const;
  * (its hit area covers the card), status pill, origin, CLI marks or
  * "Ptah sessions", and the removal button or lock badge.
  *
+ * Stacking: the lock badge's popover renders in place (`z-50`), so no card
+ * ancestor may form a stacking context or a `fixed` containing block while
+ * it is open. The action wrapper is only `relative` (it follows the name's
+ * hit area in tree order), and the hover lift is dropped — without a
+ * transition — while a control in the card is expanded; the popover's
+ * backdrop keeps the card hovered for as long as it is open.
+ *
  * @example
  * ```html
  * <ptah-provider-card-list
@@ -160,7 +167,7 @@ const SKELETON_CARDS = [0, 1, 2] as const;
           >
             @for (row of rows(); track row.ref) {
               <li
-                class="relative rounded-xl border bg-base-200 p-3 transition-transform duration-150 hover:-translate-y-px motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+                class="relative rounded-xl border bg-base-200 p-3 transition-transform duration-150 hover:-translate-y-px has-[[aria-expanded=true]]:transform-none has-[[aria-expanded=true]]:transition-none motion-reduce:transition-none motion-reduce:hover:transform-none"
                 [class]="cardClass(row.ref)"
                 [attr.aria-current]="row.ref === activeRef() ? 'true' : null"
                 [attr.data-active]="row.ref === activeRef()"
@@ -217,7 +224,7 @@ const SKELETON_CARDS = [0, 1, 2] as const;
                       >{{ sessionTargetsLabel }}</span
                     >
                   }
-                  <div class="relative z-10 ml-auto">
+                  <div class="relative ml-auto">
                     @if (removalAction(row); as action) {
                       <button
                         type="button"

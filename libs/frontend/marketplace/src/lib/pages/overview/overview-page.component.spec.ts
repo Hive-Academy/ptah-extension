@@ -170,6 +170,14 @@ const OVERVIEW_READS: Readonly<Record<string, number>> = {
   'harness:health': 1,
 };
 
+/**
+ * Budget for the one-off render in `beforeAll`. The first render of the page
+ * JIT-compiles its whole component tree. With ten jest processes in parallel
+ * the first test to run took up to 4.9s (the rest under 2s), so whichever test
+ * `--randomize` ran first could overrun jest's 5s default.
+ */
+const WARM_UP_TIMEOUT_MS = 30_000;
+
 describe('OverviewPageComponent', () => {
   let harness: RouterTestingHarness;
   let methods: string[];
@@ -179,7 +187,7 @@ describe('OverviewPageComponent', () => {
   let ensureLoaded: jest.Mock;
   let catalogRefresh: jest.Mock;
 
-  beforeEach(() => {
+  const configure = (): void => {
     methods = [];
     tabs = signal<readonly TabStub[]>([]);
     tier = signal<MarketplaceTier>('regular');
@@ -265,11 +273,7 @@ describe('OverviewPageComponent', () => {
         { provide: MarketplaceLayout, useValue: { tier } },
       ],
     });
-  });
-
-  afterEach(() => {
-    TestBed.resetTestingModule();
-  });
+  };
 
   const settle = async (): Promise<void> => {
     for (let i = 0; i < 3; i += 1) {
@@ -284,6 +288,25 @@ describe('OverviewPageComponent', () => {
     harness = await RouterTestingHarness.create('/marketplace/overview');
     await settle();
   };
+
+  // Render the page once at wide and compact so no test pays for compiling it
+  // (see WARM_UP_TIMEOUT_MS). Each test still configures its own module.
+  beforeAll(async () => {
+    configure();
+    tier.set('wide');
+    await mount();
+    tier.set('compact');
+    await settle();
+    TestBed.resetTestingModule();
+  }, WARM_UP_TIMEOUT_MS);
+
+  beforeEach(() => {
+    configure();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
 
   const root = (): HTMLElement => harness.fixture.nativeElement as HTMLElement;
   const text = (el: Element | null | undefined): string =>

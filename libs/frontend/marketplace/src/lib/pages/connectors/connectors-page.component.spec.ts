@@ -78,6 +78,14 @@ const LINK_READS = new Set([
   'mcpDirectory:listSmitheryConnections',
 ]);
 
+/**
+ * Budget for the one-off render in `beforeAll`. The first render of the page
+ * JIT-compiles its whole component tree. With ten jest processes in parallel
+ * the first test to run took up to 6.8s and timed out 3 times in 20 runs, so
+ * whichever test `--randomize` ran first could overrun jest's 5s default.
+ */
+const WARM_UP_TIMEOUT_MS = 30_000;
+
 /** Stands in for the shell: provides the shell-scoped links store. */
 @Component({
   selector: 'ptah-test-marketplace-host',
@@ -182,7 +190,7 @@ describe('ConnectorsPageComponent', () => {
     target?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
   };
 
-  beforeEach(() => {
+  const seedResponders = (): void => {
     calls = [];
     responders = new Map();
     tier = signal<MarketplaceTier>('compact');
@@ -197,6 +205,22 @@ describe('ConnectorsPageComponent', () => {
     setResponder('mcpDirectory:getOAuthRedirectUri', () =>
       ok({ redirectUri: 'https://host.example/callback' }),
     );
+  };
+
+  // Render the page, the full-page detail and the drawer once so no test pays
+  // for compiling them (see WARM_UP_TIMEOUT_MS).
+  beforeAll(async () => {
+    seedResponders();
+    tier.set('wide');
+    configure();
+    await mount('/marketplace/connectors/sentry');
+    tier.set('compact');
+    await settle();
+    TestBed.resetTestingModule();
+  }, WARM_UP_TIMEOUT_MS);
+
+  beforeEach(() => {
+    seedResponders();
   });
 
   afterEach(() => {

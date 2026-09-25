@@ -169,7 +169,11 @@ export function nextProviderSort(
  *   rows cannot join a bulk removal: their checkbox is disabled and its name
  *   says why.
  * - The server name is the row's open control; its hit area covers the row,
- *   under the checkbox and the action column.
+ *   under the checkbox and the action column. The checkbox cell precedes the
+ *   hit area, so it needs `z-10`; the action cell follows it and is only
+ *   `relative` — tree order already paints it above. A `z-index` there would
+ *   make each action cell a stacking context and trap the lock badge's popover
+ *   (`z-50`) under the next row's action cell.
  * - The action column is a removal button, or the lock badge for a row Ptah
  *   cannot remove — never a paragraph.
  * - `activeRef` marks the keyboard-active row (`aria-current`, `data-active`).
@@ -441,7 +445,7 @@ export function nextProviderSort(
                         [statusText]="row.statusText"
                       />
                     </td>
-                    <td class="relative z-10 text-right">
+                    <td class="relative text-right">
                       @if (removalAction(row); as action) {
                         <button
                           type="button"
