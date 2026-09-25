@@ -304,7 +304,7 @@ Edge cases:
   declaration emit. The lib has no build target today; export DisplayNodeFields if B8 adds one or the public API
   exposes these node types.
 
-## Batch 6: v2 view model, table component, layout component — IN_PROGRESS
+## Batch 6: v2 view model, table component, layout component — COMPLETE (commit db10e82aa)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -346,7 +346,7 @@ Edge cases:
 - Optional: a direct spec for applied -> "Sent"; the unreachable `read.value === undefined` branch at
   surface-view-model.ts:67.
 
-## Batch 7: Input components — PENDING
+## Batch 7: Input components — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -355,7 +355,7 @@ Edge cases:
 - Rationale: three sibling components with an exact behavioural spec (commit rules, a11y attributes).
 - Tasks: 1 | Depends on: Batch 6
 
-### Task 7.1: Text, choice and checkbox inputs — PENDING
+### Task 7.1: Text, choice and checkbox inputs — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`:
   `surface-text-input.component.ts` (+ spec), `surface-choice-input.component.ts` (+ spec),
@@ -581,7 +581,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 12
 
-### Task 14.1: `apps-focus-memory.directive.ts` — IN_PROGRESS
+### Task 14.1: `apps-focus-memory.directive.ts` — COMPLETE
 
 - Files (2): CREATE `.../libs/frontend/mcp-apps-page/src/lib/components/apps-focus-memory.directive.ts` (+ spec)
 - Scope widened at B12 commit (team-leader, 2026-09-25): the slice had no focus-key field. B14 also MODIFIES
@@ -595,6 +595,16 @@ Edge cases:
 ### Batch 14 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
+- Result: 3/3 green (re-run by team-leader), 199 tests in the lib at commit time. The first review was NEEDS_REVISION
+  6/10. Fix round 1 (codex resume) added:
+  - a start() success-branch ownership guard with a best-effort chat:abort of an orphaned start;
+  - recordFocusKey no longer creates phantom slices;
+  - edge-triggered implicit->real drop tracking (replacing the one-shot latch);
+  - an early discard() return.
+  Re-check APPROVED 8/10 (code-logic-review-batch-14.md). The existing B12 specs are unchanged (additions only).
+- Open (minor): the host always carries tabindex="-1". B15 wires the directive on the page host (see the B15 carry-overs).
+- Lane pool change (2026-09-25): Glm/Ollama Cloud weekly limit reached; opencode Go exhausted. Executors and second
+  reviews now use codex, antigravity and subagents only, and never the batch's own executor.
 
 ## Batch 15: Apps page components and public API — PENDING
 
@@ -628,6 +638,14 @@ Edge cases:
 - The table always shows the pager, page size `SURFACE_PAGE_SIZE` (25).
 - Leave a single, clearly named layout slot between the conversation column and the surface panel for the splitter
   handle; the splitter itself is Batch 20 (split out to keep B15 at 6 files).
+- Carry-overs gathered for B15 (team-leader):
+  - apply `AppsFocusMemoryDirective` (B14, `components/apps-focus-memory.directive.ts`) to the AppsPageComponent host.
+    B14 left this undone on purpose; pin restore-after-re-create at the page level;
+  - B12 N4: the composer keeps the user's draft text on a failed start() and on a send-before-resolve;
+  - B11: validate the `lastSubmit` shape before rendering it; decide the single-slot eviction notice UX (show the
+    latest notice, or queue them);
+  - B6: the renderer path must behave identically when a SURFACE_VIEW_MODEL_BUILDER override throws and when the
+    default returns renderFailed. The "builder override throws" pin depends on it.
 
 ### Batch 15 verification
 

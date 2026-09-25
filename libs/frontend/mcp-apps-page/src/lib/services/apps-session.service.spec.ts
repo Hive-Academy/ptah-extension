@@ -440,6 +440,169 @@ describe('AppsSessionService', () => {
   });
 
   describe('workspace slices', () => {
+    it('a focus record on a never-started workspace leaves the slices map unchanged', () => {
+      const before = service['_slices']();
+      service.recordFocusKey('composer');
+      expect(service['_slices']()).toBe(before);
+      expect(service['_slices']().has('/ws-a')).toBe(false);
+      expect(service.lastFocusKey()).toBeNull();
+    });
+
+    it('drops the implicit slice on two separate implicit-to-real transitions', async () => {
+      for (const path of ['/ws-b', '/ws-c']) {
+        tabs.activeWorkspacePath$.set(null);
+        TestBed.tick();
+        await service.start('Implicit prompt');
+        const routingId = service.routingId() as string;
+        const surfaceId = service.surfaceId();
+        tabs.activeWorkspacePath$.set(path);
+        TestBed.tick();
+        expect(service['_slices']().has(APPS_IMPLICIT_WORKSPACE)).toBe(false);
+        expect(inbox.isClaimed(routingId)).toBe(false);
+        expect(claims.surfaceFor(routingId)).toBeNull();
+        expect(surfaceId !== null && registry.getAdapter(surfaceId)).toBeNull();
+      }
+      expect(streamRouter.onSurfaceClosed).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['implicit drop', 'discard', 'workspace removal'] as const)(
+      'aborts a successful pending start after %s without recreating state or claims',
+      async (release) => {
+        if (release === 'implicit drop') {
+          tabs.activeWorkspacePath$.set(null);
+          TestBed.tick();
+        }
+        let resolveStart!: (value: unknown) => void;
+        (rpc.call as jest.Mock).mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveStart = resolve;
+            }),
+        );
+        const pending = service.start('Pending prompt');
+        const routingId = service.routingId() as string;
+        const surfaceId = service.surfaceId();
+        if (release === 'implicit drop') {
+          tabs.activeWorkspacePath$.set('/ws-b');
+        } else if (release === 'discard') {
+          service.discard();
+        } else {
+          tabs.removedWorkspace$.set({ path: '/ws-a', seq: 1 });
+        }
+        TestBed.tick();
+        const afterRelease = service['_slices']();
+        // Exercise both the returned host ID and the routing-ID fallback.
+        resolveStart(
+          rpcSuccess(
+            release === 'discard'
+              ? { success: true }
+              : { success: true, sessionId: 'late-host-session' },
+          ),
+        );
+        await expect(pending).resolves.toBeUndefined();
+        expect(callsOf('chat:abort').map((call) => call.params)).toEqual([
+          {
+            sessionId: release === 'discard' ? routingId : 'late-host-session',
+          },
+        ]);
+        expect(service['_slices']()).toBe(afterRelease);
+        expect(service['_slices']().has(APPS_IMPLICIT_WORKSPACE)).toBe(false);
+        expect(service.isActive()).toBe(false);
+        expect(inbox.isClaimed(routingId)).toBe(false);
+        expect(claims.surfaceFor(routingId)).toBeNull();
+        expect(surfaceId !== null && registry.getAdapter(surfaceId)).toBeNull();
+        expect(streamRouter.onSurfaceClosed).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(['transport', 'refusal'] as const)(
+      'keeps a newer slice unchanged when late-start abort fails by %s',
+      async (failure) => {
+        let resolveStart!: (value: unknown) => void;
+        (rpc.call as jest.Mock).mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveStart = resolve;
+            }),
+        );
+        const pending = service.start('Old prompt');
+        service.discard();
+        await service.start('New prompt');
+        const newer = service['_slices']();
+        if (failure === 'transport') {
+          (rpc.call as jest.Mock).mockRejectedValueOnce(
+            new Error('private payload'),
+          );
+        } else {
+          (rpc.call as jest.Mock).mockResolvedValueOnce(
+            rpcSuccess({ success: false, error: 'private payload' }),
+          );
+        }
+        resolveStart(
+          rpcSuccess({ success: true, sessionId: 'private-session' }),
+        );
+        await expect(pending).resolves.toBeUndefined();
+        expect(service['_slices']()).toBe(newer);
+        expect(service.isActive()).toBe(true);
+        expect(inbox.isClaimed(service.routingId() as string)).toBe(true);
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+      },
+    );
+
+    it('records focus only in the active workspace slice and restores each key', async () => {
+      await service.start('Build in A');
+      expect(service.lastFocusKey()).toBeNull();
+      expect(() => service.recordFocusKey('composer')).not.toThrow();
+      tabs.activeWorkspacePath$.set('/ws-b');
+      expect(service.lastFocusKey()).toBeNull();
+      await service.start('Build in B');
+      service.recordFocusKey('table-filter');
+      tabs.activeWorkspacePath$.set('/ws-a');
+      expect(service.lastFocusKey()).toBe('composer');
+      tabs.activeWorkspacePath$.set('/ws-b');
+      expect(service.lastFocusKey()).toBe('table-filter');
+      service.recordFocusKey(null);
+      expect(service.lastFocusKey()).toBeNull();
+    });
+
+    it('releases the boot-window conversation and drops the implicit slice on first real workspace (N2)', async () => {
+      tabs.activeWorkspacePath$.set(null);
+      service = TestBed.runInInjectionContext(() => new AppsSessionService());
+      TestBed.tick();
+      await service.start('Boot prompt');
+      const routingId = service.routingId() as string;
+      const surfaceId = service.surfaceId();
+      service.requestSurfaceRead(routingId, 'stale-revision');
+      const readSignal = callsOf('surface:read')[0].options?.signal;
+      service.expectSurfaceRevision(routingId, 'profile', 2);
+      const sync = service['_slices']().get(APPS_IMPLICIT_WORKSPACE)?.sync;
+      if (!sync) throw new Error('Missing implicit sync');
+      const dispose = jest.spyOn(sync, 'dispose');
+
+      tabs.activeWorkspacePath$.set('/ws-a');
+      TestBed.tick();
+
+      expect(inbox.isClaimed(routingId)).toBe(false);
+      expect(claims.surfaceFor(routingId)).toBeNull();
+      expect(surfaceId !== null && registry.getAdapter(surfaceId)).toBeNull();
+      expect(streamRouter.onSurfaceClosed).toHaveBeenCalledWith(surfaceId);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(readSignal?.aborted).toBe(true);
+      expect(service['_slices']().has(APPS_IMPLICIT_WORKSPACE)).toBe(false);
+      expect(service.isActive()).toBe(false);
+      tabs.activeWorkspacePath$.set('/ws-b');
+      TestBed.tick();
+      expect(dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('discard on a workspace that never started creates no empty slice (N3)', () => {
+      const before = service['_slices']();
+      service.discard();
+      expect(service['_slices']()).toBe(before);
+      expect(service['_slices']().has('/ws-a')).toBe(false);
+      expect(streamRouter.onSurfaceClosed).not.toHaveBeenCalled();
+    });
+
     it('a workspace switch shows the other slice, and switching back restores it (Req 2.6)', async () => {
       await service.start('Build in A');
       const routingA = service.routingId() as string;

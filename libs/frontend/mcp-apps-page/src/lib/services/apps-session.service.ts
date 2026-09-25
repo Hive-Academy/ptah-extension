@@ -27,6 +27,7 @@ import {
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
 import type { StreamingState } from '@ptah-extension/chat-types';
+import type { SessionId } from '@ptah-extension/shared';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
 import {
   updateSurfaceOverlays,
@@ -39,6 +40,7 @@ import {
   type AppsSurfaceStore,
 } from './apps-surface-sync';
 import {
+  APPS_IMPLICIT_WORKSPACE,
   appsSliceKey,
   appsWorkspacePath,
   createAppsWorkspaceSlice,
@@ -46,6 +48,7 @@ import {
   isAppsSliceOf,
   patchAppsSlice,
   readAppsSlice,
+  recordAppsFocusKey,
   removeAppsSlice,
   startAppsSlice,
   type AppsConversation,
@@ -107,6 +110,7 @@ export class AppsSessionService {
 
   /** Last `removedWorkspace$` seq handled, so each removal runs once. */
   private lastRemovedWorkspaceSeq = 0;
+  private previousWorkspaceKey: string = APPS_IMPLICIT_WORKSPACE;
 
   /** The key of the workspace the page currently shows. */
   public readonly workspaceKey = computed(() =>
@@ -138,6 +142,9 @@ export class AppsSessionService {
   );
   public readonly syncNotice = computed(() => this.activeSlice().syncNotice);
   public readonly error = computed(() => this.activeSlice().error);
+  public readonly lastFocusKey = computed(
+    () => this.activeSlice().lastFocusKey,
+  );
 
   /** Head session of the active conversation, or null before one resolves. */
   public readonly sessionId = computed<ClaudeSessionId | null>(() => {
@@ -155,6 +162,17 @@ export class AppsSessionService {
   });
 
   public constructor() {
+    effect(() => {
+      const key = this.workspaceKey();
+      const previous = this.previousWorkspaceKey;
+      this.previousWorkspaceKey = key;
+      if (
+        previous === APPS_IMPLICIT_WORKSPACE &&
+        key !== APPS_IMPLICIT_WORKSPACE
+      ) {
+        untracked(() => this.dropSlice(APPS_IMPLICIT_WORKSPACE));
+      }
+    });
     // A removed workspace's conversation is dead: release its claims, its
     // surface and its sync, then drop the slice. `removedWorkspace$` is
     // append-only, so the own seq cursor acts on each removal exactly once.
@@ -201,6 +219,15 @@ export class AppsSessionService {
           result.data?.error ??
             result.error ??
             'Failed to start the Apps session.',
+        );
+      } else if (
+        !isAppsSliceOf(
+          readAppsSlice(this._slices(), key),
+          conversation.routingId,
+        )
+      ) {
+        await this.abortUnownedStart(
+          result.data?.sessionId ?? (conversation.routingId as SessionId),
         );
       }
     } catch (error: unknown) {
@@ -321,11 +348,25 @@ export class AppsSessionService {
   public discard(): void {
     try {
       const key = this.workspaceKey();
+      if (!this._slices().has(key)) return;
       this.teardown(readAppsSlice(this._slices(), key));
       this.patch(key, () => createAppsWorkspaceSlice());
     } catch (error: unknown) {
       console.warn(
         `${LOG_PREFIX} discard failed: ${failureText(error, 'unknown error')}`,
+      );
+    }
+  }
+
+  /** Remember focus only in the workspace currently shown by the page. */
+  public recordFocusKey(key: string | null): void {
+    try {
+      const workspaceKey = this.workspaceKey();
+      if (!this._slices().has(workspaceKey)) return;
+      this.patch(workspaceKey, (slice) => recordAppsFocusKey(slice, key));
+    } catch (error: unknown) {
+      console.warn(
+        `${LOG_PREFIX} focus key could not be recorded: ${error instanceof Error ? error.name : 'unknown error'}`,
       );
     }
   }
@@ -450,6 +491,22 @@ export class AppsSessionService {
     if (!isAppsSliceOf(slice, conversation.routingId)) return;
     this.teardown(slice);
     this.patch(key, () => ({ ...createAppsWorkspaceSlice(), error: message }));
+  }
+
+  /** Stop a late successful start without touching a discarded or newer slice. */
+  private async abortUnownedStart(sessionId: SessionId): Promise<void> {
+    console.warn(
+      `${LOG_PREFIX} start completed after ownership was released; aborting`,
+    );
+    try {
+      const result = await this.rpc.call('chat:abort', { sessionId });
+      if (!result.success || result.data?.success === false) {
+        console.warn(`${LOG_PREFIX} unowned start abort failed`);
+      }
+    } catch (error: unknown) {
+      void error;
+      console.warn(`${LOG_PREFIX} unowned start abort transport failed`);
+    }
   }
 
   private failTurn(

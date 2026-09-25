@@ -38,6 +38,7 @@ export interface AppsUserBubble {
 }
 
 export interface AppsWorkspaceSlice {
+  readonly lastFocusKey: string | null;
   /** Null until `start()`; cleared by `discard()` and a failed start. */
   readonly conversation: AppsConversation | null;
   /**
@@ -60,6 +61,7 @@ export interface AppsWorkspaceSlice {
 
 export function createAppsWorkspaceSlice(): AppsWorkspaceSlice {
   return {
+    lastFocusKey: null,
     conversation: null,
     sync: null,
     turnPending: false,
@@ -73,6 +75,14 @@ export function createAppsWorkspaceSlice(): AppsWorkspaceSlice {
 
 /** The shared read-only empty slice, shown for a workspace with no state. */
 export const EMPTY_APPS_SLICE: AppsWorkspaceSlice = createAppsWorkspaceSlice();
+
+/** Remember a control without changing any conversation or surface state. */
+export function recordAppsFocusKey(
+  slice: AppsWorkspaceSlice,
+  key: string | null,
+): AppsWorkspaceSlice {
+  return slice.lastFocusKey === key ? slice : { ...slice, lastFocusKey: key };
+}
 
 /** The slice key for a workspace path reported by `TabManagerService`. */
 export function appsSliceKey(workspacePath: string | null): string {
