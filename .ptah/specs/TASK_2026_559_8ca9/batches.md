@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 3/26
+Total tasks: 52 | Batches: 26 | Complete: 4/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -137,6 +137,11 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
 - Batch 2b known issue KI-2b-1 (Markdown outline drops a paragraph-level inline HTML wrapper that spans a
   heading and exposes hidden content). Committed under User Decision 11; see "Batch 2b known issues". Not fixed
   in 559; needs a user decision to schedule.
+- Batch 2c known issues KI-2c-1..KI-2c-7 (HTML extractor: character references, hidden-table foster content, CSS
+  NBSP/`all` resets, closed `<details>`, unbounded anchor decoding, unknown-as-unequal anchor comparison,
+  whitespace-only `<pre>`). Committed under User Decision 12; see "Batch 2c known issues". Not fixed in 559; the
+  suggested direction is "refuse when unsure"; needs a user decision to schedule.
+- Remove the dead `class` attribute collection in `html-tree.ts` (r5 minor) with that work.
 
 ---
 
@@ -618,7 +623,7 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 
 ---
 
-## Batch 2c: Log and HTML reducers — IN_PROGRESS
+## Batch 2c: Log and HTML reducers — COMPLETE with known issues KI-2c-1..KI-2c-7 (commits 7b833158e code, dc5f43b50 timing-spec guards)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -627,7 +632,7 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2b (index.ts ordering)
 
-### Task 2c.1: Log / test / diagnostic output reducer — IN_PROGRESS
+### Task 2c.1: Log / test / diagnostic output reducer — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/log.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/log.reducer.spec.ts`
 - Plan reference: context.md User Decision 7 (dedupe repeated lines, keep errors with context, keep head and tail)
@@ -638,9 +643,11 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
   order plus gap markers; no two distinct lines are merged
 - Implementation details: specs on SIZE (5,000-line jest log → within budget) AND PRESERVED CONTENT (all 3 `●` failure blocks with their assertion and first stack frame; a `TS2345` line; the final summary line in the tail)
 
-### Task 2c.2: In-house HTML main-content extractor — IN_PROGRESS
+### Task 2c.2: In-house HTML main-content extractor — COMPLETE (known issues KI-2c-1..KI-2c-7)
 
-- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
+- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html-tree.ts` (added during revision: tokenizer/tree/visibility split out of the reducer), `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
+- Output format superseded by User Decision 12: plain text, not Markdown (headings on their own lines, links
+  `text (url)`, code raw); conflicting or restored visibility states refuse (input unchanged)
 - Plan reference: context.md User Decision 7 (HTML → main-content text/Markdown, NO new dependencies)
 - Pattern to follow: Task 2a.2 contract. No DOM library; a small tokenizer over tags is enough
 - Quality requirements: remove `script/style/noscript/svg/template/iframe/nav/header/footer/aside/form` and comments; prefer `<main>`, `<article>`, `[role=main]`, else the block with the highest text density; emit Markdown for `h1-h6`, `p`, `li`, `pre/code`, `a` (text + href), `table` (pipe table); decode the common entities; malformed HTML never throws
@@ -651,11 +658,132 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers 2>&1 | tail -40` passes
 - `git diff -- package.json` is empty
-- The Codex review lane approves
+- The Codex review lane approves (not met: committed under User Decision 12 with KI-2c-1..KI-2c-7)
+
+### Batch 2c review history and user decisions
+
+| Round | Archive (`reviews/`) | Verdict | Outcome |
+| --- | --- | --- | --- |
+| r1 | `batch-2c-code-logic-review-r1.md` | REVISE 4/10 | D1-D8 (log D1; HTML hidden-content promotion, quoted end tags, CSS, captions, quadratic tables, pre whitespace, root semantics); executor revise |
+| r2 | `batch-2c-code-logic-review-r2.md` | REVISE 5/10 | N1-N5 (sibling scripts at cap, inline/flex display, quote nesting, comment/numeric LF, fostered content + caption); executor revise |
+| r3 | `batch-2c-code-logic-review-r3.md` | REVISE 6/10 | R3-1 (literal text under shallow inline wrappers), R3-2 (xmp/plaintext); revise cap reached |
+| r4 | `batch-2c-code-logic-review-r4-postcap.md` | REVISE 5/10 | Post-cap bounded correction; 3 blocking groups: incomplete Markdown escaping, adjacent/trimmed code spans, visibility overrides → User Decision 12 |
+| r5 | `batch-2c-code-logic-review-r5-decision12.md` | REVISE 4/10 | Plain-text output; all earlier literals pass; 7 new families (4 blocking, 1 serious, 2 moderate) → committed with KI-2c-1..KI-2c-7 |
+
+- User Decision 12 (context.md:39): the HTML extractor emits plain text, not Markdown (nothing to escape); headings
+  are their own lines, links `text (url)`, code keeps raw text; conflicting or restored visibility states refuse
+  (input unchanged). One more independent review: commit if it approves, otherwise commit with its defects as known
+  issues. The log reducer is accepted as is (r1 D1 fixed and confirmed in r2/r3 with no new log defect; r5 excluded it per Decision 12). r5 returned REVISE, so
+  Batch 2c is committed with KI-2c-1..KI-2c-7 and no further fix round
+- The untracked `code-logic-review.md` in the task folder is byte-identical to the r5 archive and is not committed
+
+### Batch 2c known issues
+
+All seven are in the HTML extractor (`H` = `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.ts`,
+`T` = `.../reducers/html-tree.ts`, `HS` = `.../reducers/html.reducer.spec.ts`; line numbers from r5). General
+direction for every blocking family: **refuse when unsure** (return the input unchanged) rather than model more of
+the browser. Mitigation in place for all: Batch 2e spools the raw output whenever the returned text differs, and
+the extractor only runs over budget.
+
+**KI-2c-1 — character-reference decoding differs from the browser (r5 defect 1, Blocking)**
+
+- File: T:67-83 (named map), T:228-245 (decoder), consumed at H:408/H:501; HS:352-354 pins the wrong behaviour
+- Literal input: `<main><p>caf&eacute; &amp without semicolon &#128; &NotEqualTilde;</p></main>` → expected
+  `café & without semicolon € ≂̸`, actual `caf&eacute; &amp without semicolon <U+0080> &NotEqualTilde;`.
+  Raw variant `<main><pre>A&nbsp;B&ensp;C&zwj;D</pre></main>` → expected `A B C‍D`, actual `A B CD`
+- Impact: names, examples and data silently change in a successful `html-extract`; plain text has no later decode
+- Suggested direction: refuse any reference outside the decoded set (unknown named, no semicolon, numeric
+  0x80-0x9F / C1 replacement range); keep `&nbsp;`/`&ensp;`/`&zwj;` as their code points, never as ASCII space or ''
+
+**KI-2c-2 — hidden table ancestry discards browser-fostered visible content (r5 defect 2, Blocking)**
+
+- File: T:763-765, T:823-826; H:414-415, H:571
+- Literal input: `<main><p>shown</p><table hidden><div>VISIBLE</div><tr><td>SECRET</td></tr></table></main>` →
+  expected `shown\n\nVISIBLE` (or refusal), actual `shown`. Variants: hidden `tbody` with a non-cell `div`;
+  `<table><div hidden><tr><td>VISIBLE</td></tr></div></table>` (browser moves the hidden div out; the cell stays visible)
+- Impact: visible main-content text disappears
+- Suggested direction: refuse any table (or table section) that is hidden or has a hidden ancestor/child
+  wrapper while it contains foster-parented (non-table) content; simplest safe rule: refuse any table inside, or
+  containing, a hidden element
+
+**KI-2c-3 — CSS resolution: NBSP normalisation leaks hidden text; `all` reset restoration missed (r5 defect 3, Blocking)**
+
+- File: T:599-606 (JS trim on declarations), T:601-602 (property whitelist), T:648-661 (visibility)
+- Literal inputs (JS strings, ` ` = one NBSP):
+  `'<main><p>shown</p><div style="display:none; display:block">SECRET</div></main>'` → expected `shown`,
+  actual `shown\n\nSECRET`; reverse `'<main><p>shown</p><div style=" display:none">VISIBLE</div></main>'` →
+  browser shows VISIBLE, actual `shown`; `<main><p>shown</p><div hidden style="all:initial">VISIBLE</div></main>`
+  → expected refusal, actual `shown`; child restore
+  `<main><p>shown</p><div style="visibility:hidden">SECRET<span style="all:initial">VISIBLE</span></div></main>`
+  → expected refusal, actual `shown`
+- Impact: the hidden-content boundary fails in both directions, including promotion of hidden text
+- Suggested direction: refuse any `style` value containing non-ASCII whitespace (or any char JS trim removes that
+  CSS does not); refuse any `all:` declaration and any other unsupported visibility-affecting shorthand
+
+**KI-2c-4 — closed `<details>` content is emitted (r5 defect 4, Blocking)**
+
+- File: T:648-661, T:680; H:82, H:456-459 (details rendered as an ordinary block; `open` read only for dialog)
+- Literal input: `<main><p>shown</p><details><summary>Title</summary><div>SECRET</div></details></main>` →
+  expected `shown\n\nTitle` (or refusal), actual `shown\n\nTitle\n\nSECRET`
+- Impact: a collapsed disclosure contributes content that is not visible
+- Suggested direction: refuse on any closed `<details>` (no `open` attribute); keep open-details rendering
+
+**KI-2c-5 — anchor comparison decodes whole text nodes before its bound (r5 defect 5, Serious)**
+
+- File: H:619-623, H:630-633 (claimed href-length bound), H:643, H:653-655
+- Literal recipe: `const cap = 2097152; const prefix = '<a href="/x">'.repeat(500);
+  reduceHtml(prefix + '&amp;'.repeat(Math.floor((cap - prefix.length) / 5)), { budgetTokens: 2000 })` → 2,203 ms
+  at cap (515 ms at 0.5 MB, 1,151 ms at 1 MB; roughly linear, not quadratic)
+- Impact: synchronous host stall above the 1,500 ms threshold
+- Suggested direction: bound anchor decoding by characters — decode/normalise incrementally and stop once
+  `href.length + 1` normalised characters are known, or precompute one bounded summary per subtree
+
+**KI-2c-6 — unfinished anchor comparison treated as inequality (r5 defect 6, Moderate)**
+
+- File: H:624-625, H:643-644, H:660
+- Literal input: `<main><p>go <a href="/x">    /x</a></p></main>` → expected `go /x`, actual `go /x (/x)`.
+  Variant: 25 empty `span`s before `/x` inside the anchor (same duplicate); without `/x` the empty anchor yields `go (/x)`
+- Impact: URL suppression depends on invisible whitespace/empty markup; empty links gain text
+- Suggested direction: keep "unknown" as a distinct state (no annotation, or refuse), annotate only proven
+  non-empty unequal text; count normalised characters, not source characters/nodes
+
+**KI-2c-7 — whitespace-only `<pre>` is dropped (r5 defect 7, Moderate)**
+
+- File: H:517-524 (trim-based emptiness), H:424 (secondary block filter)
+- Literal input (JS string): `'<main><p>shown</p><pre>  \n \n</pre><p>after</p></main>'` → expected
+  `shown\n\n  \n \n\n\nafter` (or refusal), actual `shown\n\nafter`
+- Impact: verbatim whitespace layout lost on a narrow edge case
+- Suggested direction: treat a `pre` with any characters as non-empty; or refuse whitespace-only `pre`
+
+Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no consumer; remove when KI-2c work is scheduled.
+
+### Batch 2c team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `log.reducer.ts` (346 lines), `html.reducer.ts` (669), `html-tree.ts` (881) and both specs (476, 758)
+  are real implementations; no TODO/FIXME/PLACEHOLDER/STUB markers; `index.ts` adds `reduceLog`, `reduceHtml`
+- Test-only timing guards (orchestrator-authorized): `markdown.reducer.spec.ts`, `token-measure.spec.ts`,
+  `content-detector.spec.ts` now use the load-robust relative guard — fastest of three runs; over the absolute
+  bound the run passes only under a 10 s hard ceiling AND within LOAD_FACTOR of a same-load reference input
+- `git diff -- package.json` empty (no new dependency)
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers --skip-nx-cache`
+  → exit 0, lint/typecheck/test all successful (1m 38s, test on the critical path)
+
+### Notes for Batch 2e (added at Batch 2c close)
+
+- The log reducer and the HTML extractor may return MORE than the budget (the log reducer keeps head 40 + tail 80
+  + every error with context; the extractor is main-content text, not a budget fit). The Task 2e.2 cut must run on
+  every reducer result that is still over either limit, never assume a reducer result fits
+- Consolidate the duplicated piece-wise token counter: `lineTokens` + `MAX_PIECE_CHARS = 1024` exist in both
+  `markdown.reducer.ts:309` and `log.reducer.ts:333`. Move one bounded piece-wise counter into `token-measure.ts`
+  (it also answers the Task 2e.1 "does `fitsBudget` count piece-wise" question) and use it from both reducers and
+  the pipeline
+- Every timing spec in the lib now uses the relative timing guard pattern (fastest of three, absolute bound, then
+  10 s hard ceiling + LOAD_FACTOR against a reference input). The Task 2e.1 "65,000-char run < 100 ms" and
+  "1 MB end-to-end < 1 s" specs must use the same pattern
 
 ---
 
-## Batch 2d: Code outline reducer (tree-sitter, existing parser services) — PENDING
+## Batch 2d: Code outline reducer (tree-sitter, existing parser services) — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -664,7 +792,7 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2c (index.ts ordering)
 
-### Task 2d.1: `CodeOutliner` port and the code reducer — PENDING
+### Task 2d.1: `CodeOutliner` port and the code reducer — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/code.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/code.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: context.md User Decision 7 (code → tree-sitter outline, reuse existing parser services)
@@ -673,7 +801,7 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 - Validation notes: RISK "outline unavailable" carried here
 - Implementation details: specs with a fake outliner: outline returned; focus symbol body present; outliner null → fallback; outliner throws → fallback, no throw
 
-### Task 2d.2: Tree-sitter adapter in vscode-lm-tools — PENDING
+### Task 2d.2: Tree-sitter adapter in vscode-lm-tools — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/package.json` (add `@ptah-extension/tool-output-reducers`)
 - Depends on: Task 2d.1

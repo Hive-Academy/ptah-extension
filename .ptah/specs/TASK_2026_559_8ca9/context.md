@@ -36,6 +36,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 11. Batch 2b final narrow fix (user, after the r5 Decision 10 REVISE 5/10 with 2 blocking defects): use the full CommonMark type-1 (`pre`, `script`, `style`, `textarea`) plus type-6 block-tag list, and remove the standalone-comment exception so any `html` token returns the input unchanged. Add both literal regressions. One last independent review: commit if it approves; otherwise commit with its defects recorded as known issues.
 
+12. Batch 2c HTML extractor output (user, after the post-cap r4 REVISE 5/10 with 3 blocking defect groups: incomplete Markdown escaping, adjacent/trimmed code spans, visibility overrides): the extractor emits plain text, not Markdown — no Markdown syntax, so nothing to escape. Headings are their own lines, links are `text (url)`, code keeps its raw text. Conflicting or restored visibility states (e.g. `hidden` with a `display` override, a `visibility:visible` child under `visibility:hidden`) refuse (input unchanged). One more independent review: commit if it approves; otherwise commit with its defects recorded as known issues. The log reducer is accepted as is.
+
 ## Conversation Summary
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
 - Audit scripts to reuse for measurement: `C:/Users/abdal/.ptah-token-audit/` (mcp/bench.py, rerun.py, adoption/*).
