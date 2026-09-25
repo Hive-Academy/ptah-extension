@@ -1216,3 +1216,444 @@ Implicit requirements not addressed: none found beyond the two Minor notes above
 - What a robust implementation would add: an explicit longer timeout on the concurrency-heavy specs, and a
   `recordWorkspaceRoot` contract note (or an actual swallow-and-log) so a Batch 7 caller cannot accidentally
   let a diagnostics-only write failure fail a toggle.
+
+---
+
+# Code Logic Review — Batch 2
+
+## Summary
+
+| Metric              | Value    |
+| -------------------- | ------- |
+| Overall score        | 9/10    |
+| Assessment            | APPROVE |
+| Blocking issues       | 0       |
+| Serious issues        | 0       |
+| Moderate issues       | 1       |
+| Failure modes found   | 1       |
+
+## Scope reviewed
+
+`git diff d003642a9` (base of the b2 worktree) plus the one untracked file, against
+`implementation-plan.md` C1 (`rpc.types.ts:156`) and C8 (`:360-366`), and `batches.md` Batch 2:
+
+- C `libs/shared/src/lib/types/rpc/rpc-capability.types.ts`
+- M `libs/shared/src/lib/types/rpc.types.ts`
+- M `libs/shared/src/lib/types/messages/session-mcp-status.ts` (+ `.spec.ts`, an unplanned but in-scope pair)
+- M `libs/backend/vscode-core/src/messaging/rpc-handler.ts`
+
+This batch is pure contract: three new RPC method signatures, a notice-code union member, and one allowlist
+prefix. There is no handler implementation to trace a data path through yet (that is B10), so the review is
+necessarily about whether the contract is internally consistent, matches what B10/B11/B13 will consume, and
+whether the parser/allowlist changes are safe on their own.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+Not within this batch's own code — the notice parser (`session-mcp-status.ts:150-152`) intentionally drops an
+*unknown* code while keeping the rest of the payload, which is the documented, tested behaviour, not a new
+silent failure. The one adjacent silent-failure risk is external to this batch's diff: `schemas.ts:238-258`
+(`SessionMcpStatusPayloadSchema`, the backend Zod boundary schema) still has `code: z.literal('claude-ai-connectors-disabled')`
+and is `.strict()`. If a future caller feeds a `capability-policy-unverified` notice through that schema (e.g.
+`.safeParse` at a backend emit boundary), the array item fails validation, and because Zod validates each array
+element and the containing object is `.strict()`, a `.parse()` call would throw and a `.safeParse()` would
+return `{success: false}` for the *whole payload* — not just drop the one notice the way the hand-written parser
+does. That is worse than "drop the notice": it would drop the server list too. See Moderate #1.
+
+### 2. What user action produces unexpected behaviour?
+
+None from this batch directly — there is no UI or handler wired to these types yet. The batch's job is to make
+sure a *future* action (toggling a capability, or a session emitting the new notice) has a contract to land on.
+Traced against B10/B11/B13's stated needs (`batches.md:352-358, 363-366`): `CapabilitiesSetEnabledParams` carries
+`scope`, `kind`, `id`, `enabled`, `explicit?` exactly as the plan's C8 handoff expects, and the doc comment at
+`rpc-capability.types.ts:83-86` states the global-scope rejection rule B10 must implement — this is the only
+place that rule is written down pre-B10, and it reads clearly enough for B10 to act on without re-deriving it.
+
+### 3. What input data produces a wrong answer?
+
+Not applicable to this batch — no runtime logic exists here beyond the notice parser, which was already
+reviewed for correctness in question 1. The type-level "input" is the RPC registry entry; `RPC_METHOD_ENTRIES`
+and `RpcMethodRegistry` are kept in sync by the compile-time `_AssertAllRpcMethodsListed` check
+(`rpc.types.ts:3908-3919`), which is exercised by the typecheck that passed.
+
+### 4. What happens when a dependency fails?
+
+N/A — this batch adds no code that calls a dependency. The one relevant "dependency" is the not-yet-existing
+`CapabilityRpcHandlers` (B10) reading `CapabilitiesSetEnabledParams.explicit` for `scope: 'global'`; the contract
+documents the required rejection but cannot enforce it structurally (nothing here stops a caller from setting
+`explicit: true` with `scope: 'global'` at the type level — TypeScript allows the combination since `explicit` is
+a plain optional boolean unconstrained by `scope`). This is fine given the plan explicitly assigns the runtime
+rejection to the B10 handler, but it means a caller mistake is a runtime error, not a compile error — worth
+flagging as a residual gap for B10, not a defect in this batch.
+
+### 5. What is missing that the requirements never mentioned?
+
+- The `capabilities:` allowlist prefix (`rpc-handler.ts:74`) is added with no handlers registered yet, so no
+  method under that prefix can currently be dispatched — this is the expected, documented state for a contract
+  batch (B10 registers the handlers), not a gap.
+  Note the "391 vs 388" `rpc-surface.spec.ts` count mismatch is listed by the requester as a known, expected
+  failure until B11; I did not re-verify that count myself since it falls outside this batch's check command
+  (shared + vscode-core), but the vscode-core `lint,typecheck,test` all passed cleanly, so the allowlist edit
+  itself introduces no regression in this batch's own project.
+- No requirement is silently narrowed: `schemaTokens?` (AC-5.1/5.2) is present on `CapabilityEntry` already
+  (inherited from B1, not re-declared here) and `CapabilitiesGetStateResult = CapabilityInventory` carries it
+  through unchanged.
+
+## Failure modes
+
+### Stale Zod literal on the notice-code union (pre-existing, not from this diff)
+
+- Trigger: any future code path that validates an outgoing `session:mcpStatus` payload containing a
+  `capability-policy-unverified` notice through `SessionMcpStatusPayloadSchema`.
+- Symptom: the whole payload fails Zod validation (not just the one notice), so a caller using `.parse()` throws
+  and one using `.safeParse()` silently produces no emission — the server list is lost along with the notice.
+- Evidence: `libs/shared/src/lib/types/messages/schemas.ts:252` (`z.literal('claude-ai-connectors-disabled')`,
+  `.strict()` object, `.strict()` root) vs. `session-mcp-status.ts:70-72` (`SessionMcpNoticeCode` now has two
+  members).
+- Current handling: confirmed by search — no producer or backend boundary currently imports or calls
+  `SessionMcpStatusPayloadSchema` (`grep -rn "SessionMcpStatusPayloadSchema"` across `libs`/`apps` returns only
+  its own declaration comment and the schemas file itself). So today this is dormant: nothing on any runtime
+  path validates a `capability-policy-unverified` notice with this schema, and the batch's own test
+  (`session-mcp-status.spec.ts:57-71`) exercises only the hand-written parser, which is correct and unaffected.
+- Recommendation: this is out of scope for Batch 2 (it was already flagged as a known, pre-existing gap by the
+  requester), and I confirm the "out-of-scope" framing is accurate — no runtime path uses the stale schema yet.
+  It should still be tracked so whichever future batch wires a backend emit-side validation for
+  `session:mcpStatus` updates the literal to match the union, or the new notice will vanish along with its
+  server list at that point.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+1. (Moderate, informational — not this batch's defect) `libs/shared/src/lib/types/messages/schemas.ts:252` —
+   `SessionMcpStatusPayloadSchema`'s `code: z.literal('claude-ai-connectors-disabled')` was not updated for the
+   new `capability-policy-unverified` member. Confirmed dormant today (see Failure modes above); tracked so it
+   is not forgotten when a backend validation path is added.
+2. (Minor) `rpc-capability.types.ts:68-71` — `CapabilitiesSetEnabledParams` cannot structurally prevent
+   `explicit: true` with `scope: 'global'`; the rejection is enforced only at runtime by B10's handler per the
+   doc comment. A discriminated union (`{scope: 'workspace'; explicit?: boolean} | {scope: 'global'}`) would make
+   the illegal combination unrepresentable, but that is a larger contract change than this batch's remit and the
+   plan already assigns runtime enforcement to B10 — noting it for B10's awareness, not asking for a redo here.
+
+## Data flow
+
+1. `capabilities:setEnabled` params constructed by the (future) Marketplace UI → `CapabilitiesSetEnabledParams`
+   (OK — shape matches `CapabilitySetRequest` minus `cwd`, plus `explicit`).
+2. Dispatched over RPC → `rpc-handler.ts` allowlist check on `capabilities:` prefix (OK — added, passes
+   `vscode-core` typecheck/lint/test).
+3. `RpcMethodRegistry['capabilities:setEnabled']` resolves `params`/`result` types → `RPC_METHOD_ENTRIES` and
+   `RPC_METHOD_NAMES` both updated (OK — compile-time `_AssertAllRpcMethodsListed` guard passed).
+4. (Not yet wired) handler resolves root via `canonicalPolicyRoot`, rejects `explicit` for `scope: 'global'` —
+   documented here, enforced in B10 (gap noted above, expected).
+5. `session:mcpStatus` emission with a `capability-policy-unverified` notice → webview
+   `parseSessionMcpStatusPayload` (OK — new code accepted, old code still accepted, unknown codes still dropped
+   individually) vs. backend `SessionMcpStatusPayloadSchema` (dormant landmine, not exercised today — see
+   Failure modes).
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| `capabilities:getState`/`getEffective`/`setEnabled` added to `RpcMethodRegistry` + `RPC_METHOD_ENTRIES` | COMPLETE | none |
+| No `root`/`cwd` in any of the three params (handler derives canonical root) | COMPLETE | `CapabilitiesGetStateParams`/`GetEffectiveParams` are `Record<string, never>`; `SetEnabledParams` omits `cwd` via `Omit<CapabilitySetRequest, 'cwd'>` |
+| `setEnabled` params carry `scope`/`kind`/`id`/`enabled`/`explicit` | COMPLETE | matches plan C8 and B10's stated needs |
+| `explicit` rejected for `scope: 'global'` documented where B10 will see it | COMPLETE | doc comment at `rpc-capability.types.ts:83-86`, on the field B10 implements against |
+| `'capability-policy-unverified'` added to `SessionMcpNoticeCode` and accepted by the parser | COMPLETE | `NOTICE_CODE_SET` is a `Record<SessionMcpNoticeCode, true>`, so a future union member without a key is a compile error — old code still parses |
+| `capabilities:` allowlist prefix added, minimal | COMPLETE | one line, correctly scoped, no handlers registered yet (expected) |
+| Backend Zod schema (`schemas.ts:252`) kept in sync with the notice union | MISSING (pre-existing, out of scope per requester) | dormant today; see Failure modes |
+
+Implicit requirements not addressed: none found beyond the tracked, dormant Zod-schema drift.
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Old `claude-ai-connectors-disabled` notice still parses after the union grew | YES | `session-mcp-status.spec.ts` existing case + `NOTICE_CODE_SET` includes it | none |
+| New `capability-policy-unverified` notice parses via the hand-written webview parser | YES | new spec case `:57-71`, asserts round-trip equality | none |
+| A third, still-unknown notice code | YES | dropped individually, servers kept — unchanged prior behaviour | none |
+| `capability-policy-unverified` validated via the backend Zod schema | NO | schema literal not updated | dormant; see Failure modes/Moderate #1 |
+| `capabilities:setEnabled` with `scope: 'global', explicit: true` | NOT YET (by design) | type allows it; rejection deferred to B10's handler | tracked as Minor #2 for B10 |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: the dormant `schemas.ts:252` literal drift — harmless today because nothing calls that schema, but
+  a real "notice silently vanishes with its server list" defect the day a backend emit-path validation is added
+  without updating it.
+- What a robust implementation would add: update the Zod literal to a union (or generate it from
+  `SessionMcpNoticeCode` the way `NOTICE_CODE_SET` does) in whichever future batch first wires backend-side
+  validation for `session:mcpStatus`, and consider a discriminated union on `CapabilitiesSetEnabledParams` so
+  `explicit`+`global` is unrepresentable rather than runtime-rejected.
+
+# Code Logic Review — Batch 8
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| Overall score | 8/10 |
+| Assessment | APPROVE |
+| Blocking issues | 0 |
+| Serious issues | 0 |
+| Moderate issues | 2 |
+| Failure modes found | 3 |
+
+## Scope examined
+
+Full-file reads and `git diff` of all 8 uncommitted files under
+`libs/backend/agent-sdk/src/lib/helpers/`: `sdk-query-options-builder.ts` (+ new
+`.capabilities.spec.ts`), `sdk-query-runner.service.ts` (+ spec), `sdk-model-service.ts` (+ spec),
+`session-lifecycle/session-query-executor.service.ts` (+ `.harness-preflight.spec.ts`), and the two
+unplanned files `session-lifecycle-manager.ts` and `sdk-query-options-builder.output-style.spec.ts`.
+Also read: `batches.md` Batch 8 (incl. P9 reviewer acceptance items), `implementation-plan.md` C5
+(~319-346) and Fail-closed policy (~112-130), and traced DI registration order in
+`libs/backend/agent-sdk/src/lib/di/register.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`,
+`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`, `libs/backend/cli-engine/src/lib/container.ts`.
+Ran `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p
+@ptah-extension/agent-sdk --parallel=2` myself: lint, typecheck and test all pass (1 project, no
+failures).
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+Nothing found that reports success while quietly widening access — the design is deliberately
+fail-closed and every unverified/throwing path degrades to strict MCP + `skills: []` (verified by
+`sdk-query-options-builder.capabilities.spec.ts:332-420`,
+`sdk-query-runner.service.spec.ts:380-495`, `session-query-executor.harness-preflight.spec.ts:232-278`).
+The one soft spot: `SessionQueryExecutor.syncHarnessToPolicy`
+(`session-query-executor.service.ts:610-625`) logs a swallowed `HarnessPolicySync.apply` throw and an
+unacknowledged pass, then lets the session continue exactly as if the harness were in sync — this is
+the documented design (`skillOverrides` already denies skills natively), not a bug, but it means a
+persistently-broken harness writer produces no user-visible signal beyond an `IOutputChannel` log line
+that nobody is required to read. Not scored as a defect because the plan explicitly calls this
+non-fatal (C5a).
+
+### 2. What user action produces unexpected behaviour?
+
+A user who explicitly approves a remote MCP server through the chat UI or the Ptah CLI proxy's
+`X-Ptah-Mcp-Servers` header (`mcpServersOverride`, e.g. an OAuth or Smithery server) sees that server
+silently vanish from the session the moment the capability policy is unverified — not because the
+server was ever put through `capabilities:setEnabled`, but because `filterMcpServersByPolicy`
+(`sdk-query-options-builder.ts:1178-1198`) drops every non-ptah entry when
+`policy.status !== 'verified'`. This matches the plan's stated fail-closed behaviour (§Fail-closed
+policy, "strictMcpConfig: true with ptah only") and is proven by the spec at
+`sdk-query-options-builder.capabilities.spec.ts:347-360` ("runs strict MCP with ptah only and skills:
+[]" using an `other` override). It is "unexpected" only in the sense that the user did nothing wrong —
+their own store, not the override, is what became unreadable — and the only user-facing signal is the
+`capability-policy-unverified` chat chip notice, which names the unreadable path but not which servers
+were dropped.
+
+### 3. What input data produces a wrong answer?
+
+None found in the reviewed files that produces a wrong (rather than a maximally-restrictive) answer.
+`capabilityFlagsFor` and `filterMcpServersByPolicy` are pure functions over the resolved
+`EffectiveCapabilitySet`; every branch that could misclassify a server (duplicate names, ptah appearing
+in a caller's `deniedMcpServers`, back-off overlapping an approval) is deduplicated with `Set`/
+`uniqueNames` and covered by a named spec case (`sdk-query-options-builder.capabilities.spec.ts:430-436`,
+`:260-268`).
+
+### 4. What happens when a dependency fails?
+
+- `ICapabilityResolver.resolve` throws or is unregistered → `resolveSessionCapabilityPolicy`
+  (`sdk-query-options-builder.ts:558-584`) catches and returns `unverifiedCapabilityPolicy`, logging
+  through the injected logger. Covered for the executor, the runner and the builder's own fallback path.
+- `HarnessPolicySync.apply` throws or returns `acknowledged: false` →
+  `session-query-executor.service.ts:596-625` swallows it, logs, and the session continues (see Q1).
+- The SDK module itself failing to load is unaffected by this batch (unchanged upstream code path).
+
+### 5. What is missing that the requirements never mentioned?
+
+- No metric/telemetry counts how often sessions run unverified in production, so a systemic problem
+  (e.g. a corrupt global store affecting every workspace) would only be visible by reading logs one
+  session at a time. The plan does not ask for this, but Batch 8 is exactly where the signal originates.
+- Nothing in this batch's specs exercises the real DI container end-to-end (host wiring is asserted only
+  by manual trace, see Cross-batch items below) — the mock-resolver unit specs cannot catch a container
+  registration-order regression the way a container-level smoke test could.
+
+## Failure modes
+
+### Defense-in-depth gap for ptah when unverified
+
+- Trigger: policy status is `'unverified'` AND the resolver's partial read determined `ptahEnabled:
+  false` (a readable store saying ptah is OFF, even though something else made the policy unverified).
+- Symptom: none visible under current code — `filterMcpServersByPolicy` still omits ptah from
+  `mcpServers`, and `strictMcpConfig: true` means nothing outside that map can load. But the flag-tier
+  list itself (`deniedMcpServers`/`disabledMcpjsonServers` in `Options.settings`) does not name ptah in
+  this branch, unlike the verified-and-OFF branch which explicitly adds it (`sdk-query-options-builder.ts:481`).
+- Evidence: `sdk-query-options-builder.ts:472-477` (`capabilityFlagsFor`'s unverified early return omits
+  `PTAH_MCP_SERVER_NAME` from `deniedMcpServers` even when `!policy.ptahEnabled`), contrast with
+  `:479-483` (verified branch explicitly adds it). The spec at `:362-369` ("omits ptah only when a
+  readable store says it is OFF") only asserts `options.mcpServers` is empty; it never asserts
+  `built.settings['deniedMcpServers']` contains `{ serverName: 'ptah' }` the way the verified-off test at
+  `:249-258` does.
+- Current handling: relies solely on `filterMcpServersByPolicy`'s direct `mcpServers` filtering plus
+  `strictMcpConfig: true`.
+- Recommendation: for symmetry and defense-in-depth parity with the verified branch, add
+  `PTAH_MCP_SERVER_NAME` to the unverified branch's `deniedMcpServers` when `!policy.ptahEnabled`, and add
+  a spec assertion on the flag-tier list for that case. Moderate, not Serious, because `strictMcpConfig`
+  already makes the `mcpServers` map authoritative — no known path lets ptah load through the flag tier
+  alone.
+
+### Local notice-code cast outlives its constant (B2 dependency)
+
+- Trigger: none at runtime — this is a static-typing workaround, not a behavioural bug.
+- Symptom: `sdk-query-options-builder.ts:595-596` widens the literal `'capability-policy-unverified'`
+  to `SessionMcpNotice['code']` via `as`, because `SessionMcpNoticeCode` in this worktree still only
+  contains `'claude-ai-connectors-disabled'` (`libs/shared/src/lib/types/messages/session-mcp-status.ts:64`)
+  — B2's union extension has not landed on this branch/worktree yet.
+- Evidence: `sdk-query-options-builder.ts:595-596,609`.
+- Current handling: the cast is harmless today (the value is still a plain string compared/parsed
+  structurally elsewhere), and Batch 8's own spec (`:371-388`) proves the notice round-trips correctly.
+- Recommendation: once B2 lands `SessionMcpNoticeCode |= 'capability-policy-unverified'` in this
+  worktree/branch, remove the `as SessionMcpNotice['code']` cast and the
+  `CAPABILITY_POLICY_UNVERIFIED_CODE` intermediate constant, and let the literal be checked directly
+  against the real union — otherwise a future rename of that union member on the B2 side would compile
+  silently wrong here.
+
+### Harness preflight is now gated on the capability resolver being registered
+
+- Trigger: any host container where `SDK_CAPABILITY_RESOLVER` is not yet bound (true of every host in
+  this worktree today, since B7 Task 7.3 — the DI registration — has not landed: `grep
+  SDK_CAPABILITY_RESOLVER libs/backend/cli-agent-runtime/src/lib/di/register.ts` returns nothing).
+- Symptom: every session in every host currently runs fail-closed (strict MCP, ptah only, `skills: []`,
+  **no harness preflight/sync at all** — `session-query-executor.service.ts:596-604` returns early
+  whenever `policy.status !== 'verified'`), which is a behavioural narrowing versus pre-Batch-8, where
+  `IHarnessPreflight.ensure` ran unconditionally once a host bound `HARNESS_PREFLIGHT_TOKEN`, independent
+  of any capability concept.
+- Evidence: `session-query-executor.service.ts:596-604`; confirmed empty grep for
+  `SDK_CAPABILITY_RESOLVER` in `libs/backend/cli-agent-runtime/src/lib/di/register.ts` (this worktree,
+  2026-09-26).
+- Current handling: this is the documented, intended design (Fail-closed policy §Harness: "The reconciler
+  freezes" under an unknown policy) and it is *correct* once B7 finishes registering the resolver. It is
+  flagged here only because Batch 8 is the point where the regression risk becomes live: until B7 Task
+  7.3 lands, this branch's behaviour is a genuine regression from main (harness preflight silently stops
+  running everywhere), and nothing in Batch 8's own test suite can catch that — its specs mock the
+  resolver directly.
+- Recommendation: track as a cross-batch landing-order dependency (below), not a Batch 8 code defect.
+  When B7 lands, re-run a host-level smoke check (or a lightweight container-resolution spec) confirming
+  `SDK_CAPABILITY_RESOLVER` and `SDK_HARNESS_POLICY_SYNC` are both bound before `SessionLifecycleManager`
+  is ever resolved.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+- Moderate: ptah defense-in-depth gap in the unverified branch of `capabilityFlagsFor` —
+  `sdk-query-options-builder.ts:472-477` (see Failure modes).
+- Minor: the `CAPABILITY_POLICY_UNVERIFIED_CODE` cast at `sdk-query-options-builder.ts:595-596` must be
+  removed once B2 lands in this worktree (see Failure modes; tracked below as a cross-batch item, not
+  scored against Batch 8).
+
+## Data flow
+
+1. `SessionQueryExecutor.executeQuery` (`session-query-executor.service.ts:343-350`) resolves ONE
+   `EffectiveCapabilitySet` snapshot via `resolveCapabilityPolicy` → `resolveSessionCapabilityPolicy`. OK
+   — never throws, always returns a value.
+2. The SAME snapshot is passed to `syncHarnessToPolicy` (harness sync, verified-only) and then to
+   `builder.build({..., capabilityPolicy})` (`:421` / `:610-625`). OK — proven by the harness-preflight
+   spec's "hands the builder the SAME policy snapshot the sync used" (`:173-183`), so no second resolve
+   can race the first and desync the harness copies from the flags.
+3. Inside `build()`, `sessionCapabilityPolicy` (`:1383-1411`) re-validates: a caller-supplied policy is
+   used as-is (with a warn log if unverified); a missing one (a caller outside the executor) is replaced
+   by a fresh unverified fallback. OK — a caller that forgets to pass a policy can only narrow a session,
+   never widen one.
+4. `capabilityFlagsFor(policy, backingOffServers)` and `filterMcpServersByPolicy(...)` derive the
+   flag-tier settings and the actual `mcpServers` map from that one snapshot. OK for the verified path;
+   see the Moderate finding for the unverified+ptah-off asymmetry.
+5. `capabilityIsolationOptions(policy)` spreads `strictMcpConfig`/`skills` onto the built `Options` AFTER
+   `mcpServers` is set (`:1149-1195`), so an unverified session's isolation flags cannot be shadowed by an
+   earlier assignment. OK.
+6. `SdkQueryRunner.runOneShot` (`sdk-query-runner.service.ts:283-296`) resolves its OWN policy
+   independently (one-shots are not funnelled through the executor) but reuses the same
+   `capabilityFlagsFor`/`filterMcpServersByPolicy`/`capabilityIsolationOptions` helpers with an empty
+   back-off list. OK — same enforcement, proven by `sdk-query-runner.service.spec.ts:380-495`.
+7. `SdkModelService`'s probe bypasses the policy machinery entirely and hardcodes
+   `strictMcpConfig: true, mcpServers: {}, skills: []` (`sdk-model-service.ts:837-842`). OK — the probe
+   never needs a real MCP server or skill, so hardcoding is stricter than policy-driven and needs no
+   resolver dependency.
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| Verified policy → flag-tier deny/approve (`deniedMcpServers`, `disabledMcpjsonServers`, `enabledMcpjsonServers` explicit-only, `skillOverrides`) | COMPLETE | none |
+| ptah filtered only when explicitly OFF; extra flag-tier deny of ptah | COMPLETE | verified branch only (see Moderate finding for the unverified branch) |
+| Back-off still suppresses, wins over explicit approval (AC-4.7) | COMPLETE | proven both verified and unverified |
+| Direct vs proxied build parity | COMPLETE | `sdk-query-options-builder.capabilities.spec.ts:220-241` asserts identical capability keys |
+| Unverified → strict MCP + ptah only + `skills: []` + notice | COMPLETE | none |
+| Unverified: caller-supplied extra `mcpServersOverride` dropped | COMPLETE (by design) | confirmed no legitimate caller (chat OAuth/Smithery, Ptah CLI proxy header) is exempted; matches Fail-closed policy §Claude chat |
+| `HarnessPolicySync.apply` runs on every session start when verified, with force semantics unchanged | COMPLETE | same `apply(physicalRoot, fingerprint)` contract as B5; order-before-build proven at `session-query-executor.harness-preflight.spec.ts:160-171` |
+| One-shots apply the same flags or strict when unverified | COMPLETE | `sdk-query-runner.service.spec.ts:380-495` |
+| Model probe: `strictMcpConfig: true`, `mcpServers: {}`, `skills: []` | COMPLETE | `sdk-model-service.spec.ts:527-544` |
+| Reviewer acceptance (P9): flags come only from `EffectiveCapabilitySet`, never the loader's workspace-only sync methods | COMPLETE | no import of `resolveCurrentPluginPaths`/`getDisabledSkillIds`/`getWorkspacePluginConfig` anywhere in the 8 reviewed files (grep confirmed) |
+
+Implicit requirements not addressed: telemetry/metrics for how often sessions run unverified (see Q5);
+a container-level (not mock-resolver) regression test for DI ordering (see Cross-batch items).
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Resolver not registered | YES | `resolveSessionCapabilityPolicy` returns unverified fallback | none |
+| Resolver throws | YES | same fallback, logged with real error detail, fixed UI-facing reason | none |
+| No workspace path known (`projectPath` undefined) | YES | executor skips policy resolution and harness sync entirely, builder still fails closed | none |
+| Unacknowledged harness pass | YES | logged, session continues (documented non-fatal) | none |
+| `HarnessPolicySync.apply` throws | YES | caught, logged, session continues | none |
+| Back-off server the policy leaves ON | YES | still suppressed, both verified and unverified | none |
+| Denied server present in a caller's `mcpServersOverride` | YES | removed by `filterMcpServersByPolicy` | none |
+| Global-OFF skill / plugin-child skill (bare + `plugin:skill`) | YES | denied via `skillOverrides`, sourced from `deniedSkillNames` only | none |
+| Direct vs proxied (custom base URL) session | YES | identical flag-tier lists proven by spec | none |
+| Unverified session with a partially-readable store (`ptahEnabled: false`) | PARTIAL | `mcpServers` correctly omits ptah | flag-tier list does not also deny it (Moderate finding) |
+| DI: `SDK_CAPABILITY_RESOLVER` registered after `SessionLifecycleManager` is first resolved | YES (by construction) | `useClass` + `Lifecycle.Singleton` registration is lazy in tsyringe; traced `registerSdkServices` → `registerCliAgentRuntimeServices` ordering in all three hosts (electron, vscode, cli-engine) and found no eager `.resolve()` call between them | no container-level regression test exists to pin this ordering going forward |
+
+## Cross-batch items
+
+1. **B7 Task 7.3 must register `SDK_CAPABILITY_RESOLVER` (and confirm `SDK_CAPABILITY_GLOBAL_LAYER`)
+   before this branch reaches a working state.** Until then, every session in every host runs fail-closed
+   (no harness preflight at all — see Failure modes #3). This is expected mid-branch behaviour per the
+   wave plan (B7 precedes B8 in dependency order but both are "IN_PROGRESS"/being landed close together),
+   not a Batch 8 defect, but the team-leader should re-run a live smoke check after B7 lands to confirm
+   `syncHarnessToPolicy` actually executes again for a verified workspace.
+2. **DI ordering regression guard.** Traced host wiring by hand for `apps/ptah-electron/src/di/phase-2-libraries.ts`,
+   `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts` and `libs/backend/cli-engine/src/lib/container.ts`:
+   all three call `registerSdkServices(container, logger)` before `registerCliAgentRuntimeServices(container,
+   logger)`, and `SessionLifecycleManager` is registered with `{ useClass: ... }` + `Lifecycle.Singleton`
+   (`libs/backend/agent-sdk/src/lib/di/register.ts:356-360`), which tsyringe resolves lazily — no eager
+   `.resolve(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)` call was found between the two registration calls in
+   any of the three hosts (grepped all `SDK_SESSION_LIFECYCLE_MANAGER` references; every other consumer is
+   itself an `@inject`-based constructor param, resolved even later in phase-3/4 handler wiring). No defect
+   found, but recommend B11/B12 (host wiring batches) add one lightweight container-resolution spec per host
+   asserting `container.resolve(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)` yields a manager whose
+   `capabilityResolver` is non-null, so a future reordering of the two `register*Services` calls fails a test
+   instead of silently reintroducing fail-closed-everywhere.
+3. **`CAPABILITY_POLICY_UNVERIFIED_CODE` cast** (`sdk-query-options-builder.ts:595-596`) must be removed
+   once B2's `SessionMcpNoticeCode` union extension lands in this worktree/branch (see Failure modes #2).
+4. Reviewer acceptance item confirmed: the local ptah defense-in-depth asymmetry (Moderate finding #1) is
+   independent of B2/B7 landing order and can be fixed within Batch 8 itself without waiting on either.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: none blocking Batch 8 itself; the only live risk is the cross-batch landing-order dependency
+  on B7 Task 7.3 (capability resolver DI registration), which the team-leader must re-verify live once B7
+  merges, since nothing in Batch 8's mock-resolver test suite can detect that regression class.
+- What a robust implementation would add: symmetric ptah defense-in-depth in the unverified branch of
+  `capabilityFlagsFor`; a container-level DI-ordering regression spec per host; removal of the
+  `CAPABILITY_POLICY_UNVERIFIED_CODE` cast once B2 lands; basic telemetry/counter for sessions running
+  under an unverified capability policy.
