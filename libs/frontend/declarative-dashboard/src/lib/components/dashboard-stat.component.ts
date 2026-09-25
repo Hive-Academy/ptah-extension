@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, input, output, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, input, output, viewChild, type InputSignal } from '@angular/core';
 import type { SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceComponentViewState } from '../surface-view-state';
 import type { DisplayNode } from '../view-model/view-model.types';
@@ -40,7 +40,7 @@ let nextStatInstance = 0;
   `,
 })
 export class DashboardStatComponent {
-  public readonly node = input.required<StatNode>();
+  public readonly node: InputSignal<StatNode> = input.required<StatNode>();
   public readonly surfaceId = input('');
   public readonly viewState = input<SurfaceComponentViewState>({});
   public readonly selection = input<SurfaceSelection | null>(null);

@@ -1,3 +1,10 @@
+export {
+  SurfaceRendererComponent,
+  SURFACE_VIEW_MODEL_BUILDER,
+} from './lib/components/surface-renderer.component';
+export type { SurfaceViewModelBuilder } from './lib/components/surface-renderer.component';
+export { buildSurfaceViewModel } from './lib/view-model/surface-view-model';
+export type { SurfaceViewModelBuild } from './lib/view-model/surface-view-model';
 export { SURFACE_PAGE_SIZE } from './lib/surface-view-state';
 export type {
   SurfaceRenderable,

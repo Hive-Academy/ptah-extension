@@ -11,12 +11,19 @@ import {
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceInputCommit } from '../surface-interaction';
 import type { InputNode } from '../view-model/view-model.types';
+import {
+  describedByOf,
+  displayedInputValue,
+  inputErrorText,
+  issueIdOf,
+  issueTextsOf,
+  NO_DRAFTS,
+  NO_ISSUES,
+  NO_PENDING_VALUES,
+} from './surface-input-messages';
 
 export type CheckboxInputNode = Extract<InputNode, { readonly kind: 'checkbox' }>;
 
-const NO_DRAFTS: Readonly<Record<string, SurfaceDataValue>> = {};
-const NO_PENDING_VALUES: ReadonlyMap<string, SurfaceDataValue> = new Map();
-const NO_ISSUES: ReadonlyMap<string, readonly string[]> = new Map();
 let nextCheckboxInputInstance = 0;
 
 /**
@@ -58,36 +65,20 @@ export class SurfaceCheckboxInputComponent {
   public readonly inputCommit = output<SurfaceInputCommit>();
 
   /** Rule 4 order: the draft over the pending overlay over the host value. */
-  public readonly displayedValue = computed<SurfaceDataValue>(() => {
-    const node = this.node();
-    const draft = this.drafts()[node.id];
-    if (draft !== undefined) return draft;
-    const pending = this.pendingValues().get(node.path);
-    return pending !== undefined ? pending : node.hostValue;
-  });
+  public readonly displayedValue = computed<SurfaceDataValue>(() =>
+    displayedInputValue(this.node(), this.drafts(), this.pendingValues()));
   public readonly checked = computed(() => this.displayedValue() === true);
   public readonly required = computed(() => this.node().hints?.required === true);
-  public readonly issueTexts = computed((): readonly string[] => {
-    const issues: unknown = this.issues().get(this.node().id);
-    if (!Array.isArray(issues)) return [];
-    return issues.flatMap((issue: unknown) => typeof issue === 'string' ? [issue] : []);
-  });
-  public readonly errorText = computed(() => {
-    const node = this.node();
-    if (this.drafts()[node.id] === undefined && node.draftError !== undefined) return node.draftError;
-    const check = checkDraftValue(node, this.displayedValue());
-    return check.ok ? undefined : check.reason;
-  });
+  public readonly issueTexts = computed(() => issueTextsOf(this.issues(), this.node().id));
+  public readonly errorText = computed(() => inputErrorText(this.node(), this.drafts(), this.displayedValue()));
   public readonly hasError = computed(() => this.errorText() !== undefined || this.issueTexts().length > 0);
-  public readonly describedBy = computed(() => {
-    const ids: string[] = [];
-    if (this.errorText() !== undefined) ids.push(this.errorId);
-    this.issueTexts().forEach((_, index) => ids.push(this.issueId(index)));
-    return ids.length > 0 ? ids.join(' ') : null;
-  });
+  public readonly describedBy = computed(() => describedByOf(this.controlId, {
+    errorId: this.errorText() !== undefined ? this.errorId : undefined,
+    issueCount: this.issueTexts().length,
+  }));
 
   public focusKey(control: string): string { return `${this.surfaceId()}:${this.node().id}:${control}`; }
-  public issueId(index: number): string { return `${this.controlId}-issue-${index}`; }
+  public issueId(index: number): string { return issueIdOf(this.controlId, index); }
 
   public toggle(control: HTMLInputElement): void {
     const value = control.checked;

@@ -14,6 +14,18 @@ import {
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceInputCommit } from '../surface-interaction';
 import type { InputNode } from '../view-model/view-model.types';
+import {
+  committedInputValue,
+  describedByOf,
+  displayedInputValue,
+  inputErrorText,
+  issueIdOf,
+  issueTextsOf,
+  NO_DRAFTS,
+  NO_ISSUES,
+  NO_PENDING_VALUES,
+  plainText,
+} from './surface-input-messages';
 
 export type TextInputNode = Extract<InputNode, { readonly kind: 'text' }>;
 
@@ -38,15 +50,7 @@ interface TypedText {
 
 /** Commits this many milliseconds after the last keystroke (plan:768). */
 export const SURFACE_TEXT_COMMIT_DEBOUNCE_MS = 600;
-const NO_DRAFTS: Readonly<Record<string, SurfaceDataValue>> = {};
-const NO_PENDING_VALUES: ReadonlyMap<string, SurfaceDataValue> = new Map();
-const NO_ISSUES: ReadonlyMap<string, readonly string[]> = new Map();
 let nextTextInputInstance = 0;
-
-function plainText(value: unknown): string | undefined {
-  return value !== null && typeof value === 'object' && typeof (value as { readonly text?: unknown }).text === 'string'
-    ? (value as { readonly text: string }).text : undefined;
-}
 
 /**
  * Text input, single-line or `multiline`. Drafts every keystroke into view
@@ -107,8 +111,10 @@ export class SurfaceTextInputComponent {
   private typed: TypedText | null = null;
   /**
    * The `drafts` object in force at the last successful commit, and the id it
-   * was for. Until the parent passes a new `drafts` object, its entry for that
-   * id is the draft just consumed and must not commit a second time.
+   * was for. Until the parent passes a different `drafts` object, its entry for
+   * that id is the draft just consumed and must not commit a second time. Once
+   * a different object is seen (see `releaseConsumed`) the marker is gone, so a
+   * parent that later restores that same object again can commit it.
    */
   private consumed: { readonly componentId: string; readonly drafts: Readonly<Record<string, SurfaceDataValue>> } | null = null;
 
@@ -121,29 +127,21 @@ export class SurfaceTextInputComponent {
   public constructor() {
     inject(DestroyRef).onDestroy(() => this.clearDebounce());
     effect(() => {
-      const node = this.node();
       const drafts = this.drafts();
-      if (this.typed !== null && this.isStale(this.typed, node, drafts)) this.dropTyped();
+      this.releaseConsumed(drafts);
+      this.reconcileTyped(this.node(), drafts);
     });
   }
 
   /** Rule 4 order: the draft over the pending overlay over the host value. */
-  public readonly displayedValue = computed<SurfaceDataValue>(() => {
-    const node = this.node();
-    const draft = this.drafts()[node.id];
-    if (draft !== undefined) return draft;
-    const pending = this.pendingValues().get(node.path);
-    return pending !== undefined ? pending : node.hostValue;
-  });
+  public readonly displayedValue = computed<SurfaceDataValue>(() =>
+    displayedInputValue(this.node(), this.drafts(), this.pendingValues()));
   public readonly displayedText = computed(() => {
     const value = this.displayedValue();
     return typeof value === 'string' ? value : '';
   });
   /** What a commit is compared against: the pending overlay over the host value. */
-  private readonly baseline = computed<SurfaceDataValue>(() => {
-    const pending = this.pendingValues().get(this.node().path);
-    return pending !== undefined ? pending : this.node().hostValue;
-  });
+  private readonly baseline = computed<SurfaceDataValue>(() => committedInputValue(this.node(), this.pendingValues()));
   public readonly multiline = computed(() => this.node().multiline === true);
   public readonly required = computed(() => this.node().hints?.required === true);
   public readonly placeholder = computed(() => {
@@ -151,30 +149,18 @@ export class SurfaceTextInputComponent {
     return typeof placeholder === 'string' ? placeholder : null;
   });
   public readonly description = computed(() => plainText(this.node().description));
-  public readonly issueTexts = computed((): readonly string[] => {
-    const issues: unknown = this.issues().get(this.node().id);
-    if (!Array.isArray(issues)) return [];
-    return issues.flatMap((issue: unknown) => typeof issue === 'string' ? [issue] : []);
-  });
+  public readonly issueTexts = computed(() => issueTextsOf(this.issues(), this.node().id));
   /** The current draft's error wins over the node's host-read error. */
-  public readonly errorText = computed(() => {
-    const node = this.node();
-    const draft = this.drafts()[node.id];
-    if (draft === undefined && node.draftError !== undefined) return node.draftError;
-    const check = checkDraftValue(node, this.displayedValue());
-    return check.ok ? undefined : check.reason;
-  });
+  public readonly errorText = computed(() => inputErrorText(this.node(), this.drafts(), this.displayedValue()));
   public readonly hasError = computed(() => this.errorText() !== undefined || this.issueTexts().length > 0);
-  public readonly describedBy = computed(() => {
-    const ids: string[] = [];
-    if (this.description() !== undefined) ids.push(this.hintId);
-    if (this.errorText() !== undefined) ids.push(this.errorId);
-    this.issueTexts().forEach((_, index) => ids.push(this.issueId(index)));
-    return ids.length > 0 ? ids.join(' ') : null;
-  });
+  public readonly describedBy = computed(() => describedByOf(this.controlId, {
+    hintId: this.description() !== undefined ? this.hintId : undefined,
+    errorId: this.errorText() !== undefined ? this.errorId : undefined,
+    issueCount: this.issueTexts().length,
+  }));
 
   public focusKey(control: string): string { return `${this.surfaceId()}:${this.node().id}:${control}`; }
-  public issueId(index: number): string { return `${this.controlId}-issue-${index}`; }
+  public issueId(index: number): string { return issueIdOf(this.controlId, index); }
 
   /** Local only: a draft write and a restarted idle timer, never a commit. */
   public draftInput(text: string): void {
@@ -221,16 +207,21 @@ export class SurfaceTextInputComponent {
   }
   /**
    * The draft a commit may send: the typed text while it is still current,
-   * otherwise this node's `drafts` entry unless that entry was already consumed.
+   * otherwise this node's `drafts` entry unless that entry was already consumed
+   * and no different `drafts` object has been seen since.
    */
   private currentDraft(): SurfaceDataValue | undefined {
     const node = this.node();
     const drafts = this.drafts();
-    if (this.typed !== null && this.isStale(this.typed, node, drafts)) this.dropTyped();
+    this.releaseConsumed(drafts);
+    this.reconcileTyped(node, drafts);
     if (this.typed !== null) return this.typed.text;
-    const consumed = this.consumed;
-    if (consumed !== null && consumed.drafts === drafts && consumed.componentId === node.id) return undefined;
+    if (this.consumed !== null && this.consumed.componentId === node.id) return undefined;
     return drafts[node.id];
+  }
+  /** The consumed marker lasts only until a different `drafts` object is seen. */
+  private releaseConsumed(drafts: Readonly<Record<string, SurfaceDataValue>>): void {
+    if (this.consumed !== null && this.consumed.drafts !== drafts) this.consumed = null;
   }
   /**
    * Typed text is stale once the node identity or host value changes, or once
@@ -238,6 +229,17 @@ export class SurfaceTextInputComponent {
    * was removed or replaced). The same `drafts` object means the parent has not
    * yet round-tripped the write, so the typed text still stands.
    */
+  /**
+   * Drops stale typed text, or re-keys it to the first new `drafts` object
+   * that holds it: from then on, only that object vouches for it, so a parent
+   * that restores the older object (the one it was typed against) is obeyed.
+   */
+  private reconcileTyped(node: TextInputNode, drafts: Readonly<Record<string, SurfaceDataValue>>): void {
+    const typed = this.typed;
+    if (typed === null) return;
+    if (this.isStale(typed, node, drafts)) this.dropTyped();
+    else if (drafts !== typed.drafts) this.typed = { ...typed, drafts };
+  }
   private isStale(typed: TypedText, node: TextInputNode, drafts: Readonly<Record<string, SurfaceDataValue>>): boolean {
     if (typed.componentId !== node.id || typed.path !== node.path) return true;
     if (!Object.is(typed.hostValue, node.hostValue)) return true;

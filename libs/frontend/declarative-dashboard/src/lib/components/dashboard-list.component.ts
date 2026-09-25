@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, ElementRef, input, output, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, input, output, viewChild, type InputSignal } from '@angular/core';
 import type { SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { SURFACE_PAGE_SIZE, type SurfaceComponentViewState } from '../surface-view-state';
 import { pageSlice } from '../table/table-rows';
@@ -79,7 +79,7 @@ function plainText(value: unknown): string | undefined {
   `,
 })
 export class DashboardListComponent {
-  public readonly node = input.required<ListNode>();
+  public readonly node: InputSignal<ListNode> = input.required<ListNode>();
   public readonly surfaceId = input('');
   public readonly viewState = input<SurfaceComponentViewState>({});
   public readonly selection = input<SurfaceSelection | null>(null);

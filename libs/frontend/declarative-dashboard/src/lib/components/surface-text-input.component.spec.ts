@@ -277,6 +277,26 @@ describe('SurfaceTextInputComponent', () => {
       control().dispatchEvent(new Event('blur'));
       expect(host.commits).toHaveLength(1);
     });
+
+    it.each([
+      ['blur', () => new Event('blur')],
+      ['Enter', () => new KeyboardEvent('keydown', { key: 'Enter' })],
+    ])('commits a restored, previously consumed drafts object once a different one was seen (%s)', (_name, commitEvent) => {
+      const { host, type, control, rerender } = setup();
+      type('a');
+      const checkpoint = host.drafts();
+      control().dispatchEvent(commitEvent());
+      host.node.set(textNode({}, { form: { reason: 'new host' } }));
+      rerender();
+      expect(control().value).toBe('new host');
+      host.drafts.set(checkpoint);
+      rerender();
+      expect(control().value).toBe('a');
+      control().dispatchEvent(commitEvent());
+      control().dispatchEvent(commitEvent());
+      jest.advanceTimersByTime(SURFACE_TEXT_COMMIT_DEBOUNCE_MS * 2);
+      expect(host.commits).toEqual([{ componentId: 'reason', value: 'a' }, { componentId: 'reason', value: 'a' }]);
+    });
   });
 
   describe('typed text is dropped when it is no longer what the UI shows (F2)', () => {
@@ -329,6 +349,19 @@ describe('SurfaceTextInputComponent', () => {
       rerender();
       control().dispatchEvent(new Event('blur'));
       expect(host.commits).toEqual([{ componentId: 'reason', value: 'keep me' }]);
+    });
+
+    it('obeys a parent that restores the drafts object the text was typed against', () => {
+      const { host, type, control, rerender } = setup();
+      type('a');
+      const typedAgainst = host.drafts();
+      type('ab');
+      host.drafts.set(typedAgainst);
+      rerender();
+      expect(control().value).toBe('a');
+      control().dispatchEvent(new Event('blur'));
+      jest.advanceTimersByTime(SURFACE_TEXT_COMMIT_DEBOUNCE_MS * 2);
+      expect(host.commits).toEqual([{ componentId: 'reason', value: 'a' }]);
     });
   });
 });

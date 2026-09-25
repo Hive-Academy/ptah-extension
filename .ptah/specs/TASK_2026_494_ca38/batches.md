@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 13/20
+Total tasks: 20 | Batches: 20 | Complete: 14/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -346,7 +346,7 @@ Edge cases:
 - Optional: a direct spec for applied -> "Sent"; the unreachable `read.value === undefined` branch at
   surface-view-model.ts:67.
 
-## Batch 7: Input components — COMPLETE
+## Batch 7: Input components — COMPLETE (commit 60a2bf643)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -384,7 +384,7 @@ Edge cases:
   - codex lane (code-logic-review-batch-7-round-2-codex.md).
 - Carried to B8. These are listed in Task 8.1 validation notes.
 
-## Batch 8: Node, renderer, public API, trust boundary — IN_PROGRESS
+## Batch 8: Node, renderer, public API, trust boundary — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -392,7 +392,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 7
 
-### Task 8.1: `SurfaceNodeComponent`, `SurfaceRendererComponent`, exports, `trust-boundary.spec.ts` — IN_PROGRESS
+### Task 8.1: `SurfaceNodeComponent`, `SurfaceRendererComponent`, exports, `trust-boundary.spec.ts` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `components/surface-node.component.ts`
   (+ spec), `components/surface-renderer.component.ts` (+ spec), `trust-boundary.spec.ts`; MODIFY
@@ -414,6 +414,15 @@ Edge cases:
     `dashboard-table.component.ts:95`.
   - (f) `@for` tracking must stay correct when the document carries duplicate ids.
   - (g) When a node is swapped to another component, the renderer removes the old draft entry.
+- Scope note (team-leader, 2026-09-25): (b) and (e) take B8 past the 6-file cap:
+  - one new shared helper file (+ spec);
+  - the three input components rewired to it;
+  - three TS4029 edits.
+
+  These were directed by the coordinator as B8 carry-overs. Everything stays in one lib, so the batch keeps its one
+  verification command. The coordinator confirmed on 2026-09-25 that B8 is not split. The reviewers treat the helper
+  move and the TS4029 edits as behaviour-preserving, and check them against the diff. Their review focus is the
+  renderer and the trust boundary.
 - Spec pins (trust boundary, R8): the 538 fixture rendered into surface title/description, section and card
   title/description, input label, option labels, placeholder, text description, action label, a bound data-model
   string in a text input, every v1 display text field, submit issue messages and `detail` notices — each literal,
@@ -423,8 +432,61 @@ Edge cases:
 ### Batch 8 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+- Result: the team-leader re-ran it with `--skip-nx-cache` and all 3 targets are green. The executor reports 16 suites and 163 tests.
+- Diff check by the team-leader (codex did not run git) confirms behaviour is preserved:
+  - TS4029: the only change is a `node: InputSignal<...>` annotation plus a type import, in dashboard-list, dashboard-stat and dashboard-table.
+  - surface-layout: only the `@for` track key changed (`$index + ':' + id`).
+  - The helpers in surface-input-messages.ts match the removed inline code in all three inputs:
+    - the `draftError` precedence;
+    - the choice input's `checkedNode()` validation (B7 F3);
+    - the issue filter;
+    - the describedBy order.
+- Round 1 reviews:
+  - codex lane: NEEDS_REVISION 5/10 (code-logic-review-batch-8-codex.md).
+    - Blocking 1: the WeakSet guard keeps every view state it emitted, so it rejects a parent's saved state after a workspace or surface reset.
+    - Blocking 2: when a node keeps its id and kind but its path changes, the old draft can commit to the new path.
+    - Moderate: the source scan can be bypassed with an HTML comment.
+    - Moderate: the list URL has no trust fixture.
+    - Minor: a spec has a TS2367 diagnostic.
+  - code-logic-reviewer: NEEDS_REVISION 5/10 (code-logic-review-batch-8.md).
+    - It confirms the guard blocker. One mounted renderer keeps a WeakSet of references for its whole lifetime
+      (surface-renderer.component.ts:168-179,267-271). The reducer stores `viewState` by reference
+      (apps-surface-reducer.ts:336-354). Switching away from a surface and back therefore drops that surface's state.
+    - Moderate: `attemptBuild` checks only the shape of the builder's result.
+    - Minor: TS2367 at trust-boundary.spec.ts:181 is hidden, because typecheck uses tsconfig.lib.json and ts-jest runs
+      with isolatedModules.
+    - Minor: the token scan can be bypassed with a split string.
+    - It confirms carry-overs a, d, f and g, R5, R8, and the behaviour-preserving edits.
+- Fix round 1: the frontend-developer handled every finding from both reviews (batch-8-fix-1-report.md).
+  - Team-leader re-run: 3/3 targets green, and `tsc -p tsconfig.spec.json` exits 0. The executor reports 198 tests.
+  - Coordinator rulings:
+    - The echo guard was removed rather than scoped: ACCEPTED. View states carry no revision. The parent must write
+      synchronously (a B15 carry-over).
+    - Two assertions that pinned bugs were changed: ACCEPTED.
+    - Adding spec tsc to project.json: NO. It is now in this batch's verification commands instead.
+    - The no-op prune re-run was left as is: ACCEPTED.
+  - Round 2 is the last round.
+- Round 2:
+  - code-logic-reviewer APPROVED 8/10 (code-logic-review-batch-8-round-2.md). Its one residual point is the
+    synchronous write-back contract, which is already a B15 carry-over.
+  - codex NEEDS_REVISION 6/10 (code-logic-review-batch-8-round-2-codex.md). It confirms all 5 round-1 findings are
+    resolved, and raises one new blocker. The B7 F1 consumed-drafts marker (surface-text-input.component.ts:212)
+    blocks a consumed drafts object forever. So the sequence type "a", save, blur, host snapshot changes the binding,
+    restore the saved state shows "a" and never commits.
+- Bounded fix under the round-2 rule (coordinator ruling: a clear correctness bug, so no round 3). The consumed
+  reference stays blocked only until a different drafts object arrives. F1 still holds, and codex's reproduction
+  becomes a spec. The fix is re-checked narrowly by codex alone (code-logic-review-batch-8-round-2b-codex.md).
+  - Fix 2 (batch-8-fix-2-report.md) adds `releaseConsumed`, plus an `it.each` blur/Enter repro. Its red/green result is
+    recorded.
+  - The team-leader diff check found the fix-1 `reconcileTyped` re-key and both new specs present, and no spec line
+    removed. The text-input spec passes 28/28, the lib targets are green, and spec tsc exits 0.
+  - Codex round 2b: APPROVED, B8 8/10.
+- Final: B8 ACCEPTED. The code-logic-reviewer gave 8/10 (round 2) and codex 8/10 (round 2b).
+- `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit`
+- Process note: the codex lane wrote over the committed B3 `code-logic-review.md`. The coordinator restored that file and
+  moved the review. From now on, every lane prompt names its exact output file and forbids writing `code-logic-review.md`.
 
-## Batch 9: Budget confirmation — PENDING
+## Batch 9: Budget confirmation — IN_PROGRESS
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -433,7 +495,7 @@ Edge cases:
 - Rationale: measurement plus a contract-doc decision; the tester owns the evidence.
 - Tasks: 1 | Depends on: Batch 8
 
-### Task 9.1: `budget-render.spec.ts`, v2 fixtures on the testing barrel, budget doc comments, report — PENDING
+### Task 9.1: `budget-render.spec.ts`, v2 fixtures on the testing barrel, budget doc comments, report — IN_PROGRESS
 
 - Files (5): CREATE `.../libs/frontend/declarative-dashboard/src/lib/budget-render.spec.ts`; MODIFY
   `.../libs/shared/src/testing/index.ts`, `.../libs/shared/src/mcp-apps-contracts/dashboard-catalog.ts`,
@@ -450,6 +512,8 @@ Edge cases:
 ### Batch 9 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/shared`
+- `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit` (spec type errors; the typecheck target
+  covers only tsconfig.lib.json)
 
 ## Batch 10: Apps pure state — operation ids and overlays — COMPLETE (commit 4590f8da3)
 
@@ -676,11 +740,20 @@ Edge cases:
     latest notice, or queue them);
   - B6: the renderer path must behave identically when a SURFACE_VIEW_MODEL_BUILDER override throws and when the
     default returns renderFailed. The "builder override throws" pin depends on it.
+  - B8: bind the renderer's `interaction` input through a `computed`, not a template method call. Host rejections
+    reach the inputs through `interaction.issues`, which apps-surface-lanes fills, so no second input is needed.
+  - B8/R6: re-run `trust-boundary.spec.ts` (its scan of `mcp-apps-page/src`) in B15's verification.
+  - B8 fix 1 (the renderer echo guard was removed): store the renderer's emitted viewState verbatim and
+    synchronously. Never pass an older state late, because that rolls the drafts back.
+  - B13: the transcript consumes `AppsSurfaceOperations.submittedBubbles`. One lane-timer note is timing-only: the
+    lane's first-tick read can be late by one grace period.
 
 ### Batch 15 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page @ptah-extension/declarative-dashboard`
   (re-runs `trust-boundary.spec.ts` against the now-populated Apps lib, R6)
+- `npx tsc -p libs/frontend/mcp-apps-page/tsconfig.spec.json --noEmit` and
+  `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit`
 
 ## Batch 20: Apps page splitter (user addition 2026-09-25) — PENDING
 
@@ -841,6 +914,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Also green: `apps/ptah-electron/src/windows/shell-csp.spec.ts` unchanged and
   `apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts`
   (`npx nx run-many -t test -p ptah-electron ptah-extension-webview`)
+- `npx tsc -p libs/frontend/mcp-apps-page/tsconfig.spec.json --noEmit`
 
 ## Completion prerequisites (Mode 3)
 

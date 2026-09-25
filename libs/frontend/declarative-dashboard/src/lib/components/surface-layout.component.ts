@@ -52,12 +52,13 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-template #children>
-      @for (child of node().children; track child.id) {
+      <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
+      @for (child of node().children; track $index + ':' + child.id) {
         <ng-container [ngTemplateOutlet]="childTemplate()" [ngTemplateOutletContext]="{ $implicit: child, index: $index }" />
       }
     </ng-template>
     <ng-template #submit>
-      @for (action of submitActions(); track action.id) {
+      @for (action of submitActions(); track $index + ':' + action.id) {
         <div class="flex flex-wrap items-center gap-2">
           <button type="button" class="btn btn-primary btn-sm" [disabled]="isSubmitDisabled(action)"
             [attr.aria-describedby]="statusId($index)" [attr.data-apps-focus-key]="focusKey('action-' + action.id)"

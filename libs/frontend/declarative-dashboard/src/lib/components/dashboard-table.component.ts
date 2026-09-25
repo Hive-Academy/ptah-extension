@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, ElementRef, input, output, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, input, output, viewChild, type InputSignal } from '@angular/core';
 import type { DashboardTableCell } from '@ptah-extension/shared';
 import type { SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceComponentViewState } from '../surface-view-state';
@@ -93,7 +93,7 @@ function scalarCell(value: unknown): DashboardTableCell {
   `,
 })
 export class DashboardTableComponent {
-  public readonly node = input.required<TableNode>();
+  public readonly node: InputSignal<TableNode> = input.required<TableNode>();
   public readonly surfaceId = input('');
   public readonly viewState = input<SurfaceComponentViewState>({});
   public readonly selection = input<SurfaceSelection | null>(null);

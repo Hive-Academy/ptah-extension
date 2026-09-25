@@ -107,3 +107,6 @@ Mode: enabled
 - 2026-09-25: Glm/Ollama Cloud weekly limit reached; opencode Go exhausted; lane pool = codex, antigravity, subagents.
 - 2026-09-25: B13 round 2 APPROVED (code-logic-reviewer 9/10, antigravity 9/10); committed. B7 round 2: codex APPROVED 8/10, subagent pending.
 - 2026-09-25: B13 committed a652f510c. B7 round 2 APPROVED (code-logic-reviewer 8/10, codex 8/10); committed; B8 IN_PROGRESS.
+- 2026-09-25: B7 committed 60a2bf643. B8 round 1 NEEDS_REVISION (5/10 x2); fix round 1 removed the renderer echo guard; round 2 running.
+- Future enhancement: include tsconfig.spec.json in the typecheck target (spec type errors are invisible to nx typecheck today; B8 TS2367).
+- 2026-09-25: B8 ACCEPTED (code-logic-reviewer 8/10 round 2; codex 8/10 round 2b after a bounded consumed-drafts fix); committed; B9 IN_PROGRESS.
