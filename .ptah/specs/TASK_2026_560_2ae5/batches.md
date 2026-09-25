@@ -1,0 +1,957 @@
+# Batches - TASK_2026_560_2ae5
+
+Total tasks: 24 batches (PR 1: 17, PR 2: 7) | Complete: 1/24
+
+Design authority: `implementation-plan.md` (revision 2 + r3, user-approved). The review files are history.
+Base: `main @ c4bdc87dd`. Branch: `feat/task-2026-560-mcp-skill-toggles`. PR 2 will be a stacked branch
+planned later. PR 1 batches run first, and PR 2 starts after PR 1 merges (plan line 510).
+
+Check command form (every batch): `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p <projects> --parallel=2`.
+Project names were checked against each `project.json` `name`. Projects without a `test` target (the e2e
+projects) run only lint and typecheck under this form, so those batches add an e2e command.
+
+Executors: every batch runs as a sequential sub-agent. The batches are coupled internally, and parallelism
+comes from the waves below, not from lanes inside a batch. Reviewers: code-logic-reviewer on every batch,
+plus code-style-reviewer on every batch that touches UI.
+
+## Plan issues
+
+None blocking; no design contradiction was found. The corrections below change file mechanics only, and no
+design decision.
+
+| # | Plan text | Finding (evidence) | Resolution in this decomposition |
+| --- | --- | --- | --- |
+| P1 | C1 extends `HarnessSourcesStatus` with `'policy-unknown'` | `libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts:259-267` is an exhaustive `switch` returning `string \| null`, and it has no default. The new member breaks the marketplace typecheck (TS2366). The file is not in the plan. | Added to Batch 1 with its existing spec (+2 files). PR 1 now has **81** code files. |
+| P2 | C3: "M `plugin-config-source-resolver.ts` + `.spec.ts`" | `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.spec.ts` does not exist | It is **C** (create). The file count is unchanged. |
+| P3 | C11: C `capability-toggles.spec.ts` | The harness Playwright config uses `testMatch: ['**/*.e2e.spec.ts']` (`libs/frontend/webview-e2e-harness/playwright.config.ts:22`). A plain `.spec.ts` would never run. | The file is named `capability-toggles.e2e.spec.ts`, next to `marketplace.fixtures.ts`. |
+| P4 | Handoff verification: "`manifest.spec.ts`" | No such file. The host-profile spec is `libs/backend/rpc-handlers/src/lib/host-profile/resolve-handler-plan.spec.ts`. | Batch 10 runs that spec, which is inside the rpc-handlers `test` target. |
+| P5 | C3: "PluginConfigSourceResolver maps `CapabilityPolicyUnknownError`" | harness-sync must not import agent-sdk (`libs/backend/harness-sync/src/index.ts:10`, `sources/harness-source.port.ts:6`) | Detection is structural. Batch 1 adds a shared discriminator (error `name`/`code` constant + `isCapabilityPolicyUnknownError` guard) in `capability-toggle.types.ts`. Batch 5 sets it on the agent-sdk error, and Batch 3 checks it. |
+| P6 | Handoff batch order puts cli-agent-runtime (3) before agent-sdk (4) | cli-agent-runtime imports agent-sdk (27 imports). The store registers under `SDK_TOKENS`, and the resolver calls `getEffectivePluginConfig`. | Batch 5 (agent-sdk tokens + loader) runs before Batch 7 (resolver). The C1→C3→C4 component order is unchanged. |
+| P7 | C6 "Files (10)" is not enumerated in the final plan | The round-1 list is not on disk | Derived from the adapters on disk (Batches 22-23). **ASSUMPTION A-PR2**: re-verify this list against the code when PR 2 starts. |
+| P8 | NFR: e2e specs in `apps/ptah-electron-e2e/src/specs/marketplace/` | The plan's fixtures file and RPC auto-responder live in `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/`, which is the only place a failing `setEnabled` (revert) can be driven | The new spec goes to the harness location, which the plan chose. The PR 1 description states this deviation from the NFR path. |
+
+## Plan validation
+
+Status: PASSED WITH RISKS
+
+Assumptions:
+
+- A1 (flag-tier deny and approve behaviour): unit-covered in Batch 8, then **closed live in Batch 17** by the
+  senior-tester. Check: in this repository, with `.claude/settings.local.json` `enableAllProjectMcpServers: true`,
+  turn davinci-resolve, firecrawl and shopify-dev-mcp off, keep ptah on, and start a proxied session (custom base
+  URL). The captured first request body must contain none of their tool schemas, and the init `mcp_servers` must
+  list only ptah plus the explicitly approved servers. Turning firecrawl on explicitly must make it load.
+- A2 (`skillOverrides`, `deniedMcpServers` and `skills: []` honoured on CLI 0.3.278): the installed
+  `@anthropic-ai/claude-agent-sdk` is 0.3.278 (verified). Unit-covered in Batch 8, then **closed live in Batch 17**.
+  Check: a disabled skill is absent from the system-init `skills`. A corrupted item file gives init `skills: []`
+  with ptah as the only MCP server, and the chat chip shows `capability-policy-unverified`.
+- A3 (Codex `enabled=false` with quoted keys), PR 2: unit-covered in Batch 18 (parse) and Batch 22 (serialised
+  argv), then **closed live in Batch 24**. Check: a Codex lane with a disabled global server whose name needs
+  quoting (for example `my.server`) does not start that server, as shown by the lane's MCP startup events and
+  tool list.
+- A4 (`mcpServerStatus` and `getContextUsage` safe mid-turn), PR 2: unit-covered in Batch 20 (bounded 3 s,
+  timeout → unknown), then **closed live in Batch 24**. Check: call a measurement during an active streaming turn;
+  the turn completes with no stream error, and the figure or "unknown" is returned within 3 s.
+- A5 (AC-5.3 method agreement), PR 2: a Batch 20 fixture test puts ptah's measured figure within 10% of a direct
+  count of its `tools/list` fixture. **Closed live in Batch 24** by comparing the live ptah figure with a direct
+  count of the live `tools/list` payload.
+- A-PR2 (C6 file list derived by the team-leader): verified at PR 2 kickoff before Batch 22 starts.
+- A-UI (UI reads enforcement labels and declarations from data): Batch 13 and Batch 14 render
+  `CAPABILITY_ENFORCEMENT` and a declaration LIST, never literals. PR 2 can then flip rows and add the #16
+  declarations without touching UI files or tests. Checked by the Batch 13/14 reviewer.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R1: the `'policy-unknown'` union member breaks the marketplace typecheck (P1) | HIGH | Task 1.6 in Batch 1 adds the case; the Batch 1 check includes `@ptah-extension/marketplace` |
+| R2: harness-sync cannot import the agent-sdk error class (P5) | HIGH | Task 1.1 adds the shared discriminator; Tasks 3.1 and 5.2 use it; the Batch 3 spec throws a structurally-matching error |
+| R3: PR 1 budget is tight (81 code + ~13 docs = ~94; hard cap 99) | MEDIUM | Running count below. Before and after screenshots are NOT committed (kept outside the repo, with paths in visual-review.md). Every unplanned file must be counted in the batch report, and the team-leader stops at 97. |
+| R4: the Marketplace shell banner may need `marketplace-shell.component.html` (the plan lists "shell" as one file) | LOW | Allowed as +1 in Batch 13 when the banner cannot be done in the `.ts` template; it is counted |
+| R5: parallel batches editing projects that another in-flight batch reads (cli-agent-runtime reads agent-sdk and harness-sync) give transient typecheck noise | MEDIUM | Parallelism map: separate worktrees are REQUIRED for the same project and RECOMMENDED for producer/consumer pairs |
+| R6: the PR 2 enforcement flip would break PR 1 UI/e2e assertions if they hard-code "not enforced" | MEDIUM | A-UI: tests derive the expected labels from `CAPABILITY_ENFORCEMENT` or from fixture data (Tasks 13.3, 16.1) |
+| R7: a first `set()` in a fresh workspace races the import (N2) | HIGH | Task 7.1: `set` awaits `ensureImported`, then does its own atomic write; a named test proves it |
+| R8: an unknown policy is silently widened anywhere | HIGH | Fail-closed tests in Batches 3, 4, 5, 7, 8 and 9; the reviewer must check each for the unknown path |
+| R9: `protocol-dispatcher.ts` must not be edited (TASK_2026_559) | HIGH | No batch lists it; every batch commit is checked with `git diff --name-only` |
+| R10: new backend services must log through `IOutputChannel` | LOW | Stated in Tasks 6.1, 6.2, 7.1 and 20.1; checked by the reviewer |
+
+Edge cases:
+
+- Crash mid-import (only `.tmp` left) → re-import on the next resolve. Handled in Task 6.1.
+- A clear (`inherit` tombstone) written before, during or after an import stays cleared. Task 6.1 (D1).
+- The D2 collision pair `"x".repeat(121)` vs `h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1`. Tasks 1.1 and 6.1.
+- win32 alias, case-sensitive `Repo`/`repo`, sub-folder and worktree roots (N7). Tasks 6.1 and 7.1.
+- A corrupt item file or `imported.json` → unverified (strict MCP + `skills: []`). Tasks 6.1, 7.1 and 8.1.
+- A corrupt store while a plugin was previously disabled → the plugin and its child skills stay absent (N3).
+  Task 3.2.
+- Codex config EACCES → `inspect` error, while legacy `readAll` stays empty (N9). Task 4.3.
+- A same-name Codex-global server at workspace install → approved (N6). Tasks 7.1 and 11.1.
+- A back-off server toggled ON stays suppressed (AC-4.7). Task 8.1.
+- Ptah OFF → the warning (AC-4.6); ptah is present by default in every built session. Tasks 8.1 and 13.2.
+- A legacy CLI `plugins:save-config` write changes the fingerprint → forced pass (N4, AC-3.3). Task 5.3.
+- A toggle-write failure → UI revert and an error naming the server (AC-1.4). Tasks 6.1, 10.1, 13.1 and 16.1.
+
+## Running changed-file count
+
+PR 1 (code files + task docs; must stay under 100):
+
+**Budget rules (set at the Batch 1 commit):**
+
+- Review evidence is kept in two ROLLING files: `reviews/code-logic-review.md` and `reviews/code-style-review.md`.
+  - The Batch 1 reviews were renamed into them, with their content unchanged.
+  - From Batch 2 on, each reviewer APPENDS a `# ... Batch N` section to the matching file. Reviewers must never
+    create per-batch files: at 17 batches, per-batch files would add about 21 files and push PR 1 to about 117.
+- The visual evidence is written as a section of `test-report.md`, not as a separate `visual-review.md`
+  (saving 1 file). Screenshots stay uncommitted (R3).
+- Batch 1 landed 10 code files instead of 8: the executor split out `capability-id-codec.ts` and its spec during
+  revise round 1, which the style review asked for.
+
+| After batch | Code files added | PR 1 code total | Docs total | PR 1 total |
+| --- | --- | --- | --- | --- |
+| 1 (actual) | 10 | 10 | 11 (task.md, task-description.md, research-report.md, implementation-plan.md, 4 plan-review files, batches.md, reviews/code-logic-review.md, reviews/code-style-review.md) | 21 |
+| 2 | 3 | 13 | 11 | 24 |
+| 3 | 5 | 18 | 11 | 29 |
+| 4 | 5 | 23 | 11 | 34 |
+| 5 | 7 | 30 | 11 | 41 |
+| 6 | 4 | 34 | 11 | 45 |
+| 7 | 6 | 40 | 11 | 51 |
+| 8 | 8 | 48 | 11 | 59 |
+| 9 | 4 | 52 | 11 | 63 |
+| 10 | 6 | 58 | 11 | 69 |
+| 11 | 3 | 61 | 11 | 72 |
+| 12 | 2 | 63 | 11 | 74 |
+| 13 | 5 | 68 | 11 | 79 |
+| 14 | 9 | 77 | 11 | 88 |
+| 15 | 4 | 81 | 11 | 92 |
+| 16 | 2 | 83 | 11 | 94 |
+| 17 | 0 | 83 | 11 + test-report.md = 12 | **95** |
+
+- Headroom: 4 files, with the re-plan threshold at 97.
+  - R4 (shell html, +1) → 96.
+  - A `.ptah/specs/registry.md` touch (+1) → 97, which is AT the threshold.
+- Absorption, if either lands:
+  - **Batch 10** inlines `capability-rpc.schema.ts` into `capability-rpc.handlers.ts` (-1). It is the least
+    coupled planned file.
+  - If a second saving is needed, **Batch 3** puts its source-resolver cases in
+    `harness-reconciler.capability-policy.spec.ts` instead of creating `plugin-config-source-resolver.spec.ts` (-1).
+- Every executor report must list unplanned files. The team-leader re-counts this table at each commit.
+
+PR 2 (counted separately against its own stacked base):
+
+| After batch | Code files | PR 2 total (with docs) |
+| --- | --- | --- |
+| 18 | 2 | 2 |
+| 19 | 3 | 5 |
+| 20 | 4 | 9 |
+| 21 | 2 | 11 |
+| 22 | 6 | 17 |
+| 23 | 4 | 21 |
+| 24 | 0 | 21 + ~4 docs (batches.md, test-report.md, code-logic-review.md, code-style-review.md) = **~25** |
+
+## Parallelism map
+
+At most 3 batches run at once. "Worktree" means a separate `git worktree` off the current branch head, with
+`node_modules` as a junction to the main checkout. The team-leader verifies and commits each batch on the
+feature branch in wave order; a parallel batch's worktree is rebased or cherry-picked onto the branch before
+its commit.
+
+| Wave | PR | Batches (projects) | Separate worktrees |
+| --- | --- | --- | --- |
+| W1 | 1 | B1 (shared, marketplace) | n/a |
+| W2 | 1 | B4 (harness-sync) ∥ B5 (agent-sdk) ∥ B6 (cli-agent-runtime) | Chosen layout: **B5 runs in the feature worktree** (TASK_WT). **B4 → `.claude-worktrees/feat-task-2026-560-b4`** (branch `feat/task-2026-560-b4-facet-inspect`). **B6 → `.claude-worktrees/feat-task-2026-560-b6`** (branch `feat/task-2026-560-b6-toggle-store`). The two new worktrees branch from the feature-branch HEAD and have a `node_modules` junction. This isolates B6's cli-agent-runtime typecheck from B4 and B5's in-flight edits. The team-leader commits each accepted batch on its own branch, cherry-picks it onto `feat/task-2026-560-mcp-skill-toggles`, and then removes the worktree and branch. |
+| W3 | 1 | B7 (cli-agent-runtime) ∥ B8 (agent-sdk) ∥ B2 (shared) | RECOMMENDED for B7 vs B8 (cli-agent-runtime imports agent-sdk) and for B2 (shared is read by all) |
+| W4 | 1 | B3 (harness-sync) ∥ B10 (rpc-handlers) ∥ B13 (marketplace) | Not required |
+| W5 | 1 | B9 (cli-agent-runtime, chat) ∥ B14 (marketplace) ∥ B15 (marketplace) | **REQUIRED: B14 and B15 in separate worktrees (same project `@ptah-extension/marketplace`).** B9 may share the feature worktree. |
+| W6 | 1 | B11 (rpc-handlers, cli-engine) ∥ B12 (ptah-electron, ptah-extension-vscode) | Not required (disjoint projects); RECOMMENDED because B12 typechecks against rpc-handlers |
+| W7 | 1 | B16 (webview-e2e-harness) | n/a |
+| W8 | 1 | B17 (live verification, all PR 1 projects) | n/a; open PR 1 after B17 |
+| P1 | 2 | B18 (harness-sync) ∥ B19 (cli-agent-runtime) ∥ B20 (agent-sdk) | Not required; RECOMMENDED for B19 (reads harness-sync) |
+| P2 | 2 | B21 (ptah-cli) ∥ B22 (cli-agent-runtime) | Not required |
+| P3 | 2 | B23 (cli-agent-runtime, shared) | n/a |
+| P4 | 2 | B24 (live verification) | n/a |
+
+Same-project pairs that must never share a worktree while both are in flight: B3/B4 (they are in different
+waves), B5/B8, B6/B7/B9, B10/B11, B13/B14/B15, B19/B22/B23. The only same-wave same-project pair is **B14 ∥ B15**.
+
+Critical path (PR 1): B1 → B5 → B7 → B10 → B11/B12 → B16 → B17. The UI path (B2 → B13 → B14/B15) runs
+alongside it.
+
+## Visual evidence plan (Mode 3 requirement)
+
+Existing surfaces gain controls, and no new surface is added, so no prototype is required. Mode 3 therefore
+needs before and after screenshots, in dark and light themes, of:
+
+- the Installed servers page and the server detail;
+- the Installed skills page and the skill detail;
+- the chat MCP chip.
+
+- **Before**: a visual-reviewer captures these from the base commit `c4bdc87dd` BEFORE Batch 13 is committed
+  (this is scheduled as the W4 entry step).
+- **After**: captured in Batch 17.
+- Screenshots are stored outside the repository, and a "Visual evidence" section of `test-report.md` records
+  their paths. They are not committed (R3 and the budget rules).
+
+Parity: not applicable. No surface is replaced, consolidated, rebuilt or redesigned; controls are added to
+existing pages.
+
+Write-path trace (Mode 3): the writes go to `~/.ptah/capabilities/**` (Batch 6) and `PluginConfigState`
+(`saveWorkspacePluginConfig`, Batches 5 and 7). Their readers are the resolver (Batch 7), the plugin loader
+(Batch 5), the harness source resolver (Batch 3) and the Ptah CLI `plugin` command (AC-3.3). Batch 17 records
+the trace.
+
+---
+
+## Batch 1: Shared contract and pure rules (PR 1) — COMPLETE (commit 4876206a7)
+
+- Result:
+  - 10 code files. The two unplanned ones are `libs/shared/src/lib/types/capability-id-codec.ts` and its
+    `.spec.ts`, split out in the revise round.
+  - Both reviewers accepted: code-logic APPROVE, and code-style APPROVE after revise round 1. One minor note
+    remains: the codec file name is narrower than its content, because it also holds `tomlKeySegment` and the
+    fingerprint. That is left as it is.
+  - Check: 2 projects, and lint, typecheck and test all pass.
+  - The team-leader verified on disk:
+    - the SHA-256 is pure (only the spec imports `node:crypto`, to cross-check);
+    - the D2 vectors appear verbatim at `capability-id-codec.spec.ts:26-30`;
+    - `isCapabilityPolicyUnknownError` is at `capability-toggle.types.ts:609`;
+    - the badge case is at `harness-health-badge.component.ts:265`.
+- Downstream note: import `CapabilityKind`, the codec, `tomlKeySegment`, `harnessPolicyFingerprint` and
+  `isHarnessPassAcknowledged` from `@ptah-extension/shared` (they live in `capability-id-codec.ts`).
+
+- PR: 1
+- Goal: land the C1 contract that TASK_2026_559 consumes: the types, the pure resolution rules, the filename
+  codec, the fingerprint and the extended unions, and keep marketplace compiling after the union change.
+- Nx projects: `@ptah-extension/shared`, `@ptah-extension/marketplace`
+- Depends on: none
+- Recommended executor: backend-developer
+- Fallback executor: senior backend sub-agent (general-purpose)
+- Execution mode: sequential
+- Rationale: one pure-types library plus one mechanical exhaustive-switch case; the types are tightly coupled.
+- Reviewers: code-logic-reviewer (rules and codec correctness), code-style-reviewer (touches a UI component)
+- ACs proved: AC-1.3 (`nextWorkspaceValue`), AC-2.1 (`classifyMcpScope`), AC-2.5 (`definitionInEffect` pinned),
+  AC-3.2 (`pluginConfigLayer` preserves legacy semantics), AC-4.1 (defaults and `resolveEffective`), and the
+  D2 codec vectors
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/marketplace --parallel=2`
+- Commit: `feat(shared,marketplace,task-specs): batch 1 - add capability toggle contract`. This commit ALSO
+  stages the task docs: `.ptah/specs/TASK_2026_560_2ae5/{task.md,task-description.md,research-report.md,implementation-plan.md,implementation-plan-review.md,implementation-plan-review-r2.md,implementation-plan-review-r3.md,implementation-plan-review-delta.md,batches.md}`.
+- Files (8 code):
+  - C `libs/shared/src/lib/types/capability-toggle.types.ts`
+  - C `libs/shared/src/lib/types/capability-toggle.types.spec.ts`
+  - M `libs/shared/src/index.ts`
+  - M `libs/shared/src/lib/types/harness-sync.types.ts`
+  - M `libs/shared/src/lib/types/rpc/rpc-misc.types.ts`
+  - M `libs/shared/src/lib/types/mcp-directory.types.ts`
+  - M `libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts`
+  - M `libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.spec.ts`
+  - C `libs/shared/src/lib/types/capability-id-codec.ts` (added in the revise round)
+  - C `libs/shared/src/lib/types/capability-id-codec.spec.ts` (added in the revise round)
+
+### Task 1.1: Capability contract, codec and pure rules — COMPLETE
+
+- File: `libs/shared/src/lib/types/capability-toggle.types.ts` (+ `.spec.ts`)
+- Plan reference: implementation-plan.md:78-110 (Resolution rules), :141-164 (C1), :176-186 (codec)
+- Pattern to follow: `libs/shared/src/lib/types/harness-sync.types.ts` (types + pure reducer in shared)
+- Quality requirements:
+  - `CapabilityEntry`, `EffectiveCapabilitySet`, `ICapabilityResolver`, `ICapabilityGlobalLayer`.
+  - `CAPABILITY_ENFORCEMENT`: codex, opencode, antigravity MCP rows and `ptah-cli-proxy` are `not-enforced`.
+  - Pure functions: `defaultEnabled`, `resolveEffective`, `nextWorkspaceValue`, `pluginConfigLayer`,
+    `classifyMcpScope`, `definitionInEffect`, `planApprovalImport`, `isMcpServerEnabled`, `tomlKeySegment`,
+    `harnessPolicyFingerprint` (sorted canonical JSON → FNV-1a; no `crypto`, because shared ships to the
+    browser), `isHarnessPassAcknowledged`, `encodeCapabilityId` / `decodeCapabilityId` / `canonicalFilename`.
+- Validation notes:
+  - D2: the literal form is `l_<pct>`, and the hashed form is `h_<sha40>` when `pct` is longer than 120.
+  - The fixed vector: `"x".repeat(121)` → `mcp__h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1.json`, and id
+    `h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1` → `mcp__l_h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1.json`.
+  - SHA-256 in shared must not pull in Node `crypto`. Either use a pure implementation, or have the codec take an
+    injected hasher that the store provides. Choose one and state it in the report.
+  - R2: export `CAPABILITY_POLICY_UNKNOWN_ERROR_NAME` and `isCapabilityPolicyUnknownError(e)`.
+  - The `inherit` tombstone skips the imported layer.
+- Implementation details: export from `libs/shared/src/index.ts`. The spec covers every Resolution rules bullet,
+  fingerprint stability under key reordering, and the acknowledgement predicate (a mismatch, `writeFailed`,
+  `null` and `sources !== 'ok'` are all not acknowledged).
+
+### Task 1.2: Extend existing shared types — COMPLETE
+
+- Files: `harness-sync.types.ts`, `rpc/rpc-misc.types.ts`, `mcp-directory.types.ts`, `src/index.ts`
+- Plan reference: implementation-plan.md:157-159
+- Quality requirements:
+  - Add `HarnessHealth.policyFingerprint?`.
+  - Add `HarnessSourcesStatus |= 'policy-unknown'`; the shared reducer (`harness-sync.types.ts:~294`) maps it
+    to `degraded`.
+  - Add `PluginConfigState.enabledSkillIds?` and `InstalledMcpServer.scope?`.
+- Validation notes: all additions are optional, so pre-task configs still load (AC-3.2).
+
+### Task 1.3: Keep the marketplace health badge exhaustive — COMPLETE
+
+- File: `libs/frontend/marketplace/src/lib/harness/harness-health-badge.component.ts:259-267` (+ spec)
+- Quality requirements: add a `'policy-unknown'` case with a note stating that the skill and plugin sync is
+  paused because Ptah couldn't read the capability policy. Add a spec case.
+- Validation notes: R1. No other change to the component.
+
+### Batch 1 verification
+
+- Every listed artifact exists and holds the required work; no `crypto` import in shared.
+- The check command passes.
+- code-logic-reviewer and code-style-reviewer accept.
+- The D2 vectors are in the spec verbatim.
+
+## Batch 2: Shared RPC surface and policy notice (PR 1) — PENDING
+
+- PR: 1
+- Goal: add `capabilities:getState`, `capabilities:getEffective` and `capabilities:setEnabled`, and the
+  `capability-policy-unverified` notice code.
+- Nx projects: `@ptah-extension/shared`
+- Depends on: B1
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: contract for AC-1.4, AC-3.1, AC-4.6 (unverified notice) and AC-5.1/5.2 (`schemaTokens?`)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared --parallel=2`
+- Commit: `feat(shared): batch 2 - add capabilities rpc methods and policy notice`
+- Files (3 code):
+  - C `libs/shared/src/lib/types/rpc/rpc-capability.types.ts`
+  - M `libs/shared/src/lib/types/rpc.types.ts` (re-export plus method registry entries; pattern `rpc.types.ts:11-19`)
+  - M `libs/shared/src/lib/types/messages/session-mcp-status.ts` (add to `SessionMcpNoticeCode` and `NOTICE_CODES`)
+
+### Task 2.1: RPC types and registry — PENDING
+
+- Plan reference: implementation-plan.md:156, :362-366
+- Quality requirements: the request and response types carry the `scope: 'workspace' | 'global'`, `kind`, `id`,
+  `enabled` and `explicit` fields that C8 needs. The response carries the updated `CapabilityEntry`. Do not edit
+  `libs/shared/src/index.ts` (it is owned by B1); export through `rpc.types.ts`.
+
+### Task 2.2: Notice code — PENDING
+
+- Quality requirements: `'capability-policy-unverified'` is accepted by the parser at `session-mcp-status.ts:~133`.
+  Otherwise the notice is dropped silently.
+
+## Batch 3: Harness freeze on unknown policy (PR 1) — PENDING
+
+- PR: 1
+- Goal: C3, harness-sync half. The source resolver maps the structural policy-unknown error to a frozen state,
+  and the reconciler skips skill, plugin and agent planning and stamps the fingerprint.
+- Nx projects: `@ptah-extension/harness-sync`
+- Depends on: B1 (B5 is not needed at compile time; the error is detected structurally)
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: AC-3.3 (fingerprint stamped), AC-3.4 (a frozen harness never re-adds a disabled plugin), N3
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync --parallel=2`
+- Commit: `feat(harness-sync): batch 3 - freeze reconciler on unknown capability policy`
+- Files (5 code):
+  - M `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts`
+  - C `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.spec.ts` (P2)
+  - M `libs/backend/harness-sync/src/lib/sources/harness-source.port.ts`
+  - M `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts`
+  - C `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts`
+
+### Task 3.1: Source resolver and port — PENDING
+
+- Plan reference: implementation-plan.md:252-261
+- Quality requirements:
+  - `HarnessPluginConfigReader` gains optional `getEffectivePluginConfig`.
+  - `HarnessSourceState` gains `policyUnknown?` and `policyFingerprint?`.
+  - `isCapabilityPolicyUnknownError` → `{policyUnknown: true}`. Every other read failure keeps today's unfiltered
+    semantics (`plugin-config-source-resolver.ts:136-150`).
+- Validation notes: R2. No import from `@ptah-extension/agent-sdk`.
+
+### Task 3.2: Reconciler freeze and fingerprint — PENDING
+
+- Plan reference: implementation-plan.md:257-266; health assembly is at `harness-reconciler.service.ts:238-245,431-436`
+- Quality requirements:
+  - When `policyUnknown`, MCP intents proceed, and skill, plugin and agent writes and removals are zero.
+  - Health `sources: 'policy-unknown'`.
+  - `policyFingerprint` is stamped on every health.
+  - Spec: a previously disabled plugin and its skill copies stay absent across a frozen pass.
+
+## Batch 4: Status-bearing MCP facet inspect (PR 1) — IN_PROGRESS
+
+- PR: 1
+- Goal: C4 facets. `inspect(root) → {status, error?, servers}`, and a Codex `readStatus` that separates ENOENT
+  from other errors (N9).
+- Nx projects: `@ptah-extension/harness-sync`
+- Depends on: B1
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: AC-2.1 (source status per declaration), N9 fail-closed input
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync --parallel=2`
+- Commit: `feat(harness-sync): batch 4 - add status-bearing mcp facet inspect`
+- Files (5 code):
+  - M `libs/backend/harness-sync/src/lib/targets/mcp/mcp-facet.port.ts`
+  - M `libs/backend/harness-sync/src/lib/targets/mcp/json-mcp-facet.ts`
+  - M `libs/backend/harness-sync/src/lib/targets/mcp/codex-toml-mcp-facet.ts`
+  - M `libs/backend/harness-sync/src/lib/targets/mcp/opencode-mcp-facet.spec.ts`
+  - M `libs/backend/harness-sync/src/lib/targets/mcp/codex-toml-mcp-facet.spec.ts`
+
+### Task 4.1: Port and JSON facet `inspect` — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:275-280
+- Quality requirements: the result type is declared in `mcp-facet.port.ts`, which is already exported
+  (`harness-sync/src/index.ts:180-181`). No `index.ts` edit is expected; if one is needed, report it as an
+  unplanned file.
+
+### Task 4.2: Codex `readStatus` — IN_PROGRESS
+
+- Quality requirements: a private `readStatus(root) → {status: 'ok'|'missing'|'error', text, error?}`. Legacy
+  `readAll` is byte-for-byte unchanged in behaviour (`codex-toml-mcp-facet.ts:109-110,187-195`). No quoted-key
+  parsing (that is PR 2, Batch 18).
+
+### Task 4.3: Regression specs — IN_PROGRESS
+
+- Quality requirements: EACCES → `inspect` returns `error` and `readAll` returns empty; ENOENT → `missing`. The
+  opencode spec covers JSON `inspect`.
+
+## Batch 5: agent-sdk tokens, loader layering and HarnessPolicySync (PR 1) — IN_PROGRESS
+
+- PR: 1
+- Goal: C3 loader half, the C5 tokens and C5a.
+- Nx projects: `@ptah-extension/agent-sdk`
+- Depends on: B1
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: AC-3.2 (legacy `PluginConfigState` unchanged), AC-3.3 (a legacy CLI save changes the fingerprint →
+  forced pass), AC-4.9 (next-session application), N3 (restrictive on unknown), N4
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/agent-sdk --parallel=2`
+- Commit: `feat(agent-sdk): batch 5 - layer capability policy into plugin loader`
+- Files (7 code):
+  - M `libs/backend/agent-sdk/src/lib/di/tokens.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts`
+  - C `libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.capabilities.spec.ts`
+  - C `libs/backend/agent-sdk/src/lib/harness/harness-policy-sync.ts`
+  - C `libs/backend/agent-sdk/src/lib/harness/harness-policy-sync.spec.ts`
+  - M `libs/backend/agent-sdk/src/lib/di/register.ts`
+  - M `libs/backend/agent-sdk/src/index.ts`
+
+### Task 5.1: Tokens — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:321-322
+- Quality requirements: add `SDK_CAPABILITY_RESOLVER`, `SDK_CAPABILITY_GLOBAL_LAYER`, `SDK_HARNESS_POLICY_SYNC`
+  and `SDK_MCP_SCHEMA_SIZE`. Follow the existing `SDK_TOKENS` style.
+
+### Task 5.2: PluginLoaderService effective config — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:245-251, :259-261
+- Quality requirements:
+  - An optional inject of `SDK_CAPABILITY_GLOBAL_LAYER`.
+  - `getEffectivePluginConfig(root)` returns config + fingerprint from ONE snapshot, and throws
+    `CapabilityPolicyUnknownError` (an `SdkError` whose `name` equals the B1 constant) when unreadable.
+  - `resolveCurrentPluginPaths` → `[]` on unknown; `getDisabledSkillIds` → all known skill ids on unknown.
+  - `saveWorkspacePluginConfig(config, root?)` captures `storageFor(root)` once.
+  - Omitted `enabledSkillIds` is preserved.
+- Validation notes: define the error in `plugin-loader.service.ts`, or in a file already listed. Any new errors
+  file is unplanned and must be counted.
+- Spec: pre-task config unchanged; global OFF / workspace ON; a save during an A→B switch; unknown throws.
+
+### Task 5.3: HarnessPolicySync — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:323-328
+- Quality requirements: `apply(physicalRoot, fingerprint)`. It forces when the fingerprint differs from
+  `lastAck`, runs at most one extra forced pass on a mismatched or joined result, and records `lastAck` only when
+  `isHarnessPassAcknowledged`.
+- Spec: acknowledged; mismatch → second pass; `writeFailed` not acknowledged; `null` not acknowledged; a legacy
+  CLI save → forced.
+- Register the sync in `di/register.ts`, and export it and the error from `src/index.ts`.
+
+## Batch 6: Lock-free capability toggle store and Claude approval reader (PR 1) — IN_PROGRESS
+
+- PR: 1
+- Goal: C2 store (lock-free, one file per toggle, IMPORTED layer) and the C4 `ClaudeApprovalReader`.
+- Nx projects: `@ptah-extension/cli-agent-runtime`
+- Depends on: B1 (codec and types; harness-sync `atomicWriteWithRetry` already exists at
+  `harness-sync/src/index.ts:296,301`)
+- Recommended executor: backend-developer (store, reader and base specs), then senior-tester (the C2 concurrency
+  and interruption tests in the same spec file), in sequence within the batch
+- Fallback: general-purpose | Mode: sequential
+- Rationale: the plan handoff assigns the C2 concurrency tests to senior-tester.
+- Reviewers: code-logic-reviewer
+- **Reviewer acceptance items (mandatory):**
+  - **D1, the IMPORTED layer:**
+    - `imported.json` is one file per workspace, published once by `atomicWriteWithRetry`, and its existence is the
+      marker.
+    - A crash that leaves only `.tmp` → re-import.
+    - A corrupt `imported.json` → `error` → unverified, never absent.
+    - The `inherit` tombstone skips the imported layer, so a clear written before, during or after an import stays
+      cleared.
+    - An imported OFF over an inherited ON stays OFF.
+    - Two concurrent `publishImport` calls → one complete file, never a mix.
+  - **D2, the `l_`/`h_` namespaces:**
+    - The reader recomputes `canonicalFilename(kind, id)` from the content and rejects a mismatch (→ `error`).
+    - The collision pair `"x".repeat(121)` (→ `mcp__h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1.json`) and id
+      `h_79072a47bfaa54e6057a9ee21e0dea64b9edbfd1` (→ `mcp__l_h_79072a47….json`) map to different files.
+    - Toggling or clearing one leaves the other byte-identical.
+- ACs proved: AC-1.1 (persistence), AC-1.4 (EACCES or rename failure rejects; the prior file stays
+  byte-identical), AC-2.3 (the global snapshot is unchanged after a workspace write), D1, D2, N7 (`wsKey` on a
+  win32 alias vs case-sensitive roots)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime --parallel=2`
+- Commit: `feat(cli-agent-runtime): batch 6 - add lock-free capability toggle store`
+- Files (4 code):
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-toggle-store.ts`
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-toggle-store.spec.ts`
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/claude-approval.reader.ts`
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/claude-approval.reader.spec.ts`
+
+### Task 6.1: CapabilityToggleStore — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:166-241
+- Pattern to follow: `libs/backend/harness-sync/src/lib/fs/atomic-write.ts:36-70`
+- Quality requirements:
+  - The layout is `~/.ptah/capabilities/{global,workspaces/<wsKey>/items,workspaces/<wsKey>/imported.json,root.json}`.
+  - `wsKey = sha256(policyKey).slice(0,32)`.
+  - Items are validated by zod.
+  - Every read is a fresh `readdir` with no cache. Unknown names are ignored and logged; 0-byte or unparseable
+    files are errors.
+  - `setExplicit` writes `on`.
+  - Ptah never deletes an item.
+  - The class implements `ICapabilityGlobalLayer` and exposes `fingerprintEntries` (skill and plugin items only).
+  - It logs through `IOutputChannel` (`PLATFORM_TOKENS.OUTPUT_CHANNEL`).
+- Validation notes: no lock, and no import of harness-sync `file-lock.ts`. The tests use a real temp directory:
+  200 interleaved writes from two instances on different items → all present.
+
+### Task 6.2: ClaudeApprovalReader — IN_PROGRESS
+
+- Plan reference: implementation-plan.md:101-110, :283-284
+- Quality requirements:
+  - It reads `~/.claude.json` `projects[<physicalRoot>]` with the existing key-folding rule.
+  - It reads `.claude/settings.local.json` only when git reports the file ignored AND untracked.
+  - git runs with argument arrays and a 2 s timeout, and an expected non-zero exit is distinguished from a git
+    failure.
+  - It never throws, and returns `{status, approvals}`.
+- Spec: the tracked, non-git and git-timeout cases.
+
+## Batch 7: Capability resolver, single inventory and DI (PR 1) — PENDING
+
+- PR: 1
+- Goal: C4 resolver and inventory, plus registration of the store, reader and resolver under the `SDK_TOKENS`.
+- Nx projects: `@ptah-extension/cli-agent-runtime`
+- Depends on: B4, B5, B6
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved:
+  - AC-1.2 (A vs B), AC-1.3 (on-again writes the `inherit` tombstone; the entry shows inheriting);
+  - AC-2.1 (scope and paths), AC-2.3 (user files unchanged), AC-3.1 (backend: skill and plugin workspace
+    writes);
+  - AC-4.1 (three `settings.local.json` fixtures with `imported.json` present);
+  - N2 (first `set()` in a fresh workspace), N6, N7.
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime --parallel=2`
+- Commit: `feat(cli-agent-runtime): batch 7 - add capability resolver and inventory`
+- Files (6 code):
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.ts`
+  - C `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.spec.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.spec.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/di/register.ts`
+  - M `libs/backend/cli-agent-runtime/src/index.ts`
+
+### Task 7.1: CapabilityResolverService — PENDING
+
+- Plan reference: implementation-plan.md:80-110, :286-309
+- Quality requirements:
+  - `resolve(cwd)`: physical root via `realpathSync.native(resolveHarnessWorkspaceRoot(cwd))`. The
+    `policyKey` is lower-cased on win32 only. Then single-flight `ensureImported`, then store + inventory +
+    `getEffectivePluginConfig` + back-off.
+  - It produces denied, approved (explicit or imported ON only) and `deniedSkillNames` (including the
+    children of disabled plugins, bare and `plugin:skill`), plus `harnessFingerprint` and `status`.
+  - `list(root)` shares the same inputs.
+  - `set` awaits `ensureImported` first.
+  - Skill and plugin workspace writes go through `saveWorkspacePluginConfig(…, physicalRoot)`.
+  - An unknown id is rejected.
+- Validation notes: R7 and R8. An `.mcp.json` error or an unreadable Codex config → `unverified`. A source error
+  publishes nothing, and a retry imports. A server added later is OFF. Two concurrent `resolve` calls → one
+  import. It logs through `IOutputChannel`.
+
+### Task 7.2: McpInstallService.listDeclarations — PENDING
+
+- Quality requirements: `listDeclarations(root) → {declarations, sourceStatus}` uses facet `inspect` (B4) and
+  feeds both `listInstalled` (which dedupes including scope) and the resolver. Claude user rows use the existing
+  `entry.scope`. The #16 reader switch is PR 2 (Batch 19).
+
+### Task 7.3: DI — PENDING
+
+- Quality requirements:
+  - Register the store as `SDK_CAPABILITY_GLOBAL_LAYER` and the resolver as `SDK_CAPABILITY_RESOLVER`.
+  - Export `CapabilityResolverService` and `CapabilityToggleStore` from `src/index.ts`.
+  - Record the write-path trace notes for Mode 3.
+
+## Batch 8: Claude SDK enforcement (PR 1) — PENDING
+
+- PR: 1
+- Goal: C5 builder, runner (one-shots), model probe and executor. Verified policy → flags. Unverified → strict MCP
+  + `skills: []` + notice.
+- Nx projects: `@ptah-extension/agent-sdk`
+- Depends on: B5 (the resolver is mocked through `ICapabilityResolver`; B7 is not needed at compile time)
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: AC-3.4, AC-4.2, AC-4.3 (built options, direct and proxied), AC-4.6 (ptah OFF honoured; ptah present
+  by default), AC-4.7 (back-off wins), AC-4.9, and unit coverage for A1 and A2
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/agent-sdk --parallel=2`
+- Commit: `feat(agent-sdk): batch 8 - enforce capability policy in claude sessions`
+- Files (8 code):
+  - M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`
+  - C `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.capabilities.spec.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.spec.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.spec.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`
+  - M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.harness-preflight.spec.ts`
+
+### Task 8.1: Builder flags and fail-closed mode — PENDING
+
+- Plan reference: implementation-plan.md:329-346; existing deny plumbing is at `sdk-query-options-builder.ts:373-410`
+- Quality requirements:
+  - Verified: `deniedMcpServers` / `disabledMcpjsonServers` (flag tier), explicit-only `enabledMcpjsonServers`,
+    `skillOverrides`. ptah is filtered only when explicitly OFF, and denied overrides are removed.
+  - Unverified: `strictMcpConfig: true` with ptah only (omitted only if a readable store says OFF), `skills: []`,
+    and the `capability-policy-unverified` notice.
+- Spec: a repository server OFF is denied under a user `enableAll`; explicit ON is approved; proxied parity; ptah
+  default and OFF; back-off; parent-off children; unverified.
+
+### Task 8.2: Executor, runner and model probe — PENDING
+
+- Quality requirements:
+  - `SessionQueryExecutor` runs `HarnessPolicySync.apply` before the build. Unacknowledged is logged and not
+    fatal. Unverified → no preflight.
+  - One-shots use the same flags, or strict mode when unverified.
+  - The model probe uses `strictMcpConfig: true`, `mcpServers: {}` and `skills: []`.
+
+## Batch 9: Ptah CLI enforcement and chat notice (PR 1) — PENDING
+
+- PR: 1
+- Goal: C5 Ptah CLI ordering (resolve policy → `HarnessPolicySync.apply` → `assembleSpawnOptions`), and the chat
+  chip rendering the unverified notice.
+- Nx projects: `@ptah-extension/cli-agent-runtime`, `@ptah-extension/chat`
+- Depends on: B2, B7, B8
+- Recommended executor: backend-developer (the chip is a single template/notice change) | Fallback:
+  frontend-developer for the chip | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer (chat UI)
+- ACs proved: AC-4.5 (Ptah CLI lane), AC-4.6 (unverified chip notice), AC-3.3
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime,@ptah-extension/chat --parallel=2`
+- Commit: `feat(cli-agent-runtime,chat): batch 9 - enforce policy for ptah cli agents`
+- Files (4 code):
+  - M `libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.service.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts`
+  - C `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-capabilities.spec.ts`
+  - M `libs/frontend/chat/src/lib/components/molecules/mcp-status-chip.component.ts`
+
+### Task 9.1: Registry ordering and spawn flags — PENDING
+
+- Plan reference: implementation-plan.md:336-337, :346; reorders `ptah-cli-registry.ts:657-659`
+- Quality requirements: the assembly carries the flags, or strict mode when unverified.
+- Spec: ordering (the policy is resolved before preflight), flags present, strict when unverified.
+- Pattern: `ptah-cli-registry-harness-preflight.spec.ts`.
+
+### Task 9.2: Chat chip notice — PENDING
+
+- Quality requirements: render the plan text "Only Ptah tools are loaded and skills are off: Ptah couldn't read
+  <path> (<reason>). Fix the file and start a new session." Use OnPush and signals, as the component already does.
+
+## Batch 10: Capabilities RPC handlers (PR 1) — PENDING
+
+- PR: 1
+- Goal: C8 `CapabilityRpcHandlers` with a zod schema, the handler index and exports, and the host-profile
+  manifest entry.
+- Nx projects: `@ptah-extension/rpc-handlers`
+- Depends on: B2, B7
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: AC-1.4 (store error → RPC error), AC-3.1, AC-5.2 (no `schemaTokens` without `SDK_MCP_SCHEMA_SIZE`
+  → "size unknown")
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers --parallel=2` (includes `host-profile/resolve-handler-plan.spec.ts`, P4)
+- Commit: `feat(rpc-handlers): batch 10 - add capabilities rpc handlers`
+- Files (6 code):
+  - C `libs/backend/rpc-handlers/src/lib/handlers/capability-rpc.handlers.ts`
+  - C `libs/backend/rpc-handlers/src/lib/handlers/capability-rpc.handlers.spec.ts`
+  - C `libs/backend/rpc-handlers/src/lib/handlers/capability-rpc.schema.ts` (pattern: `agent-rpc.schema.ts`)
+  - M `libs/backend/rpc-handlers/src/lib/handlers/index.ts`
+  - M `libs/backend/rpc-handlers/src/index.ts`
+  - M `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts` (pattern: the `HarnessRpcHandlers.METHODS` entry at `manifest.ts:197`)
+
+### Task 10.1: Handlers — PENDING
+
+- Plan reference: implementation-plan.md:360-366
+- Quality requirements:
+  - `getState`, `getEffective` and `setEnabled`; the root comes from `canonicalPolicyRoot`.
+  - zod runs at entry, and ids are validated against the inventory.
+  - `schemaTokens` is attached only when the optional `SDK_MCP_SCHEMA_SIZE` is registered.
+  - A write failure → RPC error naming the item.
+
+## Batch 11: Install writes explicit ON, CLI host wiring (PR 1) — PENDING
+
+- PR: 1
+- Goal: `McpDirectoryRpcHandlers` install calls `setExplicit` (N6), with a `capabilityWarning` on failure, and the
+  cli-engine container registers the capability handlers and services.
+- Nx projects: `@ptah-extension/rpc-handlers`, `@ptah-extension/cli-engine`
+- Depends on: B10
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: N6 (a workspace install with a same-name Codex-global entry ends up approved), AC-3.1 (CLI host has
+  the RPC)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine --parallel=2`
+- Commit: `feat(rpc-handlers,cli-engine): batch 11 - write explicit on at install`
+- Files (3 code):
+  - M `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts`
+  - M `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.spec.ts`
+  - M `libs/backend/cli-engine/src/lib/container.ts`
+
+## Batch 12: Electron and VS Code host registration (PR 1) — PENDING
+
+- PR: 1
+- Goal: register `CapabilityRpcHandlers` in both desktop hosts (NFR: both hosts surface the controls).
+- Nx projects: `ptah-electron`, `ptah-extension-vscode`
+- Depends on: B10
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- ACs proved: NFR compatibility (VS Code + Electron), and AC-1.1 across app restart (a host-wired handler)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p ptah-electron,ptah-extension-vscode --parallel=2`
+- Commit: `feat(electron,vscode): batch 12 - register capabilities rpc handlers`
+- Files (2 code):
+  - M `apps/ptah-electron/src/di/phase-4-handlers.ts` (pattern: `:43,105,160`)
+  - M `apps/ptah-extension-vscode/src/di/phase-3-handlers.ts` (pattern: `:48,82`)
+
+## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — PENDING
+
+- PR: 1
+- Goal: C10 foundation. The store does an optimistic update and reverts on error. `CapabilityToggleComponent`
+  carries the badges, the accessible name and the scope-of-write text. The shell shows the policy banner.
+- Nx projects: `@ptah-extension/marketplace`
+- Depends on: B2. Entry step: the visual-reviewer captures the BEFORE screenshots (dark + light) at `c4bdc87dd`
+  before this batch is committed.
+- Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer
+- ACs proved: AC-1.4 (revert + error naming the server), AC-1.5 (accessible name with name + state; keyboard
+  operable), AC-2.2 ("This workspace only"), AC-2.4 (override indicator), AC-4.6 (ptah OFF warning), AC-4.8
+  ("not enforced" from `CAPABILITY_ENFORCEMENT`), AC-4.9 ("applies to the next session")
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2`
+- Commit: `feat(marketplace): batch 13 - add capability toggle store and control`
+- Files (5 code; R4 allows +1 `marketplace-shell.component.html`):
+  - C `libs/frontend/marketplace/src/lib/data/capability-toggles.store.ts` (pattern: `data/connector-links.store.ts`)
+  - C `libs/frontend/marketplace/src/lib/data/capability-toggles.store.spec.ts`
+  - C `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts`
+  - C `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.spec.ts`
+  - M `libs/frontend/marketplace/src/lib/shell/marketplace-shell.component.ts`
+
+### Task 13.1: Store — PENDING
+
+- Quality requirements: signals only. `setEnabled` is optimistic → reconcile with the returned entry, or revert
+  and surface the error on failure. Unverified status → banner state with the paths (each bad item file named).
+
+### Task 13.2: Toggle control — PENDING
+
+- Quality requirements:
+  - OnPush.
+  - Badges: new workspace server, imported, parent-off, unknown, inheriting/override.
+  - The ptah-OFF warning copy is AC-4.6: agent lanes, memory and browser become unavailable.
+  - The accessible name includes the item name and the state.
+
+### Task 13.3: Enforcement labels and shell banner — PENDING
+
+- Validation notes: A-UI and R6. Labels are derived from `CAPABILITY_ENFORCEMENT` and never hard-coded, so the
+  PR 2 flip needs no UI edit.
+
+## Batch 14: Server pages - toggles, scope, declarations and size (PR 1) — PENDING
+
+- PR: 1
+- Goal: wire the toggle into the Installed servers rows and the server detail. The UI shows the scope label and
+  source paths as a declaration LIST (#16-ready), the scope-of-write text, and "size unknown" (which is always the
+  case in PR 1).
+- Nx projects: `@ptah-extension/marketplace`
+- Depends on: B13
+- Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer
+- ACs proved: AC-1.1 (UI), AC-1.3 (inheriting shown), AC-1.5, AC-2.1, AC-2.2, AC-2.4, AC-4.6, AC-4.8, AC-5.2
+  ("size unknown", and a failed server doesn't block the page)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2`
+- Commit: `feat(marketplace): batch 14 - add server toggles, scope and size labels`
+- Files (9 code):
+  - M `libs/frontend/marketplace/src/lib/pages/servers/provider-list-view.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/provider-list-view.component.html`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/provider-list-view.component.spec.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/provider-list-view.testing.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/server-detail.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/server-detail.component.html` (paths block at `:335-363`)
+  - M `libs/frontend/marketplace/src/lib/pages/servers/server-detail.component.spec.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.spec.ts`
+- Validation notes:
+  - A-UI: render N declarations generically. In PR 1 there is one `~/.claude.json` declaration per name.
+  - The figure renders only when `schemaTokens` is present, labelled with the estimate method.
+  - The ptah CLI proxy row shows "not enforced".
+
+## Batch 15: Skill and plugin pages - toggles (PR 1) — PENDING
+
+- PR: 1
+- Goal: the same toggle, scope label and scope-of-write text on the Installed skills page and the skill detail
+  (skills and plugins, including parent-off).
+- Nx projects: `@ptah-extension/marketplace`
+- Depends on: B13 (runs parallel to B14 in a SEPARATE worktree)
+- Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer
+- ACs proved: AC-3.1, AC-2.2, AC-1.5, AC-3.4 (UI side: parent-off child shown OFF)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2`
+- Commit: `feat(marketplace): batch 15 - add skill and plugin toggles`
+- Files (4 code):
+  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.spec.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.spec.ts`
+
+## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — PENDING
+
+- PR: 1
+- Goal: C11 scenarios in the existing harness marketplace e2e location
+  (`libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/`, next to `marketplace-servers.e2e.spec.ts`).
+- Nx projects: `@ptah-extension/webview-e2e-harness`
+- Depends on: B13, B14, B15
+- Recommended executor: senior-tester | Fallback: frontend-developer | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer
+- ACs proved:
+  - AC-1.1 (toggle write + reload), AC-1.4 (revert on failure), AC-2.2 (scope text), AC-3.1 (skill and plugin
+    toggles);
+  - AC-4.6 (ptah OFF warning), AC-4.8 (rival lanes and CLI proxy "not enforced"), AC-5.2 ("size unknown");
+  - the new repository server badge, where ON sends `{scope: 'workspace', enabled: true}`, the imported badge
+    and the unverified banner;
+  - NFR (an e2e spec for each new control).
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/webview-e2e-harness --parallel=2`
+  plus `NX_DAEMON=false npx nx run @ptah-extension/webview-e2e-harness:e2e -- capability-toggles` (this project
+  has no `test` target).
+- Commit: `test(e2e,webview-e2e-harness): batch 16 - cover capability toggles`
+- Files (2 code):
+  - C `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/capability-toggles.e2e.spec.ts` (P3)
+  - M `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/marketplace.fixtures.ts`
+- Validation notes: R6. The "not enforced" assertions derive from fixture or constant data. The spec uses
+  `installRpcAutoResponder` to fail `capabilities:setEnabled` for the revert case.
+
+## Batch 17: PR 1 live verification and AC report (PR 1) — PENDING
+
+- PR: 1
+- Goal:
+  - close A1 and A2 live;
+  - capture the AC-4.3 proxied first request;
+  - produce the AC report, the after screenshots (dark + light) and the write-path trace.
+- Nx projects (full PR 1 regression): all PR 1 projects
+- Depends on: B1-B16
+- Recommended executor: senior-tester (+ visual-reviewer for the after screenshots) | Mode: sequential
+- Reviewers: code-logic-reviewer (on the report's evidence)
+- ACs proved: AC-4.3 live, A1, A2, and the whole PR 1 AC map (implementation-plan.md:456-480)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,@ptah-extension/chat,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,@ptah-extension/marketplace,@ptah-extension/webview-e2e-harness --parallel=2`,
+  then `git diff --stat origin/main | tail -1` (must be under 100), then a `git diff --name-only origin/main`
+  that contains no `protocol-dispatcher.ts` and no `*.generated.*`.
+- Commit: `docs(task-specs): batch 17 - record pr 1 acceptance and live checks`
+- Files: `.ptah/specs/TASK_2026_560_2ae5/test-report.md` (C), `visual-review.md` (C). These are docs, already counted.
+
+---
+
+## Batch 18: Codex quoted MCP keys (#12) (PR 2) — PENDING
+
+- PR: 2
+- Goal: C4b, quoted-header parsing in the Codex facet (corrects `codex-toml-mcp-facet.ts:423-428`).
+- Nx projects: `@ptah-extension/harness-sync`
+- Depends on: PR 1 merged
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-4.4 prerequisite; unit half of A3
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync --parallel=2`
+- Commit: `fix(harness-sync): batch 18 - parse quoted codex mcp server keys`
+- Files (2): M `libs/backend/harness-sync/src/lib/targets/mcp/codex-toml-mcp-facet.ts`, M `.../codex-toml-mcp-facet.spec.ts`
+
+## Batch 19: Claude user MCP declarations in both scopes (#16) (PR 2) — PENDING
+
+- PR: 2
+- Goal: C4c. `readClaudeUserMcpDeclarations` yields non-collapsing declarations, and `mcp-install` switches to it.
+- Nx projects: `@ptah-extension/cli-agent-runtime`
+- Depends on: PR 1 merged
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-2.1 (a name in both `~/.claude.json` maps shows both scopes and paths), AC-2.5
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime --parallel=2`
+- Commit: `feat(cli-agent-runtime): batch 19 - keep both claude user mcp scopes`
+- Files (3):
+  - M `libs/backend/cli-agent-runtime/src/lib/mcp-directory/claude-user-mcp.reader.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/mcp-directory/claude-user-mcp.reader.spec.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-install.service.ts`
+
+## Batch 20: MCP schema-size measurement (PR 2) — PENDING
+
+- PR: 2
+- Goal: C7 `McpSchemaSizeService` (N5). It runs `mcpServerStatus()` and `getContextUsage({detail: 'summary'})`
+  under one 3 s bound, keeps figures only for servers `connected` now, re-checks the token, and memos by
+  `(token, server, configHash)`.
+- Nx projects: `@ptah-extension/agent-sdk`
+- Depends on: PR 1 merged
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-5.1, AC-5.2, AC-5.3 (fixture within 10%), AC-5.4 (the total equals the sum of enabled servers),
+  and the unit halves of A4 and A5
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/agent-sdk --parallel=2`
+- Commit: `feat(agent-sdk): batch 20 - measure mcp schema size per session`
+- Files (4):
+  - C `libs/backend/agent-sdk/src/lib/helpers/mcp-schema-size.service.ts`
+  - C `libs/backend/agent-sdk/src/lib/helpers/mcp-schema-size.service.spec.ts`
+  - M `libs/backend/agent-sdk/src/lib/di/register.ts`
+  - M `libs/backend/agent-sdk/src/index.ts`
+- Validation notes:
+  - Tests: connected→failed in one session → unknown; pending→connected → figure; ended → unknown; timeout; no
+    cross-session reuse.
+  - Never spawn a disabled server to measure it.
+  - Logs through `IOutputChannel`.
+
+## Batch 21: CLI proxy collector policy filter (#14, #9) (PR 2) — PENDING
+
+- PR: 2
+- Goal: C9. The policy is checked before every cache hit, and cached inventory is filtered. Parent-OFF skills are
+  filtered, and a known ptah OFF is preserved when unverified (ptah tools only otherwise).
+- Nx projects: `ptah-cli`
+- Depends on: PR 1 merged
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-4.3 (CLI proxy path), AC-4.9 (no stale cache across toggles, TTL test), fail-closed for the proxy
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p ptah-cli --parallel=2`
+- Commit: `feat(cli): batch 21 - filter proxy mcp tools by capability policy`
+- Files (2): M `apps/ptah-cli/src/services/proxy/workspace-mcp-collector.ts` (bypass at `:89-91`, cache at `:152-154`), M `.../workspace-mcp-collector.spec.ts`
+
+## Batch 22: Codex and OpenCode lane enforcement (PR 2) — PENDING
+
+- PR: 2
+- Goal: C6 part A. The spawn path resolves the policy and runs `HarnessPolicySync.apply`; unverified → the lane is
+  refused (`CapabilityPolicyUnavailableError`). The Codex lane gets `enabled=false` for denied servers with
+  pre-quoted `tomlKeySegment` keys, and OpenCode's inline `mcp` gets only the enabled servers. An unacknowledged
+  pass → a warning with `partial` skill/plugin labels.
+- Nx projects: `@ptah-extension/cli-agent-runtime`
+- Depends on: B18, B19 (same project, sequential)
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-4.4, AC-4.5 (OpenCode), AC-4.8 (warning naming the provider and the item); the serialised-argv
+  half of A3
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime --parallel=2`
+- Commit: `feat(cli-agent-runtime): batch 22 - enforce policy in codex and opencode lanes`
+- Files (6; A-PR2, re-verify at kickoff):
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.spec.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.ts` (`:592-643`)
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.spec.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/opencode-cli.adapter.ts` (`:534,605-607`)
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/opencode-cli.adapter.spec.ts`
+
+## Batch 23: Antigravity lane enforcement and enforcement-table flip (PR 2) — PENDING
+
+- PR: 2
+- Goal: C6 part B.
+  - Antigravity uses ownership-gated cleanup: cleanup runs only after a successful setup ownership
+    (`antigravity-cli.adapter.ts:573-579,628-634,826-829`).
+  - Refused when unverified.
+  - The `CAPABILITY_ENFORCEMENT` codex, opencode, antigravity and `ptah-cli-proxy` rows flip to enforced.
+- Nx projects: `@ptah-extension/cli-agent-runtime`, `@ptah-extension/shared`
+- Depends on: B20, B21, B22 (the rows flip only after every lane and the proxy enforce)
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- ACs proved: AC-4.5 (Antigravity), AC-4.8 (the "not enforced" labels disappear through data only, A-UI)
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/cli-agent-runtime,@ptah-extension/shared --parallel=2`
+  plus the marketplace test and the harness e2e, both unchanged and still passing (this proves A-UI).
+- Commit: `feat(cli-agent-runtime,shared): batch 23 - enforce antigravity lane policy`
+- Files (4):
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/antigravity-cli.adapter.ts`
+  - M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/antigravity-cli.adapter.mcp.spec.ts`
+  - M `libs/shared/src/lib/types/capability-toggle.types.ts`
+  - M `libs/shared/src/lib/types/capability-toggle.types.spec.ts`
+
+## Batch 24: PR 2 live verification (PR 2) — PENDING
+
+- PR: 2
+- Goal: close A3, A4 and A5 live; run the lane tests for AC-4.4 and AC-4.5; confirm the schema figures in the UI
+  (AC-5.1 and AC-5.4); write the after screenshots for the size figure.
+- Depends on: B18-B23
+- Recommended executor: senior-tester | Mode: sequential | Reviewers: code-logic-reviewer
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,ptah-cli,@ptah-extension/marketplace --parallel=2`,
+  plus the per-PR `git diff --stat` budget.
+- Commit: `docs(task-specs): batch 24 - record pr 2 acceptance and live checks`
+- Files: `test-report.md` (M), `batches.md` (M). These are docs only.
