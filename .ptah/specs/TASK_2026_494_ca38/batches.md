@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 14/20
+Total tasks: 20 | Batches: 20 | Complete: 15/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -384,7 +384,7 @@ Edge cases:
   - codex lane (code-logic-review-batch-7-round-2-codex.md).
 - Carried to B8. These are listed in Task 8.1 validation notes.
 
-## Batch 8: Node, renderer, public API, trust boundary — COMPLETE
+## Batch 8: Node, renderer, public API, trust boundary — COMPLETE (commit 6f5321476)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -486,7 +486,7 @@ Edge cases:
 - Process note: the codex lane wrote over the committed B3 `code-logic-review.md`. The coordinator restored that file and
   moved the review. From now on, every lane prompt names its exact output file and forbids writing `code-logic-review.md`.
 
-## Batch 9: Budget confirmation — IN_PROGRESS
+## Batch 9: Budget confirmation — COMPLETE
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -495,7 +495,7 @@ Edge cases:
 - Rationale: measurement plus a contract-doc decision; the tester owns the evidence.
 - Tasks: 1 | Depends on: Batch 8
 
-### Task 9.1: `budget-render.spec.ts`, v2 fixtures on the testing barrel, budget doc comments, report — IN_PROGRESS
+### Task 9.1: `budget-render.spec.ts`, v2 fixtures on the testing barrel, budget doc comments, report — COMPLETE
 
 - Files (5): CREATE `.../libs/frontend/declarative-dashboard/src/lib/budget-render.spec.ts`; MODIFY
   `.../libs/shared/src/testing/index.ts`, `.../libs/shared/src/mcp-apps-contracts/dashboard-catalog.ts`,
@@ -514,6 +514,25 @@ Edge cases:
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/shared`
 - `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit` (spec type errors; the typecheck target
   covers only tsconfig.lib.json)
+- Result:
+  - Team-leader re-run with `--skip-nx-cache`: 2 projects green, and spec tsc exits 0.
+  - Diff check:
+    - The catalog changes are comments only; no constant changed.
+    - The testing barrel adds 4 fixture exports.
+    - No production source imports `@ptah-extension/shared/testing`.
+    - The repo has no `no-console` rule.
+  - code-logic-reviewer: APPROVED 8/10 (code-logic-review-batch-9.md).
+    - Moderate: `runCase` asserted only that `renderFailed` was false, so an empty render would pass.
+    - Coordinator ruling: tighten this before commit. The senior-tester added DOM count assertions to the count-based
+      cases. The team-leader verifies them; no reviewer re-run, because the change is test-only.
+    - Done. 8 cases now assert DOM counts: 200 components, 1,000 rows (first page and pager), 50 columns,
+      100 inputs, 50 select options, 50 radios, 50 children, 4 grid columns.
+    - Red run: an empty-builder override kept `renderFailed` false but failed the count assertion (100 expected,
+      0 received).
+    - The team-leader re-ran both projects: green. Spec tsc exits 0. 213 tests pass.
+    - Not count-asserted, because there is no natural N in the DOM: maxTreeDepth, maxSeriesPoints and the three
+      byte limits. Each still passes at-limit validation plus a non-empty render.
+- Final: B9 ACCEPTED.
 
 ## Batch 10: Apps pure state — operation ids and overlays — COMPLETE (commit 4590f8da3)
 
@@ -700,7 +719,24 @@ Edge cases:
 - Lane pool change (2026-09-25): Glm/Ollama Cloud weekly limit reached; opencode Go exhausted. Executors and second
   reviews now use codex, antigravity and subagents only, and never the batch's own executor.
 
-## Batch 15: Apps page components and public API — PENDING
+## Remaining order (team-leader, 2026-09-25, after B9)
+
+1. B15 runs alone. Both B16 and B20 depend on it:
+   - B16's lazy `loadComponent` reads `m.AppsPageComponent` from the lib's `src/index.ts`, which B15 creates.
+   - B20 modifies `apps-page.component.ts`.
+2. B20 and B16 run in parallel after B15. They are file-disjoint:
+   - B20: `core/.../electron-layout.service.ts`, `apps-page.component.ts` and their specs.
+   - B16: `shared/.../webview-surface.types.ts`, `app.routes.ts`, `webview-routing.spec.ts`, and the guard.
+
+   Their commits still land one at a time. Each batch's verification runs against the combined tree, so a failure
+   is attributed by file ownership. B16's `@ptah-extension/core` tests also cover B20's service change.
+3. B17 depends on B16 (D-2).
+4. B19 depends on B1-B18 and runs last.
+5. The R10 visual review (dark and light, against `prototype/`) runs after B17.
+
+B15 and B20 are built against the approved prototype.
+
+## Batch 15: Apps page components and public API — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -708,7 +744,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 8, 13, 14
 
-### Task 15.1: `AppsPageComponent`, `AppsTranscriptComponent`, `AppsSurfacePanelComponent`, `src/index.ts` — PENDING
+### Task 15.1: `AppsPageComponent`, `AppsTranscriptComponent`, `AppsSurfacePanelComponent`, `src/index.ts` — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/components/`: `apps-page.component.ts` (+ spec),
   `apps-transcript.component.ts`, `apps-surface-panel.component.ts` (+ spec); MODIFY

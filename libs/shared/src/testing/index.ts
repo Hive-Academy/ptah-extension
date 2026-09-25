@@ -42,6 +42,12 @@ export {
   makeStats,
   makeTable,
 } from './fixtures/dashboard-spec';
+export {
+  makeSurfaceComponents,
+  makeSurfaceDataAtDepth,
+  makeSurfaceEnvelope,
+  makeSurfaceTextInput,
+} from './fixtures/surface';
 export { freezeTime, type FrozenClock } from './time/freeze-time';
 export {
   expectNormalizedPath,

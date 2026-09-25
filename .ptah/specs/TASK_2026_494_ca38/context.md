@@ -110,3 +110,4 @@ Mode: enabled
 - 2026-09-25: B7 committed 60a2bf643. B8 round 1 NEEDS_REVISION (5/10 x2); fix round 1 removed the renderer echo guard; round 2 running.
 - Future enhancement: include tsconfig.spec.json in the typecheck target (spec type errors are invisible to nx typecheck today; B8 TS2367).
 - 2026-09-25: B8 ACCEPTED (code-logic-reviewer 8/10 round 2; codex 8/10 round 2b after a bounded consumed-drafts fix); committed; B9 IN_PROGRESS.
+- 2026-09-25: B8 committed 6f5321476. B9 APPROVED 8/10 + DOM-count tightening; committed; B15 IN_PROGRESS (then B20 || B16, B17, B19).

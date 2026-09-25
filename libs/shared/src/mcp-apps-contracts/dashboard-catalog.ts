@@ -140,19 +140,28 @@ export const DASHBOARD_TEXT_FORMATS = ['plain'] as const;
 export type DashboardTextFormat = (typeof DASHBOARD_TEXT_FORMATS)[number];
 
 /**
- * Spec budgets — PROVISIONAL.
+ * Spec budgets.
  *
- * These are the starting values from `context.md` "Budgets". That section also
- * asks for them to be confirmed by a render test; the renderer does not exist
- * yet (it is TASK_2026_494), and a number confirmed against a renderer that
- * does not exist would be a fabrication. So they ship provisional and
- * TASK_2026_494 confirms or replaces them. Anything that reads a budget reads
- * it from HERE, so confirming a number is a one-line change in one file.
+ * These started as the provisional values from `context.md` "Budgets", which
+ * asked for them to be confirmed by a render test once a renderer existed.
+ * TASK_2026_494 is that renderer, and CONFIRMED `maxComponents`,
+ * `maxTreeDepth`, `maxTableRows`, `maxTableColumns`, `maxSeriesPoints` and
+ * `maxSpecBytes` — each renders through the real `SurfaceRendererComponent`
+ * with no `renderFailed`, at exactly this value, in
+ * `libs/frontend/declarative-dashboard/src/lib/budget-render.spec.ts`. The
+ * measured jsdom render times (`budget-render-report.md`, TASK_2026_494_ca38)
+ * are a RELATIVE signal only (jsdom has no layout/paint cost — see that
+ * report's A4 caveat), not a prediction of Electron wall-clock time; no
+ * measurement was slow enough to justify lowering a value. Anything that
+ * reads a budget reads it from HERE, so confirming or changing a number is a
+ * one-line change in one file.
  *
  * - `maxComponents` counts every node in the tree, not just the roots.
  * - `maxTreeDepth` counts nesting levels; a flat list of tiles is depth 1.
  * - `maxStringLength` applies to every string the contract accepts, ids
- *   included, so there is exactly one string limit to reason about.
+ *   included, so there is exactly one string limit to reason about. Not
+ *   itself a `budget-render.spec.ts` case (it is exercised at the validator
+ *   boundary, not the render boundary — `dashboard-budgets.spec.ts`).
  * - `maxTableRows` also caps `list.items` — both are row-shaped and a second
  *   number would be a second thing to confirm for no gain.
  * - `maxSeriesPoints` is summed across all series of ONE chart component.
