@@ -9,3 +9,5 @@ export { countTokens, fitsBudget } from './lib/token-measure';
 export type { TextBudget } from './lib/token-measure';
 export { reduceJson } from './lib/reducers/json.reducer';
 export { reduceMarkdown } from './lib/reducers/markdown.reducer';
+export { reduceLog } from './lib/reducers/log.reducer';
+export { reduceHtml } from './lib/reducers/html.reducer';
