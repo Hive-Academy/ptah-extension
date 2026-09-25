@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 18/20
+Total tasks: 20 | Batches: 20 | Complete: 19/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -755,6 +755,12 @@ Edge cases:
      Do not change it before the review.
    - B20: screen-reader spot check of the nested `role="separator"` on the splitter handle.
    - B20 (note only, not a requirement): a keyboard resize in progress has no Escape to cancel it.
+   - B17:
+     - tabs-lifted rendering of the Apps tab;
+     - the AppWindow icon against the prototype;
+     - the five-tab row at narrow widths;
+     - keyboard access to the tab.
+   - The coordinator runs this review in person, through the webview e2e harness with scripted surfaces.
 
 B15 and B20 are built against the approved prototype.
 
@@ -884,7 +890,7 @@ subagent. Each batch gets the code-logic-reviewer subagent plus one CLI review l
 - Final: B15 ACCEPTED. It covers M1 and M2 with specs, the 4 errors in our own specs (spec tsc must then show
   exactly the 8 baseline errors), and every codex finding.
 
-## Batch 20: Apps page splitter (user addition 2026-09-25) — COMPLETE
+## Batch 20: Apps page splitter (user addition 2026-09-25) — COMPLETE (commit 6da0c30a2)
 
 Runs right after Batch 15 (numbered 20 so existing batch numbers stay stable). B16-B19 do not depend on it; B19's
 lazy-load gate and Mode 3 visual evidence must include it.
@@ -1042,7 +1048,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
     clicked before the flag is known.
   - B17 only needs its navigation specs to set `isElectron=true`, as already noted.
 
-## Batch 17: Electron shell Apps tab — IN_PROGRESS
+## Batch 17: Electron shell Apps tab — COMPLETE
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -1050,7 +1056,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 16 (D-2)
 
-### Task 17.1: Apps tab button — IN_PROGRESS
+### Task 17.1: Apps tab button — COMPLETE
 
 - Files (2): MODIFY `.../libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`; CREATE
   `.../libs/frontend/chat/src/lib/components/templates/electron-shell.apps-tab.spec.ts`
@@ -1078,9 +1084,21 @@ lazy-load gate and Mode 3 visual evidence must include it.
 
     The other 13 tests are untouched.
   - The `AppWindow` icon is ACCEPTED, as planned. The R10 visual review may revisit it.
+- Result: the team-leader re-ran it with `--skip-nx-cache`, and chat is green.
+  - Chat spec tsc shows exactly the 249-error baseline, with 0 errors in electron-shell files.
+  - The diff replaces only the Apps slot comment and adds `AppWindow`/`openApps()`.
+  - The config-gate edit matches the approved change exactly.
+  - The executor's targeted electron-shell run passed 24/24.
 - Review, round 1:
   - code-logic-reviewer (code-logic-review-batch-17.md);
-  - codex lane, no role (code-logic-review-batch-17-codex.md).
+  - codex lane, no role (code-logic-review-batch-17-codex.md): APPROVED 10/10, no findings. It ran the electron-shell
+    tests (24/24) and traced navigation, host gating and the lazy load.
+  - code-logic-reviewer: APPROVED 9/10 (code-logic-review-batch-17.md).
+    - Note only, not a defect: AppStateManager ignores a tab click while `canSwitchViews()` is false. This is
+      inherited behaviour.
+- Final: B17 ACCEPTED.
+- Coordinator: report after B19 commits. The coordinator runs the R10 visual review in person, through the webview
+  e2e harness with scripted surfaces. The team-leader does NOT start it.
 
 ## Batch 18: Harness prompt isolation — COMPLETE (commit a3dbaceea)
 
@@ -1115,7 +1133,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
   (code-logic-review-batch-18.md).
 - Minor coverage gap (non-blocking): a second re-attachment of targets on the same id is not pinned.
 
-## Batch 19: Lazy-load gate — PENDING
+## Batch 19: Lazy-load gate — IN_PROGRESS
 
 - Recommended executor: senior-tester
 - Fallback executor: frontend-developer
@@ -1123,7 +1141,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 1-18
 
-### Task 19.1: `lazy-load-gate.md` — PENDING
+### Task 19.1: `lazy-load-gate.md` — IN_PROGRESS
 
 - Files (1): CREATE `.../.ptah/specs/TASK_2026_494_ca38/lazy-load-gate.md`
 - Plan reference: implementation-plan.md:278-302 (D7)

@@ -122,3 +122,4 @@ Mode: enabled
 - 2026-09-25: B15 committed 6b14e831c. B16 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B17 IN_PROGRESS. B20 in fix round 1.
 - Follow-up addendum (spec tsc): @ptah-extension/chat has 249 pre-existing spec-tsc errors (none in electron-shell files); B17's gate is no new errors in its files.
 - 2026-09-26: B16 committed 268035a63. B20 APPROVED (antigravity 8/10 r1, code-logic-reviewer 9/10 r2); committed. B17 in progress (approved config-gate edit).
+- 2026-09-26: B20 committed 6da0c30a2. B17 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B19 IN_PROGRESS. R10 visual review will be run by the coordinator via the webview e2e harness.
