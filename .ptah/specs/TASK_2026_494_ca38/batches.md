@@ -313,7 +313,7 @@ Edge cases:
 - Rationale: carries the recursion design decision (R5) and the v2 data binding.
 - Tasks: 1 | Depends on: Batch 5
 
-### Task 6.1: `buildSurfaceViewModel`, `DashboardTableComponent`, `SurfaceLayoutComponent` — IN_PROGRESS
+### Task 6.1: `buildSurfaceViewModel`, `DashboardTableComponent`, `SurfaceLayoutComponent` — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `view-model/surface-view-model.ts`
   (+ spec), `components/dashboard-table.component.ts` (+ spec), `components/surface-layout.component.ts` (+ spec)
@@ -329,6 +329,22 @@ Edge cases:
 ### Batch 6 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+- Result: 3/3 green (re-run by team-leader), 74 tests. code-logic-reviewer APPROVED 8/10
+  (code-logic-review-batch-6.md); Glm review lane APPROVED 8/10 (code-logic-review-batch-6-glm.md). No fix rounds.
+  R5 is met: the layout takes children via a TemplateRef input and imports only NgTemplateOutlet.
+- Deviations accepted by both reviewers:
+  1. A missing path gives the empty value with NO draft error. Only a read failure (ok:false) or a wrong type gives
+     one. This is correct per plan:751-753, handoff (c) and surface-data-model.ts:74-97; the B6 brief's pin was
+     imprecise.
+  2. buildSurfaceViewModel never throws and returns a renderFailed union; v1 content goes to the v1 builder unchanged.
+  3. The submit status is neutral text, not the prototype's green "Sent". Table rows use aria-pressed on a Select
+     button (the table is not role=grid).
+  4. no-non-null-assertion warnings, in the specs only.
+- Carried to B8: the renderer must give identical behaviour whether a SURFACE_VIEW_MODEL_BUILDER override throws or
+  the default returns renderFailed.
+- Carried to the R10 visual gate: the "Sent" status colour.
+- Optional: a direct spec for applied -> "Sent"; the unreachable `read.value === undefined` branch at
+  surface-view-model.ts:67.
 
 ## Batch 7: Input components — PENDING
 
@@ -484,7 +500,7 @@ Edge cases:
 - Carried to B12: the sync spec must assert at most one surface:read in flight per slice (F7).
 - Carried to B13: confirm that pending overlays survive an agent snapshot replace (F5).
 
-## Batch 12: Session facade, workspace slices, surface sync — IN_PROGRESS
+## Batch 12: Session facade, workspace slices, surface sync — COMPLETE (commit d9b45302d)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -528,7 +544,7 @@ Edge cases:
   materializing an empty slice.
 - Carried to B15 (N4): the composer keeps the draft text on a failed start and on a send-before-resolve.
 
-## Batch 13: UI mutations and submit flow — PENDING
+## Batch 13: UI mutations and submit flow — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -537,7 +553,7 @@ Edge cases:
 - Rationale: Rules 1-4, polling and all six reconciliation cases (R9).
 - Tasks: 1 | Depends on: Batch 12
 
-### Task 13.1: `AppsSurfaceOperations`, `AppsSubmitFlow` — PENDING
+### Task 13.1: `AppsSurfaceOperations`, `AppsSubmitFlow` — IN_PROGRESS
 
 - Files (4): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/services/`: `apps-surface-operations.service.ts`
   (+ spec), `apps-submit-flow.ts` (+ spec)
@@ -557,7 +573,7 @@ Edge cases:
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page`
 
-## Batch 14: Focus-memory directive — PENDING
+## Batch 14: Focus-memory directive — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -565,9 +581,13 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 12
 
-### Task 14.1: `apps-focus-memory.directive.ts` — PENDING
+### Task 14.1: `apps-focus-memory.directive.ts` — IN_PROGRESS
 
 - Files (2): CREATE `.../libs/frontend/mcp-apps-page/src/lib/components/apps-focus-memory.directive.ts` (+ spec)
+- Scope widened at B12 commit (team-leader, 2026-09-25): the slice had no focus-key field. B14 also MODIFIES
+  `services/apps-workspace-slice.ts`, `services/apps-session.service.ts` (+ spec). The same owner fixes the B12 carry-overs
+  N2 (a boot-window start stranded in APPS_IMPLICIT_WORKSPACE) and N3 (discard() materializing an empty slice).
+  B13 must not edit these three files, so B13 and B14 can run in parallel.
 - Plan reference: implementation-plan.md:142-158, 654, 687; Req 7.6
 - Quality requirements: records `data-apps-focus-key` of the last focused control in the slice; on init restores to
   that control if it exists and is focusable, else focuses the host (`tabindex="-1"`).
