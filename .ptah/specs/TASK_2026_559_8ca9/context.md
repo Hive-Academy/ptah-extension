@@ -30,6 +30,12 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 8. Batch 2a review loop (user, after the r3-postcap REVISE): allow ONE more bounded correction plus one more independent review; if that review still finds defects, commit Batch 2a with them recorded as known issues. Outcome: bounded correction #2 (orchestrator-authored) was reviewed by a fresh Codex lane (r4), which APPROVED 8/10 with no defects, so no known issues were carried.
 
+9. Batch 2b Markdown reducer (user, after r2 REVISE 4/10 with 3 new blocking CommonMark edge cases): rebuild the Markdown reducer on the lexer of `marked` (already a runtime dependency, ^18.0.13; NOT a new package) instead of the hand-written parser. Headings are kept; every other block is kept or omitted whole, using the token's exact `raw` text. One more implementation round and one more independent Codex review are authorized. The JSON reducer (Task 2b.1) stays as accepted.
+
+10. Batch 2b Markdown HTML handling (user, after the post-cap r4 REVISE 5/10 with 3 more HTML-context bypasses of the tag tally and a 1,220 ms timing-spec failure): remove the Rule H tag tally. A document with any block-level HTML tag outside code tokens returns unchanged (the text path cuts and spools it). Make the timing spec robust to machine load. One more independent Codex review is authorized.
+
+11. Batch 2b final narrow fix (user, after the r5 Decision 10 REVISE 5/10 with 2 blocking defects): use the full CommonMark type-1 (`pre`, `script`, `style`, `textarea`) plus type-6 block-tag list, and remove the standalone-comment exception so any `html` token returns the input unchanged. Add both literal regressions. One last independent review: commit if it approves; otherwise commit with its defects recorded as known issues.
+
 ## Conversation Summary
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
 - Audit scripts to reuse for measurement: `C:/Users/abdal/.ptah-token-audit/` (mcp/bench.py, rerun.py, adoption/*).

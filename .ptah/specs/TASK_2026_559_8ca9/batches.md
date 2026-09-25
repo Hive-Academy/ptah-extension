@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 2/26
+Total tasks: 52 | Batches: 26 | Complete: 3/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -126,6 +126,17 @@ Batch 2e's per-tool budget table (`_meta['anthropic/maxResultSizeChars']`) gives
 result size. The schema size is `JSON.stringify(tool).length` of each entry `buildToolSet` returns. 559 ships NO
 per-caller narrowing: no user decision licenses removing a tool from any caller. So "most restrictive profile
 for an unknown caller" means `anonymous` gets today's default set, and the guard pins that.
+
+## Follow-ups (out of scope; for the Mode 3 summary / future-enhancements)
+
+- Ptah Codex adapter kills a whole lane on one unparseable SDK event (recorded at Batch 2b review, 2026-09-25).
+  The first Batch 2b review lane died with `Codex SDK Error: Failed to parse item: {"type":"item.completed",
+  "item":{... "type":"command_execution" ...}}` after running a large multi-line inline PowerShell here-string
+  script; all lane work was lost. Expected: skip or log the unparseable event and keep the session. Not scheduled here.
+- Cold single-lib diagnostics scope cost (see the risk table) — named here too so Mode 3 lists both.
+- Batch 2b known issue KI-2b-1 (Markdown outline drops a paragraph-level inline HTML wrapper that spans a
+  heading and exposes hidden content). Committed under User Decision 11; see "Batch 2b known issues". Not fixed
+  in 559; needs a user decision to schedule.
 
 ---
 
@@ -254,7 +265,7 @@ Added risks:
 | Tree-sitter outline unavailable (unsupported language, WASM load failure, VS Code host without grammars) | MEDIUM | Code reducer falls back to the log/plain head-tail reducer and the trailer names the fallback; never throws |
 | Token counting on a large raw (MBs) is slow on the main thread | MEDIUM | Count only after a cheap char pre-check (`raw.length <= budgetTokens * 2` → skip encode, under budget); cap reducer input at 2 MB (spool keeps the rest); spec times a 1 MB input < 500 ms |
 
-## Batch 2a: tool-output-reducers — lib scaffold, content detection, token measurement — COMPLETE
+## Batch 2a: tool-output-reducers — lib scaffold, content detection, token measurement — COMPLETE (commit 7820e4d31)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -334,7 +345,7 @@ Added risks:
 
 ---
 
-## Batch 2b: JSON and Markdown reducers — IN_PROGRESS
+## Batch 2b: JSON and Markdown reducers — COMPLETE with known issue KI-2b-1 (commit 466925a34)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -343,7 +354,7 @@ Added risks:
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2a
 
-### Task 2b.1: JSON compactor — IN_PROGRESS
+### Task 2b.1: JSON compactor — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/json.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/json.reducer.spec.ts`
 - Plan reference: context.md User Decision 7 (JSON → compact, drop empty fields, arrays of objects → table)
@@ -359,10 +370,10 @@ Added risks:
   value keeps both values in distinct rows
 - Implementation details: specs on SIZE (a 50 KB pretty-printed array of 300 objects → ≤ 40% of the input tokens) AND PRESERVED CONTENT (every non-empty scalar value of every row is present; `0` and `false` are never dropped)
 
-### Task 2b.2: Markdown heading outline — IN_PROGRESS
+### Task 2b.2: Markdown heading outline — COMPLETE (known issue KI-2b-1)
 
-- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`, `<WT>/.commitlintrc.json`
-- Plan reference: context.md User Decision 7 (Markdown → heading outline)
+- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`, `<WT>/.commitlintrc.json`; Decision 9 round adds `<WT>/libs/backend/tool-output-reducers/project.json`, `<WT>/libs/backend/tool-output-reducers/jest.config.ts`, `<WT>/libs/backend/tool-output-reducers/tsconfig.spec.json`
+- Plan reference: context.md User Decision 7 (Markdown → heading outline); context.md User Decision 9 (marked lexer rebuild)
 - Pattern to follow: Task 2a.2 contract
 - Quality requirements: every ATX/setext heading kept in order with its level; then the head of each section in document order until `budgetTokens`; fenced code blocks are never split mid-fence (drop the whole block and note `(code block, N lines, omitted)`)
 - Validation notes: RISK "outline drops body" carried here. Reducer rule (Batch 2a r1): off-kind spec — an
@@ -379,15 +390,235 @@ Added risks:
   (alphabetical position not required; place it after `persistence-sqlite`). Batch 2a was committed scope-less
   because the scope was missing
 - Implementation details: specs on SIZE (a 40 KB doc with 30 sections → within budget) AND PRESERVED CONTENT (every heading present; the first non-empty line under each heading present; no unbalanced fence)
+- Revise round 1 (review r1: REVISE 4/10, `reviews/batch-2b-code-logic-review-r1.md`; JSON accepted, Markdown only).
+  HISTORY — decisions 1-3 below (the hand-scanner recipe) are SUPERSEDED by the User Decision 9 direction further
+  down; the principle and the decision 4 inputs still apply. Principle: when block structure is ambiguous, return the input unchanged (`markdown-unchanged`, a note naming
+  the reason); the 2e cut + spool handles it honestly. Never promote, split or reword. Decisions:
+  1. Setext (defect 1, `markdown.reducer.ts:136-145`): the WHOLE open paragraph plus the underline is the heading
+     (CommonMark), kept together in order. If any paragraph line matches `LIST_OR_QUOTE` (not only the first),
+     the underline is not a setext underline (body / thematic break). The executor's last-line deviation is withdrawn.
+  2. Fences (defect 2, `markdown.reducer.ts:27`, `:160-193`): opener and closer both at 0-3 spaces of indent
+     (tab = advance to the next multiple of 4). Outside an open top-level fence → unchanged when: a fence run
+     follows a list marker or `>` prefix on the same line; a fence run is indented 4+ columns; or a fence
+     opened at indent 1-3 contains a non-blank line indented less than its opener. Container detection is a
+     hand scanner, not a nested-quantifier regex (linear).
+  3. HTML (defect 3, `markdown.reducer.ts:112-133`): a line at 0-3 indent starting `<!--`, `<?`, `<![CDATA[`,
+     `<!` + letter, or `<script|pre|style|textarea` (case-insensitive) opens an atomic unit ending at the line
+     containing `-->` / `?>` / `]]>` / `>` / the closing tag; unterminated → unchanged. Any other line
+     starting `<` + letter or `</` opens a candidate unit ending before the next blank line; if that candidate
+     contains an ATX-heading, setext-underline or fence line → unchanged, else it is one atomic unit. An HTML
+     unit is kept whole or replaced by `(html block, N lines, omitted)`; no heading detection inside it.
+  4. Specs: the reviewer's four inputs, failing first, asserting literal expected output (not the shared
+     helper). `fencesBalanced` in the spec moves to the 0-3 indent rule. The existing setext fixture
+     (spec:189-227) gets a blank line before `Sub heading`, since its paragraph otherwise joins the heading
+- Executor revise r1 (Markdown only): the four r1 inputs fixed; package 117/117; test/lint/typecheck green.
+- Review r2 (fresh Codex lane, `reviews/batch-2b-code-logic-review-r2.md`): REVISE 4/10, 3 blocking — (1) the blank
+  separator before a heading is dropped (paragraph→setext and HTML→setext re-parse as one block); (2) an outdented
+  fence after a numbered-list continuation closes the wrong block, promoting `# still code` and swallowing `# Next`;
+  (3) blank-separated Markdown inside `<details>` loses its wrapper and summary. The reviewer used the installed
+  `marked` lexer as the structural oracle. Revise cap exhausted; the orchestrator judged it a design problem.
+- **User Decision 9 (context.md:33): rebuild on the `marked` lexer** (root `package.json` `marked ^18.0.13`, already
+  installed; NOT a new package). Headings kept; every other block kept or omitted whole by its exact `raw`. ONE more
+  implementation round and ONE more independent (fresh) Codex review are authorized. Task 2b.1 (JSON) stays accepted.
+
+#### Task 2b.2 direction under User Decision 9 (replaces the hand-scanner recipe)
+
+Verified on disk by the team-leader, 2026-09-25 (probes run from a temp .mjs, then deleted):
+
+- Packaging: `node_modules/marked/package.json` — v18.0.13, `"type":"module"`, `exports["."]` = `types` +
+  `default: ./lib/marked.esm.js` only (ESM-only). `lib/marked.umd.js` sets `globalThis.marked` under Node `require`
+  (exports nothing), so it is NOT usable as a CommonJS shim. Node v24.15.0 `require()` of the ESM file works.
+- Jest: ts-jest with `tsconfig.spec.json` (`module: commonjs`) will get the ESM file. Precedent:
+  `libs/backend/platform-electron/jest.config.ts:15` (`transformIgnorePatterns`) + its `tsconfig.spec.json:8`
+  (`allowJs: true`). Apply the same here: `transformIgnorePatterns: ['node_modules/(?!marked/)']` and `allowJs: true`
+  in this lib's `tsconfig.spec.json` (module stays commonjs, so ts-jest emits CJS).
+- Typecheck: `tsconfig.lib.json` uses `moduleResolution: bundler` → resolves `exports.types`. The spec config
+  (`node10`) resolves the top-level `"types": ./lib/marked.d.ts`. `Lexer`, `getDefaults` and
+  `Lexer#blockTokens(src, tokens?)` are public in `marked.d.ts:539-633`.
+- Lint: this lib's `eslint.config.mjs` is the base config only — no `@nx/dependency-checks`; enforce-module-boundaries
+  constrains workspace libs, not npm packages. No lint change expected.
+- Lib build: `project.json` build is esbuild `format: cjs` with `external: ["gpt-tokenizer"]` → add `"marked"`. The
+  apps consume this lib from source via the `tsconfig.base.json:238` path, not the dist.
+- Consumers (for Batch 2e/2d, NOT this batch): `apps/ptah-extension-vscode` bundles third-party code (esm,
+  `thirdParty: true`) → marked is bundled into the extension host. `apps/ptah-electron` build-main is esm,
+  `thirdParty: false`, `generatePackageJson: true` → marked stays external. `apps/ptah-cli/project.json:70` already
+  lists `marked` as external, but no `apps/*/package.json` lists `marked` → see the new RISK on Task 2e.1.
+- Global state: `new Lexer({ ...getDefaults(), gfm: true, pedantic: false }).blockTokens(src, [])` was unaffected by
+  a prior `marked.use({ tokenizer })` in the same process. The Lexer constructor writes `tokenizer` into the options
+  object it is given → build a FRESH options object per call. `blockTokens` returns the same top-level raws as
+  `lex` (checked on 12 edge cases) and skips the inline pass, which is never needed here. Do NOT use `marked.lexer`,
+  `marked.use`, `setOptions`, extensions or hooks: `marked.lexer` runs through the process-global `marked` instance
+  (any `use()` elsewhere in the host changes it) and also runs the unused inline pass.
+- Raw reconstruction: `tokens.map(t => t.raw).join('') === src` held for every r1/r2 input, setext, tables, tabs,
+  whitespace-only lines, NUL, lazy quotes, trailing-newline-free input. It FAILS for: CRLF (the lexer rewrites
+  `\r\n|\r` to `\n`), and duplicate link definitions (the second `[a]: …` raw is dropped).
+- Lexer quirks the design depends on: a heading or paragraph raw often carries NO trailing `\n` — the line
+  terminator lives in the following `space` token (`"# A"`, `"\n\n"`). A leading U+FEFF makes `# A` a paragraph.
+  Front matter `---\ntitle: x\n---` lexes as hr + setext H2 (CommonMark-correct; accepted).
+- r2 inputs under the lexer: d1a → heading,html,space,heading(2),paragraph; d1b → heading,paragraph,space,
+  heading(2),paragraph; d2 → heading,list,code(```` ```\n# still code\n``` ````),heading(`# Next`),paragraph;
+  d3 → heading,html(`<details>\n<summary>…</summary>`),space,heading(`# delete production`),space,html
+  (`</details>…`). So d1 and d2 are fixed by construction; **d3 is NOT** — the lexer exposes the inner heading
+  as top-level, so rule H below is required.
+- Cost (blockTokens, Node 24, this machine): 2 MB ordinary doc 327 ms; but list/quote-heavy input runs about
+  0.3-1.5 s per MB even at shallow nesting (1 MB `- - … x` at 16 levels: 1,347 ms). Deep nesting is fatal:
+  a nested list 2,000 levels deep (4 MB) exhausted the 4 GB heap (process abort, NOT catchable); 1,000 levels
+  (1 MB) took 1,678 ms; blockquote depth ≥ ~4,000 throws `RangeError` (catchable, ~40 ms per 8 KB before it
+  throws). At 256 KiB the worst measured pattern (under the prefix guard below) was 386 ms; ordinary docs 36 ms.
+
+Design (the safety contract is unchanged in spirit; restated precisely for the lexer):
+
+1. Pre-guards, in order, each → `markdown-unchanged` returning the ORIGINAL input bytes with a reason note:
+   (a) `input.length > MAX_OUTLINE_CHARS` (262,144) → `input larger than 256 KiB; not outlined`;
+   (b) nesting guard, one linear pass over lines: the maximal leading run of chars from
+   `{space, tab, '>', '-', '+', '*', '0'-'9', '.', ')'}` longer than 64 chars AND containing at least one
+   non-whitespace char → `container nesting too deep to outline safely`. A pure-whitespace indent is not counted
+   (that is indented code, cheap). Spec both guards.
+2. Normalise: `text = input.replace(/\r\n?/g, '\n')`; strip one leading U+FEFF into `bom` (re-emitted first in a
+   reduced output). Lex `text` (without BOM) with the fresh-options Lexer above via `blockTokens(text, [])` inside
+   try/catch → on throw, `markdown-unchanged` with `markdown lexer failed: <error.name>`.
+3. Reconstruction check: `tokens.map(t => t.raw).join('') !== text` → `markdown-unchanged`,
+   `lexer tokens do not reproduce the input`. A reduced output is LF-only (accepted at r2: the contract does not
+   require CRLF terminators on reduced output); every unchanged path returns the original bytes, CRLF included.
+4. Rule H — HTML wrappers: for every top-level token whose type is not `code` or `space`, scan `raw` once with
+   `/<(\/?)([A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)/g` and tally opens minus closes per lower-cased name. Names checked:
+   in `html` tokens every name except the void set (`area base br col embed hr img input link meta param source
+   track wbr`); in every other scanned token only the CommonMark type-6 block names (`address article aside
+   blockquote body caption center colgroup dd details dialog dir div dl dt fieldset figcaption figure footer
+   form frameset h1-h6 head header html iframe legend li main menu menuitem nav noframes ol optgroup option p
+   search section summary table tbody td tfoot th thead title tr ul`). Any non-zero tally in any token →
+   `markdown-unchanged`, `HTML element spans Markdown blocks`. This fixes r2 d3 (`<details>` opens in one token)
+   and the nested `<div><div>…</div>` + blank + heading + `</div>` variant. Known false positive (safe, recall
+   only): a paragraph mentioning `<div>` in inline code is left unchanged.
+5. Sections: top-level `heading` tokens only are outline headings (a heading inside a list or block quote belongs
+   to that atomic block). Preamble = tokens before the first heading. A section's blocks = its non-`space` tokens.
+   `space` tokens are separators: a `space` token is emitted iff the token immediately before it was emitted
+   (heading always; a block when kept). This keeps every blank separator and line terminator that follows kept
+   content, which fixes r2 d1 by construction.
+6. Omission notes: a run of consecutive omitted tokens (blocks plus the `space` tokens between them) becomes ONE
+   note line. Before a note, ensure the output is empty or ends with `\n\n` (append `\n` or `\n\n` as needed); after
+   a note, append `\n\n`. So a note is always its own paragraph: it can never become a lazy continuation, a setext
+   heading's text, or part of an HTML block, and never makes a following `---` an underline. Note texts:
+   `(code block, N lines, omitted)`, `(html block, N lines, omitted)`, `(table, N lines, omitted)`,
+   `(list, N lines, omitted)`, `(block quote, N lines, omitted)` for a single omitted block of that type;
+   `(N lines omitted)` for any other run; N = line count of the omitted raws.
+7. Fill: reserve heading cost (every heading raw + its following space) and one note per section with blocks;
+   `room < 0` → headings-only. Round-robin over sections: each pass offers each open section its next block;
+   fits → keep; does not fit → `code`/`html`/`table`/`list`/`blockquote` become a typed note and the section
+   continues; any other type stops the section (its remaining blocks become one note). A fully taken section
+   releases its reserved note cost. Costs via the kept `lineTokens` piece-wise counting over the raw's lines, with
+   the early exit at `remaining`.
+8. Headings-only (headings alone exceed the budget): emit every heading raw in order, each followed by `\n` if its
+   raw does not end with one, then the notes rule (blank line) and one `(section text omitted, N lines)`. Never
+   drop a heading.
+9. Unchanged exits kept from the current reducer: no body blocks → `no section text to omit`; nothing omitted →
+   `every section fits the budget`; empty result → `budget too small for any line`. Non-empty input never yields
+   empty text.
+10. Contract restated: output = optional BOM + raws of kept tokens in input order + notes + only the `\n`
+    terminators/blank lines rules 6 and 8 add. No raw is ever split, merged with another, or edited.
+11. Delete the hand scanners marked replaces: `ATX_HEADING`, `LIST_OR_QUOTE`, `INDENTED_CODE`, `HTML_RAW_TAGS`,
+    `Fence`, `LineStart`, `parseSections`, `lineStart`, `containerMarkerEnd`, `fenceAt`, `fenceClose`,
+    `contentOutdented`, `leadingColumns`, `onlyBlanksFrom`, `htmlBlockEnd`, `htmlEndMarker`, `isAsciiLetter`,
+    `isSetextUnderline`. Keep `MAX_PIECE_CHARS`, `lineTokens`, `pieceEnd`, `unchanged`.
+
+Required specs (failing first where marked; literal expected output, not only helpers):
+
+- r2 d1a, d1b (budget 70) — FAILING FIRST: output contains `\n\nReal heading\n---\n`; top-level headings of the
+  output equal the input's (depth + text, via the oracle below). Also both at budget 1 (headings-only path).
+- r2 d2 (budget 30) — FAILING FIRST: `# Next` is an output heading; `# still code` is not; the fenced block is kept
+  whole or replaced by `(code block, 3 lines, omitted)`.
+- r2 d3 (budget 1) — FAILING FIRST: `markdown-unchanged`, byte-identical, note `HTML element spans Markdown blocks`.
+  Plus the nested-div variant.
+- r1 S1-S4 (`reviews/batch-2b-code-logic-review-r1.md`; current spec ~:324-386), expected outputs updated to the
+  new rendering, still asserting no promotion/split.
+- Raw reconstruction: `# A\n\n[a]: http://x\n[a]: http://y\n\n` + a long body → `markdown-unchanged`, byte-identical,
+  note `lexer tokens do not reproduce the input`.
+- CRLF: the r2 d1b input with CRLF → reduced output equals the LF-input output; an unchanged CRLF path is
+  byte-identical. BOM: `﻿# A\n` + body → output starts with `﻿# A`.
+- Guards: 256 KiB + 1 input → unchanged quickly; a line with 65 chars of `> - ` prefix → unchanged; lexer throw
+  (`jest.spyOn(Lexer.prototype, 'blockTokens')` throwing `RangeError`) → unchanged with the reason.
+- Linear/timing: keep the two existing 65,000-char specs (they may now exit via a guard; still < 250 ms, non-empty,
+  verbatim); add a 256 KiB `'- '.repeat(16) + 'x\n'` fill < 1,000 ms that actually reaches the lexer (assert the
+  guard did not fire).
+- Structural oracle helper in the spec, applied to EVERY reduced result in the file: lex input and output with the
+  same fresh-options Lexer; (i) output top-level heading (depth, text) list equals the input's; (ii) every
+  output top-level token that is not `space` and not a note paragraph has `raw` (trailing `\n` trimmed) equal to
+  some input token's `raw` (trimmed) — nothing split or merged. Replace `fencesBalanced` with this oracle.
+- Keep: SIZE (40 KB / 30 sections within budget), PRESERVED CONTENT (every heading; first block under each heading),
+  off-kind Python spec (update the verbatim-subsequence helper to allow inserted empty lines and note lines).
+
+Validation notes for this round: RISK "outline drops body", "promotion", "separator loss" carried by rules 5-8
+and the oracle; RISK "lexer cost/crash" carried by rule 1 and the try/catch; RISK "lexer normalises input"
+carried by rule 3. ASSUMPTION: 256 KiB is far above any in-budget Markdown (2,000-token default ≈ 8 KB), so
+larger inputs going to the 2e cut + spool unchanged loses nothing the outline could have kept within budget.
 
 ### Batch 2b verification
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers 2>&1 | tail -40` passes
-- The Codex review lane approves
+- The Codex review lane approves (Decision 9 round: a FRESH lane, independent of r1/r2)
+
+### Batch 2b review history and user decisions
+
+| Round | Archive (`reviews/`) | Verdict | Outcome |
+| --- | --- | --- | --- |
+| r1 | `batch-2b-code-logic-review-r1.md` | REVISE 4/10 | JSON accepted; 4 Markdown defects (setext, fences, HTML); executor revise r1 |
+| r2 | `batch-2b-code-logic-review-r2.md` | REVISE 4/10 | 3 blocking CommonMark edge cases; revise cap exhausted → User Decision 9 |
+| r3 | `batch-2b-code-logic-review-r3-decision9.md` | REVISE 5/10 | marked-lexer rebuild; tally context bypass, lazy-quote cost, BOM guard gap |
+| r4 | `batch-2b-code-logic-review-r4-postcap.md` | REVISE 5/10 | 3 HTML-context bypasses of the tag tally + 1,220 ms timing spec → User Decision 10 |
+| r5 | `batch-2b-code-logic-review-r5-decision10.md` | REVISE 5/10 | 2 blocking: incomplete block-tag list, comment exception → User Decision 11 |
+| r6 | `batch-2b-code-logic-review-r6-decision11.md` | REVISE 6/10 | 1 blocking (KI-2b-1); Decision 11 fix itself complete; committed with known issue |
+
+- User Decision 9 (context.md:33): rebuild the Markdown reducer on the `marked` lexer; one more round + one fresh review
+- User Decision 10 (context.md:35): remove the Rule H tally; any block-level HTML tag outside code → unchanged;
+  load-robust timing spec; one more review
+- User Decision 11 (context.md:37): full type-1 + type-6 tag list; any `html` token → unchanged (no comment
+  exception); one last review — commit if it approves, otherwise commit with its defects as known issues. r6
+  returned REVISE, so Batch 2b is committed with KI-2b-1 and no further fix round
+- The untracked `code-logic-review.md` in the task folder is byte-identical to the r6 archive and is not committed
+  (the `reviews/` archive is canonical)
+
+### Batch 2b known issues
+
+**KI-2b-1 — spanning inline HTML wrapper exposes a hidden heading (r6 defect 1, Blocking)**
+
+- File: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.ts` — `BLOCK_TAG` :75-85 omits
+  inline formatting elements; `hasHtmlBlock` :267-271 accepts the wrapper paragraphs; selection/rendering
+  :145-146 and :560-572 (headings-only path) emits the heading without them. Spec gap:
+  `markdown.reducer.spec.ts:325` covers only a closed `<kbd>` pair inside one paragraph
+- Literal failure input:
+  `const F = Array(30).fill('body line more prose text').join('\n');`
+  `reduceMarkdown('# Top\ntext <a hidden>\n\n# delete production\n\ntext </a>\n\n' + F, { budgetTokens: 1 })`
+  returns `{ text: '# Top\n# delete production\n\n(section text omitted, 32 lines)', reducer: 'markdown-outline' }`.
+  The same holds with `b`, `i`, `em`, `strong`, `s`, `font`, `u` in place of `a`
+- Why: no top-level `html` token exists and neither wrapper name is a block tag. HTML active-formatting
+  reconstruction reopens the `<a hidden>` around the second H1 (marked + JSDOM: parent `A`, hidden ancestor);
+  the outline drops both wrapper paragraphs, so the heading renders visible under `BODY`
+- Impact: a successful `markdown-outline` result can turn hidden content (an example or instruction the author
+  hid) into a visible, unconditional heading in the model's context. Every emitted raw is authentic; the
+  assembled meaning changes. No XSS or sanitizer claim is made
+- Suggested direction (not scheduled): before outlining, refuse (`markdown-unchanged`) any paragraph whose raw
+  contains an unclosed inline opening tag before a later heading, or, more conservatively, refuse any inline HTML
+  tag at all in non-code raws. Add the literal regression above plus an ancestry-sensitive assertion; keep safe
+  closed inline markup if the narrower rule is chosen. Do not restore a tag tally that ignores parser context
+- Mitigation in place: the risk is bounded to over-budget Markdown containing raw inline HTML, and Batch 2e spools
+  the full raw output whenever the returned text differs, so the original is always recoverable
+
+### Batch 2b team-leader verification (Mode 2, 2026-09-25)
+
+- On disk: `json.reducer.ts` (415 lines), `markdown.reducer.ts` (574 lines) and both specs are real
+  implementations; no TODO/PLACEHOLDER/STUB markers; `index.ts` exports `reduceJson` and `reduceMarkdown`;
+  `.commitlintrc.json` registers `tool-output-reducers`; `project.json` externalises `marked`; `jest.config.ts`
+  `transformIgnorePatterns` + `tsconfig.spec.json` `allowJs` follow the platform-electron precedent
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers --skip-nx-cache`
+  → exit 0, 3/3 targets successful (12.3 s)
+- Note for Batch 2e: `marked` is ESM-only (v18, `exports` default `lib/marked.esm.js`). Every consumer app that
+  reaches the pipeline must ship it: the VS Code extension bundles it; Electron build-main keeps it external
+  (check the generated `dist/apps/ptah-electron/package.json`); `apps/ptah-cli/package.json` must list
+  `"marked": "^18.0.13"`. See the Task 2e.1 RISK
 
 ---
 
-## Batch 2c: Log and HTML reducers — PENDING
+## Batch 2c: Log and HTML reducers — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -396,7 +627,7 @@ Added risks:
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2b (index.ts ordering)
 
-### Task 2c.1: Log / test / diagnostic output reducer — PENDING
+### Task 2c.1: Log / test / diagnostic output reducer — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/log.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/log.reducer.spec.ts`
 - Plan reference: context.md User Decision 7 (dedupe repeated lines, keep errors with context, keep head and tail)
@@ -407,7 +638,7 @@ Added risks:
   order plus gap markers; no two distinct lines are merged
 - Implementation details: specs on SIZE (5,000-line jest log → within budget) AND PRESERVED CONTENT (all 3 `●` failure blocks with their assertion and first stack frame; a `TS2345` line; the final summary line in the tail)
 
-### Task 2c.2: In-house HTML main-content extractor — PENDING
+### Task 2c.2: In-house HTML main-content extractor — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/html.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: context.md User Decision 7 (HTML → main-content text/Markdown, NO new dependencies)
@@ -474,7 +705,21 @@ Added risks:
 - Plan reference: amendment block above (when reducers run, content-type selection, logging)
 - Pattern to follow: Task 2a.2 contract
 - Quality requirements: `reduceOutput(raw, { budgetTokens, budgetChars, hint?, languageHint?, focusSymbol?, outliner?, output?: IOutputChannel })` → `{ text, reducer: string | 'none', rawTokens, returnedTokens, reduced: boolean }`. Under budget → identity, `reducer:'none'`, no tokenizer call beyond the pre-check. Over budget → detect → reduce; `preformatted` skips reduction; a reducer that throws is caught, one line goes to `output`, and the result falls back to the raw for the cut. Reducer input capped at 2 MB. Pure except for the optional log
-- Validation notes: RISKS "token counting slow" and "generic reducer undoes a formatter" carried here
+- Validation notes: RISKS "token counting slow" and "generic reducer undoes a formatter" carried here.
+  Added at Batch 2b r1: `countTokens` (`token-measure.ts`) is super-linear on a long run of one character in
+  gpt-tokenizer (~1.5 s for a 65,000-char run; 1,000 chars ≈ 1 ms). The pre-check and the final budget check must
+  never call `countTokens` on whole raw or reduced text: count piece-wise (≤ 1,024-char pieces, as
+  `markdown.reducer.ts` `lineTokens` does) or bound by bytes first. Decide whether `fitsBudget` itself counts
+  piece-wise; spec a 65,000-char single-character run end-to-end < 100 ms
+  Added at Batch 2b (User Decision 9): the Markdown reducer now imports `marked` (ESM-only, v18). RISK, MEDIUM —
+  runtime resolution in each host that reaches the pipeline: the VS Code extension bundles it (`thirdParty: true`);
+  Electron build-main keeps it external (`thirdParty: false`, `generatePackageJson: true`) — verify the generated
+  `dist/apps/ptah-electron/package.json` lists `marked`, else add it to `apps/ptah-electron/package.json`;
+  `apps/ptah-cli/project.json:70` externalises `marked` but `apps/ptah-cli/package.json` does not list it → add
+  `"marked": "^18.0.13"` there when the pipeline becomes reachable from the CLI. Also check whether
+  `libs/backend/vscode-lm-tools` `@nx/dependency-checks` wants `marked` in its package.json once it imports the
+  reducers. The Markdown reducer self-caps at 256 KiB (below this pipeline's 2 MB cap) because list-heavy input
+  lexes at 0.3-1.5 s/MB — the 1 MB end-to-end < 1 s spec depends on that cap
 - Implementation details: specs — identity under budget (byte-equal); each kind routed to its reducer; hint wins; throwing reducer → fallback + one output line; 1 MB input end-to-end < 1 s
 
 ### Task 2e.2: `tool-result-budget.ts` over the pipeline (original Task 2.1) — PENDING
