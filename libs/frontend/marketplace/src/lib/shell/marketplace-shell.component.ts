@@ -24,6 +24,7 @@ import {
 } from '@ptah-extension/core';
 import { MarketplaceInventoryStore } from '../data/marketplace-inventory.store';
 import { ConnectorLinksStore } from '../data/connector-links.store';
+import { CapabilityTogglesStore } from '../data/capability-toggles.store';
 import { MarketplaceLayout } from '../layout/marketplace-layout';
 import {
   MarketplaceNavComponent,
@@ -73,8 +74,9 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  *
  * ## What it owns
  *
- * - **The shell-scoped stores.** `MarketplaceInventoryStore` and
- *   `ConnectorLinksStore` are provided HERE, so they live exactly as long as
+ * - **The shell-scoped stores.** `MarketplaceInventoryStore`,
+ *   `ConnectorLinksStore` and `CapabilityTogglesStore` are provided HERE, so
+ *   they live exactly as long as
  *   one Marketplace visit and every page under the outlet shares them (plan
  *   D4). Neither loads on construction; pages call `ensure()` for what they
  *   render, and the nav and status bar only read. Mounting the shell alone
@@ -87,6 +89,9 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  *   page renders its own single `<h1>`. The back-to-chat button renders only
  *   in VS Code; in Electron the surface is opened from the global
  *   configuration menu (TASK_2026_540), and the header stays one slim row.
+ * - **The policy banner.** While the capability policy is unverified, a
+ *   banner above every page lists each file Ptah could not read (plan C10,
+ *   fail-closed policy). It reads the store and never loads it.
  * - **The scroll owner.** `<main>` scrolls and is the `ptah-mp-content`
  *   inline-size container that cosmetic `@container` rules measure against.
  * - **Route memory.** Every settled navigation inside the Marketplace is
@@ -111,6 +116,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   providers: [
     MarketplaceInventoryStore,
     ConnectorLinksStore,
+    CapabilityTogglesStore,
     {
       provide: MarketplaceLayout,
       useFactory: () => new MarketplaceLayout(inject(DestroyRef)),
@@ -134,6 +140,7 @@ export class MarketplaceShellComponent {
   private readonly vscode = inject(VSCodeService);
   private readonly router = inject(Router);
   private readonly layout = inject(MarketplaceLayout);
+  private readonly capabilities = inject(CapabilityTogglesStore);
 
   protected readonly StoreIcon = Store;
   protected readonly ArrowLeftIcon = ArrowLeft;
@@ -151,6 +158,9 @@ export class MarketplaceShellComponent {
 
   /** Rail at compact, sidebar at regular and wide. */
   protected readonly compact = computed(() => this.tier() === 'compact');
+
+  /** The unverified-policy banner, or `null` while the policy is readable. */
+  protected readonly policyBanner = this.capabilities.policyBanner;
 
   /** VS Code gets a back-to-chat button; Electron has the global menu. */
   protected readonly showBack = computed(() => !this.vscode.isElectron);

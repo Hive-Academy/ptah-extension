@@ -67,6 +67,33 @@
     </nav>
   </header>
 
+  <!-- Unverified capability policy (plan C10, fail-closed). Reads only. -->
+  @if (policyBanner(); as banner) {
+    <section
+      role="alert"
+      aria-labelledby="ptah-mp-policy-banner-title"
+      data-testid="capability-policy-banner"
+      class="shrink-0 space-y-1 border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs text-base-content"
+    >
+      <p id="ptah-mp-policy-banner-title" class="font-semibold text-warning">
+        Ptah couldn't read your server and skill settings
+      </p>
+      <p class="text-base-content-muted">
+        Until this is fixed, sessions load only Ptah tools and no skills, and
+        affected items show "Unknown". Fix or delete each file below; deleting
+        an item file restores that item's default.
+      </p>
+      <ul class="space-y-0.5" data-testid="capability-policy-banner-paths">
+        @for (reason of banner.reasons; track reason.path) {
+          <li class="min-w-0 break-all">
+            <code class="font-mono text-[11px]">{{ reason.path }}</code>
+            <span class="text-base-content-muted"> — {{ reason.error }}</span>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
   <div class="flex min-h-0 min-w-0 flex-1">
     <ptah-marketplace-nav [compact]="compact()" [route]="route()" />
     <!-- The scroll owner and the ptah-mp-content container (plan D3). -->
