@@ -63,18 +63,39 @@ describe('countTokens', () => {
     expect(countTokens('Hello, world! <|endoftext|>')).toBe(11);
   });
 
+  /**
+   * Load-robust (Batch 2c, authorized test-only change): fastest of three.
+   * Over 500 ms (it measured 577 ms with 16 busy processes on the machine)
+   * the run still passes when it is under a hard 10 s ceiling and within
+   * LOAD_FACTOR of counting the first quarter of the same text, timed right
+   * after it under the same load. Idle, the full count ran at 3.6-5.3x the
+   * quarter (Node 24); a quadratic count would run at ~16x.
+   */
   it('counts 1 MB of text in under 500 ms', () => {
+    const LOAD_FACTOR = 8;
+    const HARD_CEILING_MS = 10_000;
+    const fastestMs = (sample: string): number => {
+      let elapsed = Infinity;
+      for (let run = 0; run < 3; run++) {
+        const start = performance.now();
+        countTokens(sample);
+        elapsed = Math.min(elapsed, performance.now() - start);
+      }
+      return elapsed;
+    };
     countTokens('warm up the encoder');
     const text = megabyteOfLogText();
     expect(text.length).toBe(1024 * 1024);
 
-    const start = performance.now();
     const tokens = countTokens(text);
-    const elapsed = performance.now() - start;
+    const elapsed = fastestMs(text);
 
     expect(tokens).toBeGreaterThan(100_000);
-    expect(elapsed).toBeLessThan(500);
-  });
+    if (elapsed >= 500) {
+      expect(elapsed).toBeLessThan(HARD_CEILING_MS);
+      expect(elapsed).toBeLessThan(LOAD_FACTOR * fastestMs(text.slice(0, 256 * 1024)));
+    }
+  }, 120_000);
 });
 
 describe('fitsBudget', () => {

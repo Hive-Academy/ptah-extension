@@ -186,13 +186,38 @@ describe('detectContentKind', () => {
     expect(detectContentKind(log)).toBe('log');
   });
 
+  /**
+   * Load-robust (Batch 2c, authorized test-only change): fastest of three.
+   * Over 250 ms the run still passes when it is under a hard 10 s ceiling and
+   * within LOAD_FACTOR of detecting 64 KiB of log lines (the full sniff
+   * window), timed right after it under the same load. Idle (Node 24) the
+   * fence input ran at 0.13 ms against 0.71 ms for the reference; the
+   * quadratic fence regex of Batch 2a r3 took 3,446 ms.
+   */
   it('detects a long fence run in linear time', () => {
+    const LOAD_FACTOR = 8;
+    const HARD_CEILING_MS = 10_000;
+    const fastestMs = (sample: string): number => {
+      let elapsed = Infinity;
+      for (let run = 0; run < 3; run++) {
+        const started = performance.now();
+        detectContentKind(sample);
+        elapsed = Math.min(elapsed, performance.now() - started);
+      }
+      return elapsed;
+    };
     const lineSeparator = String.fromCharCode(0x2028);
     const crafted = `# Guide\n${'`'.repeat(65_520)}${lineSeparator}x`;
-    const started = performance.now();
-    detectContentKind(crafted);
-    expect(performance.now() - started).toBeLessThan(250);
-  });
+    const elapsed = fastestMs(crafted);
+    if (elapsed >= 250) {
+      const logLines = Array.from(
+        { length: 1600 },
+        (_, i) => `INFO: [2026-09-25T10:${String(i % 60).padStart(2, '0')}] request ${i} handled`,
+      ).join('\n');
+      expect(elapsed).toBeLessThan(HARD_CEILING_MS);
+      expect(elapsed).toBeLessThan(LOAD_FACTOR * fastestMs(logLines));
+    }
+  }, 120_000);
 
   it('is deterministic for the same input', () => {
     for (const text of Object.values(FIXTURES)) {

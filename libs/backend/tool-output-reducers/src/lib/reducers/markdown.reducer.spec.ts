@@ -825,6 +825,54 @@ describe('reduceMarkdown — cost on crafted input', () => {
     ['a list marker then 65,000 spaces', '- ' + ' '.repeat(n), true],
   ];
 
+  /**
+   * Load-robust timing (Batch 2c, authorized test-only change). A run over
+   * its absolute bound still passes when it is under HARD_CEILING_MS and
+   * within LOAD_FACTOR of a linear reference document timed right after it,
+   * under the same load: with 16 busy processes on the machine the 1,500 ms
+   * bound failed at 3,577 ms on the list-heavy document, while a
+   * super-linear path at the cap takes many seconds and fails either way.
+   * Two references, one per bound (Node 24, idle, fastest of three):
+   * `small` (plain sections at 256 KiB, 22 ms) for the 250 ms specs, whose
+   * shapes run at 0.3x of it or less; `cap` (a list with lazy continuation
+   * at 256 KiB, 235 ms) for the 1,500 ms specs, whose slowest shape (the
+   * 16-level list, 462 ms) runs at 2.0x of it.
+   */
+  const LOAD_FACTOR = 4;
+  const HARD_CEILING_MS = 10_000;
+  const TIMING_TEST_TIMEOUT_MS = 120_000;
+  const atCap = (head: string, unit: string): string =>
+    head + unit.repeat(Math.floor((262_144 - head.length) / unit.length));
+  const referenceDocs = {
+    small: atCap(
+      '# Doc\n\n',
+      '## Section heading\n\nA plain paragraph of ordinary prose that fills the section body.\n\n',
+    ),
+    cap: atCap('# A\n', '- x\nx\n'),
+  };
+
+  function fastestMs(doc: string): number {
+    let elapsed = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const start = performance.now();
+      reduceMarkdown(doc, { budgetTokens: 2000 });
+      elapsed = Math.min(elapsed, performance.now() - start);
+    }
+    return elapsed;
+  }
+
+  function expectLinearTime(
+    elapsed: number,
+    bound: number,
+    reference: keyof typeof referenceDocs,
+  ): void {
+    if (elapsed < bound) {
+      return;
+    }
+    expect(elapsed).toBeLessThan(HARD_CEILING_MS);
+    expect(elapsed).toBeLessThan(LOAD_FACTOR * fastestMs(referenceDocs[reference]));
+  }
+
   it.each(crafted)('handles %s quickly', (_label, line, guarded) => {
     const doc = ['# Start', 'intro', line, '## End', 'outro'].join('\n');
     expect(doc.length).toBeLessThanOrEqual(262_144);
@@ -840,8 +888,8 @@ describe('reduceMarkdown — cost on crafted input', () => {
       ),
     ).toBe(guarded);
     expectVerbatimSubsequence(result.text, doc);
-    expect(elapsed).toBeLessThan(250);
-  });
+    expectLinearTime(elapsed, 250, 'small');
+  }, TIMING_TEST_TIMEOUT_MS);
 
   it('returns every crafted line in one document unchanged by the size cap, quickly', () => {
     const doc = ['# Start', 'intro', ...crafted.map(([, line]) => line)].join(
@@ -850,9 +898,10 @@ describe('reduceMarkdown — cost on crafted input', () => {
     expect(doc.length).toBeGreaterThan(262_144);
     const start = performance.now();
     const result = reduce(doc, 4000);
-    expect(performance.now() - start).toBeLessThan(250);
+    const elapsed = performance.now() - start;
     expect(result.notes).toEqual(['input larger than 256 KiB; not outlined']);
-  });
+    expectLinearTime(elapsed, 250, 'small');
+  }, TIMING_TEST_TIMEOUT_MS);
 
   /**
    * Bound for one reduction at the size cap. The slowest lexed family, the
@@ -889,8 +938,8 @@ describe('reduceMarkdown — cost on crafted input', () => {
     // An outline can only come from the lexed tokens.
     expectValidResult(result, doc);
     expect(result.reducer).toBe('markdown-outline');
-    expect(elapsed).toBeLessThan(MAX_CAP_MS);
-  });
+    expectLinearTime(elapsed, MAX_CAP_MS, 'cap');
+  }, TIMING_TEST_TIMEOUT_MS);
 
   const lazyQuoteNote = 'block quote continuation too costly to outline safely';
   /** [label, first lines, repeated unit, whether the lazy-quote guard stops it] */
@@ -924,7 +973,8 @@ describe('reduceMarkdown — cost on crafted input', () => {
       } else {
         expect(result.reducer).toBe('markdown-outline');
       }
-      expect(elapsed).toBeLessThan(MAX_CAP_MS);
+      expectLinearTime(elapsed, MAX_CAP_MS, 'cap');
     },
+    TIMING_TEST_TIMEOUT_MS,
   );
 });
