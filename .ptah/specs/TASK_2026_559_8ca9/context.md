@@ -28,6 +28,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 7. Plan amendment (user, after Batch 1 implementation): extend Batch 2 with a deterministic reducer pipeline that runs before the 8k budget, per content type — HTML → main-content text/Markdown with an in-house extractor (NO new dependencies: readability/turndown/linkedom were not approved), JSON → compact (no pretty-print, drop empty fields, arrays of objects → table), logs/test/diagnostic output → dedupe repeated lines, keep errors with context, head/tail, code → tree-sitter outline, Markdown → heading outline. Budget measured in tokens with the existing `gpt-tokenizer` dependency. The full raw output is always spooled, so no information is lost. Place the reducers in a shared backend library so a later compaction layer (audit Wave 3, post-tool hook for built-in Read/Bash) can reuse them. No LLM summarization. NOT approved: splitting ptah_workspace_analyze into overview + ptah_project_inspect, and new ptah_outline / ptah_read tools — Batch 10 keeps its original scope.
 
+8. Batch 2a review loop (user, after the r3-postcap REVISE): allow ONE more bounded correction plus one more independent review; if that review still finds defects, commit Batch 2a with them recorded as known issues. Outcome: bounded correction #2 (orchestrator-authored) was reviewed by a fresh Codex lane (r4), which APPROVED 8/10 with no defects, so no known issues were carried.
+
 ## Conversation Summary
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
 - Audit scripts to reuse for measurement: `C:/Users/abdal/.ptah-token-audit/` (mcp/bench.py, rerun.py, adoption/*).

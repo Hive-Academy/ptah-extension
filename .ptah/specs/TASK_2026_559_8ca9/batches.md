@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 1/26
+Total tasks: 52 | Batches: 26 | Complete: 2/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -129,7 +129,7 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
 
 ---
 
-## Batch 1: get_diagnostics — HEAD verification, worktree timing repro, output cap — COMPLETE
+## Batch 1: get_diagnostics — HEAD verification, worktree timing repro, output cap — COMPLETE (commit 87922d8a7)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation, with this batch's text only
@@ -227,9 +227,16 @@ verification command). Recorded defaults, decided by the team-leader with the ev
   spooled first, so nothing is lost. Under-budget identity results are not spooled (nothing was withheld). The
   trailer names the spool path, the reducer applied, and raw vs returned tokens:
   `[reduced: <reducer> — showing <t> of <T> tokens — full output: <path>]`
-- **Content-type selection:** a per-tool hint table wins; sniffing is the fallback (JSON.parse succeeds → json;
-  leading `<!doctype`/`<html`/tag-dense → html; `#`-heading structure → markdown; line-oriented with repeated
-  lines or error markers → log; a file extension hint → code). Tools whose formatter already owns a documented
+- **Content-type selection:** a per-tool hint table wins; sniffing is the fallback (an object or array document
+  that JSON.parse accepts → json; JSON scalars → text; leading `<!doctype`/`<html`/tag-dense → html;
+  `#`-heading structure → markdown, unless the first line is a shebang or the lines outside fenced blocks carry code
+  evidence once `# `-lines are set aside; line-oriented with repeated lines, level/timestamp prefixes or
+  line-anchored structural error markers → log, where a bare word such as "error" or "failed" inside a sentence is
+  not a marker; a file extension hint → code). Detector rule (Batch 2a r1): precision over recall. A
+  structure-specific kind is returned only on positive structural evidence; ambiguous input resolves to `text`,
+  which takes only the cut + spool. Reducer rule (2b-2d): a reducer given off-kind input may omit lines, but every
+  line it emits is verbatim from the input (ANSI stripping and the `(×N)` collapse of identical consecutive lines
+  excepted), it never merges or rewrites distinct lines, and it never returns empty text for non-empty input. Tools whose formatter already owns a documented
   reduction (`ptah_get_diagnostics` after Batch 1, the paged tools of Batches 9/13/15) are hinted `preformatted`:
   no content reducer, only the cut + spool, so the Batch 1 requested-file guarantee is never undone by a generic
   reducer
@@ -247,7 +254,7 @@ Added risks:
 | Tree-sitter outline unavailable (unsupported language, WASM load failure, VS Code host without grammars) | MEDIUM | Code reducer falls back to the log/plain head-tail reducer and the trailer names the fallback; never throws |
 | Token counting on a large raw (MBs) is slow on the main thread | MEDIUM | Count only after a cheap char pre-check (`raw.length <= budgetTokens * 2` → skip encode, under budget); cap reducer input at 2 MB (spool keeps the rest); spec times a 1 MB input < 500 ms |
 
-## Batch 2a: tool-output-reducers — lib scaffold, content detection, token measurement — PENDING
+## Batch 2a: tool-output-reducers — lib scaffold, content detection, token measurement — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -257,7 +264,7 @@ Added risks:
 - Tasks: 2 | Depends on: Batch 1
 - Cap note: the Nx generator's config files (project.json, package.json, tsconfig*.json, jest.config.ts, eslint config) are generated scaffolding and are counted as one artifact; hand-written files are ≤ 6
 
-### Task 2a.1: Generate the lib — PENDING
+### Task 2a.1: Generate the lib — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/**` (generated), `<WT>/tsconfig.base.json` (path alias), `<WT>/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: context.md User Decision 7; the "Batch 2 amendment" block above
@@ -266,7 +273,7 @@ Added risks:
 - Validation notes: lint must pass `@nx/enforce-module-boundaries`; the lib imports only `@ptah-extension/platform-core` (type import of `IOutputChannel`), `@ptah-extension/shared` if needed, and `gpt-tokenizer`
 - Implementation details: report the exact generator command and every generated file
 
-### Task 2a.2: Reducer contract, content detection, token measure — PENDING
+### Task 2a.2: Reducer contract, content detection, token measure — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducer.types.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/content-detector.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/content-detector.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/token-measure.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/token-measure.spec.ts`
 - Depends on: Task 2a.1
@@ -280,10 +287,54 @@ Added risks:
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers 2>&1 | tail -40` passes
 - The Codex review lane approves
+- Review r1 (`reviews/batch-2a-code-logic-review-r1.md`): REVISE, 6/10, 3 moderate. All four executor deviations
+  accepted (exact `countTokens` with the shortcut in `fitsBudget`; UTF-8-byte acceptance bound; empty
+  `disallowedSpecial`; no `IOutputChannel` in pure helpers). Decisions:
+  - D1 prose → log (`content-detector.ts:25-26,129`): fix. Bare error words and a sentence starting "at …" are not
+    log evidence; markers must be line-anchored structure (stack frame with a location, `Xxx(Error|Exception):` at
+    line start, uppercase `ERROR`/`FAIL`/`FATAL` at line start, `●`/`✕`/`✖` runner markers, `error TS\d+` or
+    `TS\d+:`, `Traceback (most recent call last)`). The repeated-line and prefix-ratio rules are unchanged: the log
+    reducer only collapses identical consecutive lines, which loses nothing
+  - D2 commented Python → markdown (`content-detector.ts:102,106-110`): fix. Shebang first line → not markdown;
+    when the non-`# ` lines outside fenced blocks satisfy the code predicate, the `# ` lines are comments, not
+    headings (both the first-line and the two-heading rules)
+  - D3 JSON scalars → text (`content-detector.ts:68-75`, spec `:76-79`): RULE CHANGE, code kept. Scalars stay
+    `text` on purpose: a scalar has nothing to compact; the 2b drop-empty rule would turn a top-level `null` or `""`
+    into empty output; only a long string can exceed the budget, and the text path (cut + spool) handles it. The
+    selection contract above now says so
+  - Notes kept out of scope: `Infinity`/fractional budgets (`token-measure.ts:55-60`) are validated at the 2e
+    pipeline boundary (configured budgets finite and positive); the single-sample 500 ms timing spec stays
+- Executor revision r1 fixed D1 and D2; D3 recorded as the rule above
+- Review r2 (`reviews/batch-2a-code-logic-review-r2.md`): REVISE, 6/10, 2 moderate — `FAILED …` prose → log
+  (`content-detector.ts:42` at the time); a boolean fence toggle broke four-backtick blocks (`:152-155` at the time).
+  Revise cap reached
+- Bounded correction #1 (ORCHESTRATOR-authored, not the executor): an uppercase verdict marker needs a log shape
+  after it; CommonMark fence tracking by delimiter char + length. Pre-correction code failed 4/36 specs, the
+  correction passed 36/36; scoped test/lint/typecheck green
+- Review r3-postcap (`reviews/batch-2a-code-logic-review-r3-postcap.md`): REVISE, 6/10, 2 moderate — a bare
+  `ERROR`/`FATAL` word still counted as a `LOG_LINE_PREFIX` (prose → log); the correction's fence regex
+  `/^\s*(`{3,}|~{3,})(.*)$/` was quadratic (3,446 ms on a crafted 65,530-char line)
+- User Decision 8 (context.md): allow ONE more bounded correction plus one more independent review; if that
+  review still finds defects, commit Batch 2a with them recorded as known issues
+- Bounded correction #2 (ORCHESTRATOR-authored; `content-detector.ts` and `content-detector.spec.ts` only):
+  `MARKDOWN_FENCE = /^\s*(`{3,}|~{3,})/` with `rest = line.slice(fence[0].length)` (`content-detector.ts:27,172`);
+  `LOG_LINE_PREFIX` level branch = bracketed level or a level followed by `:`/`|`, a `-`/`[`/`|` separator or end
+  of line (`:61-62`), timestamps unchanged. Specs: 2 bare-level prose → text, 3 level-shaped logs → log, a
+  65,530-char crafted line < 250 ms. Pre-correction code failed 3/42; the correction passes 42/42 (a literal
+  U+2028 in the spec was replaced with `String.fromCharCode(0x2028)` after lint flagged it)
+- Review r4 (`reviews/batch-2a-code-logic-review-r4-postcap2.md`, FRESH Codex lane, independent of r1-r3):
+  **APPROVED 8/10**, 0 blocking / 0 serious / 0 moderate. No known issues carried under User Decision 8
+- Team-leader verification (Mode 2): all 12 lib files present, no TODO/PLACEHOLDER/STUB markers, `index.ts`
+  exports the contract, detector and token measure; `nx run-many -t test,lint,typecheck -p
+  @ptah-extension/tool-output-reducers --skip-nx-cache` succeeded (3/3 targets)
+- Known risks recorded (non-blocking): (a) bare level-word lines (`INFO  Server started …`) now resolve to
+  `text`, an accepted recall loss under the precision rule — a caller with reliable knowledge supplies a `log`
+  hint; (b) the 250 ms (detector) and 500 ms (token-measure) wall-clock specs carry CI scheduling risk — Batch 20/21
+  decides whether timing specs move to a relative budget (e.g. against a linear baseline measured in the same run)
 
 ---
 
-## Batch 2b: JSON and Markdown reducers — PENDING
+## Batch 2b: JSON and Markdown reducers — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -292,22 +343,41 @@ Added risks:
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2a
 
-### Task 2b.1: JSON compactor — PENDING
+### Task 2b.1: JSON compactor — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/json.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/json.reducer.spec.ts`
 - Plan reference: context.md User Decision 7 (JSON → compact, drop empty fields, arrays of objects → table)
 - Pattern to follow: Task 2a.2 contract
 - Quality requirements: no pretty-print; drop `null`/`undefined`/`""`/`[]`/`{}` recursively; arrays of ≥ 3 flat objects sharing ≥ 50% keys → a pipe table (header = union of keys in first-seen order, missing cells empty, nested values as compact JSON); invalid JSON → returned unchanged with `reducer:'json-invalid'`
-- Validation notes: RISK "JSON reducer changes meaning" carried here
+- Validation notes: RISK "JSON reducer changes meaning" carried here. Reducer rule (Batch 2a r1): when a hint routes
+  a top-level scalar, or dropping empties would leave nothing, return the input unchanged (`reducer:'json-unchanged'`);
+  spec on `null`, `""`, `{}` and `{"a":null}`
+- Safety contract (added at Batch 2a close): off-kind input (anything `JSON.parse` rejects — log text, Markdown,
+  Python) is returned byte-for-byte unchanged with `reducer:'json-invalid'`, never empty. On-kind output may
+  re-serialise (that is the compaction), but every non-empty scalar value survives, and a table never merges two
+  different rows or two different keys into one cell. Spec: a JSON array whose objects differ only in one key's
+  value keeps both values in distinct rows
 - Implementation details: specs on SIZE (a 50 KB pretty-printed array of 300 objects → ≤ 40% of the input tokens) AND PRESERVED CONTENT (every non-empty scalar value of every row is present; `0` and `false` are never dropped)
 
-### Task 2b.2: Markdown heading outline — PENDING
+### Task 2b.2: Markdown heading outline — IN_PROGRESS
 
-- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
+- Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reducers/markdown.reducer.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`, `<WT>/.commitlintrc.json`
 - Plan reference: context.md User Decision 7 (Markdown → heading outline)
 - Pattern to follow: Task 2a.2 contract
 - Quality requirements: every ATX/setext heading kept in order with its level; then the head of each section in document order until `budgetTokens`; fenced code blocks are never split mid-fence (drop the whole block and note `(code block, N lines, omitted)`)
-- Validation notes: RISK "outline drops body" carried here
+- Validation notes: RISK "outline drops body" carried here. Reducer rule (Batch 2a r1): off-kind spec — an
+  over-budget Python file with `# ` comments, fed to this reducer as if misdetected, emits only verbatim input lines
+  in order plus omission notes, and never an empty result
+- Safety contract (added at Batch 2a close): every emitted line is verbatim from the input (only omission notes are
+  added); two different input lines are never merged or rewritten into one; non-empty input never yields empty
+  text. Fence tracking follows the Batch 2a lesson (r2, r3-postcap): CommonMark — a fence closes only on the same
+  delimiter char with a run at least as long and nothing after it, so a ```` ```` ```` block containing ```` ``` ````
+  is one block; fence/heading regexes are unanchored-at-end and linear (no `(.*)$` after a repeated run). Edge
+  case: when the headings alone exceed `budgetTokens`, keep every heading and return (the 2e cut + spool handles the
+  rest) — do not drop headings to fit
+- Also in this task: register the commit scope `tool-output-reducers` in `<WT>/.commitlintrc.json` `scope-enum`
+  (alphabetical position not required; place it after `persistence-sqlite`). Batch 2a was committed scope-less
+  because the scope was missing
 - Implementation details: specs on SIZE (a 40 KB doc with 30 sections → within budget) AND PRESERVED CONTENT (every heading present; the first non-empty line under each heading present; no unbalanced fence)
 
 ### Batch 2b verification
@@ -332,7 +402,9 @@ Added risks:
 - Plan reference: context.md User Decision 7 (dedupe repeated lines, keep errors with context, keep head and tail)
 - Pattern to follow: Task 2a.2 contract
 - Quality requirements: head 40 + tail 80 lines always kept; every line matching the error pattern set kept with ±3 lines of context; identical repeated non-error lines collapsed to one line + `(×N)`; gaps marked `… N lines omitted …`; ANSI escape codes stripped
-- Validation notes: RISK "log dedupe hides the error" carried here
+- Validation notes: RISK "log dedupe hides the error" carried here. Reducer rule (Batch 2a r1): off-kind spec — an
+  over-budget prose document (distinct paragraphs, some mentioning "failed") emits only verbatim input lines in
+  order plus gap markers; no two distinct lines are merged
 - Implementation details: specs on SIZE (5,000-line jest log → within budget) AND PRESERVED CONTENT (all 3 `●` failure blocks with their assertion and first stack frame; a `TS2345` line; the final summary line in the tail)
 
 ### Task 2c.2: In-house HTML main-content extractor — PENDING
