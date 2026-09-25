@@ -60,7 +60,7 @@ interface HarnessTargetView {
 
 /** `'core-tools'` → `'Core tools'`. */
 function categoryLabel(category: PluginInfo['category']): string {
-  const words = category.split('-').join(' ');
+  const words = category.replaceAll('-', ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

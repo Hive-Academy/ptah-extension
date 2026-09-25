@@ -18,11 +18,11 @@
  * exact duplication this filter exists to prevent.
  */
 export function normalizeServerKey(name: string): string {
-  return name
+  const dashed = name
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-');
+  return trimEdgeRuns(dashed, '-', true);
 }
 
 /**
@@ -32,9 +32,25 @@ export function normalizeServerKey(name: string): string {
 export function normalizeMcpServerUrl(raw: string): string {
   try {
     const url = new URL(raw);
-    const path = url.pathname.replace(/\/+$/, '');
+    const path = trimEdgeRuns(url.pathname, '/', false);
     return `${url.protocol}//${url.host.toLowerCase()}${path}${url.search}`;
   } catch {
-    return raw.trim().replace(/\/+$/, '');
+    return trimEdgeRuns(raw.trim(), '/', false);
   }
+}
+
+/**
+ * `text` without the run of `char` at its end, and at its start too when
+ * `leading` is set. A linear scan standing in for `/^c+|c+$/g`, whose
+ * unanchored `c+$` alternative re-scans every inner run of `char` from each of
+ * its positions — quadratic on a long run that is not at the end.
+ */
+function trimEdgeRuns(text: string, char: string, leading: boolean): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === char) end--;
+  let start = 0;
+  if (leading) {
+    while (start < end && text[start] === char) start++;
+  }
+  return text.slice(start, end);
 }

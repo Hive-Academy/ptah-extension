@@ -47,11 +47,16 @@ export const MONOGRAM_TINT_CLASSES: readonly string[] = [
 const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 
-/** 32-bit FNV-1a over the UTF-16 code units of `text`. */
+/**
+ * 32-bit FNV-1a over the code points of `text`, one step per code point. For
+ * text in the Basic Multilingual Plane each code point is one UTF-16 code
+ * unit, so the hash is the code-unit FNV-1a; an astral character (an emoji,
+ * say) is one step with its full code point rather than two surrogate steps.
+ */
 function fnv1a32(text: string): number {
   let hash = FNV_OFFSET_BASIS;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
+  for (const char of text) {
+    hash ^= char.codePointAt(0) ?? 0;
     hash = Math.imul(hash, FNV_PRIME) >>> 0;
   }
   return hash >>> 0;
@@ -95,7 +100,7 @@ export function monogramGlyph(label: string): string {
  * A lettered tile for anything without vendored artwork.
  *
  * Deliberately free of brand artwork: it imports nothing from
- * `brand-marks.generated.ts`, so an eagerly loaded host (the dashboard skill
+ * `brand-marks.vendored.ts`, so an eagerly loaded host (the dashboard skill
  * picker, plugin cards) can render it without pulling the vendored logo table
  * into the initial bundle. `ptah-brand-mark` renders it too, as the fallback
  * for a slug with no artwork.

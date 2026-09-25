@@ -496,8 +496,55 @@ function removalOf(group: InstalledServerGroup): ProviderRemoval {
 /** Argument and assignment names whose values are treated as secrets. */
 const SECRET_NAME = /key|token|secret|passw|pwd|auth|credential|bearer|cookie/i;
 
-/** `NAME=value` or `NAME: value` inside one argument. */
-const ASSIGNMENT = /^([^=:\s]+)(\s*[=:]\s*)(.+)$/;
+/** One argument split as `NAME=value` or `NAME: value`. */
+interface Assignment {
+  readonly name: string;
+  /** The `=` or `:` with the whitespace around it, kept for display. */
+  readonly separator: string;
+  readonly value: string;
+}
+
+/** What `\s` matches in a regular expression, tested one character at a time. */
+const WHITESPACE_CHAR = /^\s$/;
+/** What `.` refuses to match without the `s` flag. */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+
+/**
+ * `NAME=value` or `NAME: value` inside one argument, or `null`. A linear scan
+ * with exactly the matches of `/^([^=:\s]+)(\s*[=:]\s*)(.+)$/`, which
+ * backtracks quadratically (its second `\s*` and `.+` both take whitespace):
+ * the name is the leading run up to the first `=`, `:` or whitespace; the
+ * separator takes the whitespace around the first `=`/`:` after it; the value
+ * is the non-empty, single-line rest. A rest of whitespace only keeps its last
+ * character as the value, as the regex's backtracking did.
+ */
+function parseAssignment(arg: string): Assignment | null {
+  const isSpace = (at: number): boolean => WHITESPACE_CHAR.test(arg[at]);
+  let nameEnd = 0;
+  while (
+    nameEnd < arg.length &&
+    arg[nameEnd] !== '=' &&
+    arg[nameEnd] !== ':' &&
+    !isSpace(nameEnd)
+  ) {
+    nameEnd++;
+  }
+  if (nameEnd === 0) return null;
+  let at = nameEnd;
+  while (at < arg.length && isSpace(at)) at++;
+  if (arg[at] !== '=' && arg[at] !== ':') return null;
+  const afterMark = at + 1;
+  let valueStart = afterMark;
+  while (valueStart < arg.length && isSpace(valueStart)) valueStart++;
+  if (valueStart === arg.length && valueStart > afterMark) valueStart--;
+  const value = arg.slice(valueStart);
+  if (value === '' || LINE_TERMINATOR.test(value)) return null;
+  return {
+    name: arg.slice(0, nameEnd),
+    separator: arg.slice(nameEnd, valueStart),
+    value,
+  };
+}
 
 /**
  * Values that are secrets by shape alone, whatever flag precedes them. Each
@@ -552,7 +599,16 @@ function summarizeConfig(config: McpServerConfig | undefined): ConfigSummary {
 function keysOf(
   record: Readonly<Record<string, string>> | undefined,
 ): string[] {
-  return record === undefined ? [] : Object.keys(record).sort();
+  return record === undefined ? [] : Object.keys(record).sort(compareCodeUnits);
+}
+
+/**
+ * UTF-16 code-unit order — what `sort()` with no comparator uses — so key
+ * lists read the same on every locale (`Z_KEY` before `a_key`).
+ */
+function compareCodeUnits(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function remoteUrlOf(config: McpServerConfig | undefined): string | null {
@@ -601,12 +657,12 @@ function maskArgs(args: readonly string[]): string[] {
       masked.push(maskUrl(arg));
       continue;
     }
-    const assignment = ASSIGNMENT.exec(arg);
+    const assignment = parseAssignment(arg);
     if (
       assignment !== null &&
-      (SECRET_NAME.test(assignment[1]) || looksLikeSecret(assignment[3]))
+      (SECRET_NAME.test(assignment.name) || looksLikeSecret(assignment.value))
     ) {
-      masked.push(`${assignment[1]}${assignment[2]}${MASKED_VALUE}`);
+      masked.push(`${assignment.name}${assignment.separator}${MASKED_VALUE}`);
       continue;
     }
     maskNext = arg.startsWith('-') && SECRET_NAME.test(arg);

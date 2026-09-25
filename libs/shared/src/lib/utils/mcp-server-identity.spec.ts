@@ -49,6 +49,25 @@ describe('normalizeServerKey', () => {
       normalizeServerKey('ptah'),
     );
   });
+
+  // Pins the linear edge-trim that replaced `/^-+|-+$/g` (Sonar S8786).
+  it('maps a long run of separators alone to the empty key', () => {
+    expect(normalizeServerKey('-'.repeat(50_000))).toBe('');
+    expect(normalizeServerKey('/'.repeat(50_000))).toBe('');
+  });
+
+  it('keeps one dash for a long inner run and strips long edge runs', () => {
+    const run = '-'.repeat(50_000);
+    expect(normalizeServerKey(`${run}a${run}b${run}`)).toBe('a-b');
+    expect(normalizeServerKey(`a${run}x`)).toBe('a-x');
+  });
+
+  it('strips a trailing or leading separator on its own', () => {
+    expect(normalizeServerKey('ptah-')).toBe('ptah');
+    expect(normalizeServerKey('-ptah')).toBe('ptah');
+    expect(normalizeServerKey('ptah.')).toBe('ptah');
+    expect(normalizeServerKey('a')).toBe('a');
+  });
 });
 
 describe('normalizeMcpServerUrl', () => {
@@ -97,6 +116,27 @@ describe('normalizeMcpServerUrl', () => {
   it('falls back to trimming for a string that is not a URL', () => {
     expect(normalizeMcpServerUrl('  not a url//  ')).toBe('not a url');
     expect(normalizeMcpServerUrl('')).toBe('');
+  });
+
+  // Pins the linear trailing-slash trim that replaced `/\/+$/` (Sonar S8786).
+  it('keeps inner and leading slashes and strips only the trailing run', () => {
+    expect(normalizeMcpServerUrl('https://example.com//a//b//')).toBe(
+      'https://example.com//a//b',
+    );
+    expect(normalizeMcpServerUrl('//relative/path//')).toBe('//relative/path');
+  });
+
+  it('handles a long run of slashes that is not at the end', () => {
+    const run = '/'.repeat(50_000);
+    expect(normalizeMcpServerUrl(`https://example.com${run}mcp`)).toBe(
+      `https://example.com${run}mcp`,
+    );
+    expect(normalizeMcpServerUrl(`not a url${run}x`)).toBe(`not a url${run}x`);
+  });
+
+  it('reduces a string of slashes alone to the empty string', () => {
+    expect(normalizeMcpServerUrl('/')).toBe('');
+    expect(normalizeMcpServerUrl('  ///  ')).toBe('');
   });
 
   it('keeps distinct servers on one host distinct', () => {

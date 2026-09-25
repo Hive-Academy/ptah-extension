@@ -695,6 +695,65 @@ describe('toProviderRows — config masking', () => {
     expect(maskedArgs(ordinary)).toEqual(ordinary);
   });
 
+  // Pins the linear assignment scan that replaced
+  // `/^([^=:\s]+)(\s*[=:]\s*)(.+)$/` (Sonar S8786), match for match.
+  it('keeps the whitespace around an assignment mark when masking', () => {
+    expect(
+      maskedArgs(['TOKEN =  value', 'TOKEN\t:x', 'API_KEY==x', 'a:b=secret']),
+    ).toEqual([
+      `TOKEN =  ${MASKED_VALUE}`,
+      `TOKEN\t:${MASKED_VALUE}`,
+      `API_KEY=${MASKED_VALUE}`,
+      'a:b=secret',
+    ]);
+  });
+
+  it('masks an assignment whose value is whitespace only, keeping all but its last character', () => {
+    expect(maskedArgs(['TOKEN=   ', 'TOKEN = \t'])).toEqual([
+      `TOKEN=  ${MASKED_VALUE}`,
+      `TOKEN = ${MASKED_VALUE}`,
+    ]);
+  });
+
+  it('treats an argument with no name, no value or a line break as no assignment', () => {
+    const kept = [
+      '=token',
+      ' TOKEN=x',
+      'TOKEN=',
+      'TOKEN x',
+      'TOKEN=a\nb',
+      'TOKEN= \n',
+      'TOKEN=\u2028',
+    ];
+    expect(maskedArgs(kept)).toEqual(kept);
+  });
+
+  it('scans a long whitespace run in an assignment in linear time', () => {
+    const run = ' '.repeat(50_000);
+    const started = Date.now();
+    expect(maskedArgs([`TOKEN=${run}\n`, `TOKEN=${run}x`])).toEqual([
+      `TOKEN=${run}\n`,
+      `TOKEN=${run}${MASKED_VALUE}`,
+    ]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('lists env keys in code-unit order, upper case first', () => {
+    const summary = rowOf(
+      groupOf(
+        server({
+          config: {
+            type: 'stdio',
+            command: 'npx',
+            args: [],
+            env: { b_key: ENV_SECRET, Z_KEY: ENV_SECRET, a_key: ENV_SECRET },
+          },
+        }),
+      ),
+    ).configSummary;
+    expect(summary.envKeys).toEqual(['Z_KEY', 'a_key', 'b_key']);
+  });
+
   it('keeps a short free-form secret after a neutral flag (documented limit)', () => {
     expect(maskedArgs(['--config', 'hunter2'])).toEqual([
       '--config',

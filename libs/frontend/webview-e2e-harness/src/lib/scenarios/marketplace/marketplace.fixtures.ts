@@ -13,9 +13,11 @@
  * postMessage bridge) and `../vscode-shell/vscode-host.ts`'s host-config
  * injector. Centralised here (rather than duplicated per spec file, which is
  * the thoth file's own pattern) because THREE marketplace spec files need the
- * identical responder and host shapes; duplicating a working
- * `new Function(...)`-based responder three times would be the harness's
- * "invented technique" antipattern, not reuse.
+ * identical responder and host shapes; duplicating a working responder three
+ * times would be the harness's "invented technique" antipattern, not reuse.
+ * Unlike the thoth responder, dynamic answers are Node-side functions reached
+ * through `page.exposeFunction`, so no fixture source is ever evaluated in the
+ * page.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
@@ -82,32 +84,75 @@ export async function installHost(
 }
 
 // ---------------------------------------------------------------------------
-// RPC auto-responder — identical mechanism to
-// `../thoth/skills-lane-pickers.e2e.spec.ts`'s `installRpcAutoResponder`.
+// RPC auto-responder — the `rpc:response` mechanism of
+// `../thoth/skills-lane-pickers.e2e.spec.ts`'s `installRpcAutoResponder`,
+// with dynamic answers resolved on the Node side.
 // ---------------------------------------------------------------------------
+
+/**
+ * A params-aware fixture: runs in the Playwright (Node) process, never in the
+ * page. Its argument and return value cross the page boundary as serialisable
+ * data.
+ */
+export type RpcFixtureResolver = (params: unknown) => unknown;
+
+/** Page binding the in-page responder calls to reach a {@link RpcFixtureResolver}. */
+const RESOLVE_BINDING = '__ptahMarketplaceResolveRpc';
 
 /**
  * Wire an in-page RPC auto-responder over the postMessage bridge. MUST be
  * called after `installPostMessageBridge` (so `acquireVsCodeApi` exists) and
- * before `page.goto(...)`.
+ * before `page.goto(...)`, and at most once per page (the resolver binding
+ * can be exposed only once).
  *
- * A fixture value that is a `string` is evaluated in-page as
- * `(params) => result` via `new Function` — the same params-aware mock
- * convention the thoth spec and the Electron e2e's `ui.mockRpc` use. This is
- * how the workspace-switch scenario (`marketplace-servers.e2e.spec.ts`)
- * changes `mcpDirectory:listInstalled`'s answer between calls without a
- * second `addInitScript` trip: the resolver reads and increments a
- * page-global counter.
+ * A fixture value that is a function is a {@link RpcFixtureResolver}: the
+ * in-page responder sends the call's method and params to it through a
+ * `page.exposeFunction` binding and answers with what it returns. Every other
+ * value is static data, serialised into the page once. This is how the
+ * workspace-switch scenario (`marketplace-servers.e2e.spec.ts`) changes
+ * `mcpDirectory:listInstalled`'s answer between calls without a second
+ * `addInitScript` trip: the resolver closes over its own call counter.
  */
 export async function installRpcAutoResponder(
   page: Page,
   fixtures: Record<string, unknown>,
 ): Promise<void> {
-  await page.addInitScript((serializedFixtures: string) => {
-    const parsedFixtures = JSON.parse(serializedFixtures) as Record<
-      string,
-      unknown
-    >;
+  const staticAnswers: Record<string, unknown> = {};
+  const resolvers = new Map<string, RpcFixtureResolver>();
+  for (const [method, value] of Object.entries(fixtures)) {
+    if (typeof value === 'function') {
+      resolvers.set(method, value as RpcFixtureResolver);
+    } else {
+      staticAnswers[method] = value;
+    }
+  }
+  if (resolvers.size > 0) {
+    await page.exposeFunction(
+      RESOLVE_BINDING,
+      (method: string, params: unknown): unknown => {
+        const resolver = resolvers.get(method);
+        if (resolver === undefined) {
+          throw new Error(`No RPC fixture resolver for "${method}"`);
+        }
+        return resolver(params);
+      },
+    );
+  }
+  const setup = {
+    staticAnswers,
+    resolvedMethods: [...resolvers.keys()],
+    binding: RESOLVE_BINDING,
+  };
+  await page.addInitScript((serializedSetup: string) => {
+    const {
+      staticAnswers: parsedFixtures,
+      resolvedMethods,
+      binding,
+    } = JSON.parse(serializedSetup) as {
+      staticAnswers: Record<string, unknown>;
+      resolvedMethods: string[];
+      binding: string;
+    };
     const w = window as unknown as {
       acquireVsCodeApi?: () => {
         postMessage: (msg: unknown) => void;
@@ -115,6 +160,16 @@ export async function installRpcAutoResponder(
         setState: () => unknown;
       };
       vscode?: unknown;
+    } & Record<string, unknown>;
+    const respond = (
+      correlationId: string | undefined,
+      data: unknown,
+    ): void => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'rpc:response', correlationId, success: true, data },
+        }),
+      );
     };
     if (typeof w.acquireVsCodeApi !== 'function') {
       return;
@@ -135,29 +190,29 @@ export async function installRpcAutoResponder(
         return;
       }
       const { method, params, correlationId } = envelope.payload;
+      if (resolvedMethods.includes(method)) {
+        const resolve = w[binding] as (
+          m: string,
+          p: unknown,
+        ) => Promise<unknown>;
+        // A resolver failure leaves the call unanswered, the same outcome as
+        // an unfixtured method; the error is logged so the spec's own
+        // timeout is traceable to it.
+        resolve(method, params).then(
+          (data) => respond(correlationId, data),
+          (error: unknown) =>
+            console.error(`RPC fixture resolver for ${method} failed`, error),
+        );
+        return;
+      }
       if (!Object.prototype.hasOwnProperty.call(parsedFixtures, method)) {
         return;
       }
-      const raw = parsedFixtures[method];
-      let data: unknown;
-      if (typeof raw === 'string') {
-        const resolver = new Function('params', `return (${raw})(params);`) as (
-          p: unknown,
-        ) => unknown;
-        data = resolver(params);
-      } else {
-        data = raw;
-      }
-      queueMicrotask(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: { type: 'rpc:response', correlationId, success: true, data },
-          }),
-        );
-      });
+      const data = parsedFixtures[method];
+      queueMicrotask(() => respond(correlationId, data));
     };
     w.vscode = api;
-  }, JSON.stringify(fixtures));
+  }, JSON.stringify(setup));
 }
 
 // ---------------------------------------------------------------------------
@@ -822,10 +877,12 @@ export const HARNESS_HEALTH_FIXTURE = {
  * `PluginCatalogService` scope race (see batch-25-report.md's "Revise round
  * 1" section for the full instrumented repro).
  */
-function pluginSkillsResolver(): string {
-  return `(params) => {
-    const ids = (params && params.pluginIds) || [];
-    const skills = [];
+function pluginSkillsResolver(): RpcFixtureResolver {
+  return (params) => {
+    const ids =
+      (params as { pluginIds?: readonly string[] } | null | undefined)
+        ?.pluginIds ?? [];
+    const skills: Record<string, unknown>[] = [];
     for (const pluginId of ids) {
       for (let i = 1; i <= 3; i++) {
         skills.push({
@@ -841,8 +898,8 @@ function pluginSkillsResolver(): string {
         });
       }
     }
-    return { skills: skills };
-  }`;
+    return { skills };
+  };
 }
 
 /**
@@ -869,7 +926,7 @@ export function baseMarketplaceFixtures(
       connections: [],
       namespace: null,
     },
-    'mcpDirectory:oauthStatus': `(params) => ({ state: 'disconnected' })`,
+    'mcpDirectory:oauthStatus': { state: 'disconnected' },
     'mcpDirectory:getPopular': REGISTRY_ENTRIES_FIXTURE,
     'mcpDirectory:search': REGISTRY_ENTRIES_FIXTURE,
     'mcpDirectory:smitheryAccount': SMITHERY_ACCOUNT_FIXTURE,
@@ -891,16 +948,21 @@ export function baseMarketplaceFixtures(
  * {@link INSTALLED_SERVERS_FIXTURE} on the FIRST call and
  * {@link INSTALLED_SERVERS_FIXTURE_AFTER_SWITCH} on every call after —
  * standing in for "workspace B has fewer servers than workspace A" across a
- * real workspace switch, without a second `addInitScript` round trip. See
- * `installRpcAutoResponder`'s doc comment for the string-resolver mechanism.
+ * real workspace switch, without a second `addInitScript` round trip. Each
+ * call of this factory starts its own count, so one resolver serves one page.
+ * See `installRpcAutoResponder`'s doc comment for the resolver mechanism.
  */
-export function statefulListInstalledResolver(): string {
-  const full = JSON.stringify(INSTALLED_SERVERS_FIXTURE);
-  const reduced = JSON.stringify(INSTALLED_SERVERS_FIXTURE_AFTER_SWITCH);
-  return `(params) => {
-    window.__mpListInstalledCalls = (window.__mpListInstalledCalls || 0) + 1;
-    return { servers: window.__mpListInstalledCalls <= 1 ? ${full} : ${reduced} };
-  }`;
+export function statefulListInstalledResolver(): RpcFixtureResolver {
+  let calls = 0;
+  return () => {
+    calls += 1;
+    return {
+      servers:
+        calls <= 1
+          ? INSTALLED_SERVERS_FIXTURE
+          : INSTALLED_SERVERS_FIXTURE_AFTER_SWITCH,
+    };
+  };
 }
 
 /** Every `data-nav-id` the Marketplace nav renders (`marketplace-nav.component.ts`). */
