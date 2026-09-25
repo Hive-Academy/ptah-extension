@@ -83,4 +83,23 @@ Mode: enabled
   (dark + light) under this task's `prototype/` folder before B15 (page); the user reviews it; completion screenshots are
   checked against it. (2) CLI lane pool: opencode, Glm, codex, antigravity, plus orchestrator subagents at discretion.
   Rotate lanes so a batch's reviewer is never its executor; if a lane hits a quota, fall back to another pool member.
+- Prototype delivered (prototype/index.html, states.html, README.md, 10 screenshots). User is reviewing it (2026-09-25);
+  NOT yet approved, and the two designer proposals (narrow stacking <480px, no colored small rejected-state text) are
+  undecided. B15 must not start until the prototype is approved. Orchestrator notes for B15: chart "Expand" must be a
+  client-only toggle (host returns unsupported for dashboard.* except select); the table must show the pager (page size 25).
+- Batch 1 committed `c9b6eddd2` (code-logic APPROVED 8/10, 0 fix rounds; test-strength notes M1-M3 deferred to B12).
+  Batch 2 (lib scaffolds) running with the frontend-developer subagent.
+- 2026-09-25: user APPROVED the prototype ("design is approved") -> it is the visual source for B15 and completion,
+  including the designer's two proposals (narrow stacking <480px; rejected-state color on icon + spine only). Commit
+  prototype/ with the next batch commit.
+- User addition (B15 scope): a splitter between the Apps conversation column and the surface panel. Reuse
+  `ElectronResizeHandleComponent` (`ptah-electron-resize-handle`, `libs/frontend/chat-ui/src/lib/atoms/electron-resize-handle.component.ts`,
+  exported from `@ptah-extension/chat-ui` index.ts:12; chat-ui is type:feature, so feature->feature import is allowed;
+  used in electron-shell.component.ts:232,253). Notes: (1) the handle emits a viewport-relative width (pointer X), so
+  the page subtracts its container's left offset; (2) clamp (prototype default 360px, sensible min/max so the surface
+  panel stays usable); (3) Escape/blur restore is built in; (4) the handle has no keyboard resize -> page adds
+  arrow-key resize and aria-valuenow/min/max on the separator if design-spec "Accessibility" requires keyboard-operable
+  separators; (5) persist the width like the other Electron panel widths (ElectronLayoutService pattern,
+  electron-layout.service.ts:145-196) or in the Apps page state - team-leader decides without widening B15 past 6 files;
+  (6) hidden when the layout stacks below ~480px.
 - Follow-ups created: `TASK_2026_539_67f5` (render surfaces in the coding chat, depends on this task), `TASK_2026_540_0940` (apply the TASK_2026_492 navigation sets, global configuration menu).

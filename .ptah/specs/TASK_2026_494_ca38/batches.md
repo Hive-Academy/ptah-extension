@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 19 | Batches: 19 | Complete: 1/19
+Total tasks: 20 | Batches: 20 | Complete: 2/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -118,7 +118,7 @@ Edge cases:
 - Sort/filter/page → zero RPC and zero `postMessage` calls — Task 15.1
 - Workspace switch shows the other slice; state survives component destroy/re-create — Tasks 12.1, 15.1
 
-## Batch 1: SurfaceUpdateInbox (eager) — COMPLETE
+## Batch 1: SurfaceUpdateInbox (eager) — COMPLETE (commit c9b6eddd2)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -163,7 +163,7 @@ Edge cases:
   `surface-message-routing.spec.ts:286-296` does not call `handlerDeclarationsFor`; (M3) the source sweep reads
   `libs/frontend/**`, outside the webview test target's Nx cache inputs. Revisit when B12 adds the first consumer.
 
-## Batch 2: Lib scaffolds and path mapping — IN_PROGRESS
+## Batch 2: Lib scaffolds and path mapping — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -172,7 +172,7 @@ Edge cases:
 - Rationale: generator run plus tag/tsconfig decisions that set module boundaries for everything after it.
 - Tasks: 1 | Depends on: none
 
-### Task 2.1: Scaffold `declarative-dashboard` and `mcp-apps-page` — IN_PROGRESS
+### Task 2.1: Scaffold `declarative-dashboard` and `mcp-apps-page` — COMPLETE
 
 - Files (2 generator units + 1):
   - CREATE `.../libs/frontend/declarative-dashboard/` (`project.json`, `tsconfig.json`, `tsconfig.lib.json`,
@@ -190,10 +190,23 @@ Edge cases:
 
 ### Batch 2 verification
 
-- `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/mcp-apps-page --passWithNoTests`
+- `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/mcp-apps-page`
+  (the `--passWithNoTests` flag was dropped: `nx.json` targetDefaults for `@nx/jest:jest` already set
+  `passWithNoTests: true`, and the CLI flag is forwarded by `nx:run-commands` into `ngc`, failing with TS5023. The
+  `typecheck` target therefore stays identical to harness-builder, without `forwardAllArgs: false`.)
 - `npx nx show projects --projects "@ptah-extension/declarative-dashboard,@ptah-extension/mcp-apps-page" --json` shows both.
 
-## Batch 3: Renderer view-state, interaction types and v1 view model — PENDING
+### Batch 2 outcome
+
+- Executor: frontend-developer (copied harness-builder config; no generator sample to delete). 1 fix round.
+- Reviews: code-style-reviewer NEEDS_REVISION 7/10 (1 blocking: `typecheck` used `forwardAllArgs: false`), then fixed;
+  code-logic-reviewer APPROVED 9/10 (same item as minor). Team-leader ruling: revert to harness-builder's plain
+  `command` and drop `--passWithNoTests` from the verification command (`nx.json` targetDefaults already set it).
+  Post-fix `project.json` diffs against harness-builder only in the tags; verification re-run with `--skip-nx-cache`:
+  6/6 targets green. Style minor (manual copy instead of `nx g`) accepted: output is equivalent and Nx discovers both.
+- Prototype (approved 2026-09-25) committed with this batch. B15 notes added; splitter split out as Batch 20.
+
+## Batch 3: Renderer view-state, interaction types and v1 view model — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -202,7 +215,7 @@ Edge cases:
 - Rationale: pure types and a pure builder with a spec; well specified by Revision 1 behaviour.
 - Tasks: 1 | Depends on: Batch 2
 
-### Task 3.1: Types and `buildDashboardViewModel` — PENDING
+### Task 3.1: Types and `buildDashboardViewModel` — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `surface-view-state.ts`,
   `surface-interaction.ts`, `view-model/view-model.types.ts`, `view-model/dashboard-view-model.ts` (+ `.spec.ts`);
@@ -518,11 +531,66 @@ Edge cases:
   throws → mono fallback, no renderer subtree; destroy/re-create restores transcript, surfaces, view state, overlays;
   sort/filter/page → zero `ClaudeRpcService.call` and zero `VSCodeService.postMessage`; switcher with two surfaces;
   agent snapshot activates its surface; eviction notice.
+- Prototype (APPROVED 2026-09-25, `prototype/index.html`, `states.html`, `README.md`, screenshots) is the visual source
+  of truth, including both designer proposals: (a) below ~480px, and in the embedded-sidebar container, the
+  conversation column and surface panel stack vertically and stat/chart grids collapse to one column; (b) the rejected
+  state carries its color on the icon + spine only — no colored small text.
+- Chart "Expand" is a client-only view toggle (no RPC; the host returns unsupported for every `dashboard.*` action
+  except `select`). Spec pin: toggling Expand makes zero `ClaudeRpcService.call`/`VSCodeService.postMessage` calls.
+- The table always shows the pager, page size `SURFACE_PAGE_SIZE` (25).
+- Leave a single, clearly named layout slot between the conversation column and the surface panel for the splitter
+  handle; the splitter itself is Batch 20 (split out to keep B15 at 6 files).
 
 ### Batch 15 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/mcp-apps-page @ptah-extension/declarative-dashboard`
   (re-runs `trust-boundary.spec.ts` against the now-populated Apps lib, R6)
+
+## Batch 20: Apps page splitter (user addition 2026-09-25) — PENDING
+
+Runs right after Batch 15 (numbered 20 so existing batch numbers stay stable). B16-B19 do not depend on it; B19's
+lazy-load gate and Mode 3 visual evidence must include it.
+
+- Recommended executor: frontend-developer
+- Fallback executor: CLI lane x 1
+- Reviewer: code-logic-reviewer + code-style-reviewer; visual-reviewer at completion (dark + light, wide and <480px)
+- Execution mode: sequential
+- Rationale: touches a shared core service's persisted state plus the page; write-path correctness needs one hand.
+- Tasks: 1 | Depends on: Batch 15
+
+### Task 20.1: Resizable split between conversation column and surface panel — PENDING
+
+- Files (4, 2 libs): MODIFY `.../libs/frontend/core/src/lib/services/electron-layout.service.ts` (+ its existing
+  `.spec.ts`); MODIFY `.../libs/frontend/mcp-apps-page/src/lib/components/apps-page.component.ts` (+ `.spec.ts`)
+- Plan reference: context.md "User addition (B15 scope)" bullet; prototype default width 360px
+- Pattern to follow: `ElectronResizeHandleComponent` usage in
+  `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:232,253`; width API shape of
+  `setGitRailWidth`/`commitGitRailWidth` in `electron-layout.service.ts:188-196`
+- Quality requirements:
+  - Reuse `ptah-electron-resize-handle` from `@ptah-extension/chat-ui` (type:feature -> type:feature is allowed); do
+    not fork it.
+  - The handle emits a viewport-relative pointer X: subtract the Apps container's `getBoundingClientRect().left` before
+    use. Clamp (min keeps the conversation column usable, max keeps the surface panel >= ~360px; reject non-finite).
+  - Escape/blur restore is built into the handle; keep it working.
+  - Keyboard: the separator is focusable, Left/Right arrows resize by a fixed step (Shift = larger step), with
+    `role="separator"`, `aria-orientation="vertical"`, `aria-valuenow/min/max` and an accessible label (prototype README
+    `[project-rule]` keyboard reachability; no design-spec.md exists in the task folder to override this).
+  - Persistence decision (team-leader): extend `ElectronLayoutService` with `appsSplitWidth` + setter/commit, persisted
+    in the same `LAYOUT_STATE_KEY` object via `persistLayout()`/`restoreLayout()`, like the other Electron panel widths.
+    The page component holds no width state of its own.
+  - Hidden (and the columns stack) below ~480px and in the embedded-sidebar container.
+- Validation notes: WRITE-PATH RISK — `persistLayout()` writes the whole `LAYOUT_STATE_KEY` object via
+  `vscodeService.setState`; `restoreLayout()` also reads `workspaceFolders`/`activeWorkspaceIndex` from that key. Trace
+  every writer of `LAYOUT_STATE_KEY` and prove the new field neither drops those fields nor is dropped by another
+  writer; a restore with the field missing or non-numeric falls back to the default. Spec pins: offset subtraction,
+  clamp bounds, persist on commit only (not on every drag frame), restore round-trip, arrow-key resize, handle absent
+  when stacked.
+- Implementation details: page binds the handle's width output to `layout.setAppsSplitWidth(width - left)` and its
+  drag-end to the commit; CSS grid column uses the service signal.
+
+### Batch 20 verification
+
+- `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core @ptah-extension/mcp-apps-page`
 
 ## Batch 16: Surface id, route and Electron-only guard — PENDING
 

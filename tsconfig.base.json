@@ -160,6 +160,12 @@
       "@ptah-extension/harness-builder/services": [
         "./libs/frontend/harness-builder/src/services.ts"
       ],
+      "@ptah-extension/declarative-dashboard": [
+        "./libs/frontend/declarative-dashboard/src/index.ts"
+      ],
+      "@ptah-extension/mcp-apps-page": [
+        "./libs/frontend/mcp-apps-page/src/index.ts"
+      ],
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"
       ],
