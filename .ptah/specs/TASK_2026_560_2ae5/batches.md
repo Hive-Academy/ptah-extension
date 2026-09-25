@@ -1,6 +1,6 @@
 # Batches - TASK_2026_560_2ae5
 
-Total tasks: 24 batches (PR 1: 17, PR 2: 7) | Complete: 1/24
+Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 4/26
 
 Design authority: `implementation-plan.md` (revision 2 + r3, user-approved). The review files are history.
 Base: `main @ c4bdc87dd`. Branch: `feat/task-2026-560-mcp-skill-toggles`. PR 2 will be a stacked branch
@@ -29,6 +29,45 @@ design decision.
 | P6 | Handoff batch order puts cli-agent-runtime (3) before agent-sdk (4) | cli-agent-runtime imports agent-sdk (27 imports). The store registers under `SDK_TOKENS`, and the resolver calls `getEffectivePluginConfig`. | Batch 5 (agent-sdk tokens + loader) runs before Batch 7 (resolver). The C1→C3→C4 component order is unchanged. |
 | P7 | C6 "Files (10)" is not enumerated in the final plan | The round-1 list is not on disk | Derived from the adapters on disk (Batches 22-23). **ASSUMPTION A-PR2**: re-verify this list against the code when PR 2 starts. |
 | P8 | NFR: e2e specs in `apps/ptah-electron-e2e/src/specs/marketplace/` | The plan's fixtures file and RPC auto-responder live in `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/`, which is the only place a failing `setEnabled` (revert) can be driven | The new spec goes to the harness location, which the plan chose. The PR 1 description states this deviation from the NFR path. |
+
+### P9: global skill/plugin layer is unreachable from the synchronous callers (found by the Batch 5 logic review)
+
+The plan's C3 text says "`resolveCurrentPluginPaths` and `getDisabledSkillIds` are effective". As implemented,
+both methods stay synchronous and read only the WORKSPACE layer (`plugin-loader.service.ts:1220-1230`,
+`:1482-1492`). Only the async `getEffectivePluginConfig(root)` applies `workspace ?? global ?? default`.
+
+Resolution (no design change; D1 is kept as written):
+
+- The two synchronous methods stay workspace-only, and their JSDoc says so.
+- Every caller that affects a session moves to the async `getEffectivePluginConfig`, assigned to a PR 1 batch
+  in the table below.
+- Enforcement of this gap never moves to PR 2.
+
+How layering reaches callers (from `layerGlobalItems`, `plugin-loader.service.ts:175-212`):
+
+- A global item applies only to an id the workspace records nothing about. A global `on` goes into
+  `enabledPluginIds` or `enabledSkillIds`, and a global `off` goes into `disabledPluginIds` or
+  `disabledSkillIds`.
+- So a caller that uses only the workspace `enabledPluginIds` can MISS a global ON (it narrows), but it can
+  never admit a globally-OFF item (it cannot widen).
+- A caller that uses `resolveCurrentPluginPaths` or `getDisabledSkillIds` DOES widen. Those include the opt-out
+  (default-ON) plugins and a skill's default ON, so a global OFF is ignored.
+
+#### Global-layer caller assignment
+
+| # | Caller | Effect | Batch (PR) | Change | Acceptance test |
+| --- | --- | --- | --- | --- | --- |
+| G1 | `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts:169-177` (`resolve`) | **Widens**: its overlay and disabled-skill ids feed the reconciler, which writes the `.claude/skills` copies and junctions that Claude sessions and every CLI lane load | **B3** (PR 1), already owned | When `reader.getEffectivePluginConfig` exists, `resolve` awaits it once, and takes `overlayPluginPaths`, `config.disabledSkillIds`, `config` and `fingerprint` from that single result. `resolve` returns `HarnessSourceState \| Promise<HarnessSourceState>`, and the reconciler awaits it at `harness-reconciler.service.ts:200,383`. A reader without the method keeps today's synchronous path. | New reconciler spec: a global OFF on an opt-out plugin with no workspace entry → the plugin is absent from the overlay, and its skill copies are absent after a reconcile. A global OFF skill → its copy is absent. A global ON on an opt-in plugin → present. A workspace entry beats a global one. |
+| G2 | `apps/ptah-electron/src/di/phase-2-libraries.ts:200-231` (hand-written `HarnessPluginConfigReader` wrapper) | **Widens**: without forwarding, G1's new branch is unreachable on Electron | **B3** (PR 1), added (+1 file) | Add `getEffectivePluginConfig: async (root) => …` that forwards `workspaceRoot` and folds `readDormantSkillSlugs(container)` into the effective `config.disabledSkillIds`, exactly as the sync `getDisabledSkillIds` wrapper does today | The `ptah-electron` typecheck passes. The reviewer traces the wrapper and confirms that dormant slugs are still folded and that the root is forwarded. The G1 spec covers the behaviour. |
+| G2b | `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:173-178`, `libs/backend/cli-engine/src/lib/container.ts:645-650` | Would widen, but these hosts pass the `PluginLoaderService` instance itself as the reader, so it already has `getEffectivePluginConfig` | none (no change) | none | The B3 reviewer confirms that both hosts pass the loader instance through without wrapping it |
+| G3 | `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts:429-431` (`searchSkills`, in-session code-execution tool) | **Widens**: a globally-OFF skill is listed as invocable inside a running session | **B25** (PR 1), new | The already-async `searchSkills` awaits `getEffectivePluginConfig(root)` and uses its `overlayPluginPaths` and `config.disabledSkillIds`. If the policy is unknown (`isCapabilityPolicyUnknownError`), it lists no local plugin skills and logs. The structural loader interface (`:273-284`) gains the method. | Spec: a global OFF skill → reported disabled or absent. A global OFF opt-out plugin → none of its skills are listed. Unknown policy → no local skills. The remote search is unaffected. |
+| G4 | `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts:242-255` (`PluginLoaderLike`) and `:668-683` (`getPluginPaths`, the plugin paths handed to spawned agents via `agent-namespace.builder.ts:289-292`) | The interface is what G3 flows through. `getPluginPaths` only narrows (it misses a global ON). | **B25** (PR 1), same file | Add `getEffectivePluginConfig` to `PluginLoaderLike`. `getPluginPaths` uses the effective `config.enabledPluginIds`, and returns `undefined` on unknown (restrictive). | A B25 spec case: a global ON opt-in plugin's path is passed to a spawned agent. Unknown → no plugin paths. |
+| G5 | `libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts:350,353` (`discoverAvailableSkills`, harness wizard summary) | Display only: the wizard can show a globally-OFF skill as available. It cannot load one, because sessions are governed by G1/G3 and the B8 flags. | **B26** (PR 2) | Await `getEffectivePluginConfig(root)` | Spec: a global OFF skill is not offered as available |
+| G6 | `libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.ts:873-874` (`activeSkillOwners` → `predictCollisions` at install) | Display only: it may over-report a shadowing skill, which errs cautious | **B26** (PR 2) | Same | Spec: a globally-OFF plugin's skills do not appear as collision owners |
+| G7 | `plugin-rpc.handlers.ts:255,340,756,796` (legacy Plugins panel get/save and external activate/deactivate) | Intentionally WORKSPACE: these read-modify-write the workspace `PluginConfigState` | none (documented) | No change. Writing the layered config back would copy global items into the workspace and break inheritance (D1). The legacy panel shows the workspace layer, and the Marketplace shows the effective state; AC-3.3 is about the workspace layer. | The B17 write-path trace confirms that no workspace save path persists a layered config |
+| G8 | `setup-rpc.handlers.ts:140-147`, `wizard-generation-rpc.handlers.ts:804-811`, `enhanced-prompts-rpc.handlers.ts:714-718`, `harness-rpc.handlers.ts:827` | Generation inputs only (skill discovery for wizard and prompt generation). They read the workspace `enabledPluginIds`: they narrow and never widen, and no session is built from them. | none (documented) | No change | n/a |
+| G9 | `libs/backend/cli-engine/src/lib/bootstrap/harness-boot.ts:71`, `apps/ptah-electron/src/activation/plugin-activation.ts:253,298`, `apps/ptah-extension-vscode/src/activation/plugin-activation.ts:83` | User-layer mirror SOURCE lists and a boot log count; they are not policy. Per-workspace policy is applied afterwards by the reconciler through G1's overlay and disabled ids, which include global ONs. | none (documented) | No change | Covered by the G1 spec |
+| G10 | `libs/backend/rpc-handlers/src/lib/chat/session/chat-sdk-context.service.ts:83-95` (`resolvePluginPaths`) | No caller found in the repository (grep across `libs` and `apps`, 2026-09-26); chat sessions get plugins and skills through the G1 harness copies | none (documented) | No change. Its removal as dead code is out of scope for this task. | n/a |
 
 ## Plan validation
 
@@ -72,6 +111,8 @@ Assumptions:
 | R8: an unknown policy is silently widened anywhere | HIGH | Fail-closed tests in Batches 3, 4, 5, 7, 8 and 9; the reviewer must check each for the unknown path |
 | R9: `protocol-dispatcher.ts` must not be edited (TASK_2026_559) | HIGH | No batch lists it; every batch commit is checked with `git diff --name-only` |
 | R10: new backend services must log through `IOutputChannel` | LOW | Stated in Tasks 6.1, 6.2, 7.1 and 20.1; checked by the reviewer |
+| R11 (P9): a global skill/plugin OFF is shown OFF but ignored by the harness copies and the in-session skill list | HIGH | G1 and G2 in B3, and G3 and G4 in B25, both in PR 1. The reviewer acceptance items are in each batch. B17 re-tests live: a global OFF skill is absent from `.claude/skills` and from `ptah.harness.searchSkills`. |
+| R12: making `PluginConfigSourceResolver.resolve` async ripples into about 20 reconciler specs whose fakes return synchronously | MEDIUM | The port type is `HarnessSourceState \| Promise<HarnessSourceState>`, and the reconciler `await`s it, so the existing sync fakes stay valid. No existing spec file is edited (budget). |
 
 Edge cases:
 
@@ -107,32 +148,36 @@ PR 1 (code files + task docs; must stay under 100):
 | After batch | Code files added | PR 1 code total | Docs total | PR 1 total |
 | --- | --- | --- | --- | --- |
 | 1 (actual) | 10 | 10 | 11 (task.md, task-description.md, research-report.md, implementation-plan.md, 4 plan-review files, batches.md, reviews/code-logic-review.md, reviews/code-style-review.md) | 21 |
-| 2 | 3 | 13 | 11 | 24 |
-| 3 | 5 | 18 | 11 | 29 |
-| 4 | 5 | 23 | 11 | 34 |
-| 5 | 7 | 30 | 11 | 41 |
-| 6 | 4 | 34 | 11 | 45 |
-| 7 | 6 | 40 | 11 | 51 |
-| 8 | 8 | 48 | 11 | 59 |
-| 9 | 4 | 52 | 11 | 63 |
-| 10 | 6 | 58 | 11 | 69 |
-| 11 | 3 | 61 | 11 | 72 |
-| 12 | 2 | 63 | 11 | 74 |
-| 13 | 5 | 68 | 11 | 79 |
-| 14 | 9 | 77 | 11 | 88 |
-| 15 | 4 | 81 | 11 | 92 |
-| 16 | 2 | 83 | 11 | 94 |
-| 17 | 0 | 83 | 11 + test-report.md = 12 | **95** |
+| 4 (actual; +1 `harness-sync/src/index.ts` type exports, added in revise round 1) | 6 | 16 | 11 | 27 |
+| 2 | 3 | 19 | 11 | 30 |
+| 5 | 7 | 26 | 11 | 37 |
+| 6 | 4 | 30 | 11 | 41 |
+| 7 | 6 | 36 | 11 | 47 |
+| 8 | 8 | 44 | 11 | 55 |
+| 3 (+1 Electron `phase-2-libraries.ts`, P9 G2) | 6 | 50 | 11 | 61 |
+| 10 | 6 | 56 | 11 | 67 |
+| 13 | 5 | 61 | 11 | 72 |
+| 9 | 4 | 65 | 11 | 76 |
+| 14 | 9 | 74 | 11 | 85 |
+| 25 (new, P9 G3/G4) | 3 | 77 | 11 | 88 |
+| 11 | 3 | 80 | 11 | 91 |
+| 12 | 2 | 82 | 11 | 93 |
+| 16 | 2 | 84 | 11 | 95 |
+| 17 | 0 | 84 | 11 + test-report.md = 12 | **96** |
 
-- Headroom: 4 files, with the re-plan threshold at 97.
-  - R4 (shell html, +1) → 96.
-  - A `.ptah/specs/registry.md` touch (+1) → 97, which is AT the threshold.
-- Absorption, if either lands:
-  - **Batch 10** inlines `capability-rpc.schema.ts` into `capability-rpc.handlers.ts` (-1). It is the least
-    coupled planned file.
-  - If a second saving is needed, **Batch 3** puts its source-resolver cases in
-    `harness-reconciler.capability-policy.spec.ts` instead of creating `plugin-config-source-resolver.spec.ts` (-1).
-- Every executor report must list unplanned files. The team-leader re-counts this table at each commit.
+(Rows are in expected commit order. B15's 4 files moved to PR 2.)
+
+- P9 amendment arithmetic: 95 (before) + 1 (B4 `index.ts`) + 1 (B3 Electron wrapper) + 3 (B25) - 4 (B15 → PR 2)
+  = **96**.
+- Contingencies, both still under 100:
+  - R4 (shell html, +1) → 97.
+  - A `.ptah/specs/registry.md` touch (+1) → 98.
+- Absorption, if either contingency lands:
+  - **Batch 10** inlines `capability-rpc.schema.ts` into `capability-rpc.handlers.ts` (-1).
+  - **Batch 16** keeps its capability fixtures inside `capability-toggles.e2e.spec.ts`, importing
+    `installRpcAutoResponder` and friends, instead of editing `marketplace.fixtures.ts` (-1).
+- Every executor report must list unplanned files. The team-leader re-counts this table at each commit, and stops
+  and re-plans at 97 unless one of the two absorbers has been applied.
 
 PR 2 (counted separately against its own stacked base):
 
@@ -144,7 +189,9 @@ PR 2 (counted separately against its own stacked base):
 | 21 | 2 | 11 |
 | 22 | 6 | 17 |
 | 23 | 4 | 21 |
-| 24 | 0 | 21 + ~4 docs (batches.md, test-report.md, code-logic-review.md, code-style-review.md) = **~25** |
+| 15 (moved from PR 1) | 5 | 26 |
+| 26 (new, P9 G5/G6) | ~3 | ~29 |
+| 24 | 0 | ~29 + ~4 docs (batches.md, test-report.md, code-logic-review.md, code-style-review.md) = **~33** |
 
 ## Parallelism map
 
@@ -158,21 +205,21 @@ its commit.
 | W1 | 1 | B1 (shared, marketplace) | n/a |
 | W2 | 1 | B4 (harness-sync) ∥ B5 (agent-sdk) ∥ B6 (cli-agent-runtime) | Chosen layout: **B5 runs in the feature worktree** (TASK_WT). **B4 → `.claude-worktrees/feat-task-2026-560-b4`** (branch `feat/task-2026-560-b4-facet-inspect`). **B6 → `.claude-worktrees/feat-task-2026-560-b6`** (branch `feat/task-2026-560-b6-toggle-store`). The two new worktrees branch from the feature-branch HEAD and have a `node_modules` junction. This isolates B6's cli-agent-runtime typecheck from B4 and B5's in-flight edits. The team-leader commits each accepted batch on its own branch, cherry-picks it onto `feat/task-2026-560-mcp-skill-toggles`, and then removes the worktree and branch. |
 | W3 | 1 | B7 (cli-agent-runtime) ∥ B8 (agent-sdk) ∥ B2 (shared) | RECOMMENDED for B7 vs B8 (cli-agent-runtime imports agent-sdk) and for B2 (shared is read by all) |
-| W4 | 1 | B3 (harness-sync) ∥ B10 (rpc-handlers) ∥ B13 (marketplace) | Not required |
-| W5 | 1 | B9 (cli-agent-runtime, chat) ∥ B14 (marketplace) ∥ B15 (marketplace) | **REQUIRED: B14 and B15 in separate worktrees (same project `@ptah-extension/marketplace`).** B9 may share the feature worktree. |
+| W4 | 1 | B3 (harness-sync, ptah-electron) ∥ B10 (rpc-handlers) ∥ B13 (marketplace) | Not required (disjoint projects) |
+| W5 | 1 | B9 (cli-agent-runtime, chat) ∥ B14 (marketplace) ∥ B25 (vscode-lm-tools) | Not required (disjoint projects). B15 left this wave (moved to PR 2), so no same-project pair remains in PR 1. |
 | W6 | 1 | B11 (rpc-handlers, cli-engine) ∥ B12 (ptah-electron, ptah-extension-vscode) | Not required (disjoint projects); RECOMMENDED because B12 typechecks against rpc-handlers |
 | W7 | 1 | B16 (webview-e2e-harness) | n/a |
 | W8 | 1 | B17 (live verification, all PR 1 projects) | n/a; open PR 1 after B17 |
 | P1 | 2 | B18 (harness-sync) ∥ B19 (cli-agent-runtime) ∥ B20 (agent-sdk) | Not required; RECOMMENDED for B19 (reads harness-sync) |
-| P2 | 2 | B21 (ptah-cli) ∥ B22 (cli-agent-runtime) | Not required |
-| P3 | 2 | B23 (cli-agent-runtime, shared) | n/a |
+| P2 | 2 | B21 (ptah-cli) ∥ B22 (cli-agent-runtime) ∥ B15 (marketplace, webview-e2e-harness) | Not required |
+| P3 | 2 | B23 (cli-agent-runtime, shared) ∥ B26 (rpc-handlers) | Not required |
 | P4 | 2 | B24 (live verification) | n/a |
 
-Same-project pairs that must never share a worktree while both are in flight: B3/B4 (they are in different
-waves), B5/B8, B6/B7/B9, B10/B11, B13/B14/B15, B19/B22/B23. The only same-wave same-project pair is **B14 ∥ B15**.
+Same-project pairs that must never share a worktree while both are in flight: B3/B4 and B3/B12 (ptah-electron;
+different waves), B5/B8, B6/B7/B9, B10/B11, B13/B14, B19/B22/B23. No same-wave same-project pair remains.
 
-Critical path (PR 1): B1 → B5 → B7 → B10 → B11/B12 → B16 → B17. The UI path (B2 → B13 → B14/B15) runs
-alongside it.
+Critical path (PR 1): B1 → B5 → B7 → B10 → B11/B12 → B16 → B17. The UI path (B2 → B13 → B14) and the P9 path
+(B3, B25) run alongside it.
 
 ## Visual evidence plan (Mode 3 requirement)
 
@@ -327,19 +374,39 @@ the trace.
 - PR: 1
 - Goal: C3, harness-sync half. The source resolver maps the structural policy-unknown error to a frozen state,
   and the reconciler skips skill, plugin and agent planning and stamps the fingerprint.
-- Nx projects: `@ptah-extension/harness-sync`
-- Depends on: B1 (B5 is not needed at compile time; the error is detected structurally)
+- Nx projects: `@ptah-extension/harness-sync`, `ptah-electron`
+- Depends on: B1 (compile). B5 at runtime: `getEffectivePluginConfig` is consumed structurally, and B5 lands in
+  W2 first.
 - Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
 - Reviewers: code-logic-reviewer
-- ACs proved: AC-3.3 (fingerprint stamped), AC-3.4 (a frozen harness never re-adds a disabled plugin), N3
-- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync --parallel=2`
-- Commit: `feat(harness-sync): batch 3 - freeze reconciler on unknown capability policy`
-- Files (5 code):
+- ACs proved: AC-3.3 (fingerprint stamped), AC-3.4 (a frozen harness never re-adds a disabled plugin, and a
+  GLOBAL OFF reaches the harness copies), D1 for skills and plugins (G1/G2), N3
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync,ptah-electron --parallel=2`
+- Commit: `feat(harness-sync,electron): batch 3 - apply layered policy in harness sync`
+- **Reviewer acceptance items (mandatory, P9 G1/G2/G2b):**
+  - `resolve` calls `getEffectivePluginConfig` once per pass when the reader provides it. `overlayPluginPaths`,
+    `disabledSkillIds`, `config` and `policyFingerprint` all come from that ONE result; no workspace-only sync
+    call is mixed in.
+  - A reader without the method keeps today's semantics, and the port union type keeps every existing
+    reconciler spec unchanged (R12).
+  - Spec proof:
+    - a global OFF on an opt-out plugin with no workspace entry → absent from the overlay, and its skill copies
+      are absent after a reconcile;
+    - a global OFF skill → its copy is absent;
+    - a global ON on an opt-in plugin → present;
+    - a workspace entry beats a global one.
+  - `isCapabilityPolicyUnknownError` → frozen (skill, plugin and agent writes and removals are zero).
+  - Electron `phase-2-libraries.ts`: the new wrapper member forwards `workspaceRoot`, and it folds
+    `readDormantSkillSlugs` into the effective disabled ids.
+  - The VS Code (`phase-2-libraries.ts:173-178`) and CLI (`cli-engine/src/lib/container.ts:645-650`) hosts pass
+    the loader instance unwrapped (verify; no edit).
+- Files (6 code):
   - M `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts`
   - C `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.spec.ts` (P2)
   - M `libs/backend/harness-sync/src/lib/sources/harness-source.port.ts`
   - M `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts`
   - C `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts`
+  - M `apps/ptah-electron/src/di/phase-2-libraries.ts` (G2; added at the P9 amendment)
 
 ### Task 3.1: Source resolver and port — PENDING
 
@@ -350,6 +417,17 @@ the trace.
   - `isCapabilityPolicyUnknownError` → `{policyUnknown: true}`. Every other read failure keeps today's unfiltered
     semantics (`plugin-config-source-resolver.ts:136-150`).
 - Validation notes: R2. No import from `@ptah-extension/agent-sdk`.
+- P9 G1: `HarnessPluginConfigReader.getEffectivePluginConfig?(root): Promise<{config, fingerprint,
+  overlayPluginPaths}>` is a structural mirror of agent-sdk's `EffectivePluginConfig`. `resolve` awaits it when it
+  is present. It returns `HarnessSourceState | Promise<HarnessSourceState>` (R12).
+
+### Task 3.3: Electron reader wrapper forwards the effective config — PENDING
+
+- File: `apps/ptah-electron/src/di/phase-2-libraries.ts:200-231`
+- Quality requirements: add `getEffectivePluginConfig: async (workspaceRoot) => { const e = await
+  loader.getEffectivePluginConfig(workspaceRoot); return {...e, config: {...e.config, disabledSkillIds:
+  [...e.config.disabledSkillIds, ...readDormantSkillSlugs(container)]}}; }`. Keep the existing three members. Add
+  a comment in the file's own style saying why dormant slugs are folded here too.
 
 ### Task 3.2: Reconciler freeze and fingerprint — PENDING
 
@@ -359,8 +437,26 @@ the trace.
   - Health `sources: 'policy-unknown'`.
   - `policyFingerprint` is stamped on every health.
   - Spec: a previously disabled plugin and its skill copies stay absent across a frozen pass.
+  - P9 G1 spec: global OFF opt-out plugin → no copies; global OFF skill → no copy; global ON opt-in plugin →
+    copies; a workspace entry beats a global one.
+  - The reconciler awaits `sourceResolver.resolve(...)` at both call sites (`:200`, `:383`).
 
-## Batch 4: Status-bearing MCP facet inspect (PR 1) — IN_PROGRESS
+## Batch 4: Status-bearing MCP facet inspect (PR 1) — COMPLETE (commit 5f6a750e8)
+
+- Result:
+  - 6 code files: the planned 5, plus `libs/backend/harness-sync/src/index.ts`, which exports the
+    `McpFacetInspection` and `McpSourceStatus` types (2 lines, added in revise round 1).
+  - code-logic-reviewer: APPROVE 9/10 after revise round 2.
+  - Check: harness-sync lint, typecheck and test all pass.
+  - Committed as `e10baf4b4` in the b4 worktree. The drift check was clean (no change to any of the 6 files on the
+    feature branch since `cac3db9e2`), and the commit was cherry-picked onto the feature branch as `5f6a750e8`.
+    The b4 worktree and branch are removed.
+- The team-leader verified on disk:
+  - `inspect` is on the port (`mcp-facet.port.ts:152`), and JSON and Codex implement it;
+  - the Codex `inspect` goes through `readStatus` (`codex-toml-mcp-facet.ts:150-151`);
+  - the ENOENT → `missing` and EACCES → `error` tests are at `codex-toml-mcp-facet.spec.ts:263,301`, and the second
+    test also shows the legacy `readAll` still reads as empty;
+  - no quoted-key parsing (PR 2).
 
 - PR: 1
 - Goal: C4 facets. `inspect(root) → {status, error?, servers}`, and a Codex `readStatus` that separates ENOENT
@@ -379,25 +475,38 @@ the trace.
   - M `libs/backend/harness-sync/src/lib/targets/mcp/opencode-mcp-facet.spec.ts`
   - M `libs/backend/harness-sync/src/lib/targets/mcp/codex-toml-mcp-facet.spec.ts`
 
-### Task 4.1: Port and JSON facet `inspect` — IN_PROGRESS
+### Task 4.1: Port and JSON facet `inspect` — COMPLETE
 
 - Plan reference: implementation-plan.md:275-280
 - Quality requirements: the result type is declared in `mcp-facet.port.ts`, which is already exported
   (`harness-sync/src/index.ts:180-181`). No `index.ts` edit is expected; if one is needed, report it as an
   unplanned file.
 
-### Task 4.2: Codex `readStatus` — IN_PROGRESS
+### Task 4.2: Codex `readStatus` — COMPLETE
 
 - Quality requirements: a private `readStatus(root) → {status: 'ok'|'missing'|'error', text, error?}`. Legacy
   `readAll` is byte-for-byte unchanged in behaviour (`codex-toml-mcp-facet.ts:109-110,187-195`). No quoted-key
   parsing (that is PR 2, Batch 18).
 
-### Task 4.3: Regression specs — IN_PROGRESS
+### Task 4.3: Regression specs — COMPLETE
 
 - Quality requirements: EACCES → `inspect` returns `error` and `readAll` returns empty; ENOENT → `missing`. The
   opencode spec covers JSON `inspect`.
 
-## Batch 5: agent-sdk tokens, loader layering and HarnessPolicySync (PR 1) — IN_PROGRESS
+## Batch 5: agent-sdk tokens, loader layering and HarnessPolicySync (PR 1) — COMPLETE (commit 1e7aab5bb)
+
+- Result:
+  - 7 code files, as planned.
+  - code-logic-reviewer: APPROVE after revise round 1. Its Serious-1 (the global layer is unreachable from the
+    sync callers) is resolved at the batch-plan level by P9: G1/G2 in B3, G3/G4 in B25, and G5/G6 in B26 (PR 2).
+  - Check: agent-sdk lint, typecheck and test all pass.
+- The team-leader verified on disk:
+  - the four tokens are at `di/tokens.ts:189-205`;
+  - `HarnessPolicySync` is registered (`di/register.ts:554`) and exported with `CapabilityPolicyUnknownError` and
+    `EffectivePluginConfig` (`src/index.ts:327-332`);
+  - the error's `name` is the shared constant (`plugin-loader.service.ts:95-105`);
+  - both sync readers are documented "WORKSPACE LAYER ONLY" (`:1216`, `:1484`);
+  - the force rule and `lastAck` are at `harness-policy-sync.ts:49-92`.
 
 - PR: 1
 - Goal: C3 loader half, the C5 tokens and C5a.
@@ -418,13 +527,13 @@ the trace.
   - M `libs/backend/agent-sdk/src/lib/di/register.ts`
   - M `libs/backend/agent-sdk/src/index.ts`
 
-### Task 5.1: Tokens — IN_PROGRESS
+### Task 5.1: Tokens — COMPLETE
 
 - Plan reference: implementation-plan.md:321-322
 - Quality requirements: add `SDK_CAPABILITY_RESOLVER`, `SDK_CAPABILITY_GLOBAL_LAYER`, `SDK_HARNESS_POLICY_SYNC`
   and `SDK_MCP_SCHEMA_SIZE`. Follow the existing `SDK_TOKENS` style.
 
-### Task 5.2: PluginLoaderService effective config — IN_PROGRESS
+### Task 5.2: PluginLoaderService effective config — COMPLETE
 
 - Plan reference: implementation-plan.md:245-251, :259-261
 - Quality requirements:
@@ -432,13 +541,15 @@ the trace.
   - `getEffectivePluginConfig(root)` returns config + fingerprint from ONE snapshot, and throws
     `CapabilityPolicyUnknownError` (an `SdkError` whose `name` equals the B1 constant) when unreadable.
   - `resolveCurrentPluginPaths` → `[]` on unknown; `getDisabledSkillIds` → all known skill ids on unknown.
+    (P9: both stay synchronous and workspace-only, and their JSDoc says so. Session callers move to
+    `getEffectivePluginConfig` in B3 and B25.)
   - `saveWorkspacePluginConfig(config, root?)` captures `storageFor(root)` once.
   - Omitted `enabledSkillIds` is preserved.
 - Validation notes: define the error in `plugin-loader.service.ts`, or in a file already listed. Any new errors
   file is unplanned and must be counted.
 - Spec: pre-task config unchanged; global OFF / workspace ON; a save during an A→B switch; unknown throws.
 
-### Task 5.3: HarnessPolicySync — IN_PROGRESS
+### Task 5.3: HarnessPolicySync — COMPLETE
 
 - Plan reference: implementation-plan.md:323-328
 - Quality requirements: `apply(physicalRoot, fingerprint)`. It forces when the fingerprint differs from
@@ -448,7 +559,27 @@ the trace.
   CLI save → forced.
 - Register the sync in `di/register.ts`, and export it and the error from `src/index.ts`.
 
-## Batch 6: Lock-free capability toggle store and Claude approval reader (PR 1) — IN_PROGRESS
+## Batch 6: Lock-free capability toggle store and Claude approval reader (PR 1) — COMPLETE (commit d003642a9)
+
+- Result:
+  - 4 code files, as planned.
+  - code-logic-reviewer: APPROVE 8/10, with all 9 D1/D2 acceptance items RESOLVED and named tests. The one
+    moderate issue (a flaky 200-write test) was fixed spec-only by the senior-tester with explicit 30 000 ms
+    timeouts at `capability-toggle-store.spec.ts:548,602`; two load runs gave 59/59.
+  - Check: cli-agent-runtime lint, typecheck and test all pass.
+  - Committed as `e9881a54e` in the b6 worktree. The drift check was clean (none of the 4 paths existed on the
+    feature branch), and the commit was cherry-picked as `d003642a9`.
+  - The b6 worktree is de-registered, and its junction and branch are removed. An EMPTY directory
+    `.claude-worktrees/feat-task-2026-560-b6` remains, locked by a live process handle; run `rmdir` on it later.
+- The team-leader verified on disk:
+  - no lock, `unlink` or `rm` in the store;
+  - writes go through `atomicWriteWithRetry` (`capability-toggle-store.ts:430`), and the filename is checked
+    against `canonicalFilename` (`:412`);
+  - zod validation;
+  - the D2 pair tests are at `capability-toggle-store.spec.ts:270-273`, the tombstone test at `:199`, the `.tmp`
+    re-import at `:463` and the concurrent `publishImport` at `:521`;
+  - the reader runs git through `execFile` with a timeout (`claude-approval.reader.ts:84-94`).
+- Carried to B7: see the B7 acceptance item on `recordWorkspaceRoot`.
 
 - PR: 1
 - Goal: C2 store (lock-free, one file per toggle, IMPORTED layer) and the C4 `ClaudeApprovalReader`.
@@ -486,7 +617,7 @@ the trace.
   - C `libs/backend/cli-agent-runtime/src/lib/capabilities/claude-approval.reader.ts`
   - C `libs/backend/cli-agent-runtime/src/lib/capabilities/claude-approval.reader.spec.ts`
 
-### Task 6.1: CapabilityToggleStore — IN_PROGRESS
+### Task 6.1: CapabilityToggleStore — COMPLETE
 
 - Plan reference: implementation-plan.md:166-241
 - Pattern to follow: `libs/backend/harness-sync/src/lib/fs/atomic-write.ts:36-70`
@@ -503,7 +634,7 @@ the trace.
 - Validation notes: no lock, and no import of harness-sync `file-lock.ts`. The tests use a real temp directory:
   200 interleaved writes from two instances on different items → all present.
 
-### Task 6.2: ClaudeApprovalReader — IN_PROGRESS
+### Task 6.2: ClaudeApprovalReader — COMPLETE
 
 - Plan reference: implementation-plan.md:101-110, :283-284
 - Quality requirements:
@@ -519,9 +650,22 @@ the trace.
 - PR: 1
 - Goal: C4 resolver and inventory, plus registration of the store, reader and resolver under the `SDK_TOKENS`.
 - Nx projects: `@ptah-extension/cli-agent-runtime`
-- Depends on: B4, B5, B6
+- Depends on: B4 (done, `5f6a750e8`), B5 (must be COMMITTED first), B6 (done, `d003642a9`)
 - Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
 - Reviewers: code-logic-reviewer
+- **Reviewer acceptance items (mandatory):**
+  - (from the B6 review) `CapabilityToggleStore.recordWorkspaceRoot` (`capability-toggle-store.ts:301-315`) has no
+    try/catch around its diagnostics-only `root.json` write. The resolver must call it best-effort (catch, log
+    through `IOutputChannel`, continue), so a failed diagnostics write never fails `resolve`, `set` or a session.
+    A spec proves that a rejecting `recordWorkspaceRoot` still yields a verified set.
+  - (P9) The resolver's skill and plugin inputs come ONLY from `await getEffectivePluginConfig(physicalRoot)`.
+    There are no calls to the workspace-only `resolveCurrentPluginPaths`, `getDisabledSkillIds` or
+    `getWorkspacePluginConfig`. `deniedSkillNames` includes global-OFF skills and the children of global-OFF
+    plugins. `CapabilityPolicyUnknownError` → `unverified`.
+  - (P9 G7) Skill and plugin workspace writes use `saveWorkspacePluginConfig(…, physicalRoot)` with a
+    workspace-only payload built from the stored workspace config, never from the layered `config`, so global
+    items are never copied into the workspace.
+  - (R7/N2) `set` awaits `ensureImported` first, and the "first `set()` in a fresh workspace" spec exists.
 - ACs proved:
   - AC-1.2 (A vs B), AC-1.3 (on-again writes the `inherit` tombstone; the entry shows inheriting);
   - AC-2.1 (scope and paths), AC-2.3 (user files unchanged), AC-3.1 (backend: skill and plugin workspace
@@ -574,9 +718,17 @@ the trace.
 - Goal: C5 builder, runner (one-shots), model probe and executor. Verified policy → flags. Unverified → strict MCP
   + `skills: []` + notice.
 - Nx projects: `@ptah-extension/agent-sdk`
-- Depends on: B5 (the resolver is mocked through `ICapabilityResolver`; B7 is not needed at compile time)
+- Depends on: B5 (must be COMMITTED first; the resolver is mocked through `ICapabilityResolver`, and B7 is not
+  needed at compile time)
 - Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
 - Reviewers: code-logic-reviewer
+- **Reviewer acceptance items (P9):**
+  - The builder, runner, model probe and executor take skill and plugin policy ONLY from
+    `EffectiveCapabilitySet` (`deniedSkillNames`, `disabledPluginIds`, `harnessFingerprint`). None of them calls the
+    loader's workspace-only sync methods.
+  - `HarnessPolicySync.apply` gets the set's `harnessFingerprint`.
+  - Spec: a global-OFF skill (it arrives in `deniedSkillNames` from a mocked resolver) is denied through
+    `skillOverrides`.
 - ACs proved: AC-3.4, AC-4.2, AC-4.3 (built options, direct and proxied), AC-4.6 (ptah OFF honoured; ptah present
   by default), AC-4.7 (back-off wins), AC-4.9, and unit coverage for A1 and A2
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/agent-sdk --parallel=2`
@@ -773,40 +925,22 @@ the trace.
   - The figure renders only when `schemaTokens` is present, labelled with the estimate method.
   - The ptah CLI proxy row shows "not enforced".
 
-## Batch 15: Skill and plugin pages - toggles (PR 1) — PENDING
-
-- PR: 1
-- Goal: the same toggle, scope label and scope-of-write text on the Installed skills page and the skill detail
-  (skills and plugins, including parent-off).
-- Nx projects: `@ptah-extension/marketplace`
-- Depends on: B13 (runs parallel to B14 in a SEPARATE worktree)
-- Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
-- Reviewers: code-logic-reviewer, code-style-reviewer
-- ACs proved: AC-3.1, AC-2.2, AC-1.5, AC-3.4 (UI side: parent-off child shown OFF)
-- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2`
-- Commit: `feat(marketplace): batch 15 - add skill and plugin toggles`
-- Files (4 code):
-  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.ts`
-  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.spec.ts`
-  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.ts`
-  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.spec.ts`
-
 ## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — PENDING
 
 - PR: 1
 - Goal: C11 scenarios in the existing harness marketplace e2e location
   (`libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/`, next to `marketplace-servers.e2e.spec.ts`).
+  The skill and plugin scenario moved to PR 2 with B15 (P9 budget).
 - Nx projects: `@ptah-extension/webview-e2e-harness`
-- Depends on: B13, B14, B15
+- Depends on: B13, B14
 - Recommended executor: senior-tester | Fallback: frontend-developer | Mode: sequential
 - Reviewers: code-logic-reviewer, code-style-reviewer
 - ACs proved:
-  - AC-1.1 (toggle write + reload), AC-1.4 (revert on failure), AC-2.2 (scope text), AC-3.1 (skill and plugin
-    toggles);
+  - AC-1.1 (toggle write + reload), AC-1.4 (revert on failure), AC-2.2 (scope text);
   - AC-4.6 (ptah OFF warning), AC-4.8 (rival lanes and CLI proxy "not enforced"), AC-5.2 ("size unknown");
   - the new repository server badge, where ON sends `{scope: 'workspace', enabled: true}`, the imported badge
     and the unverified banner;
-  - NFR (an e2e spec for each new control).
+  - NFR (an e2e spec for each new PR 1 control).
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/webview-e2e-harness --parallel=2`
   plus `NX_DAEMON=false npx nx run @ptah-extension/webview-e2e-harness:e2e -- capability-toggles` (this project
   has no `test` target).
@@ -817,23 +951,60 @@ the trace.
 - Validation notes: R6. The "not enforced" assertions derive from fixture or constant data. The spec uses
   `installRpcAutoResponder` to fail `capabilities:setEnabled` for the revert case.
 
+## Batch 25: In-session skill list and spawned-agent plugins use the layered policy (PR 1) — PENDING
+
+- PR: 1 (added at the P9 amendment; the id is out of sequence so earlier ids stay stable)
+- Goal: P9 G3 and G4. The code-execution `ptah.harness.searchSkills` and the plugin paths given to spawned agents
+  follow `workspace ?? global ?? default`, and fail closed when the policy is unknown.
+- Nx projects: `@ptah-extension/vscode-lm-tools`
+- Depends on: B1 (the `isCapabilityPolicyUnknownError` guard). B5 at runtime: the structural
+  `getEffectivePluginConfig`.
+- Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer
+- **Reviewer acceptance items (mandatory, P9 G3/G4):**
+  - `searchSkills` awaits `getEffectivePluginConfig(root)` once and uses its `overlayPluginPaths` and
+    `config.disabledSkillIds`; there is no sync `resolveCurrentPluginPaths()` or `getDisabledSkillIds()` left on
+    this path.
+  - Spec: a global OFF skill → not offered as invocable; a global OFF opt-out plugin → none of its skills are
+    listed; unknown policy → no local plugin skills and a logged reason; the remote results are unchanged.
+  - `getPluginPaths` uses the effective `config.enabledPluginIds`: a global ON opt-in plugin's path reaches the
+    spawned agent, and unknown → `undefined`.
+  - `protocol-dispatcher.ts` is untouched (TASK_2026_559).
+- ACs proved: AC-3.4 (a disabled skill is excluded from the session's skill surface), D1 for skills and plugins
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/vscode-lm-tools --parallel=2`
+- Commit: `feat(vscode-lm-tools): batch 25 - use layered policy for in-session skills`
+- Files (3 code):
+  - M `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts` (`:273-284` interface, `:420-440` `searchSkills`)
+  - M `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts`
+  - M `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts` (`PluginLoaderLike` `:242-255`; `getPluginPaths` `:668-683`)
+
 ## Batch 17: PR 1 live verification and AC report (PR 1) — PENDING
 
 - PR: 1
 - Goal:
   - close A1 and A2 live;
   - capture the AC-4.3 proxied first request;
-  - produce the AC report, the after screenshots (dark + light) and the write-path trace.
+  - produce the AC report, the after screenshots (dark + light, recorded in a "Visual evidence" section of
+    `test-report.md`) and the write-path trace (including G7: no workspace save persists a layered config);
+  - re-test P9 live: a GLOBAL OFF skill with no workspace entry is absent from the workspace `.claude/skills`
+    copies and from `ptah.harness.searchSkills`, and a global OFF opt-out plugin's skills are absent from both.
 - Nx projects (full PR 1 regression): all PR 1 projects
-- Depends on: B1-B16
+- Depends on: B1-B14, B16, B25
 - Recommended executor: senior-tester (+ visual-reviewer for the after screenshots) | Mode: sequential
 - Reviewers: code-logic-reviewer (on the report's evidence)
-- ACs proved: AC-4.3 live, A1, A2, and the whole PR 1 AC map (implementation-plan.md:456-480)
-- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,@ptah-extension/chat,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,@ptah-extension/marketplace,@ptah-extension/webview-e2e-harness --parallel=2`,
+- ACs proved: AC-4.3 live, A1, A2, R11, and the PR 1 AC map (implementation-plan.md:456-480). The AC-3.1 UI
+  moved to PR 2 (B15); PR 1 proves AC-3.1 on the backend (B7, B10).
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,@ptah-extension/chat,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/vscode-lm-tools,ptah-electron,ptah-extension-vscode,@ptah-extension/marketplace,@ptah-extension/webview-e2e-harness --parallel=2`,
   then `git diff --stat origin/main | tail -1` (must be under 100), then a `git diff --name-only origin/main`
   that contains no `protocol-dispatcher.ts` and no `*.generated.*`.
 - Commit: `docs(task-specs): batch 17 - record pr 1 acceptance and live checks`
-- Files: `.ptah/specs/TASK_2026_560_2ae5/test-report.md` (C), `visual-review.md` (C). These are docs, already counted.
+- Files: `.ptah/specs/TASK_2026_560_2ae5/test-report.md` (C). This is a doc, already counted.
+- PR 1 description must state:
+  - the P8 e2e path deviation;
+  - the #16 single-scope disclosure;
+  - that the skill and plugin Marketplace toggles (AC-3.1 UI) arrive in PR 2. Meanwhile, workspace skill and
+    plugin toggles remain in the existing Plugins panel, and global skill and plugin items are only settable via
+    `capabilities:setEnabled`.
 
 ---
 
@@ -955,3 +1126,52 @@ the trace.
   plus the per-PR `git diff --stat` budget.
 - Commit: `docs(task-specs): batch 24 - record pr 2 acceptance and live checks`
 - Files: `test-report.md` (M), `batches.md` (M). These are docs only.
+- Depends on (amended at P9): B15 and B26 as well. The B24 check adds `@ptah-extension/rpc-handlers` and
+  `@ptah-extension/webview-e2e-harness`.
+
+## Batch 15: Skill and plugin pages - toggles (PR 2; moved from PR 1 at the P9 amendment) — PENDING
+
+- PR: 2. It was moved from PR 1 to keep PR 1 at 96 or below after P9 added 4 files. This is the lowest-risk
+  deferral:
+  - AC-3.1's backend lands in PR 1 (B7, B10);
+  - workspace skill and plugin toggles already exist in the Plugins panel, so nothing regresses;
+  - no enforcement moves.
+  - The task completes only when PR 2 merges.
+- Goal: the same toggle, scope label and scope-of-write text on the Installed skills page and the skill detail
+  (skills and plugins, including parent-off), plus the skill and plugin e2e scenario.
+- Nx projects: `@ptah-extension/marketplace`, `@ptah-extension/webview-e2e-harness`
+- Depends on: PR 1 merged (B13's store and toggle, B16's spec file)
+- Recommended executor: frontend-developer (pages), then senior-tester (the e2e scenario) | Fallback:
+  general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer
+- ACs proved: AC-3.1 (UI), AC-2.2, AC-1.5, AC-3.4 (UI side: a parent-off child is shown OFF), NFR e2e for the
+  skill and plugin toggles
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace,@ptah-extension/webview-e2e-harness --parallel=2`
+  plus `NX_DAEMON=false npx nx run @ptah-extension/webview-e2e-harness:e2e -- capability-toggles`
+- Commit: `feat(marketplace,e2e): batch 15 - add skill and plugin toggles`
+- Files (5 code):
+  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.spec.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.ts`
+  - M `libs/frontend/marketplace/src/lib/pages/skills/skill-detail.component.spec.ts`
+  - M `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/capability-toggles.e2e.spec.ts` (skill and plugin scenario)
+
+## Batch 26: Harness wizard and collision prediction use the layered policy (PR 2) — PENDING
+
+- PR: 2 (P9 G5/G6; display only, so it never widens a session)
+- Goal: the harness wizard's skill summary and the install-time collision prediction stop showing
+  globally-disabled skills as available or active.
+- Nx projects: `@ptah-extension/rpc-handlers`
+- Depends on: PR 1 merged
+- Recommended executor: backend-developer | Mode: sequential | Reviewers: code-logic-reviewer
+- **Reviewer acceptance items:**
+  - both sites await `getEffectivePluginConfig(root)` and use its overlay and disabled ids;
+  - unknown → restrictive (no skill offered as available; collision owners computed from no overlay);
+  - the G7 read-modify-write paths in `plugin-rpc.handlers.ts` stay workspace-only.
+- ACs proved: consistency of AC-2.4/AC-3.1 across surfaces
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers --parallel=2`
+- Commit: `fix(rpc-handlers): batch 26 - use layered policy in harness wizard views`
+- Files (about 3; the executor confirms the spec file names at kickoff):
+  - M `libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts` (`:350,353`)
+  - M `libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.ts` (`:873-874`)
+  - M or C a spec covering both (existing spec preferred)
