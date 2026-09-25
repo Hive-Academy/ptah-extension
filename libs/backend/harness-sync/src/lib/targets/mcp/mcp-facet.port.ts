@@ -80,6 +80,34 @@ export function mcpEntryKey(configRelPath: string, serverKey: string): string {
  */
 export const PTAH_SPAWN_MCP_KEY = 'ptah';
 
+/**
+ * What reading one MCP config file established.
+ *
+ * - `ok` — the file was read and understood; `servers` is everything it
+ *   declares (possibly nothing).
+ * - `missing` — the file does not exist (ENOENT), or its scope cannot be
+ *   resolved (a workspace-scoped file with no workspace). It declares nothing,
+ *   and that is a fact, not a guess.
+ * - `error` — the file exists but could not be read or understood (EACCES, a
+ *   directory where the file should be, malformed content). `servers` is empty
+ *   because nothing is KNOWN, not because nothing is declared; a caller that
+ *   gates on this inventory must fail closed.
+ *
+ * `ok` means the file was read and parsed, not that every entry in it was
+ * understood. A facet whose dialect reader is lenient (Codex's TOML scanner)
+ * may leave out an entry it cannot interpret while still reporting `ok`; see
+ * that facet's `inspect`.
+ */
+export type McpSourceStatus = 'ok' | 'missing' | 'error';
+
+/** The result of {@link IHarnessMcpFacet.inspect}. */
+export interface McpFacetInspection {
+  status: McpSourceStatus;
+  /** Why the read failed. Present only when `status` is `error`. */
+  error?: string;
+  servers: Map<string, McpServerConfig>;
+}
+
 export interface IHarnessMcpFacet {
   /** The harness target this facet belongs to. */
   readonly target: HarnessTargetId;
@@ -108,6 +136,20 @@ export interface IHarnessMcpFacet {
    * alike. Must never throw — a missing or malformed file reads as empty.
    */
   readAll(workspaceRoot: string): Map<string, McpServerConfig>;
+
+  /**
+   * {@link readAll} with the reason attached: whether the file is present and
+   * readable, absent, or present and unreadable. Must never reject.
+   *
+   * Asynchronous, unlike `readAll`: it reads with `fs/promises` and may wait
+   * before a re-read, and its callers run on the extension host and Electron
+   * main thread, where a blocking wait would freeze the UI.
+   *
+   * `readAll` folds a missing file and an unreadable one into the same empty
+   * map, which is right for the reconciler (an unreadable file is left alone)
+   * and wrong for anything that treats "declares nothing" as a decision input.
+   */
+  inspect(workspaceRoot: string): Promise<McpFacetInspection>;
 
   /** Create or replace one server entry, leaving every other byte alone. */
   write(
