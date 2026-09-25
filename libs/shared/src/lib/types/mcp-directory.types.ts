@@ -8,6 +8,16 @@
  */
 
 /**
+ * Which scope a declaration or a capability toggle belongs to: `global` for a
+ * user-scope source, `workspace` for a repository file (TASK_2026_560).
+ *
+ * Defined here, the lower layer, because it first of all describes where an
+ * MCP declaration came from ({@link InstalledMcpServer.scope});
+ * `capability-toggle.types.ts` imports it one-way.
+ */
+export type CapabilityScope = 'global' | 'workspace';
+
+/**
  * Targets where MCP server configs can be installed.
  *
  * Config file locations:
@@ -295,6 +305,15 @@ export interface InstalledMcpServer {
    * claude.ai connector rows, which no command can remove.
    */
   removalFixCommand?: string;
+  /**
+   * Which scope declared this row (TASK_2026_560, AC-2.1): `global` for a
+   * user-scope source (`~/.claude.json`, `~/.codex`, `~/.ptah`, Smithery,
+   * OAuth), `workspace` for a repository file (`.mcp.json`,
+   * `.claude/settings*.json`, `.vscode/mcp.json`, …). Classified by
+   * `classifyMcpScope`. Optional: payloads from before the field existed carry
+   * none, and the UI shows no scope label for them.
+   */
+  scope?: CapabilityScope;
 }
 
 /** Tracks which MCP servers Ptah has installed (persisted to ~/.ptah/mcp-installed.json) */
