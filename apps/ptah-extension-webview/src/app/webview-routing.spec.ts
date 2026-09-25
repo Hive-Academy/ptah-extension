@@ -31,6 +31,8 @@ import { PlatformLocation } from '@angular/common';
 import { ErrorHandler } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  PartialMatchRouteSnapshot,
+  Route,
   Router,
   provideRouter,
   withComponentInputBinding,
@@ -46,6 +48,7 @@ import {
   MessageRouterService,
   SURFACE_ROUTE_IDS,
   SurfaceRouterService,
+  VSCodeService,
   isAcceptedInitialView,
   surfaceNavigationLanded,
 } from '@ptah-extension/core';
@@ -53,6 +56,7 @@ import { settleSurfaceNavigation as settle } from '@ptah-extension/core/testing'
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { appRoutes } from './app.routes';
+import { electronOnlySurface } from './electron-only-surface.guard';
 
 interface HostWindow {
   initialView?: string;
@@ -78,6 +82,43 @@ const JEST_UNRESOLVABLE_SURFACES: readonly string[] = ['tribunal'];
 const JEST_RESOLVABLE_SURFACE_IDS = SURFACE_ROUTE_IDS.filter(
   (id) => !JEST_UNRESOLVABLE_SURFACES.includes(id),
 );
+
+/**
+ * Surfaces whose route carries `canMatch: [electronOnlySurface]`.
+ *
+ * They are still in `SURFACE_ROUTE_IDS` — one list — so every loop below keeps
+ * covering them, but only a host that reports `isElectron` can reach them. The
+ * loops drive them on the Electron host; the VS Code refusal is pinned by its
+ * own describe block, never by dropping them from a loop.
+ */
+const ELECTRON_ONLY_SURFACES: readonly string[] = ['apps'];
+
+/**
+ * Pin which host the renderer believes it is running in.
+ *
+ * The real `VSCodeService` stays in the graph; only its `isElectron` getter,
+ * the single value `electronOnlySurface` reads, is overridden.
+ */
+function hostIsElectron(isElectron: boolean): void {
+  jest
+    .spyOn(TestBed.inject(VSCodeService), 'isElectron', 'get')
+    .mockReturnValue(isElectron);
+}
+
+/** A genuine window MessageEvent, exactly as the host posts it. */
+function post(view: unknown): void {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: { type: MESSAGE_TYPES.SWITCH_VIEW, payload: { view } },
+    }),
+  );
+}
+
+function routeFor(path: string): Route {
+  const route = appRoutes.find((candidate) => candidate.path === path);
+  if (!route) throw new Error(`No route for "${path}"`);
+  return route;
+}
 
 /** The History API methods that must never be reached. */
 function spyOnHistory(): Record<string, jest.SpyInstance> {
@@ -161,7 +202,13 @@ describe('webview routing composition', () => {
     // A cold Jest run (--no-cache --detectOpenHandles) measured 6.79s here,
     // 6.70s resolving lazy routes. Allow CI headroom for those real imports
     // without changing the project's timeout or reducing surface coverage.
+    //
+    // Driven on the Electron host so the Electron-only surfaces (the last one,
+    // `apps`, included) are really navigated to rather than redirected. The
+    // `file:` document of the Electron renderer is also the host that rejects
+    // `history.pushState`, so it is the one this property matters most on.
     it('never calls window.history while navigating every surface', async () => {
+      hostIsElectron(true);
       const surfaceRouter = TestBed.inject(SurfaceRouterService);
 
       for (const id of JEST_RESOLVABLE_SURFACE_IDS) {
@@ -169,24 +216,38 @@ describe('webview routing composition', () => {
       }
       await settle();
 
-      expect(surfaceRouter.currentSurface()).toBe('tasks');
+      // The last surface in SURFACE_ROUTE_IDS; `apps` was appended after
+      // `tasks` by TASK_2026_494.
+      expect(surfaceRouter.currentSurface()).toBe('apps');
       for (const [name, spy] of Object.entries(history)) {
         expect(spy).not.toHaveBeenCalled();
         expect(name).toBeTruthy();
       }
     }, 30_000);
+
+    it('never calls window.history on VS Code either, where Electron-only surfaces redirect', async () => {
+      hostIsElectron(false);
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+
+      for (const id of JEST_RESOLVABLE_SURFACE_IDS) {
+        await surfaceRouter.navigateToSurface(id);
+      }
+      await settle();
+
+      // The last surface is Electron-only, so the `**` fallback put the user
+      // back on chat — through the Router, not through the History API.
+      expect(ELECTRON_ONLY_SURFACES).toContain(
+        JEST_RESOLVABLE_SURFACE_IDS.at(-1),
+      );
+      expect(surfaceRouter.currentSurface()).toBe('chat');
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      for (const spy of Object.values(history)) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    }, 30_000);
   });
 
   describe('MESSAGE_TYPES.SWITCH_VIEW (acceptance: the host can still command a view)', () => {
-    /** A genuine window MessageEvent, exactly as the host posts it. */
-    function post(view: unknown): void {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: { type: MESSAGE_TYPES.SWITCH_VIEW, payload: { view } },
-        }),
-      );
-    }
-
     beforeEach(() => {
       // Constructing the router is what attaches the window listener.
       TestBed.inject(MessageRouterService);
@@ -262,6 +323,9 @@ describe('webview routing composition', () => {
     it.each([...JEST_RESOLVABLE_SURFACE_IDS])(
       'lands a %s deep link on its route',
       async (id) => {
+        // An Electron-only surface is only a deep link on the host that can
+        // show it; its VS Code refusal is pinned in the describe below.
+        if (ELECTRON_ONLY_SURFACES.includes(id)) hostIsElectron(true);
         (window as unknown as HostWindow).ptahConfig = { initialView: id };
 
         await bootWithInitialView(id);
@@ -307,6 +371,153 @@ describe('webview routing composition', () => {
 
       expect(TestBed.inject(Router).url).toBe('/analytics');
     });
+  });
+
+  describe('Electron-only surfaces (canMatch: electronOnlySurface)', () => {
+    let loadApps: jest.SpyInstance;
+
+    beforeEach(() => {
+      // Installed before anything injects the Router, so the Router's copy of
+      // the route table carries the spy. The Electron cases below assert it IS
+      // called, which is what keeps the "never called" assertions honest.
+      loadApps = jest.spyOn(routeFor('apps'), 'loadComponent');
+      TestBed.inject(MessageRouterService);
+      TestBed.inject(AppStateManager);
+    });
+
+    describe('on VS Code (isElectron=false)', () => {
+      beforeEach(() => hostIsElectron(false));
+
+      it('lands initialView "apps" on chat without loading the chunk', async () => {
+        (window as unknown as HostWindow).ptahConfig = { initialView: 'apps' };
+
+        // `bootWithInitialView` also asserts the navigation "landed": the
+        // redirected navigation to /chat succeeds, so the boot does not warn.
+        await bootWithInitialView('apps');
+
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
+        expect(loadApps).not.toHaveBeenCalled();
+        expect(history['pushState']).not.toHaveBeenCalled();
+      });
+
+      it('lands SWITCH_VIEW "apps" on chat without loading the chunk', async () => {
+        const appState = TestBed.inject(AppStateManager);
+        await TestBed.inject(SurfaceRouterService).navigateToSurface(
+          'settings',
+        );
+        await settle();
+
+        post('apps');
+        await settle();
+
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(appState.currentView()).toBe('chat');
+        expect(loadApps).not.toHaveBeenCalled();
+      });
+
+      it('lands SWITCH_VIEW "apps" on chat when chat is already showing', async () => {
+        await TestBed.inject(SurfaceRouterService).navigateToSurface('chat');
+        await settle();
+
+        post('apps');
+        await settle();
+
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
+        expect(loadApps).not.toHaveBeenCalled();
+      });
+
+      it('refuses on every attempt, not just the first', async () => {
+        const surfaceRouter = TestBed.inject(SurfaceRouterService);
+
+        for (const from of ['settings', 'tasks'] as const) {
+          await surfaceRouter.navigateToSurface(from);
+          await settle();
+          post('apps');
+          await settle();
+
+          expect(TestBed.inject(Router).url).toBe('/chat');
+        }
+        expect(loadApps).not.toHaveBeenCalled();
+      }, 30_000);
+
+      it('reports the refusal through no error channel', async () => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation();
+        const errorHandler = TestBed.inject(ErrorHandler);
+
+        const result =
+          await TestBed.inject(SurfaceRouterService).navigateToSurface('apps');
+        await settle();
+
+        // A refused match is the designed outcome on this host, not a failure.
+        expect(surfaceNavigationLanded(result)).toBe(true);
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(errorHandler.handleError).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('on Electron (isElectron=true)', () => {
+      beforeEach(() => hostIsElectron(true));
+
+      it('lands initialView "apps" on the apps route', async () => {
+        (window as unknown as HostWindow).ptahConfig = { initialView: 'apps' };
+
+        await bootWithInitialView('apps');
+
+        expect(TestBed.inject(Router).url).toBe('/apps');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe('apps');
+        expect(loadApps).toHaveBeenCalledTimes(1);
+      }, 30_000);
+
+      it('lands SWITCH_VIEW "apps" on the apps route', async () => {
+        await TestBed.inject(SurfaceRouterService).navigateToSurface(
+          'settings',
+        );
+        await settle();
+
+        post('apps');
+        await settle();
+
+        expect(TestBed.inject(Router).url).toBe('/apps');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe('apps');
+        expect(loadApps).toHaveBeenCalledTimes(1);
+      }, 30_000);
+    });
+  });
+});
+
+describe('electronOnlySurface', () => {
+  /** The guard reads only the host; the match inputs are irrelevant to it. */
+  function matchApps(): ReturnType<typeof electronOnlySurface> {
+    const route = routeFor('apps');
+    return TestBed.runInInjectionContext(() =>
+      electronOnlySurface(route, [], {
+        routeConfig: route,
+      } as PartialMatchRouteSnapshot),
+    );
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+  ])('matches when isElectron is %s -> %s', (isElectron, expected) => {
+    hostIsElectron(isElectron);
+
+    expect(matchApps()).toBe(expected);
+  });
+
+  it('refuses under the real VSCodeService default, which is not Electron', () => {
+    // No host globals in jsdom: the service keeps its `isElectron: false`
+    // default, so an un-configured renderer is treated as VS Code.
+    const matched = matchApps();
+
+    expect(matched).toBe(false);
   });
 });
 
@@ -370,14 +581,18 @@ describe('app.routes', () => {
     },
   );
 
-  it.each(['harness-builder', 'setup-hub', 'thoth', 'tribunal', 'tasks'])(
-    'defers %s with loadComponent',
-    (path) => {
-      const route = appRoutes.find((candidate) => candidate.path === path);
-      expect(typeof route?.loadComponent).toBe('function');
-      expect(route?.component).toBeUndefined();
-    },
-  );
+  it.each([
+    'harness-builder',
+    'setup-hub',
+    'thoth',
+    'tribunal',
+    'tasks',
+    'apps',
+  ])('defers %s with loadComponent', (path) => {
+    const route = appRoutes.find((candidate) => candidate.path === path);
+    expect(typeof route?.loadComponent).toBe('function');
+    expect(route?.component).toBeUndefined();
+  });
 
   it('defers marketplace as a lazily loaded route tree', async () => {
     // Pins the `MARKETPLACE_ROUTES` barrel export: a rename would otherwise
@@ -394,7 +609,24 @@ describe('app.routes', () => {
     expect(typeof loaded[0]?.component).toBe('function');
   }, 30_000);
 
-  it.each(['harness-builder', 'setup-hub', 'thoth', 'tasks'])(
+  it('guards exactly the Electron-only surfaces with electronOnlySurface', () => {
+    const guarded = appRoutes
+      .filter((route) => route.canMatch !== undefined)
+      .map((route) => route.path);
+
+    expect(guarded).toEqual([...ELECTRON_ONLY_SURFACES]);
+    for (const path of ELECTRON_ONLY_SURFACES) {
+      expect(routeFor(path).canMatch).toEqual([electronOnlySurface]);
+    }
+  });
+
+  it('places apps after tasks and before the fallbacks', () => {
+    const order = appRoutes.map((route) => route.path);
+    expect(order.indexOf('apps')).toBe(order.indexOf('tasks') + 1);
+    expect(order.indexOf('apps')).toBe(appRoutes.length - 3);
+  });
+
+  it.each(['harness-builder', 'setup-hub', 'thoth', 'tasks', 'apps'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would
@@ -406,6 +638,17 @@ describe('app.routes', () => {
     },
     30_000,
   );
+
+  it('resolves apps to the Apps lib AppsPageComponent', async () => {
+    // A1: the Apps lib is reachable ONLY through this dynamic import (R8), so
+    // this is the one place its barrel export is pinned in the webview.
+    const loaded = await (
+      routeFor('apps').loadComponent as () => Promise<unknown>
+    )();
+    const module = await import('@ptah-extension/mcp-apps-page');
+
+    expect(loaded).toBe(module.AppsPageComponent);
+  }, 30_000);
 
   it('serves harness-builder and setup-hub from the SAME module', async () => {
     // Both resolve out of `@ptah-extension/harness-builder`, so ONE chunk

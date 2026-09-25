@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 16/20
+Total tasks: 20 | Batches: 20 | Complete: 17/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -483,6 +483,18 @@ Edge cases:
   - Codex round 2b: APPROVED, B8 8/10.
 - Final: B8 ACCEPTED. The code-logic-reviewer gave 8/10 (round 2) and codex 8/10 (round 2b).
 - `npx tsc -p libs/frontend/declarative-dashboard/tsconfig.spec.json --noEmit`
+- Process note (B16):
+  - The code-logic-reviewer role preamble names `code-logic-review.md` as the only output file. Codex refused a
+    prompt-level override twice: once in a fresh spawn and once in a resumed session. Both times it wrote nothing,
+    and the B3 file stayed intact.
+  - From now on, every codex and antigravity REVIEW lane (B16, B17, B19) is spawned with NO `role` argument. The
+    review rules go inline in the prompt:
+    - logic and correctness only;
+    - no source or spec edits;
+    - no git writes;
+    - an APPROVED/NEEDS_REVISION verdict with a score and file:line evidence;
+    - write only the one named file.
+  - Do not rely on a resumed session or the older preamble.
 - Process note: the codex lane wrote over the committed B3 `code-logic-review.md`. The coordinator restored that file and
   moved the review. From now on, every lane prompt names its exact output file and forbids writing `code-logic-review.md`.
 
@@ -737,10 +749,20 @@ Edge cases:
    - B6: the "Sent" status colour (B15 made it green, per the prototype).
    - B15 round 2: switching between two failed surfaces never flashes, and the new notice and error blocks read
      clearly together.
+   - B20: at container widths of 481-605px, the surface panel gets only 115-239px. Decide between two options:
+     (a) raise the stacking breakpoint to about 606px, where both minimums fit;
+     (b) keep 480px.
+     Do not change it before the review.
+   - B20: screen-reader spot check of the nested `role="separator"` on the splitter handle.
 
 B15 and B20 are built against the approved prototype.
 
-## Batch 15: Apps page components and public API — COMPLETE
+Executors and reviewers for B20 and B16, which run in parallel (2026-09-25). Each executor is a frontend-developer
+subagent. Each batch gets the code-logic-reviewer subagent plus one CLI review lane, so the review is cross-side:
+- B20 is reviewed by antigravity, which also checks the write-path trace.
+- B16 is reviewed by codex.
+
+## Batch 15: Apps page components and public API — COMPLETE (commit 6b14e831c)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -873,7 +895,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: touches a shared core service's persisted state plus the page; write-path correctness needs one hand.
 - Tasks: 1 | Depends on: Batch 15
 
-### Task 20.1: Resizable split between conversation column and surface panel — IN_PROGRESS
+### Task 20.1: Resizable split between conversation column and surface panel — IMPLEMENTED
 
 - Files (4, 2 libs): MODIFY `.../libs/frontend/core/src/lib/services/electron-layout.service.ts` (+ its existing
   `.spec.ts`); MODIFY `.../libs/frontend/mcp-apps-page/src/lib/components/apps-page.component.ts` (+ `.spec.ts`)
@@ -909,8 +931,47 @@ lazy-load gate and Mode 3 visual evidence must include it.
 ### Batch 20 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/core @ptah-extension/mcp-apps-page`
+- `npx tsc -p libs/frontend/mcp-apps-page/tsconfig.spec.json --noEmit`. The gate is the 8 baseline errors, with none new.
+- Result:
+  - The team-leader re-ran it with `--skip-nx-cache`: 2 projects green, and spec tsc shows only the 8 baseline errors.
+  - The executor reports 900 core tests and 270 mcp-apps-page tests.
+  - The `apps-submit-flow.spec.ts` timing tests, which failed under load during execution, passed on this re-run.
+- Coordinator rulings on batch-20-report.md:
+  - `electron-layout.service.ts` grew from 788 to 822 lines: ACCEPTED. The split is recorded in context.md as a
+    future enhancement.
+  - Container widths of 481-605px give the panel only 115-239px: DEFERRED to the R10 visual review.
+  - Flaky submit-flow timing: if it fails in any later verification, route a bounded fake-timer isolation fix before
+    B19. Otherwise it stays a follow-up.
+  - `persistLayout()` never saving the workspace fields is pre-existing and recorded as a follow-up.
+- Review, round 1:
+  - code-logic-reviewer (code-logic-review-batch-20.md);
+  - antigravity lane (code-logic-review-batch-20-antigravity.md): APPROVED 8/10. It found 0 blocking and 2 moderate
+    issues:
+    - MOD-1: an arrow key pressed while the width is clamped overwrites the stored wider preference.
+    - MOD-2: an Escape or blur cancel still persists the width.
 
-## Batch 16: Surface id, route and Electron-only guard — IN_PROGRESS
+    It also found 2 minor issues:
+    - MIN-1: a plain click on the handle persists the width.
+    - MIN-2: sub-pixel widths are stored.
+- code-logic-reviewer: NEEDS_REVISION 6/10 (code-logic-review-batch-20.md), with 0 blocking, 1 serious and 3 moderate
+  findings.
+  - Serious: `onSplitKeydown` (:357-364) and `onSplitDragMoved` (:345-349) both work from the clamped display. A
+    no-op nudge or drag therefore persists the clamp ceiling over the stored preference.
+  - Moderate: a pointer drag in progress is not flushed on destroy.
+  - Moderate: a cancel or no-op click writes to storage.
+  - Moderate: widths are stored unrounded.
+  - Visual note: the nested `role="separator"` needs a screen-reader spot check.
+  Because this reviewer rejected, the change below is fix round 1, not a bounded fix. Round 2 (the last) is a
+  code-logic-reviewer re-check. Antigravity already approved.
+- Fix round 1 (coordinator ruling, extended to the drag path): MOD-1, MOD-2, MIN-1 and MIN-2, plus the subagent's
+  findings, each with a spec.
+  - MOD-1: arrow keys work from the DISPLAYED (clamped) width. If the clamped result equals the current displayed
+    width, the key neither sets nor persists, so the stored 900 survives. A move to a different visible width is a
+    real choice and is persisted (for example ArrowLeft from 334 to 318).
+  - MOD-2 and MIN-1: commit only when the width differs from the width at drag start.
+  - MIN-2: round in `setAppsSplitWidth`.
+
+## Batch 16: Surface id, route and Electron-only guard — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -919,7 +980,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: restructures existing routing specs (D-1) without weakening them; resolves A1.
 - Tasks: 1 | Depends on: Batch 15
 
-### Task 16.1: `'apps'` id, `apps` route, `electronOnlySurface` guard, routing specs — IN_PROGRESS
+### Task 16.1: `'apps'` id, `apps` route, `electronOnlySurface` guard, routing specs — COMPLETE
 
 - Files (5): MODIFY `.../libs/shared/src/lib/types/webview-surface.types.ts`,
   `.../libs/shared/src/lib/types/webview-surface.types.spec.ts`,
@@ -939,8 +1000,38 @@ lazy-load gate and Mode 3 visual evidence must include it.
 ### Batch 16 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared ptah-extension-webview @ptah-extension/core ptah-extension-vscode`
+- `npx tsc -p apps/ptah-extension-webview/tsconfig.spec.json --noEmit`. Gate: no new errors beyond the 9-error baseline:
+  - the 8 mcp-apps-page baseline errors (core `mock-rpc-service.ts` and git-ui `monaco-loader.service.ts`);
+  - `apps/ptah-extension-webview/src/app/base-content-muted.spec.ts:110`, which predates this task.
+- Result: the team-leader re-ran both with `--skip-nx-cache`.
+  - All 4 projects are green, and spec tsc shows exactly the 9 baseline errors.
+  - Executor counts: 2116 shared tests, 900 core, 225 webview and 102 vscode. Removing the guard (mutation check)
+    fails 7 tests.
+  - A grep finds `@ptah-extension/mcp-apps-page` only in the dynamic `import()` at `app.routes.ts:167`, plus the
+    resolution check in `webview-routing.spec.ts:636`.
+- Coordinator rulings on batch-16-report.md:
+  - ACCEPTED: the one changed assertion, where the last surface is now `'apps'` because it is appended to the list.
+    The reviewers must confirm the assertion is no weaker than before.
+  - B17 note: any test that drives real navigation sets `isElectron=true`.
+- Review, round 1:
+  - code-logic-reviewer: APPROVED 9/10 (code-logic-review-batch-16.md), with 0 blocking and 0 serious findings.
+    Its two moderate findings are notes only:
+    - The VS Code refusal redirects to chat without logging. This is by design (D2) and stays as it is.
+    - The spec's `ELECTRON_ONLY_SURFACES` list is maintained by hand. This is a follow-up in context.md.
+  - The team-leader made one change, directed by the coordinator: a stray `"` was removed from the test title at
+    `webview-routing.spec.ts:630`. It changes one character and no behaviour, so no review was needed.
+- Final: B16 ACCEPTED.
+  - codex lane (no role): APPROVED 10/10, no findings (code-logic-review-batch-16-codex.md). It ran 61 routing tests
+    and 42 shared tests, and found no eager import of the Apps lib.
+- Late host config (codex note; the team-leader ruled it NOT a B17 risk):
+  - The guard reads `VSCodeService.isElectron` at match time. The service reads its globals once, and a missing
+    config refuses safely. A later replacement of `window.ptahConfig` does not replay a refused navigation.
+  - Electron's preload sets `isElectron: true` synchronously before bootstrap (`apps/ptah-electron/src/preload.ts:18,23,34`).
+  - The B17 tab lives in `electron-shell.component.ts`, which renders only on the Electron host, so it can never be
+    clicked before the flag is known.
+  - B17 only needs its navigation specs to set `isElectron=true`, as already noted.
 
-## Batch 17: Electron shell Apps tab — PENDING
+## Batch 17: Electron shell Apps tab — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -948,7 +1039,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 16 (D-2)
 
-### Task 17.1: Apps tab button — PENDING
+### Task 17.1: Apps tab button — IN_PROGRESS
 
 - Files (2): MODIFY `.../libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`; CREATE
   `.../libs/frontend/chat/src/lib/components/templates/electron-shell.apps-tab.spec.ts`

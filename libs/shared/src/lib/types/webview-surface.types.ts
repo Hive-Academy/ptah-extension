@@ -35,6 +35,10 @@
  * TASK_2026_524: both were listed in three allow-lists and had no render
  * branch anywhere in the application, so no navigation to either could ever
  * have displayed anything.
+ *
+ * `apps` (TASK_2026_494) is Electron-only: it is a legal id on every host so
+ * the list stays one list, but its route refuses to match outside Electron
+ * and the `**` fallback lands the user on `chat` instead.
  */
 export type ViewType =
   | 'chat'
@@ -47,7 +51,8 @@ export type ViewType =
   | 'thoth'
   | 'marketplace'
   | 'tribunal'
-  | 'tasks';
+  | 'tasks'
+  | 'apps';
 
 /**
  * Every surface that has a route, in the order the route table declares them.
@@ -68,6 +73,7 @@ export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'marketplace',
   'tribunal',
   'tasks',
+  'apps',
 ];
 
 /**

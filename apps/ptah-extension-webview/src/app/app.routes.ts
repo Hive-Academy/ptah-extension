@@ -8,6 +8,8 @@ import { SettingsComponent } from '@ptah-extension/chat';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 
+import { electronOnlySurface } from './electron-only-surface.guard';
+
 /**
  * The webview's route table — one entry per standalone surface.
  *
@@ -54,6 +56,10 @@ import { WizardViewComponent } from '@ptah-extension/setup-wizard';
  *   `LazyViewService` tokens one-for-one, plus `thoth`'s
  *   `@defer (on immediate)` block. `marketplace` is the one `loadChildren`:
  *   its pages are child routes of the lazily loaded tree.
+ * - `apps` — `loadComponent`, Electron-only. `canMatch: [electronOnlySurface]`
+ *   refuses the match on VS Code before the chunk is requested, and the `**`
+ *   fallback lands on `chat`. Nothing eager may import
+ *   `@ptah-extension/mcp-apps-page`; this dynamic import is its only entry.
  *
  * `harness-builder` and `setup-hub` both resolve out of
  * `@ptah-extension/harness-builder`, so ONE chunk serves both. That is
@@ -149,6 +155,17 @@ export const appRoutes: Routes = [
     ],
     loadComponent: () =>
       import('@ptah-extension/tasks-ui').then((m) => m.TasksViewComponent),
+  },
+  {
+    // Electron-only. On VS Code the match is refused before `loadComponent`
+    // runs, so the chunk is never requested and `**` below lands on chat.
+    path: 'apps',
+    canMatch: [electronOnlySurface],
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('apps') },
+    ],
+    loadComponent: () =>
+      import('@ptah-extension/mcp-apps-page').then((m) => m.AppsPageComponent),
   },
   // An unaddressable URL is the chat surface, not an error page: the host can
   // send an `initialView` this build does not know, and a webview has nowhere

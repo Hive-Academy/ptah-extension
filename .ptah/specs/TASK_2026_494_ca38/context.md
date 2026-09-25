@@ -114,3 +114,9 @@ Mode: enabled
 - Follow-up: 8 pre-existing TS2352 spec-tsc errors reached transitively from mcp-apps-page (core/src/testing/mock-rpc-service.ts:54,60,66,69; git-ui monaco-loader.service.ts:113,151,171,187) - out of scope for TASK_2026_494; the lib's spec-tsc gate is 'no new errors beyond this baseline'.
 - Follow-up (B15, pre-existing): 'New conversation' in the window after chat:start returns but before the session binding arrives discards the slice without stopping the started session. Not fixed in TASK_2026_494.
 - 2026-09-25: B9 committed 37822b07f. B15 APPROVED round 2 (code-logic-reviewer 9/10, codex 8/10); committed; B20 and B16 IN_PROGRESS in parallel.
+- Future enhancement (B20): extract the workspace restore out of ElectronLayoutService (electron-layout.service.ts is 822 lines).
+- Follow-up (pre-existing, found in B20): ElectronLayoutService.persistLayout() never saves the workspace fields (workspaceFolders/activeWorkspaceIndex) that restoreLayout() reads.
+- Follow-up (B20): apps-submit-flow.spec.ts timing tests failed once under load during B20 execution (green on the team-leader re-run); isolate their fake timers if it recurs.
+- Follow-up addendum (spec tsc): apps/ptah-extension-webview/src/app/base-content-muted.spec.ts:110 is a further pre-existing spec-tsc error (webview baseline = the 8 above + this one).
+- Follow-up (B16): webview-routing.spec.ts ELECTRON_ONLY_SURFACES is a hand-maintained list; derive it from the route table (canMatch guard) so a new Electron-only surface cannot be missed.
+- 2026-09-25: B15 committed 6b14e831c. B16 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B17 IN_PROGRESS. B20 in fix round 1.
