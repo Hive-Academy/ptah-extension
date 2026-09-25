@@ -1,4 +1,5 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   type AgentRoleDefinition,
   type AuthEnv,
@@ -6,7 +7,9 @@ import {
   type PtahCliSummary,
   type PtahCliState,
   type CliOutputSegment,
+  type EffectiveCapabilitySet,
   type FlatStreamEventUnion,
+  type ICapabilityResolver,
   type ProviderProfile,
   createEmptyAuthEnv,
   isOpenCodeProviderId,
@@ -40,7 +43,9 @@ import {
   buildFlagSettingsArg,
   buildSessionName,
   deriveWorkspaceLabel,
+  resolveSessionCapabilityPolicy,
   type AnthropicProvider,
+  type HarnessPolicySync,
   type IHarnessPreflight,
   type ModelTier,
   type Options,
@@ -135,6 +140,16 @@ export class PtahCliRegistry {
      */
     @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
     private readonly harnessPreflight: IHarnessPreflight | null = null,
+    /**
+     * The container the capability resolver and `HarnessPolicySync` are
+     * looked up in at spawn time (TASK_2026_560), as
+     * `McpDirectoryRpcHandlers.recordInstalledCapability` does. See
+     * `lookupOptional` for why the lookup is lazy and the container optional.
+     * Without it, every spawn fails closed to Ptah tools only and no skills
+     * (R8).
+     */
+    @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
+    private readonly container: DependencyContainer | null = null,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -655,7 +670,16 @@ export class PtahCliRegistry {
         );
       }
       const cwd = options?.workingDirectory || require('os').homedir();
-      await this.runHarnessPreflight(cwd);
+      // Policy first: both the harness pass and the spawn flags are decided
+      // by it, and a missing or failing resolver yields an unverified policy.
+      const capabilityPolicy = await resolveSessionCapabilityPolicy(
+        this.lookupOptional<ICapabilityResolver>(
+          SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+        ),
+        cwd,
+        this.logger,
+      );
+      await this.syncHarnessToPolicy(capabilityPolicy, cwd);
       const assembly = await this.spawnOptionsService.assembleSpawnOptions(
         authEnv,
         cwd,
@@ -671,6 +695,7 @@ export class PtahCliRegistry {
         },
         options?.agentId,
         options?.role,
+        capabilityPolicy,
       );
       const {
         outputCallbacks,
@@ -806,12 +831,19 @@ export class PtahCliRegistry {
           // instead of being held until it expires (TASK_2026_402 Req 1.1). The
           // chat path already sends it; without it here, only half the fleet
           // could receive one.
+          //
+          // The capability flags ride the same tier (TASK_2026_560), which is
+          // what makes a custom-base-URL provider enforce exactly the lists a
+          // direct one does.
           settings: buildFlagSettingsArg(
             { outputStyleName: assembly.outputStyleName },
             'accept',
             this.logger,
             assembly.autoCompact,
+            assembly.capabilityFlags,
           ),
+          // Strict MCP with `skills: []` when the policy is unverified.
+          ...assembly.capabilityIsolation,
           extraArgs,
           ...this.resolvePermissionOptions(
             blankToUndefined(options?.resumeSessionId) ??
@@ -862,7 +894,8 @@ export class PtahCliRegistry {
           }
         },
       });
-      streamLoop.run(sdkQuery)
+      streamLoop
+        .run(sdkQuery)
         .catch((error: unknown) => {
           // The loop normally returns 1 on failure. If its error handling itself
           // rejects, pending turns still need that verdict and proxy teardown.
@@ -937,6 +970,96 @@ export class PtahCliRegistry {
     } catch (error: unknown) {
       await stopProxy();
       throw error;
+    }
+  }
+
+  /**
+   * Look `token` up in the container at call time; `null` when there is no
+   * container, the token is not registered, or building it throws. Every
+   * caller treats `null` as the narrower path (unverified policy, bare
+   * preflight), so a failed lookup can never widen a spawn.
+   *
+   * Lazy on purpose, unlike `SessionLifecycleManager`'s plain optional
+   * `@inject` of the same resolver: injecting it would construct the resolver
+   * (and its backoff/store graph) whenever the registry is constructed, which
+   * couples registry boot — and every smoke spec that resolves the registry —
+   * to that whole graph. A spawn-time lookup builds it only when a Ptah CLI
+   * agent actually starts, and a construction failure there fails closed.
+   * The container itself is optional, unlike the other `DI_CONTAINER`
+   * injections, because a required one would make each of the ~13 specs that
+   * construct this registry register one; all three hosts register it
+   * unconditionally (apps/ptah-extension-vscode/src/di/container.ts:40,
+   * apps/ptah-electron/src/di/container.ts:40,
+   * libs/backend/cli-engine/src/lib/container.ts:357).
+   */
+  private lookupOptional<T>(token: symbol): T | null {
+    if (this.container === null || !this.container.isRegistered(token, true)) {
+      return null;
+    }
+    try {
+      return this.container.resolve<T>(token);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[PtahCliRegistry] Could not resolve ${String(token)} (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Bring the on-disk harness in line with `policy` before the raw CLI reads
+   * it (TASK_2026_560, C5).
+   *
+   * - Unverified: no harness pass at all. The reconciler freezes on an unknown
+   *   policy, and the spawn already runs with `skills: []`.
+   * - Verified: `HarnessPolicySync.apply` with the set's fingerprint. An
+   *   unacknowledged pass is logged and the spawn continues, because the flag
+   *   tier's `skillOverrides` already denies every disabled skill. Without a
+   *   registered sync the bare preflight runs, as before this task.
+   *
+   * The catch mirrors `runHarnessPreflight`: the sync is built on a port that
+   * never throws, but a broken implementation must not cost a valid spawn.
+   */
+  private async syncHarnessToPolicy(
+    policy: EffectiveCapabilitySet,
+    cwd: string,
+  ): Promise<void> {
+    if (policy.status !== 'verified') {
+      this.logger.warn(
+        '[PtahCliRegistry] Capability policy is unverified — harness sync skipped; the agent runs with Ptah tools only and no skills',
+        { cwd, reasons: policy.reasons },
+      );
+      return;
+    }
+    const harnessPolicySync = this.lookupOptional<
+      Pick<HarnessPolicySync, 'apply'>
+    >(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC);
+    if (harnessPolicySync === null) {
+      await this.runHarnessPreflight(cwd);
+      return;
+    }
+    try {
+      const { acknowledged } = await harnessPolicySync.apply(
+        policy.physicalRoot,
+        policy.harnessFingerprint,
+      );
+      if (!acknowledged) {
+        this.logger.warn(
+          '[PtahCliRegistry] Harness did not acknowledge the capability policy (spawn continues; skillOverrides still denies disabled skills)',
+          {
+            physicalRoot: policy.physicalRoot,
+            fingerprint: policy.harnessFingerprint,
+          },
+        );
+      }
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[PtahCliRegistry] Harness policy sync failed (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

@@ -219,6 +219,14 @@ export {
   type SessionNameInput,
 } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
+// The capability-policy rules (TASK_2026_560, C5), shared with the Ptah CLI spawn path so it enforces ONE definition.
+export {
+  capabilityFlagsFor,
+  capabilityIsolationOptions,
+  filterMcpServersByPolicy,
+  resolveSessionCapabilityPolicy,
+  unverifiedCapabilityPolicy,
+} from './lib/helpers/sdk-query-options-builder';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,
