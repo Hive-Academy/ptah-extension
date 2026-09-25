@@ -281,7 +281,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 4
 
-### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — IMPLEMENTED
+### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — COMPLETE
 
 - Files (5): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`: `dashboard-stat.component.ts`
   (+ spec), `dashboard-list.component.ts` (+ spec), `dashboard-pager.component.ts`
@@ -293,6 +293,16 @@ Edge cases:
 ### Batch 5 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+- Result: 3/3 green (re-run by team-leader). code-logic-reviewer APPROVED 8/10, 0 blocking, no fix rounds
+  (code-logic-review-batch-5.md). B3/B4 carry-overs confirmed: defensive list items, per-instance ids, original index
+  across paging and filtering.
+- Carried to the R10 visual gate: stat density (text-lg/p-3 vs the prototype's compact tile) and delta phrasing. A
+  uniform text-primary is correct because the contract has no tone field.
+- Optional (non-blocking): Escape in the list filter also collapses the list; list filtering duplicates the table-rows
+  filter shape.
+- Carried to B8: an IDE-only TS4029 ("DisplayNodeFields cannot be named", view-model.types.ts:14) appears only under
+  declaration emit. The lib has no build target today; export DisplayNodeFields if B8 adds one or the public API
+  exposes these node types.
 
 ## Batch 6: v2 view model, table component, layout component — PENDING
 
@@ -688,7 +698,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat`
 
-## Batch 18: Harness prompt isolation — IN_PROGRESS
+## Batch 18: Harness prompt isolation — COMPLETE (commit a3dbaceea)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
