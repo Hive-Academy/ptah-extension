@@ -69,9 +69,37 @@ describe('wireRuntimePreWindow — boot ordering (B1)', () => {
     // identical query later in the same boot got the tools.
     // `resolveMcpSessionWiring` reads `IMcpServerStatus.getPort()` live at
     // query time, so this ordering is the whole of the guarantee.
-    expect(at('await bringUpSubsystems(')).toBeLessThan(
+    expect(at('await startCodeExecutionMcp(')).toBeLessThan(
       at('booter.startOrJoin(startupWorkspaceRoot)'),
     );
+  });
+
+  it('keeps the rival-CLI registration out of the pre-window phase (TASK_2026_556)', () => {
+    // `registerCodeExecutionMcpForSubagents` waits on `CliDetectionService`,
+    // which probes every installed CLI in turn: 4-12 s measured, over 30 s at
+    // the sum of the probe timeouts. Awaited before the window, it held the
+    // app on the preparing shell for all of it — the intermittent e2e
+    // start-up timeout. It belongs in `postWindow`, and nowhere before it.
+    const postWindowBody = at(
+      'const postWindow = async (): Promise<void> => {',
+    );
+    const registration = at('registerCodeExecutionMcpForSubagents({');
+
+    expect(
+      SOURCE.split('registerCodeExecutionMcpForSubagents(').length - 1,
+    ).toBe(1);
+    expect(registration).toBeGreaterThan(postWindowBody);
+    expect(SOURCE).not.toContain('bringUpSubsystems(');
+  });
+
+  it('still registers for subagents BEFORE the heavy boot is let through', () => {
+    // Moving the registration behind the window must not move it behind the
+    // Thoth scans: `openWindowGate()` is what releases the reserved boot. The
+    // wait is released by a quit (`settleOnAbort`) so it cannot hold `will-quit`.
+    const awaited = at('await settleOnAbort(');
+    expect(awaited).toBeLessThan(at('registerCodeExecutionMcpForSubagents({'));
+    expect(at('coordinator.abortSignal,')).toBeGreaterThan(awaited);
+    expect(awaited).toBeLessThan(at('booter.openWindowGate()'));
   });
 
   it('registers the workspace-change listener after bring-up and immediately before the startup RESERVATION', () => {
@@ -82,7 +110,7 @@ describe('wireRuntimePreWindow — boot ordering (B1)', () => {
     const listener = at('workspaceProvider.onDidChangeWorkspaceFolders(');
     const reservation = at('booter.startOrJoin(startupWorkspaceRoot)');
 
-    expect(at('await bringUpSubsystems(')).toBeLessThan(listener);
+    expect(at('await startCodeExecutionMcp(')).toBeLessThan(listener);
     expect(listener).toBeLessThan(reservation);
     expect(SOURCE.slice(listener, reservation)).not.toContain('await ');
   });
@@ -108,11 +136,11 @@ describe('wireRuntimePreWindow — boot ordering (B1)', () => {
     expect(SOURCE.split('propagateHarness(').length - 1).toBe(1);
   });
 
-  it('has exactly one bringUpSubsystems call site', () => {
+  it('has exactly one MCP start call site', () => {
     // The reorder moved the block; a merge that reintroduced the old one would
-    // start MCP twice (idempotent, but the second call would also re-run
-    // `ensureRegisteredForSubagents` against a moved workspace root).
-    expect(SOURCE.split('bringUpSubsystems(').length - 1).toBe(1);
+    // start MCP twice (idempotent, but a combined `bringUpSubsystems` would
+    // also re-run `ensureRegisteredForSubagents` in front of the window).
+    expect(SOURCE.split('startCodeExecutionMcp(').length - 1).toBe(1);
   });
 
   it('keeps the heavy boot out of the pre-window phase entirely', () => {
@@ -212,6 +240,12 @@ describe('post-window — the gateway start is delegated and gated', () => {
     expect(POST_WINDOW_SOURCE).toContain('coordinator,');
   });
 
+  it('skips the start under the e2e harness (TASK_2026_389)', () => {
+    expect(POST_WINDOW_SOURCE).toContain(
+      "skipStart: process.env['PTAH_E2E'] === '1',",
+    );
+  });
+
   it('no longer starts the gateway or the bridge inline', () => {
     // The inline IIFE ran during `registerPostWindow`, which is BEFORE
     // `coordinator.startPostWindow(...)` opens SQLite — the whole defect.
@@ -242,5 +276,18 @@ describe('wireRuntime — embedder warmup heap budget (C3)', () => {
 
   it('no longer calls the main-process heap "Worker heap"', () => {
     expect(SOURCE).not.toContain('Worker heap after warmup');
+  });
+});
+
+describe('post-window — the boot guards end with the boot (TASK_2026_556)', () => {
+  it('disarms the boot guards when the renderer fails to load', () => {
+    // A failed renderer load never reaches the goal step, so without this the
+    // process-level crash handlers would stay armed for the whole session.
+    const loadCatch = POST_WINDOW_SOURCE.slice(
+      POST_WINDOW_SOURCE.indexOf('mainWindow.loadFile(rendererPath).catch('),
+    );
+    const catchBody = loadCatch.slice(0, loadCatch.indexOf('});'));
+    expect(catchBody).toContain("reportBootFailure('Renderer did not load'");
+    expect(catchBody).toContain('disarmBootGuards()');
   });
 });

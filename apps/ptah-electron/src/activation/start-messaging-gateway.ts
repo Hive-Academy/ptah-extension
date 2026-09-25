@@ -43,12 +43,26 @@ export interface StartMessagingGatewayOptions {
   coordinator: BootCoordinator;
   /** `webviewManager.broadcastMessage`, injected so this file stays DI-free. */
   broadcast: (type: string, payload: unknown) => Promise<void>;
+  /**
+   * Start neither the gateway nor the bridge. `post-window.ts` sets this from
+   * `PTAH_E2E=1`: no e2e spec drives a live adapter (the gateway specs mock
+   * `gateway:*` RPC, and `gateway:status` reads settings, not running state),
+   * so a harness boot only paid for listeners nothing used (TASK_2026_389).
+   */
+  skipStart?: boolean;
 }
 
 export async function startMessagingGateway(
   options: StartMessagingGatewayOptions,
 ): Promise<void> {
   const { gateway, bridge, coordinator, broadcast } = options;
+
+  if (options.skipStart === true) {
+    console.log(
+      '[Ptah Electron] Messaging gateway start skipped — e2e harness (PTAH_E2E=1)',
+    );
+    return;
+  }
 
   const { sqliteOpen } = await coordinator.whenPersistenceSettled();
 

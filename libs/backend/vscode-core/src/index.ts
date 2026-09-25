@@ -121,7 +121,11 @@ export {
 export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
-export { bringUpSubsystems } from './services/subsystem-bringup';
+export {
+  bringUpSubsystems,
+  registerCodeExecutionMcpForSubagents,
+  startCodeExecutionMcp,
+} from './services/subsystem-bringup';
 export type { SubsystemBringUpDeps } from './services/subsystem-bringup';
 export {
   EventLoopMonitor,
