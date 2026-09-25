@@ -3369,3 +3369,1222 @@ behind). The shell reads the store and never calls `ensure()`/`load()`, matching
 - What a 10/10 version would do differently: extract `addToSet`/`removeFromSet` before or alongside this batch
   instead of after a third copy appears, and use one name (`CapabilityInventory` or `CapabilitiesGetStateResult`)
   consistently between the store and its spec.
+
+# Code Logic Review — Batch 12
+
+## Summary
+
+| Metric              | Value    |
+| -------------------- | -------- |
+| Overall score         | 9/10     |
+| Verdict                | APPROVE  |
+| Blocking issues        | 0        |
+| Serious issues         | 0        |
+| Moderate issues        | 0        |
+
+Scope: `apps/ptah-electron/src/di/phase-4-handlers.ts:107` and
+`apps/ptah-extension-vscode/src/di/phase-3-handlers.ts:84`, each a single
+`container.registerSingleton(CapabilityRpcHandlers)` added directly after
+`McpDirectoryRpcHandlers`. Read both files in full, plus
+`libs/backend/rpc-handlers/src/lib/handlers/capability-rpc.handlers.ts`
+(constructor at line 175, `@inject(SDK_TOKENS.SDK_CAPABILITY_RESOLVER)` at
+line 180), `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts:206-208`
+(manifest entry, `handler: CapabilityRpcHandlers`), and
+`libs/backend/rpc-handlers/src/lib/host-profile/register-rpc-surface.ts:185-190`
+(`container.resolve(ctor).register()`).
+
+## Findings
+
+1. **Placement matches the sibling pattern.** Both hosts place the new
+   `registerSingleton(CapabilityRpcHandlers)` immediately after
+   `registerSingleton(McpDirectoryRpcHandlers)` — same line shape, same file,
+   no divergence from the existing manifest-owned-and-registered sibling.
+2. **DI-order for `SDK_CAPABILITY_RESOLVER` is safe.** All registrations in
+   `phase-3-handlers.ts` / `phase-4-handlers.ts` are lazy tsyringe
+   registrations; nothing resolves a constructor dependency at registration
+   time. In both hosts, `registerCliAgentRuntimeServices` (which owns
+   `SDK_CAPABILITY_RESOLVER` — confirmed at
+   `libs/backend/cli-agent-runtime/src/lib/di/register.ts`) runs in Phase 2,
+   before Phase 3/4 handler registration, and `registerRpcSurface` (the only
+   place that actually calls `container.resolve(CapabilityRpcHandlers)`) runs
+   later still, in each host's `activation/bootstrap.ts` /
+   `activation/wire-runtime.ts`. The token is registered well before any
+   resolution is attempted, on both hosts.
+3. **No double registration or second instance.** `CapabilityRpcHandlers`
+   appears with exactly one `registerSingleton` call per host (verified via
+   grep across both DI files) and is never registered a second time via
+   `registerCliAgentRuntimeServices`, `registerChatServices`,
+   `registerHarnessServices`, or `registerSharedRpcHandlers`. Because it is a
+   tsyringe singleton, `registerRpcSurface`'s later
+   `container.resolve(CapabilityRpcHandlers)` at
+   `register-rpc-surface.ts:185` returns the same cached instance created (or
+   lazily created) by the `registerSingleton` call — identical to how
+   `McpDirectoryRpcHandlers`, already both manifest-owned and
+   `registerSingleton`-registered, behaves today. No second instance is
+   created; no double registration occurs.
+4. **VS Code handlers-index re-export.** `CapabilityRpcHandlers` is exported
+   from `libs/backend/rpc-handlers/src/index.ts:36` and imported directly
+   from `@ptah-extension/rpc-handlers` in `phase-3-handlers.ts:27` (not via
+   `../services/rpc` as some other host-local handlers are) — consistent with
+   how `McpDirectoryRpcHandlers` and `HarnessRpcHandlers` are imported in the
+   same file. Nothing else needed.
+
+## Verification
+
+`NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p ptah-electron,ptah-extension-vscode --parallel=2`
+— 38/38 tasks succeeded (36 cache hits, 2 fresh typecheck runs), 0 failures.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: none found — this is a two-line, pattern-matching DI wiring
+  change with no behavioural surface of its own; correctness rides entirely
+  on the manifest entry (Batch 10) and the resolver contract (other batches),
+  both out of scope here and already reviewed elsewhere.
+
+# Code Style Review — Batch 14
+
+Scope: `libs/frontend/marketplace/src/lib/pages/servers/{installed-servers-page,provider-list-view,server-detail}.component.ts`
+(+ `.html` where present, + `.spec.ts`), diffed against the Batch 13 commit (`fb49b8621`), read in full, not
+only the diff. `provider-list-view.testing.ts` is untouched (L4 applied, batches.md:242,296). Comparison
+siblings: `ui/capability-toggle.component.ts` (Batch 13, the control every toggle here wires to), the existing
+`server-detail.component.html:100-160` raw `<section class="rounded-lg border...">` info-panel pattern, and
+`pages/overview/overview-kpis.ts` (the existing cross-page import of `liveInLastSession` from this same page
+component, the precedent for Q2).
+
+## Summary
+
+| Metric          | Value                          |
+| --------------- | ------------------------------- |
+| Overall score   | 7/10                            |
+| Assessment      | APPROVE                         |
+| Blocking issues | 0                                |
+| Serious issues  | 2                                |
+| Minor issues    | 3                                |
+| Files reviewed  | 6 (3 `.ts`, 2 `.html`, provider-list-view `.spec.ts` + the two page specs) |
+
+## Five style questions
+
+### 1. What breaks when requirements change in six months?
+
+Little of the added logic itself. `capabilityScopeLabels`, `schemaSizeText` and `notEnforcedProviders`
+(`installed-servers-page.component.ts:383-418`, `ui/capability-toggle.component.ts:155-161`) all read from data
+(`CAPABILITY_ENFORCEMENT`, `entry.sources`, `entry.schemaTokens`) and never hard-code a provider name or a
+figure, so PR 2's enforcement flip and the #16 multi-declaration work change zero lines here (A-UI,
+batches.md:98-100 — confirmed for this batch too). The one thing likely to need a real edit is the "Use in
+sessions" panel itself once #16 lands: today `entry.sources` already renders as a list
+(`installed-servers-page.component.ts:530-546`), so multiple declarations of one name will render correctly
+with no template change — the plan's #16-readiness claim holds.
+
+### 2. What would a new team member misread?
+
+The panel injected into `ptah-provider-list-view` via `<ng-content />`
+(`provider-list-view.component.html:122-126`) looks, from the page alone, like it is drawn by the list view and
+therefore governed by its filter/sort/selection state. It is not: `mcpEntries` (`installed-servers-page.component.ts:614-616`)
+reads straight from `CapabilityTogglesStore`, with no dependency on `ProviderListViewComponent`'s internal
+`filter`/`sort` signals, which are private to that component and not exposed to projected content. Typing a
+search term or picking an origin chip in the filter bar above narrows the table/card rows but never narrows the
+"Use in sessions" panel underneath — a new reader has to trace both files to learn that these are two
+independently-membershipped lists sharing one page, not one filtered view (see Serious-1).
+
+### 3. What does this cost to maintain?
+
+Proportionate to what is added. `server-detail.component.ts` grows from ~417 to 505 lines and its template from
+~486 to 632 for two new switches, a scope/declaration block and a size line — in line with how the file already
+carries several other conditional info panels of the same shape (lock, account-managed, at `:102-157`). No new
+abstraction layer, no new store, no new page. The one recoverable cost is the small duplication called out below
+(Minor-1, Minor-2): two files reimplement the same one-line scope lookup and the same scope-badge `@for` loop
+rather than sharing either.
+
+### 4. Where is this inconsistent with the rest of the repository?
+
+Mostly it is not:
+
+- content projection via `<ng-content />` for page-owned, page-specific content is the established repo idiom —
+  it is already used this way by 15+ components under `libs/frontend/ui/src/lib/native/` (popover, dropdown,
+  drawer, tab-group, catalog-card, native-card, …) and by three other marketplace UI components
+  (`storefront-hero.component.ts`, `stat-card.component.ts`, `source-band.component.ts`,
+  `docked-inspector.component.ts`). An `@Input` render-prop here would have been the actual deviation;
+- the raw `<section class="space-y-2 rounded-lg border border-base-300 ... p-3">` info-panel markup
+  (`installed-servers-page.component.ts:464-469`, `server-detail.component.html:157-163,783-789`) matches the
+  pre-existing lock/account-managed panels in the same file (`server-detail.component.html:102-157`) rather than
+  reaching for a `Native*` primitive that does not exist for this shape — consistent, not a shortcut;
+- exporting pure display helpers from a page component for a sibling page/component to import
+  (`CAPABILITY_SCOPE_LABELS`, `capabilityScopeLabels`, `declarationName`, `schemaSizeText`, `SCHEMA_SIZE_UNKNOWN`
+  — all exported from `installed-servers-page.component.ts` and imported by `server-detail.component.ts:1264-1268`
+  and its spec) is not a new pattern: `liveInLastSession`, exported from this exact file today, is already
+  imported cross-page by `pages/overview/overview-kpis.ts`. This is answer to the reviewer-question on the
+  boundary: acceptable under this repo's precedent, not a smell — the module the task names
+  (`installed-servers-page.component.ts`) is already the repo's de facto home for shared MCP-row display rules,
+  and both consumers are marketplace pages, so there is no cross-layer or cross-lib violation, only a
+  page-component doing double duty as a rules module (worth a follow-up extraction into a plain file if a third
+  consumer appears — same "third real use" bar the Batch 13 review applied to `addToSet`/`removeFromSet`, not
+  met yet).
+
+Two places do drift from the pattern the batch itself sets:
+
+- `scopeLabel(source)` (`installed-servers-page.component.ts:628-630` and `server-detail.component.ts:1359-1361`)
+  is the identical one-line `CAPABILITY_SCOPE_LABELS[source.scope]` lookup, defined twice, in two files that
+  already share `capabilityScopeLabels`/`declarationName`/`schemaSizeText` through the same export list
+  (Minor-1);
+- `ui/capability-toggle.component.ts:244-248`'s "Not enforced for …" line renders unconditionally per control
+  instance with no way to suppress it, so every MCP row's toggle in the new panel (`installed-servers-page.component.ts:554-561`)
+  and both switches in the detail (`server-detail.component.html:797-812`) each print the same fixed
+  four-provider sentence. Nothing else in this batch repeats a full sentence of static copy per list row — the
+  scope badges, declarations and size line are all rendered once per row, not once per control instance
+  (Serious-2).
+
+### 5. What would you have done differently, and why is that better rather than merely other?
+
+Two changes, both cheap because the owning file is already in this diff or the batch that owns it is already in
+the PR:
+
+- give `CapabilityToggleComponent` a `showNotEnforced = input(true)` and have the "Use in sessions" panel (which
+  renders one toggle per MCP row and therefore repeats the note N times) pass `false`, printing the same
+  four-name sentence once under the panel heading instead. This is better than leaving it, not merely different:
+  the sentence is invariant per `kind`, so repeating it once per row is pure redundancy that scales with server
+  count, while a single shared line costs nothing in information and removes the scaling noise (see the task's
+  own framing of this as a batch-13-file, zero-new-file fix);
+- export `scopeLabel` itself (not just `CAPABILITY_SCOPE_LABELS`) from `installed-servers-page.component.ts`
+  next to `declarationName`, and have `server-detail.component.ts` import it instead of redefining the same
+  one-liner. Trivial, but it is the same class of duplication the Batch 13 review flagged for
+  `addPending`/`removePending` (Minor-1 there), and this batch had the chance to avoid creating a second instance
+  of that exact pattern in the same file pair it already threads three other helpers through.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### 1. The "Use in sessions" panel is not scoped by the list's filter, with no visible cue that it is a separate list
+
+- File: `installed-servers-page.component.ts:459-463,614-616` vs `provider-list-view.component.ts:241,269-278`
+- Problem: `ProviderListViewComponent`'s `filter`/`sort`/`selection` signals are `protected`, so the projected
+  "Use in sessions" panel (rendered through `<ng-content />`, `provider-list-view.component.html:122-126`) has no
+  way to read them and does not try to. Searching or picking an origin chip narrows the table/card rows above but
+  leaves every MCP capability row in the panel below unchanged.
+- Impact: on a workspace with several MCP servers, a user who types a name into the filter to find one server
+  sees the row list narrow but the "Use in sessions" panel — which lists the *same names* — stay full, with
+  nothing in the UI stating that the panel is independent of the filter above it. The class doc
+  (`installed-servers-page.component.ts:435-443`) explains *why* membership differs (capability rows include
+  servers with no installed row), but that is a membership fact, not a filter-scoping fact, and does not by
+  itself justify ignoring an active text/origin filter the user just set on the page above.
+- Fix: either (a) have the panel also apply `capabilities.entries()` through the same `providerFilterOptions`
+  search text (cheapest: thread the current filter's `search` string down through a new page-level `input` or
+  computed the page itself owns, since the page already injects `CapabilityTogglesStore` directly and does not
+  need `ProviderListViewComponent`'s internal signal), or (b) if independence is intentional, say so in the
+  panel's own copy (e.g. "Every MCP server known to this workspace, not just the ones shown above") so the
+  decoupling reads as a choice rather than a gap. Either is a template/computed change inside files already in
+  this diff; no new file.
+
+### 2. The not-enforced note repeats verbatim on every toggle instance instead of once per panel/section
+
+- File: `ui/capability-toggle.component.ts:244-248` (rendered from `installed-servers-page.component.ts:554-561`
+  for every MCP row, and twice per server in `server-detail.component.html:797-812`)
+- Problem: `notEnforced()` is derived per-instance from `CAPABILITY_ENFORCEMENT` and has no input to suppress it,
+  so the fixed "Not enforced for OpenCode, Antigravity, Codex, Ptah CLI proxy"-shaped sentence (exact wording per
+  `notEnforcedProviders`, `ui/capability-toggle.component.ts:155-161`) prints once per row in the "Use in
+  sessions" panel and once per switch in the server detail.
+- Impact: the sentence is invariant for every `kind: 'mcp'` entry, so a workspace with, say, 8 MCP servers prints
+  the identical four-name sentence 8 times in the panel alone — real, scaling visual noise for information that
+  is true exactly once per page, not once per row. The spec even encodes the repetition as expected behaviour
+  (`installed-servers-page.component.spec.ts:233-244`, `server-detail.component.spec.ts:1189-1199`) rather than
+  a single panel-level assertion.
+- Fix: add `public readonly showNotEnforced = input(true);` to `CapabilityToggleComponent`, gate the
+  `@if (notEnforced().length > 0)` block on it, and have the panel show the note once (either on the first row
+  only, or as one line under the "Use in sessions" heading) while individual switches keep `showNotEnforced`
+  true only where a toggle stands alone (e.g. the server-detail pair, where two instances of the same sentence
+  under two adjacent switches is a much smaller cost than N panel rows). `capability-toggle.component.ts` is
+  already a modified file in this PR (Batch 13), so this costs no new file, per the task's own framing.
+
+## Minor issues
+
+1. **`scopeLabel` reimplemented instead of shared.** `installed-servers-page.component.ts:628-630` and
+   `server-detail.component.ts:1359-1361` both define the identical `CAPABILITY_SCOPE_LABELS[source.scope]`
+   one-liner, in the same two files that already share `capabilityScopeLabels`/`declarationName`/`schemaSizeText`.
+   Fix: export `scopeLabel` from `installed-servers-page.component.ts` alongside the others; `server-detail`
+   assigns `protected readonly scopeLabel = scopeLabel;` like it does for the other three.
+2. **Scope-badge `@for` loop duplicated verbatim in two templates.** The `@for (scope of scopeLabels(entry); ...)
+   <span class="badge badge-ghost badge-sm" data-testid="capability-scope-label">` block appears identically in
+   `installed-servers-page.component.ts:521-527` and `server-detail.component.html:875-881`. Small (5 lines) and
+   not urgent, but a third occurrence (e.g. the PR-2 skill/plugin pages the plan already names) would meet the
+   "third real use" bar for extracting a tiny `ptah-capability-scope-badges` presentational component.
+3. **`aria-label="Declared in"` duplicated as a literal in two files.** `installed-servers-page.component.ts:530`
+   and the "Declarations" `aria-label` in `server-detail.component.html:896` name the same concept with slightly
+   different literal strings ("Declared in" vs "Declarations"). Cosmetic — pick one string if either file is
+   touched again; not worth a dedicated edit now.
+
+## File-by-file
+
+### `installed-servers-page.component.ts` (+ `.spec.ts`)
+
+Score 7/10 — 0B, 2S (shared with server-detail: Serious-1 filter scoping, Serious-2 not-enforced repetition),
+1M (`scopeLabel` duplication). OnPush, signals, `inject()`, `@if`/`@for`/`@switch` throughout; the loading,
+error-with-retry and empty states for the capability read are complete and each has its own `data-testid`,
+matching the store's `state()` contract. `CapabilityTogglesStore` injection and `ensure()` in the constructor
+mirrors `MarketplaceInventoryStore`/`ConnectorLinksStore` exactly.
+
+### `server-detail.component.ts` (+ `.html`, `.spec.ts`)
+
+Score 7/10 — 0B, 2S (same two, both visible here too: Serious-2 fires twice per server since both switches
+render the note), 1M (`scopeLabel` duplication, Minor-3 label wording). The workspace/global switch pair
+correctly never cross-writes (`setEnabled`, `:1368-1375`, matches the AC-2.3 acceptance item), and `errorFor`
+(`:1381-1385`) scopes a failed write's error message to only the switch that caused it via `lastWriteScope`, a
+small but real correctness-adjacent design choice that keeps the two switches from showing one error under both.
+
+### `provider-list-view.component.ts` / `.html` (+ `.spec.ts`)
+
+Score 9/10 — 0B, 0S, 0M. The single addition (`<ng-content />` at the end of the `data-testid="provider-list"`
+section, explicitly outside `[data-list-rows]`) is minimal, documented in the class doc
+(`:186-189`), and the new spec section proves both placement (DOM order relative to
+`provider-list-rows`) and the keyboard-isolation claim (an `ArrowDown` dispatched on projected content does not
+move the active row) rather than asserting only DOM structure. `provider-list-view.testing.ts` was correctly
+left untouched (L4, batches.md:242).
+
+## Pattern compliance
+
+| Repository rule or nearby convention | Status | Evidence |
+| --- | --- | --- |
+| Standalone + OnPush | PASS | all three `.ts` files, unchanged `changeDetection` lines |
+| Signals + `inject()` | PASS | `capabilities = inject(CapabilityTogglesStore)` in both pages; `computed()` for `mcpEntries`/`capability`/`sizeText` |
+| New control-flow syntax (`@if`/`@for`/`@switch`) | PASS | `installed-servers-page.component.ts:482-591`; `server-detail.component.html:795-853,863-931` |
+| Content projection over an `@Input` render-prop for page-owned content | PASS | `provider-list-view.component.html:122-126`; matches 15+ existing `ng-content` consumers repo-wide |
+| Raw info-panel `<section>` over inventing a `Native*` primitive | PASS | matches the pre-existing lock/account-managed panels in the same file |
+| Display helper exported from a page component for cross-page reuse | PASS (precedent) | `liveInLastSession` already does this; `overview-kpis.ts` already imports it |
+| No duplicated pure one-liner across files sharing an export list | FAIL (Minor) | `scopeLabel` reimplemented in both pages |
+| A static, kind-invariant note rendered once per semantic unit, not once per list row | FAIL (Serious) | `capability-toggle.component.ts:244-248`'s "Not enforced" line has no per-instance suppression |
+| A page-level list and a page-level supplementary panel share filter state, or the panel says it is independent | FAIL (Serious) | "Use in sessions" panel ignores the table's active filter with no stated reason |
+| No `[innerHTML]` | PASS | absent from all touched files |
+| Theming via semantic daisyUI tokens (dark/light), no hardcoded color | PASS | `base-content`, `base-300`, `base-200`, `warning`, `error`, `info` throughout, same token set as the rest of the file |
+| Spec style matches sibling specs (`root()`/`settle()`/`byTestId`/`allByTestId`) | PASS | both page specs reuse the existing helpers; no new spec idiom introduced |
+
+## Maintenance debt
+
+- Introduced: two new conditional info panels (page-level "Use in sessions" list, detail-level two-switch pair)
+  proportionate in size to the sibling panels already in these files; one new content-projection slot on
+  `ProviderListViewComponent`, documented and tested.
+- Retired: nothing (additive batch, matches the plan's "no surface replaced" statement, batches.md:359-360).
+- Net: modest increase. The two Serious items are both fixable inside files already touched by this batch (or,
+  for Serious-2, the Batch 13 control already in the PR) — neither requires a new file or a scope-widening edit,
+  so neither should block landing this batch, but both should be closed before the visual-reviewer's AFTER
+  capture (Batch 17) so the screenshots reflect the fixed version.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: the not-enforced sentence repeating once per row (Serious-2) is the more visible of the two —
+  it is guaranteed to show up in the AFTER screenshots as a wall of identical text on any workspace with more
+  than one or two MCP servers, which is worth fixing before Batch 17's visual evidence is captured rather than
+  after.
+- What a 10/10 version would do differently: add `showNotEnforced` to `CapabilityToggleComponent` and use it
+  from the panel; either scope the "Use in sessions" panel to the active filter or state in its copy that it is
+  independent; share `scopeLabel` the same way `declarationName` and `schemaSizeText` already are.
+
+## Answers to the reviewer's specific questions
+
+1. **Toggle placement (panel vs. per-row).** The page-level panel is an acceptable, discoverable placement: it
+   sits directly under the rows, labelled "Use in sessions", and satisfies the task anchor text literally
+   ("[the Installed servers page] is the place for the scope label, the per-workspace toggle and the
+   schema-size figure", task.md:45) — the anchor names the *page*, not the row. Moving the toggle into
+   `ui/provider-table.component.ts`/`ui/provider-card-list.component.ts` would require editing both components
+   (each drawn for a materially different tier) plus their specs — a minimum of 4 files (2 components + 2
+   specs), realistically more once the table's column layout and the card's stacked layout are each reworked to
+   fit a toggle, scope badges and a declarations list into an existing row. Batches.md's own running count has
+   the PR at 96 planned / 97 worst-case against a 99 hard cap with only one absorbed contingency left (a B11
+   surface file); a 4-file addition here would breach it outright. Per-row is not required by any AC text
+   reviewed, and the budget makes it infeasible without a fresh scope decision from the orchestrator. The panel
+   is the right call; Serious-1 above (filter scoping) is the one real cost of the panel approach worth closing.
+2. **Display helpers exported from the page component.** Acceptable under this repo's own precedent
+   (`liveInLastSession`), not a boundary smell — see Q4 above. The one gap is that `scopeLabel` itself was left
+   out of the shared export list and reimplemented twice (Minor-1).
+3. **"Not enforced" note repetition.** Recommend the change, not keeping it as-is: show it once per panel/section
+   via a `showNotEnforced` input on `capability-toggle.component.ts` (Serious-2, with a concrete fix above). The
+   file is already in the PR, so this costs no new file.
+4. **OnPush/signals/`inject`/control flow, `Native*`, theming, naming, file length, spec style, slot API.** All
+   PASS — see the Pattern compliance table. Content projection is the established slot API for this repo family
+   (15+ existing `ng-content` consumers); an `@Input` here would have been the deviation, not the projection.
+
+# Code Logic Review — Batch 11
+
+## Summary
+
+| Metric              | Value   |
+| -------------------- | ------- |
+| Overall score         | 8/10    |
+| Verdict                | APPROVE |
+| Blocking issues        | 0       |
+| Serious issues         | 0       |
+| Moderate issues        | 1       |
+
+Scope: `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts`
+(+ `.spec.ts`) and `libs/backend/cli-engine/src/lib/container.ts`, against base
+`fb49b8621`. Read the full handler file (1408 lines), the full diff-added spec
+sections (`mcp-directory-rpc.handlers.spec.ts:1076-1306`), `classifyMcpScope`
+(`libs/shared/src/lib/types/capability-toggle.types.ts:324-333`),
+`McpDirectoryInstallResult` (`libs/shared/src/lib/types/mcp-directory.types.ts:762-764`),
+`ICapabilityResolver`/`SDK_TOKENS.SDK_CAPABILITY_RESOLVER` registration across all
+three hosts, batches.md Batch 11, and implementation-plan.md N6/C8. Ran the check
+command in the b11 worktree.
+
+## Findings by question
+
+1. **`setExplicit` scoping (workspace-only, mixed-install safe).**
+   `recordInstalledCapability` (`mcp-directory-rpc.handlers.ts:1348-1388`) computes
+   `wroteWorkspaceTarget` from `successes.some(classifyMcpScope(...) === 'workspace')`
+   (`:1354-1361`) — it looks only at targets that actually reported `success: true`.
+   A global-only install (e.g. `codex`) never satisfies this, so `setExplicit` is
+   never called and nothing is written — correct against Q1 (repository-declared
+   servers default OFF; a user-scope declaration already defaults ON) and N6.
+   A mixed install where the workspace target fails and a global target succeeds
+   is handled the same way: the failed workspace result has `success: false`, so it
+   is excluded from `successes`, `wroteWorkspaceTarget` stays `false`, and no
+   capability write happens — correct, because nothing was actually written to a
+   workspace-scope file for `setExplicit` to approve. This is proven by the
+   `'writes no capability entry when every workspace target failed'` spec
+   (`mcp-directory-rpc.handlers.spec.ts:1287-1305`), though that spec only covers a
+   single failing workspace target with no co-occurring global success; a true
+   multi-target case (one workspace success + one workspace failure + one global
+   success in the same call) is not exercised. The `.some()` logic covers it
+   correctly by inspection, so this is a coverage gap, not a behavioural defect.
+
+2. **Lazy resolver lookup; silent no-write when unregistered.** The resolver is
+   resolved from the container at call time (`:1369-1371`), not injected at
+   construction, so the handler's own boot order never matters — correct per the
+   file-header comment (`:319-324`) and the N6 JSDoc (`:1340-1345`). When
+   `SDK_CAPABILITY_RESOLVER` is not registered, the method returns `undefined` with
+   no warning and no log (`:1362-1366`). Traced this against all three hosts:
+   `registerCliAgentRuntimeServices` (which owns `SDK_CAPABILITY_RESOLVER`) runs in
+   Phase 2 of `cli-engine/container.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts:277`,
+   and `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:201` — i.e. every
+   shipping host that can reach `mcpDirectory:install` also registers the resolver,
+   so the "unregistered" branch is unreachable in production and exists only to keep
+   a test double simple. Given that, silence is correct: per the comment, "a
+   container without the capability policy has no policy to record into." If a
+   future host ever omits `registerCliAgentRuntimeServices` while still wiring
+   `McpDirectoryRpcHandlers`, this branch would silently leave a just-installed
+   repository server OFF with zero signal — worth a one-line `logger.debug` if that
+   host combination is ever expected, but not a defect against the current wiring.
+
+3. **`capabilityWarning` typed locally; no UI reads it — real but bounded gap.**
+   `McpDirectoryInstallWithCapabilityResult` (`:159-161`) extends the shared
+   `McpDirectoryInstallResult` with a local `capabilityWarning?: string` because
+   `libs/shared/src/lib/types/mcp-directory.types.ts:762-764` does not declare the
+   field. Grep across the whole worktree (`libs/frontend/**`) found zero readers of
+   `capabilityWarning`; today it round-trips over the wire (no Zod schema for this
+   RPC method strips it) but the frontend's TypeScript type for the response has no
+   knowledge of it, so a consumer can't discover it without `as`. Net effect,
+   traced against Q1's default-OFF rule: when `setExplicit` fails, the server was
+   installed but its workspace capability write silently did not happen, so it
+   stays OFF; the only signal today is a backend `logger.warn`
+   (`:1375-1381`) that no running host surfaces to a user. This is a real gap, but
+   it is bounded: no AC in `task-description.md` (AC-1.4 covers the *toggle*
+   write-failure path, not the *install* write-failure path) requires this to be
+   shown in PR 1, and the executor's own header comment documents the omission
+   rather than hiding it. **Verdict: not a defect for PR 1's acceptance criteria,
+   but a real completeness gap that should be closed before the feature reads as
+   finished.**
+   - Smallest correct fix, split by batch:
+     - **B11 (this batch, zero new files):** add `capabilityWarning?: string;` to
+       `McpDirectoryInstallResult` in `libs/shared/src/lib/types/mcp-directory.types.ts`
+       (already an M in the Batch 1 diff, so this costs nothing against the file
+       budget) and change `mcp-directory-rpc.handlers.ts:159-161` to return
+       `McpDirectoryInstallResult` directly instead of the locally-widened
+       `McpDirectoryInstallWithCapabilityResult`, deleting the local type. This is
+       a type-only change; it does not touch behaviour, so it belongs in this
+       batch rather than a new one.
+     - **B14 (already in progress, `libs/frontend/marketplace/src/lib/pages/servers/*`):**
+       display `capabilityWarning` next to the install result (e.g. the same
+       error-surfacing pattern AC-1.4 already establishes for a reverted toggle),
+       so the user sees why a newly installed repository server stayed OFF.
+   - Filed as the one Moderate issue below because it is real, has a stated fix,
+     and crosses a batch boundary that a later reviewer could otherwise miss.
+
+4. **No internal error text leaks; only `capabilityWarning` reaches the wire.**
+   The catch block at `:1374-1387` logs the raw resolver error
+   (`error instanceof Error ? error.message : String(error)`) to `this.logger.warn`
+   only, and builds the returned string from a fixed template plus `serverKey` —
+   never `error.message`. Proven by
+   `'keeps the install and returns a capabilityWarning naming the server when
+   setExplicit rejects'` (`:1242-1269`): the resolver throws an error containing
+   `EACCES` and a literal path (`C:\secret\item.json`), and the spec asserts
+   `capabilityWarning` contains `"github"` and does **not** match
+   `/EACCES|secret|item\.json/` (`:1266-1267`), while `logger.warn` is asserted
+   called (`:1268`) — the raw text only reaches the log.
+
+5. **N6 spec isolation confirmed.** `mcp-directory-rpc.handlers.spec.ts:1142-1148`
+   (`tempHome`) creates a fresh `fs.mkdtempSync(path.join(os.tmpdir(), ...))` per
+   test and constructs `CapabilityResolverService` with `homeDir: home` pointing at
+   that temp directory (`:1200-1214`); `CapabilityToggleStore` and `McpIntentStore`
+   are likewise rooted under `home`. Separately, the file-level `jest.mock('os', ...)`
+   (`:20-27`) redirects `os.homedir()` (used internally by the handler's own
+   `SmitheryInstalledManifestStore`/`McpOAuthInstalledManifestStore`) to
+   `path.join(actual.tmpdir(), 'ptah-mcp-directory-rpc-spec-home')` — also a scratch
+   directory, never the real `~/.ptah` or `~/.claude.json`. `afterEach` (`:1155-1160`)
+   removes every directory pushed to `created`. Confirmed clean.
+
+6. **`container.ts` registration placement and the stale count.**
+   `container.registerSingleton(CapabilityRpcHandlers)` is placed at
+   `container.ts:804`, inside the `bootstrapMode === 'full'` block, immediately
+   after the other Phase-4 handler registrations and before
+   `registerSharedRpcHandlers(container)` — the same placement pattern Batch 12
+   used for Electron/VS Code, and consistent with the comment at `:801-803`
+   correctly stating that `SDK_CAPABILITY_RESOLVER` was already registered by
+   `registerCliAgentRuntimeServices` in Phase 2. Registration order is safe because
+   nothing here resolves eagerly (tsyringe `registerSingleton` is lazy).
+   **Cosmetic defect confirmed:** `logger.info('[CLI DI] Shared RPC handler
+   classes registered (18)')` at `:808` is unchanged by this diff. Counting the
+   direct `registerSingleton` calls between `SessionRpcHandlers` (`:787`) and the
+   new `CapabilityRpcHandlers` (`:804`) gives 15 classes registered inline before
+   that log line (one more than pre-batch), so the literal `(18)` undercounts by
+   one after this change (and was already a hand-maintained, easily-stale literal
+   before this batch, since it doesn't count `registerSharedRpcHandlers`'s
+   internal registrations either). Cosmetic only — the count is never read
+   programmatically (confirmed by grep: no spec or code parses this log message) —
+   but flagged as requested.
+
+## Failure modes
+
+### `setExplicit` failure leaves an installed server silently OFF with no UI signal
+
+- Trigger: a workspace install succeeds (e.g. writes `.mcp.json`), but
+  `resolver.setExplicit` then throws (disk permission error, corrupt capability
+  store, concurrent writer).
+- Symptom: the RPC caller gets `{ results: [...], capabilityWarning: "..." }`, but
+  no frontend code today reads `capabilityWarning` (see Finding 3), so the user
+  sees the server as "installed" with no visible reason it will not run — Q1's
+  default-OFF rule means the server stays OFF until the user separately discovers
+  and flips the toggle in the Marketplace.
+- Evidence: `mcp-directory-rpc.handlers.ts:1368-1387`; confirmed no reader via
+  grep for `capabilityWarning` outside this handler file and its spec, and outside
+  the task-spec docs.
+- Current handling: logged at `logger.warn` (backend-only); the RPC response
+  carries the field, but it is invisible to the wire's TypeScript contract and to
+  every UI consumer.
+- Recommendation: see Finding 3's fix (promote `capabilityWarning` to the shared
+  type in this batch; surface it in B14).
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+- **Moderate:** `capabilityWarning` is not part of the shared `McpDirectoryInstallResult`
+  type and no UI reads it, so a failed `setExplicit` produces no user-visible signal
+  (Finding 3 / failure mode above). Fix: add the optional field to
+  `libs/shared/src/lib/types/mcp-directory.types.ts` now (no file cost), surface it
+  in Batch 14.
+- **Minor:** `container.ts:808` log literal `(18)` is stale by one after this
+  batch's registration (cosmetic; not read programmatically).
+- **Minor:** the mixed-target case (workspace success + workspace failure + global
+  success in one `install()` call) is not directly spec-covered, though the
+  `.some()` logic is correct by inspection (Finding 1).
+
+## Data flow
+
+1. `mcpDirectory:install` RPC arrives → `registerInstall` handler
+   (`:449-518`) — OK.
+2. `workspaceRoot = this.getWorkspaceRoot()` (`:462`, `:1390-1392`) — OK, may be
+   `undefined` with no workspace open.
+3. `this.installService.install(...)` writes to the requested targets and returns
+   per-target results (`:464-470`) — out of scope for this batch (owned by
+   `McpInstallService`, unchanged here).
+4. `successes`/`failures` partitioned (`:472-473`) — OK.
+5. `recordInstalledCapability(serverKey, successes, workspaceRoot)` (`:492-496`):
+   a. `workspaceRoot === undefined` → bail, no write (`:1353`) — OK, `setExplicit`
+      needs a concrete root.
+   b. `wroteWorkspaceTarget` computed from `successes` only via `classifyMcpScope`
+      (`:1354-1361`) — OK (Finding 1).
+   c. resolver looked up lazily (`:1362-1371`) — OK (Finding 2); unregistered →
+      silent no-op, currently unreachable on shipping hosts.
+   d. `resolver.setExplicit(workspaceRoot, 'mcp', serverKey, true)` (`:1372`) —
+      OK; on success, install returns `{ results }` with no warning (`:497-499`).
+   e. on throw, warning built from a fixed template + `serverKey`, raw error only
+      to `logger.warn` (`:1374-1387`) — OK (Finding 4), but the resulting warning
+      has no reader (Finding 3 — the one real gap in this trace).
+6. Handler returns `{ results }` or `{ results, capabilityWarning }` (`:497-499`)
+   — reaches the RPC caller with `capabilityWarning` present on the wire but
+   absent from the shared response type.
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| N6: install writes explicit workspace ON, kept even when equal to inherited default | COMPLETE | None — proven live against a real resolver, `CapabilityResolverService`, `PluginLoaderService` and a same-name Codex-global declaration (`mcp-directory-rpc.handlers.spec.ts:1162-1240`) |
+| N6: global-only install writes nothing | COMPLETE | None |
+| C8: `McpDirectoryRpcHandlers` install calls `setExplicit`; failure returns `capabilityWarning` | PARTIAL | `capabilityWarning` is produced but not part of the shared contract and has no reader (Finding 3) |
+| AC-3.1: CLI host has the RPC | COMPLETE | `container.ts:804`; `rpc-surface.spec.ts:60` and the full check command both pass (see Verification) |
+| Batch 11 reviewer acceptance item: `rpc-surface.spec.ts:60` passes via registration in `container.ts` (no file outside it) | COMPLETE | Only `container.ts` changed for the CLI-engine side; no unplanned file |
+
+Implicit requirements not addressed: a user-facing signal for an install whose
+capability write failed (Finding 3/Failure mode); logged as the batch's one
+Moderate issue, with an explicit fix and owning batch rather than a silent gap.
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Global-only install (e.g. `codex`) | YES | `wroteWorkspaceTarget` stays `false`; `setExplicit` never called | None |
+| Workspace target fails, no other target | YES | Excluded from `successes`; no write | None |
+| Workspace target fails, global target succeeds (mixed) | YES (by inspection) | Same `.some()` logic; failed target excluded from `successes` | Not directly spec-covered (minor) |
+| No workspace open (`workspaceRoot === undefined`) | YES | Early return at `:1353` | None |
+| `setExplicit` throws | YES | Warning returned, install still reports success, raw error only logged | Warning has no UI reader (Moderate) |
+| `SDK_CAPABILITY_RESOLVER` not registered | YES | Silent no-op, by design | Unreachable today; would be silent on a future host that omits `registerCliAgentRuntimeServices` |
+| Repeated/idempotent install of the same server | YES | `setExplicit` always writes `true`, intentionally not normalized away (N6) | None |
+
+## Cross-batch items
+
+- **B14 (frontend, in progress):** surface `capabilityWarning` from the install
+  result once it is added to the shared type (Finding 3). This batch does not
+  block B14; B14 needs the shared-type addition landed first (or to land it
+  itself, if B11 does not).
+- **Shared type (`libs/shared/src/lib/types/mcp-directory.types.ts`):** already an
+  M in the PR-1 diff (Batch 1), so adding `capabilityWarning?: string` to
+  `McpDirectoryInstallResult` costs no new file regardless of which batch does it.
+- No other batch is affected by this batch's changes; `container.ts` and the
+  handler file are both file-disjoint from every other in-flight batch.
+
+## Verification
+
+`NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine --parallel=2`
+— 6/6 tasks succeeded (4 cache hits, 2 fresh typecheck runs), 0 failures.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: a failed `setExplicit` after a successful workspace install leaves a
+  repository MCP server silently OFF (per Q1's default) with no signal reaching
+  the user in PR 1 — bounded (not an AC-1.4 violation, well-documented in the
+  code, and the backend correctly never fails the install or leaks the raw
+  error), but it should not be allowed to fall through the PR-1/PR-2 seam
+  unaddressed.
+- What a robust implementation would add: promote `capabilityWarning` into the
+  shared `McpDirectoryInstallResult` type now (no file cost) and have Batch 14
+  render it next to the affected server row; a one-line debug log for the
+  (currently unreachable) "resolver not registered" branch, in case a future host
+  wires `McpDirectoryRpcHandlers` without `registerCliAgentRuntimeServices`; and a
+  spec exercising a true mixed-target install (workspace success + workspace
+  failure + global success in one call) to pin Finding 1's `.some()` behaviour
+  beyond inspection.
+
+## Re-review round 1 — Batch 11
+
+Scope: `git diff fb49b8621` on the three files the revise round touched —
+`libs/shared/src/lib/types/mcp-directory.types.ts`,
+`libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts`,
+`libs/backend/cli-engine/src/lib/container.ts`. UI display of the warning is
+scoped out to the separately-approved B14b (`chat-ui`
+`mcp-directory-browser.component.ts`), not reviewed here.
+
+1. **Moderate item RESOLVED for this batch's scope.** `capabilityWarning?: string`
+   is now on the shared `McpDirectoryInstallResult`
+   (`mcp-directory.types.ts:762-768`) with a doc comment stating the OFF
+   consequence. The handler's local `McpDirectoryInstallWithCapabilityResult`
+   intersection type is gone; `registerInstall` is typed directly against the
+   shared `McpDirectoryInstallResult` (`mcp-directory-rpc.handlers.ts:87`, `:443`)
+   and still returns `{ results }` or `{ results, capabilityWarning }`
+   (`:483-490`, unchanged logic). The field is now discoverable on the wire's
+   TypeScript contract, closing the gap this review flagged — display itself is
+   correctly deferred to B14b, which the coordinator states is approved.
+2. **Shared-type change is additive only.** `git diff` of `mcp-directory.types.ts`
+   shows exactly one interface member added, nothing else touched. Grepped every
+   other consumer of `McpDirectoryInstallResult` outside the handler and its
+   spec: `libs/shared/src/lib/types/rpc.types.ts:274,1322` (re-export and
+   registry `result:` type — an optional field is structurally compatible with
+   both) and `apps/ptah-cli/src/cli/commands/mcp.ts:41,244` (`callRpc<McpDirectoryInstallResult>`
+   — an unread optional field is inert there). No consumer narrows or exhaustively
+   checks this interface's keys, so none breaks.
+3. **The `(19)` count is right.** Counted the inline `container.registerSingleton(...)`
+   calls between `SessionRpcHandlers` and the new `CapabilityRpcHandlers` in
+   `container.ts` (the block the log line describes): 15. `registerSharedRpcHandlers`
+   (`libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts:45-49`)
+   registers 4 more handler classes (`SetupRpcHandlers`, `WizardGenerationRpcHandlers`,
+   `EnhancedPromptsRpcHandlers`, `LlmRpcHandlers`) plus `SessionLifecycleNotifier`,
+   which the new code comment (`container.ts:808-809`) correctly excludes as "not a
+   handler." 15 + 4 = 19, matching the updated log literal and the executor's own
+   comment. No other registration in this range was missed.
+4. **Verification.** `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/shared --parallel=2`
+   — 9/9 tasks succeeded (6 cache hits, 3 fresh: `shared`, `rpc-handlers`,
+   `cli-engine` typecheck), 0 failures.
+
+Remaining items from the first pass (mixed-target spec coverage; a debug log for
+the unreachable "resolver not registered" branch) are Minor/observational and were
+not asked to be fixed in this round; they do not block.
+
+**Verdict: APPROVE**
+
+- Worktree: `.claude-worktrees/feat-task-2026-560-b14` (branch `feat/task-2026-560-b14-server-pages`, base `fb49b8621`)
+- Files reviewed in full: `libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts`
+  (+ `.spec.ts`), `provider-list-view.component.ts`/`.html` (+ `.spec.ts`), `server-detail.component.ts`/`.html`
+  (+ `.spec.ts`). Also read for context (not owned by this batch, no edits found): `data/capability-toggles.store.ts`
+  (Batch 13), `ui/capability-toggle.component.ts` (Batch 13), `data/provider-row.ts`,
+  `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.ts` (Batch 7, id-format check).
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2 --skip-nx-cache`
+  — lint, typecheck and test all PASS (fresh run, no cache, 43s).
+
+Score: 8/10 — Verdict: **APPROVE**
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| Overall score | 8/10 |
+| Assessment | APPROVED |
+| Blocking issues | 0 |
+| Serious issues | 0 |
+| Moderate issues | 2 |
+| Failure modes found | 2 |
+
+## Five logic questions
+
+1. **Silent failure**: none found in the wiring itself. `capabilities:getState` failure is routed to the
+   store's `error` state and rendered (`server-capabilities-error` / `server-detail-capability-error`), with
+   the installed rows and detail fields left untouched
+   (`installed-servers-page.component.ts:171-197`, `server-detail.component.ts:167-172` via `capability()`
+   returning `null`). A `setEnabled` failure reverts the row and surfaces `errorFor` (store, Batch 13); this
+   batch wires that surface into two distinct DOM nodes per scope in the detail
+   (`server-detail.component.ts:390-395`, `server-detail.component.html:172,181`), and confirmed by spec that
+   a global-write failure shows only under the global control, not the workspace one
+   (`server-detail.component.spec.ts:730-761`).
+2. **Unexpected user action**: none new. Clicking Retry on the page panel or the detail panel both call
+   `store.reload()`, which supersedes any read in flight (Batch 13's `loadGeneration` guard) — a double-click
+   is safe. Clicking two different toggles for the same entry in quick succession is guarded by the store's
+   `_pendingKeys`/`isPending` check, not this batch's code, and both surfaces read it correctly
+   (`installed-servers-page.component.ts:200` `[pending]="capabilities.isPending(entry)"`,
+   `server-detail.component.html:169,177`).
+3. **Wrong-answer input**: the detail's capability row is looked up by `entryOf({ kind: 'mcp', id:
+   row.serverKey })` (`server-detail.component.ts:377-383`). This assumes `ProviderRow.serverKey` (the raw
+   config key from `installed-provider-rows.ts`) is byte-identical to the `CapabilityEntry.id` the backend
+   resolver assigns from the same `.mcp.json`/`config.toml` key (`capability-resolver.service.ts` reads the
+   same source maps). Both specs (`server-detail.component.spec.ts:57,122-123`, `'firecrawl'` on both sides)
+   only prove the *matched* and the *explicitly-missing* (`'notion'`) cases; there is no fixture proving the
+   two id spaces stay aligned when the backend applies any normalization the row list does not (case-folding,
+   trimming). No evidence of actual divergence was found (both derive from the same on-disk key with no
+   normalizer in either path read), but the assumption is untested across the RPC boundary. See Moderate
+   issue 1.
+4. **Dependency failure**: `capabilities:getState` throwing, rejecting, or timing out is caught inside the
+   store (Batch 13) and surfaces as `state() === 'error'`; both this batch's templates render Retry and leave
+   the rest of the page/detail intact — proven by spec
+   (`installed-servers-page.component.spec.ts:535-559`, `server-detail.component.spec.ts:809-828`). A
+   `capabilities:setEnabled` dependency failure is likewise handled by the shared store; this batch adds no
+   new unguarded RPC call.
+5. **Missing requirement**: AC-2.2 ("state next to it which scope the toggle writes to") is met by the shared
+   `capability-toggle.component.ts`'s `scope-of-write` text (Batch 13), consumed unchanged here. One item the
+   requirements leave implicit and this batch does not address: a server that has an installed row but no
+   matching capability entry (e.g. blocked/user-scope-only servers such as `sentry`/`BLOCKED` in the fixtures)
+   gets no "no on/off setting" label on the *list* row itself — only the detail explains this
+   (`server-detail-capability-missing`). On the list page, such a server simply never appears in the "Use in
+   sessions" panel, with no row-level cross-reference back to it. This is consistent with the declared
+   deviation (the panel is a separate list, not per-row) and is spec-covered as "list stays whole", but a user
+   scanning the installed rows has no visual cue from the row itself that the server has no toggle. See
+   Moderate issue 2.
+
+## Failure modes
+
+### 1. Detail's capability match silently returns "no setting" on an id mismatch it cannot distinguish from a true absence
+
+- Trigger: `CapabilityEntry.id` for an MCP server diverges from `ProviderRow.serverKey` for the same server
+  (e.g. a future normalization added to one of the two independent read paths — `installed-provider-rows.ts`
+  vs. `capability-resolver.service.ts` — without the other).
+- Symptom: `server-detail.component.ts:377-383`'s `entryOf({kind:'mcp', id: row.serverKey})` returns
+  `undefined`, `capability()` is `null`, and the detail renders exactly the same "Ptah has no on/off setting
+  for this server name yet" as it does for a genuinely undeclared server
+  (`server-detail.component.html:207-213`). A user cannot tell "this server truly has no capability entry"
+  from "the lookup key is wrong."
+- Evidence: `server-detail.component.ts:377-383`; no normalization or fallback (e.g. case-insensitive retry)
+  exists at the lookup site.
+- Current handling: none; the two id spaces are assumed identical by construction.
+- Recommendation: not a defect of this batch's code (the ids are sourced from the same on-disk key in both
+  paths today), but worth an explicit cross-batch regression test (fixture asserting `serverKey === entry.id`
+  for every kind of installed row, including Codex/`.toml` sourced servers where a case or quoting difference
+  is most likely) rather than relying on two independently-maintained test fixtures staying in sync by
+  convention.
+
+### 2. A server with no capability entry (blocked/user-scope-only) is invisible from the Installed-servers row itself
+
+- Trigger: a server whose installed row exists (e.g. `origin: 'claude-user'`, `removal: 'none'`) but whose
+  capability id is absent from the `capabilities:getState` inventory — plausible for the same class of
+  read-only/blocked servers the fixtures already model (`BLOCKED`/`sentry`).
+- Symptom: the "Use in sessions" panel (page) simply omits it; the installed list itself carries no
+  `data-*` marker or badge pointing the user to "open the detail to see why this has no switch." The user
+  must independently reach the detail and read `server-detail-capability-missing` to learn this.
+- Evidence: `installed-servers-page.component.ts:171-236` (panel renders only rows the store returned, no
+  cross-reference to `providerRows`); `provider-table.component.ts`/`provider-card-list.component.ts` (out of
+  budget for this batch, per the declared deviation) carry no such marker either.
+- Current handling: none on the list row; the detail explains it once opened.
+- Recommendation: acceptable given the declared deviation (rows are drawn outside this batch's budget) and
+  the requirements do not name this case explicitly (open item under Q5); flag for a follow-up batch if the
+  product wants a row-level affordance.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+- **Moderate 1** — `server-detail.component.ts:377-383`: the `row.serverKey` → `CapabilityEntry.id` join is
+  untested across the RPC boundary (both id spaces come from mocked, hand-aligned fixtures). See Failure mode 1.
+- **Moderate 2** — `installed-servers-page.component.ts:171-236`: no row-level affordance for a server that
+  has an installed row but no capability entry. See Failure mode 2.
+- **Minor** — `installed-servers-page.component.ts` and `server-detail.component.ts` both re-declare
+  `scopeLabel`/`CAPABILITY_SCOPE_LABELS` lookups as near-duplicate one-line methods; `capabilityScopeLabels`
+  is already shared from the page file, so `scopeLabel` (singular, per-source) could be too. Not a logic
+  defect (style-reviewer territory), noted only because it is adjacent to the id-matching code reviewed above.
+
+## Data flow
+
+1. Page/detail constructor calls `capabilities.ensure()` — OK, no-op on a non-idle store (shared instance
+   provided at the shell), proven by spec that only one `capabilities:getState` fires per page mount
+   (`installed-servers-page.component.spec.ts:293-305`).
+2. Store resolves entries, keyed by `capabilityKey(kind, id)` — OK, handled entirely in Batch 13; this batch
+   only reads `entries()`/`entryOf()`.
+3. Page filters `entries()` to `kind === 'mcp'` and renders one row per entry, independent of the installed
+   row list — OK, and explicitly decoupled per the class doc (`installed-servers-page.component.ts:60-73`);
+   gap noted in Failure mode 2.
+4. Detail joins one entry to the open row via `row.serverKey` — OK when the two id spaces agree; unverified
+   at the boundary (Failure mode 1).
+5. Toggle click → `setWorkspaceEnabled`/`setEnabled(entry, scope, enabled)` → `store.setEnabled` — OK, scope
+   is a literal (`'workspace'` on the page, `'workspace'`/`'global'` on the two detail controls), so a scope
+   mix-up would require an edit to this file, not a runtime path; specs pin both writes
+   (`installed-servers-page.component.spec.ts:486-500`, `server-detail.component.spec.ts:694-761`).
+6. Retry → `store.reload()` — OK, superseded reads are dropped by `loadGeneration` (Batch 13), confirmed by
+   spec that a page Retry followed by a fresh success renders the recovered row
+   (`installed-servers-page.component.spec.ts:535-559`).
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| AC-2.3 (workspace write never touches global, and vice versa) | COMPLETE | Page offers only the workspace switch (declared deviation); detail offers both, each bound to a literal scope. Confirmed by spec on both surfaces. |
+| AC-1.1/AC-1.3 (toggle on page or detail persists a workspace override; toggling back removes it) | COMPLETE | Page panel covers the "page" half; detail covers the "detail view" half named explicitly in the AC text. |
+| AC-2.1/AC-2.2 (scope labels, declaration list, scope-of-write text) | COMPLETE | Rendered on both surfaces via the shared `capabilityScopeLabels`/`declarationName` helpers; spec-covered. |
+| AC-5.2 ("size unknown" always in PR 1, never a fabricated zero) | COMPLETE | `schemaSizeText` rejects `undefined`/non-finite/negative; spec asserts no bare `0` in the rendered text. |
+| Global value reachable only via detail | COMPLETE (by design) | The page's own panel exposes no global control; a user must open the detail to change the global layer. Matches the declared deviation; not gated by any AC requiring a page-level global control. |
+| Capability read failure never blocks rows/detail (Retry works) | COMPLETE | Both surfaces keep their primary content on a `capabilities:getState` failure and offer Retry; spec-covered on both. |
+| `ensure()` once per mount, no duplicate loads | COMPLETE | Store's idle-gate plus spec asserting exactly one `capabilities:getState` call per page mount. |
+| Row/panel/detail consistency after a write | COMPLETE | Single shared `CapabilityTogglesStore` instance (shell-provided), so a write in one surface is visible in the other without a second read. |
+| "Not enforced" derived from `CAPABILITY_ENFORCEMENT`, not literals | COMPLETE | Rendered by the shared `capability-toggle.component.ts` (Batch 13), consumed unchanged; both surfaces' specs derive the expected text from `notEnforcedProviders`/`CAPABILITY_ENFORCEMENT` rather than hard-coding it. |
+| No `[innerHTML]`; existing `data-*` hooks unchanged | COMPLETE | Grep confirms no `innerHTML` binding in any of the six files; both `.spec.ts` files carry an explicit test asserting its absence. |
+
+Implicit requirements not addressed: a row-level marker on the Installed-servers list for a server with no
+capability entry (Failure mode 2); a regression test that pins `serverKey === CapabilityEntry.id` across the
+RPC boundary rather than two independently-authored fixtures (Failure mode 1).
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Capability read fails on page load | YES | `state() === 'error'`, Retry button, rows/summary unaffected | None |
+| Capability read fails on detail load | YES | Same pattern, config-path fallback still renders | None |
+| Server has no matching capability entry (detail) | YES | `capability()` is `null`, explicit "no on/off setting" message, `sizeText()` stays "size unknown" | Indistinguishable from an id-mismatch bug (Failure mode 1) |
+| Server has no matching capability entry (list panel) | PARTIAL | Simply absent from the panel | No cross-reference from the row itself (Failure mode 2) |
+| Toggle write fails (workspace, in detail) | YES | Error shown under the workspace control only | None |
+| Toggle write fails (global, in detail) | YES | Error shown under the global control only, via `lastWriteScope` gating | None |
+| Two mounts of the store (page nav to detail and back) | YES | Shared shell-scoped instance, `ensure()` idle-gated | None |
+| Schema size absent/invalid (`undefined`, negative, `NaN`) | YES | `schemaSizeText` returns `SCHEMA_SIZE_UNKNOWN`, spec asserts no stray `0` | None |
+| Ptah server (no installed row) toggle | YES | List panel renders it from the capability store alone, independent of installed rows | Unreachable from the detail (no row to open) — acceptable, it is not an installed server |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: the `row.serverKey` ↔ `CapabilityEntry.id` join (Failure mode 1) is structurally sound today (both
+  paths read the same on-disk key) but is proven only by two independently-hand-aligned test fixtures, not by
+  a shared-fixture or contract test; a future edit to either id-producing path could silently break the detail
+  join with no test failing to catch it.
+- What a robust implementation would add: a cross-batch fixture or contract test asserting
+  `installed-provider-rows`' `serverKey` and the capability resolver's `id` are produced by the identical
+  normalization function (or the literal absence of one) for every server kind, including Codex/TOML sources;
+  a row-level "no session control" affordance on the Installed-servers list for a server absent from the
+  capability inventory, if product wants that visibility without opening the detail.
+
+## Re-review round 1 — Batch 14 (logic)
+
+- Worktree: `.claude-worktrees/feat-task-2026-560-b14` (branch `feat/task-2026-560-b14-server-pages`), same base.
+- Diff reviewed: `installed-servers-page.component.ts`/`.spec.ts`, `server-detail.component.ts`/`.html`/`.spec.ts`,
+  `provider-list-view.component.ts`, `ui/capability-toggle.component.ts`/`.spec.ts` (10 files touched this round).
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2 --skip-nx-cache`
+  — lint, typecheck and test all PASS (fresh run, no cache, 46.3s).
+
+**Moderate 1 (id-join untested across the RPC boundary) — RESOLVED.**
+`server-detail.component.spec.ts:808-876` adds a `describe('name join with the capability rows', …)` block
+with an explicit contract comment ("The resolver keys MCP rows by `McpInstallService.listDeclarations`' raw
+`serverKey` … the same key the installed rows carry, with no normalisation on either side") and
+`it.each` cases: a dotted name (`my.server`), a name with a space (`my server`), the same name declared in
+two installed places (`Shared` in both a project file and `~/.claude.json`, both resolving to one capability
+row and writing the row's single `id`), and — critically — a fixture entry for `'shared'` (lower-case) that is
+never matched by the `'Shared'`-keyed row, proving the join is exact-case with no fallback. This directly
+answers Failure mode 1's "no fixture proving the two id spaces stay aligned … case or quoting difference" gap.
+It documents the contract as a hard assumption (matches the resolver source cited in the comment) rather than
+proving the backend can never diverge from it, which is the correct scope for a frontend spec — the remaining
+residual risk (a future backend change to `serverKey` normalization silently breaking the join) is now at
+least pinned by a named, greppable test rather than two independently-hand-aligned fixtures.
+
+**Moderate 2 (no row-level affordance for a server with no capability entry) — RESOLVED.**
+`installed-servers-page.component.ts:143-171` (`capabilityPanelLines`) now emits an explicit `unmanaged` line
+per installed name absent from the capability inventory ("No switch: Ptah's session settings don't list this
+server name, so Ptah can't turn it on or off here."), rendered as `server-capability-unmanaged`
+(`installed-servers-page.component.ts:315-330`) with no toggle control. Spec:
+`installed-servers-page.component.spec.ts:517-533` mounts the fixture where `notion` (OAuth-installed) has no
+capability row and asserts the line appears, names `notion`, contains "No switch", and has no
+`capability-toggle-input`. This is a direct, correct fix — a genuinely-unmanaged server (Ptah truly cannot
+address it, e.g. `~/.claude.json`-only or otherwise outside the capability policy) now gets an unambiguous
+in-panel explanation instead of silent omission.
+
+**Filter-hiding check.** Traced `capabilityPanelLines` (`installed-servers-page.component.ts:143-171`): when
+`filtered` is true, a capability row whose backing installed row(s) fail the list filter is excluded from
+`shown` (`visibleKeys.has(entry.id)`), and the template unconditionally renders the
+`server-capabilities-filtered` banner ("Showing the servers that match the filters above.") whenever
+`panel().filtered` is true (`installed-servers-page.component.ts:279-286`), independent of whether anything
+was actually hidden. Spec confirms the banner is present after a narrowing search
+(`installed-servers-page.component.spec.ts:564-572`) and absent with no filter
+(`installed-servers-page.component.spec.ts:556-562`), plus an explicit empty-state message when a filter
+matches nothing (`:597-605`). A rowless entry (`ptah`) under an active facet filter (origin chip) is hidden
+per the stated rule ("no origin/target/status filter is set") and the spec pins this exact case
+(`:583-595`, "ptah has no origin to match, so a facet hides it") — the hide is a deliberate, documented rule
+(a facet has no meaning for a rowless entry, so there is nothing correct to show it against), not a defect,
+and it is never silent: the banner is up whenever any filter narrows the panel. No path was found where a
+toggle is hidden while the banner is absent, or vice versa.
+
+**`showNotEnforced` default.** `capability-toggle.component.ts:283-289` adds `input(true)` — every existing
+call site that does not bind the input keeps printing its own note (verified: no other consumer in this diff
+sets it to `false` except the two "Use in sessions" panels, which each print the note once at the panel level
+instead — `showNotEnforced="false"` on the per-row/per-switch control,
+`installed-servers-page.component.ts:230`, `server-detail.component.html` both switches). The existing
+"marks the providers that do not enforce MCP toggles" specs on both surfaces still assert one note per panel
+(`installed-servers-page.component.spec.ts:502-515`, `server-detail.component.spec.ts:242-250`), and the
+component's own new spec (`capability-toggle.component.spec.ts:452-459`) pins `showNotEnforced=false` hiding
+the note on that one instance without touching the default.
+
+**AC-2.3.** The workspace/global write-isolation specs on both surfaces are unchanged in substance and still
+present and passing: `installed-servers-page.component.spec.ts:486-500` (workspace-only write from the page
+row), `server-detail.component.spec.ts:165-191` (workspace switch never writes global and vice versa).
+
+No new defects found in this round's diff. The `Signal<ProviderFilter>` exposure added to
+`provider-list-view.component.ts:243-249` (`activeFilter`) is a narrow, read-only, correctly-typed addition
+consumed via `viewChild` in the page (`installed-servers-page.component.ts:299-306`); before the view
+initializes, `listView()` is `undefined` and the code falls back to `{}` (no filter), so the panel never
+reads a stale or crashing signal on first render — consistent with the "shows every line, uncued, with no
+filter" spec passing on initial mount.
+
+### Verdict
+
+- Recommendation: **APPROVE**
+- Confidence: HIGH
+- Both moderate findings from the initial review are resolved with targeted, evidence-backed tests rather
+  than superficial fixes. No regressions found in the surrounding AC-2.3 wiring or the shared
+  `capability-toggle.component.ts`.
+
+## Re-review round 1 — Batch 14 (style)
+
+Scope: the round-1 diff on top of the code reviewed above — `ui/capability-toggle.component.ts` (+ `.spec.ts`),
+`pages/servers/installed-servers-page.component.ts` (+ `.spec.ts`), `pages/servers/provider-list-view.component.ts`
+(+ `.html`, `.spec.ts`), `pages/servers/server-detail.component.ts` (+ `.html`, `.spec.ts`). Read in full again,
+not only the new lines.
+
+### Prior findings
+
+| # | Finding | Status | Evidence |
+| --- | --- | --- | --- |
+| Serious-1 | "Use in sessions" panel ignored the list's active filter | **RESOLVED** | `ProviderListViewComponent.activeFilter` (`provider-list-view.component.ts:249-250`, `public readonly … Signal<ProviderFilter> = this.filter.asReadonly()`, doc'd at `:249-250` and in the class doc at `:189-190`) is read by the page via `viewChild(ProviderListViewComponent)` (`installed-servers-page.component.ts:446`) and fed into the new pure `capabilityPanelLines(entries, rows, filter)` (`:148-180`). The panel now shows a `data-testid="server-capabilities-filtered"` notice when narrowed, lists unmanaged installed names separately (`data-testid="server-capability-unmanaged"`), and the empty state distinguishes "no servers" from "none match the filters" (`:388-401`). Covered by new spec cases (`installed-servers-page.component.spec.ts:505-575` area, filtered/unmanaged/empty). |
+| Serious-2 | "Not enforced for …" repeated once per toggle instance | **RESOLVED** | `CapabilityToggleComponent` gained `showNotEnforced = input(true)` gating the `@if` block (`capability-toggle.component.ts:244,291`); every row instance in the panel and both server-detail switches now pass `[showNotEnforced]="false"` (`installed-servers-page.component.ts:366`; confirmed the detail toggles rely on the page-level `notEnforcedNote` instead — see below), and the note is printed exactly once via the new pure `mcpNotEnforcedNote()` (`installed-servers-page.component.ts:110-115`, reused by `server-detail.component.ts:59,366`) rendered once under the panel heading (`installed-servers-page.component.ts:270-277`) and once under the detail's "Use in sessions" heading. Spec proof at `capability-toggle.component.spec.ts:453-`(`leaves the note to the caller when showNotEnforced is false`). |
+| Minor-1 | `scopeLabel` reimplemented identically in both page components | **RESOLVED** | Replaced by exported `declarationScopeLabel` (`installed-servers-page.component.ts:73-75`), assigned as `protected readonly scopeLabel = declarationScopeLabel;` in both `installed-servers-page.component.ts:441` and `server-detail.component.ts:363`, the same pattern already used for `declarationName`/`schemaSizeText`. |
+| Minor-2 | Scope-badge `@for` loop duplicated verbatim in both templates | **RESOLVED (differently, and better)** | The panel keeps the badge loop (`installed-servers-page.component.ts:327-333`, unchanged), but the detail's Scope row was changed from a badge loop to plain text, `{{ scopeLabels(entry).join(' · ') }}` (`server-detail.component.html:449-452`, spec updated at `server-detail.component.spec.ts:770`). That is not just de-duplication: it also fixes a pre-existing local inconsistency — every other `dd` in that definition list (Origin, the account-managed note, etc.) is plain text, and the badge pair was the only definition-list value rendered as chips. The join now matches its neighbours. No remaining duplication between the two templates: the panel's badge presentation suits a scannable list of many rows, and the detail's plain text suits a single-item definition list — a legitimate presentation difference, not leftover copy-paste. |
+| Minor-3 | `aria-label="Declared in"` vs `"Declarations"` wording drift | **OPEN (unchanged, as expected — not in scope of this round)** | `installed-servers-page.component.ts:336` still says `aria-label="Declared in"`; `server-detail.component.html`'s declarations block still says `"Declarations"`. Cosmetic, not touched this round, no regression. |
+
+### New code introduced this round
+
+- **`ProviderListViewComponent.activeFilter`** (`provider-list-view.component.ts:243-250`): `public readonly`,
+  typed `Signal<ProviderFilter>`, built via `this.filter.asReadonly()` — the exact `.asReadonly()` idiom already
+  used by every store in this lib (`marketplace-inventory.store.ts`, `connector-links.store.ts`,
+  `harness-health.store.ts`, `capability-toggles.store.ts`) and by `MarketplaceLayout.tier`. Naming matches its
+  purpose and is documented in place and in the class doc's "Projected content" bullet
+  (`:186-190`). No mutation path is exposed. This is the correct shape for the parent-reads-child-signal need:
+  `viewChild(ProviderListViewComponent)` itself is an established pattern in this codebase (10 other files use
+  `viewChild`, including `connector-detail.component.ts` in this same lib), so reading a sibling projected
+  component's readonly signal through it is consistent with, not a deviation from, how this repo already lets a
+  host read a child's derived state.
+- **`capabilityPanelLines` home** (`installed-servers-page.component.ts:148-180`): kept in the same page file as
+  `capabilityScopeLabels`/`declarationName`/`schemaSizeText`/`mcpNotEnforcedNote`, all pure, all exported, all
+  already established there and already imported cross-file by `server-detail.component.ts`. That is the right
+  home under the precedent this batch already set (and that the round-0 review accepted for the boundary
+  question): one colocated "capability display rules" module reused by the page that shares the concept, not a
+  new module per helper. It correctly reuses `filterProviderRows` from `data/provider-filtering.ts` (a
+  pre-existing exported pure function, the filter half of `applyProviderView`) rather than re-implementing
+  filtering — no new duplication introduced to close the old one.
+- **`UnmanagedServer` / `CapabilityPanelLines` interfaces** (`:118-131`): small, single-purpose, `readonly`
+  fields, named for what they hold rather than their mechanism — consistent with the rest of the file's type
+  style.
+- No new diagnostics: `ptah_get_diagnostics` on all four touched `.ts` files reports only the same
+  pre-existing, unrelated errors seen in round 0 (`mock-rpc-service.ts`, `harness-health.store.spec.ts`,
+  `capability-id-codec.ts` — none in the reviewed files).
+
+### New issues found this round
+
+None blocking or serious. One very small note, not worth its own numbered finding: `capabilityPanelLines` is
+called with `this.listView()?.activeFilter() ?? {}` (`installed-servers-page.component.ts:453`) — the `{}`
+fallback is valid only because every `ProviderFilter` field is optional (`provider-filtering.ts:20-26`); it
+works and needs no test, but a reader unfamiliar with that interface could misread `{}` as "no filter object"
+rather than "the empty filter." Cosmetic; not a fix worth making.
+
+### Verdict
+
+- Recommendation: **APPROVE**
+- Confidence: HIGH
+- Both Serious findings from round 0 are resolved with matching test coverage, not just template changes with no
+  proof; the Minor findings are resolved (or, for Minor-2, resolved better than requested) except Minor-3, which
+  was correctly left alone since it was not part of this round's brief. No new style issue found in the round-1
+  diff: `activeFilter` is readonly and named for its purpose, `viewChild` on a sibling component is an existing
+  repo pattern, and `capabilityPanelLines`'s home matches the precedent this batch already established.
+- What remains open: Minor-3 (the "Declared in" / "Declarations" wording drift) only, carried forward as
+  before — cosmetic, fine to leave for whichever file is next touched.
+
+# Code Style Review — Batch 14b
+
+**Scope**: `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts`,
+new lines ~510-517 — appending `result.data.capabilityWarning` to the existing `error` signal after
+the post-install reload, inside `confirmInstall()`. `.ptah/specs` changes ignored per instructions.
+
+### Findings
+
+- **Signal reuse (`error`) — matches repo pattern.** Sibling components in the same directory
+  (`skill-sh-browser.component.ts:118-120`, `setup-status-widget.component.ts:67-71`,
+  `plugin-catalog-panel.component.ts:365-368`) all render a single `error` signal through an
+  `alert-error`/`text-error` box, and this file already does the same at
+  `mcp-directory-browser.component.ts:91-93`. Reusing that same signal for the post-install
+  `capabilityWarning` is the established local idiom, not a one-off — no new file, no new signal, no
+  new alert markup introduced. PASS against the "no new file" constraint and against sibling
+  precedent.
+- **`.update()` usage — matches repo pattern.** `this.error.update((prev) => ...)` at line 514 mirrors
+  the existing `.update()` calls in the same file (`selectedTargets.update` at 469, `sig.update` at
+  687/694), so the merge-with-previous style is consistent rather than a new idiom introduced for this
+  one call site.
+- **Tone/affordance check — `alert-error` is the correct box, not a misuse.** The concern in the brief
+  (is a red "error" alert the right affordance for "installed, but stays off until enabled") does not
+  hold once the backend contract is read: `capabilityWarning` is only ever populated when
+  `recordInstalledCapability` fails to persist the enablement state after a successful install
+  (`libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts:483-490`, doc comment at
+  line 37 confirms it "names the server" when `setExplicit` rejects). That is a genuine degraded state
+  (the server is installed but its capability record did not save), not a benign informational note —
+  so surfacing it through the same `error`/`alert-error` channel as every other actionable failure in
+  this file is the right severity, not an overreach of the signal's name.
+- **Comment density.** The two-line comment at lines 510-511 explaining *why* the warning is appended
+  after `loadInstalled()`/`expandedServerName.set(null)` (so it isn't clobbered) is consistent with the
+  file's existing practice of a short rationale comment at points where ordering matters non-obviously
+  (e.g. line 531's "A refused install used to leave the panel open and say nothing."). Comment density
+  is not increased beyond the file's norm.
+
+No finding rises to Serious or Blocking. One Minor, cosmetic-only observation:
+
+- **Minor**: `mcp-directory-browser.component.ts:514-517` — the merge `` `${prev} ${warning}` `` will
+  concatenate the install-success warning onto any leftover `error` text if `error` was non-null from a
+  prior, unrelated interaction (e.g., a stale search-failure message not yet cleared by this code path).
+  In practice `confirmInstall()` clears `error` to `null` at line 486 before the RPC call, so `prev` can
+  only be non-null here from the reload (`loadInstalled()`) or an unrelated concurrent update — a narrow
+  window, not a correctness bug, but the concatenated sentence could read oddly if it ever fires. Not
+  worth a structural change; flagging for awareness only.
+
+### Verdict
+
+- **Score**: 9/10
+- **Recommendation**: **APPROVE**
+- Blocking: 0, Serious: 0, Minor: 1 (cosmetic, no fix required)
+- The change reuses existing signal, update, and comment conventions from this file and its siblings
+  under the no-new-file constraint; the "error tone for a non-error" concern does not hold once the
+  backend contract confirms `capabilityWarning` denotes an actual persistence failure, so `alert-error`
+  is the appropriate affordance as-is.
+
+# Code Logic Review — Batch 14b
+
+**Score: 8/10 — APPROVE**
+
+Scope: `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts`,
+`confirmInstall()` lines 480-541, cross-checked against
+`libs/shared/src/lib/types/mcp-directory.types.ts:761-769` (`capabilityWarning` doc) and
+`libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts:20-39,440-495`
+(`recordInstalledCapability`, when the warning is set). `.ptah/specs` changes ignored per instructions.
+Check run: `nx run-many -t lint,typecheck,test -p @ptah-extension/chat-ui --parallel=2` — pass (test
+served from local cache, consistent with batches.md's "no regression test by decision" for this batch).
+
+## 1. Survives reload / refreshTrigger
+
+- `confirmInstall` (:502-517): on success, `await this.loadInstalled()` runs first, then the warning is
+  read off `result.data.capabilityWarning` and merged into `error` via `update`, not `set`. This is
+  correct ordering — the warning is applied after the reload, so a subsequent `refreshTrigger` re-run of
+  `loadInstalled()` (:393-398) does not touch `error` at all unless that later call itself fails (:673,
+  :679), which only *adds* to the warning through the same `update` path elsewhere in the file, not this
+  one. `capabilityWarning` itself is a one-shot RPC response field, not re-derived by `loadInstalled`, so
+  it cannot be regenerated or duplicated by a later trigger — it is set once and only cleared by the
+  user's Dismiss button (`error.set(null)`, :96) or a subsequent `confirmInstall`/`error.set` call
+  elsewhere in the component. Confirmed OK, no evidence of loss.
+
+## 2. Mixed case: success + failure in one install
+
+- `:502-517` sets `error` to the warning (if present) inside the `successes.length > 0` branch.
+- `:520-529` then unconditionally does `this.error.set(...)` inside `if (failures.length > 0)`, which
+  **replaces** whatever the success branch just wrote, discarding the capability warning.
+- Per batches.md's own acceptance wording, this is spec-compliant: "the failure paths (:510-521 ...) are
+  unchanged" and "the user sees the failure text; the warning must not replace a failure" — it does not
+  require the warning to survive alongside a failure, only that the failure is not masked. The code meets
+  the letter of that AC.
+- However this leaves a real gap the AC did not anticipate: in the mixed case, a workspace target that
+  *succeeded* the install but whose `setExplicit` capability write failed is now silently left OFF, and
+  the user's only feedback is the *other* target's install failure text — nothing tells them the
+  succeeded-but-uncommitted target needs manual enabling in the Marketplace. This is the exact
+  "server left off without explanation" failure the batch's own goal statement (batches.md:1297-1298)
+  says to prevent, just narrowed to the mixed-result case.
+- Whether to lift the "failure block unchanged" restriction: recommend lifting it, narrowly. The smallest
+  change is one line in the existing `failures.length > 0` block (:520-529): append the already-computed
+  `warning` local (hoisted out of the `successes` branch, or recomputed from
+  `result.data.capabilityWarning`) to the failure string, e.g.
+  `` `Failed for: ${...}${warning ? ` ${warning}` : ''}` `` — no new branch, no new signal, same
+  `error.set` call. This is a one-line addition to a block the batch froze, not a rewrite of it, and is
+  worth the exception given it directly serves the batch's stated goal. Flagged as Moderate, not
+  Blocking, because it is explicitly scoped out by the current AC text and the mixed case (partial
+  install success + capability-write failure on one target + a genuine failure on another target) is a
+  narrow, low-frequency combination.
+
+## 3. Text interpolation only
+
+- `:93` renders `{{ error() }}` via Angular interpolation; no `[innerHTML]`, `bypassSecurityTrust*`, or
+  `DomSanitizer` usage anywhere in the diff or the surrounding template (:89-101 checked). Server-supplied
+  warning text is never used to build markup. Confirmed OK.
+
+## 4. Alert role / dismiss
+
+- `:92` `<div class="alert alert-error alert-sm py-1 px-2" role="alert">` — present and unchanged by this
+  batch. `:94-99` Dismiss button calls `error.set(null)`, clearing the merged warning+failure string in
+  one action; there is no way to dismiss only the warning once merged with a failure or a reload error,
+  but that is consistent with the single `error` signal design used everywhere else in this component
+  (search/popular-load errors, :612-679) and is not a regression introduced by this batch. Confirmed OK.
+
+## Five logic questions
+
+1. **Silent failure:** none introduced by this batch specifically; the pre-existing gap is the mixed case
+   in §2 — a capability-write failure's warning can be silently dropped when a sibling target's install
+   also fails, so the user sees only "install failed for X" and never learns target Y's server needs
+   manual enabling.
+2. **Unexpected user action:** none found; Dismiss and re-Install both behave predictably against the
+   merged-string model.
+3. **Wrong-answer input:** `warning` is only ever a string or `undefined` per the shared type (:768); no
+   coercion or interpolation risk found.
+4. **Dependency failure:** if `loadInstalled()`'s RPC fails after a successful install-with-warning, the
+   `update` at :514 concatenates the load error and the warning (`${prev} ${warning}`) rather than losing
+   either — correct, matches the code comment at :510-511.
+5. **Missing from requirements:** the mixed success+failure+capability-warning interaction (§2) was never
+   named as an acceptance item; the AC only guards against the warning masking a failure, not the reverse.
+
+## Failure modes
+
+### Capability warning dropped by a co-occurring target failure
+
+- Trigger: `confirmInstall` targets include at least one target that installs successfully but whose
+  `setExplicit` write fails (`capabilityWarning` set), and at least one other target whose install itself
+  fails.
+- Symptom: user sees only the failure alert text; no indication the succeeded target's server is still
+  OFF pending manual Marketplace enable.
+- Evidence: `mcp-directory-browser.component.ts:502-529`.
+- Current handling: `error.set(...)` in the failures branch overwrites the warning set in the successes
+  branch moments earlier.
+- Recommendation: append the warning text to the failure message (see §2 smallest-change proposal), or,
+  if the "no other file, no spec" scope for this batch must hold exactly, accept this as a known,
+  documented gap for a future batch rather than silently closing it here.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+- Moderate: mixed-case warning loss, `mcp-directory-browser.component.ts:520-529` (§2 above).
+- Minor: after `await this.loadInstalled()` (:507) there is no `if (this.destroyed) return;` guard before
+  the subsequent `expandedServerName.set`, `suggestedConfig.set`, and `error.update` calls (:508-517),
+  unlike the guard present right after the RPC call at :496. Low risk — Angular signal writes on a
+  destroyed standalone component are inert, not throwing — but inconsistent with this file's own
+  destroyed-check convention used everywhere else (:453, :461, :535, :538).
+
+## Data flow
+
+1. User confirms install → `confirmInstall` clears `error`, calls `mcpDirectory:install` RPC. OK.
+2. RPC resolves `{ results, capabilityWarning? }` (`mcp-directory-rpc.handlers.ts:488-490`). OK.
+3. `successes`/`failures` partitioned from `results`. OK.
+4. On any success: emit event, reload installed list, close panel, merge warning into `error` via
+   `update`. OK — ordering avoids the reload clobbering the warning.
+5. On any failure: `error.set(...)` — overwrites step 4's merge if both branches ran. Gap (§2).
+6. Catch-all sets a generic `'Install failed'` string, also fully overwriting any earlier warning — same
+   class of gap as step 5, but only reachable if the RPC call itself throws after already resolving
+   successfully, which is not possible in this control flow (the try body is one `await`); not a
+   practical path.
+
+## Requirements fulfilment
+
+| Requirement | Status | Gap |
+| --- | --- | --- |
+| Show `capabilityWarning` via the existing `error` signal after success (:500-508 per AC) | COMPLETE | none |
+| Failure paths (:510-521, catch) unchanged | COMPLETE | none |
+| Warning must not replace a failure message | COMPLETE | none |
+| No other file edited, no new spec | COMPLETE | none |
+
+Implicit requirements not addressed: the failure message does not surface a co-occurring capability
+warning (§2) — not in the written ACs, flagged as a gap for a follow-up decision rather than a defect in
+this batch's own scope.
+
+## Edge cases
+
+| Case | Handled | How | Concern |
+| --- | --- | --- | --- |
+| Success only, no warning | YES | `warning` falsy, no `error.update` call | none |
+| Success only, with warning | YES | `error.update` sets warning text | none |
+| Success + reload failure + warning | YES | `update` concatenates both | none |
+| Success (warning) + sibling failure | NO | failure `set` overwrites warning | user not told target stays OFF (§2) |
+| All targets fail, no success | YES | `error.set` failure text only | none — no warning exists in this path |
+| RPC-level rejection (`result.isSuccess()` false) | YES | generic error message | none |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: in the success+partial-failure combination, a capability-write warning is silently dropped,
+  leaving a successfully-installed workspace server OFF with no explanation to the user — the exact
+  failure mode this batch exists to prevent, just in a combination the AC did not cover.
+- What a robust implementation would add: concatenate the warning into the failure message (one-line
+  change to :520-529, see §2) instead of overwriting it; optionally a `destroyed` guard after
+  `await this.loadInstalled()` for consistency with the rest of the file.
+
+## Re-review round 1 — Batch 14b
+
+- Change verified: `mcp-directory-browser.component.ts:501` hoists
+  `const warning = result.data.capabilityWarning;` above both branches; the success block (:513-517) is
+  unchanged logic, and the failures block (:520-529) now builds
+  `` `Failed for: ${...}${warning ? ` ${warning}` : ''}` `` — failure text leads, warning appended when
+  present. Refused-install path (:530-532) and catch path (:534-536) are byte-identical to the prior
+  round; no other file touched.
+- Moderate item (mixed success+failure dropping the warning) is RESOLVED: the failures branch no longer
+  silently discards `warning` — it now surfaces both the failure and the capability warning in one
+  string. Residual, out-of-scope-for-this-fix nuance: if a reload error also occurred in the success
+  branch (:513-517 sets `error` to `prev reload-error + warning`), the failures `set` at :521 still fully
+  overwrites that combined string and re-appends only the bare `warning` (the reload-error text is lost
+  in that specific triple-combination). This is a pre-existing, much narrower edge case than the one this
+  round fixed and is not a regression introduced by this change; not blocking.
+- Text interpolation only: `{{ error() }}` at :93 unchanged, still plain interpolation, no `[innerHTML]`
+  or sanitizer bypass introduced.
+- chat-ui lint/typecheck/test green per coordinator report; not independently re-run this round (no
+  source change outside the diff described).
+
+**Verdict: APPROVE**

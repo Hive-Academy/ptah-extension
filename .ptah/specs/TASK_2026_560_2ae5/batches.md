@@ -1,6 +1,6 @@
 # Batches - TASK_2026_560_2ae5
 
-Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 9/26
+Total tasks: 27 batches (PR 1: 18 = B1-B14, B14b, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 14/27
 
 Design authority: `implementation-plan.md` (revision 2 + r3, user-approved). The review files are history.
 Base: `main @ c4bdc87dd`. Branch: `feat/task-2026-560-mcp-skill-toggles`. PR 2 will be a stacked branch
@@ -252,6 +252,15 @@ PR 1 (code files + task docs; must stay under 100):
     - `registry.md` is never staged (L3).
     - L4 would make it 95.
   - **Any further extra file must go to the orchestrator BEFORE it is written.**
+- **Update 4 (orchestrator decisions, 2026-09-26):**
+  - B11 needed NO extra surface file: cli-engine `rpc-surface.spec.ts:60` already passed through B10's manifest
+    entry. The B11 worst-case extra is REMOVED.
+  - B14b (+1: `mcp-directory-browser.component.ts`, `capabilityWarning` display) is added to PR 1.
+  - **PR 1 plan: 97** (92 code + 5 docs), which leaves 2 spare slots under the limit of 99. There are no known
+    contingencies left: L3 keeps `registry.md` out.
+  - The CLI `capabilityWarning` output goes to PR 2 (B21, +1).
+  - The stray untracked `b14.diff.txt` in the b14 worktree root is NEVER staged. It is deleted before the B14 commit,
+    after confirming nothing references it.
 - **New paths for all later reviewers and the senior-tester:**
   - Append `# Code Logic Review — Batch N`, `# Code Style Review — Batch N` or `# Test report — PR 1` sections to
     `.ptah/specs/TASK_2026_560_2ae5/reviews/code-review.md`.
@@ -497,12 +506,12 @@ the trace.
 - **Known transient failures on the branch after B2 lands (NOT regressions):**
   - B2 adds three methods to the RPC registry before any handler owns them. Two surface-parity specs therefore fail
     until their owning batches land:
-    - `libs/backend/rpc-handlers/.../rpc-allowlist.spec.ts:41-43` ("claims every registry method exactly once") →
-      fixed by **B10**;
-    - `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts:60` (391 vs 388) → fixed by **B11**.
-    - `apps/ptah-electron/src/di/rpc-surface.spec.ts:38` (391 vs 388) → fixed by **B12** (added 2026-09-26, seen
-      in B3's check).
-    - Possibly `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` (same count) → also fixed by **B12**.
+    - RESOLVED: `libs/backend/rpc-handlers/.../rpc-allowlist.spec.ts:41-43` ("claims every registry method exactly
+      once") → fixed by **B10** (`916dd9ad9`).
+    - **STILL OPEN:** `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts:60` (391 vs 388) → fixed by **B11**.
+      It is now the ONLY known transient failure.
+    - RESOLVED: `apps/ptah-electron/src/di/rpc-surface.spec.ts:38` and the VS Code `rpc-surface.spec.ts` have
+      passed since B10 landed (confirmed by the B12 check at `38b4c30f4`: electron 873 passed, vscode 101 passed).
   - Every batch check that runs `@ptah-extension/rpc-handlers` or `@ptah-extension/cli-engine` before B10 or B11
     reports these two failures and only these; any other failure there is real.
   - The B2 check itself (shared, vscode-core) does not run them.
@@ -1019,7 +1028,7 @@ the trace.
   - One-shots use the same flags, or strict mode when unverified.
   - The model probe uses `strictMcpConfig: true`, `mcpServers: {}` and `skills: []`.
 
-## Batch 9: Ptah CLI enforcement and chat notice (PR 1) — PENDING
+## Batch 9: Ptah CLI enforcement and chat notice (PR 1) — IN_PROGRESS
 
 - PR: 1
 - Goal: C5 Ptah CLI ordering (resolve policy → `HarnessPolicySync.apply` → `assembleSpawnOptions`), and the chat
@@ -1038,14 +1047,35 @@ the trace.
   - C `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-capabilities.spec.ts`
   - M `libs/frontend/chat/src/lib/components/molecules/mcp-status-chip.component.ts`
 
-### Task 9.1: Registry ordering and spawn flags — PENDING
+- **Amendment (2026-09-26, team-leader, before launch):**
+  - B8's capability helpers (`capabilityFlagsFor`, `capabilityIsolationOptions`, `filterMcpServersByPolicy`,
+    `unverifiedCapabilityPolicy`, `capabilityPolicyNotice`, all in `sdk-query-options-builder.ts:469-600`) are
+    NOT on agent-sdk's public barrel.
+  - B9 needs them so the Ptah CLI spawn path shares ONE definition with the Claude builder; a copy is forbidden.
+  - B9 therefore also edits `libs/backend/agent-sdk/src/index.ts`: ONE direct export statement from
+    `'./lib/helpers/sdk-query-options-builder'`. This follows the precedent of direct helper exports at
+    `src/index.ts:221,333`; the `helpers/index.ts` barrel is NOT touched.
+  - That file is already in the PR diff (B5), so there is **no budget cost**.
+  - It is a documented 3-project exception: cli-agent-runtime, chat and agent-sdk.
+  - The check adds `@ptah-extension/agent-sdk`.
+  - Current code: `ptah-cli-registry.ts:658` runs `runHarnessPreflight(cwd)` BEFORE `assembleSpawnOptions`, and the
+    policy is never resolved there.
+  - The chip (`mcp-status-chip.component.ts:172-190`) renders the claude.ai connector copy for EVERY notice, so the
+    new notice code needs its own branch.
+- Worktree: `feat-task-2026-560-b9` (branch `feat/task-2026-560-b9-ptah-cli-policy`, base `ae855b8dd`).
+- Isolation checks:
+  - B9 does not touch `@ptah-extension/chat-ui` (B14b) or `libs/frontend/marketplace` (B14); the chip lives in
+    `@ptah-extension/chat`.
+  - B25 is in `@ptah-extension/vscode-lm-tools` and does not touch `protocol-dispatcher.ts` (TASK_2026_559).
+
+### Task 9.1: Registry ordering and spawn flags — IN_PROGRESS
 
 - Plan reference: implementation-plan.md:336-337, :346; reorders `ptah-cli-registry.ts:657-659`
 - Quality requirements: the assembly carries the flags, or strict mode when unverified.
 - Spec: ordering (the policy is resolved before preflight), flags present, strict when unverified.
 - Pattern: `ptah-cli-registry-harness-preflight.spec.ts`.
 
-### Task 9.2: Chat chip notice — PENDING
+### Task 9.2: Chat chip notice — IN_PROGRESS
 
 - Quality requirements: render the plan text "Only Ptah tools are loaded and skills are off: Ptah couldn't read
   <path> (<reason>). Fix the file and start a new session." Use OnPush and signals, as the component already does.
@@ -1110,7 +1140,7 @@ the trace.
   - `schemaTokens` is attached only when the optional `SDK_MCP_SCHEMA_SIZE` is registered.
   - A write failure → RPC error naming the item.
 
-## Batch 11: Install writes explicit ON, CLI host wiring (PR 1) — PENDING
+## Batch 11: Install writes explicit ON, CLI host wiring (PR 1) — COMPLETE (commit ae855b8dd; cherry-picked from `8e177e76a`)
 
 - PR: 1
 - Goal: `McpDirectoryRpcHandlers` install calls `setExplicit` (N6), with a `capabilityWarning` on failure, and the
@@ -1136,7 +1166,18 @@ the trace.
   - M `libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.spec.ts`
   - M `libs/backend/cli-engine/src/lib/container.ts`
 
-## Batch 12: Electron and VS Code host registration (PR 1) — PENDING
+## Batch 12: Electron and VS Code host registration (PR 1) — COMPLETE (commit 38b4c30f4)
+
+- Result:
+  - 2 code files, as planned: a `registerSingleton(CapabilityRpcHandlers)` on each host, plus the Electron
+    phase-4 name entry.
+  - code-logic-reviewer: APPROVE 9/10. The resolver is registered in phase 2, before the phase 3 and phase 4
+    handlers on both hosts, and the singleton is the same instance `registerRpcSurface` resolves.
+  - Check: ptah-electron (873 passed, 3 skipped) and ptah-extension-vscode (101 passed); lint and typecheck pass.
+- **DI-order assertion: NOT added.** No spec had to be touched, because both host `rpc-surface.spec.ts` files
+  already pass after B10. Under the Option 1 rule:
+  - VS Code and Electron → **B17 live check**;
+  - CLI → the B11 reviewer's trace of `cli-engine/src/lib/container.ts`, plus the B17 live check.
 
 - PR: 1
 - Goal: register `CapabilityRpcHandlers` in both desktop hosts (NFR: both hosts surface the controls).
@@ -1174,7 +1215,7 @@ the trace.
   - **Budget: this is pending the orchestrator's lever decision** (see the running count). Without levers it
     takes PR 1 to 100.
 
-## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — IN_PROGRESS
+## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — COMPLETE (commit fb49b8621; cherry-picked from `f33e72f3e`)
 
 - PR: 1
 - Goal: C10 foundation. The store does an optimistic update and reverts on error. `CapabilityToggleComponent`
@@ -1196,12 +1237,12 @@ the trace.
   - C `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.spec.ts`
   - M `libs/frontend/marketplace/src/lib/shell/marketplace-shell.component.ts`
 
-### Task 13.1: Store — IN_PROGRESS
+### Task 13.1: Store — COMPLETE
 
 - Quality requirements: signals only. `setEnabled` is optimistic → reconcile with the returned entry, or revert
   and surface the error on failure. Unverified status → banner state with the paths (each bad item file named).
 
-### Task 13.2: Toggle control — IN_PROGRESS
+### Task 13.2: Toggle control — COMPLETE
 
 - Quality requirements:
   - OnPush.
@@ -1209,12 +1250,12 @@ the trace.
   - The ptah-OFF warning copy is AC-4.6: agent lanes, memory and browser become unavailable.
   - The accessible name includes the item name and the state.
 
-### Task 13.3: Enforcement labels and shell banner — IN_PROGRESS
+### Task 13.3: Enforcement labels and shell banner — COMPLETE
 
 - Validation notes: A-UI and R6. Labels are derived from `CAPABILITY_ENFORCEMENT` and never hard-coded, so the
   PR 2 flip needs no UI edit.
 
-## Batch 14: Server pages - toggles, scope, declarations and size (PR 1) — PENDING
+## Batch 14: Server pages - toggles, scope, declarations and size (PR 1) — COMPLETE (commit e303b8514; cherry-picked from `a02b31482`)
 
 - PR: 1
 - Goal: wire the toggle into the Installed servers rows and the server detail. The UI shows the scope label and
@@ -1251,7 +1292,32 @@ the trace.
   - The figure renders only when `schemaTokens` is present, labelled with the estimate method.
   - The ptah CLI proxy row shows "not enforced".
 
-## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — PENDING
+## Batch 14b: Show the install capabilityWarning (PR 1) — COMPLETE (commit 2828233a3)
+
+- PR: 1 (added 2026-09-26 by orchestrator decision, option a1 of the `capabilityWarning` lookup)
+- Goal: after an MCP install, a failed workspace-ON record (B11's `McpDirectoryInstallResult.capabilityWarning`)
+  is shown to the user, so a repository server is not left OFF without explanation.
+- Nx projects: `@ptah-extension/chat-ui`
+- Depends on: B11 (the optional shared field). It runs in the feature worktree AFTER B11 is committed there.
+- Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
+- Reviewers: code-logic-reviewer, code-style-reviewer (UI). They append to `reviews/code-review.md`.
+- ACs proved: AC-1.4 spirit (no silent partial state after install), N6 visibility
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat-ui --parallel=2`
+- Commit: `feat(chat-ui): batch 14b - show install capability warning` (the `chat-ui` scope is verified in
+  `.commitlintrc.json`)
+- Files (1 code):
+  - M `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts`
+- **Reviewer acceptance items:**
+  - Inside the `successes.length > 0` branch (`:500-508`), when `result.data.capabilityWarning` is present, show it
+    through the existing message surface (`error` signal, rendered at `:91-93`, `data-testid="mcp-error"`).
+  - The failure paths (`:510-521`, the catch at `:522-524`) are unchanged.
+  - A later per-target failure message still reports failures and is not masked by the warning. If both occur, the
+    reviewer confirms that the user sees the failure text; the warning must not replace a failure.
+  - No other file is edited, and no spec is added (option a1; there is no regression test by decision).
+- Carried to PR 2: option c, where the CLI prints `capabilityWarning` in `apps/ptah-cli/src/cli/commands/mcp.ts`
+  (`:244-258`), is added to **B21** (same `ptah-cli` project, +1 file there).
+
+## Batch 16: Webview e2e for Marketplace capability controls (PR 1) — IN_PROGRESS
 
 - PR: 1
 - Goal: C11 scenarios in the existing harness marketplace e2e location
@@ -1275,6 +1341,26 @@ the trace.
   - C `libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/capability-toggles.e2e.spec.ts` (P3)
 - Validation notes: R6. The "not enforced" assertions derive from fixture or constant data. The spec uses
   `installRpcAutoResponder` to fail `capabilities:setEnabled` for the revert case.
+- **Reviewer acceptance item (recorded 2026-09-26, from B14):** the e2e fixtures MUST answer
+  `capabilities:getState`. Otherwise the new "Use in sessions" panel on the servers page and the server detail
+  shows its error state, and every scenario that opens those surfaces asserts against an error panel. The
+  `capabilities:getEffective` and `capabilities:setEnabled` answers are required as well.
+- **Visual-spec finding (read-only check, 2026-09-26): NO baseline risk to the PR 1 file count.**
+  - `marketplace-visual.e2e.spec.ts` does not compare against baselines: there is no `toHaveScreenshot` or
+    `toMatchSnapshot` anywhere in the harness or in `apps/ptah-electron-e2e`, and the Playwright config has no
+    snapshot directory.
+  - It WRITES `shell.screenshot({path})` files to `OUT_DIR` =
+    `.ptah/specs/TASK_2026_533_marketplace_redesign/screenshots/angular/` (spec `:33-36`). That folder does not
+    exist in the repo, and no PNG is tracked under it.
+  - A new "Use in sessions" section therefore cannot fail that spec, and it changes no committed file.
+  - **Caveat:** that path is NOT git-ignored (`.gitignore:135` `!.ptah/specs/**` re-allows it). Running the full
+    harness e2e leaves about 10 untracked PNGs for servers and detail (installed-servers ×3 widths and
+    server-detail drawer/docked, per host), plus the shell and page shots, under TASK_2026_533's folder.
+  - The rules:
+    - B16 runs only `-- capability-toggles`, which does not run the visual spec.
+    - The team-leader stages explicit paths only, so these PNGs never enter the PR 1 diff.
+    - Anyone running the full harness deletes them afterwards.
+    - Retargeting `OUT_DIR` is out of scope.
 - **Reviewer acceptance item (budget fallback):**
   - The capability fixtures (the RPC responses for `capabilities:*`, and the entries for a repository server, an
     imported entry and an unverified policy) live INSIDE `capability-toggles.e2e.spec.ts`.
@@ -1282,7 +1368,7 @@ the trace.
     importing them from `./marketplace.fixtures`.
   - `marketplace.fixtures.ts` is NOT modified.
 
-## Batch 25: In-session skill list and spawned-agent plugins use the layered policy (PR 1) — PENDING
+## Batch 25: In-session skill list and spawned-agent plugins use the layered policy (PR 1) — IN_PROGRESS
 
 - PR: 1 (added at the P9 amendment; the id is out of sequence so earlier ids stay stable)
 - Goal: P9 G3 and G4. The code-execution `ptah.harness.searchSkills` and the plugin paths given to spawned agents
@@ -1324,7 +1410,11 @@ the trace.
     pass count and log volume over a few minutes of normal use;
   - (B8 cross-batch item) confirm on EACH host (VS Code, Electron, CLI) that `SDK_CAPABILITY_RESOLVER` is
     registered and that a skill toggle is followed by a harness pass whose health carries the new
-    `policyFingerprint`, so the harness policy sync actually runs.
+    `policyFingerprint`, so the harness policy sync actually runs;
+  - (B7 moderate #1 / B12: the DI-order invariant, with no spec added) on VS Code, Electron AND CLI, confirm that
+    the resolved `PluginLoaderService` has `SDK_CAPABILITY_GLOBAL_LAYER` injected after bootstrap. Live test: a
+    GLOBAL skill OFF with no workspace entry is absent from the next session and from the harness copies. For CLI,
+    also cite the B11 reviewer's `container.ts` trace.
 - Nx projects (full PR 1 regression): all PR 1 projects
 - Depends on: B1-B14, B16, B25
 - Recommended executor: senior-tester (+ visual-reviewer for the after screenshots) | Mode: sequential
@@ -1425,6 +1515,7 @@ the trace.
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p ptah-cli --parallel=2`
 - Commit: `feat(cli): batch 21 - filter proxy mcp tools by capability policy`
 - Files (2): M `apps/ptah-cli/src/services/proxy/workspace-mcp-collector.ts` (bypass at `:89-91`, cache at `:152-154`), M `.../workspace-mcp-collector.spec.ts`
+- Added 2026-09-26 (option c from PR 1): M `apps/ptah-cli/src/cli/commands/mcp.ts` (`:244-258`), which prints `result.capabilityWarning` after a successful `mcpDirectory:install`, so the CLI user also learns that the workspace-ON record failed. B21 becomes 3 files.
 
 ## Batch 22: Codex and OpenCode lane enforcement (PR 2) — PENDING
 
