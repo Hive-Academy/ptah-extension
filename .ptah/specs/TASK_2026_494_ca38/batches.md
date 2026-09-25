@@ -1,6 +1,6 @@
 # Batches - TASK_2026_494
 
-Total tasks: 20 | Batches: 20 | Complete: 3/20
+Total tasks: 20 | Batches: 20 | Complete: 13/20
 
 Source: `implementation-plan.md` Revision 2 (Gate 2 approved 2026-09-25), "Team-leader handoff" groups G1-G19, re-ordered
 where the code requires it (see Plan validation, defects D-1 to D-4). Branch `feat/task-494-apps-page` at `9afac1aa2`.
@@ -346,7 +346,7 @@ Edge cases:
 - Optional: a direct spec for applied -> "Sent"; the unreachable `read.value === undefined` branch at
   surface-view-model.ts:67.
 
-## Batch 7: Input components — IN_PROGRESS
+## Batch 7: Input components — COMPLETE
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -355,7 +355,7 @@ Edge cases:
 - Rationale: three sibling components with an exact behavioural spec (commit rules, a11y attributes).
 - Tasks: 1 | Depends on: Batch 6
 
-### Task 7.1: Text, choice and checkbox inputs — IMPLEMENTED
+### Task 7.1: Text, choice and checkbox inputs — COMPLETE
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`:
   `surface-text-input.component.ts` (+ spec), `surface-choice-input.component.ts` (+ spec),
@@ -371,8 +371,20 @@ Edge cases:
 ### Batch 7 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard`
+- Result: 3/3 green (the team-leader re-ran it with `--skip-nx-cache`). 12 suites, 125 tests. Lint: 0 errors.
+- Round 1:
+  - code-logic-reviewer 8/10 (code-logic-review-batch-7.md).
+  - codex lane 6/10 NEEDS_REVISION (code-logic-review-batch-7-codex.md): F1-F3.
+- Fix round 1 (batch-7-fix-1-report.md):
+  - F1: a consumed-draft marker.
+  - F2: stale typed text is dropped.
+  - F3: validation runs against the sanitized options.
+- Round 2, both APPROVED 8/10:
+  - code-logic-reviewer (code-logic-review-batch-7-round-2.md).
+  - codex lane (code-logic-review-batch-7-round-2-codex.md).
+- Carried to B8. These are listed in Task 8.1 validation notes.
 
-## Batch 8: Node, renderer, public API, trust boundary — PENDING
+## Batch 8: Node, renderer, public API, trust boundary — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -380,7 +392,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 7
 
-### Task 8.1: `SurfaceNodeComponent`, `SurfaceRendererComponent`, exports, `trust-boundary.spec.ts` — PENDING
+### Task 8.1: `SurfaceNodeComponent`, `SurfaceRendererComponent`, exports, `trust-boundary.spec.ts` — IN_PROGRESS
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `components/surface-node.component.ts`
   (+ spec), `components/surface-renderer.component.ts` (+ spec), `trust-boundary.spec.ts`; MODIFY
@@ -391,6 +403,17 @@ Edge cases:
   `renderFailed`; only `surface.submit` and `dashboard.select` are controls; no `innerHTML`, `bypassSecurityTrust`,
   `DomSanitizer`, `<iframe`, or `@ptah-extension/markdown` import.
 - Validation notes: R5 (node composes layout; verify no import cycle); R6 (scan of `mcp-apps-page/src` is vacuous now).
+- B6/B7 carry-overs (must be handled in B8):
+  - (a) The renderer writes every input `draftChange` (write and removal) into `viewState.drafts` synchronously, before
+    it passes the next `drafts` object. The B7 F2 stale guard depends on this. Install the pending overlay before the
+    committed draft is discarded.
+  - (b) Extract the label/error/issue helpers that the three input components duplicate into one shared helper.
+  - (c) Add a channel that surfaces host rejections of a commit to the input, so it is not a silent revert.
+  - (d) A throwing `SURFACE_VIEW_MODEL_BUILDER` and a default `renderFailed` behave identically.
+  - (e) Fix TS4029 at `dashboard-list.component.ts:81`, `dashboard-stat.component.ts:42` and
+    `dashboard-table.component.ts:95`.
+  - (f) `@for` tracking must stay correct when the document carries duplicate ids.
+  - (g) When a node is swapped to another component, the renderer removes the old draft entry.
 - Spec pins (trust boundary, R8): the 538 fixture rendered into surface title/description, section and card
   title/description, input label, option labels, placeholder, text description, action label, a bound data-model
   string in a text input, every v1 display text field, submit issue messages and `detail` notices — each literal,
@@ -544,7 +567,7 @@ Edge cases:
   materializing an empty slice.
 - Carried to B15 (N4): the composer keeps the draft text on a failed start and on a send-before-resolve.
 
-## Batch 13: UI mutations and submit flow — COMPLETE
+## Batch 13: UI mutations and submit flow — COMPLETE (commit a652f510c)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
