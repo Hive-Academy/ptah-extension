@@ -43,12 +43,16 @@ const fsp = require('fs/promises') as {
 import * as path from 'path';
 import {
   buildHarnessNamespace,
+  resolveEffectivePluginPaths,
   type HarnessNamespaceDependencies,
   type HarnessSkillsDirectory,
   type HarnessMcpRegistrySource,
   type HarnessMcpInstaller,
 } from './harness-namespace.builder';
-import type { SkillShEntry } from '@ptah-extension/shared';
+import {
+  CAPABILITY_POLICY_UNKNOWN_ERROR_NAME,
+  type SkillShEntry,
+} from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,9 +70,17 @@ type DiscoveredSkill = {
 };
 
 interface PluginLoaderMock {
-  resolveCurrentPluginPaths: jest.Mock;
+  getEffectivePluginConfig: jest.Mock;
   discoverSkillsForPlugins: jest.Mock;
-  getDisabledSkillIds: jest.Mock;
+}
+
+/** The error agent-sdk's loader throws on an unreadable policy, by name. */
+function policyUnknownError(): Error {
+  const error = new Error(
+    "Ptah couldn't read the capability policy: ~/.ptah/capabilities.json (EACCES)",
+  );
+  error.name = CAPABILITY_POLICY_UNKNOWN_ERROR_NAME;
+  return error;
 }
 
 interface McpRegistryMock {
@@ -94,6 +106,8 @@ function makeDeps(
     disabled?: string[];
     servers?: { servers: Array<{ name: string }>; next_cursor?: string };
     workspaceRoot?: string;
+    /** Session root for the policy read; pass `undefined` explicitly for "none". */
+    policyWorkspaceRoot?: string;
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
     mcpInstaller?: McpInstallerMock;
@@ -113,9 +127,12 @@ function makeDeps(
   const servers = overrides.servers ?? { servers: [] };
 
   const pluginLoader: PluginLoaderMock = {
-    resolveCurrentPluginPaths: jest.fn().mockReturnValue(['/p/one']),
+    getEffectivePluginConfig: jest.fn().mockResolvedValue({
+      config: { enabledPluginIds: [], disabledSkillIds: disabled },
+      fingerprint: 'fp',
+      overlayPluginPaths: ['/p/one'],
+    }),
     discoverSkillsForPlugins: jest.fn().mockReturnValue(skills),
-    getDisabledSkillIds: jest.fn().mockReturnValue(disabled),
   };
   const mcpRegistry: McpRegistryMock = {
     listServers: jest.fn().mockResolvedValue(servers),
@@ -134,6 +151,10 @@ function makeDeps(
     mcpInstaller: overrides.mcpInstaller,
     getWorkspaceRoot: () =>
       overrides.workspaceRoot === undefined ? 'D:/ws' : overrides.workspaceRoot,
+    getPolicyWorkspaceRoot: () =>
+      'policyWorkspaceRoot' in overrides
+        ? overrides.policyWorkspaceRoot
+        : 'D:/ws',
     broadcast,
     logger,
   };
@@ -453,8 +474,13 @@ describe('buildHarnessNamespace — searchSkills', () => {
       descriptorId: 'core:lint',
       invocationName: 'lint',
       sourceId: 'core',
-      invocability: 'invocable',
+      // Disabled by the layered policy, so it is not offered as invocable
+      // even though the loader's workspace-only scan stamped it 'invocable'.
+      invocability: 'not-invocable',
     });
+    expect(out.find((s) => s.skillId === 'test')?.invocability).toBe(
+      'invocable',
+    );
   });
 
   it('filters results case-insensitively across id/name/description', async () => {
@@ -477,15 +503,16 @@ describe('buildHarnessNamespace — searchSkills', () => {
     expect(out.every((s) => s.source === 'local')).toBe(true);
   });
 
-  it('discovers skills from resolveCurrentPluginPaths without rescanning the plugins dir', async () => {
-    // resolveCurrentPluginPaths() already unions enabled bundled plugins with
-    // the harness-authored ptah-harness-* dirs, so the namespace must pass it
+  it('discovers skills from the effective overlay without rescanning the plugins dir', async () => {
+    // The effective overlay already unions enabled bundled plugins with the
+    // harness-authored ptah-harness-* dirs, so the namespace must pass it
     // through verbatim rather than re-deriving harness paths from the fs.
     const { deps, pluginLoader } = makeDeps({ skills: sample });
-    pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
-      '/p/one',
-      '/home/.ptah/plugins/ptah-harness-foo',
-    ]);
+    pluginLoader.getEffectivePluginConfig.mockResolvedValue({
+      config: { enabledPluginIds: [], disabledSkillIds: [] },
+      fingerprint: 'fp',
+      overlayPluginPaths: ['/p/one', '/home/.ptah/plugins/ptah-harness-foo'],
+    });
 
     await buildHarnessNamespace(deps).searchSkills();
 
@@ -496,6 +523,207 @@ describe('buildHarnessNamespace — searchSkills', () => {
       '/home/.ptah/plugins/ptah-harness-foo',
     ]);
     expect(fsp.readdir).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------
+  // TASK_2026_560 P9 G3: the layered policy (workspace ?? global ?? default)
+  // governs the in-session skill list, read ONCE per call, and an unknown
+  // policy lists no local skill while the marketplace half is untouched.
+  // ---------------------------------------------------------------------
+
+  it('reads the layered policy once, for the session workspace root', async () => {
+    const { deps, pluginLoader } = makeDeps({
+      skills: sample,
+      workspaceRoot: 'D:/path-root',
+      policyWorkspaceRoot: 'D:/session-ws',
+    });
+
+    await buildHarnessNamespace(deps).searchSkills();
+
+    expect(pluginLoader.getEffectivePluginConfig).toHaveBeenCalledTimes(1);
+    expect(pluginLoader.getEffectivePluginConfig).toHaveBeenCalledWith(
+      'D:/session-ws',
+    );
+  });
+
+  it('reads the ACTIVE workspace policy (undefined root), never the home fallback, when no session workspace resolves', async () => {
+    // getWorkspaceRoot() falls back to the home directory, whose storage holds
+    // no policy; the policy read must get `undefined` instead, the same root
+    // source getPluginPaths uses.
+    const { deps, pluginLoader } = makeDeps({
+      skills: sample,
+      workspaceRoot: 'D:/home',
+      policyWorkspaceRoot: undefined,
+    });
+
+    await buildHarnessNamespace(deps).searchSkills();
+
+    expect(pluginLoader.getEffectivePluginConfig).toHaveBeenCalledTimes(1);
+    expect(pluginLoader.getEffectivePluginConfig).toHaveBeenCalledWith(
+      undefined,
+    );
+    expect(pluginLoader.getEffectivePluginConfig).not.toHaveBeenCalledWith(
+      'D:/home',
+    );
+  });
+
+  it('does not offer a globally-OFF skill as invocable', async () => {
+    // The workspace records nothing about 'lint'; the global OFF reaches only
+    // the layered config's disabledSkillIds. The loader's own workspace-only
+    // scan still stamps it 'invocable'.
+    const { deps, pluginLoader } = makeDeps({ skills: sample });
+    pluginLoader.getEffectivePluginConfig.mockResolvedValue({
+      config: { enabledPluginIds: [], disabledSkillIds: ['lint'] },
+      fingerprint: 'fp-global-off',
+      overlayPluginPaths: ['/p/one'],
+    });
+
+    const { skills: out } = await buildHarnessNamespace(deps).searchSkills();
+
+    expect(out.find((s) => s.skillId === 'lint')).toMatchObject({
+      isDisabled: true,
+      invocability: 'not-invocable',
+    });
+    expect(out.find((s) => s.skillId === 'test')).toMatchObject({
+      isDisabled: false,
+      invocability: 'invocable',
+    });
+  });
+
+  it('lists none of the skills of a globally-OFF opt-out plugin', async () => {
+    // A global OFF on an opt-out (harness-authored) plugin drops it from the
+    // effective overlay, so its directory is never scanned.
+    const harnessSkill: DiscoveredSkill = {
+      skillId: 'deploy',
+      descriptorId: 'ptah-harness-ops:deploy',
+      invocationName: 'deploy',
+      displayName: 'Deploy',
+      description: 'ships it',
+      pluginId: 'ptah-harness-ops',
+      sourceId: 'ptah-harness-ops',
+      invocability: 'invocable',
+    };
+    const { deps, pluginLoader } = makeDeps();
+    pluginLoader.getEffectivePluginConfig.mockResolvedValue({
+      config: {
+        enabledPluginIds: [],
+        disabledPluginIds: ['ptah-harness-ops'],
+        disabledSkillIds: [],
+      },
+      fingerprint: 'fp-plugin-off',
+      overlayPluginPaths: ['/p/one'],
+    });
+    pluginLoader.discoverSkillsForPlugins.mockImplementation(
+      (paths: string[]) => [
+        ...(paths.includes('/p/one') ? sample : []),
+        ...(paths.includes('/home/.ptah/plugins/ptah-harness-ops')
+          ? [harnessSkill]
+          : []),
+      ],
+    );
+
+    const { skills: out } = await buildHarnessNamespace(deps).searchSkills();
+
+    expect(pluginLoader.discoverSkillsForPlugins).toHaveBeenCalledWith([
+      '/p/one',
+    ]);
+    expect(out.some((s) => s.pluginId === 'ptah-harness-ops')).toBe(false);
+    expect(out.map((s) => s.skillId)).toEqual(['lint', 'test']);
+  });
+
+  it('lists no local skill on an unknown policy, logs why, and leaves the marketplace results unchanged', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => [
+        makeSkillShEntry({
+          skillId: 'lint-pro',
+          name: 'Lint Pro',
+          source: 'acme/skills',
+          installs: 7,
+        }),
+      ]),
+    };
+    const { deps, pluginLoader, logger } = makeDeps({
+      skills: sample,
+      skillsDirectory,
+    });
+    pluginLoader.getEffectivePluginConfig.mockRejectedValue(
+      policyUnknownError(),
+    );
+
+    const result = await buildHarnessNamespace(deps).searchSkills('lint');
+
+    // No local skill, and no workspace-only fallback scan.
+    expect(result.skills.some((s) => s.source === 'local')).toBe(false);
+    expect(pluginLoader.discoverSkillsForPlugins).not.toHaveBeenCalled();
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({
+        source: 'local',
+        status: 'failed',
+        count: 0,
+        error: expect.stringContaining('Capability policy is unknown'),
+      }),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Capability policy is unknown'),
+    );
+    // The marketplace half is exactly what it would be with a readable policy.
+    expect(skillsDirectory.search).toHaveBeenCalledWith('lint', 50);
+    expect(result.skills).toEqual([
+      expect.objectContaining({
+        skillId: 'lint-pro',
+        source: 'skills.sh',
+        installSource: 'acme/skills',
+        installs: 7,
+      }),
+    ]);
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({ source: 'skills.sh', status: 'ok', count: 1 }),
+    );
+    // Withheld local skills are a failure, never a clean empty answer.
+    expect(result.status).toBe('degraded');
+  });
+
+  it('marks the empty-query answer degraded when an unknown policy withholds local skills', async () => {
+    const { deps, pluginLoader } = makeDeps({ skills: sample });
+    pluginLoader.getEffectivePluginConfig.mockRejectedValue(
+      policyUnknownError(),
+    );
+
+    const result = await buildHarnessNamespace(deps).searchSkills();
+
+    expect(result.skills).toEqual([]);
+    expect(result.status).toBe('degraded');
+  });
+
+  it('treats any other policy read failure restrictively: no local skill, logged, marketplace untouched', async () => {
+    const skillsDirectory: SkillsDirectoryMock = {
+      search: jest.fn(async () => [makeSkillShEntry({ skillId: 'lint-pro' })]),
+    };
+    const { deps, pluginLoader, logger } = makeDeps({
+      skills: sample,
+      skillsDirectory,
+    });
+    pluginLoader.getEffectivePluginConfig.mockRejectedValue(
+      new Error('storage disposed'),
+    );
+
+    const result = await buildHarnessNamespace(deps).searchSkills('lint');
+
+    expect(result.skills.map((s) => `${s.source}:${s.skillId}`)).toEqual([
+      'skills.sh:lint-pro',
+    ]);
+    expect(pluginLoader.discoverSkillsForPlugins).not.toHaveBeenCalled();
+    expect(result.sources).toContainEqual(
+      expect.objectContaining({
+        source: 'local',
+        status: 'failed',
+        error: expect.stringContaining('storage disposed'),
+      }),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Capability policy could not be read'),
+    );
+    expect(result.status).toBe('degraded');
   });
 
   it('merges skills.sh results tagged source="skills.sh" with install metadata', async () => {
@@ -722,6 +950,97 @@ describe('buildHarnessNamespace — searchSkills', () => {
 
     expect(skillsDirectory.search).toHaveBeenCalledWith('x', 25);
     expect(result.hasMore).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveEffectivePluginPaths — the body of PtahAPIBuilder's `getPluginPaths`,
+// the plugin paths handed to a spawned agent (TASK_2026_560 P9 G4)
+// ---------------------------------------------------------------------------
+
+describe('resolveEffectivePluginPaths (spawned-agent getPluginPaths)', () => {
+  function makeLoader(effective: {
+    enabledPluginIds: string[];
+    disabledPluginIds?: string[];
+  }) {
+    return {
+      getEffectivePluginConfig: jest.fn().mockResolvedValue({
+        config: { ...effective, disabledSkillIds: [] },
+        fingerprint: 'fp',
+        overlayPluginPaths: [],
+      }),
+      resolvePluginPaths: jest.fn((ids: string[]) =>
+        ids.map((id) => `/plugins/${id}`),
+      ),
+    };
+  }
+
+  it("passes a globally-ON opt-in plugin's path to the spawned agent", async () => {
+    // The workspace records nothing about 'ptah-angular'; only the global ON
+    // puts it in the layered enabledPluginIds.
+    const loader = makeLoader({ enabledPluginIds: ['ptah-angular'] });
+    const logger = { warn: jest.fn() };
+
+    const paths = await resolveEffectivePluginPaths(loader, 'D:/ws', logger);
+
+    expect(loader.getEffectivePluginConfig).toHaveBeenCalledWith('D:/ws');
+    expect(loader.resolvePluginPaths).toHaveBeenCalledWith(
+      ['ptah-angular'],
+      'D:/ws',
+    );
+    expect(paths).toEqual(['/plugins/ptah-angular']);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a plugin the layered config also disables out of the agent', async () => {
+    const loader = makeLoader({
+      enabledPluginIds: ['ptah-angular', 'ptah-react'],
+      disabledPluginIds: ['ptah-react'],
+    });
+
+    const paths = await resolveEffectivePluginPaths(loader, 'D:/ws', {
+      warn: jest.fn(),
+    });
+
+    expect(paths).toEqual(['/plugins/ptah-angular']);
+  });
+
+  it('returns undefined when no plugin is enabled', async () => {
+    const loader = makeLoader({ enabledPluginIds: [] });
+
+    const paths = await resolveEffectivePluginPaths(loader, 'D:/ws', {
+      warn: jest.fn(),
+    });
+
+    expect(paths).toBeUndefined();
+    expect(loader.resolvePluginPaths).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined (restrictive) and logs when the policy is unknown', async () => {
+    const loader = makeLoader({ enabledPluginIds: ['ptah-angular'] });
+    loader.getEffectivePluginConfig.mockRejectedValue(policyUnknownError());
+    const logger = { warn: jest.fn() };
+
+    const paths = await resolveEffectivePluginPaths(loader, 'D:/ws', logger);
+
+    expect(paths).toBeUndefined();
+    expect(loader.resolvePluginPaths).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Capability policy is unknown'),
+    );
+  });
+
+  it('returns undefined and logs when path resolution throws, never failing the spawn', async () => {
+    const loader = makeLoader({ enabledPluginIds: ['ptah-angular'] });
+    loader.resolvePluginPaths.mockImplementation(() => {
+      throw new Error('EPERM');
+    });
+    const logger = { warn: jest.fn() };
+
+    await expect(
+      resolveEffectivePluginPaths(loader, undefined, logger),
+    ).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('EPERM'));
   });
 });
 

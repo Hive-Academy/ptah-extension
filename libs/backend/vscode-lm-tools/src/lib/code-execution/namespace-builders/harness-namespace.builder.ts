@@ -24,11 +24,13 @@ import {
   HARNESS_PLUGIN_ID_PREFIX,
   MESSAGE_TYPES,
   buildSkillDescriptorId,
+  isCapabilityPolicyUnknownError,
   workspacePluginsDir,
   type HarnessConfig,
   type McpInstallResult,
   type McpInstallTarget,
   type McpServerConfig,
+  type PluginConfigState,
   type SkillShEntry,
 } from '@ptah-extension/shared';
 
@@ -266,11 +268,86 @@ export interface HarnessMcpServerResult {
 }
 
 /**
+ * The layered skill/plugin policy for one workspace: the workspace config with
+ * the global layer beneath it, its fingerprint, and the overlay it implies,
+ * from ONE snapshot (TASK_2026_560).
+ *
+ * A structural mirror of agent-sdk's `EffectivePluginConfig`; this lib must not
+ * import the agent-sdk class, so the shape is restated with the fields read
+ * here.
+ */
+export interface EffectivePluginConfigLike {
+  config: Pick<
+    PluginConfigState,
+    'enabledPluginIds' | 'disabledPluginIds' | 'disabledSkillIds'
+  >;
+  fingerprint: string;
+  overlayPluginPaths: string[];
+}
+
+/**
+ * The plugin-loader surface that reads the layered policy.
+ *
+ * `getEffectivePluginConfig` is the ONLY policy read a session-affecting caller
+ * may use. The loader's synchronous `resolveCurrentPluginPaths` and
+ * `getDisabledSkillIds` read the WORKSPACE layer only, so a global OFF on an
+ * opt-out plugin or a default-ON skill never reaches them.
+ *
+ * Rejects with an error `isCapabilityPolicyUnknownError` recognises when either
+ * layer cannot be read.
+ */
+export interface EffectivePluginPolicySource {
+  getEffectivePluginConfig(
+    workspaceRoot?: string,
+  ): Promise<EffectivePluginConfigLike>;
+}
+
+/**
+ * Plugin paths a spawned agent loads: the opt-in plugins the LAYERED policy
+ * turns on, so a global ON reaches the agent even when the workspace records
+ * nothing about the plugin.
+ *
+ * Restrictive on every failure: when the policy cannot be read (unknown, or any
+ * other rejection) or the paths cannot be resolved, the agent gets no plugin
+ * paths rather than a guess, and the reason is logged. `undefined` means "no
+ * plugins", matching the agent namespace's contract; a failure here never
+ * blocks the spawn itself.
+ */
+export async function resolveEffectivePluginPaths(
+  pluginLoader: EffectivePluginPolicySource & {
+    resolvePluginPaths(pluginIds: string[], workspaceRoot?: string): string[];
+  },
+  workspaceRoot: string | undefined,
+  logger: { warn(msg: string): void },
+): Promise<string[] | undefined> {
+  try {
+    const { config } =
+      await pluginLoader.getEffectivePluginConfig(workspaceRoot);
+    // A workspace-enabled id the layered config also records as disabled
+    // stays off, the same filter the loader applies when it builds the
+    // overlay.
+    const disabled = new Set(config.disabledPluginIds ?? []);
+    const enabledIds = config.enabledPluginIds.filter(
+      (id) => !disabled.has(id),
+    );
+    if (enabledIds.length === 0) return undefined;
+    return pluginLoader.resolvePluginPaths(enabledIds, workspaceRoot);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      isCapabilityPolicyUnknownError(error)
+        ? `[Harness] Capability policy is unknown; the spawned agent gets no plugins: ${message}`
+        : `[Harness] Plugin paths for the spawned agent could not be resolved; it gets no plugins: ${message}`,
+    );
+    return undefined;
+  }
+}
+
+/**
  * Dependencies required to build the harness namespace.
  */
 export interface HarnessNamespaceDependencies {
-  pluginLoader: {
-    resolveCurrentPluginPaths(): string[];
+  pluginLoader: EffectivePluginPolicySource & {
     discoverSkillsForPlugins(pluginPaths: string[]): Array<{
       skillId: string;
       descriptorId: string;
@@ -281,7 +358,6 @@ export interface HarnessNamespaceDependencies {
       sourceId: string;
       invocability: 'invocable' | 'not-invocable' | 'unknown';
     }>;
-    getDisabledSkillIds(): string[];
   };
   mcpRegistry: HarnessMcpRegistrySource;
   skillsDirectory?: HarnessSkillsDirectory;
@@ -292,6 +368,14 @@ export interface HarnessNamespaceDependencies {
    */
   mcpInstaller?: HarnessMcpInstaller;
   getWorkspaceRoot: () => string;
+  /**
+   * The workspace whose capability policy applies: the session's root, or
+   * `undefined` when none resolves so the loader reads the ACTIVE workspace.
+   * Separate from {@link getWorkspaceRoot}, whose home-directory fallback
+   * names a workspace with no stored policy and would silently drop the
+   * workspace layer.
+   */
+  getPolicyWorkspaceRoot: () => string | undefined;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
     info(msg: string): void;
@@ -408,6 +492,7 @@ export function buildHarnessNamespace(
     smitheryRegistry,
     mcpInstaller,
     getWorkspaceRoot,
+    getPolicyWorkspaceRoot,
     broadcast,
     logger,
   } = deps;
@@ -423,25 +508,50 @@ export function buildHarnessNamespace(
         MAX_SKILLS_LIMIT,
       );
       const remoteOffset = Math.max(Math.trunc(offset ?? 0), 0);
-      // resolveCurrentPluginPaths() already unions the enabled bundled plugins
-      // with every harness-authored ptah-harness-* directory, so no ad-hoc
-      // merge is needed here.
-      const pluginPaths = pluginLoader.resolveCurrentPluginPaths();
-      const allSkills = pluginLoader.discoverSkillsForPlugins(pluginPaths);
-      const disabledIds = new Set(pluginLoader.getDisabledSkillIds());
 
-      const localResults: HarnessSkillResult[] = allSkills.map((skill) => ({
-        skillId: skill.skillId,
-        descriptorId: skill.descriptorId,
-        invocationName: skill.invocationName,
-        displayName: skill.displayName,
-        description: skill.description,
-        pluginId: skill.pluginId,
-        sourceId: skill.sourceId,
-        isDisabled: disabledIds.has(skill.skillId),
-        source: 'local',
-        invocability: skill.invocability,
-      }));
+      // The LAYERED policy, read once: its overlay (enabled opt-in plugins
+      // plus every opt-out plugin nobody turned off, globally or here) picks
+      // the plugins scanned, and its disabled ids mark the skills that are off.
+      // A policy that cannot be read lists NO local skill — unknown is never
+      // answered as "nothing is off" — and the marketplace half still runs.
+      let effective: EffectivePluginConfigLike | null = null;
+      let localFailure: string | null = null;
+      try {
+        effective = await pluginLoader.getEffectivePluginConfig(
+          getPolicyWorkspaceRoot(),
+        );
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        localFailure = isCapabilityPolicyUnknownError(error)
+          ? `Capability policy is unknown, so no local skill is listed: ${message}`
+          : `Capability policy could not be read, so no local skill is listed: ${message}`;
+        logger.warn(`[Harness] searchSkills: ${localFailure}`);
+      }
+
+      const localResults: HarnessSkillResult[] = [];
+      if (effective !== null) {
+        const disabledIds = new Set(effective.config.disabledSkillIds);
+        for (const skill of pluginLoader.discoverSkillsForPlugins(
+          effective.overlayPluginPaths,
+        )) {
+          const isDisabled = disabledIds.has(skill.skillId);
+          localResults.push({
+            skillId: skill.skillId,
+            descriptorId: skill.descriptorId,
+            invocationName: skill.invocationName,
+            displayName: skill.displayName,
+            description: skill.description,
+            pluginId: skill.pluginId,
+            sourceId: skill.sourceId,
+            isDisabled,
+            source: 'local',
+            // The loader stamps invocability from the WORKSPACE layer alone,
+            // so a global OFF would still read 'invocable'; the layered
+            // disabled set overrides it.
+            invocability: isDisabled ? 'not-invocable' : skill.invocability,
+          });
+        }
+      }
 
       const trimmedQuery = query?.trim() ?? '';
       const filteredLocal =
@@ -457,7 +567,14 @@ export function buildHarnessNamespace(
             });
 
       const sources: HarnessSourceReport[] = [
-        { source: 'local', status: 'ok', count: filteredLocal.length },
+        localFailure === null
+          ? { source: 'local', status: 'ok', count: filteredLocal.length }
+          : {
+              source: 'local',
+              status: 'failed',
+              count: 0,
+              error: localFailure,
+            },
       ];
 
       if (trimmedQuery.length === 0 || !skillsDirectory) {
@@ -474,8 +591,9 @@ export function buildHarnessNamespace(
           skills: filteredLocal,
           count: filteredLocal.length,
           // A source that was never consulted is not a failure — the caller
-          // asked for local skills and got every one of them.
-          status: 'ok',
+          // asked for local skills and got every one of them, unless the
+          // policy read failed and withheld them.
+          status: localFailure === null ? 'ok' : 'degraded',
           sources,
           offset: remoteOffset,
           limit: remoteLimit,
@@ -560,7 +678,8 @@ export function buildHarnessNamespace(
       return {
         skills,
         count: skills.length,
-        status: remoteFailure === null ? 'ok' : 'degraded',
+        status:
+          remoteFailure === null && localFailure === null ? 'ok' : 'degraded',
         sources,
         offset: page?.offset ?? remoteOffset,
         limit: page?.limit ?? remoteLimit,
