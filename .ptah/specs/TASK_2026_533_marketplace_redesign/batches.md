@@ -3,8 +3,8 @@
 Total tasks: 65 | Batches: 30 | Complete: 29/30
 
 Complete: Batches 1, 2, 3, 4, 5, 6, 7a, 7b, 7c, 7d, 8, 9, 10, 11, 12, 12b, 13, 14, 15, 16, 17 (+17a), 18, 18b (folded into 18), 19, 20, 21, 22, 23, 24 (+24a).
-In progress: none.
-In progress: none. Next launchable: Batch 25 (all dependencies COMPLETE).
+Batch 25a (product fix found by Batch 25) COMPLETE (838d22c51).
+In progress: Batch 25 (revise round 1 applied; item 7 and re-review running).
 
 Rebase 2 (2026-09-24, after Batch 18): `main` gained 9 commits (PR #594 merged, incl. the split-handle `sizeReset` lint fix). The branch was rebased onto `origin/main` `0760a0525` with no conflict (backup `task533-backup-pre-rebase2` = `43248ca81`; Batch 18 is now `9cc7f7de6`, its records `ea3ff3b94`). `lint,typecheck,test` green for core, chat, chat-ui, marketplace, ui, dashboard, ptah-extension-webview (7 projects).
 
@@ -1292,3 +1292,11 @@ Edge cases:
 - Workspace switch with a Marketplace detail open (TASK_2026_540 remount): after the switch the URL is unchanged, the shell and stores are re-created, and a detail whose ref is gone renders "Not found" (or closes to the list) while a still-present one re-renders.
 - Real-host tier check (from Batch 3 review): in a real host build, resize the container across 900 and 1400 WITHOUT any manual change detection and assert the tier flips (rail ↔ sidebar, drawer ↔ docked detail). Belongs in `marketplace-routes.e2e.spec.ts` (Task 25.1).
 - Reviewer: visual-reviewer (rendered interface parity), after senior-tester's run is green
+
+### Batch 25a: Lock-popover stacking fix and order-dependent specs — COMPLETE (838d22c51)
+
+- Found by Batch 25 (round 0): on a blocked provider row that is not the last row, the next row painted over the removal-lock popover and took its clicks (Copy included). Split out as a product batch so Batch 25 stays test-only.
+- Result: commit 838d22c51 fix(marketplace,e2e). Cause: the table action cell (`provider-table.component.ts:444` at base) and the card action wrapper (`provider-card-list.component.ts:220`) were `relative z-10`, so each formed a stacking context and the popover's `z-50` (fixed, no portal) only counted inside its own row. In the card list the hover lift (`transform`) also stayed on while the popover backdrop kept the card hovered, which trapped the panel and shrank the backdrop to the card (310×93.6 px vs 400×900). Fix, marketplace only (`@ptah-extension/ui` unchanged): `z-10` removed from both wrappers (they stay above the row-wide name click area by document order); the card lift is off while a control in the card is expanded (`has-[[aria-expanded=true]]:transform-none` + `transition-none`); reduced-motion hover uses `transform-none` (an identity translate still forms a stacking context). NEW `lock-popover-stacking.e2e.spec.ts` (table 1100 px, cards 400 px; 5×5 `elementFromPoint` grid over the panel, real Copy click with clipboard check, full-viewport backdrop for cards): 2 failed on the base components, 2 passed after.
+- Order-dependent specs: `overview-page.component.spec.ts` and `connectors-page.component.spec.ts` — no shared-state leak; under `--randomize` the first test paid the one-time page template compile and passed the 5 s jest limit under load (up to 6798 ms). Each spec now renders its page once in a `beforeAll` warm-up (30 s budget); no per-test timeout raised. 20/20 randomized runs each (seeds in `batch-25a-evidence/after-randomize.log`); 10-process load test 0/40 failures (was 3/40).
+- Executor frontend-developer `fe-b25a` in worktree `task533-b25a` (base `b54f9399d`; resumed from a rate-limited predecessor's partial work). `lint,typecheck,test -p @ptah-extension/marketplace @ptah-extension/webview-e2e-harness` green in TASK_WT (2 projects; marketplace 64 suites / 1323 tests in the executor run). Reviews: logic APPROVED (0 blocking; stacking chain, daisyUI `.table`, Tailwind cascade order and the before/after logs checked independently), style APPROVED 9/10. Report `batch-25a-report.md` and `batch-25a-evidence/` (untracked). Worktree and branch removed.
+- Follow-ups: two open removal-lock badges in different rows are not mutually exclusive (pre-existing); the warm-up covers only the branches that timed out — other `RouterTestingHarness` page specs (e.g. `installed-servers-page.component.spec.ts`) may show the same first-test cost under load; the reduced-motion `transform-none` reason lives only in the report, not in a source comment.
