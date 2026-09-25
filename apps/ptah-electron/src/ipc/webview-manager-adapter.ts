@@ -40,14 +40,39 @@ export class ElectronWebviewManagerAdapter {
    * @param _viewType - Ignored in Electron (single window)
    * @param type - Message type (e.g., MESSAGE_TYPES.CHAT_CHUNK)
    * @param payload - Message payload
+   * @returns true when the IpcBridge handed the event to `webContents.send`
+   *   or queued it as a batched stream event, false when it was dropped or
+   *   the bridge threw.
    */
   async sendMessage(
     _viewType: string,
     type: string,
     payload: unknown,
   ): Promise<boolean> {
-    this.ipcBridge.sendToRenderer({ type, payload });
-    return true;
+    try {
+      return this.ipcBridge.sendToRenderer({ type, payload });
+    } catch {
+      // degradation-audit: reported - false is the delivery outcome;
+      // createDashboardBroadcast reports it as a failed or partial delivery.
+      // A throw can only mean a destroyed-window race inside the bridge; the
+      // honest delivery answer is "not delivered", not a rejection that
+      // escapes into the caller's error handler.
+      return false;
+    }
+  }
+
+  /**
+   * Enumerate the surfaces events can be pushed to.
+   *
+   * VS Code tracks real webview panels; Electron has exactly one renderer —
+   * the BrowserWindow — so the surface list is `['ptah.main']` only while
+   * that window exists and is alive, and empty otherwise. Returning `[]`
+   * rather than pretending the window is there is what lets
+   * `createDashboardBroadcast` report `no-surface` (a success) instead of a
+   * failed send against a window that is not there.
+   */
+  getActiveWebviews(): readonly string[] {
+    return this.ipcBridge.hasLiveRenderer() ? ['ptah.main'] : [];
   }
 
   /**

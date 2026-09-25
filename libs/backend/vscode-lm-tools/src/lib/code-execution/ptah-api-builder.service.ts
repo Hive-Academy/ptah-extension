@@ -89,6 +89,7 @@ import {
   buildCodeNamespace,
   buildDashboardNamespace,
   createDashboardBroadcast,
+  buildSurfaceNamespace,
   buildHarnessNamespace,
   buildTasksNamespace,
   type TaskSpecWriterLike,
@@ -119,6 +120,11 @@ import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
   DiagnosticsCacheInvalidator,
 } from '../diagnostics/diagnostics-cache-invalidator.service';
+import { VSCODE_LM_TOOLS_TOKENS } from '../di/tokens';
+import {
+  createDashboardSurfaceBridge,
+  type SurfaceStateService,
+} from '../surface';
 
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
@@ -466,6 +472,14 @@ export class PtahAPIBuilder {
      */
     @inject(DIAGNOSTICS_CACHE_INVALIDATOR)
     diagnosticsCacheInvalidator: DiagnosticsCacheInvalidator,
+
+    /**
+     * Host-owned surface state (TASK_2026_538). Optional and last so every
+     * existing positional construction still compiles; absent means v2 tools
+     * report `unavailable` and v1 proposals keep the direct webview broadcast.
+     */
+    @inject(VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE, { isOptional: true })
+    private readonly surfaceStateService?: SurfaceStateService,
   ) {
     diagnosticsCacheInvalidator.start();
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
@@ -837,19 +851,25 @@ export class PtahAPIBuilder {
         // Captured exactly as the harness namespace above does it: the
         // callback outlives this call and must not re-read the field.
         const webviewManager = this.webviewManager;
+        const surfaceStateService = this.surfaceStateService;
         return buildDashboardNamespace({
-          // `createDashboardBroadcast` owns the delivery semantics and its
-          // own doc comment explains why `void broadcastMessage(...)` was
-          // wrong here (TASK_2026_493 revision 1, finding 2). Absent manager
-          // is a `no-surface` SUCCESS, not a failure: the CLI host has no
-          // webview and the tool's plain-text result is the whole answer.
-          broadcast: createDashboardBroadcast(
-            () => webviewManager,
-            this.logger,
-          ),
+          // With the surface service, v1 proposals are stored per session and
+          // pushed as `surface:updated` (plan Component 11). Without it
+          // (defensive), `createDashboardBroadcast` keeps the pre-538 direct
+          // `dashboard:spec-proposed` push so v1 never regresses; an absent
+          // manager there is a `no-surface` SUCCESS (TASK_2026_493 rev. 1).
+          broadcast: surfaceStateService
+            ? createDashboardSurfaceBridge(surfaceStateService)
+            : createDashboardBroadcast(() => webviewManager, this.logger),
           logger: this.logger,
         });
       }),
+      surface: this.buildNamespaceSafe('surface', () =>
+        buildSurfaceNamespace({
+          service: this.surfaceStateService,
+          logger: this.logger,
+        }),
+      ),
       help: buildHelpMethod(),
     };
   }

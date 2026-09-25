@@ -236,7 +236,7 @@ const childrenField = () =>
     .optional();
 
 /** Exactly one of two data sources must be present. */
-function requireOneDataSource(
+export function requireOneDataSource(
   ctx: z.RefinementCtx,
   inline: unknown,
   reference: unknown,
@@ -276,7 +276,7 @@ const chartShape = {
 };
 
 /** Shared chart checks: one data source, and the per-chart point budget. */
-function checkChart(
+export function checkChart(
   chart: {
     readonly series?: readonly DashboardSeries[];
     readonly data?: unknown;

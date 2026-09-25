@@ -365,19 +365,20 @@ async function handleHttpRequest(
         return;
       }
 
-      const mcpRequest = parsed as unknown as MCPRequest;
-      const callerSessionId = extractCallerSessionId(req.url);
-      if (callerSessionId) {
-        mcpRequest._callerSessionId = callerSessionId;
-      }
-      const callerAgentId = extractCallerAgentId(req.url);
-      if (callerAgentId) {
-        mcpRequest._callerAgentId = callerAgentId;
-      }
-      const callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
-      if (callerWorkspaceRoot) {
-        mcpRequest._callerWorkspaceRoot = callerWorkspaceRoot;
-      }
+      // Caller identity is transport-owned (TASK_2026_538 review F1): the
+      // reserved `_caller*` fields are dropped from the body and set ONLY from
+      // the URL, unconditionally — `undefined` when the URL carries none — so
+      // a body can never forge a session, agent or workspace scope.
+      const {
+        _callerSessionId: _ignoredBodySession,
+        _callerAgentId: _ignoredBodyAgent,
+        _callerWorkspaceRoot: _ignoredBodyWorkspace,
+        ...envelope
+      } = parsed;
+      const mcpRequest = envelope as unknown as MCPRequest;
+      mcpRequest._callerSessionId = extractCallerSessionId(req.url);
+      mcpRequest._callerAgentId = extractCallerAgentId(req.url);
+      mcpRequest._callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
 
       const mcpResponse = await onMCPRequest(mcpRequest);
 

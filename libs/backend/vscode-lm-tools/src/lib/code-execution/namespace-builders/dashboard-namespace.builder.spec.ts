@@ -564,3 +564,157 @@ describe('buildDashboardNamespace › the byte budget is measured here', () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
 });
+
+describe('createDashboardBroadcast > hardened v1 and v2 delivery', () => {
+  const payload: DashboardSpecProposedPayload = {
+    spec: makeDashboardSpec(),
+    toolCallId: 'call-hardened',
+  };
+  const surfacePayload = {
+    routingId: 'session-7',
+    surfaceId: 'surface-1',
+    revision: 2,
+    origin: 'agent',
+    change: { kind: 'ops', fromRevision: 1, ops: [] },
+    toolCallId: 'call-surface',
+    operationId: 'mcp:call-surface',
+  } as const;
+  const logger = { debug: jest.fn() };
+
+  it.each(['throws', 'rejects'] as const)(
+    'reports failed without an unhandled rejection when sendMessage %s',
+    async (failure) => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const host: DashboardSurfaceHost = {
+          getActiveWebviews: () => ['sidebar'],
+          sendMessage: () => {
+            if (failure === 'throws') throw new Error('disposed');
+            return Promise.reject(new Error('channel closed'));
+          },
+        };
+        const broadcast = createDashboardBroadcast(() => host, logger);
+
+        await expect(
+          broadcast(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED, payload),
+        ).resolves.toEqual({
+          status: 'failed',
+          delivered: 0,
+          surfaces: 1,
+          reason: '1 of 1 attached surface(s) did not accept the spec',
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    },
+  );
+
+  it('attempts every surface and reports partial delivery after throws and rejections', async () => {
+    const attempted: string[] = [];
+    const host: DashboardSurfaceHost = {
+      getActiveWebviews: () => ['throws', 'rejects', 'delivered', 'refused'],
+      sendMessage: (viewType) => {
+        attempted.push(viewType);
+        if (viewType === 'throws') throw new Error('disposed');
+        if (viewType === 'rejects') return Promise.reject(new Error('closed'));
+        return Promise.resolve(viewType === 'delivered');
+      },
+    };
+    const broadcast = createDashboardBroadcast(() => host, logger);
+
+    await expect(
+      broadcast(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED, payload),
+    ).resolves.toEqual({
+      status: 'failed',
+      delivered: 1,
+      surfaces: 4,
+      reason: '3 of 4 attached surface(s) did not accept the spec',
+    });
+    expect(attempted).toEqual(['throws', 'rejects', 'delivered', 'refused']);
+  });
+
+  it.each([new Error('enumeration failed'), 'enumeration failed'])(
+    'returns the error text when enumeration throws %p',
+    async (error: unknown) => {
+      const sendMessage = jest.fn(async () => true);
+      const host: DashboardSurfaceHost = {
+        getActiveWebviews: () => {
+          throw error;
+        },
+        sendMessage,
+      };
+      const broadcast = createDashboardBroadcast(() => host, logger);
+
+      await expect(
+        broadcast(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED, payload),
+      ).resolves.toEqual({
+        status: 'failed',
+        delivered: 0,
+        surfaces: 0,
+        reason: 'enumeration failed',
+      });
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it('delivers two back-to-back revision pushes to each host surface in call order', async () => {
+    const sendMessage = jest.fn(async () => true);
+    const host: DashboardSurfaceHost = {
+      getActiveWebviews: () => ['sidebar', 'panel'],
+      sendMessage,
+    };
+    const broadcast = createDashboardBroadcast(() => host, logger);
+    const nextPayload = {
+      ...surfacePayload,
+      revision: 3,
+      change: { kind: 'ops', fromRevision: 2, ops: [] },
+    } as const;
+
+    const first = broadcast(MESSAGE_TYPES.SURFACE_UPDATED, surfacePayload);
+    const second = broadcast(MESSAGE_TYPES.SURFACE_UPDATED, nextPayload);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { status: 'delivered', surfaces: 2 },
+      { status: 'delivered', surfaces: 2 },
+    ]);
+    expect(sendMessage.mock.calls).toEqual([
+      ['sidebar', MESSAGE_TYPES.SURFACE_UPDATED, surfacePayload],
+      ['panel', MESSAGE_TYPES.SURFACE_UPDATED, surfacePayload],
+      ['sidebar', MESSAGE_TYPES.SURFACE_UPDATED, nextPayload],
+      ['panel', MESSAGE_TYPES.SURFACE_UPDATED, nextPayload],
+    ]);
+  });
+
+  it('delivers SURFACE_UPDATED with the original payload', async () => {
+    const sendMessage = jest.fn(async () => true);
+    const host: DashboardSurfaceHost = {
+      getActiveWebviews: () => ['ptah.main'],
+      sendMessage,
+    };
+    const broadcast = createDashboardBroadcast(() => host, logger);
+
+    await expect(
+      broadcast(MESSAGE_TYPES.SURFACE_UPDATED, surfacePayload),
+    ).resolves.toEqual({ status: 'delivered', surfaces: 1 });
+    expect(sendMessage).toHaveBeenCalledWith(
+      'ptah.main', MESSAGE_TYPES.SURFACE_UPDATED, surfacePayload,
+    );
+  });
+});
+
+describe('createDashboardBroadcast with a throwing logger', () => {
+  it('keeps no-host classified as no-surface after debug throws', async () => {
+    const debug = jest.fn(() => { throw new Error('log channel closed'); });
+    const broadcast = createDashboardBroadcast(() => undefined, { debug });
+    await expect(broadcast(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED, {
+      spec: makeDashboardSpec(), sessionId: 'tab-a', toolCallId: 'call-1',
+    })).resolves.toEqual({ status: 'no-surface' });
+    expect(debug).toHaveBeenCalledTimes(1);
+  });
+});

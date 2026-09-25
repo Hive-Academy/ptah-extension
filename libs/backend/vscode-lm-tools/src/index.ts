@@ -82,3 +82,49 @@ export type {
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 export { registerVsCodeLmToolsServices } from './lib/di';
+
+// Surface delivery and state tokens
+export {
+  createDashboardBroadcast,
+  type DashboardSurfaceHost,
+  type DashboardPushType,
+} from './lib/code-execution/namespace-builders/dashboard-namespace.builder';
+export { VSCODE_LM_TOOLS_TOKENS } from './lib/di';
+export {
+  SurfaceStateService,
+  type SurfacePushHostProvider,
+  type SurfaceAgentUpdateResult,
+  type SurfaceMutationOutcome,
+  type SurfaceSubmitBegin,
+  type SurfaceSubmitTicket,
+  type SurfaceSubmitDispatchOutcome,
+  type SurfaceChangeRequest,
+  type SurfaceSelectRequest,
+  type SurfaceSubmitRequest,
+  type SurfaceOperationStatusResult,
+  type SurfaceActionResolution,
+  type SurfaceStoreReadResult,
+  type SurfaceAgentReadResult,
+} from './lib/surface';
+// TASK_2026_538 Batch 14 revision 1: the real MCP entry points for the
+// surface tools, so a host-composition test can drive the actual namespace
+// and tool-call mapping instead of calling SurfaceStateService directly.
+// Only PtahAPIBuilder and the MCP dispatcher construct these in production;
+// exporting them does not add a second entry point for the contract itself
+// (that stays behind `@ptah-extension/shared/mcp-apps-contracts`).
+export {
+  buildSurfaceNamespace,
+  type SurfaceNamespace,
+  type SurfaceCaller,
+  type SurfaceUpdateOutcome,
+  type SurfaceGetStateOutcome,
+} from './lib/code-execution/namespace-builders/surface-namespace.builder';
+export {
+  handleSurfaceToolCall,
+  type SurfaceToolReply,
+  type SurfaceToolName,
+} from './lib/code-execution/mcp-core/surface-tool-handlers';
+export {
+  SURFACE_UPDATE_TOOL_NAME,
+  SURFACE_GET_STATE_TOOL_NAME,
+} from './lib/code-execution/mcp-core/surface-tools';

@@ -93,6 +93,7 @@ export type { IPricingProvider } from './lib/pricing.port';
 export {
   SdkError,
   SessionNotActiveError,
+  SessionAdmissionRefusedError,
   ModelNotAvailableError,
   AuthRequiredError,
   InternalQueryQueueTimeoutError,

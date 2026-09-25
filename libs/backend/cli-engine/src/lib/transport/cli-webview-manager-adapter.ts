@@ -40,6 +40,19 @@ export class CliWebviewManagerAdapter extends EventEmitter {
   }
 
   /**
+   * List the surfaces push events can reach.
+   *
+   * The CLI and TUI render no surfaces — there is no dashboard page and no
+   * webview; the tool result itself IS the whole answer there. An empty list
+   * is therefore the honest, successful answer: `createDashboardBroadcast`
+   * reads it as `no-surface`, a success rather than a failure. This method
+   * never throws — there is no window lifecycle to race.
+   */
+  getActiveWebviews(): readonly string[] {
+    return [];
+  }
+
+  /**
    * Emit one message, unwrapping a batch into its members first.
    *
    * This transport uses the message `type` as the EventEmitter event NAME, so

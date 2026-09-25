@@ -27,8 +27,12 @@ jest.mock('@ptah-extension/agent-generation', () => ({
   },
 }));
 
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+
 import { registerChatServices, CHAT_TOKENS } from './di';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
+import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
 
 describe('registerChatServices — output-style precondition', () => {
   it('throws when registerOutputStyleServices has not run', () => {
@@ -155,5 +159,43 @@ describe('registerChatServices — SessionMcpStatusRegistry', () => {
 
     expect(() => registerChatServices(c)).not.toThrow();
     expect(c.isRegistered(CHAT_TOKENS.MCP_STATUS)).toBe(true);
+  });
+});
+
+/**
+ * TASK_2026_538 Task 5.2 — the surface submit-to-turn service is bound under
+ * its own token, as a singleton, so the `surface:action` submit branch and
+ * any other resolver share one pending-dispatch guard.
+ */
+describe('registerChatServices — SurfaceSubmitTurnService', () => {
+  function makeContainer() {
+    const c = rootContainer.createChildContainer();
+    c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} });
+    return c;
+  }
+
+  it('registers SURFACE_SUBMIT_TURN', () => {
+    const c = makeContainer();
+    registerChatServices(c);
+
+    expect(c.isRegistered(CHAT_TOKENS.SURFACE_SUBMIT_TURN)).toBe(true);
+  });
+
+  it('resolves one shared instance from its collaborators', () => {
+    const c = makeContainer();
+    registerChatServices(c);
+    // Stand-ins for the cross-lib collaborators, bound AFTER registration so
+    // the broadcaster stand-in replaces the real class binding.
+    c.register(TOKENS.LOGGER, {
+      useValue: { debug: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    });
+    c.register(TOKENS.AGENT_ADAPTER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { useValue: {} });
+    c.register(CHAT_TOKENS.STREAM_BROADCASTER, { useValue: {} });
+
+    const first = c.resolve(CHAT_TOKENS.SURFACE_SUBMIT_TURN);
+
+    expect(first).toBeInstanceOf(SurfaceSubmitTurnService);
+    expect(c.resolve(CHAT_TOKENS.SURFACE_SUBMIT_TURN)).toBe(first);
   });
 });

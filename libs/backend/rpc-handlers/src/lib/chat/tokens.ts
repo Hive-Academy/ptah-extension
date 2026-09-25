@@ -21,4 +21,9 @@ export const CHAT_TOKENS = {
    * `SessionRpcHandlers` for `session:status`.
    */
   MCP_STATUS: Symbol.for('SessionMcpStatusRegistry'),
+  /**
+   * Starts one agent turn from an accepted surface submit (TASK_2026_538,
+   * Req 10). Resolved by the `surface:action` submit branch.
+   */
+  SURFACE_SUBMIT_TURN: Symbol.for('SurfaceSubmitTurnService'),
 } as const;

@@ -109,3 +109,12 @@ export {
   describeDashboardLimits,
   renderDashboardSpecText,
 } from './dashboard-text-fallback';
+
+// v2 APIs: @ptah-extension/shared/mcp-apps-contracts/surface.
+export {
+  SURFACE_SCHEMA_VERSION,
+  SURFACE_CATALOG_VERSION,
+  SURFACE_SUPPORTED_SCHEMA_VERSIONS,
+  SURFACE_SUPPORTED_CATALOG_VERSIONS,
+  DASHBOARD_CONTRACT_VERSION_PAIRS,
+} from './surface-catalog';

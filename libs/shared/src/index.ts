@@ -32,6 +32,7 @@ export * from './lib/types/provider-profile.types';
 // zod-free and the contract compiles in the backend libs that inherit
 // `"strict": false` from `tsconfig.base.json`.
 export * from './mcp-apps-contracts/dashboard-spec.types';
+export type * from './mcp-apps-contracts/surface.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';

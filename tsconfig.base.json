@@ -180,6 +180,9 @@
       "@ptah-extension/shared/mcp-apps-contracts": [
         "./libs/shared/src/mcp-apps-contracts/index.ts"
       ],
+      "@ptah-extension/shared/mcp-apps-contracts/surface": [
+        "./libs/shared/src/mcp-apps-contracts/surface.index.ts"
+      ],
       "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/workspace-indexing": [
         "./libs/frontend/workspace-indexing/src/index.ts"

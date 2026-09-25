@@ -28,6 +28,14 @@ import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
   DiagnosticsCacheInvalidator,
 } from '../diagnostics/diagnostics-cache-invalidator.service';
+import type { DashboardSurfaceHost } from '../code-execution/namespace-builders/dashboard-namespace.builder';
+import {
+  SURFACE_STATE_SERVICE_OPTIONS,
+  SurfaceStateService,
+  type SurfacePushHostProvider,
+  type SurfaceStateServiceOptions,
+} from '../surface';
+import { VSCODE_LM_TOOLS_TOKENS } from './tokens';
 
 /**
  * Register vscode-lm-tools services in DI container
@@ -105,6 +113,34 @@ export function registerVsCodeLmToolsServices(
     TOKENS.PERMISSION_PROMPT_SERVICE,
     PermissionPromptService,
   );
+  // The webview host is resolved on EVERY push, not captured here: Electron
+  // registers WEBVIEW_MANAGER after the DI phases and CLI at container build
+  // (assumption A1), so a late registration or a replaced host is still
+  // seen. No host yet means the push reports `no-surface`; a resolve that
+  // throws is reported as a failed delivery by the broadcast, never thrown.
+  const surfacePushHost: SurfacePushHostProvider = {
+    getHost: () =>
+      container.isRegistered(TOKENS.WEBVIEW_MANAGER, true)
+        ? container.resolve<DashboardSurfaceHost>(TOKENS.WEBVIEW_MANAGER)
+        : undefined,
+  };
+  container.register(VSCODE_LM_TOOLS_TOKENS.SURFACE_PUSH_HOST, {
+    useValue: surfacePushHost,
+  });
+  // Empty options: production runs the documented defaults.
+  const surfaceStateOptions: SurfaceStateServiceOptions = {};
+  container.register(SURFACE_STATE_SERVICE_OPTIONS, {
+    useValue: surfaceStateOptions,
+  });
+  // One store per host process: the MCP tools and the surface:* RPC handlers
+  // share it (Req 7.4).
+  container.registerSingleton(
+    VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE,
+    SurfaceStateService,
+  );
+  logger.info('[VS Code LM Tools] Surface state registered', {
+    services: ['SURFACE_PUSH_HOST', 'SURFACE_STATE_SERVICE'],
+  });
 
   logger.info('[VS Code LM Tools] Services registered', {
     services: [

@@ -105,3 +105,11 @@ export {
   type DashboardProposeSpecOutcome,
   type DashboardSurfaceHost,
 } from './dashboard-namespace.builder';
+export {
+  buildSurfaceNamespace,
+  type SurfaceNamespace,
+  type SurfaceNamespaceDependencies,
+  type SurfaceCaller,
+  type SurfaceUpdateOutcome,
+  type SurfaceGetStateOutcome,
+} from './surface-namespace.builder';

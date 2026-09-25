@@ -28,6 +28,11 @@ import type {
   DashboardTableComponent,
 } from './dashboard-spec.types';
 
+/** Display-only fields shared by v1 and v2, without actions or children. */
+type TextDisplay<T> = T extends DashboardComponent
+  ? Omit<T, 'actions' | 'children'>
+  : never;
+
 /** Widest a single text-table cell is printed before it is elided. */
 const MAX_CELL_WIDTH = 40;
 
@@ -43,7 +48,7 @@ function textOf(
  * A component's human label. Falls back to the id rather than to an empty
  * string: an unlabelled tile still has to be identifiable in a text transcript.
  */
-function labelOf(component: DashboardComponent): string {
+function labelOf(component: Pick<DashboardComponent, 'id' | 'title'>): string {
   return textOf(component.title, component.id);
 }
 
@@ -71,7 +76,9 @@ function flatten(
   ]);
 }
 
-function renderStat(component: DashboardComponent): string | null {
+export function renderStat(
+  component: TextDisplay<DashboardComponent>,
+): string | null {
   if (component.kind !== 'stat') return null;
   const unit = component.unit === undefined ? '' : ` ${component.unit}`;
   let delta = '';
@@ -82,7 +89,9 @@ function renderStat(component: DashboardComponent): string | null {
   return `${labelOf(component)}: ${component.value}${unit}${delta}`;
 }
 
-function renderTable(table: DashboardTableComponent): string {
+export function renderTable(
+  table: TextDisplay<DashboardTableComponent>,
+): string {
   const lines: string[] = [`${labelOf(table)} (table)`];
 
   if (table.data !== undefined) {
@@ -129,8 +138,10 @@ function renderTable(table: DashboardTableComponent): string {
   return lines.join('\n');
 }
 
-function renderChart(
-  component: Extract<DashboardComponent, { kind: 'line-chart' | 'bar-chart' }>,
+export function renderChart(
+  component: TextDisplay<
+    Extract<DashboardComponent, { kind: 'line-chart' | 'bar-chart' }>
+  >,
 ): string {
   const shape = component.kind === 'line-chart' ? 'line chart' : 'bar chart';
   if (component.data !== undefined) {
@@ -142,8 +153,8 @@ function renderChart(
   return `${labelOf(component)} (${shape}): ${series.length} series (${names}), ${points} point(s)`;
 }
 
-function renderList(
-  component: Extract<DashboardComponent, { kind: 'list' }>,
+export function renderList(
+  component: TextDisplay<Extract<DashboardComponent, { kind: 'list' }>>,
 ): string {
   if (component.data !== undefined) {
     return `${labelOf(component)} (list): items referenced as ${component.data.resultId}`;

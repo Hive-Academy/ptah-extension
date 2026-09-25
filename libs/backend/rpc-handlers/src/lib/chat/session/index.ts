@@ -15,3 +15,9 @@ export {
   type SessionMcpStatusRecord,
 } from './session-mcp-status.registry';
 export { hasStopIntent } from './chat-stop-intent';
+export {
+  SurfaceSubmitTurnService,
+  SURFACE_SUBMIT_INDETERMINATE_DETAIL,
+  type SurfaceSubmitTurnOutcome,
+  type SurfaceSubmitTurnRejectReason,
+} from './surface-submit-turn.service';

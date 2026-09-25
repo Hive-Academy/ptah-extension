@@ -30,6 +30,7 @@ import {
   AuthRpcHandlers,
   BootRpcHandlers,
   PeerSessionRpcHandlers,
+  SurfaceRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
   CommandRpcHandlers,
@@ -137,6 +138,17 @@ export const RPC_HANDLER_MANIFEST = [
     methods: PeerSessionRpcHandlers.METHODS,
     requires: [],
     handler: PeerSessionRpcHandlers,
+  },
+  {
+    // `requires: []` on purpose. The surface state service is registered by
+    // `registerVsCodeLmToolsServices` on every host, and the CLI keeps state
+    // even though its delivery reports `no-surface` (Req 7.4). A host missing
+    // the service answers each call with "surface state unavailable on this
+    // host" rather than hiding the namespace.
+    key: 'surface',
+    methods: SurfaceRpcHandlers.METHODS,
+    requires: [],
+    handler: SurfaceRpcHandlers,
   },
   {
     key: 'autocomplete',

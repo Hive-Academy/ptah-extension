@@ -36,6 +36,8 @@ export * from './rpc/rpc-plugin-marketplace.types';
 
 export * from './rpc/rpc-peer-session.types';
 
+export * from './rpc/rpc-surface.types';
+
 import type {
   ExternalInstallParams,
   ExternalInstallResponse,
@@ -644,6 +646,17 @@ import type {
   PeerSessionSendParams,
   PeerSessionSendResult,
 } from './rpc/rpc-peer-session.types';
+import type {
+  SurfaceActionParams,
+  SurfaceActionResult,
+  SurfaceChangeParams,
+  SurfaceMutationResult,
+  SurfaceOperationParams,
+  SurfaceOperationResult,
+  SurfaceReadParams,
+  SurfaceReadResult,
+  SurfaceSelectParams,
+} from './rpc/rpc-surface.types';
 
 /**
  * RPC Method Registry
@@ -2202,6 +2215,24 @@ export interface RpcMethodRegistry {
   'peerSession:send': {
     params: PeerSessionSendParams;
     result: PeerSessionSendResult;
+  };
+  // Host-owned surface state (TASK_2026_538): the webview's only channel.
+  'surface:read': { params: SurfaceReadParams; result: SurfaceReadResult };
+  'surface:change': {
+    params: SurfaceChangeParams;
+    result: SurfaceMutationResult;
+  };
+  'surface:select': {
+    params: SurfaceSelectParams;
+    result: SurfaceMutationResult;
+  };
+  'surface:action': {
+    params: SurfaceActionParams;
+    result: SurfaceActionResult;
+  };
+  'surface:operation': {
+    params: SurfaceOperationParams;
+    result: SurfaceOperationResult;
   };
 }
 
@@ -3818,6 +3849,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'peerSession:list': true,
   'peerSession:send': true,
+
+  'surface:read': true,
+  'surface:change': true,
+  'surface:select': true,
+  'surface:action': true,
+  'surface:operation': true,
 };
 
 /**

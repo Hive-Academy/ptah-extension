@@ -30,15 +30,22 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SessionId, InlineImageAttachment } from '@ptah-extension/shared';
+import type {
+  AIMessageOptions,
+  SessionId,
+  InlineImageAttachment,
+} from '@ptah-extension/shared';
 
-import { SdkError } from '../../errors';
+import { SdkError, SessionAdmissionRefusedError } from '../../errors';
 import type {
   SDKMessageOrigin,
   SDKUserMessage,
 } from '../../types/sdk-types/claude-sdk.types';
 import type { SdkMessageFactory } from '../sdk-message-factory';
-import type { SessionRegistry } from './session-registry.service';
+import type {
+  SessionRecord,
+  SessionRegistry,
+} from './session-registry.service';
 
 export class SessionStreamPump {
   constructor(
@@ -184,19 +191,38 @@ export class SessionStreamPump {
    *   injecting a turn on someone else's behalf (a peer session, a channel, a
    *   coordinator) must pass an explicit origin, because that origin is the
    *   only thing that stops the message rendering as the user's own words.
+   *   `admission: 'require-idle'` admits the message only onto a live, idle
+   *   record and otherwise throws `SessionAdmissionRefusedError` without
+   *   queueing anything; absent, a message sent mid-turn is held as today.
    */
   async sendMessage(
     sessionId: SessionId,
     content: string,
     files?: string[],
     images?: InlineImageAttachment[],
-    options?: { origin?: SDKMessageOrigin },
+    options?: {
+      origin?: SDKMessageOrigin;
+      admission?: AIMessageOptions['admission'];
+    },
   ): Promise<void> {
+    const requireIdle = options?.admission === 'require-idle';
     const session = this.registry.find(sessionId as string);
     if (!session) {
+      if (requireIdle) {
+        throw new SessionAdmissionRefusedError(
+          'session-ended',
+          sessionId as string,
+        );
+      }
       throw new SdkError(`Session not found: ${sessionId}`);
     }
-    this.registry.markActive(sessionId as string);
+    if (requireIdle) {
+      // Fail fast before building the message. Not sufficient on its own: the
+      // await below yields, so the same check runs again before the push.
+      this.assertAdmissible(sessionId, session);
+    } else {
+      this.registry.markActive(sessionId as string);
+    }
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,
@@ -212,6 +238,12 @@ export class SessionStreamPump {
       images,
       origin: options?.origin,
     });
+    if (requireIdle) {
+      // Synchronous from here to the push: no competing send, teardown or
+      // turn start can interleave between this check and the enqueue.
+      this.assertAdmissible(sessionId, session);
+      this.registry.markActive(sessionId as string);
+    }
     session.messageQueue.push(sdkUserMessage);
     if (session.resolveNext) {
       session.resolveNext();
@@ -223,5 +255,32 @@ export class SessionStreamPump {
         ? `[SessionLifecycle] Message held for ${sessionId} — turn in flight, will send at turn end`
         : `[SessionLifecycle] Message queued for ${sessionId}`,
     );
+  }
+
+  /**
+   * Throw `SessionAdmissionRefusedError` unless `session` is still the live
+   * registered record for `sessionId` and is idle. `session-ended` covers a
+   * removed or displaced record and an aborted one; `busy` covers a turn in
+   * flight or a message already queued.
+   */
+  private assertAdmissible(sessionId: SessionId, session: SessionRecord): void {
+    if (
+      this.registry.find(sessionId as string) !== session ||
+      session.abortController.signal.aborted
+    ) {
+      this.logger.info(
+        `[SessionLifecycle] Admission refused for ${sessionId}: session ended`,
+      );
+      throw new SessionAdmissionRefusedError(
+        'session-ended',
+        sessionId as string,
+      );
+    }
+    if (session.turnInFlight || session.messageQueue.length > 0) {
+      this.logger.info(
+        `[SessionLifecycle] Admission refused for ${sessionId}: busy`,
+      );
+      throw new SessionAdmissionRefusedError('busy', sessionId as string);
+    }
   }
 }
