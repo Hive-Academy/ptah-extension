@@ -76,8 +76,8 @@ Assumptions:
 - A1 `import('@ptah-extension/mcp-apps-page')` resolves under the webview jest transform (plan verification point) —
   unverified; checked by Task 16.1 (fallback: add `apps` to `JEST_UNRESOLVABLE_SURFACES` `:75` with a justification
   like `tribunal`'s, and prove resolution elsewhere).
-- A2 `globalThis.crypto.getRandomValues` exists in the jest environment — unverified; checked by Task 10.1 (fallback:
-  inject the random source).
+- A2 `globalThis.crypto.getRandomValues` exists in the jest environment — VERIFIED by Task 10.1 (default-source specs
+  pass un-injected); the random byte source stays injectable regardless.
 - A3 `@angular/build:application` honours `statsJson` and writes `dist/apps/ptah-extension-webview/stats.json` —
   unverified; checked by Task 19.1 (fallback: string search in initial chunks, plan D7).
 - A4 jsdom render timings are a relative signal only — accepted; the report in Task 9.1 says so.
@@ -206,7 +206,7 @@ Edge cases:
   6/6 targets green. Style minor (manual copy instead of `nx g`) accepted: output is equivalent and Nx discovers both.
 - Prototype (approved 2026-09-25) committed with this batch. B15 notes added; splitter split out as Batch 20.
 
-## Batch 3: Renderer view-state, interaction types and v1 view model — COMPLETE
+## Batch 3: Renderer view-state, interaction types and v1 view model — COMPLETE (commit 3bc8fbb4d)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -244,7 +244,7 @@ Edge cases:
   not `list.items` or chart `series`; the v1 validator is the real boundary. B6 may tighten it when the v2 builder
   reuses the mapper.
 
-## Batch 4: Table rows, chart geometry, chart component — PENDING
+## Batch 4: Table rows, chart geometry, chart component — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -253,7 +253,7 @@ Edge cases:
 - Rationale: two pure modules plus one component; independent of the Apps track.
 - Tasks: 1 | Depends on: Batch 3
 
-### Task 4.1: `table-rows.ts`, `chart-geometry.ts`, `DashboardChartComponent` — PENDING
+### Task 4.1: `table-rows.ts`, `chart-geometry.ts`, `DashboardChartComponent` — IMPLEMENTED
 
 - Files (6): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/`: `table/table-rows.ts` (+ spec),
   `charts/chart-geometry.ts` (+ spec), `components/dashboard-chart.component.ts` (+ spec)
@@ -397,7 +397,7 @@ Edge cases:
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/declarative-dashboard @ptah-extension/shared`
 
-## Batch 10: Apps pure state — operation ids and overlays — PENDING
+## Batch 10: Apps pure state — operation ids and overlays — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -405,7 +405,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 3
 
-### Task 10.1: `surface-operation-id.ts`, `apps-operation-overlays.ts` — PENDING
+### Task 10.1: `surface-operation-id.ts`, `apps-operation-overlays.ts` — IMPLEMENTED
 
 - Files (4): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/state/`: `surface-operation-id.ts` (+ spec),
   `apps-operation-overlays.ts` (+ spec)
@@ -657,7 +657,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/chat`
 
-## Batch 18: Harness prompt isolation — PENDING
+## Batch 18: Harness prompt isolation — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: frontend-developer
@@ -666,7 +666,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: independent of every other batch; may run at any time.
 - Tasks: 1 | Depends on: none
 
-### Task 18.1: Filter harness prompts by its own surface id — PENDING
+### Task 18.1: Filter harness prompts by its own surface id — IN_PROGRESS
 
 - Files (3): MODIFY `.../libs/frontend/harness-builder/src/lib/services/harness-workflow.service.ts`,
   `.../libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts`; CREATE
