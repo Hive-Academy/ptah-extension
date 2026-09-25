@@ -25,6 +25,27 @@ left with stray CLI processes after quitting.
   no probe inherits the parent's pipes.
 - The VS Code host shares `bringUpSubsystems`, so any signature change must keep its behavior.
 
+## PR #597 review (CodeRabbit) — suggested path and a caveat
+
+CodeRabbit suggested threading `coordinator.abortSignal` through this path, keeping the signal
+optional so VS Code keeps its current behavior:
+
+`registerCodeExecutionMcpForSubagents` (vscode-core) → `ensureRegisteredForSubagents`
+(`http-mcp-server.service.ts`, vscode-lm-tools) → `CliDetectionService.detectAll()`
+(cli-agent-runtime) → each adapter's `detect()` → `probeCliVersion`
+(`cli-adapter.utils.ts`). On abort, kill the active child and close its streams.
+
+Caveat: `ensureRegisteredForSubagents` runs through `enqueueMcpOp`, a serialized queue that
+the chat-session starters and the workspace-change re-points also use, and detection results
+are shared. One caller's signal must not cancel work another caller is awaiting. That points to
+two options:
+- A quit-scoped signal owned by the detector or MCP service itself, triggered from `will-quit`.
+- A per-caller signal that only drops that caller's wait, while the service kills children only
+  on shutdown.
+
+This was deferred out of PR #597. The orphaned-probe behavior was already there before the PR:
+the probes used to run before the window with the same exposure.
+
 ## Acceptance
 
 - With slow CLI shims first on PATH, `electronApp.close()` returns within a few seconds.

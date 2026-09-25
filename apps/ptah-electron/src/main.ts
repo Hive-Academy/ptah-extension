@@ -136,7 +136,9 @@ if (!gotLock) {
         if (sentryService?.isInitialized()) {
           void sentryService
             .flush(2000)
-            .catch(() => undefined)
+            .catch((error: unknown) =>
+              reportBootFailure('Sentry flush before exit failed', error),
+            )
             .finally(() => app.exit(code));
         } else {
           app.exit(code);
