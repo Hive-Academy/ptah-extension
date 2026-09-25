@@ -761,6 +761,11 @@ export interface McpDirectoryInstallParams {
 /** Result for mcpDirectory:install */
 export interface McpDirectoryInstallResult {
   results: McpInstallResult[];
+  /**
+   * Set when the install succeeded but Ptah could not record the workspace ON
+   * decision; the server stays off until it is enabled in the Marketplace.
+   */
+  capabilityWarning?: string;
 }
 
 /** Params for mcpDirectory:uninstall */
