@@ -1,6 +1,6 @@
 # Batches - TASK_2026_560_2ae5
 
-Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 6/26
+Total tasks: 26 batches (PR 1: 17 = B1-B14, B16, B17, B25; PR 2: 9 = B15, B18-B24, B26) | Complete: 9/26
 
 Design authority: `implementation-plan.md` (revision 2 + r3, user-approved). The review files are history.
 Base: `main @ c4bdc87dd`. Branch: `feat/task-2026-560-mcp-skill-toggles`. PR 2 will be a stacked branch
@@ -147,25 +147,117 @@ PR 1 (code files + task docs; must stay under 100):
 
 | After batch | Code files added | PR 1 code total | Docs total | PR 1 total |
 | --- | --- | --- | --- | --- |
-| 1 (actual) | 10 | 10 | 11 (task.md, task-description.md, research-report.md, implementation-plan.md, 4 plan-review files, batches.md, reviews/code-logic-review.md, reviews/code-style-review.md) | 21 |
-| 4 (actual; +1 `harness-sync/src/index.ts` type exports, added in revise round 1) | 6 | 16 | 11 | 27 |
-| 5 (actual) | 7 | 23 | 11 | 34 |
-| 6 (actual) | 4 | 27 | 11 | 38 |
-| 2 (actual; +2 unplanned: `session-mcp-status.spec.ts`, vscode-core `rpc-handler.ts`; `457fe1bfa` on its branch, cherry-pick pending) | 5 | 32 | 11 | 43 |
-| 7 | 6 | 38 | 11 | 49 |
-| 8 (actual `f68419e63`; +2 unplanned: `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `.../helpers/sdk-query-options-builder.output-style.spec.ts`) | 10 | 48 | 11 | 59 |
-| 3 (+1 Electron `phase-2-libraries.ts`, P9 G2) | 6 | 54 | 11 | 65 |
-| 10 (-1: schema inlined, budget fallback) | 5 | 59 | 11 | 70 |
-| 13 | 5 | 64 | 11 | 75 |
-| 9 | 4 | 68 | 11 | 79 |
-| 14 | 9 | 77 | 11 | 88 |
-| 25 (new, P9 G3/G4) | 3 | 80 | 11 | 91 |
-| 11 | 3 | 83 | 11 | 94 |
-| 12 | 2 | 85 | 11 | 96 |
-| 16 (-1: fixtures kept in the spec, budget fallback) | 1 | 86 | 11 | 97 |
-| 17 | 0 | 86 | 8 (after L1) + test-report.md = 9 | **95 (L1 applied)** |
+| 1 (actual `4876206a7`) | 10 | 10 | 8 (after L1: task.md, task-description.md, research-report.md, implementation-plan.md, implementation-plan-review.md, batches.md, reviews/code-logic-review.md, reviews/code-style-review.md) | 18 |
+| 4 (actual `5f6a750e8`; +1 `harness-sync/src/index.ts`) | 6 | 16 | 8 | 24 |
+| 6 (actual `d003642a9`) | 4 | 20 | 8 | 28 |
+| 5 (actual `1e7aab5bb`) | 7 | 27 | 8 | 35 |
+| 2 (actual `e0ba036f0`; +2 unplanned: `session-mcp-status.spec.ts`, vscode-core `rpc-handler.ts`) | 5 | 32 | 8 | 40 |
+| 8 (actual `f68419e63`; +2 unplanned: `session-lifecycle-manager.ts`, `sdk-query-options-builder.output-style.spec.ts`) | 10 | 42 | 8 | 50 |
+| 7 (committed on its branch; +1 unplanned `capabilities/capability-policy-model.ts`) | 7 | 49 | 8 | 57 |
+| 3 (+1 Electron wrapper, P9 G2; +2 selection service and spec; +1 `agent-workspace-scope.spec.ts`) | 9 | 58 | 8 | 66 (later rows +1; see Update 2) |
+| 10 (-1: schema inlined) | 5 | 62 | 8 | 70 |
+| 13 | 5 | 67 | 8 | 75 |
+| 9 | 4 | 71 | 8 | 79 |
+| 14 | 9 | 80 | 8 | 88 |
+| 25 (new, P9 G3/G4) | 3 | 83 | 8 | 91 |
+| 11 | 3 | 86 | 8 | 94 |
+| 12 | 2 | 88 | 8 | 96 |
+| 16 (-1: fixtures kept in the spec) | 1 | 89 | 8 | 97 |
+| 17 | 0 | 89 | 8 + test-report.md = 9 | **98** |
 
-(Rows are in expected commit order. B15's 4 files moved to PR 2.)
+(Rows are in actual or expected commit order. B15's 4 files moved to PR 2.)
+
+- **Correction and recount (2026-09-26):** 95 (after L1) + 1 (B7 `capability-policy-model.ts`) + 2 (B3 third-caller
+  fix) = **98**. That is over the 97 re-plan threshold, so the team-leader is returning options to the
+  orchestrator (see the next bullets) and is not accepting further unplanned files.
+- Worst case at 98 with the known contingencies:
+  - R4 shell html (+1) → 99;
+  - a B11 surface file outside `container.ts` (+1) → 100, which BREACHES the limit;
+  - `registry.md` (+1).
+- **Proposed levers (orchestrator decision needed):**
+  - **L2 (docs, -1):** merge `reviews/code-style-review.md` into `reviews/code-logic-review.md` as one rolling
+    `reviews/code-review.md` in the next task-specs commit. This is the same mechanism as L1: files added on this
+    branch drop out of the diff.
+  - **L3 (policy, removes a contingency):** never stage `.ptah/specs/registry.md` in PR 1 commits. The
+    team-leader stages only explicit paths, so this costs nothing.
+  - **L4 (-1, conditional):** B14 leaves `provider-list-view.testing.ts` unmodified if the helper needs no change.
+  - With L2 + L3, the plan is **97**, and the worst case is 99 (R4 + B11 surface). With L4 as well, the worst
+    case is 98.
+  - **Update (same day):** the B12 DI-order spec adds +2 (the two existing container smoke specs), so the plan is
+    **100 before levers**. That needs one more lever:
+    - **L5 (docs, -1):** append `implementation-plan-review.md` to `implementation-plan.md` as an
+      "Appendix: review rounds" section, copied verbatim, and `git rm` the review file. It is added on this branch,
+      so it drops out of the diff.
+  - Totals with the levers applied:
+    - L2 + L3 + L5 → **98**. With L4 as well → **97**.
+    - The worst case with R4 and a B11 surface file → **99**.
+  - Recommendation: apply L2, L3 and L5 in the next task-specs commit, take L4 if it proves possible, and treat
+    any further unplanned file as a scope decision for the user.
+  - **Update 2 (same day):** B3 needs +1 test-only file (`agent-workspace-scope.spec.ts`).
+    - Plan: **101 before levers**.
+    - With L2 + L3 + L5: **99**. With L4 as well: **98**.
+    - The worst case with R4 and a B11 surface file is **100, which breaches the limit**.
+  - **A scope decision is REQUIRED before B11 or B13 commits an extra file.** Options, in the team-leader's order of
+    preference:
+    - (i) CLI host DI coverage already avoids a file. Also drop the Electron and VS Code DI smoke-spec additions
+      from B12, and pin the invariant in B17's per-host live check instead (-2, but it weakens a regression guard);
+    - (ii) move B16 (e2e, 1 file) to PR 2 with B15 (-1, NFR coverage lands in PR 2);
+    - (iii) forbid the R4 shell html in B13: the banner goes in the component `.ts` template (removes a
+      contingency).
+  - With (iii) plus L2, L3, L4 and L5, the plan is 98 and the worst case is 99 (only the B11 surface file
+    remains).
+  - **Update 3 (same day): B13 used the R4 file** (`shell/marketplace-shell.component.html`, +1), so option (iii)
+    is gone.
+    - Full recount from the post-L1 base of 95:
+      - +1 (B7 `capability-policy-model.ts`)
+      - +3 (B3: selection service, its spec, `agent-workspace-scope.spec.ts`)
+      - +2 (B12 DI-order smoke specs)
+      - +1 (B13 shell html)
+      - = **102 before levers**.
+    - With L2 + L5: **100**. With L4 as well: **99**.
+    - With option (i) (drop the B12 DI smoke specs, -2) plus L2, L4 and L5: **97**.
+    - With L3, `registry.md` never counts. The one remaining contingency is a B11 surface file (+1).
+    - **Without option (i) or (ii), a B11 surface file breaches the limit.**
+  - The orchestrator's figure of 97 does not include the B3 +3 or the B12 +2.
+- **DECISION (orchestrator, 2026-09-26): Option 1, docs only.**
+  - B16 STAYS in PR 1, because the user asked for webview e2e specs for the new controls.
+  - The user's limit is under 100. The 95 margin was the orchestrator's own.
+  - Docs moves (every removed file was added on this branch, so it drops out of the diff):
+    - **D1 (-1):** `reviews/code-logic-review.md` and `reviews/code-style-review.md` are merged verbatim into ONE
+      `reviews/code-review.md`, and both originals are removed. *Deferred* until the B3 code-logic-reviewer
+      finishes appending, so nobody writes to a moved path.
+    - **D2 (-1):** `implementation-plan-review.md` becomes "Appendix A: review rounds" of `implementation-plan.md`,
+      copied verbatim, and the file is removed. *Applied in the working tree* and checked by substring match.
+    - **D3 (-1):** `research-report.md` becomes "Appendix B: research report" of `implementation-plan.md`, copied
+      verbatim, and the file is removed. *Applied in the working tree* and checked the same way.
+    - **D4 (-1):** there is no `test-report.md`. The senior-tester appends a `# Test report — PR 1` section
+      (including visual evidence) to `reviews/code-review.md`.
+    - All four are committed together in the task-specs commit that follows the B3 commit window.
+    - **APPLIED 2026-09-26:**
+      - D1: `reviews/code-review.md` = Part 1 (the former logic file, including the B13 re-review rounds 1 and 2)
+        + Part 2 (the former style file), both verbatim.
+      - D2 and D3 are the plan appendices.
+      - D4 is recorded in B17.
+      - Every copy was checked by substring match.
+  - **L4:** B14 leaves `provider-list-view.testing.ts` untouched if at all possible.
+  - **The DI-order regression check adds NO file.**
+    - B12 puts the assertion (the resolved `PluginLoaderService` has `SDK_CAPABILITY_GLOBAL_LAYER` injected after
+      host bootstrap) inside a spec it ALREADY modifies for the 391-vs-388 fix.
+    - For any host where B12 modifies no spec (for example, when registration alone makes `rpc-surface.spec.ts`
+      pass), that host moves to B17's live check.
+  - **Counts:**
+    - PR 1 planned: **96** (91 code + 5 docs: `task.md`, `task-description.md`, `implementation-plan.md`,
+      `batches.md`, `reviews/code-review.md`).
+    - Worst case: **97**, with a B11 CLI surface file.
+    - `registry.md` is never staged (L3).
+    - L4 would make it 95.
+  - **Any further extra file must go to the orchestrator BEFORE it is written.**
+- **New paths for all later reviewers and the senior-tester:**
+  - Append `# Code Logic Review — Batch N`, `# Code Style Review — Batch N` or `# Test report — PR 1` sections to
+    `.ptah/specs/TASK_2026_560_2ae5/reviews/code-review.md`.
+  - Plan context is `implementation-plan.md`, including Appendix A (review rounds) and Appendix B (research
+    report).
+  - Until the D1 commit lands, reviewers keep appending to the two existing review files.
 
 - Arithmetic:
   - P9 amendment: 95 + 1 (B4 `index.ts`) + 1 (B3 Electron wrapper) + 3 (B25) - 4 (B15 → PR 2) = 96.
@@ -408,6 +500,9 @@ the trace.
     - `libs/backend/rpc-handlers/.../rpc-allowlist.spec.ts:41-43` ("claims every registry method exactly once") →
       fixed by **B10**;
     - `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts:60` (391 vs 388) → fixed by **B11**.
+    - `apps/ptah-electron/src/di/rpc-surface.spec.ts:38` (391 vs 388) → fixed by **B12** (added 2026-09-26, seen
+      in B3's check).
+    - Possibly `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` (same count) → also fixed by **B12**.
   - Every batch check that runs `@ptah-extension/rpc-handlers` or `@ptah-extension/cli-engine` before B10 or B11
     reports these two failures and only these; any other failure there is real.
   - The B2 check itself (shared, vscode-core) does not run them.
@@ -429,20 +524,43 @@ the trace.
 - Quality requirements: `'capability-policy-unverified'` is accepted by the parser at `session-mcp-status.ts:~133`.
   Otherwise the notice is dropped silently.
 
-## Batch 3: Harness freeze on unknown policy (PR 1) — IN_PROGRESS
+## Batch 3: Harness freeze on unknown policy (PR 1) — COMPLETE (commit 313112496)
+
+- Result:
+  - 9 code files across 3 projects (the documented exception).
+  - code-logic-reviewer: APPROVE 8/10, with all 11 acceptance items PASSING.
+  - Check: harness-sync passes 448/448, and every lint and typecheck task passes. The only test failures are the
+    two known transients: `rpc-allowlist.spec.ts` (fixed by B10 at `916dd9ad9`, and verified passing on the branch
+    right after) and Electron `rpc-surface.spec.ts:38` (391 vs 388, fixed by B12).
+- **Reviewer failure mode 1 → carried to B17 (live check):**
+  - When the policy is unreadable, frozen passes carry no fingerprint, so `HarnessPolicySync` never acknowledges
+    and forces a preflight on every call.
+  - B17 confirms that no preflight caller loops or spams (log volume and pass count over a few minutes with a
+    corrupt item file) on each host.
+  - B8 already skips the sync for Claude sessions when the policy is unverified, so the exposure is non-Claude
+    callers only.
 
 - PR: 1
 - Goal: C3, harness-sync half. The source resolver maps the structural policy-unknown error to a frozen state,
   and the reconciler skips skill, plugin and agent planning and stamps the fingerprint.
-- Nx projects: `@ptah-extension/harness-sync`, `ptah-electron`
+- Nx projects: `@ptah-extension/harness-sync`, `ptah-electron`, `@ptah-extension/rpc-handlers`
+  - **Documented exception to the 2-project cap (2026-09-26):** `IHarnessSourceResolver.resolve` becomes
+    `HarnessSourceState | Promise<HarnessSourceState>`, and every consumer must land in the same commit.
+  - The B3 executor found a third non-spec caller that the plan missed:
+    `libs/backend/rpc-handlers/src/lib/harness/selection/harness-skill-selection-rpc.service.ts:86-88`.
+    `getSelection()` passed `resolve()` straight into `readSkillCandidates`, so a Promise → typecheck error, and
+    at runtime `sources.layout` is undefined.
+  - The team-leader verified that it is the only other caller (grep over `libs` and `apps`). Its RPC wrapper
+    (`harness-rpc.handlers.ts:1001-1003`) is already `async`, so it needs no edit.
 - Depends on: B1 (compile). B5 at runtime: `getEffectivePluginConfig` is consumed structurally, and B5 lands in
   W2 first.
 - Recommended executor: backend-developer | Fallback: general-purpose | Mode: sequential
 - Reviewers: code-logic-reviewer
 - ACs proved: AC-3.3 (fingerprint stamped), AC-3.4 (a frozen harness never re-adds a disabled plugin, and a
   GLOBAL OFF reaches the harness copies), D1 for skills and plugins (G1/G2), N3
-- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync,ptah-electron --parallel=2`
-- Commit: `feat(harness-sync,electron): batch 3 - apply layered policy in harness sync`
+- Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-sync,ptah-electron,@ptah-extension/rpc-handlers --parallel=2`
+  (If B10 has not landed yet, the one expected rpc-handlers failure is `rpc-allowlist.spec.ts:41-43`; see Batch 2.)
+- Commit: `feat(harness-sync,electron,rpc-handlers): batch 3 - apply layered policy in harness sync`
 - **Reviewer acceptance items (mandatory, P9 G1/G2/G2b):**
   - `resolve` calls `getEffectivePluginConfig` once per pass when the reader provides it. `overlayPluginPaths`,
     `disabledSkillIds`, `config` and `policyFingerprint` all come from that ONE result; no workspace-only sync
@@ -460,15 +578,35 @@ the trace.
     `readDormantSkillSlugs` into the effective disabled ids.
   - The VS Code (`phase-2-libraries.ts:173-178`) and CLI (`cli-engine/src/lib/container.ts:645-650`) hosts pass
     the loader instance unwrapped (verify; no edit).
-- Files (6 code):
+- Files (9 code: 6 planned at the P9 amendment + 2 third-caller files + 1 test-only spec):
   - M `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts`
   - C `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.spec.ts` (P2)
   - M `libs/backend/harness-sync/src/lib/sources/harness-source.port.ts`
   - M `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts`
   - C `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts`
   - M `apps/ptah-electron/src/di/phase-2-libraries.ts` (G2; added at the P9 amendment)
+  - M `libs/backend/rpc-handlers/src/lib/harness/selection/harness-skill-selection-rpc.service.ts`
+    (added 2026-09-26: `getSelection()` becomes async and awaits `resolve()`)
+  - M `libs/backend/rpc-handlers/src/lib/harness/selection/harness-skill-selection-rpc.service.spec.ts`
+    (added 2026-09-26: `await` the 5 call sites, plus a Promise-returning resolver case)
+  - M `libs/backend/harness-sync/src/lib/state/agent-workspace-scope.spec.ts` (added 2026-09-26, test-only)
+    - It calls `new PluginConfigSourceResolver(...).resolve(ws).layout` synchronously (`:42-71`, `:128`), which is
+      TS2339 under the union return type.
+    - Fix: the affected `it` callbacks become async and await `resolve`. No behaviour change: those readers are
+      null or throwing, so `resolve` stays synchronous at runtime.
+  - B3 total: **9 files**.
+- **Expected transient failures seen in B3's check (not B3 regressions):**
+  - rpc-handlers `rpc-allowlist.spec.ts:41-43` → fixed by B10;
+  - **ptah-electron `apps/ptah-electron/src/di/rpc-surface.spec.ts:38` (391 vs 388)** → the Electron twin of the
+    B2 registry gap, fixed by **B12** (host registration). B12 must also check
+    `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` for the same count.
+- **Reviewer acceptance item (third caller):**
+  - `getSelection()` awaits `resolve()` and never passes an unresolved value to `readSkillCandidates`.
+  - The spec covers a resolver that returns a Promise.
+  - No other file in rpc-handlers is edited.
+  - rpc-handlers typechecks.
 
-### Task 3.1: Source resolver and port — IN_PROGRESS
+### Task 3.1: Source resolver and port — COMPLETE
 
 - Plan reference: implementation-plan.md:252-261
 - Quality requirements:
@@ -481,7 +619,7 @@ the trace.
   overlayPluginPaths}>` is a structural mirror of agent-sdk's `EffectivePluginConfig`. `resolve` awaits it when it
   is present. It returns `HarnessSourceState | Promise<HarnessSourceState>` (R12).
 
-### Task 3.3: Electron reader wrapper forwards the effective config — IN_PROGRESS
+### Task 3.3: Electron reader wrapper forwards the effective config — COMPLETE
 
 - File: `apps/ptah-electron/src/di/phase-2-libraries.ts:200-231`
 - Quality requirements: add `getEffectivePluginConfig: async (workspaceRoot) => { const e = await
@@ -489,7 +627,7 @@ the trace.
   [...e.config.disabledSkillIds, ...readDormantSkillSlugs(container)]}}; }`. Keep the existing three members. Add
   a comment in the file's own style saying why dormant slugs are folded here too.
 
-### Task 3.2: Reconciler freeze and fingerprint — IN_PROGRESS
+### Task 3.2: Reconciler freeze and fingerprint — COMPLETE
 
 - Plan reference: implementation-plan.md:257-266; health assembly is at `harness-reconciler.service.ts:238-245,431-436`
 - Quality requirements:
@@ -705,7 +843,22 @@ the trace.
   - It never throws, and returns `{status, approvals}`.
 - Spec: the tracked, non-git and git-timeout cases.
 
-## Batch 7: Capability resolver, single inventory and DI (PR 1) — IN_PROGRESS
+## Batch 7: Capability resolver, single inventory and DI (PR 1) — COMPLETE (commit 8bf335662; cherry-picked from `b0332ffcc`, drift check clean, b7 worktree and branch removed)
+
+- Result so far:
+  - 7 code files: 6 planned + 1 unplanned `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-policy-model.ts`.
+  - code-logic-reviewer: APPROVE, high confidence. Items (a)-(f) pass, and the DI-order fail-open was traced SAFE
+    on VS Code, Electron and CLI (lazy closures only).
+  - Check: cli-agent-runtime lint, typecheck and test all pass.
+- The team-leader verified on disk:
+  - resolution inputs come only from `getEffectivePluginConfig` (`capability-resolver.service.ts:439,605`);
+  - the approved write-base deviation is at `:605-614`, with no `await` between the two reads;
+  - `recordWorkspaceRoot` is best-effort, with try/catch and a log (`:283-297`);
+  - `ensureImported` runs before a write (`:217,245`), and the root uses `realpathSync.native` (`:263`);
+  - both tokens are registered (`di/register.ts:128,137`).
+- Reviewer moderate #2 (catalog/policy snapshot skew in `readSnapshot`) is ACCEPTED as documented (orchestrator
+  decision, 2026-09-26).
+- Reviewer moderate #1 moved to B12 as an acceptance item: the DI-order regression spec.
 
 - PR: 1
 - Goal: C4 resolver and inventory, plus registration of the store, reader and resolver under the `SDK_TOKENS`.
@@ -754,7 +907,7 @@ the trace.
   - M `libs/backend/cli-agent-runtime/src/lib/di/register.ts`
   - M `libs/backend/cli-agent-runtime/src/index.ts`
 
-### Task 7.1: CapabilityResolverService — IN_PROGRESS
+### Task 7.1: CapabilityResolverService — COMPLETE
 
 - Plan reference: implementation-plan.md:80-110, :286-309
 - Quality requirements:
@@ -771,13 +924,13 @@ the trace.
   publishes nothing, and a retry imports. A server added later is OFF. Two concurrent `resolve` calls → one
   import. It logs through `IOutputChannel`.
 
-### Task 7.2: McpInstallService.listDeclarations — IN_PROGRESS
+### Task 7.2: McpInstallService.listDeclarations — COMPLETE
 
 - Quality requirements: `listDeclarations(root) → {declarations, sourceStatus}` uses facet `inspect` (B4) and
   feeds both `listInstalled` (which dedupes including scope) and the resolver. Claude user rows use the existing
   `entry.scope`. The #16 reader switch is PR 2 (Batch 19).
 
-### Task 7.3: DI — IN_PROGRESS
+### Task 7.3: DI — COMPLETE
 
 - Quality requirements:
   - Register the store as `SDK_CAPABILITY_GLOBAL_LAYER` and the resolver as `SDK_CAPABILITY_RESOLVER`.
@@ -897,7 +1050,7 @@ the trace.
 - Quality requirements: render the plan text "Only Ptah tools are loaded and skills are off: Ptah couldn't read
   <path> (<reason>). Fix the file and start a new session." Use OnPush and signals, as the component already does.
 
-## Batch 10: Capabilities RPC handlers (PR 1) — IN_PROGRESS
+## Batch 10: Capabilities RPC handlers (PR 1) — COMPLETE (commit 916dd9ad9; cherry-picked from `964726aaa`)
 
 - PR: 1
 - Goal: C8 `CapabilityRpcHandlers` with a zod schema, the handler index and exports, and the host-profile
@@ -910,6 +1063,23 @@ the trace.
   → "size unknown")
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/rpc-handlers --parallel=2` (includes `host-profile/resolve-handler-plan.spec.ts`, P4)
 - Commit: `feat(rpc-handlers): batch 10 - add capabilities rpc handlers`
+- **Status (2026-09-26):**
+  - code-logic-reviewer: APPROVE 8/10. Boot order is safe on all three hosts. Moderate-1 (the list-check race
+    falls back to generic text and never widens) is accepted as documented.
+  - 5 code files (the schema is inlined; there is no `capability-rpc.schema.ts`).
+  - Check: rpc-handlers passes 3301 tests (4 skipped), and `rpc-allowlist.spec.ts` now PASSES.
+  - Committed on its branch as `964726aaa`. The cherry-pick comes after the B3 commit, on the orchestrator's go.
+  - The team-leader verified on disk:
+    - the `explicit` restrictions are at `capability-rpc.handlers.ts:103-126`;
+    - the manifest owns the methods at `manifest.ts:206-208`;
+    - the optional schema-size port is at `:136`.
+- **Commit-order constraint (recorded 2026-09-26):**
+  - `CapabilityRpcHandlers` injects `SDK_CAPABILITY_RESOLVER` as REQUIRED, so the hosts would throw at boot
+    without it.
+  - On the feature branch, **B7 (`b0332ffcc`, cherry-pick pending) must be committed BEFORE B10**.
+- **PR 2 carry-over (for B20):** B10 defines a local port `McpSchemaSizeReader { schemaTokensFor(cwd):
+  Promise<ReadonlyMap<string, number>> }` in `capability-rpc.handlers.ts`. B20's `McpSchemaSizeService` must
+  implement exactly that shape, or move the port to `@ptah-extension/shared` and update B10's import.
 - **Reviewer acceptance items:**
   - (Dependency note, 2026-09-26) B10 depends on B7 only at RUNTIME. It injects `SDK_CAPABILITY_RESOLVER` typed as
     the shared `ICapabilityResolver` (`resolve`, `list`, `set`, `setExplicit`), and passes the active workspace
@@ -931,7 +1101,7 @@ the trace.
   - M `libs/backend/rpc-handlers/src/index.ts`
   - M `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts` (pattern: the `HarnessRpcHandlers.METHODS` entry at `manifest.ts:197`)
 
-### Task 10.1: Handlers — IN_PROGRESS
+### Task 10.1: Handlers — COMPLETE
 
 - Plan reference: implementation-plan.md:360-366
 - Quality requirements:
@@ -980,6 +1150,29 @@ the trace.
 - Files (2 code):
   - M `apps/ptah-electron/src/di/phase-4-handlers.ts` (pattern: `:43,105,160`)
   - M `apps/ptah-extension-vscode/src/di/phase-3-handlers.ts` (pattern: `:48,82`)
+- **Reviewer acceptance item (surface parity, recorded 2026-09-26):**
+  - `apps/ptah-electron/src/di/rpc-surface.spec.ts:38` (it currently fails at 391 vs 388) PASSES, because B12
+    registers the three `capabilities:*` methods on the Electron host, or explicitly excludes them with a reason.
+  - The same holds for `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` if it pins the count.
+  - Registering is preferred. Any file beyond `phase-4-handlers.ts` and `phase-3-handlers.ts` is unplanned and
+    must be counted.
+- **Reviewer acceptance item (B7 reviewer moderate #1, recorded 2026-09-26): DI-order regression spec.**
+  - What the spec pins: after each host's bootstrap, `PluginLoaderService` has the global capability layer
+    injected (`SDK_CAPABILITY_GLOBAL_LAYER` resolved, not `undefined`). Otherwise `getEffectivePluginConfig`
+    would silently ignore a global OFF.
+  - Why B12: it is the host-wiring batch whose projects (`ptah-electron`, `ptah-extension-vscode`) each already
+    have a container smoke spec. B11's only spec (`mcp-directory-rpc.handlers.spec.ts`) cannot hold a bootstrap
+    assertion.
+  - **SUPERSEDED by the Option 1 decision:** the assertion goes ONLY into a spec B12 already modifies (for the
+    391-vs-388 surface fix). The two container smoke specs are NOT touched. A host with no already-modified spec
+    is covered by B17's live check.
+  - (Old text:) Where it goes: add the assertion to the EXISTING `apps/ptah-electron/src/di/container.smoke.spec.ts` and
+    `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`. No new file, but **+2 changed files**, because
+    neither spec is in the PR yet.
+  - The CLI host is covered without a file: by the B11 reviewer's trace of `cli-engine/src/lib/container.ts`
+    registration order, and by B17's per-host live check.
+  - **Budget: this is pending the orchestrator's lever decision** (see the running count). Without levers it
+    takes PR 1 to 100.
 
 ## Batch 13: Marketplace capability store, toggle control and shell banner (PR 1) — IN_PROGRESS
 
@@ -1031,6 +1224,14 @@ the trace.
 - Depends on: B13
 - Recommended executor: frontend-developer | Fallback: general-purpose | Mode: sequential
 - Reviewers: code-logic-reviewer, code-style-reviewer
+- **Reviewer acceptance items (recorded 2026-09-26):**
+  - (From the B13 review) AC-2.3 template wiring, proven by a spec once the pages consume the control: a
+    `scope="workspace"` toggle calls `setEnabled` with `scope: 'workspace'` and never `'global'`, and a
+    `scope="global"` toggle does the reverse.
+  - L4: `provider-list-view.testing.ts` is left untouched unless the helper truly needs a change. If it does, that
+    is counted, and the orchestrator is told before the file is written.
+  - After B14 lands, the visual-reviewer takes the AFTER capture against the `feat-task-2026-560-before` worktree
+    (keep that worktree until then).
 - ACs proved: AC-1.1 (UI), AC-1.3 (inheriting shown), AC-1.5, AC-2.1, AC-2.2, AC-2.4, AC-4.6, AC-4.8, AC-5.2
   ("size unknown", and a failed server doesn't block the page)
 - Check: `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/marketplace --parallel=2`
@@ -1118,6 +1319,9 @@ the trace.
     `test-report.md`) and the write-path trace (including G7: no workspace save persists a layered config);
   - re-test P9 live: a GLOBAL OFF skill with no workspace entry is absent from the workspace `.claude/skills`
     copies and from `ptah.harness.searchSkills`, and a global OFF opt-out plugin's skills are absent from both;
+  - (B3 failure mode 1) with a corrupt capability item file, confirm on each host that the repeated forced
+    preflights (a frozen pass has no fingerprint, so nothing is ever acknowledged) do not loop or spam: record the
+    pass count and log volume over a few minutes of normal use;
   - (B8 cross-batch item) confirm on EACH host (VS Code, Electron, CLI) that `SDK_CAPABILITY_RESOLVER` is
     registered and that a skill toggle is followed by a harness pass whose health carries the new
     `policyFingerprint`, so the harness policy sync actually runs.
@@ -1134,7 +1338,12 @@ the trace.
   applied yet, the team-leader applies it in the Mode 3 completion step. The saving is confirmed with
   `git diff --stat c4bdc87dd | tail -1`.
 - Commit: `docs(task-specs): batch 17 - record pr 1 acceptance and live checks`
-- Files: `.ptah/specs/TASK_2026_560_2ae5/test-report.md` (C). This is a doc, already counted.
+- Files: none new (D4). The senior-tester appends `# Test report — PR 1` (with a "Visual evidence" subsection) to `.ptah/specs/TASK_2026_560_2ae5/reviews/code-review.md`.
+- Possible flaky specs seen under load (NOT caused by this task; watch in CI and in this batch's full regression):
+  - `libs/frontend/marketplace/.../connectors-page.component.spec.ts` (2 tests failed once);
+  - `libs/backend/rpc-handlers/.../voice-rpc.handlers.spec.ts` ("leaves no input temp file behind", 5000 ms
+    timeout once).
+  - If either fails in the B17 check, re-run it alone before treating it as a regression.
 - PR 1 description must state:
   - the P8 e2e path deviation;
   - the #16 single-scope disclosure;
@@ -1194,6 +1403,15 @@ the trace.
     cross-session reuse.
   - Never spawn a disabled server to measure it.
   - Logs through `IOutputChannel`.
+- **Reviewer acceptance items (carried from PR 1, 2026-09-26):**
+  - `McpSchemaSizeService` implements B10's local port `McpSchemaSizeReader { schemaTokensFor(cwd):
+    Promise<ReadonlyMap<string, number>> }` (`capability-rpc.handlers.ts`) exactly, or moves that port to
+    `@ptah-extension/shared` and updates B10's import. Either way, there is one port.
+  - `capabilities:setEnabled` returns an entry WITHOUT `schemaTokens`. Once sizes exist, the Marketplace store's
+    reconcile (`libs/frontend/marketplace/src/lib/data/capability-toggles.store.ts`, B13) must keep the previous
+    figure on the toggled row, not blank it. This is a spec-proven item.
+    - It is owned by B20 if B20 touches the store; otherwise it goes to the PR 2 UI batch B15, which already edits
+      marketplace. Count the file.
 
 ## Batch 21: CLI proxy collector policy filter (#14, #9) (PR 2) — PENDING
 
