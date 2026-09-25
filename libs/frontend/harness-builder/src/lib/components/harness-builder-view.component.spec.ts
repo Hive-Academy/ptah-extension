@@ -57,6 +57,7 @@ import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import {
   TabManagerService,
+  type SurfaceId,
   type SurfaceSessionStats,
 } from '@ptah-extension/chat-state';
 import {
@@ -187,8 +188,11 @@ function makeStateStub(): Record<string, unknown> {
   };
 }
 
-function makeWorkflowStub(): Record<string, unknown> {
+function makeWorkflowStub(
+  surfaceId: SurfaceId | null = 'surface-harness-1' as SurfaceId,
+): Record<string, unknown> {
   return {
+    surfaceId: signal<SurfaceId | null>(surfaceId).asReadonly(),
     userBubbles: signal<{ text: string }[]>([]),
     viewMode: signal('configure-harness'),
     isActive: signal(false),

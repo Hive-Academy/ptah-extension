@@ -281,7 +281,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batch 4
 
-### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — IN_PROGRESS
+### Task 5.1: `DashboardStatComponent`, `DashboardListComponent`, `DashboardPagerComponent` — IMPLEMENTED
 
 - Files (5): CREATE under `.../libs/frontend/declarative-dashboard/src/lib/components/`: `dashboard-stat.component.ts`
   (+ spec), `dashboard-list.component.ts` (+ spec), `dashboard-pager.component.ts`
@@ -430,7 +430,7 @@ Edge cases:
 - Carried forward (non-blocking): the rejection-sampling loop has no round cap for a hostile injected byte source
   (unreachable via the default source); `settle` does not assert `ackRevision >= baseRevision`. See B13 note.
 
-## Batch 11: Intake, reducer, system prompt — IN_PROGRESS
+## Batch 11: Intake, reducer, system prompt — COMPLETE (commit f042befa2)
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -474,7 +474,7 @@ Edge cases:
 - Carried to B12: the sync spec must assert at most one surface:read in flight per slice (F7).
 - Carried to B13: confirm that pending overlays survive an agent snapshot replace (F5).
 
-## Batch 12: Session facade, workspace slices, surface sync — PENDING
+## Batch 12: Session facade, workspace slices, surface sync — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: CLI lane x 1
@@ -482,7 +482,7 @@ Edge cases:
 - Execution mode: sequential
 - Tasks: 1 | Depends on: Batches 1, 11
 
-### Task 12.1: `apps-workspace-slice.ts`, `AppsSurfaceSync`, `AppsSessionService` — PENDING
+### Task 12.1: `apps-workspace-slice.ts`, `AppsSurfaceSync`, `AppsSessionService` — IN_PROGRESS
 
 - Files (5): CREATE under `.../libs/frontend/mcp-apps-page/src/lib/services/`: `apps-workspace-slice.ts`,
   `apps-surface-sync.ts` (+ spec), `apps-session.service.ts` (+ spec)
@@ -697,7 +697,7 @@ lazy-load gate and Mode 3 visual evidence must include it.
 - Rationale: independent of every other batch; may run at any time.
 - Tasks: 1 | Depends on: none
 
-### Task 18.1: Filter harness prompts by its own surface id — IMPLEMENTED
+### Task 18.1: Filter harness prompts by its own surface id — COMPLETE
 
 - Files (3): MODIFY `.../libs/frontend/harness-builder/src/lib/services/harness-workflow.service.ts`,
   `.../libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts`; CREATE
@@ -712,6 +712,14 @@ lazy-load gate and Mode 3 visual evidence must include it.
 ### Batch 18 verification
 
 - `npx nx run-many -t lint,typecheck,test -p @ptah-extension/harness-builder`
+- Result: 3/3 green (re-run by team-leader), 132/132 tests. The first review was NEEDS_REVISION 5/10: no
+  routingTargetRevision() dependency, and a `typeof surfaceId` production shim.
+  Fix round 1 (antigravity resume) resolved both, but rewrote the q-mixed fixture of an existing test. That hid a
+  regression: a [harness surface, live tab] prompt would render in both the harness and the tab.
+  Fix round 2 made the filter `hasSurfaceTargets(id) && targetTabsFor(id).includes(surfaceId)` (and the question
+  equivalent), restored the fixture verbatim and added mixed-target tests. Re-check APPROVED 9/10
+  (code-logic-review-batch-18.md).
+- Minor coverage gap (non-blocking): a second re-attachment of targets on the same id is not pinned.
 
 ## Batch 19: Lazy-load gate — PENDING
 
