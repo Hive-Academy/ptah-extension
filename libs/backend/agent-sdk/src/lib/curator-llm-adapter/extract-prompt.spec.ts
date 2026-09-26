@@ -92,7 +92,23 @@ describe('EXTRACT_SYSTEM_PROMPT', () => {
     expect(flat).toContain('reuse its subject key EXACTLY');
     expect(flat).toContain('never invent a variant spelling');
     expect(flat).toContain(
-      'search before choosing a subject; reuse the exact subject key of the best-matching existing memory; do not re-extract what is already remembered.',
+      'search before choosing a subject; reuse the exact subject key of the best-matching existing memory only when that key satisfies SUBJECTS; do not re-extract what is already remembered.',
+    );
+  });
+
+  it('reuses an existing subject key only when it satisfies the subject rules', () => {
+    expect(flat).toContain(
+      'If one covers the topic and its subject key satisfies the subject rules above, reuse its subject key EXACTLY',
+    );
+    expect(flat).toContain(
+      'If the existing key breaks a rule above (for example a bare repository or product name), do not reuse it; choose a specific topic key instead.',
+    );
+    // The reuse rule must come after the rules it depends on, so "above" is true.
+    expect(flat.indexOf('reuse its subject key EXACTLY')).toBeGreaterThan(
+      flat.indexOf('Never a bare repository, product, app or service name'),
+    );
+    expect(flat.indexOf('reuse its subject key EXACTLY')).toBeGreaterThan(
+      flat.indexOf('Never a task id, ticket, PR or batch number'),
     );
   });
 

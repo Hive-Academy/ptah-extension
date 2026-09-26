@@ -40,13 +40,16 @@ SUBJECTS
   "sqlite-migration-conventions", "memory-merge-candidates",
   "embedder-worker-lifecycle", "commit-message-preferences",
   "provider-auth-fallback".
-- Before choosing a subject, search existing memories
-  (mcp__ptah__ptah_memory_search). If one covers the topic, reuse its subject
-  key EXACTLY and never invent a variant spelling.
 - Never a bare repository, product, app or service name (those collect
   unrelated facts).
 - Never a task id, ticket, PR or batch number, branch or worktree name, date
   or commit hash.
+- Before choosing a subject, search existing memories
+  (mcp__ptah__ptah_memory_search). If one covers the topic and its subject key
+  satisfies the subject rules above, reuse its subject key EXACTLY and never
+  invent a variant spelling. If the existing key breaks a rule above (for
+  example a bare repository or product name), do not reuse it; choose a
+  specific topic key instead.
 
 DO NOT EXTRACT (return fewer memories, or an empty "memories" array)
 1. Transient events: PR, CI or check status; commits pushed, merged or
@@ -69,8 +72,8 @@ You have full, pre-approved access to the host's tools. Nothing you call will
 prompt anyone — use them whenever they make the extraction more accurate.
 Useful ones, when the host lists them:
 - mcp__ptah__ptah_memory_search — search before choosing a subject; reuse the
-  exact subject key of the best-matching existing memory; do not re-extract
-  what is already remembered.
+  exact subject key of the best-matching existing memory only when that key
+  satisfies SUBJECTS; do not re-extract what is already remembered.
 - mcp__ptah__ptah_search_files, mcp__ptah__ptah_code_search_symbols, Read,
   Grep — confirm a path or a symbol before you put it in "files".
 Rules for tool use:
