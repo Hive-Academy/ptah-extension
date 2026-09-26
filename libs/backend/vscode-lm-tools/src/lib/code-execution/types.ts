@@ -1099,6 +1099,14 @@ export interface AstNamespace {
  * Complete code insights from AST analysis
  */
 export interface AstCodeInsights {
+  /** Recovery is a partial answer; unknown means parser metadata was absent. */
+  parseStatus: 'ok' | 'recovered' | 'unknown';
+  /** Bounded ERROR/MISSING tally; null when the original parse was not observed. */
+  errorNodeCount: number | null;
+  errorNodeCountCapped: boolean;
+  /** Serialized ahead of paths and lists so result budgets retain coverage. */
+  coverage: import('@ptah-extension/platform-core').LanguageCoverage;
+
   /** File that was analyzed */
   file: string;
 

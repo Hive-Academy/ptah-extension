@@ -3,6 +3,7 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { SupportedLanguage, LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
+import type { ParseQuality } from './ast-analysis.interfaces';
 import { resolveWasmPath } from './wasm-bundle-dir';
 import {
   Parser,
@@ -61,6 +62,28 @@ export interface QueryMatch {
   pattern: number;
   /** All captures in this match */
   captures: QueryCapture[];
+}
+
+/** Metadata belongs to this parse, never to mutable service-wide state. */
+type QueryResults = Map<string, QueryMatch[]> & Partial<ParseQuality>;
+
+function parseQuality(root: SyntaxNode): ParseQuality {
+  let errorNodeCount = 0;
+  const pending = [root];
+  while (pending.length > 0 && errorNodeCount < 20) {
+    const node = pending.pop();
+    if (!node) break;
+    if (node.type === 'ERROR' || node.isMissing) errorNodeCount++;
+    // Clean subtrees cannot contain ERROR or MISSING nodes.
+    if (node.hasError !== false) {
+      for (const child of node.children) pending.push(child);
+    }
+  }
+  return {
+    parseStatus: root.hasError || errorNodeCount > 0 ? 'recovered' : 'ok',
+    errorNodeCount,
+    errorNodeCountCapped: errorNodeCount === 20,
+  };
 }
 
 @injectable()
@@ -555,16 +578,22 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @param queries An array of { key, queryString } entries to execute
    * @returns A Result containing a Map<key, QueryMatch[]> on success, or an Error on failure.
-   *          An empty `queries` array returns `Result.ok(new Map())` immediately.
-   *          An empty or falsy `content` string also returns `Result.ok(new Map())` immediately.
+   *          Parse quality is attached even when no query entries are requested.
+   *          Empty content is a clean empty parse without allocating a tree.
    */
   async queryMulti(
     content: string,
     language: SupportedLanguage,
     queries: { key: string; queryString: string }[],
-  ): Promise<Result<Map<string, QueryMatch[]>, Error>> {
-    if (!content || queries.length === 0) {
-      return Result.ok(new Map());
+  ): Promise<Result<QueryResults, Error>> {
+    if (!content) {
+      return Result.ok(
+        Object.assign(new Map<string, QueryMatch[]>(), {
+          parseStatus: 'ok' as const,
+          errorNodeCount: 0,
+          errorNodeCountCapped: false,
+        }),
+      );
     }
 
     this.logger.debug(
@@ -614,7 +643,10 @@ export class TreeSitterParserService {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
 
-      const resultMap = new Map<string, QueryMatch[]>();
+      const resultMap = Object.assign(
+        new Map<string, QueryMatch[]>(),
+        parseQuality(tree.rootNode),
+      );
 
       for (const entry of queries) {
         const tsQuery = new Query(grammar, entry.queryString);

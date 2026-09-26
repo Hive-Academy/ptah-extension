@@ -10,6 +10,10 @@ import {
   TreeSitterParserService,
   AstAnalysisService,
   EXTENSION_LANGUAGE_MAP,
+  classifyFileForCoverage,
+  hasCapability,
+  languageForExtension,
+  supportedLanguagesFor,
   type SupportedLanguage,
   type GenericAstNode,
   type QueryMatch,
@@ -19,6 +23,7 @@ import { FileType } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
+  LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import {
   AstNamespace,
@@ -82,7 +87,12 @@ export function buildAstNamespace(
         imports: [],
         exports: [],
       };
+      const parseStatus = insights.parseStatus ?? 'unknown';
       return {
+        parseStatus,
+        errorNodeCount: insights.errorNodeCount ?? null,
+        errorNodeCountCapped: insights.errorNodeCountCapped ?? false,
+        coverage: fileCoverage(absolutePath, 'parse', parseStatus),
         file: filePath,
         language,
         functions: insights.functions as AstFunctionInfo[],
@@ -174,6 +184,13 @@ export function buildAstNamespace(
         workspaceProvider,
       );
 
+      if (!hasCapability(language, 'publicSymbols')) {
+        throw new Error(
+          `${JSON.stringify({ coverage: fileCoverage(filePath, 'publicSymbols', 'unknown') })} ` +
+            `Export query unsupported for ${language}. Supported: ${supportedLanguagesFor('publicSymbols').join(', ')}`,
+        );
+      }
+
       const result = await treeSitterParser.queryExports(content, language);
 
       if (result.isErr()) {
@@ -188,6 +205,35 @@ export function buildAstNamespace(
         (v, i, a) => a.indexOf(v) === i,
       );
     },
+  };
+}
+
+/** A single explicit file is a complete census, even when analysis is partial. */
+function fileCoverage(
+  filePath: string,
+  capability: 'parse' | 'publicSymbols',
+  parseStatus: AstCodeInsights['parseStatus'],
+): LanguageCoverage {
+  const classification = classifyFileForCoverage(filePath, capability);
+  const eligible = classification === 'eligible';
+  const language = languageForExtension(path.extname(filePath));
+  return {
+    supportedLanguages: supportedLanguagesFor(capability),
+    census: 'complete',
+    analyzed: eligible && parseStatus === 'ok' ? 1 : 0,
+    unchecked: eligible && parseStatus === 'unknown' ? 1 : 0,
+    failed: eligible && parseStatus === 'recovered' ? 1 : 0,
+    unsupported: classification === 'unsupported' ? 1 : 0,
+    unrecognised: classification === 'unrecognised' ? 1 : 0,
+    nonSource: classification === 'nonSource' ? 1 : 0,
+    excluded: 0,
+    omittedByCap: 0,
+    ...(classification === 'unsupported'
+      ? { unsupportedByLanguage: { [language ?? 'other']: 1 } }
+      : {}),
+    ...(eligible && parseStatus === 'recovered'
+      ? { failedByReason: { parse: 1 } }
+      : {}),
   };
 }
 
@@ -225,9 +271,10 @@ async function readFileForAst(
 
   if (!language) {
     throw new Error(
-      `Unsupported file type: ${ext}. Supported: ${Object.keys(
-        EXTENSION_LANGUAGE_MAP,
-      ).join(', ')}`,
+      `${JSON.stringify({ coverage: fileCoverage(absolutePath, 'parse', 'unknown') })} ` +
+        `Unsupported file type: ${ext}. Supported: ${Object.keys(
+          EXTENSION_LANGUAGE_MAP,
+        ).join(', ')}`,
     );
   }
 
