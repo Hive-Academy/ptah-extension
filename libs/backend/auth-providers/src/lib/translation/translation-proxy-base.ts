@@ -21,6 +21,11 @@
  * Listens on port 0 (OS-assigned) to avoid port conflicts.
  *
  * Extracted from CopilotTranslationProxy to enable reuse across providers.
+ *
+ * Path A (translation proxy, host-managed Claude Agent SDK loop); see
+ * `.ptah/specs/TASK_2026_408/ownership.md` for how it differs from the native
+ * Codex adapter and the CLI workspace proxy. Main limit: stateless upstream
+ * turns (`store: false`, no reasoning carry-over; `thinking` is stripped).
  */
 
 import * as http from 'http';
@@ -43,6 +48,11 @@ import {
   collectResponsesStream,
   ResponsesStreamError,
 } from './responses-stream-collector';
+import {
+  classifyResponsesTerminal,
+  classifyUpstreamHttpError,
+  type ResponsesTerminalOutcome,
+} from './responses-error-mapping';
 import {
   readBody,
   sendJson,
@@ -103,6 +113,34 @@ const messagesEnvelopeSchema = z
     stream: z.boolean().optional(),
   })
   .passthrough();
+
+/**
+ * Terminal decision for a parsed Responses JSON body, shared with the stream
+ * and forced-SSE paths through `classifyResponsesTerminal`. `undefined` keeps
+ * the existing success handling (status `completed` or missing).
+ */
+function classifyResponsesJsonTerminal(
+  body: unknown,
+): ResponsesTerminalOutcome | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const { status, output } = body as { status?: unknown; output?: unknown };
+  if (status === 'failed') {
+    return classifyResponsesTerminal('response.failed', body, {
+      hadToolUse: false,
+    });
+  }
+  if (status !== 'incomplete') return undefined;
+  const calls = (Array.isArray(output) ? output : []).filter(
+    (item: unknown): item is { arguments?: unknown } =>
+      typeof item === 'object' &&
+      item !== null &&
+      (item as { type?: unknown }).type === 'function_call',
+  );
+  return classifyResponsesTerminal('response.incomplete', body, {
+    hadToolUse: calls.length > 0,
+    toolArgs: calls.map((call) => call.arguments),
+  });
+}
 
 export interface ProxyPhaseTimingRecord {
   requestId: string;
@@ -725,6 +763,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       isRetry,
       timing,
       apiLabel: 'Responses API',
+      streamingOwnsUpstreamFailure: true,
       onStreamingSuccess: (
         proxyRes,
         clientRes,
@@ -763,12 +802,23 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             onTranslationError();
             if (!(error instanceof ResponsesStreamError)) throw error;
             if (!clientRes.destroyed) {
-              sendErrorResponse(
-                clientRes,
-                502,
-                'api_error',
-                `${error.code}: ${error.message}`,
-              );
+              // Classified upstream terminals carry their own status/type
+              // (e.g. 400 prompt-too-long); everything else stays 502.
+              if (error.mapping) {
+                sendErrorResponse(
+                  clientRes,
+                  error.mapping.status,
+                  error.mapping.type,
+                  error.mapping.message,
+                );
+              } else {
+                sendErrorResponse(
+                  clientRes,
+                  502,
+                  'api_error',
+                  `${error.code}: ${error.message}`,
+                );
+              }
             }
           }
         } else {
@@ -817,6 +867,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
       onTranslationError: () => void,
     ) => void | Promise<void>;
+    /**
+     * The streaming handler writes its own protocol terminal on upstream
+     * failure (socket error, abort, timeout) and resolves once `res` is ended,
+     * so the shared lifecycle must not destroy the already-open downstream.
+     */
+    streamingOwnsUpstreamFailure?: boolean;
     onNonStreamingSuccess: (
       proxyRes: http.IncomingMessage,
       res: http.ServerResponse,
@@ -907,6 +963,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     );
 
     return new Promise<void>((resolve, reject) => {
+      // Set once a streaming handler that owns upstream-failure termination
+      // is running (see `streamingOwnsUpstreamFailure`).
+      let streamingHandlerOwnsFailure = false;
       const requestFn =
         targetUrl.protocol === 'http:' ? http.request : https.request;
       const proxyReq = requestFn(
@@ -922,6 +981,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         },
         (proxyRes) => {
           const failResponse = (error: unknown) => {
+            // An owning streaming handler ends `res` with its own terminal and
+            // then settles this promise through `complete`.
+            if (streamingHandlerOwnsFailure) return;
             finishTiming('invalid-response');
             if (res.headersSent) res.destroy();
             proxyRes.destroy();
@@ -1012,6 +1074,23 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             proxyRes.on('end', () => {
               finishTiming('upstream-error');
               const errorBody = Buffer.concat(chunks).toString('utf8');
+              // Context overflow becomes the prompt-too-long contract the
+              // SDK CLI compacts and retries on. The mapping and this log
+              // line carry no upstream text; other bodies keep the legacy path.
+              const overflow = classifyUpstreamHttpError(statusCode, errorBody);
+              if (overflow) {
+                this.logger.warn(
+                  `${this.logPrefix} [${requestId}] upstream ${statusCode} classified as context overflow`,
+                );
+                sendErrorResponse(
+                  res,
+                  overflow.status,
+                  overflow.type,
+                  overflow.message,
+                );
+                resolve();
+                return;
+              }
               const errorMessage = this.getUpstreamErrorMessage(
                 statusCode,
                 errorBody,
@@ -1049,8 +1128,15 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               },
             );
             if (completion) {
+              // Taken only after the handler is running (headers and its
+              // first frame are written), so earlier failures keep the shared path.
+              streamingHandlerOwnsFailure =
+                !!originalRequest.stream && !!params.streamingOwnsUpstreamFailure;
               // degradation-audit: reported - failResponse destroys the streams and rejects the enclosing request promise; the forwarding boundary logs and sends an error response.
-              completion.then(complete).catch(failResponse);
+              completion.then(complete).catch((error: unknown) => {
+                streamingHandlerOwnsFailure = false;
+                failResponse(error);
+              });
             } else {
               proxyRes.once('end', complete);
             }
@@ -1073,7 +1159,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             'api_error',
             `${this.config.name} API request timed out`,
           );
-        } else {
+        } else if (!streamingHandlerOwnsFailure) {
+          // An owning streaming handler sees the destroyed upstream and ends
+          // `res` with its terminal error instead.
           res.destroy();
         }
         resolve();
@@ -1108,6 +1196,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   /**
    * Handle a streaming response from the upstream Responses API.
    * Reads Responses SSE events, translates to Anthropic SSE, and writes to client.
+   *
+   * Owns the stream's terminal: clean EOF, upstream socket error, abort and
+   * timeout all end `res` after exactly one Anthropic terminal (unless the
+   * client already disconnected). Resolves once `res` is ended; never rejects.
    */
   private handleResponsesStreamingResponse(
     proxyRes: http.IncomingMessage,
@@ -1116,7 +1208,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     requestId: string,
     onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
     onTranslationError: () => void,
-  ): void {
+  ): Promise<void> {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -1132,28 +1224,51 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     );
     res.write(translator.getInitialEvents());
 
-    proxyRes.setEncoding('utf8');
-
-    proxyRes.on('data', (chunk: string) => {
-      const events = translator.processChunk(chunk);
+    // A client that went away must not be written to.
+    const writeEvents = (events: readonly string[]) => {
+      if (res.destroyed || res.writableEnded) return;
       for (const event of events) {
         res.write(event);
       }
+    };
+
+    proxyRes.setEncoding('utf8');
+
+    proxyRes.on('data', (chunk: string) => {
+      writeEvents(translator.processChunk(chunk));
     });
 
-    proxyRes.on('end', () => {
-      if (!translator.isFinalized()) onTranslationError();
-      res.end();
-      this.logger.debug(
-        `${this.logPrefix} [${requestId}] Responses API streaming response complete`,
-      );
-    });
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      // Both terminal writers are idempotent and flag the translation error
+      // for timing when they have to synthesise the terminal.
+      const finish = (events: readonly string[]) => {
+        if (settled) return;
+        settled = true;
+        writeEvents(events);
+        if (!res.writableEnded) res.end();
+        resolve();
+      };
 
-    proxyRes.on('error', (err) => {
-      this.logger.error(
-        `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`,
-      );
-      res.end();
+      proxyRes.once('end', () => {
+        // Clean EOF: flush a completed final frame, else one SSE error.
+        finish(translator.endOfStream());
+        this.logger.debug(
+          `${this.logPrefix} [${requestId}] Responses API streaming response complete`,
+        );
+      });
+
+      proxyRes.once('error', (err) => {
+        this.logger.error(
+          `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`,
+        );
+        finish(translator.terminateTruncated());
+      });
+
+      // Socket abort or timeout teardown: Node may close without an error.
+      proxyRes.once('close', () => {
+        if (!proxyRes.complete) finish(translator.terminateTruncated());
+      });
     });
   }
 
@@ -1177,6 +1292,20 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         try {
           const body = Buffer.concat(chunks).toString('utf8');
           const responsesResponse = JSON.parse(body);
+          // Same terminal table as the stream and forced-SSE paths, decided
+          // before any content translation (no `{}` fabrication on truncation).
+          const terminal = classifyResponsesJsonTerminal(responsesResponse);
+          if (terminal?.kind === 'error') {
+            onTranslationError();
+            sendErrorResponse(
+              res,
+              terminal.mapping.status,
+              terminal.mapping.type,
+              terminal.mapping.message,
+            );
+            resolve();
+            return;
+          }
           const content: Array<Record<string, unknown>> = [];
           let stopReason = 'end_turn';
 
@@ -1204,6 +1333,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               }
             }
           }
+
+          if (terminal) stopReason = terminal.stopReason;
 
           const usage = translateResponsesUsage(responsesResponse.usage);
           onUsage(usage);

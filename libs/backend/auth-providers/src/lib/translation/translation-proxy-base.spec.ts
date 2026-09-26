@@ -26,6 +26,7 @@
 import 'reflect-metadata';
 
 import * as http from 'http';
+import { APIError } from '@anthropic-ai/sdk';
 import { CodexTranslationProxy } from '../providers/codex/codex-translation-proxy';
 import { CopilotTranslationProxy } from '../providers/copilot/copilot-translation-proxy';
 import { OpenRouterTranslationProxy } from '../providers/openrouter/openrouter-translation-proxy';
@@ -1319,6 +1320,565 @@ describe('TranslationProxyBase phase timing terminal paths', () => {
     expect(records.every((record) => record.status === 'success')).toBe(true);
     await h.stop();
     await upstream.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_408 Phase 1: overflow mapping, one terminal per stream, and the
+// same outcome on the stream, forced-SSE collector and JSON paths.
+// ---------------------------------------------------------------------------
+
+const SENTINEL = 'private-upstream-value';
+const PROMPT_TOO_LONG_DEFAULT =
+  "prompt is too long: the request exceeds the model's context window";
+const INCOMPLETE_TOOL_INPUT =
+  'upstream_incomplete: Upstream response ended with incomplete tool input';
+
+interface SseFrame {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+function parseSseBody(body: string): SseFrame[] {
+  return body
+    .split('\n\n')
+    .filter((frame) => frame.trim())
+    .map((frame) => {
+      const lines = frame.split('\n');
+      const event = (lines.find((l) => l.startsWith('event: ')) ?? '').slice(7);
+      const data = (lines.find((l) => l.startsWith('data: ')) ?? '').slice(6);
+      return { event, data: JSON.parse(data) as Record<string, unknown> };
+    });
+}
+
+async function timedHarness() {
+  const records: ProxyPhaseTimingRecord[] = [];
+  const h = await startProxy(DEFAULT_CONFIG, {
+    now: Date.now,
+    record: (record) => records.push(record),
+  });
+  return { ...h, records };
+}
+
+describe('TranslationProxyBase upstream context overflow', () => {
+  const overflowBody = JSON.stringify({
+    error: {
+      code: 'context_length_exceeded',
+      message: `Your input exceeds the context window of this model. ${SENTINEL}`,
+    },
+  });
+
+  it.each([
+    ['responses', false],
+    ['responses', true],
+    ['chat/completions', false],
+    ['chat/completions', true],
+  ] as const)(
+    'maps an upstream 400 overflow to the prompt-too-long contract (%s, stream=%s)',
+    async (protocol, stream) => {
+      const upstream = await startUpstream((_req, res) => {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(overflowBody);
+      });
+      const h = await timedHarness();
+      h.proxy.protocol = protocol;
+      h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+      try {
+        const result = await request(`${h.url}/v1/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream }),
+        });
+        expect(result.status).toBe(400);
+        const body = JSON.parse(result.body);
+        expect(body).toEqual({
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: PROMPT_TOO_LONG_DEFAULT,
+          },
+        });
+        expect(result.body).not.toContain(SENTINEL);
+        // The installed SDK client error the CLI inspects carries the phrase.
+        expect(
+          APIError.generate(400, body, undefined, new Headers()).message,
+        ).toContain('prompt is too long');
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('upstream 400 classified as context overflow'),
+        );
+        const logged = JSON.stringify([
+          h.logger.warn.mock.calls,
+          h.logger.error.mock.calls,
+          h.logger.info.mock.calls,
+          h.logger.debug.mock.calls,
+        ]);
+        expect(logged).not.toContain(SENTINEL);
+        expect(h.records).toHaveLength(1);
+        expect(h.records[0].status).toBe('upstream-error');
+      } finally {
+        await h.stop();
+        await upstream.close();
+      }
+    },
+  );
+
+  it('carries token counts from a 413 Chat-style overflow into the token-gap shape', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          message: `This model's maximum context length is 128000 tokens. However, your messages resulted in 130532 tokens. ${SENTINEL}`,
+        }),
+      );
+    });
+    const h = await timedHarness();
+    h.proxy.protocol = 'responses';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, {
+        method: 'POST',
+        body: MESSAGES_BODY,
+      });
+      expect(result.status).toBe(400);
+      const message = JSON.parse(result.body).error.message as string;
+      expect(message).toBe('prompt is too long: 130532 tokens > 128000 maximum');
+      expect(message).toMatch(
+        /prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)/i,
+      );
+      expect(result.body).not.toContain(SENTINEL);
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  it.each(['responses', 'chat/completions'] as const)(
+    'keeps a non-overflow 400 byte-identical to the legacy api_error body (%s)',
+    async (protocol) => {
+      const upstreamBody = JSON.stringify({
+        error: { code: 'invalid_request', message: 'Unsupported parameter: foo' },
+      });
+      const upstream = await startUpstream((_req, res) => {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(upstreamBody);
+      });
+      const h = await timedHarness();
+      h.proxy.protocol = protocol;
+      h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+      try {
+        const result = await request(`${h.url}/v1/messages`, {
+          method: 'POST',
+          body: MESSAGES_BODY,
+        });
+        expect(result.status).toBe(400);
+        expect(result.body).toBe(
+          JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'api_error',
+              message: `Fake API error (400): ${upstreamBody.substring(0, 200)}`,
+            },
+          }),
+        );
+        expect(h.logger.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining('classified as context overflow'),
+        );
+        expect(h.records[0].status).toBe('upstream-error');
+      } finally {
+        await h.stop();
+        await upstream.close();
+      }
+    },
+  );
+});
+
+type ParityPath = 'stream' | 'forced-sse' | 'json';
+
+type ParityOutcome =
+  | { kind: 'stop'; stopReason: string }
+  | { kind: 'error'; status: number; type: string; message: string };
+
+interface ParityRow {
+  name: string;
+  /** Upstream SSE body for the stream and forced-SSE paths. */
+  sse: string;
+  /** Upstream JSON body; `undefined` when the JSON API has no such shape. */
+  json?: Record<string, unknown>;
+  expected: ParityOutcome;
+}
+
+function upstreamSse(event: string, data: Record<string, unknown>): string {
+  return `event: ${event}\ndata: ${JSON.stringify({ type: event, ...data })}\n\n`;
+}
+
+const PARITY_USAGE = { input_tokens: 5, output_tokens: 3 };
+
+function parityResponse(
+  status: string,
+  extra: Record<string, unknown>,
+  toolArgs?: string,
+): Record<string, unknown> {
+  return {
+    status,
+    output:
+      toolArgs === undefined
+        ? [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }]
+        : [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'read_file',
+              arguments: toolArgs,
+            },
+          ],
+    usage: PARITY_USAGE,
+    ...extra,
+  };
+}
+
+/** Streamed items for a snapshot: text delta, or one function call. */
+function streamedItems(toolArgs?: string): string {
+  if (toolArgs === undefined) {
+    return upstreamSse('response.output_text.delta', { delta: 'hi' });
+  }
+  const item = { type: 'function_call', call_id: 'call_1', name: 'read_file' };
+  return (
+    upstreamSse('response.output_item.added', { output_index: 0, item }) +
+    upstreamSse('response.function_call_arguments.delta', {
+      output_index: 0,
+      delta: toolArgs,
+    }) +
+    upstreamSse('response.output_item.done', {
+      output_index: 0,
+      item: { ...item, arguments: toolArgs },
+    })
+  );
+}
+
+function terminalRow(
+  name: string,
+  event: 'response.completed' | 'response.incomplete' | 'response.failed',
+  extra: Record<string, unknown>,
+  expected: ParityOutcome,
+  toolArgs?: string,
+): ParityRow {
+  const status =
+    event === 'response.completed'
+      ? 'completed'
+      : event === 'response.incomplete'
+        ? 'incomplete'
+        : 'failed';
+  const response = parityResponse(status, extra, toolArgs);
+  return {
+    name,
+    sse: streamedItems(toolArgs) + upstreamSse(event, { response }),
+    json: response,
+    expected,
+  };
+}
+
+const stop = (stopReason: string): ParityOutcome => ({ kind: 'stop', stopReason });
+const failure = (
+  status: number,
+  type: string,
+  message: string,
+): ParityOutcome => ({ kind: 'error', status, type, message });
+
+const incompleteFor = (reason: string) => ({ incomplete_details: { reason } });
+const failedWith = (code?: string) =>
+  code ? { error: { code, message: SENTINEL } } : {};
+
+const PARITY_ROWS: ParityRow[] = [
+  terminalRow('completed text', 'response.completed', {}, stop('end_turn')),
+  terminalRow('completed tool call', 'response.completed', {}, stop('tool_use'), '{"path":"a"}'),
+  terminalRow('max_output_tokens, no tools', 'response.incomplete', incompleteFor('max_output_tokens'), stop('max_tokens')),
+  terminalRow('max_output_tokens, valid args', 'response.incomplete', incompleteFor('max_output_tokens'), stop('max_tokens'), '{"path":"a"}'),
+  terminalRow('max_output_tokens, invalid args', 'response.incomplete', incompleteFor('max_output_tokens'), failure(502, 'api_error', INCOMPLETE_TOOL_INPUT), '{"x":'),
+  terminalRow('content_filter, no tools', 'response.incomplete', incompleteFor('content_filter'), stop('refusal')),
+  terminalRow('content_filter, valid args', 'response.incomplete', incompleteFor('content_filter'), stop('refusal'), '{"path":"a"}'),
+  terminalRow('content_filter, invalid args', 'response.incomplete', incompleteFor('content_filter'), failure(502, 'api_error', INCOMPLETE_TOOL_INPUT), '{"x":'),
+  terminalRow('other incomplete reason', 'response.incomplete', incompleteFor('other_reason'), failure(502, 'api_error', 'upstream_incomplete: Upstream Responses response incomplete')),
+  terminalRow('failed context_length_exceeded', 'response.failed', failedWith('context_length_exceeded'), failure(400, 'invalid_request_error', PROMPT_TOO_LONG_DEFAULT)),
+  terminalRow('failed rate_limit_exceeded', 'response.failed', failedWith('rate_limit_exceeded'), failure(429, 'rate_limit_error', 'Upstream rate limit exceeded')),
+  terminalRow('failed server_error', 'response.failed', failedWith('server_error'), failure(502, 'api_error', 'Upstream Responses request failed (server_error)')),
+  terminalRow('failed invalid_prompt', 'response.failed', failedWith('invalid_prompt'), failure(400, 'invalid_request_error', 'Upstream rejected the request (invalid_prompt)')),
+  terminalRow('failed without error', 'response.failed', failedWith(), failure(502, 'api_error', 'Upstream Responses request failed (unknown)')),
+  {
+    name: 'standalone error, top-level code',
+    sse:
+      streamedItems() +
+      upstreamSse('error', { code: 'context_length_exceeded', message: SENTINEL }),
+    expected: failure(400, 'invalid_request_error', PROMPT_TOO_LONG_DEFAULT),
+  },
+  {
+    name: 'standalone error, nested code',
+    sse:
+      streamedItems() +
+      upstreamSse('error', { error: { code: 'rate_limit_exceeded', message: SENTINEL } }),
+    expected: failure(429, 'rate_limit_error', 'Upstream rate limit exceeded'),
+  },
+];
+
+const PARITY_PATHS: ParityPath[] = ['stream', 'forced-sse', 'json'];
+
+// The JSON API has no standalone `error` event, so those rows run on the two
+// SSE paths only.
+const PARITY_CASES = PARITY_ROWS.flatMap((row) =>
+  PARITY_PATHS.filter((path) => path !== 'json' || row.json !== undefined).map(
+    (path) => [row.name, path, row] as const,
+  ),
+);
+
+async function runParityCase(
+  path: ParityPath,
+  row: ParityRow,
+): Promise<{
+  outcome: ParityOutcome;
+  body: string;
+  records: ProxyPhaseTimingRecord[];
+}> {
+  const upstream = await startUpstream((_req, res) => {
+    if (path === 'json') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(row.json));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.end(row.sse);
+  });
+  const h = await timedHarness();
+  h.proxy.protocol = 'responses';
+  h.proxy.forceResponsesStream = path === 'forced-sse';
+  h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+  try {
+    const result = await request(`${h.url}/v1/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...JSON.parse(MESSAGES_BODY),
+        stream: path === 'stream',
+      }),
+    });
+    if (path === 'stream') {
+      expect(result.status).toBe(200);
+      const frames = parseSseBody(result.body);
+      const terminals = frames.filter(
+        (frame) => frame.event === 'error' || frame.event === 'message_stop',
+      );
+      // Exactly one Anthropic terminal, and it is the last frame.
+      expect(terminals).toHaveLength(1);
+      expect(frames.at(-1)).toBe(terminals[0]);
+      const error = frames.find((frame) => frame.event === 'error');
+      const delta = frames.find((frame) => frame.event === 'message_delta');
+      const outcome: ParityOutcome = error
+        ? {
+            kind: 'error',
+            // SSE errors travel on a 200 stream; compare with the mapping's status.
+            status: row.expected.kind === 'error' ? row.expected.status : 200,
+            ...(error.data['error'] as { type: string; message: string }),
+          }
+        : {
+            kind: 'stop',
+            stopReason: (delta?.data['delta'] as { stop_reason: string })
+              .stop_reason,
+          };
+      return { outcome, body: result.body, records: h.records };
+    }
+    const body = JSON.parse(result.body);
+    const outcome: ParityOutcome =
+      result.status === 200
+        ? { kind: 'stop', stopReason: body.stop_reason }
+        : {
+            kind: 'error',
+            status: result.status,
+            type: body.error.type,
+            message: body.error.message,
+          };
+    return { outcome, body: result.body, records: h.records };
+  } finally {
+    await h.stop();
+    await upstream.close();
+  }
+}
+
+describe('TranslationProxyBase Responses terminal parity', () => {
+  it.each(PARITY_CASES)('%s via %s', async (_name, path, row) => {
+    const { outcome, body, records } = await runParityCase(path, row);
+    expect(outcome).toEqual(row.expected);
+    expect(body).not.toContain(SENTINEL);
+    // The old JSON path fabricated `input: {}` for truncated args. (The stream
+    // path legitimately opens tool blocks with `input: {}`.)
+    if (path !== 'stream') expect(body).not.toContain('"input":{}');
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe(
+      row.expected.kind === 'stop' ? 'success' : 'invalid-response',
+    );
+    if (row.expected.kind === 'stop') {
+      expect(records[0].terminalOutputTokens).toBe(PARITY_USAGE.output_tokens);
+    }
+  });
+
+  it('ends a stream that hits EOF before any terminal with one SSE api_error', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      // The last frame lacks its blank line, so it is never dispatched.
+      res.end(
+        upstreamSse('response.output_text.delta', { delta: 'partial' }) +
+          `event: response.completed\ndata: ${JSON.stringify({
+            response: parityResponse('completed', {}),
+          })}\n`,
+      );
+    });
+    const h = await timedHarness();
+    h.proxy.protocol = 'responses';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    try {
+      const result = await request(`${h.url}/v1/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true }),
+      });
+      const frames = parseSseBody(result.body);
+      expect(frames.map((frame) => frame.event)).toEqual([
+        'message_start',
+        'content_block_start',
+        'content_block_delta',
+        'error',
+      ]);
+      expect(frames.at(-1)?.data).toEqual({
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message: 'Upstream Responses stream ended before completion',
+        },
+      });
+      expect(h.records).toHaveLength(1);
+      expect(h.records[0].status).toBe('invalid-response');
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  });
+
+  /** Runs one streaming Responses request; resolves once timing is recorded. */
+  async function streamThrough(
+    handler: http.RequestListener,
+    configure: (proxy: FakeTranslationProxy) => void = () => undefined,
+  ) {
+    const upstream = await startUpstream(handler);
+    let recorded!: () => void;
+    const recordedPromise = new Promise<void>((resolve) => {
+      recorded = resolve;
+    });
+    const records: ProxyPhaseTimingRecord[] = [];
+    const h = await startProxy(DEFAULT_CONFIG, {
+      now: Date.now,
+      record: (record) => {
+        records.push(record);
+        recorded();
+      },
+    });
+    h.proxy.protocol = 'responses';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    configure(h.proxy);
+    try {
+      // `request` rejects on an aborted downstream, so resolving proves a clean end.
+      const result = await request(`${h.url}/v1/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ ...JSON.parse(MESSAGES_BODY), stream: true }),
+      });
+      await recordedPromise;
+      // The proxy keeps serving after the failure.
+      expect((await request(`${h.url}/health`)).status).toBe(200);
+      return { result, frames: parseSseBody(result.body), records };
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  }
+
+  const TRUNCATED_ERROR = {
+    type: 'error',
+    error: {
+      type: 'api_error',
+      message: 'Upstream Responses stream ended before completion',
+    },
+  };
+
+  it('ends with exactly one SSE error and a clean end when the upstream socket aborts mid-stream', async () => {
+    const { result, frames, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(upstreamSse('response.output_text.delta', { delta: 'partial' }));
+      setTimeout(() => res.socket?.destroy(), 30);
+    });
+    expect(result.status).toBe(200);
+    expect(frames.map((frame) => frame.event)).toEqual([
+      'message_start',
+      'content_block_start',
+      'content_block_delta',
+      'error',
+    ]);
+    expect(frames.filter((frame) => frame.event === 'error')).toHaveLength(1);
+    expect(frames.at(-1)?.data).toEqual(TRUNCATED_ERROR);
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('invalid-response');
+  });
+
+  it('ends with exactly one SSE error and a clean end on a post-header upstream timeout', async () => {
+    const { result, frames, records } = await streamThrough(
+      (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(upstreamSse('response.output_text.delta', { delta: 'partial' }));
+        // Then go silent until the proxy's idle timeout fires.
+      },
+      (proxy) => {
+        proxy.upstreamTimeoutMs = 50;
+      },
+    );
+    expect(result.status).toBe(200);
+    expect(frames.filter((frame) => frame.event === 'error')).toHaveLength(1);
+    expect(frames.at(-1)?.data).toEqual(TRUNCATED_ERROR);
+    expect(frames.map((frame) => frame.event)).not.toContain('message_stop');
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('timeout');
+  });
+
+  it('adds no second terminal when the upstream socket aborts after a terminal', async () => {
+    const { frames, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(
+        upstreamSse('response.completed', {
+          response: parityResponse('completed', {}),
+        }),
+      );
+      setTimeout(() => res.socket?.destroy(), 30);
+    });
+    expect(frames.map((frame) => frame.event)).toEqual([
+      'message_start',
+      'message_delta',
+      'message_stop',
+    ]);
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('success');
+  });
+
+  it('delivers a CR-only response.failed overflow as the prompt-too-long SSE error at EOF', async () => {
+    const { frames, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      // Exactly two final CRs: the last one is only resolved by clean EOF.
+      res.end(
+        'event: response.failed\rdata: {"response":{"error":{"code":"context_length_exceeded"}}}\r\r',
+      );
+    });
+    expect(frames.map((frame) => frame.event)).toEqual([
+      'message_start',
+      'error',
+    ]);
+    expect(frames[1].data).toEqual({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: PROMPT_TOO_LONG_DEFAULT,
+      },
+    });
+    expect(records[0].status).toBe('invalid-response');
   });
 });
 
