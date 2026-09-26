@@ -5951,3 +5951,768 @@ exactly the kind this review's own hunt list (stale reads, misattributed state) 
 - Net across all three rounds: 1 Blocking (DI factory) — fixed and independently re-verified against
   the real container; 1 Serious (notice deferral) — now resolved by recorded amendment; 1 Moderate
   (log wording) — pre-existing, unscored, left for whoever next touches that line.
+
+# Test report — PR 1
+
+Senior-tester, Batch 17 (PR 1 live verification and AC report). Evidence gathered 2026-09-26 against
+worktree `feat/task-2026-560-mcp-skill-toggles`, HEAD `06d1e189b`, base `c4bdc87dd`.
+
+## Scope
+
+- User request (context.md): replace the hand-edited `.mcp.json` / `settings.local.json` workaround
+  with a Ptah-enforced, per-workspace on/off for MCP servers, skills and plugins, independent of user
+  files, with ptah on by default and a visible global-vs-workspace scope.
+- Criteria tested: the PR 1 half of the 28-AC list (task-description.md) via the full regression suite
+  (all 13 PR 1 projects); a live, resolver-level RPC check for AC-2.1, AC-2.4, AC-4.6 and AC-4.9, and the
+  "names the item" half of AC-1.4 (see "AC-by-AC evidence" below for the exact RPC and observed result
+  behind each of those four-and-a-half claims — none of it is UI-level, since I drove the backend RPC
+  surface directly, not the Marketplace webview); AC-1.2, the revert half of AC-1.4, AC-2.3 and AC-4.1
+  are spec-proven, not independently live-re-verified by me this session (also itemized below); the
+  fail-closed policy (implementation-plan.md:112-142); and the B8 cross-batch DI item
+  (SDK_CAPABILITY_RESOLVER registered on all three hosts).
+- Regressions covered: the B7-reviewed DI-order fail-open (traced SAFE, now also live-proven on all
+  three hosts below) and the B3 reviewer's "frozen pass never acknowledged" exposure (log-volume check
+  below).
+- Review findings covered: this report's own DI-order proof answers the code-review.md "1 Blocking (DI
+  factory) — fixed and independently re-verified against the real container" line above, now with a
+  citation trail (CLI: live process boot; Electron/VS Code: scratch DI specs) rather than a restatement.
+- Deliberately not tested: the Marketplace UI (AC-1.1, AC-1.5, AC-2.2, AC-3.1 UI, AC-4.6 UI copy,
+  AC-4.8 UI labels, AC-5.x) — B13/B14 own that with webview e2e specs (B16) and the visual-reviewer's
+  screenshots fill the "Visual evidence" section below; I did not duplicate that work. PR 2 items
+  (C6, C7, C9) are out of scope for this batch by design.
+
+## AC-by-AC evidence (revision round 1)
+
+Added on revise round 1: the original Scope line named seven ACs as "live checks" without a traceable
+observation for each. Below is the per-AC accounting the logic review asked for — the exact RPC and
+result where I actually ran one live, and the spec citation where I did not.
+
+- **AC-1.2** (a server off in workspace A shows unchanged in workspace B) — NOT live. I never toggled
+  the same server in two workspaces and compared; my isolated-workspace runs were sequential, not a
+  simultaneous A-vs-B read. Spec evidence:
+  `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.spec.ts:607`,
+  `it('AC-1.2: a toggle in workspace A leaves workspace B alone', ...)` — toggles `usr` off in `env.repo`,
+  asserts `env.repo`'s `deniedMcpServers` is `['usr']` and a second workspace (`other`)'s is `[]`.
+- **AC-1.4** (a failed write reverts and names the item) — PARTIAL live. The "names the item" half: live
+  RPC `{"method":"capabilities:setEnabled","params":{"scope":"workspace","kind":"plugin","id":"ptah-angular","enabled":true}}`
+  returned `{"success":false,"error":"Could not turn on plugin \"ptah-angular\" (workspace): the change
+  was not applied."}` — the error text names the exact item (`plugin "ptah-angular"`), observed
+  end-to-end from the real RPC handler, not asserted against a mock. The "revert the control to its
+  prior state" half is a Marketplace store concern I did not drive (no frontend in this session). Spec
+  evidence for that half:
+  `libs/frontend/marketplace/src/lib/data/capability-toggles.store.spec.ts:302`,
+  `it('a failed write reverts the row and names the item, never echoing the backend text (AC-1.4)', ...)`.
+- **AC-2.1** (scope + path shown per declaration; both scopes when declared in both) — LIVE. One
+  `capabilities:getState` call (no params) against the real repo workspace returned, in the same
+  response: a global-only entry (`"sentry"` →
+  `sources:[{"scope":"global","path":"C:\\Users\\abdal\\.claude.json"}]`), a workspace-only entry with
+  two workspace paths (`"firecrawl"` →
+  `sources:[{"scope":"workspace","path":"...\\.mcp.json"},{"scope":"workspace","path":"...\\.vscode\\mcp.json"}]`),
+  and a both-scopes entry (`"ptah"` →
+  `sources:[{"scope":"workspace","path":"...\\.mcp.json"},{"scope":"global","path":"C:\\Users\\abdal\\.codex\\config.toml"}]`).
+  This is the backend classification AC-2.1 requires (scope + path per source, and both scopes together
+  when declared in both). It does not cover the literal "Global"/"Workspace" UI label text — that
+  rendering is the Marketplace component's job (B13/B14), out of scope for an RPC-only session.
+- **AC-2.3** (global entry byte-for-byte unchanged after a workspace toggle) — NOT live; I did not
+  snapshot and re-diff a user-scope file before/after a live toggle. Spec evidence:
+  `capability-resolver.service.spec.ts:654`,
+  `it('AC-2.3: toggles never touch a user config file or, for a workspace write, the global layer', ...)`
+  — snapshots `.mcp.json`, `~/.claude.json` and `~/.codex/config.toml` byte content and the global layer
+  before three workspace-scope toggles, asserts both are byte-identical after.
+- **AC-2.4** (workspace override vs. global disagreement shows the effective state and the override) —
+  LIVE. Before toggling, `capabilities:getState` showed `firecrawl` with `inheritedFrom: "default"` (no
+  override yet). After `capabilities:setEnabled {"scope":"workspace","kind":"mcp","id":"firecrawl","enabled":true}`
+  succeeded, the re-resolved entry in the SAME response was
+  `{"workspaceEnabled":true,"effectiveEnabled":true,"inheritedFrom":"workspace","defaultReason":"repository-only"}`
+  — `inheritedFrom: "workspace"` is exactly the override indicator, observed live at the RPC layer (the
+  UI badge text itself is B13's job, not exercised here).
+- **AC-4.1** (no toggle state → ptah on, others = global state, regardless of `enableAllProjectMcpServers`)
+  — NOT live; I did not write three different `settings.local.json` fixtures and re-resolve. Spec
+  evidence: `capability-resolver.service.spec.ts:527-546`, the `it.each([...])`
+  `'AC-4.1: a settings.local.json with %s written after imported.json exists changes nothing'` cases
+  (`enableAllProjectMcpServers: true`, an `enabledMcpjsonServers` list, and both together) — all three
+  assert an identical resolved policy after `imported.json` exists.
+- **AC-4.9** (a toggle applies to the next session built, not retroactively) — LIVE, but only the
+  freshness half, not the "already-running session unaffected / UI says so" half. Before toggling,
+  `capabilities:getEffective` showed `disabledPluginIds` containing `"ptah-core"` and
+  `harnessFingerprint: "e14d585d77eb5276"`. Immediately after `capabilities:setEnabled
+  {"scope":"global","kind":"plugin","id":"ptah-core","enabled":true}` succeeded, the very next
+  `capabilities:getEffective` call in the SAME session returned `disabledPluginIds` without `"ptah-core"`
+  and `harnessFingerprint: "de18eb1a57dc345a"` — demonstrating the effective set is recomputed fresh on
+  every call (no stale cache), which is the mechanism AC-4.9 relies on. I did not test the UI copy that
+  tells the user an already-running session is unaffected — that is B13's concern.
+
+## Suites — full PR 1 regression
+
+### PR 1 all-project regression — unit (jest, per project's own runner)
+
+- Requirement: every PR 1 project lints, typechecks and its unit suite passes with no regressions from
+  base `c4bdc87dd`.
+- Cases: the project's own existing suites (I added no new spec files to the regression — B17's brief
+  is verification, not new unit coverage).
+- Files: none added.
+
+## Per-host DI table (the B17 headline item)
+
+The batch's central finding was: B7 found and fixed a tsyringe bug — `McpServerBackoffService` had a
+wrong `useClass` registration that made `SDK_CAPABILITY_RESOLVER` unconstructible on every host, and no
+unit spec caught it because the specs mock the resolver. This table is the live/container-level proof
+that the fix holds on each host, independent of any mock.
+
+| Host | `SDK_CAPABILITY_RESOLVER` | `CapabilityRpcHandlers` | `PluginLoaderService` + `SDK_CAPABILITY_GLOBAL_LAYER` injected | `HarnessPolicySync` | `SdkAgentAdapter` / `SessionLifecycleManager` | Evidence level |
+| --- | --- | --- | --- | --- | --- | --- |
+| CLI (`@hive-academy/ptah-cli`) | Resolved live — `capabilities:getState`/`getEffective` returned real resolved inventories | Resolved live — same two RPC methods, plus a successful `capabilities:setEnabled` write-and-reread | Resolved + injected, proven live: a global-scope plugin toggle changed the resolved `EffectiveCapabilitySet` (denied lists, `disabledPluginIds`) AND `harnessFingerprint` in the same session | Registered (`register.ts:580-581`, same registration code path as the other two hosts); NOT independently exercised via a live harness RPC in this session (see Behavioral checks, item 3) | `SdkAgentAdapter`: resolved live — `withEngine`'s `initializeSdkAdapter` reached `adapter.initialize()`'s auth-check branch (`sdk_init_failed`, "No Anthropic API key configured"), which only happens after `container.resolve(AGENT_ADAPTER_TOKEN)` succeeded (a resolve failure is caught separately, one level up, and never reaches that message). `SessionLifecycleManager`: registered (seen in the CLI's own "SDK services registered" log line, `SDK_SESSION_LIFECYCLE_MANAGER`); not independently resolved by me | **LIVE.** Real headless `ptah interact` process, JSON-RPC over stdio, built from this worktree's own source (`npx nx run ptah-cli:build-esbuild`), run against an isolated temp `HOME`/`--config` (see Method below) |
+| Electron | Resolved (scratch spec) | Resolved; injected `resolver` field is the same object (`toBe`) as `c.resolve(SDK_CAPABILITY_RESOLVER)` | Resolved + injected — two independent proofs: (a) `loader`'s `globalLayer` field `toBe`s the container's `CapabilityToggleStore` instance; (b) a spy on `readGlobalLayer()` shows it is called exactly once by `getEffectivePluginConfig()` | Resolved | Not resolved for real — stubbed, per this project's OWN `container.smoke.spec.ts` convention (`c.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {})`), because a real one needs CLI detection and auth machinery the project itself does not boot under Jest. Transitively covered by the CLI's live proof above, since all three hosts share the same `registerSdkServices`/`registerCliAgentRuntimeServices` code | **CONTAINER-LEVEL.** Temporary scratch jest spec (`apps/ptah-electron/src/di/_b17_scratch_capability_di.spec.ts`, deleted after the run) extending the project's existing `buildMinimalContainer()` pattern with the REAL `registerSdkServices` + `registerCliAgentRuntimeServices` + `registerSharedRpcHandlers` calls, in the same order as `apps/ptah-electron/src/di/phase-2-libraries.ts` / `phase-4-handlers.ts`. `NX_DAEMON=false npx jest -c apps/ptah-electron/jest.config.ts --maxWorkers=2 <spec>` → 1 suite / 4 tests passed |
+| VS Code | Resolved (scratch spec) | Resolved (`toBeInstanceOf(CapabilityRpcHandlers)`) | Resolved + injected — same two proofs as Electron, PLUS a negative control: a `PluginLoaderService` built without `registerCliAgentRuntimeServices` has `globalLayer === undefined`, confirming the positive case isn't a false pass | Resolved | Same as Electron — stubbed by convention, transitively covered by the CLI's live proof | **CONTAINER-LEVEL.** Same method as Electron, against `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`'s pattern and `phase-2-libraries.ts` / `phase-3-handlers.ts` order. `_b17_scratch_capability_di.spec.ts`, deleted after the run. `npx jest -c apps/ptah-extension-vscode/jest.config.ts --maxWorkers=2 --verbose <spec>` → 1 suite / 6 tests passed |
+
+No GUI was launched on either desktop host — that evidence is explicitly container-level, not a live
+window. The CLI evidence above IS a live process (the closest this environment gets to "boot the host
+headless").
+
+### Method note — CLI isolation
+
+`ptah interact --config <dir> --cwd <dir>` alone is **not** sufficient to isolate `CapabilityToggleStore`
+from the real machine — see Finding 1 below. I additionally overrode `HOME`/`USERPROFILE` for every CLI
+invocation once I discovered this, and verified after every run that `C:\Users\abdal\.ptah\capabilities`
+did not exist (it did briefly, once, before I found the fix — see Finding 1; I deleted the three files
+it had accumulated and confirmed the directory was gone again before continuing). No other real user
+file was written. I used a low-entropy fake `ANTHROPIC_API_KEY` env var (`sk-test-fake-000...`, never a
+real key) purely to get the CLI's local "is a key configured" gate to pass so the RPC surface would come
+up; no request ever reached a real provider.
+
+## Behavioral checks (B17 brief)
+
+1. **P9 — a GLOBAL OFF skill/plugin is absent from the next session, the harness `.claude/skills`
+   copies, and `ptah.harness.searchSkills`.** PARTIAL. Live-confirmed at the resolver level: toggling
+   the `ptah-core` plugin OFF/ON at `scope: 'global'` correctly flips `effectiveEnabled` and cascades
+   into `deniedSkillNames` for every skill that plugin owns (e.g. `ptah-core:agent-lanes` reappears in
+   `deniedSkillNames` the moment the plugin goes back OFF, and disappears when it's ON). NOT confirmed
+   live: the physical `.claude/skills` copy files and `ptah.harness.searchSkills` output — my
+   `harness:reconcile` / `harness:health` RPC calls did not return within the session window in this
+   sandbox (see Finding 2; the same un-awaited background init likely delayed the harness reconciler's
+   first pass too). A global OFF **opt-out** plugin (one that ships ON by default) was not separately
+   tested; all plugins in this catalog default OFF (`defaultReason: 'plugin-opt-in'`), so this repo has
+   no opt-out plugin to toggle live against. Both halves have real, uncited-until-now spec substitutes:
+   - `.claude/skills` copies: `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts:246-253`,
+     `it('[G1] a global OFF skill gets no copy', ...)` — asserts `hasCopy('lint-rules') === false` after
+     reconcile, on disk, via the real `HarnessReconcilerService`, plus the opt-out-plugin case at
+     `:228-244` in the same file.
+   - `ptah.harness.searchSkills`: `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts:569-591`,
+     `it('does not offer a globally-OFF skill as invocable', ...)` (asserts `isDisabled: true,
+     invocability: 'not-invocable'` from `searchSkills()`'s own output) and `:592-620`,
+     `it('lists none of the skills of a globally-OFF opt-out plugin', ...)` — both explicitly labelled
+     "TASK_2026_560 P9 G3" in the spec's own comment at `:528-531`.
+
+2. **A corrupt capability item file.** CONFIRMED, live. I wrote an unparseable
+   `mcp__l_brokenserver.json` into the workspace's capability item directory and re-read:
+   - `capabilities:getState`/`getEffective` → `status: "unverified"`,
+     `reasons: [{path: ".../mcp__l_brokenserver.json", error: "invalid JSON"}]`.
+   - Every entry's `effectiveEnabled` is `null` (matches the documented rule: null whenever unverified).
+   - `deniedMcpServers` denies every discovered non-ptah server; `ptahEnabled: true` still holds (ptah is
+     omitted from denial only when a readable store says it's off — here nothing is readable);
+     `disabledPluginIds` lists every plugin. Nothing widened on unknown policy.
+   - "Claude sessions launch with `skills: []` and strict ptah-only MCP" — NOT independently re-verified
+     live (needs a real Claude SDK turn; this is the unit-tested half, B8).
+   - "the reconciler freezes" — NOT independently exercised via a live harness pass in this session (see
+     Finding 2); the fail-closed signal it freezes ON (`CapabilityPolicyUnknownError` / `status:
+     'unverified'`) IS confirmed live, immediately and consistently, above. Spec substitute for the
+     freeze itself: `harness-reconciler.capability-policy.spec.ts:301-330`,
+     `it('[AC-3.4] a frozen pass writes and removes nothing, and a disabled plugin and its copies stay
+     absent', ...)` — asserts `health.sources === 'policy-unknown'`, `health.policyFingerprint ===
+     undefined`, and zero writes/removals via the real `HarnessReconcilerService`.
+   - "repeated forced preflights do not loop or spam; record pass count and log volume" — PARTIAL, via
+     proxy: 20 back-to-back `capabilities:getEffective` calls against the same corrupt file in one
+     session produced exactly 20 `[CapabilityToggleStore] Unreadable item ...` lines (1:1 with caller
+     volume, not exponential) and exactly ONE `[CapabilityResolver] ... UNVERIFIED (fail closed)` summary
+     line for the whole run — i.e. bounded, caller-driven, and not growing on its own between calls. This
+     is not the same as a multi-minute running session with an active `HarnessPolicySync` preflight loop
+     (which needs a live SDK turn to drive it), so the literal "pass count over a few minutes of normal
+     use" scenario is NOT RUN.
+
+3. **A skill toggle is followed by a harness pass whose health carries the new `policyFingerprint`.**
+   PARTIAL. Live-confirmed the fingerprint HALF: toggling the `ptah-core` plugin at global scope changed
+   `EffectiveCapabilitySet.harnessFingerprint` from `e14d585d77eb5276` to `de18eb1a57dc345a` within the
+   same session, via `capabilities:getEffective` alone (no harness call needed to observe this, since the
+   resolver and the harness source state both call the same `harnessPolicyFingerprint()` over the same
+   inputs, per C3). NOT confirmed: an actual `HarnessHealth` record from a live `harness:health`/
+   `harness:reconcile` pass carrying that same value — those two RPC calls did not return within the
+   session window (see Finding 2). Spec substitute:
+   `harness-reconciler.capability-policy.spec.ts:284-298`,
+   `it('[AC-3.3] stamps the fingerprint on reconcile and on verify health', ...)` — asserts
+   `reconciled.policyFingerprint === expected` and `verified.policyFingerprint === expected` via the
+   real `HarnessReconcilerService`, i.e. the exact "harness pass whose health carries it" step my live
+   session could not reach.
+
+4. **G7 — no workspace save persists a layered config.** NOT RUN. Every live attempt at a
+   workspace-scope skill or plugin `capabilities:setEnabled` (two different isolated workspaces, delays
+   from 1s to 10s+ after `session.ready`) failed with a generic, sanitized error
+   (`"... the change was not applied."`). Global-scope plugin writes, which don't need
+   `PluginLoaderService.workspaceState`, succeeded immediately and repeatedly. See Finding 2 for the
+   likely cause. The G7 write-payload rule itself (build from the STORED workspace config, never the
+   layered one, so a global item can never leak into a workspace file) is unit-tested in B7
+   (`capability-resolver.service.spec.ts`) and was traced on disk by the B7 reviewer (implementation-plan
+   "Declared deviation" note, batches.md:909-920); I could not add a live, this-session confirmation on
+   top of that trace.
+
+5. **A1, A2, AC-4.3 proxied first request.** NOT RUN. All three need either a real Anthropic-compatible
+   provider account/base URL to capture an actual request body, or a GUI session; I have no real
+   credentials and was not going to invent one for real use (only a low-entropy fake to pass a local
+   "is a key configured" gate — see Method note). A1 (flag-tier deny/approve) and A2 (`skillOverrides`,
+   `deniedMcpServers`, `skills: []` honoured on CLI 0.3.278) are unit-tested in B8
+   (`sdk-query-options-builder.capabilities.spec.ts`) per the plan's AC map — real substitutes, spot-checked
+   and confirmed by the logic review. AC-4.3's proxied first-request capture has **no substitute of any
+   kind**: it needs a live provider connection to inspect an actual request body, which no unit spec can
+   produce. This stays NOT RUN with no substitute — **the PR 1 description must carry this as an open
+   item** (the proxied-session token-reduction claim from the original research report is asserted by the
+   built options object in B8's specs, but the actual on-the-wire request size has not been captured by
+   anyone in this task yet).
+
+## Findings for the team (informational — neither blocks B17 nor is a regression from this task's diff)
+
+**Finding 1 — `CapabilityToggleStore` does not honour `--config` / `PTAH_CONFIG_PATH`. Re-scored
+Moderate on revision (was framed too lightly as "informational" in round 1); deferred to PR 2 B21.**
+`libs/backend/cli-agent-runtime/src/lib/capabilities/capability-toggle-store.ts:134-136` —
+`defaultCapabilityStoreDir(homeDir = homedir())` — and `:170-177`'s constructor default
+(`baseDir: string = defaultCapabilityStoreDir()`) — combined with
+`libs/backend/cli-agent-runtime/src/lib/di/register.ts:131-133`'s
+`new CapabilityToggleStore(outputChannel)` (no second argument) — mean capability state ALWAYS lands
+under the real OS home directory, never under the CLI's `--config`/`PTAH_CONFIG_PATH` data directory
+(which `apps/ptah-cli/src/cli/router.ts:192` documents as covering "Settings, secrets, sqlite, and
+migrations," with no stated carve-out for capability state). I hit this directly: my first
+isolated-looking test run (`--config <tempdir> --cwd <tempdir>`, no `HOME` override) silently wrote
+`global/plugin__l_ptah-core.json` and a `workspaces/<hash>/` tree into the REAL
+`C:\Users\abdal\.ptah\capabilities`. I deleted those three files immediately on discovering this
+(confirmed via `find` before and after) and switched every subsequent run to also override
+`HOME`/`USERPROFILE`. Re-scoring rationale (per the round-1 logic review): normal end users who never
+pass `--config` are unaffected, and no PR 1 acceptance criterion is violated (`AC-1.2`'s workspace
+isolation survives regardless, since workspaces are distinguished by `capabilityWorkspaceKey`'s
+physical-root hash, not by which `~/.ptah` root they sit under) — so this is not a blocker. But framing
+it as merely "a test/CI-isolation gap, not user-facing" understates it: the constructor already accepts
+a configurable `baseDir` (built to be configurable, per its own signature), only the DI wiring fails to
+pass one through, and the blast radius is a real, reproduced write into a real user's home directory —
+any CI matrix, ephemeral container, or multiple `--config` profiles sharing one `$HOME` would leak
+capability toggles across unrelated Ptah instances. That is closer to the class of bug `--config` exists
+to prevent than a cosmetic gap.
+**Fix direction:** thread the host's configured user-data directory into `CapabilityToggleStore`'s
+existing `baseDir` parameter at the one call site, `libs/backend/cli-agent-runtime/src/lib/di/register.ts:131-133`
+(`new CapabilityToggleStore(outputChannel)` → `new CapabilityToggleStore(outputChannel,
+defaultCapabilityStoreDir(userDataPath))` or equivalent, using whatever the container already resolves
+for the other `--config`-respecting stores). No change to `CapabilityToggleStore` itself is needed — its
+constructor was already shaped for this. **Owner/track:** deferred to PR 2, Batch 21 (per the
+coordinator's revise-round-1 direction), as an explicit reviewer acceptance item on that batch rather
+than left to be rediscovered.
+
+**Finding 2 — workspace-scope skill/plugin writes depend on an un-awaited background init that did not
+complete in this sandbox.** `libs/backend/cli-engine/src/lib/container.ts:820-857`: `pluginLoader
+.initialize(...)` only runs inside `contentDownload.ensureContent().then(...)`, which the bootstrap
+explicitly does not await ("a `ptah` invocation answers its first RPC without waiting on this"). Until
+that resolves, `PluginLoaderService.workspaceState` is `null`, and
+`libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:1028-1038`'s
+`saveWorkspacePluginConfig` throws `"PluginLoaderService not initialized: workspaceState is null"` for
+ANY workspace-scope skill/plugin write. In every one of my test runs (including one where I waited 10+
+seconds after `session.ready`), the `[CLI DI] PluginLoaderService initialized` log line never appeared —
+consistent with this sandbox having no/limited outbound network access for whatever
+`ensureContent()` fetches or verifies. This most likely explains why Behavioral checks 1, 3 and 4 above
+came back partial/not-run rather than a real functional gap: global-scope writes (which don't need
+`workspaceState`) worked immediately and repeatedly. Two recommendations: (a) re-run a workspace-scope
+plugin/skill toggle live once with normal network access to close out G7 and the P9 harness-copy check;
+(b) regardless of cause, the caller-visible error for this case is the same generic
+`"...the change was not applied."` string `safeReason()` produces for every write failure — consider
+surfacing "still initializing, retry" distinctly, since a real first-run user on a slow connection would
+see the identical unhelpful message.
+
+## Execution
+
+- Full regression command (verbatim):
+  `NX_DAEMON=false NX_PLUGIN_NO_TIMEOUTS=true npx nx run-many -t lint,typecheck,test -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,@ptah-extension/agent-sdk,@ptah-extension/chat,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,@ptah-extension/vscode-lm-tools,ptah-electron,ptah-extension-vscode,@ptah-extension/marketplace,@ptah-extension/webview-e2e-harness,@ptah-extension/chat-ui --parallel=2`
+- Result: **PASS, exit 0.** All lint, typecheck and test tasks green for all 13 projects and their 32
+  dependency build tasks. No failed tasks reported. Known flaky specs (`connectors-page.component.spec.ts`,
+  `voice-rpc.handlers.spec.ts`) did NOT fail — no rerun needed.
+- Per-project test counts (re-run with `--output-style=static` to capture jest's own summary lines,
+  reading from cache — no tests re-executed):
+
+  | Project | Test suites | Tests |
+  | --- | --- | --- |
+  | `@ptah-extension/shared` | 80 passed / 80 | 2189 passed / 2189 |
+  | `@ptah-extension/agent-sdk` | 122 passed, 2 skipped / 124 | 2245 passed, 3 skipped / 2248 |
+  | `@ptah-extension/harness-sync` | 50 passed / 50 | 448 passed / 448 |
+  | `@ptah-extension/chat-ui` | 37 passed / 37 | 345 passed / 345 |
+  | `@ptah-extension/cli-agent-runtime` | 68 passed / 68 | 1206 passed, 1 skipped / 1207 |
+  | `@ptah-extension/vscode-lm-tools` | 65 passed / 65 | 1406 passed / 1406 |
+  | `@ptah-extension/rpc-handlers` | 113 passed / 113 | 3306 passed, 4 skipped / 3310 |
+  | `@ptah-extension/chat` | 105 passed, 2 skipped / 105 | 1622 passed, 2 skipped / 1624 |
+  | `@ptah-extension/marketplace` | 66 passed / 66 | 1430 passed / 1430 |
+  | `@ptah-extension/cli-engine` | 20 passed / 20 | 201 passed / 201 |
+  | `ptah-electron` | 55 passed, 1 skipped / 56 | 873 passed, 3 skipped / 876 |
+  | `ptah-extension-vscode` | 9 passed / 9 | 101 passed / 101 |
+  | `@ptah-extension/webview-e2e-harness` | lint + typecheck only (no unit `test` target) — both passed | — |
+
+  Totals: **15372 tests passed, 0 failed, 13 skipped, across 799 test suites (798 passed, 1 with a
+  skipped suite counted above).**
+- File count: `git diff --stat c4bdc87dd | tail -1` → **`100 files changed, 26495 insertions(+), 385
+  deletions(-)`** — matches the expected 100 (the L5 docs step brings it to 99 later, per batches.md).
+- `git diff --name-only c4bdc87dd` contains **no** `protocol-dispatcher.ts` and **no** `*.generated.*`
+  file — confirmed by grep, zero matches.
+- Failures: none. Not executed: the harness-RPC half of behavioral checks 1 and 3, and G7 (see
+  Findings 2 and Behavioral checks above) — network-dependent in this sandbox, not a suite failure.
+
+## Verdict
+
+- Criteria proven (this batch): the full PR 1 regression is green on base `c4bdc87dd` with exactly 100
+  files changed and no forbidden files touched; `SDK_CAPABILITY_RESOLVER` / `CapabilityRpcHandlers` /
+  `PluginLoaderService`+`SDK_CAPABILITY_GLOBAL_LAYER` / `HarnessPolicySync` all resolve without throwing
+  on all three hosts (live on CLI, container-level on Electron and VS Code); the fail-closed policy for a
+  corrupt capability item file is confirmed live end-to-end at the resolver/RPC layer; a capability
+  toggle live-changes the effective set and the harness policy fingerprint in the same session.
+- Criteria not proven LIVE this session: AC-1.2, the revert half of AC-1.4, AC-2.3, AC-4.1, G7
+  (workspace-scope write persistence), both halves of P9, and the harness-pass half of the fingerprint
+  check. All of these except AC-4.3 (see below) now have a cited spec substitute in this document (see
+  "AC-by-AC evidence" and the per-item citations in "Behavioral checks") — none of these are regressions
+  found in this diff; they are gaps in what THIS SESSION could reach live, not contradicted expectations,
+  and the underlying behaviour is independently proven by real, spot-checked unit specs. AC-4.3's proxied
+  first-request wire capture has no substitute of any kind and is a genuine open item — carry it in the
+  PR 1 description.
+- Risks a reader should know about: Findings 1 and 2 are real, reproducible behaviors of the shipped code
+  that this batch's brief asked me to surface even though neither blocks PR 1. Finding 1 (re-scored
+  Moderate on this revision, deferred to PR 2 B21): not a test/CI-only curiosity — I reproduced a live
+  write into a real user's home directory, and the fix is a one-line DI wiring change the constructor
+  already supports; worth tracking as a named acceptance item on B21, not left to be rediscovered.
+  Finding 2 may be sandbox-specific (limited outbound network in this environment) — a rerun with normal
+  network access would confirm or refute it. The DI-order fix itself (this batch's headline item) is now
+  proven on all three hosts, not just traced or unit-tested.
+
+## Visual evidence
+
+BEFORE/AFTER captures were taken with the webview harness against the real production webview build.
+The images were reviewed locally and are not committed (file budget).
+
+The visual review found two light-theme WCAG AA failures in `capability-toggle.component.ts`: the "New
+in this workspace" badge at 2.25:1 contrast, and the scope text at 4.48:1. Both are fixed in this batch
+(see the "Code Logic Review — Batch 17" Addendum and the "Code Style Review — Batch 17 contrast fix"
+section further below in this document, for the source-level confirmation that the fix is a
+class-string-only, behaviourally inert change).
+
+Measured contrast after the fix:
+
+| Element | Dark theme | Light theme |
+| --- | --- | --- |
+| "New in this workspace" badge | 6.61 | 5.66 |
+| Scope text | 14.86 | 15.92 |
+| Ptah-off warning | 13.08 | 14.51 |
+
+All six figures clear WCAG AA (4.5:1 for text).
+
+Carried follow-ups (not blocking this batch):
+
+- The OFF-state toggle track has low affordance in dark theme.
+- The "Use in sessions" panel sits below the fold at 1280×800 with 11 servers listed.
+- The repository-wide `text-warning` on `bg-warning/10` pairing fails contrast in `anubis-light`, at
+  roughly 26 sites across the codebase (the one instance closest to this batch,
+  `peer-session-send-dialog.component.ts:119`, is called out directly in the Code Style Review's finding
+  1 below) — out of scope for this batch, tracked as a follow-up.
+
+**Verdict: APPROVED after re-review round 1.**
+
+# Code Logic Review — Batch 17 (test report)
+
+Reviewing the "Test report — PR 1" section above (lines 5955-6178), against implementation-plan.md's AC
+map (lines 456-480 area, "Fail-closed policy" lines 112-142), batches.md Batch 9 (lines 1049-1100), and
+the actual spec/source files the report cites. This review evaluates the report's evidentiary rigor, not
+the PR's source code directly (that is B7/B9's own code-logic-review scope); source was read only to
+verify claims.
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| Overall score | 7/10 |
+| Assessment | NEEDS_REVISION |
+| Blocking issues | 0 |
+| Serious issues | 1 |
+| Moderate issues | 2 |
+| Failure modes found | 0 (this is a report audit; see "Report accuracy" below in place of runtime failure modes) |
+
+## (a) AC-to-evidence mapping
+
+Spot-checked 9 spec files the report and the AC map cite (exceeds the 6-file floor), all exist and
+assert the claimed behaviour:
+
+- `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.spec.ts:1108` —
+  "(iii) a global-only item Z stays out of the workspace config when Y is toggled" and `:1079` "(ii)
+  global X off + workspace X off: toggling Y keeps the workspace X and copies nothing in" — real
+  assertions on `saved.disabledSkillIds`/`disabledPluginIds`, matching the G7 write-payload rule the
+  report cites as "unit-tested in B7."
+- `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.capabilities.spec.ts:181-436` —
+  `describe('SdkQueryOptionsBuilder — capability policy (TASK_2026_560, C5)')` with named cases for A1
+  (flag-tier deny/approve, `:181-330`) and A2 (`skillOverrides`, `deniedMcpServers`, `skills: []` on the
+  unverified branch, `:332-446`) — real coverage, matching the report's "unit-tested in B8" claim.
+- `libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-capabilities.spec.ts:268-520` —
+  covers the same ordering/flag-tier/fail-closed cases for the Ptah CLI lane, plus `:366` "logs an
+  unacknowledged harness pass and still spawns" — the exact B3 "frozen pass never acknowledged"
+  regression the report's Scope section claims is covered.
+- `libs/backend/agent-sdk/src/lib/di/register.compaction-boundary-registry.smoke.spec.ts:246-268` —
+  `describe('registerSdkServices — McpServerBackoffService DI smoke')`, `it('resolves
+  SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE as a singleton')` — confirms the B9 DI fix has a real
+  regression test, and `register.ts:436-441` (agent-sdk) shows `useFactory:
+  instanceCachingFactory(...)` in place of the old `useClass`, i.e. the fix is real, not just claimed.
+  `register.ts:581` — `{ useClass: HarnessPolicySync }` — matches the report's "register.ts:580-581"
+  citation (the report omits the full path; it is `libs/backend/agent-sdk/src/lib/di/register.ts`, not
+  `cli-agent-runtime`'s own same-named file, which is only 183 lines and has no `HarnessPolicySync`
+  reference at all — a minor citation-precision gap, not a factual error once resolved).
+- `apps/ptah-electron/src/di/container.smoke.spec.ts` and `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`
+  exist and use `buildMinimalContainer()` plus the project's real `phase-2-libraries.ts` /
+  `phase-3-handlers.ts` (Electron) and `phase-2-libraries.ts` / `phase-3-handlers.ts` (VS Code)
+  registration modules — the report's "CONTAINER-LEVEL... same order as
+  `phase-2-libraries.ts`/`phase-4-handlers.ts`" claim is accurate, and correctly NOT labelled "live."
+  The `_b17_scratch_capability_di.spec.ts` scratch files are confirmed absent from both `di/` directories,
+  matching "deleted after the run."
+- `libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.capability-policy.spec.ts:246-253`
+  ("[G1] a global OFF skill gets no copy," asserting `existsSync(.claude/skills/<slug>/SKILL.md) === false`)
+  and `:284-330` ("[AC-3.3] stamps the fingerprint on reconcile and on verify health" /
+  "[AC-3.4] a frozen pass writes and removes nothing") — see (b) below, this is real, uncited coverage.
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts:569-620`
+  ("does not offer a globally-OFF skill as invocable," "lists none of the skills of a globally-OFF
+  opt-out plugin") — see (b) below.
+
+All spot-checked citations are real and assert what the report says they assert. No fabricated spec
+name or misdescribed assertion was found.
+
+**Gap found (Serious):** the report's Scope section (line 5966-5967 in the section above) claims "live
+checks for AC-1.2, AC-1.4, AC-2.1, AC-2.3, AC-2.4, AC-4.1, AC-4.6, AC-4.9." Searching the entire report
+body for each of these seven AC numbers (excluding AC-4.6, which the report does itemise in Behavioral
+check 2 and the Batch 9 cross-reference) finds **zero** further occurrences — they appear only in that
+one summary line and nowhere else. Unlike AC-4.6, AC-4.3, A1 and A2 (each given a named, evidenced
+paragraph in "Behavioral checks"), AC-1.2, AC-1.4, AC-2.1, AC-2.3, AC-2.4, AC-4.1 and AC-4.9 have no
+dedicated evidence trail: no RPC transcript, no specific assertion, no "I observed X" statement tied to
+that AC number anywhere in the document. The per-host DI table's generic narrative ("capabilities:getState
+/getEffective returned real resolved inventories," "a global-scope plugin toggle changed the resolved
+EffectiveCapabilitySet") plausibly touches some of this ground incidentally (e.g. a global toggle not
+appearing in the workspace config is adjacent to AC-2.3), but the report never states which observation
+proves which AC, so the claim is not independently auditable as written. This does not mean the
+behaviour is unverified overall — the AC map's spec coverage for these items is real (spot-checked
+above, e.g. capability-resolver.service.spec.ts's G7 cases directly exercise the AC-2.3/2.4 boundary) —
+but the specific "live check" claim for these seven ACs should either be substantiated with per-AC
+evidence or restated as "spec-covered; not independently live-traced this session," matching the honesty
+the report shows elsewhere (e.g. explicitly separating "LIVE" from "CONTAINER-LEVEL" in the DI table).
+
+## (b) NOT RUN items — spec-level substitute check
+
+The report itself does not cite any of the following substitutes; naming them here is new information for
+the record, not a restatement of the report.
+
+- **P9 global-OFF skill absent from harness `.claude/skills` copies:** the report says this was "NOT
+  confirmed... my `harness:reconcile`/`harness:health` RPC calls did not return." A real substitute
+  exists: `harness-reconciler.capability-policy.spec.ts:246-253`, `it('[G1] a global OFF skill gets no
+  copy')`, asserts `existsSync(join(ws, '.claude', 'skills', 'lint-rules', 'SKILL.md')) === false` after
+  reconcile, and `:228-244` covers the opt-out-plugin case the same way. This is direct, on-disk
+  reconciler coverage for exactly the gap the report leaves open.
+- **P9 `ptah.harness.searchSkills`:** substitute exists at
+  `harness-namespace.builder.spec.ts:569-591` ("does not offer a globally-OFF skill as invocable" —
+  asserts `isDisabled: true, invocability: 'not-invocable'` from `searchSkills()`'s own output) and
+  `:592+` ("lists none of the skills of a globally-OFF opt-out plugin"), explicitly labelled "TASK_2026_560
+  P9 G3" in the spec's own comment at `:528-531`. Both halves of P9 (harness copies and searchSkills) are
+  therefore spec-covered even though the report presents P9 as still open on both counts.
+- **Reconciler freeze / no preflight loop:** substitute exists at
+  `harness-reconciler.capability-policy.spec.ts:301-330`, `it('[AC-3.4] a frozen pass writes and removes
+  nothing, and a disabled plugin and its copies stay absent')`, asserting `health.sources ===
+  'policy-unknown'` and no write/removal occurs.
+- **policyFingerprint after a toggle (harness-pass half):** substitute exists at the same file,
+  `:284-298`, `it('[AC-3.3] stamps the fingerprint on reconcile and on verify health')`, asserting
+  `reconciled.policyFingerprint === expected` and `verified.policyFingerprint === expected` via the real
+  `HarnessReconcilerService`.
+- **G7 (no layered-config persistence, live):** the report itself correctly names the substitute
+  (`capability-resolver.service.spec.ts`, B7's disk trace in batches.md:909-920) rather than leaving it
+  silently uncited — this one is handled correctly. Confirmed real at `:1079-1123` (cases (ii) and (iii)
+  above).
+- **A1/A2/AC-4.3 proxied capture:** A1 and A2 have real substitutes (`sdk-query-options-builder.capabilities.spec.ts`,
+  `ptah-cli-registry-capabilities.spec.ts`, both spot-checked above) and the report names them correctly.
+  AC-4.3's proxied first-request wire capture has **no substitute of any kind** — it needs a live
+  provider connection to inspect an actual request body, which no unit spec can produce. The report is
+  correct to leave this as a bare gap rather than inventing coverage; this is the one NOT RUN item with
+  neither live nor spec evidence, and the report says so plainly.
+
+Net: of the five NOT RUN items the task asked me to check, four (P9 both halves, the freeze, the
+fingerprint harness-pass half) have real, uncited spec substitutes the report should have named — this
+is a completeness gap in the report, not a correctness gap in the PR. Only AC-4.3's proxied capture has
+no substitute, and the report is transparent about that.
+
+## (c) Overstated claims
+
+- No overstatement found in the CLI-vs-Electron/VS-Code "LIVE" vs "CONTAINER-LEVEL" distinction — checked
+  directly against `container.smoke.spec.ts` (both hosts) and confirmed neither boots a GUI or a real
+  window; the report's own table already flags this ("No GUI was launched on either desktop host").
+- The AC-1.2/1.4/2.1/2.3/2.4/4.1/4.9 "live checks" claim (see (a) above) is the one real overstatement
+  found: it asserts a verification method ("live checks") for seven ACs without a traceable observation
+  for any of them in the body. Severity: Serious, because the report's stated purpose is auditable
+  live-verification evidence, and a reader relying on the Scope line alone would believe these seven ACs
+  were each independently exercised this session, when the document supplies no way to confirm that.
+- Finding 1's framing ("Normal end users... are unaffected... a test/CI-isolation gap, not a
+  user-facing one") is defensible for the *end-user* impact but undersells the blast radius the tester's
+  own account demonstrates: the store silently wrote into the real `C:\Users\abdal\.ptah\capabilities`
+  during an ordinary `--config`-isolated run. `apps/ptah-cli/src/cli/router.ts:192` documents `--config`/
+  `PTAH_CONFIG_PATH` as covering "Settings, secrets, sqlite, and migrations" with no stated carve-out for
+  capability state, and `capability-toggle-store.ts:170-177`'s constructor already accepts a `baseDir`
+  parameter "so a spec can point the store at a temp directory" — the class was built to be
+  configurable; only the DI wiring (`register.ts:131-133`, `new CapabilityToggleStore(outputChannel)`,
+  no second argument) fails to pass it through. This is a different situation from
+  `content-download.service.ts`/`agent-pack-download.service.ts`, which are explicitly documented
+  (`content-download.service.ts:1-12`) as a cross-host GitHub content *cache*, sharing the
+  `PtahFileSettingsManager` homedir pattern by design — not user-authored per-workspace policy state.
+  Not overstated as false, but the "not user-facing" framing is optimistic given any CI matrix, ephemeral
+  container, or multi-`--config` setup on a shared `$HOME` would leak capability toggles across
+  unrelated ptah instances, which is closer to the class of bug `--config` exists to prevent.
+
+## Orchestrator's "known limitation, not a PR 1 defect" judgment — challenged
+
+I partially disagree with resting this entirely on "consistent with sibling `~/.ptah` stores." The
+sibling stores cited (content-download, plugins, agent-pack) are a genuinely different category — a
+downloaded-content cache meant to be shared regardless of which `--config` instance is running, per
+their own doc comments. `CapabilityToggleStore` is not a cache; it holds explicit per-scope user policy
+(`CapabilityToggleStoreError`'s own comment ties it directly to "the RPC layer turns it into a UI revert
+(AC-1.4)"), and its constructor is already shaped to take a configured directory — this reads as a wiring
+oversight at `register.ts:131-133`, not an intentional architectural choice. That said, I agree it is not
+a PR 1 *blocker*: `AC-1.2`'s workspace-isolation guarantee survives regardless (workspaces are
+distinguished by `capabilityWorkspaceKey`'s physical-root hash, not by which `~/.ptah` root they sit
+under), so no acceptance criterion in the PR 1 list is actually violated by this gap. Recommend the team
+re-score it as Moderate-to-Serious rather than a bare "known limitation," given the fix is a one-line DI
+wiring change (pass the configured data dir the same way `defaultCapabilityStoreDir` already supports)
+and the blast radius is a real, reproduced write into a real user's home directory — worth pulling into
+B21 with that framing rather than deferring it as cosmetic.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### Unsubstantiated "live check" claim for seven ACs
+
+- File: code-review.md, "Test report — PR 1" section, lines 5966-5967 (Scope) vs. the entire body
+  (5955-6178)
+- Scenario: a reviewer or the orchestrator reads the Scope line and treats AC-1.2, AC-1.4, AC-2.1,
+  AC-2.3, AC-2.4, AC-4.1 and AC-4.9 as independently live-verified this session.
+- Impact: those seven ACs are in fact only as verified as their underlying unit specs make them (real,
+  per the AC map and my spot-checks), but the report's own claim of additional live verification cannot
+  be checked or relied on, which weakens the audit trail this document exists to provide.
+- Fix: either add a one-line citation per AC (which RPC call / which line of output demonstrated it) or
+  soften the claim to "consistent with, not independently re-verified beyond, the unit-tested AC map."
+
+## Moderate and minor issues
+
+- Moderate: four of five NOT RUN items (P9 both halves, the reconciler freeze, the fingerprint
+  harness-pass half) have real spec-level substitutes the report does not name
+  (`harness-reconciler.capability-policy.spec.ts:246-330`, `harness-namespace.builder.spec.ts:569-620`).
+  Naming them would let a reader close out those gaps without a network-enabled rerun; leaving them
+  silent makes the PR look less proven than it is.
+- Minor: the "register.ts:580-581" citation for `HarnessPolicySync` registration omits which of the two
+  same-named `register.ts` files in the repo it refers to (`libs/backend/agent-sdk/src/lib/di/register.ts`,
+  not `libs/backend/cli-agent-runtime/src/lib/di/register.ts`, which has no such reference and is only
+  183 lines). Confirmed correct once resolved; a full path would remove the ambiguity.
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Top risk: a reader trusts the Scope line's "live checks for AC-1.2, AC-1.4, AC-2.1, AC-2.3, AC-2.4,
+  AC-4.1, AC-4.9" claim at face value; nothing in the document lets them verify it, and the four
+  available spec-level substitutes for the NOT RUN items go uncited, so the report understates its own
+  evidentiary position in some places while overstating it in others.
+- What a robust test report would add: (1) a one-line per-AC citation for each of the seven ACs named
+  above, or a downgraded claim; (2) the four named spec substitutes
+  (`harness-reconciler.capability-policy.spec.ts`, `harness-namespace.builder.spec.ts`) cited next to the
+  matching NOT RUN item instead of left as open gaps; (3) an explicit statement on Finding 1's actual
+  blast radius (a reproduced write to a real user's home directory, not merely hypothetical) rather than
+  folding it entirely into "not user-facing."
+- No blocking or code-correctness issue was found in this audit; the underlying PR 1 implementation
+  evidence (DI fix, fail-closed policy, G7 write-payload rule, A1/A2 flag-tier behaviour) is real and
+  independently confirmed against the source. The revision requested is to the report's completeness and
+  traceability, not to the code.
+
+## Addendum — uncommitted contrast fix in `capability-toggle.component.ts`
+
+`git diff` on `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts` confirms the 3-line
+change is Tailwind class-string only (`BADGE_TONE_CLASSES.warning`, the scope-line `<p>`, and the
+ptah-off warning `<p>`): no binding, `[id]`/`[class]` expression, `data-testid` (`capability-toggle-scope`,
+`capability-ptah-off-warning`), or `role`/`aria-*` attribute changed or was added/removed — behaviorally a
+no-op, purely a contrast fix, consistent with the visual/style reviewers' approval; no spec in the
+component's own directory asserts on the changed class strings, so the marketplace suite staying green is
+expected, not coincidental.
+
+# Code Style Review — Batch 17 contrast fix
+
+**Scope:** uncommitted 3-line diff in `libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts`
+(warning badge tone, scope-line text colour, ptah-off warning paragraph). Reviewed against sibling
+warning-tone usages across `libs/frontend` (marketplace, ui, chat, chat-ui, tasks-ui, tribunal-panel), the
+file's own comment density, and its `.spec.ts`.
+
+**Score: 9/10 — APPROVED**
+
+## Findings
+
+1. **Badge tone (`capability-toggle.component.ts:36-38`) — matches daisyUI convention correctly.**
+   `warning: 'border-warning bg-warning text-warning-content'` pairs a solid `bg-warning` fill with its
+   daisyUI `-content` companion token — the token daisyUI ships specifically for text-on-solid-fill
+   contrast. This is the *first* correct use of `text-warning-content` in the codebase: the only other
+   occurrence, `libs/frontend/chat/src/lib/components/molecules/peer-session-send/peer-session-send-dialog.component.ts:119`,
+   pairs `text-warning-content` with a `/10` tint background (`bg-warning/10` at line 115), which is a
+   misuse of the token (the content colour is tuned for the solid fill, not a 10%-alpha tint) — pre-existing
+   and out of scope here, but worth flagging as the reverse of what this diff does correctly. The sibling
+   `info`/`neutral` tones in the same `BADGE_TONE_CLASSES` map (lines 36, 39) are untouched and keep the
+   tint+`text-<color>` shape, so the map is now visibly mixed-convention by design (solid for `warning`,
+   tint for the rest) — acceptable since only `warning` failed AA, but a later reader diffing the three
+   rows will need the inline comment to know why they diverge. The comment at line 37 supplies exactly that.
+
+2. **Scope line and ptah-off paragraph (`:223`, `:253`) — follows the repository's own established
+   pattern for this exact problem, not an invented one.** `libs/frontend/tasks-ui/src/lib/components/filter/task-view-menu.component.ts:100-131`
+   documents, with a 4-theme contrast table, that borders and tints on `border-warning`/`border-info`
+   "don't reliably clear the 3:1 boundary gate on the light themes" and that the fix the team adopted was
+   to put the *text* in full `base-content` and let words carry the meaning rather than colour. This
+   diff's `text-base-content` on both the scope line and the ptah-off warning is the same construction,
+   applied consistently rather than reinvented. `role="status"` on the warning paragraph (line 254,
+   unchanged) is the same reinforcement-not-signal treatment `task-view-menu.component.ts` calls out for
+   its own badges.
+
+3. **Ptah-off warning border upgrade (`:253`, `border-warning/40` → `border-warning`) — minor,
+   unaudited change bundled into a text-colour fix.** The diff also raises the paragraph's border from
+   40%-alpha to full opacity while keeping `bg-warning/10` unchanged. Unlike findings 1 and 2, this one
+   has no accompanying ratio in the comment (the comment at line 37 only speaks to the badge's
+   `text-warning`/`bg-warning/10` pair, not to this border). Per the task framing this was specified
+   behaviour, not something to second-guess, and `task-view-menu.component.ts`'s own audit already
+   established that no border alpha step reliably clears 3:1 across themes for this hue — so under that
+   precedent the border is decorative reinforcement, not the compliance mechanism, and the fix still rests
+   on the text colour. Not blocking; noted because the comment could have covered it in one more clause
+   for a reader who diffs classes without this context.
+
+4. **Nothing else in the file is affected.** The three changed lines are isolated: `BADGE_TONE_CLASSES`
+   (lines 34-40), the scope `<p>` (lines 223-227), and the ptah-off `<p>` (lines 251-259) are the only
+   touched regions; `badgeClass()` (line 342-344), `CapabilityBadge`/`CapabilityBadgeTone` types, and every
+   other computed/template binding are untouched.
+
+5. **Spec does not assert on the old classes.** `capability-toggle.component.spec.ts` was grepped for
+   `BADGE_TONE_CLASSES`, `badgeClass`, `border-warning/40`, `bg-warning/10`, and bare `text-warning` —
+   zero matches. The existing assertions on `capability-toggle-scope` (spec lines 186-198, 300-316) and
+   `capability-ptah-off-warning` (spec lines 479-513) check `textContent` and testid presence only, never
+   `className`, so this diff cannot break them.
+
+6. **Comment density fits the file.** The file's prevailing comment style is short, single-purpose JSDoc
+   or inline lines (e.g. `/** Colour family of a badge. Every badge carries a word, never colour alone. */`
+   at line 16, `// The row, not the DOM, is the source of truth: ...` at line 349). The new one-line
+   `// Solid fill: ... is 2.25:1 in anubis-light.` at line 37 matches that density — it does not attempt
+   the multi-paragraph audit `task-view-menu.component.ts` carries for its own (much larger and
+   first-of-its-kind) contrast decision, which is appropriate since this is a narrow, already-precedented
+   follow-up, not a new pattern being established.
+
+## Pattern compliance
+
+| Repository rule or nearby convention | Status | Evidence |
+| --- | --- | --- |
+| daisyUI `-content` token paired with solid fill, not a tint | PASS | `capability-toggle.component.ts:38` vs. the tint-paired misuse at `peer-session-send-dialog.component.ts:119` |
+| WCAG-failure fixes carry text in `text-base-content` per established repo precedent | PASS | `capability-toggle.component.ts:223,253` vs. `task-view-menu.component.ts:124-131` |
+| Comment density matches file's existing style | PASS | `capability-toggle.component.ts:16,37,349` |
+| Existing specs do not couple to the changed classes | PASS | `capability-toggle.component.spec.ts:186-198,300-316,479-513` (textContent/testid only) |
+| The 26 other `text-warning`-on-`bg-warning/10` instances repo-wide | NOT_APPLICABLE | Explicitly out of scope per task instructions; not flagged here |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: none blocking; finding 3 (unaudited border-alpha bump bundled with the text fix) is worth a
+  one-clause comment addition if this file is touched again, not a reason to hold this batch.
+- Files reviewed: 1 (`libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts`, diff only;
+  `capability-toggle.component.spec.ts` read for assertion coupling).
+
+# Code Logic Review — Batch 17 (test report, re-review 1)
+
+Re-review of the tester's revision-round-1 edits to "# Test report — PR 1" (lines 5955-6314): the
+corrected Scope line, the new "AC-by-AC evidence (revision round 1)" subsection (5984-6044), the cited
+NOT RUN substitutes now inline in Behavioral checks 1/3/5, Finding 1's re-score to Moderate/deferred to
+B21, and the filled Visual evidence section.
+
+## Spot-checked citations (4, against the round-1 request for at least 4)
+
+1. `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.spec.ts:607` —
+   `it('AC-1.2: a toggle in workspace A leaves workspace B alone', ...)`. Confirmed line-exact: toggles
+   `usr` off in `env.repo`, asserts `deniedMcpServers` is `['usr']` there and `[]` in a second workspace
+   (`other`). Matches the report's description exactly.
+2. `capability-resolver.service.spec.ts:654` — `it('AC-2.3: toggles never touch a user config file or,
+   for a workspace write, the global layer', ...)`. Confirmed line-exact: snapshots `.mcp.json`,
+   `~/.claude.json` and `~/.codex/config.toml` byte content before three workspace-scope toggles.
+3. `capability-resolver.service.spec.ts:530-546` (report cites 527-546; line 522 is where the `it.each`
+   array literal opens, 530 is the `it.each(...)(` call itself) — the three fixtures (`enableAll`, an
+   enabled list, both together) all assert an unchanged `policy.deniedMcpServers`/`approvedProjectMcpServers`
+   after `imported.json` exists. Confirmed, matches.
+4. `libs/frontend/marketplace/src/lib/data/capability-toggles.store.spec.ts:302` —
+   `it("a failed write reverts the row and names the item, never echoing the backend text (AC-1.4)", ...)`.
+   Confirmed line-exact: asserts `outcome === 'reverted'`, `store.entryOf(GITHUB)` restored to the
+   pre-toggle value, and `store.errorFor(GITHUB)` names the item ("Couldn't turn github off...") while
+   `not.toContain('EACCES')` — i.e. the backend detail is not echoed. Matches the report's description of
+   the "revert half" of AC-1.4 precisely.
+
+All four are real, line-accurate, and assert what the report says. No fabricated citation found in this
+sample.
+
+Additional sanity check (not one of the four, since it verifies shape rather than a citation): the live
+RPC field names the report asserts for AC-2.1/AC-2.4 (`sources: [{scope, path}]`, `inheritedFrom`,
+`defaultReason`) match the real type at
+`libs/shared/src/lib/types/capability-toggle.types.ts:516-524` (`CapabilityToggleState`-shaped fields),
+so the live-transcript claims are at minimum schema-consistent with the actual code, not invented field
+names.
+
+## Is the Serious finding closed?
+
+Yes. The round-1 Serious finding was: "AC-1.2/1.4/2.1/2.3/2.4/4.1/4.9 claimed as 'live checks' in the
+Scope line with zero per-AC evidence anywhere else in the document." The revision:
+
+- Corrects the Scope line to separate LIVE (AC-2.1, AC-2.4, AC-4.9, the naming half of AC-1.4) from
+  spec-proven (AC-1.2, AC-2.3, AC-4.1, the revert half of AC-1.4), rather than bundling all seven under
+  one unqualified "live checks" claim.
+- Adds a dedicated "AC-by-AC evidence" subsection giving, for every one of the seven original ACs, either
+  a concrete RPC request/response pair (AC-2.1, AC-2.4, the naming half of AC-1.4, AC-4.9) or a specific
+  spec citation with file:line and the assertion it makes (AC-1.2, AC-2.3, AC-4.1, the revert half of
+  AC-1.4) — all four spot-checked above are accurate.
+- Each ambiguous half-claim is now explicitly split (e.g. AC-1.4's "names the item" vs. "reverts the
+  control" halves; AC-4.9's "freshness" vs. "already-running session unaffected" halves; AC-2.1's backend
+  classification vs. UI label text), which is the right level of precision for a claim about what was
+  actually observed.
+- The four NOT RUN items I flagged in round 1 as having uncited substitutes (P9 both halves, the freeze,
+  the fingerprint harness-pass half) are now cited inline in Behavioral checks 1 and 3, with the same
+  file:line references I verified in round 1 — carried through correctly, not just moved.
+
+This closes the traceability gap. I have no remaining Serious issue on this report.
+
+## Finding 1 re-score
+
+Re-scored from "informational" to Moderate, deferred to PR 2 B21 with a named fix direction (thread the
+configured user-data dir into `CapabilityToggleStore`'s existing `baseDir` parameter at
+`register.ts:131-133`) and an explicit acceptance-item owner. This matches the round-1 logic review's
+recommendation (I had asked for Moderate-to-Serious with the blast radius stated plainly, not folded into
+"not user-facing"); the revision states the blast radius directly ("a real, reproduced write into a real
+user's home directory... any CI matrix, ephemeral container, or multiple `--config` profiles sharing one
+`$HOME` would leak capability toggles") rather than downplaying it. I accept Moderate over Serious: no PR
+1 acceptance criterion is actually violated (confirmed independently in round 1 via
+`capabilityWorkspaceKey`'s physical-root-hash isolation), the fix is a one-line, low-risk DI wiring
+change the constructor already supports, and it now has a named owner and tracking batch rather than
+being left implicit. Adequately closed.
+
+## Remaining minor observations (non-blocking)
+
+- The "527-546" citation for AC-4.1 is one line generous at the top (the `it.each` array literal starts
+  at 522, the `it.each(...)(` call and its title string at 530); trivial, does not affect verifiability
+  since the block is 15 lines away from the cited range at most and was still trivial to locate.
+- The Visual evidence section's forward reference ("see the 'Code Logic Review — Batch 17' Addendum")
+  correctly resolves to the Addendum I appended in round 1 (contrast-fix behavioral no-op confirmation) —
+  checked, the cross-reference is accurate and the section it points to exists as described.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Blocking issues: 0. Serious issues: 0 (closed this round). Moderate issues: 0 new (Finding 1 remains
+  Moderate, now correctly scoped and owned, not a fresh finding).
+- Top risk: none outstanding in this report; residual product risk is Finding 1 itself (tracked, B21) and
+  AC-4.3's proxied-capture gap (correctly left open with no fabricated substitute, carried forward as a
+  named PR 1 description item per the tester's own Verdict section).
+- This closes B17's test-report audit. The underlying PR 1 implementation evidence (DI fix, fail-closed
+  policy, G7 write-payload rule, A1/A2 flag-tier behaviour, and now the AC-1.2/1.4/2.1/2.3/2.4/4.1/4.9
+  accounting) is real, independently spot-checked against the source across both review rounds, and the
+  report is now internally auditable claim-by-claim.
