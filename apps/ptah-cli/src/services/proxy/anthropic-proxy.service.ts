@@ -39,6 +39,11 @@
  *
  * No new npm deps — only `node:crypto` for `randomUUID`. Everything else is
  * platform-injected.
+ *
+ * Path C (CLI workspace proxy); see `.ptah/specs/TASK_2026_408/ownership.md`.
+ * Main limit: caller messages are flattened to text; caller `tools[]` and
+ * `tool_result` blocks are not forwarded and `/commands` are not parsed (the
+ * `X-Ptah-Mcp-Servers` override is forwarded). Fixes: TASK_2026_564_87a6.
  */
 
 import { randomUUID } from 'node:crypto';
