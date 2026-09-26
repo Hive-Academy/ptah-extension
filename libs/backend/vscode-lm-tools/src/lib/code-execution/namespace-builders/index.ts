@@ -70,6 +70,7 @@ export {
 } from './corpus-namespace.builder';
 export {
   buildCodeNamespace,
+  startIndexFreshnessCheck,
   type CodeNamespaceDependencies,
   type CodeNamespace,
   type SymbolSearchResult,

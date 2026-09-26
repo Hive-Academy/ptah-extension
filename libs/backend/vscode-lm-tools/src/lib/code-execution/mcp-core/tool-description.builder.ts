@@ -1707,7 +1707,7 @@ export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_search_symbols',
     description:
-      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score. NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
+      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score, plus `index` { symbolCount, indexAgeMs, reindexStarted, reindexInFlight }: an empty or day-old index starts a background reindex, so 0 hits with a stale `index` means "not indexed yet", not "not found". NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1729,6 +1729,29 @@ export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
       required: ['query'],
     },
     annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_code_reindex tool definition
+ * Refreshes the code symbol index that ptah_code_search_symbols reads
+ */
+export function buildCodeReindexTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_code_reindex',
+    description:
+      'Refresh the code symbol index that ptah_code_search_symbols reads. Use it when a search returns no useful hits and its `index` shows an empty or old index. Without filePath it starts a full workspace reindex in the background and returns at once with { started, symbolCount, indexAgeMs, reindexInFlight } — search again once it finishes. With filePath it reindexes that one file and returns its stats. Returns an error result on runtimes without the symbol index (e.g. VS Code).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description:
+            'Optional: absolute path of one file to reindex; omit for a full workspace reindex',
+        },
+      },
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   };
 }
 

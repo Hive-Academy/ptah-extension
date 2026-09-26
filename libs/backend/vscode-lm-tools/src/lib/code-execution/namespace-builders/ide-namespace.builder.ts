@@ -157,6 +157,14 @@ export interface IIDECapabilities {
   };
 }
 
+export interface IDENamespaceOptions {
+  /**
+   * Runs before each `lsp.getDefinition` call, after its input validation.
+   * Must return at once and never throw; the lookup does not wait for it.
+   */
+  onDefinitionLookup?: () => void;
+}
+
 const IDE_NOT_AVAILABLE_MSG =
   'IDE integration not available in standalone mode. This feature requires VS Code.';
 
@@ -173,14 +181,19 @@ const IDE_NOT_AVAILABLE_MSG =
  * Testing namespace always uses graceful degradation (no test controller dependency).
  *
  * @param capabilities Optional IDE capabilities from the platform implementation
+ * @param options Hooks for capability-backed lookups
  * @returns IDENamespace with LSP, Editor, Actions, and Testing
  */
 export function buildIDENamespace(
   capabilities?: IIDECapabilities,
+  options: IDENamespaceOptions = {},
 ): IDENamespace {
   if (capabilities) {
     return {
-      lsp: buildLSPNamespaceFromCapabilities(capabilities.lsp),
+      lsp: buildLSPNamespaceFromCapabilities(
+        capabilities.lsp,
+        options.onDefinitionLookup,
+      ),
       editor: buildEditorNamespaceFromCapabilities(capabilities.editor),
       actions: buildActionsNamespaceFromCapabilities(capabilities.actions),
       testing: buildTestingNamespace(),
@@ -200,6 +213,7 @@ export function buildIDENamespace(
  */
 function buildLSPNamespaceFromCapabilities(
   lsp: IIDECapabilities['lsp'],
+  onDefinitionLookup?: () => void,
 ): LSPNamespace {
   return {
     getDefinition: async (
@@ -209,6 +223,7 @@ function buildLSPNamespaceFromCapabilities(
     ): Promise<Location[]> => {
       validateFileInput(file);
       validatePositionInput(line, col);
+      onDefinitionLookup?.();
       return lsp.getDefinition(file, line, col);
     },
 

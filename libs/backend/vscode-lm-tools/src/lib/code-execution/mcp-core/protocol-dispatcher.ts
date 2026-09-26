@@ -87,6 +87,7 @@ import {
   buildGetDependentsTool,
   buildGetDependenciesTool,
   buildCodeSearchSymbolsTool,
+  buildCodeReindexTool,
   buildMemorySearchTool,
   buildRelevanceRankFilesTool,
   buildProjectDetectMonorepoTool,
@@ -324,7 +325,8 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * - 'harness': ptah_harness_* tools
  * - 'code': ptah_ast_analyze, ptah_context_enrich_file, ptah_get_dependents,
  *           ptah_get_dependencies, ptah_get_symbol_index, ptah_code_search_symbols,
- *           ptah_memory_search, ptah_relevance_rank_files, ptah_project_detect_monorepo
+ *           ptah_code_reindex, ptah_memory_search, ptah_relevance_rank_files,
+ *           ptah_project_detect_monorepo
  *           (ast/context/dependencies/relevance/project work on all runtimes; code/memory
  *           return a graceful "unavailable" result where the SQLite index is absent, e.g. VS Code)
  *
@@ -461,6 +463,7 @@ function buildToolDefinitions(
           buildGetDependenciesTool(),
           buildGetSymbolIndexTool(),
           buildCodeSearchSymbolsTool(),
+          buildCodeReindexTool(),
           buildMemorySearchTool(),
           buildRelevanceRankFilesTool(),
           buildProjectDetectMonorepoTool(),
@@ -937,6 +940,8 @@ async function handleIndividualTool(
           line: number;
           col: number;
         };
+        // `getDefinition` starts the index freshness check itself (wired in
+        // the API builder), so `execute_code` callers get it too.
         const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
         return await createToolSuccessResponse(
           request,
@@ -2012,10 +2017,46 @@ async function handleIndividualTool(
         if (!query || typeof query !== 'string' || !query.trim()) {
           return missingStringArgResponse(request, 'query');
         }
+        // `searchSymbols` runs `ensureIndexFresh` itself (so `execute_code`
+        // callers get it too) and returns its outcome as `index`; a second
+        // call here would read freshness twice and report `reindexStarted`
+        // from the call that did not start the run.
         const result = await ptahAPI.code.searchSymbols(query.trim(), {
           maxResults,
           filePath,
         });
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
+      }
+
+      case 'ptah_code_reindex': {
+        if (!ptahAPI.code) {
+          return toolErrorResponse(
+            request,
+            JSON.stringify({
+              error: 'Code symbol index not available on this runtime.',
+            }),
+          );
+        }
+        const { filePath } = args as { filePath?: unknown };
+        if (
+          filePath !== undefined &&
+          (typeof filePath !== 'string' || !path.isAbsolute(filePath.trim()))
+        ) {
+          return toolErrorResponse(
+            request,
+            'Error: "filePath" must be an absolute file path when provided.',
+          );
+        }
+        const result = await ptahAPI.code.reindex(
+          filePath === undefined ? {} : { filePath: filePath.trim() },
+        );
+        if ('error' in result) {
+          return toolErrorResponse(request, JSON.stringify(result));
+        }
         return await createToolSuccessResponse(
           request,
           JSON.stringify(result),

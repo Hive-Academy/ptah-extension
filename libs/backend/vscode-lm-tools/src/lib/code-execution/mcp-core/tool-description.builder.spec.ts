@@ -3,8 +3,12 @@ import {
   buildAgentMessageTool,
   buildAgentReportTool,
   buildAgentSpawnTool,
+  buildCodeReindexTool,
 } from './tool-description.builder';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+
+/** The description budget the execute_code guard applies (the only size assertion). */
+const DESCRIPTION_CHAR_BUDGET = 1_000;
 
 describe('buildExecuteCodeTool', () => {
   it('guides agents to direct tools and native file editing', () => {
@@ -22,9 +26,23 @@ describe('buildExecuteCodeTool', () => {
   it('stays concise while retaining minimal executable examples', () => {
     const description = buildExecuteCodeTool().description;
 
-    expect(description.length).toBeLessThan(1_000);
+    expect(description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
     expect(description).toContain('ptah.workspace.getInfo()');
     expect(description).toContain("ptah.search.findFiles('**/*.ts', 20)");
+  });
+
+  // TASK_2026_559 Task 6.3: the reindex tool is held to the same budget.
+  it('keeps ptah_code_reindex within the same budget, with only an optional filePath', () => {
+    const tool = buildCodeReindexTool();
+
+    expect(tool.name).toBe('ptah_code_reindex');
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual([
+      'filePath',
+    ]);
+    expect(tool.inputSchema.required ?? []).toEqual([]);
+    expect(tool.description).toContain('background');
+    expect(tool.description).toContain('ptah_code_search_symbols');
   });
 });
 

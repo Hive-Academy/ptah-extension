@@ -162,6 +162,20 @@ describe('buildIDENamespace — LSP (capability-backed)', () => {
     expect(lsp.getDefinition).not.toHaveBeenCalled();
     expect(lsp.getReferences).not.toHaveBeenCalled();
   });
+
+  it('runs onDefinitionLookup once per valid definition lookup, and for no other LSP call', async () => {
+    const { capabilities, lsp } = createCapabilities();
+    const onDefinitionLookup = jest.fn();
+    const ns = buildIDENamespace(capabilities, { onDefinitionLookup });
+
+    await ns.lsp.getDefinition('x.ts', 1, 2);
+    await ns.lsp.getReferences('x.ts', 1, 2);
+    await ns.lsp.getTypeDefinition('x.ts', 1, 2);
+    await expect(ns.lsp.getDefinition('', 0, 0)).rejects.toThrow();
+
+    expect(onDefinitionLookup).toHaveBeenCalledTimes(1);
+    expect(lsp.getDefinition).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

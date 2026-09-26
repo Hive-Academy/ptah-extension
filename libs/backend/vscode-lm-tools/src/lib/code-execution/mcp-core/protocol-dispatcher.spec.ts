@@ -44,6 +44,9 @@ import {
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
+import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
+import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import {
   AgentRoleError,
   CliCommandLineTooLongError,
@@ -3076,6 +3079,7 @@ describe('protocol-handlers › caller identity (TASK_2026_559 Batch 3)', () => 
       'ptah_browser_navigate',
       'ptah_harness_propose_config',
       'ptah_code_search_symbols',
+      'ptah_code_reindex',
     ]) {
       expect(names).toContain(name);
     }
@@ -3159,5 +3163,207 @@ describe('protocol-handlers › caller identity (TASK_2026_559 Batch 3)', () => 
       expect(everything).not.toContain('session-secret-id');
       expect(everything).not.toContain('caller-ws');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_code_reindex and lazy index freshness (TASK_2026_559 Batch 6)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › ptah_code_reindex and index freshness (TASK_2026_559 Batch 6)', () => {
+  function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    overrides: Partial<ProtocolHandlerDependencies> = {},
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: `b6-${name}`,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+      buildDeps(overrides),
+    );
+  }
+
+  function resultOf(res: MCPResponse): { text: string; isError: boolean } {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError === true };
+  }
+
+  async function listNames(
+    overrides: Partial<ProtocolHandlerDependencies> = {},
+  ): Promise<string[]> {
+    return listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'b6-list', method: 'tools/list' }),
+        buildDeps(overrides),
+      ),
+    );
+  }
+
+  /** Lets fire-and-forget chains run. */
+  async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  it('lists ptah_code_reindex right after ptah_code_search_symbols, under the code namespace only', async () => {
+    const names = await listNames();
+    const search = names.indexOf('ptah_code_search_symbols');
+    expect(search).toBeGreaterThanOrEqual(0);
+    expect(names[search + 1]).toBe('ptah_code_reindex');
+
+    const otherGroupsOff = await listNames({
+      hasIDECapabilities: true,
+      disabledMcpNamespaces: [
+        'ide',
+        'agent',
+        'git',
+        'json',
+        'browser',
+        'harness',
+      ],
+    });
+    expect(otherGroupsOff).toContain('ptah_code_reindex');
+
+    expect(await listNames({ disabledMcpNamespaces: ['code'] })).not.toContain(
+      'ptah_code_reindex',
+    );
+  });
+
+  it('does not mark ptah_code_reindex eager, even with the SQLite layer', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'b6-eager', method: 'tools/list' }),
+      buildDeps({ hasSqliteLayer: true, hasIDECapabilities: true }),
+    );
+    const tools = (
+      res.result as {
+        tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+      }
+    ).tools;
+    const tool = tools.find((t) => t.name === 'ptah_code_reindex');
+    expect(tool).toBeDefined();
+    expect(tool?._meta?.['anthropic/alwaysLoad']).toBeUndefined();
+  });
+
+  it('starts a full reindex and returns the started block', async () => {
+    const reindex = jest.fn().mockResolvedValue({
+      started: true,
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexInFlight: true,
+    });
+    const res = await callTool(
+      'ptah_code_reindex',
+      {},
+      { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+    );
+
+    expect(reindex).toHaveBeenCalledWith({});
+    const { text, isError } = resultOf(res);
+    expect(isError).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      started: true,
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexInFlight: true,
+    });
+  });
+
+  it('reindexes one absolute file and returns its stats', async () => {
+    const file = path.resolve('/ws/src/auth.ts');
+    const stats = {
+      filesScanned: 1,
+      symbolsIndexed: 3,
+      errors: 0,
+      durationMs: 9,
+    };
+    const reindex = jest.fn().mockResolvedValue(stats);
+    const res = await callTool(
+      'ptah_code_reindex',
+      { filePath: file },
+      { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+    );
+
+    expect(reindex).toHaveBeenCalledWith({ filePath: file });
+    expect(JSON.parse(resultOf(res).text)).toEqual(stats);
+  });
+
+  it('rejects a relative or non-string filePath without calling reindex', async () => {
+    const reindex = jest.fn();
+    for (const filePath of ['src/auth.ts', 42, '']) {
+      const res = await callTool(
+        'ptah_code_reindex',
+        { filePath },
+        { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+      );
+      expect(resultOf(res).isError).toBe(true);
+    }
+    expect(reindex).not.toHaveBeenCalled();
+  });
+
+  it('returns a graceful error result where there is no indexer (VS Code)', async () => {
+    const code = buildCodeNamespace({
+      getMemorySearch: () => undefined,
+      getSymbolIndexer: () => undefined,
+      getWorkspaceRoot: () => '/ws',
+      getHostWorkspaceRoots: () => ['/ws'],
+      logger: { warn: jest.fn() },
+    });
+    const res = await callTool(
+      'ptah_code_reindex',
+      {},
+      { ptahAPI: buildPtahAPIStub({ code }) },
+    );
+
+    const { text, isError } = resultOf(res);
+    expect(isError).toBe(true);
+    expect(text).toContain('CodeSymbolIndexer not available');
+  });
+
+  it('returns an error result when the code namespace is absent', async () => {
+    const res = await callTool('ptah_code_reindex', {});
+    expect(resultOf(res).isError).toBe(true);
+  });
+
+  it('ptah_code_search_symbols runs the freshness check and surfaces the index block', async () => {
+    const indexWorkspace = jest.fn(() => new Promise<never>(() => undefined));
+    const reader: ICodeSymbolReader = {
+      searchSymbols: jest.fn().mockResolvedValue({ hits: [], bm25Only: false }),
+      getIndexFreshness: jest
+        .fn()
+        .mockResolvedValue({ symbolCount: 0, newestUpdatedAt: null }),
+    };
+    const code = buildCodeNamespace({
+      getCodeSymbolSearch: () => reader,
+      getMemorySearch: () => undefined,
+      getSymbolIndexer: () =>
+        ({ indexWorkspace }) as unknown as CodeSymbolIndexer,
+      getWorkspaceRoot: () => '/ws',
+      getHostWorkspaceRoots: () => ['/ws'],
+      logger: { warn: jest.fn() },
+    });
+
+    const res = await callTool(
+      'ptah_code_search_symbols',
+      { query: 'login' },
+      { ptahAPI: buildPtahAPIStub({ code }) },
+    );
+    await flush();
+
+    expect(reader.getIndexFreshness).toHaveBeenCalledWith('/ws');
+    expect(indexWorkspace).toHaveBeenCalledWith('/ws', {
+      userInitiated: false,
+    });
+    const body = JSON.parse(resultOf(res).text) as { index: unknown };
+    expect(body.index).toEqual({
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexStarted: true,
+      reindexInFlight: true,
+    });
   });
 });
