@@ -330,6 +330,7 @@ Prefer ptah.ast over reading full files when you only need structural informatio
 - isBuilt() - Check if the dependency graph has been built
 - getGraphCoverage(workspaceRoot?) - { graphedFiles, discoveredFiles } of the built graph (graphedFiles < discoveredFiles: the graph is partial)
 - getGraphCoverageForFile(file) - The same, for the graph that answers getDependencies/getDependents for that file
+- reserveGraphBuild(workspaceRoot) / getGraphBuildState(workspaceRoot) - Build-generation bookkeeping used by the dependency tools' background build; not needed for an awaited buildGraph
 
 Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
 

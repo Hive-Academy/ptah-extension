@@ -50,6 +50,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 15. Batch 9 post-cap (user, after the r3-postcap review returned REVISE 7/10 with one moderate edge: a very long query path pushed the graph-cap fields out of the budget cut): reorder, then commit. `count`, `incomplete`, `graphedFiles` and `discoveredFiles` go before `file` in ptah_get_dependents and ptah_get_dependencies, pinned by a spec that keeps them ahead of a very long query path (it fails on the old order and passes on the new). No further Codex review.
 
+16. Batch 9b post-cap (user, 2026-09-26, after the r3-postcap review returned REVISE 6/10 with one serious edge R3-S1: an empty workspace whose discovery takes longer than the 1.5 s wait answers `building` on every retry, because each retry starts a new refresh): fix, commit, no review. Keep the unconsumed successful empty result per generation so the next retry receives it (supersession/eviction invalidates it; a pending replacement still answers `building`), pinned by a regression spec. Verify with tests/lint/typecheck, validate-deps and the degradation audit, then commit. No further Codex review.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

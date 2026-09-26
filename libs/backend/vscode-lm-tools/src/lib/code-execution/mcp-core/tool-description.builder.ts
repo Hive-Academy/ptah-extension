@@ -1673,7 +1673,7 @@ export function buildGetDependentsTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_dependents',
     description:
-      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. Builds the workspace import graph on first use, then answers from cache. ' +
+      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. The first call starts building the workspace import graph in the background; later calls answer from cache. While it builds (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs. A failed build returns status "failed"; calling again rebuilds. ' +
       INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
@@ -1697,7 +1697,7 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_dependencies',
     description:
-      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. Builds the workspace import graph on first use, then answers from cache. ' +
+      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. The first call starts building the workspace import graph in the background; later calls answer from cache. While it builds (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs. A failed build returns status "failed"; calling again rebuilds. ' +
       INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
@@ -1860,7 +1860,7 @@ export function buildGetSymbolIndexTool(): MCPToolDefinition {
       'List the exported symbols per file in the workspace import graph, one page at a time, ordered by path. Use to find where a symbol is exported from, or to map the public surface of a directory: narrow with pathPrefix. Returns { count, total, offset, nextOffset?, files }; pass nextOffset as offset for the next page (absent on the last page). ' +
       `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file holding all its symbols) or symbolsFileError. ` +
       INCOMPLETE_GRAPH_NOTE +
-      ' Builds the graph on first use (can take minutes on a large workspace), then answers from cache.',
+      ' While the graph builds in the background (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -11,7 +11,10 @@
 
 import 'reflect-metadata';
 import { Result } from '@ptah-extension/shared';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  BackgroundWorkAdmission,
+  Logger,
+} from '@ptah-extension/vscode-core';
 import { DependencyGraphService } from './dependency-graph.service';
 import type { AstAnalysisService } from './ast-analysis.service';
 import type { FileSystemService } from '../services/file-system.service';
@@ -345,5 +348,379 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
       graphedFiles: 2,
       discoveredFiles: 2,
     });
+  });
+});
+
+// TASK_2026_559 Batch 9b: a build in flight never publishes over a newer state.
+describe('DependencyGraphService — builds in flight', () => {
+  /** A service whose file reads wait until `release()` is called. */
+  function gatedService(governor?: BackgroundWorkAdmission) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let gated = true;
+    const astAnalysis = {
+      analyzeSource: jest.fn(async (_content, _lang, normalizedPath: string) =>
+        Result.ok(INSIGHTS[normalizedPath] ?? insights([], [])),
+      ),
+    } as unknown as AstAnalysisService;
+    const fileSystem = {
+      readFile: jest.fn(async () => {
+        if (gated) await gate;
+        return 'source';
+      }),
+    } as unknown as FileSystemService;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+    };
+    const svc = new DependencyGraphService(
+      astAnalysis,
+      fileSystem,
+      logger as unknown as Logger,
+      governor ?? null,
+    );
+    return {
+      svc,
+      logger,
+      release(): void {
+        gated = false;
+        release();
+      },
+    };
+  }
+
+  it.each([
+    ['evict(root)', (svc: DependencyGraphService) => svc.evict(WS_A)],
+    [
+      'retainOnly without it',
+      (svc: DependencyGraphService) => svc.retainOnly([WS_B]),
+    ],
+    ['clear()', (svc: DependencyGraphService) => svc.clear()],
+  ])(
+    'does not publish a build whose root was dropped by %s mid-build',
+    async (_label, drop) => {
+      const { svc, release } = gatedService();
+      const build = svc.buildGraph(A_FILES, WS_A);
+      drop(svc);
+      release();
+      await build;
+
+      expect(svc.isBuilt(WS_A)).toBe(false);
+      expect(svc.getCoverage(WS_A)).toBeUndefined();
+      // A later build of the same root publishes as usual.
+      await svc.buildGraph(A_FILES, WS_A);
+      expect(svc.isBuilt(WS_A)).toBe(true);
+    },
+  );
+
+  it('keeps the later-started build when an earlier one finishes after it', async () => {
+    const { svc, release } = gatedService();
+    const earlier = svc.buildGraph(A_FILES, WS_A, undefined, 50);
+    const later = svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
+    release();
+    await Promise.all([earlier, later]);
+
+    expect(svc.getCoverage(WS_A)).toEqual({
+      graphedFiles: 1,
+      discoveredFiles: 1,
+    });
+  });
+
+  it('waits on the governor before each chunk only when asked to yield', async () => {
+    const governor = {
+      isClear: jest.fn(() => false),
+      whenClear: jest.fn(async () => 'clear' as const),
+    };
+    const { svc, release } = gatedService(governor);
+    release();
+
+    await svc.buildGraph(A_FILES, WS_A);
+    expect(governor.whenClear).not.toHaveBeenCalled();
+
+    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+      yieldToForeground: true,
+    });
+    expect(governor.whenClear).toHaveBeenCalledTimes(1);
+    expect(governor.whenClear).toHaveBeenCalledWith({
+      lane: 'dependency-graph',
+      maxDeferMs: 1_000,
+    });
+    expect(svc.isBuilt(WS_A)).toBe(true);
+  });
+
+  it('stops a governed build when the governor aborts (host shutdown)', async () => {
+    const abort = new Error('disposed');
+    abort.name = 'AbortError';
+    const governor = {
+      isClear: jest.fn(() => false),
+      whenClear: jest.fn(async () => {
+        throw abort;
+      }),
+    };
+    const { svc, release } = gatedService(governor);
+    release();
+
+    await expect(
+      svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+        yieldToForeground: true,
+      }),
+    ).rejects.toBe(abort);
+    expect(svc.isBuilt(WS_A)).toBe(false);
+  });
+
+  it('builds anyway, warning once with fixed text, when the governor wait fails', async () => {
+    const governor = {
+      isClear: jest.fn(() => false),
+      whenClear: jest.fn(async () => {
+        throw new Error('defect at D:/ws-a');
+      }),
+    };
+    const { svc, logger, release } = gatedService(governor);
+    release();
+    const files = Array.from({ length: 45 }, (_, i) => `D:/ws-a/f${i}.ts`);
+
+    await svc.buildGraph(files, WS_A, undefined, undefined, {
+      yieldToForeground: true,
+    });
+
+    expect(svc.isBuilt(WS_A)).toBe(true);
+    expect(governor.whenClear).toHaveBeenCalledTimes(3);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('D:/ws-a');
+  });
+});
+
+describe('DependencyGraphService — reserved generations and host yielding (TASK_2026_559 Batch 9b r1)', () => {
+  function serviceWithParser(analyze: (normalizedPath: string) => void) {
+    const astAnalysis = {
+      analyzeSource: jest.fn(
+        async (_content, _lang, normalizedPath: string) => {
+          analyze(normalizedPath);
+          return Result.ok(INSIGHTS[normalizedPath] ?? insights([], []));
+        },
+      ),
+    } as unknown as AstAnalysisService & { analyzeSource: jest.Mock };
+    const fileSystem = {
+      readFile: jest.fn(async () => 'source'),
+    } as unknown as FileSystemService;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+    } as unknown as Logger;
+    return {
+      svc: new DependencyGraphService(astAnalysis, fileSystem, logger),
+      analyzeSource: astAnalysis.analyzeSource,
+    };
+  }
+
+  const BACKGROUND = { yieldToForeground: true };
+
+  it('publishes a build run under its still-current reservation', async () => {
+    const { svc } = serviceWithParser(() => undefined);
+    const generation = svc.reserveBuild(WS_A);
+    expect(svc.getBuildState(WS_A)).toEqual({ generation, building: false });
+
+    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+      ...BACKGROUND,
+      generation,
+    });
+
+    expect(svc.isBuilt(WS_A)).toBe(true);
+    expect(svc.getBuildState(WS_A)).toEqual({ generation, building: false });
+  });
+
+  it.each([
+    [
+      'a build started after the reservation',
+      async (svc: DependencyGraphService) => {
+        await svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
+      },
+    ],
+    [
+      'an eviction after the reservation',
+      async (svc: DependencyGraphService) => {
+        svc.evict(WS_A);
+      },
+    ],
+  ])('never publishes a reservation superseded by %s', async (_label, act) => {
+    const { svc } = serviceWithParser(() => undefined);
+    const generation = svc.reserveBuild(WS_A);
+    await act(svc);
+
+    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+      ...BACKGROUND,
+      generation,
+    });
+
+    // Either the later explicit graph (one file) or nothing at all.
+    const coverage = svc.getCoverage(WS_A);
+    expect(coverage === undefined || coverage.graphedFiles === 1).toBe(true);
+  });
+
+  it('reports a running build of the current generation', async () => {
+    let observed: unknown;
+    const holder: { svc?: DependencyGraphService } = {};
+    const { svc } = serviceWithParser(() => {
+      observed ??= holder.svc?.getBuildState(WS_A);
+    });
+    holder.svc = svc;
+
+    await svc.buildGraph(A_FILES, WS_A);
+
+    expect(observed).toEqual({
+      generation: expect.any(Number),
+      building: true,
+    });
+    expect(svc.getBuildState(WS_A).building).toBe(false);
+  });
+
+  it('stops parsing a background build once it is superseded', async () => {
+    const files = Array.from({ length: 10 }, (_, i) => `D:/ws-a/f${i}.ts`);
+    const holder: { svc?: DependencyGraphService } = {};
+    const { svc, analyzeSource } = serviceWithParser(() => {
+      // An eviction while the first file is parsed.
+      holder.svc?.evict(WS_A);
+    });
+    holder.svc = svc;
+
+    await svc.buildGraph(files, WS_A, undefined, undefined, BACKGROUND);
+
+    expect(analyzeSource).toHaveBeenCalledTimes(1);
+    expect(svc.isBuilt(WS_A)).toBe(false);
+  });
+
+  it('lets host timers run between the files of a background build', async () => {
+    const PARSE_COST_MS = 20;
+    const order: string[] = [];
+    const { svc } = serviceWithParser(() => {
+      const end = Date.now() + PARSE_COST_MS;
+      while (Date.now() < end) {
+        // Synchronous CPU, as a real parse.
+      }
+      order.push('parse');
+    });
+    const files = Array.from({ length: 8 }, (_, i) => `D:/ws-a/f${i}.ts`);
+    const ticker = setInterval(() => order.push('tick'), 1);
+    try {
+      await svc.buildGraph(files, WS_A, undefined, undefined, BACKGROUND);
+    } finally {
+      clearInterval(ticker);
+    }
+
+    // Never more than two parses without a timer between them (a macrotask
+    // yield before every file); an unyielding build would run all eight.
+    let run = 0;
+    let longestRun = 0;
+    for (const entry of order) {
+      run = entry === 'parse' ? run + 1 : 0;
+      longestRun = Math.max(longestRun, run);
+    }
+    expect(order.filter((entry) => entry === 'parse')).toHaveLength(8);
+    expect(longestRun).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('DependencyGraphService — edge linking inside one node (TASK_2026_559 Batch 9b r2)', () => {
+  const IMPORT_COUNT = 1_000;
+  const HEAVY_FILE = 'D:/ws-a/heavy.ts';
+
+  /**
+   * One node importing IMPORT_COUNT missing relative modules: each import is
+   * unresolved and logged, so the debug log records the linking order. The
+   * clock advances 1 ms per read, so the 10 ms edge slice ends every few
+   * imports without any real CPU cost.
+   */
+  function heavyNodeSetup() {
+    const order: string[] = [];
+    const heavy = insights(
+      Array.from({ length: IMPORT_COUNT }, (_, i) => imp(`./missing-${i}`)),
+      [],
+    );
+    const astAnalysis = {
+      analyzeSource: jest.fn(async () => Result.ok(heavy)),
+    } as unknown as AstAnalysisService;
+    const fileSystem = {
+      readFile: jest.fn(async () => 'source'),
+    } as unknown as FileSystemService;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn((message: string) => {
+        if (message.includes('Unresolved import')) order.push('import');
+      }),
+      error: jest.fn(),
+      warn: jest.fn(),
+    } as unknown as Logger;
+    let clock = 0;
+    const now = jest.spyOn(Date, 'now').mockImplementation(() => ++clock);
+    return {
+      svc: new DependencyGraphService(astAnalysis, fileSystem, logger),
+      order,
+      restoreClock: () => now.mockRestore(),
+    };
+  }
+
+  /** A macrotask heartbeat: `beat` runs once per event-loop turn. */
+  function startHeartbeat(beat: () => void): () => void {
+    let handle: ReturnType<typeof setImmediate> | undefined;
+    const tick = (): void => {
+      beat();
+      handle = setImmediate(tick);
+    };
+    handle = setImmediate(tick);
+    return () => {
+      if (handle !== undefined) clearImmediate(handle);
+    };
+  }
+
+  it('lets host timers run while one import-heavy node is linked', async () => {
+    const { svc, order, restoreClock } = heavyNodeSetup();
+    const stop = startHeartbeat(() => order.push('tick'));
+    try {
+      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, undefined, {
+        yieldToForeground: true,
+      });
+    } finally {
+      stop();
+      restoreClock();
+    }
+
+    const first = order.indexOf('import');
+    const last = order.lastIndexOf('import');
+    expect(order.filter((entry) => entry === 'import')).toHaveLength(
+      IMPORT_COUNT,
+    );
+    // A tick between the node's first and last import: the timer ran during
+    // that node's linking, not only before or after it.
+    expect(order.slice(first, last).includes('tick')).toBe(true);
+    expect(svc.isBuilt(WS_A)).toBe(true);
+  });
+
+  it('stops linking a superseded background build mid-node', async () => {
+    const { svc, order, restoreClock } = heavyNodeSetup();
+    const stop = startHeartbeat(() => {
+      // Evict once linking of the node is under way.
+      if (order.includes('import') && svc.getBuildState(WS_A).building) {
+        svc.evict(WS_A);
+      }
+    });
+    try {
+      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, undefined, {
+        yieldToForeground: true,
+      });
+    } finally {
+      stop();
+      restoreClock();
+    }
+
+    const linked = order.filter((entry) => entry === 'import').length;
+    expect(linked).toBeGreaterThan(0);
+    expect(linked).toBeLessThan(IMPORT_COUNT);
+    expect(svc.isBuilt(WS_A)).toBe(false);
   });
 });

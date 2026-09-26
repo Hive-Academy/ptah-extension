@@ -865,8 +865,14 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 
   it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {
     const root = path.resolve('/ws');
-    const isBuilt = jest.fn().mockResolvedValue(false);
-    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 2 });
+    let built = false;
+    const isBuilt = jest.fn(async () => built);
+    // A small workspace: the build ends inside the bounded wait, so the first
+    // call is answered.
+    const buildGraph = jest.fn(async () => {
+      built = true;
+      return { nodeCount: 2 };
+    });
     const getDependents = jest.fn().mockResolvedValue([]);
     const getInfo = jest.fn().mockResolvedValue({ path: root });
     const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
@@ -880,6 +886,11 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
           buildGraph,
           getDependents,
           getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
+          reserveGraphBuild: jest.fn(() => 1),
+          getGraphBuildState: jest.fn(() => ({
+            generation: 1,
+            building: false,
+          })),
         } as unknown as PtahAPI['dependencies'],
       }),
     });
@@ -901,6 +912,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
       root,
       2,
+      { yieldToForeground: true, generation: 1 },
     );
     // Relative query arg resolved to absolute before querying.
     expect(getDependents).toHaveBeenCalledWith(path.join(root, 'src/a.ts'));
@@ -967,6 +979,11 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
             buildGraph,
             getDependents: jest.fn().mockResolvedValue([]),
             getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
+            reserveGraphBuild: jest.fn(() => 1),
+            getGraphBuildState: jest.fn(() => ({
+              generation: 1,
+              building: false,
+            })),
           } as unknown as PtahAPI['dependencies'],
         }),
       }),
@@ -4180,5 +4197,952 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
     expect(text).toContain(expected);
     expect(getInfo).not.toHaveBeenCalled();
     expect(dependencies.getSymbolIndex).not.toHaveBeenCalled();
+  });
+});
+
+describe('protocol-handlers › dependency graph background build (TASK_2026_559 Batch 9b)', () => {
+  /** The bound a cold call is held to (the acceptance criterion). */
+  const BOUNDED_WAIT_MS = 2_000;
+  const root = path.resolve('/ws-9b');
+
+  /** Only the timers: the detached build chain is flushed with setImmediate. */
+  const FAKE_TIMERS_ONLY = {
+    doNotFake: [
+      'nextTick',
+      'setImmediate',
+      'clearImmediate',
+      'queueMicrotask',
+      'performance',
+      'Date',
+      'hrtime',
+    ] as Array<
+      | 'nextTick'
+      | 'setImmediate'
+      | 'clearImmediate'
+      | 'queueMicrotask'
+      | 'performance'
+      | 'Date'
+      | 'hrtime'
+    >,
+  };
+
+  interface Deferred<T> {
+    promise: Promise<T>;
+    resolve(value: T): void;
+    reject(error: unknown): void;
+  }
+
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  interface BuildSummary {
+    nodeCount: number;
+    edgeCount: number;
+    unresolvedCount: number;
+    builtAt: number;
+    error?: string;
+  }
+
+  const BUILT: BuildSummary = {
+    nodeCount: 2,
+    edgeCount: 1,
+    unresolvedCount: 0,
+    builtAt: 1,
+  };
+
+  /**
+   * A dependencies namespace whose every build waits on a deferred the test
+   * settles. A build that settles without `error` publishes the graph while
+   * its reserved generation is still the root's (the service's rule);
+   * `evict()` drops the generation and the graph, as the service does.
+   */
+  function harness(options: { built?: boolean } = {}) {
+    const state = {
+      built: options.built === true,
+      generation: undefined as number | undefined,
+      lastGeneration: 0,
+    };
+    const builds: Array<Deferred<BuildSummary>> = [];
+    const buildGraph = jest.fn(
+      (
+        _files: string[],
+        _root: string,
+        _discovered?: number,
+        buildOptions?: { yieldToForeground?: boolean; generation?: number },
+      ) => {
+        const build = deferred<BuildSummary>();
+        builds.push(build);
+        return build.promise.then((summary) => {
+          if (
+            summary.error === undefined &&
+            buildOptions?.generation === state.generation
+          ) {
+            state.built = true;
+          }
+          return summary;
+        });
+      },
+    );
+    const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+    const getInfo = jest.fn().mockResolvedValue({ path: root });
+    const logger = createMockLogger();
+    const ptahAPI = buildPtahAPIStub({
+      workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      search: { findFiles } as unknown as PtahAPI['search'],
+      dependencies: {
+        isBuilt: jest.fn(async () => state.built),
+        reserveGraphBuild: jest.fn(() => {
+          state.lastGeneration += 1;
+          state.generation = state.lastGeneration;
+          return state.generation;
+        }),
+        getGraphBuildState: jest.fn(() => ({
+          generation: state.generation,
+          building: false,
+        })),
+        buildGraph,
+        getDependents: jest.fn().mockResolvedValue([path.join(root, 'b.ts')]),
+        getDependencies: jest.fn().mockResolvedValue([path.join(root, 'c.ts')]),
+        getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
+        getSymbolIndex: jest.fn(
+          async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
+            pageSymbolIndex(
+              [{ file: path.join(root, 'src/a.ts'), symbols: ['A'] }],
+              query,
+              root,
+            ),
+        ),
+        getGraphCoverage: jest.fn().mockResolvedValue(undefined),
+      } as unknown as PtahAPI['dependencies'],
+    });
+    const deps = buildDeps({ ptahAPI, logger: asLogger(logger) });
+    return {
+      state,
+      builds,
+      buildGraph,
+      findFiles,
+      getInfo,
+      logger,
+      deps,
+      evict(): void {
+        state.generation = undefined;
+        state.built = false;
+      },
+    };
+  }
+
+  interface ToolResult {
+    body: Record<string, unknown>;
+    text: string;
+    isError: boolean;
+  }
+
+  function toResult(res: MCPResponse): ToolResult {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    const text = result.content[0].text;
+    return {
+      body: JSON.parse(text) as Record<string, unknown>,
+      text,
+      isError: result.isError === true,
+    };
+  }
+
+  /** Let the detached build chain run to its next wait. */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  describe.each([
+    ['ptah_get_dependents', { file: 'src/a.ts' }, 'dependents'],
+    ['ptah_get_dependencies', { file: 'src/a.ts' }, 'dependencies'],
+    ['ptah_get_symbol_index', {}, 'files'],
+  ])('%s', (toolName, args, answerField) => {
+    function call(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+        }),
+        deps,
+      );
+    }
+
+    /** One call, with the fake clock moved past the bounded wait. */
+    async function callPastWait(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<ToolResult> {
+      const pending = call(deps, id);
+      // The build starts on a later macrotask (a real setImmediate), as in
+      // production, long before the bound's timer fires.
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      return toResult(await pending);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('answers a cold call with a small building status within the bounded wait', async () => {
+      const h = harness();
+      const { body, text, isError } = await callPastWait(h.deps, 'cold');
+
+      expect(isError).toBe(false);
+      expect(Object.keys(body)[0]).toBe('status');
+      expect(body).toEqual({
+        status: 'building',
+        retryAfterMs: expect.any(Number),
+        filesDiscovered: 2,
+        message: expect.stringContaining('retryAfterMs'),
+      });
+      expect(body['retryAfterMs']).toBeGreaterThan(0);
+      expect(text.length).toBeLessThanOrEqual(
+        getToolResultBudget(toolName).chars,
+      );
+      // The build runs in the background, governed, under the read root and
+      // the generation reserved before discovery.
+      expect(h.buildGraph).toHaveBeenCalledWith(
+        [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
+        root,
+        2,
+        { yieldToForeground: true, generation: 1 },
+      );
+    });
+
+    it('answers normally once the background build has finished', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'first')).body['status']).toBe(
+        'building',
+      );
+
+      h.builds[0].resolve(BUILT);
+      await flush();
+      const { body, isError } = toResult(await call(h.deps, 'later'));
+
+      expect(isError).toBe(false);
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers on the first call when the build finishes inside the wait', async () => {
+      const h = harness();
+      const pending = call(h.deps, 'small');
+      await flush();
+      h.builds[0].resolve(BUILT);
+      const { body } = toResult(await pending);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+    });
+
+    it('starts exactly one build for concurrent cold calls', async () => {
+      const h = harness();
+      const pending = Array.from({ length: 5 }, (_, i) =>
+        call(h.deps, `concurrent-${i}`),
+      );
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const results = (await Promise.all(pending)).map(toResult);
+
+      for (const { body } of results) {
+        expect(body['status']).toBe('building');
+      }
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a warm graph at once without starting a build', async () => {
+      const h = harness({ built: true });
+      // No clock movement: a warm call must not wait on any timer.
+      const { body } = toResult(await call(h.deps, 'warm'));
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.buildGraph).not.toHaveBeenCalled();
+      expect(h.findFiles).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed build to the waiting call, then rebuilds on the next call', async () => {
+      const h = harness();
+      const pending = call(h.deps, 'fails');
+      await flush();
+      h.builds[0].resolve({ ...BUILT, error: `EACCES ${root}/secret.ts` });
+      const failed = toResult(await pending);
+
+      expect(failed.isError).toBe(true);
+      expect(Object.keys(failed.body)[0]).toBe('status');
+      expect(failed.body['status']).toBe('failed');
+      // Fixed text: neither the raw error nor a path reaches the caller or the log.
+      expect(failed.text).not.toContain('EACCES');
+      expect(failed.text).not.toContain('secret');
+      const warn = h.logger.warn.mock.calls.find(
+        (c) => c[0] === '[MCP] background dependency-graph build failed',
+      );
+      expect(warn).toBeDefined();
+      expect(JSON.stringify(warn)).not.toContain('secret');
+
+      // The latch is clear: the next call starts a new build.
+      const retried = await callPastWait(h.deps, 'retry');
+      expect(retried.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports a failure that ended between calls once, then rebuilds', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'cold')).body['status']).toBe(
+        'building',
+      );
+      h.builds[0].reject(new Error(`boom at ${root}`));
+      await flush();
+
+      const reported = await callPastWait(h.deps, 'reported');
+      expect(reported.isError).toBe(true);
+      expect(reported.body['status']).toBe('failed');
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+
+      const rebuilt = await callPastWait(h.deps, 'rebuilt');
+      expect(rebuilt.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports a failed discovery as a failed build', async () => {
+      const h = harness();
+      h.findFiles.mockRejectedValueOnce(new Error('glob failed'));
+      const { body, isError } = await callPastWait(h.deps, 'discovery');
+
+      expect(isError).toBe(true);
+      expect(body['status']).toBe('failed');
+      expect(h.buildGraph).not.toHaveBeenCalled();
+    });
+
+    // Review r1 F4: reads use the caller-aware read root, as every other
+    // read tool does; only spool writes are held to host-opened folders.
+    it('builds and answers under a declared worktree root the host did not open', async () => {
+      const h = harness();
+      const worktree = path.resolve('/ws-9b-worktree');
+      // The caller-aware root (`workspace.getInfo`) resolves the declaration.
+      h.getInfo.mockResolvedValue({ path: worktree });
+      const pending = handleMCPRequest(
+        makeRequest({
+          id: 'declared-worktree',
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+          _callerWorkspaceRoot: worktree,
+        }),
+        // The host opened only the parent repository.
+        { ...h.deps, workspaceProvider: knownFolders(root) },
+      );
+      await flush();
+      h.builds[0].resolve(BUILT);
+      const { body, isError } = toResult(await pending);
+
+      expect(isError).toBe(false);
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      const [files, graphRoot] = h.buildGraph.mock.calls[0];
+      expect(graphRoot).toBe(worktree);
+      expect(files[0]).toBe(path.join(worktree, 'src/a.ts'));
+      if (answerField !== 'files') {
+        // A relative query resolves against the same root.
+        expect(body['file']).toBe(path.join(worktree, 'src/a.ts'));
+      }
+    });
+  });
+
+  it('returns a cold call within the bound in real time while the build never ends', async () => {
+    const h = harness();
+    const started = Date.now();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'real-time',
+        method: 'tools/call',
+        params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+      }),
+      h.deps,
+    );
+
+    expect(Date.now() - started).toBeLessThanOrEqual(BOUNDED_WAIT_MS);
+    expect(toResult(res).body['status']).toBe('building');
+  });
+
+  describe('job lifecycle (review r1)', () => {
+    function callDependents(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+    }
+
+    async function callPastWait(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<ToolResult> {
+      const pending = callDependents(deps, id);
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      return toResult(await pending);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('keys the latch by the normalized read root: two spellings share one build', async () => {
+      const h = harness();
+      h.getInfo
+        .mockResolvedValueOnce({ path: root })
+        .mockResolvedValueOnce({ path: `${root}${path.sep}` });
+      const first = callDependents(h.deps, 'spelling-1');
+      const second = callDependents(h.deps, 'spelling-2');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+
+      expect(toResult(await first).body['status']).toBe('building');
+      expect(toResult(await second).body['status']).toBe('building');
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F5: an eviction drops the dispatcher's job at once, and the
+    // obsolete job's late failure does not touch its replacement.
+    it('replaces a job obsoleted by an eviction, and ignores its late failure', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'before')).body['status']).toBe(
+        'building',
+      );
+
+      h.evict();
+      const replaced = await callPastWait(h.deps, 'after-evict');
+      expect(replaced.body['status']).toBe('building');
+      expect(h.findFiles).toHaveBeenCalledTimes(2);
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+
+      // The obsolete build fails late: nothing is reported for it.
+      h.builds[0].reject(new Error('late failure'));
+      await flush();
+      const joined = await callPastWait(h.deps, 'joined');
+      expect(joined.isError).toBe(false);
+      expect(joined.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+
+      // The replacement publishes and answers.
+      h.builds[1].resolve(BUILT);
+      await flush();
+      const answered = toResult(await callDependents(h.deps, 'answered'));
+      expect(answered.body).not.toHaveProperty('status');
+      expect(answered.body).toHaveProperty('dependents');
+    });
+
+    it('does not report the failure of a build an eviction superseded', async () => {
+      const h = harness();
+      await callPastWait(h.deps, 'cold');
+      h.builds[0].reject(new Error('failed'));
+      await flush();
+      h.evict();
+
+      const next = await callPastWait(h.deps, 'after-evict');
+      expect(next.isError).toBe(false);
+      expect(next.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // Review r1 F3: synchronous parsing must not hold the call past its bound.
+  it('answers within the bound while every file costs synchronous CPU, and the host keeps ticking', async () => {
+    const PARSE_COST_MS = 130;
+    const busy = (ms: number): void => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        // Burn CPU on the host thread, as a synchronous parse does.
+      }
+    };
+    const analyzeSource = jest.fn(async () => {
+      busy(PARSE_COST_MS);
+      return Result.ok({
+        imports: [],
+        exports: [{ name: 'A', kind: 'function' }],
+        functions: [],
+        classes: [],
+      });
+    });
+    const graph = new DependencyGraphService(
+      { analyzeSource } as unknown as AstAnalysisService,
+      {
+        readFile: jest.fn(async () => 'source'),
+      } as unknown as FileSystemService,
+      asLogger(createMockLogger()),
+    );
+    const files = Array.from({ length: 40 }, (_, i) => `src/f${i}.ts`);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: {
+          getInfo: jest.fn().mockResolvedValue({ path: root }),
+        } as unknown as PtahAPI['workspace'],
+        search: {
+          findFiles: jest.fn().mockResolvedValue(files),
+        } as unknown as PtahAPI['search'],
+        dependencies: buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => root },
+        } as unknown as AnalysisNamespaceDependencies),
+      }),
+    });
+
+    // An independent heartbeat: the longest the host went without a timer.
+    let last = Date.now();
+    let maxGap = 0;
+    const heartbeat = setInterval(() => {
+      const now = Date.now();
+      maxGap = Math.max(maxGap, now - last);
+      last = now;
+    }, 10);
+    const started = Date.now();
+    let elapsed = 0;
+    try {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'cpu-bound',
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+      elapsed = Date.now() - started;
+      expect(toResult(res).body['status']).toBe('building');
+    } finally {
+      clearInterval(heartbeat);
+      // Stop the build at its next file, and let it wind down.
+      graph.evict(root);
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, 3 * PARSE_COST_MS),
+      );
+    }
+
+    expect(elapsed).toBeLessThanOrEqual(BOUNDED_WAIT_MS);
+    // One or two parses between ticks, never the whole build (40 × 130 ms).
+    expect(maxGap).toBeLessThan(5 * PARSE_COST_MS);
+    // It was really parsing while the call waited, and stopped when evicted.
+    expect(analyzeSource.mock.calls.length).toBeGreaterThan(2);
+    expect(analyzeSource.mock.calls.length).toBeLessThan(files.length);
+  }, 15_000);
+
+  /**
+   * Eviction and an explicit rebuild while a background build is in flight:
+   * the real graph service and namespace; only the parser and file reads are
+   * stubbed, and every read waits on a gate until the test opens it.
+   */
+  describe('with the real graph service', () => {
+    function realSetup() {
+      const gate = deferred<void>();
+      let gated = true;
+      const readFile = jest.fn(async () => {
+        if (gated) await gate.promise;
+        return 'source';
+      });
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async () =>
+            Result.ok({
+              imports: [],
+              exports: [{ name: 'A', kind: 'function' }],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        { readFile } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      const dependencies = buildDependencyNamespace({
+        dependencyGraph: graph,
+        workspaceProvider: { getWorkspaceRoot: () => root },
+      } as unknown as AnalysisNamespaceDependencies);
+      const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: root }),
+          } as unknown as PtahAPI['workspace'],
+          search: { findFiles } as unknown as PtahAPI['search'],
+          dependencies,
+        }),
+      });
+      return {
+        graph,
+        deps,
+        findFiles,
+        readFile,
+        openGate(): void {
+          gated = false;
+          gate.resolve();
+        },
+        /** Later reads pass; a read already waiting stays stuck forever. */
+        ungateNewReads(): void {
+          gated = false;
+        },
+      };
+    }
+
+    function callSymbolIndex(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_symbol_index', arguments: {} },
+        }),
+        deps,
+      );
+    }
+
+    function callDependents(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('does not publish a build whose root was evicted mid-build, and the next call rebuilds', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'evict-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      s.openGate();
+      await flush();
+      // The stale build finished but did not publish; its latch is clear.
+      expect(s.graph.isBuilt(root)).toBe(false);
+
+      const next = callDependents(s.deps, 'evict-next');
+      await flush();
+      const { body } = toResult(await next);
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    it('keeps an explicit rebuild made during a background build, and answers from it', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'rebuild-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      // An execute_code build of one file, started after the background one.
+      const explicit = s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      s.openGate();
+      await explicit;
+      await flush();
+
+      // The background build (two files) started earlier, so its finished
+      // graph did not replace the explicit one.
+      expect(s.graph.getCoverage(root)).toEqual({
+        graphedFiles: 1,
+        discoveredFiles: 1,
+      });
+      const { body } = toResult(await callDependents(s.deps, 'rebuild-next'));
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F1: the generation is reserved before discovery, so an
+    // eviction while discovery is pending stops the build before it starts.
+    it('does not build or publish when the root is evicted while discovery is pending', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const cold = callDependents(s.deps, 'discover-evict');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      discovery.resolve(['src/a.ts', 'src/b.ts']);
+      await flush();
+      expect(s.readFile).not.toHaveBeenCalled();
+      expect(s.graph.isBuilt(root)).toBe(false);
+
+      // The next call rediscovers and builds afresh.
+      const next = callDependents(s.deps, 'discover-evict-next');
+      await flush();
+      expect(toResult(await next).body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    // Review r1 F1: an explicit build started while discovery is pending
+    // supersedes the background request, whose older list never replaces it.
+    it('keeps an explicit build made while discovery is pending', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const cold = callDependents(s.deps, 'discover-explicit');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      await s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      discovery.resolve(['src/a.ts', 'src/b.ts']);
+      await flush();
+
+      expect(s.graph.getCoverage(root)).toEqual({
+        graphedFiles: 1,
+        discoveredFiles: 1,
+      });
+      // Only the explicit build read a file.
+      expect(s.readFile).toHaveBeenCalledTimes(1);
+      const { body } = toResult(
+        await callDependents(s.deps, 'discover-explicit-next'),
+      );
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F5: with the obsolete job's read stuck for ever, an eviction
+    // still lets the next call start and finish a replacement build.
+    it('starts a replacement build after an eviction while the old read never settles', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'stuck-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      s.ungateNewReads();
+      const next = callDependents(s.deps, 'stuck-next');
+      await flush();
+      const { body } = toResult(await next);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty('dependents');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    // Review r1 F2: an empty graph answers, but does not hide a source file
+    // created after it.
+    it('finds a source file created after an empty graph was built', async () => {
+      const s = realSetup();
+      s.openGate();
+      s.findFiles.mockResolvedValueOnce([]);
+      const empty = callSymbolIndex(s.deps, 'empty');
+      await flush();
+      const emptyBody = toResult(await empty).body;
+      expect(emptyBody).not.toHaveProperty('status');
+      expect(emptyBody['total']).toBe(0);
+      expect(s.graph.isBuilt(root)).toBe(true);
+
+      // A source file appears; the default discovery now lists it.
+      s.findFiles.mockResolvedValue(['src/new.ts']);
+      const later = callSymbolIndex(s.deps, 'after-create');
+      await flush();
+      const { body } = toResult(await later);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('new.ts');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+    });
+
+    /** Build and answer the empty graph (discovery finds no source file). */
+    async function publishEmptyGraph(
+      s: ReturnType<typeof realSetup>,
+    ): Promise<void> {
+      s.openGate();
+      s.findFiles.mockResolvedValueOnce([]);
+      const empty = callSymbolIndex(s.deps, 'empty-first');
+      await flush();
+      expect(toResult(await empty).body['total']).toBe(0);
+    }
+
+    // Review r2 R2-B1: a refresh of an empty graph whose discovery has not
+    // settled has not confirmed the graph is still empty.
+    it('answers building, not the empty graph, while its refresh is still discovering', async () => {
+      const s = realSetup();
+      await publishEmptyGraph(s);
+
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const held = callSymbolIndex(s.deps, 'empty-held');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const heldResult = toResult(await held);
+      expect(Object.keys(heldResult.body)[0]).toBe('status');
+      expect(heldResult.body['status']).toBe('building');
+      expect(heldResult.isError).toBe(false);
+
+      discovery.resolve(['src/new.ts']);
+      await flush();
+      const { body } = toResult(
+        await callSymbolIndex(s.deps, 'empty-released'),
+      );
+      expect(body).not.toHaveProperty('status');
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('new.ts');
+    });
+
+    // Review r2 R2-B1: an explicit build running over the empty graph is a
+    // pending replacement, so the empty graph does not answer.
+    it('answers building while an explicit build replaces the empty graph', async () => {
+      const s = realSetup();
+      await publishEmptyGraph(s);
+
+      const explicitRead = deferred<void>();
+      s.readFile.mockImplementationOnce(async () => {
+        await explicitRead.promise;
+        return 'source';
+      });
+      const explicit = s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      await flush();
+      expect(s.graph.getBuildState(root).building).toBe(true);
+
+      const during = callSymbolIndex(s.deps, 'empty-explicit');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const duringResult = toResult(await during);
+      expect(Object.keys(duringResult.body)[0]).toBe('status');
+      expect(duringResult.body['status']).toBe('building');
+      // It did not supersede the explicit build with a background one.
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+
+      explicitRead.resolve();
+      await explicit;
+      await flush();
+      const { body } = toResult(
+        await callSymbolIndex(s.deps, 'empty-explicit-done'),
+      );
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('only.ts');
+    });
+
+    // Review r3 R3-S1: an empty build that finishes after the bounded wait is
+    // delivered to the next call, which does not start another discovery;
+    // the call after that rediscovers as before.
+    it('delivers a slow empty build to the next call, then rediscovers', async () => {
+      const s = realSetup();
+      s.openGate();
+      const slowEmpty = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(slowEmpty.promise);
+      const first = callSymbolIndex(s.deps, 'slow-empty-first');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await first).body['status']).toBe('building');
+
+      slowEmpty.resolve([]);
+      await flush();
+      expect(s.graph.isBuilt(root)).toBe(true);
+
+      // Every later discovery is slow too (held until the end).
+      const heldRediscovery = deferred<string[]>();
+      s.findFiles.mockReturnValue(heldRediscovery.promise);
+      const second = callSymbolIndex(s.deps, 'slow-empty-second');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const secondResult = toResult(await second);
+      expect(secondResult.isError).toBe(false);
+      expect(secondResult.body).not.toHaveProperty('status');
+      expect(secondResult.body['total']).toBe(0);
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+
+      const third = callSymbolIndex(s.deps, 'slow-empty-third');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await third).body['status']).toBe('building');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+
+      heldRediscovery.resolve([]);
+      await flush();
+    });
+
+    // Review r2 R2-M2: the waiting caller of a job a newer build superseded
+    // is answered from the current graph, never with the old job's failure.
+    it('answers a caller waiting on a superseded discovery from the newer graph when that discovery fails', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const waiting = callDependents(s.deps, 'obsolete-waiter');
+      await flush();
+
+      await s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      discovery.reject(new Error('discovery failed'));
+      await flush();
+
+      const result = toResult(await waiting);
+      expect(result.isError).toBe(false);
+      expect(result.body).not.toHaveProperty('status');
+      expect(result.body).toHaveProperty('dependents');
+      // Nothing is left for a later call to report either.
+      const next = toResult(await callDependents(s.deps, 'obsolete-next'));
+      expect(next.isError).toBe(false);
+      expect(next.body).not.toHaveProperty('status');
+    });
   });
 });

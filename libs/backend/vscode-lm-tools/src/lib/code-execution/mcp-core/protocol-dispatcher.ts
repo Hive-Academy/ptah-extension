@@ -1960,7 +1960,10 @@ async function handleIndividualTool(
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
         }
-        await ensureDependencyGraphBuilt(ptahAPI);
+        const readiness = await ensureDependencyGraph(ptahAPI, deps);
+        if (readiness.state !== 'ready') {
+          return await graphNotReadyResponse(request, readiness, deps);
+        }
         const resolvedFile = await resolveDependencyQueryPath(
           ptahAPI,
           file.trim(),
@@ -1991,7 +1994,10 @@ async function handleIndividualTool(
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
         }
-        await ensureDependencyGraphBuilt(ptahAPI);
+        const readiness = await ensureDependencyGraph(ptahAPI, deps);
+        if (readiness.state !== 'ready') {
+          return await graphNotReadyResponse(request, readiness, deps);
+        }
         const resolvedFile = await resolveDependencyQueryPath(
           ptahAPI,
           file.trim(),
@@ -2147,7 +2153,10 @@ async function handleIndividualTool(
         if (!parsed.ok) {
           return toolErrorResponse(request, `Error: ${parsed.error}`);
         }
-        await ensureDependencyGraphBuilt(ptahAPI);
+        const readiness = await ensureDependencyGraph(ptahAPI, deps);
+        if (readiness.state !== 'ready') {
+          return await graphNotReadyResponse(request, readiness, deps);
+        }
         const page = await ptahAPI.dependencies.getSymbolIndex(
           undefined,
           parsed.query,
@@ -2320,31 +2329,410 @@ function missingStringArgResponse(
 const DEPENDENCY_GRAPH_FILE_CAP = 5000;
 
 /**
- * Build the workspace import graph on first dependency query; reuse thereafter.
+ * Longest a dependency tool waits on a graph build before it answers
+ * `building`. A small workspace builds inside it and is answered on the first
+ * call; a large one (225 s measured on this repository, TASK_2026_559 Task
+ * 9.2) can never hold the call near a client's tool timeout.
  */
-async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
+const GRAPH_BUILD_WAIT_MS = 1_500;
+
+/** The retry hint a `building` answer carries. */
+const GRAPH_BUILD_RETRY_AFTER_MS = 15_000;
+
+/** One background graph build for one read root. */
+interface GraphBuildJob {
+  /** Settles when the build ends, however it ends; never rejects. */
+  settled: Promise<void>;
+  /**
+   * The build generation reserved for this job before discovery. When it is
+   * no longer the root's (an eviction, or a later build), the job is obsolete.
+   */
+  readonly generation: number;
+  /** Source files discovery found, once discovery has run. */
+  filesDiscovered?: number;
+  /** Set when the build ended, however it ended. */
+  done: boolean;
+  /** Set when the build failed (not when it was superseded). */
+  failed: boolean;
+  /** Set once a call answered `ready` from this job's result. */
+  delivered: boolean;
+}
+
+/**
+ * The in-flight latch of one `PtahAPI` (one MCP server), keyed by the
+ * normalized read root: concurrent cold calls share one build.
+ */
+interface GraphBuildLatch {
+  readonly jobs: Map<string, GraphBuildJob>;
+  /**
+   * Roots whose last build failed and whose failure no call has reported yet,
+   * with that build. The next call reports it and clears it (unless the build
+   * was superseded since); the call after that rebuilds.
+   */
+  readonly failed: Map<string, GraphBuildJob>;
+  /**
+   * Roots whose last background build published an empty graph (discovery
+   * found no source file), with that build. While no call has received it
+   * and its generation is still the root's, the next call answers it; after
+   * that each call rediscovers the root, and the snapshot answers only once
+   * that rediscovery confirmed it, so a source file added since is not
+   * hidden behind it.
+   */
+  readonly empty: Map<string, GraphBuildJob>;
+}
+
+/** Weak: a latch lives exactly as long as the `PtahAPI` it serves. */
+const graphBuildLatches = new WeakMap<PtahAPI, GraphBuildLatch>();
+
+/** Whether a dependency tool may answer now, and if not, why. */
+type GraphReadiness =
+  | { state: 'ready' }
+  | { state: 'building'; filesDiscovered?: number }
+  | { state: 'failed' };
+
+/**
+ * Make sure the workspace import graph is built or being built, without ever
+ * holding the call longer than {@link GRAPH_BUILD_WAIT_MS}.
+ *
+ * The root is the caller-aware read root every other read tool uses
+ * (`ptah.workspace.getInfo()`: declared root, then caller session, active
+ * session, host folder), so an agent in a worktree the host did not open
+ * gets that worktree's graph. Discovery and relative queries resolve against
+ * the same root; spool writes keep their own host-owned rule.
+ *
+ * - A built graph answers at once (`ready`), as before.
+ * - Otherwise one background build per root is started (the latch is set
+ *   before this yields, so a concurrent call joins it), and this waits up to
+ *   the bound for it: `ready` if it finished, else `building`.
+ * - A job whose generation an eviction or a later build superseded is
+ *   dropped at once, so it can neither hold the latch nor report its outcome;
+ *   a call that was waiting on it is answered from the current state.
+ * - A build that failed is reported once (`failed`) and its latch is already
+ *   clear, so the next call starts a new build.
+ * - An empty graph (no source files) answers only once a rediscovery by this
+ *   call's refresh confirmed it; while that refresh or another build is
+ *   pending the call is `building`, so the first source file added is found.
+ *   An empty build that finished after its callers' wait is answered once,
+ *   to the next call, while its generation is still the root's.
+ * - No workspace open: `ready`, and the tool answers from whatever graph
+ *   exists, as before.
+ */
+async function ensureDependencyGraph(
+  ptahAPI: PtahAPI,
+  deps: ProtocolHandlerDependencies,
+): Promise<GraphReadiness> {
   const info = await ptahAPI.workspace.getInfo();
-  const workspaceRoot = info?.path;
-  if (!workspaceRoot) return;
+  const root = info?.path;
+  if (!root) return { state: 'ready' };
+  const key = graphRootKey(root);
+  const latch = graphBuildLatchFor(ptahAPI);
   // Guard on THIS workspace's graph so a second open workspace still builds its
   // own graph rather than reusing the first workspace's cached result.
-  if (await ptahAPI.dependencies.isBuilt(workspaceRoot)) return;
+  const built = await ptahAPI.dependencies.isBuilt(root);
+  const emptySnapshot =
+    built && (await isEmptyGraphSnapshot(ptahAPI, latch, key, root));
+  if (built && !emptySnapshot) {
+    // A graph published after a failure (an explicit rebuild) supersedes it.
+    latch.failed.delete(key);
+    return { state: 'ready' };
+  }
+  const buildState = ptahAPI.dependencies.getGraphBuildState(root);
+  // An empty build that finished after its callers stopped waiting: deliver
+  // it once, while nothing superseded or is replacing it; the call after this
+  // one rediscovers.
+  const emptyJob = emptySnapshot ? latch.empty.get(key) : undefined;
+  if (
+    emptyJob !== undefined &&
+    !emptyJob.delivered &&
+    emptyJob.generation === buildState.generation &&
+    !buildState.building &&
+    !latch.jobs.has(key)
+  ) {
+    emptyJob.delivered = true;
+    return { state: 'ready' };
+  }
+  // A failure that ended before this call arrived: report it, once, unless an
+  // eviction or a later build superseded that build since.
+  const failedJob = latch.failed.get(key);
+  if (failedJob !== undefined) {
+    latch.failed.delete(key);
+    if (failedJob.generation === buildState.generation) {
+      return { state: 'failed' };
+    }
+  }
+  let job = latch.jobs.get(key);
+  if (job !== undefined && job.generation !== buildState.generation) {
+    // Obsolete: its root was evicted or rebuilt. Dropped now, it cannot hold
+    // the latch while its I/O is stuck, and its late outcome touches nothing.
+    latch.jobs.delete(key);
+    job = undefined;
+  }
+  if (job === undefined) {
+    if (buildState.building) {
+      // The root's current build is someone else's (an awaited
+      // `ptah.dependencies.buildGraph`): a new job would supersede it. An
+      // empty snapshot does not answer either: that build may replace it.
+      return { state: 'building' };
+    }
+    job = startGraphBuild(ptahAPI, latch, key, root, deps.logger);
+  }
+  await settledWithin(job.settled, GRAPH_BUILD_WAIT_MS);
+  if (
+    ptahAPI.dependencies.getGraphBuildState(root).generation !== job.generation
+  ) {
+    // An eviction or a later build superseded the job while this call
+    // waited: its outcome says nothing about the current graph.
+    return await currentGraphReadiness(ptahAPI, latch, key, root);
+  }
+  if (job.failed) {
+    // Every call that waited on this build reports its failure; it is not
+    // reported again to a later call, which rebuilds instead.
+    if (latch.failed.get(key) === job) latch.failed.delete(key);
+    return { state: 'failed' };
+  }
+  // The empty snapshot answers only once this refresh confirmed it: its
+  // discovery found no file. While discovery is pending, or the files it
+  // found are still parsing, the call is `building`, as a first build is.
+  const refreshing = emptySnapshot && !job.done && job.filesDiscovered !== 0;
+  if (!refreshing && (await ptahAPI.dependencies.isBuilt(root))) {
+    // This call received the job's result; a later call rediscovers.
+    job.delivered = true;
+    return { state: 'ready' };
+  }
+  // Still running, or it ended without publishing (a later build or an
+  // eviction overtook it): not ready, and the next call starts over.
+  return job.filesDiscovered === undefined
+    ? { state: 'building' }
+    : { state: 'building', filesDiscovered: job.filesDiscovered };
+}
+
+/**
+ * The readiness of `root` for a call whose job was superseded while it
+ * waited, decided by the current state without a second wait: a built graph
+ * answers, unless it is the empty snapshot and a build or a job of the
+ * current generation may still replace it; no graph is `building` (the next
+ * call starts over).
+ */
+async function currentGraphReadiness(
+  ptahAPI: PtahAPI,
+  latch: GraphBuildLatch,
+  key: string,
+  root: string,
+): Promise<GraphReadiness> {
+  if (!(await ptahAPI.dependencies.isBuilt(root))) return { state: 'building' };
+  if (!(await isEmptyGraphSnapshot(ptahAPI, latch, key, root))) {
+    return { state: 'ready' };
+  }
+  const current = ptahAPI.dependencies.getGraphBuildState(root);
+  const currentJob = latch.jobs.get(key);
+  const replacementPending =
+    current.building ||
+    (currentJob !== undefined &&
+      currentJob.generation === current.generation &&
+      !currentJob.done);
+  return replacementPending ? { state: 'building' } : { state: 'ready' };
+}
+
+/** The latch of `ptahAPI`, created on first use. */
+function graphBuildLatchFor(ptahAPI: PtahAPI): GraphBuildLatch {
+  let latch = graphBuildLatches.get(ptahAPI);
+  if (latch === undefined) {
+    latch = { jobs: new Map(), failed: new Map(), empty: new Map() };
+    graphBuildLatches.set(ptahAPI, latch);
+  }
+  return latch;
+}
+
+/**
+ * A root's latch key, normalized as the graph service keys its graphs
+ * (forward slashes, no trailing slash): `D:\ws` and `D:/ws/` share one job.
+ */
+function graphRootKey(root: string): string {
+  return root.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+/**
+ * Whether the root's built graph is the empty one a background build of this
+ * latch published and nothing has replaced since.
+ */
+async function isEmptyGraphSnapshot(
+  ptahAPI: PtahAPI,
+  latch: GraphBuildLatch,
+  key: string,
+  root: string,
+): Promise<boolean> {
+  if (!latch.empty.has(key)) return false;
+  const coverage = await ptahAPI.dependencies.getGraphCoverage(root);
+  if (coverage !== undefined && coverage.discoveredFiles === 0) return true;
+  // An explicit build published files since: that graph answers.
+  latch.empty.delete(key);
+  return false;
+}
+
+/** Resolve on a later macrotask, after the caller's own timers are armed. */
+function nextMacrotask(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Start the build for `root` without awaiting it. Its generation is reserved
+ * now, before discovery, so an eviction or a later build during discovery
+ * already supersedes it. The work itself starts on a later macrotask, after
+ * the calling tool has armed its bounded wait. The job is in the latch before
+ * this returns; it leaves the latch when the build settles, after its outcome
+ * is recorded, so no call ever sees neither. An outcome is recorded only while
+ * the job is still the latch's, so an obsolete job never touches its
+ * replacement's state. The chain never rejects.
+ */
+function startGraphBuild(
+  ptahAPI: PtahAPI,
+  latch: GraphBuildLatch,
+  key: string,
+  root: string,
+  logger: Logger,
+): GraphBuildJob {
+  const job: GraphBuildJob = {
+    settled: Promise.resolve(),
+    generation: ptahAPI.dependencies.reserveGraphBuild(root),
+    done: false,
+    failed: false,
+    delivered: false,
+  };
+  const isLatched = (): boolean => latch.jobs.get(key) === job;
+  job.settled = nextMacrotask()
+    .then(() => buildDependencyGraph(ptahAPI, root, job))
+    .then((publishedFiles) => {
+      if (publishedFiles === undefined || !isLatched()) return;
+      if (publishedFiles === 0) latch.empty.set(key, job);
+      else latch.empty.delete(key);
+    })
+    .catch((error: unknown) => {
+      // degradation-audit: reported — a failed background build is recorded
+      // and every call that waits on it, or the next one, answers an explicit
+      // `failed` status, never an empty result; logged at warn with fixed text
+      // (build errors can carry paths), so only the error name is kept. A
+      // superseded job's failure is not recorded: a newer build owns the
+      // root. (The generation read is a synchronous map lookup.)
+      if (
+        ptahAPI.dependencies.getGraphBuildState(root).generation ===
+        job.generation
+      ) {
+        job.failed = true;
+        if (isLatched()) latch.failed.set(key, job);
+      }
+      const errorName = error instanceof Error ? error.name : typeof error;
+      runObserver(() =>
+        logger.warn(
+          '[MCP] background dependency-graph build failed',
+          'CodeExecutionMCP',
+          { errorName },
+        ),
+      );
+    })
+    .finally(() => {
+      job.done = true;
+      if (isLatched()) latch.jobs.delete(key);
+    });
+  latch.jobs.set(key, job);
+  return job;
+}
+
+/**
+ * Discover the workspace's source files and build their import graph under
+ * `root` with the job's reserved generation, yielding to the host between
+ * files. Resolves with the number of files discovered when the graph was
+ * published, or `undefined` when the job was superseded (during discovery it
+ * does not build at all). Rejects when the build reports an error. No files
+ * builds an empty graph, which answers "nothing imports it" until a call
+ * rediscovers the root.
+ */
+async function buildDependencyGraph(
+  ptahAPI: PtahAPI,
+  root: string,
+  job: GraphBuildJob,
+): Promise<number | undefined> {
   const discovered = await ptahAPI.search.findFiles(
     '**/*.{ts,tsx,js,jsx}',
     Number.MAX_SAFE_INTEGER,
   );
-  if (discovered.length === 0) return;
+  job.filesDiscovered = discovered.length;
+  const isCurrent = (): boolean =>
+    ptahAPI.dependencies.getGraphBuildState(root).generation === job.generation;
+  // Evicted or rebuilt while discovering: this list must not become the graph.
+  if (!isCurrent()) return undefined;
   // findFiles yields workspace-relative paths; the graph must be keyed by
   // ABSOLUTE paths so its nodes match absolute-path queries (and so the graph
   // reads real files rather than resolving relative paths against process.cwd).
   const absoluteFiles = discovered
     .slice(0, DEPENDENCY_GRAPH_FILE_CAP)
-    .map((f) => toAbsoluteWorkspacePath(workspaceRoot, f));
-  await ptahAPI.dependencies.buildGraph(
+    .map((f) => toAbsoluteWorkspacePath(root, f));
+  const result = await ptahAPI.dependencies.buildGraph(
     absoluteFiles,
-    workspaceRoot,
+    root,
     discovered.length,
+    { yieldToForeground: true, generation: job.generation },
   );
+  if (result.error !== undefined) {
+    // Fixed text: the namespace's message can carry a path.
+    throw new Error('The dependency graph build reported an error.');
+  }
+  return isCurrent() ? discovered.length : undefined;
+}
+
+/** Wait for `settled`, but never longer than `ms`. */
+async function settledWithin(
+  settled: Promise<void>,
+  ms: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      settled,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * The answer of a dependency tool whose graph is not ready. Status fields
+ * first and no unbounded field, so the answer is small and survives any cut.
+ * `building` is a successful answer with a retry hint; `failed` is a tool
+ * error, never an empty result.
+ */
+async function graphNotReadyResponse(
+  request: MCPRequest,
+  readiness: Exclude<GraphReadiness, { state: 'ready' }>,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  switch (readiness.state) {
+    case 'building':
+      return await createToolSuccessResponse(
+        request,
+        JSON.stringify({
+          status: 'building',
+          retryAfterMs: GRAPH_BUILD_RETRY_AFTER_MS,
+          ...(readiness.filesDiscovered === undefined
+            ? {}
+            : { filesDiscovered: readiness.filesDiscovered }),
+          message:
+            'The workspace dependency graph is being built in the background. Call this tool again after retryAfterMs; use Grep or ptah_search_files meanwhile.',
+        }),
+        deps,
+      );
+    case 'failed':
+      return toolErrorResponse(
+        request,
+        JSON.stringify({
+          status: 'failed',
+          error:
+            'The workspace dependency graph build failed. Call this tool again to start a new build.',
+        }),
+      );
+  }
 }
 
 /**

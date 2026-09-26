@@ -1,6 +1,10 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  Logger,
+  type BackgroundWorkAdmission,
+} from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { SupportedLanguage } from './ast.types';
 import { EXTENSION_LANGUAGE_MAP } from './tree-sitter.config';
@@ -55,6 +59,64 @@ export interface GraphCoverage {
   discoveredFiles: number;
 }
 
+/** How one {@link DependencyGraphService.buildGraph} call runs. */
+export interface BuildGraphOptions {
+  /**
+   * Set by a build nobody awaits (the dependency tools start one in the
+   * background). Such a build waits on the background-work governor before
+   * each chunk, so it yields while the foreground is busy or the main loop
+   * lags. An awaited build (the caller asked for it and waits on it) leaves
+   * this unset: a governed wait inside a generating turn would make that turn
+   * wait for itself (TASK_2026_437).
+   */
+  yieldToForeground?: boolean;
+  /**
+   * A generation {@link DependencyGraphService.reserveBuild} handed out for
+   * this root before the caller discovered the files. The build runs under it
+   * instead of taking a new one when it starts, so an eviction of the root, or
+   * any build started after the reservation (even while the caller was still
+   * discovering), supersedes it. Unset: the build takes a new generation.
+   */
+  generation?: number;
+}
+
+/** What {@link DependencyGraphService.getBuildState} reports for one root. */
+export interface GraphBuildState {
+  /**
+   * The root's current generation: the latest reserved or started for it.
+   * `undefined` when none was, or the root was evicted since.
+   */
+  generation: number | undefined;
+  /** Whether a build of that generation is running in `buildGraph` now. */
+  building: boolean;
+}
+
+/** `whenClear` lane name; it only labels the governor's ceiling log line. */
+const GOVERNOR_LANE = 'dependency-graph';
+
+/**
+ * Longest a background build waits on the governor before one chunk. The
+ * governor's own ceiling is 10 minutes per wait; a build of 250 chunks would
+ * then never finish inside a long session. One second per chunk throttles the
+ * build while the foreground is busy (the loop gets that second back) and
+ * still lets it finish, which the agent that asked for it is waiting on.
+ */
+const GOVERNOR_MAX_DEFER_MS = 1_000;
+
+/** Files a background build parses between two governor admissions. */
+const CHUNK_SIZE = 20;
+
+/**
+ * Longest a background build links edges before it yields a macrotask, so
+ * the host's timers (a tool call's bounded wait among them) and I/O run.
+ */
+const EDGE_SLICE_MS = 10;
+
+/** Resolve on a later macrotask: timers and I/O callbacks run first. */
+function nextMacrotask(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 /** Extensions to try when resolving relative imports (in order) */
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -91,12 +153,37 @@ export class DependencyGraphService {
   /** Coverage of each cached graph, keyed and evicted with {@link graphs}. */
   private readonly coverages = new Map<string, GraphCoverage>();
 
+  /**
+   * Per root, the generation of the latest build started or reserved for it
+   * (see {@link reserveBuild}); the entry is dropped when the root is
+   * evicted. A build publishes its graph only while its own generation is
+   * still the root's, so a build overtaken by a later build, or by an
+   * eviction of its root, can never replace the newer state with a stale
+   * graph.
+   */
+  private readonly generations = new Map<string, number>();
+
+  /** Last generation handed out; see {@link bumpGeneration}. */
+  private lastGeneration = 0;
+
+  /** Generations whose `buildGraph` is running; see {@link getBuildState}. */
+  private readonly running = new Set<number>();
+
+  /** Latch: a defective governor is warned about once, not per chunk. */
+  private governorFailureWarned = false;
+
   constructor(
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /**
+     * Optional: a bare container has none, and then a background build runs
+     * ungoverned, exactly as an awaited one does.
+     */
+    @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
+    private readonly governor: BackgroundWorkAdmission | null = null,
   ) {}
 
   /**
@@ -109,86 +196,215 @@ export class DependencyGraphService {
    * @param discoveredFiles - Files the caller discovered before capping
    *   `filePaths`; defaults to `filePaths.length` (nothing was dropped). Read
    *   back through {@link getCoverage}.
-   * @returns The built dependency graph
+   * @param options - See {@link BuildGraphOptions}.
+   * @returns The built dependency graph. It is published (answers queries)
+   *   only when no later build of the same root started, and the root was not
+   *   evicted, while this one ran; otherwise it is returned unpublished.
    */
   async buildGraph(
     filePaths: string[],
     workspaceRoot: string,
     tsconfigPaths?: Record<string, string[]>,
     discoveredFiles?: number,
+    options: BuildGraphOptions = {},
   ): Promise<DependencyGraph> {
     const startTime = Date.now();
+    const key = this.normalizeRoot(workspaceRoot);
+    const generation = options.generation ?? this.bumpGeneration(key);
+    const isCurrent = (): boolean => this.generations.get(key) === generation;
     this.logger.info(
       `DependencyGraphService.buildGraph() - Building graph for ${filePaths.length} files`,
     );
-
-    const nodes = new Map<string, FileNode>();
-    const edges = new Map<string, Set<string>>();
-    const reverseEdges = new Map<string, Set<string>>();
-    let unresolvedCount = 0;
-    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-    const CHUNK_SIZE = 20;
-
-    const processFile = async (filePath: string): Promise<void> => {
-      const normalizedPath = filePath.replace(/\\/g, '/');
-      const ext = path.extname(normalizedPath).toLowerCase();
-      const language = EXTENSION_LANGUAGE_MAP[ext];
-
-      if (!language) {
+    this.running.add(generation);
+    try {
+      const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+      const background = options.yieldToForeground === true;
+      const nodes = background
+        ? await this.parseInBackground(filePaths, normalizedRoot, isCurrent)
+        : await this.parseAwaited(filePaths, normalizedRoot);
+      const graph = await this.linkNodes(
+        nodes,
+        normalizedRoot,
+        tsconfigPaths,
+        background ? isCurrent : undefined,
+      );
+      if (!isCurrent()) {
+        // Fixed text: the root is a path.
         this.logger.debug(
-          `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`,
+          'DependencyGraphService.buildGraph() - Superseded by a later build or an eviction; graph not published',
+        );
+        return graph;
+      }
+      this.publish(key, graph, filePaths.length, discoveredFiles);
+      const elapsed = Date.now() - startTime;
+      this.logger.info(
+        `DependencyGraphService.buildGraph() - Graph built in ${elapsed}ms: ` +
+          `${nodes.size} nodes, ${this.countEdges(
+            graph.edges,
+          )} edges, ${graph.unresolvedCount} unresolved`,
+      );
+      return graph;
+    } finally {
+      this.running.delete(generation);
+    }
+  }
+
+  /**
+   * Reserve a build generation for `workspaceRoot` before discovering its
+   * files, and pass it to {@link buildGraph} as `options.generation`. Every
+   * build started earlier for the root is superseded now; the reservation is
+   * superseded in turn by a later build or reservation and by an eviction.
+   */
+  reserveBuild(workspaceRoot: string): number {
+    return this.bumpGeneration(this.normalizeRoot(workspaceRoot));
+  }
+
+  /** The root's current generation, and whether a build of it is running. */
+  getBuildState(workspaceRoot: string): GraphBuildState {
+    const generation = this.generations.get(this.normalizeRoot(workspaceRoot));
+    return {
+      generation,
+      building: generation !== undefined && this.running.has(generation),
+    };
+  }
+
+  /**
+   * Parse every file for an awaited build: chunks of {@link CHUNK_SIZE}
+   * files in parallel, never yielding on purpose (the caller waits on it).
+   */
+  private async parseAwaited(
+    filePaths: string[],
+    normalizedRoot: string,
+  ): Promise<Map<string, FileNode>> {
+    const nodes = new Map<string, FileNode>();
+    for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+      const chunk = filePaths.slice(i, i + CHUNK_SIZE);
+      await Promise.allSettled(
+        chunk.map((filePath) =>
+          this.parseFile(filePath, normalizedRoot, nodes),
+        ),
+      );
+    }
+    return nodes;
+  }
+
+  /**
+   * Parse every file for a build nobody awaits, one file at a time: a
+   * governor admission before each chunk of {@link CHUNK_SIZE} files, and a
+   * macrotask yield before every file, so one file's synchronous parse is the
+   * longest the host's timers and I/O wait. Stops early once `isCurrent`
+   * says the build was superseded (nothing it parses could be published).
+   */
+  private async parseInBackground(
+    filePaths: string[],
+    normalizedRoot: string,
+    isCurrent: () => boolean,
+  ): Promise<Map<string, FileNode>> {
+    const nodes = new Map<string, FileNode>();
+    for (let i = 0; i < filePaths.length; i++) {
+      if (i % CHUNK_SIZE === 0) await this.yieldToForeground();
+      await nextMacrotask();
+      if (!isCurrent()) break;
+      await this.parseFile(filePaths[i], normalizedRoot, nodes);
+    }
+    return nodes;
+  }
+
+  /** Read and parse one file into `nodes`; a file that fails is skipped. */
+  private async parseFile(
+    filePath: string,
+    normalizedRoot: string,
+    nodes: Map<string, FileNode>,
+  ): Promise<void> {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const ext = path.extname(normalizedPath).toLowerCase();
+    const language = EXTENSION_LANGUAGE_MAP[ext];
+
+    if (!language) {
+      this.logger.debug(
+        `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`,
+      );
+      return;
+    }
+
+    try {
+      const content = await this.fileSystem.readFile(filePath);
+
+      const analysisResult = await this.astAnalysis.analyzeSource(
+        content,
+        language,
+        normalizedPath,
+      );
+
+      if (!analysisResult.isOk()) {
+        this.logger.debug(
+          `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
         );
         return;
       }
 
-      try {
-        const content = await this.fileSystem.readFile(filePath);
+      const insights: CodeInsights = analysisResult.value!;
+      const relativePath = path
+        .relative(normalizedRoot, normalizedPath)
+        .replace(/\\/g, '/');
 
-        const analysisResult = await this.astAnalysis.analyzeSource(
-          content,
-          language,
-          normalizedPath,
-        );
-
-        if (!analysisResult.isOk()) {
-          this.logger.debug(
-            `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
-          );
-          return;
-        }
-
-        const insights: CodeInsights = analysisResult.value!;
-        const relativePath = path
-          .relative(normalizedRoot, normalizedPath)
-          .replace(/\\/g, '/');
-
-        const node: FileNode = {
-          path: normalizedPath,
-          relativePath,
-          imports: insights.imports,
-          exports: insights.exports ?? [],
-          language,
-        };
-
-        nodes.set(normalizedPath, node);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.debug(
-          `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`,
-        );
-      }
-    };
-
-    for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
-      const chunk = filePaths.slice(i, i + CHUNK_SIZE);
-      await Promise.allSettled(chunk.map(processFile));
+      nodes.set(normalizedPath, {
+        path: normalizedPath,
+        relativePath,
+        imports: insights.imports,
+        exports: insights.exports ?? [],
+        language,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.debug(
+        `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`,
+      );
     }
+  }
+
+  /**
+   * Resolve every node's imports into forward and reverse edges. A
+   * background build (`isCurrent` given) yields a macrotask whenever it has
+   * linked for {@link EDGE_SLICE_MS}, checked before every node and every
+   * import, so one import-heavy file cannot hold the host; once `isCurrent`
+   * says it was superseded it stops and returns the partial graph, which
+   * `buildGraph` does not publish. An awaited build never yields.
+   */
+  private async linkNodes(
+    nodes: Map<string, FileNode>,
+    normalizedRoot: string,
+    tsconfigPaths: Record<string, string[]> | undefined,
+    isCurrent: (() => boolean) | undefined,
+  ): Promise<DependencyGraph> {
+    const edges = new Map<string, Set<string>>();
+    const reverseEdges = new Map<string, Set<string>>();
+    let unresolvedCount = 0;
     const knownFiles = new Set(nodes.keys());
+    let sliceStart = Date.now();
+    /** False once a background build was superseded: stop linking. */
+    const continueLinking = async (): Promise<boolean> => {
+      if (isCurrent === undefined) return true;
+      if (Date.now() - sliceStart < EDGE_SLICE_MS) return true;
+      await nextMacrotask();
+      sliceStart = Date.now();
+      return isCurrent();
+    };
+    const graph = (): DependencyGraph => ({
+      nodes,
+      edges,
+      reverseEdges,
+      builtAt: Date.now(),
+      unresolvedCount,
+    });
     for (const [filePath, node] of nodes) {
+      if (!(await continueLinking())) return graph();
       const fileEdges = new Set<string>();
+      edges.set(filePath, fileEdges);
 
       for (const imp of node.imports) {
+        if (!(await continueLinking())) return graph();
         const resolvedPath = this.resolveImportPath(
           imp.source,
           filePath,
@@ -210,39 +426,28 @@ export class DependencyGraphService {
           );
         }
       }
-
-      edges.set(filePath, fileEdges);
     }
 
-    const graph: DependencyGraph = {
-      nodes,
-      edges,
-      reverseEdges,
-      builtAt: Date.now(),
-      unresolvedCount,
-    };
+    return graph();
+  }
 
-    const key = this.normalizeRoot(workspaceRoot);
+  /** Make `graph` the one that answers queries for `key`. */
+  private publish(
+    key: string,
+    graph: DependencyGraph,
+    graphedFiles: number,
+    discoveredFiles: number | undefined,
+  ): void {
     this.graphs.set(key, graph);
     this.symbolIndexes.delete(key); // Invalidate cached symbol index for this root
     this.coverages.set(key, {
-      graphedFiles: filePaths.length,
+      graphedFiles,
       discoveredFiles:
         Number.isSafeInteger(discoveredFiles) &&
-        (discoveredFiles as number) > filePaths.length
+        (discoveredFiles as number) > graphedFiles
           ? (discoveredFiles as number)
-          : filePaths.length,
+          : graphedFiles,
     });
-
-    const elapsed = Date.now() - startTime;
-    this.logger.info(
-      `DependencyGraphService.buildGraph() - Graph built in ${elapsed}ms: ` +
-        `${nodes.size} nodes, ${this.countEdges(
-          edges,
-        )} edges, ${unresolvedCount} unresolved`,
-    );
-
-    return graph;
   }
 
   /**
@@ -442,6 +647,8 @@ export class DependencyGraphService {
    */
   evict(workspaceRoot: string): void {
     const key = this.normalizeRoot(workspaceRoot);
+    // Also when no graph is published yet: a build in flight must not publish.
+    this.generations.delete(key);
     if (this.graphs.delete(key)) {
       this.symbolIndexes.delete(key);
       this.coverages.delete(key);
@@ -459,6 +666,11 @@ export class DependencyGraphService {
    */
   retainOnly(activeRoots: string[]): void {
     const keep = new Set(activeRoots.map((root) => this.normalizeRoot(root)));
+    // Builds still in flight for a dropped root have no graph yet; forgetting
+    // their generation stops them publishing one.
+    for (const key of [...this.generations.keys()]) {
+      if (!keep.has(key)) this.generations.delete(key);
+    }
     for (const key of [...this.graphs.keys()]) {
       if (!keep.has(key)) {
         this.graphs.delete(key);
@@ -473,9 +685,46 @@ export class DependencyGraphService {
 
   /** Evict every cached graph (e.g. on shutdown). */
   clear(): void {
+    this.generations.clear();
     this.graphs.clear();
     this.symbolIndexes.clear();
     this.coverages.clear();
+  }
+
+  /** Give `key` a new generation, unique across every root and never reused. */
+  private bumpGeneration(key: string): number {
+    this.lastGeneration += 1;
+    this.generations.set(key, this.lastGeneration);
+    return this.lastGeneration;
+  }
+
+  /**
+   * Wait until background work may parse its next chunk, at most
+   * {@link GOVERNOR_MAX_DEFER_MS}. `isClear()` first, so an idle host pays no
+   * promise per chunk. A governor `AbortError` (its `dispose()` at shutdown)
+   * is rethrown so the build stops. `'timeout'` proceeds. Any other rejection
+   * is a governor defect: warn once and parse the chunk (fail open), the rule
+   * every adopter follows.
+   */
+  private async yieldToForeground(): Promise<void> {
+    const governor = this.governor;
+    if (governor === null || governor.isClear()) return;
+    try {
+      await governor.whenClear({
+        lane: GOVERNOR_LANE,
+        maxDeferMs: GOVERNOR_MAX_DEFER_MS,
+      });
+    } catch (error: unknown) {
+      // degradation-audit: reported — an abort (host shutdown) stops the
+      // build by rethrowing; any other governor failure is warned about once
+      // and the chunk is parsed anyway (fail open). Fixed text only.
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (this.governorFailureWarned) return;
+      this.governorFailureWarned = true;
+      this.logger.warn(
+        '[DependencyGraphService] background-work wait failed; building anyway',
+      );
+    }
   }
 
   /** Normalize a workspace root to the map-key form (forward slashes, no trailing slash). */

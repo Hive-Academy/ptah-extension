@@ -84,6 +84,8 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     isBuilt: jest.Mock;
     getCoverage: jest.Mock;
     getCoverageForFile: jest.Mock;
+    reserveBuild: jest.Mock;
+    getBuildState: jest.Mock;
   };
   _workspaceProvider: { getWorkspaceRoot: jest.Mock };
 } {
@@ -107,6 +109,8 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     isBuilt: jest.fn(),
     getCoverage: jest.fn(),
     getCoverageForFile: jest.fn(),
+    reserveBuild: jest.fn(),
+    getBuildState: jest.fn(),
   };
   const _workspaceProvider = {
     getWorkspaceRoot: jest.fn().mockReturnValue('D:/ws'),
@@ -606,13 +610,76 @@ describe('buildDependencyNamespace', () => {
     await ns.buildGraph(['a.ts'], 'D:/ws');
 
     const calls = deps._dependencyGraph.buildGraph.mock.calls;
-    expect(calls[0].slice(2)).toEqual([undefined, 9]);
-    expect(calls[1].slice(2)).toEqual([undefined, undefined]);
+    expect(calls[0].slice(2)).toEqual([
+      undefined,
+      9,
+      { yieldToForeground: false },
+    ]);
+    expect(calls[1].slice(2)).toEqual([
+      undefined,
+      undefined,
+      { yieldToForeground: false },
+    ]);
     await expect(ns.getGraphCoverage('D:/ws')).resolves.toEqual({
       graphedFiles: 1,
       discoveredFiles: 9,
     });
     expect(deps._dependencyGraph.getCoverage).toHaveBeenCalledWith('D:/ws');
+  });
+
+  // Batch 9b: only a build nobody awaits (the dependency tools' background
+  // build) yields to the governor; an execute_code build awaits ungoverned.
+  it('buildGraph asks the service to yield to the foreground only when told to', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.buildGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: new Map(),
+      unresolvedCount: 0,
+      builtAt: 1,
+    });
+    const ns = buildDependencyNamespace(deps);
+
+    await ns.buildGraph(['a.ts'], 'D:/ws', 3, { yieldToForeground: true });
+    await ns.buildGraph(['a.ts'], 'D:/ws', 3, {});
+
+    const calls = deps._dependencyGraph.buildGraph.mock.calls;
+    expect(calls[0][4]).toEqual({ yieldToForeground: true });
+    expect(calls[1][4]).toEqual({ yieldToForeground: false });
+  });
+
+  // Batch 9b review r1 F1: the background build reserves its generation
+  // before discovery and builds under it.
+  it('forwards a reserved generation, and reserves and reads build state from the service', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.buildGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: new Map(),
+      unresolvedCount: 0,
+      builtAt: 1,
+    });
+    deps._dependencyGraph.reserveBuild.mockReturnValue(7);
+    deps._dependencyGraph.getBuildState.mockReturnValue({
+      generation: 7,
+      building: false,
+    });
+    const ns = buildDependencyNamespace(deps);
+
+    expect(ns.reserveGraphBuild('D:/ws')).toBe(7);
+    expect(ns.getGraphBuildState('D:/ws')).toEqual({
+      generation: 7,
+      building: false,
+    });
+    await ns.buildGraph(['a.ts'], 'D:/ws', 3, {
+      yieldToForeground: true,
+      generation: 7,
+    });
+
+    expect(deps._dependencyGraph.reserveBuild).toHaveBeenCalledWith('D:/ws');
+    expect(deps._dependencyGraph.getBuildState).toHaveBeenCalledWith('D:/ws');
+    expect(deps._dependencyGraph.buildGraph.mock.calls[0][4]).toEqual({
+      yieldToForeground: true,
+      generation: 7,
+    });
   });
 
   // Round 2 review R2-B1.

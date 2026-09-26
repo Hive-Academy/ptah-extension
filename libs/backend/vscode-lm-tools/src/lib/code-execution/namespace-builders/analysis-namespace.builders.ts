@@ -437,6 +437,7 @@ export function buildDependencyNamespace(
       filePaths: string[],
       workspaceRoot: string,
       discoveredFiles?: number,
+      options?: { yieldToForeground?: boolean; generation?: number },
     ) => {
       try {
         const graph = await dependencyGraph.buildGraph(
@@ -451,6 +452,13 @@ export function buildDependencyNamespace(
           workspaceRoot,
           undefined,
           discoveredFiles,
+          // Only a build nobody awaits yields to the governor; see the option.
+          {
+            yieldToForeground: options?.yieldToForeground === true,
+            ...(options?.generation === undefined
+              ? {}
+              : { generation: options.generation }),
+          },
         );
         let edgeCount = 0;
         for (const edgeSet of graph.edges.values()) {
@@ -473,6 +481,12 @@ export function buildDependencyNamespace(
         };
       }
     },
+
+    reserveGraphBuild: (workspaceRoot: string) =>
+      dependencyGraph.reserveBuild(workspaceRoot),
+
+    getGraphBuildState: (workspaceRoot: string) =>
+      dependencyGraph.getBuildState(workspaceRoot),
 
     getDependencies: async (
       filePath: string,

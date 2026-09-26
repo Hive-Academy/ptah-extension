@@ -19,6 +19,7 @@ import type {
   ProjectInfo,
   WorkspaceStructureAnalysis,
   StructuralSummaryResult,
+  GraphBuildState,
   GraphCoverage,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
@@ -786,12 +787,18 @@ export interface DependenciesNamespace {
    * @param discoveredFiles - Files found before `filePaths` was capped, so
    *   {@link getGraphCoverage} can report the graph as incomplete; defaults
    *   to `filePaths.length`
+   * @param options - `yieldToForeground` for a build nobody awaits: it waits
+   *   on the background-work governor before each chunk. Leave it unset when
+   *   awaiting the build inside a turn, or the turn waits for itself.
+   *   `generation` from {@link reserveGraphBuild}: the build runs under that
+   *   reservation instead of taking a new generation when it starts.
    * @returns The built dependency graph summary
    */
   buildGraph: (
     filePaths: string[],
     workspaceRoot: string,
     discoveredFiles?: number,
+    options?: { yieldToForeground?: boolean; generation?: number },
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -799,6 +806,20 @@ export interface DependenciesNamespace {
     builtAt: number;
     error?: string;
   }>;
+
+  /**
+   * Reserve a build generation for `workspaceRoot` before discovering its
+   * files; pass it to {@link buildGraph} as `options.generation`. A later
+   * build or reservation of the root, or its eviction, supersedes it: a
+   * superseded build is never published.
+   */
+  reserveGraphBuild: (workspaceRoot: string) => number;
+
+  /**
+   * The root's current build generation (`undefined` when none, or after an
+   * eviction) and whether a build of it is running.
+   */
+  getGraphBuildState: (workspaceRoot: string) => GraphBuildState;
 
   /**
    * Get dependencies of a file (what it imports)

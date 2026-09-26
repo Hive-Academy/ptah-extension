@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 16/29
+Total tasks: 56 | Batches: 29 | Complete: 17/29
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1952,7 +1952,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 9b: Dependency graph — background build through the governor; non-blocking tools — IN_PROGRESS
+## Batch 9b: Dependency graph — background build through the governor; non-blocking tools — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1963,7 +1963,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 9
 
-### Task 9b.1: Background graph build with a per-workspace in-flight latch — IN_PROGRESS
+### Task 9b.1: Background graph build with a per-workspace in-flight latch — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`
   (`ensureDependencyGraphBuilt` and its three call sites: `ptah_get_dependents`, `ptah_get_dependencies`,
@@ -1985,7 +1985,7 @@ complete declaration summary or an honest full-file result with a `reason`.
   graph. ASSUMPTION — the governor accepts a long-running job; verify its API before wiring
 - Implementation details: status JSON stays within the tool result budget and ahead of any unbounded field
 
-### Task 9b.2: Specs and descriptions — IN_PROGRESS
+### Task 9b.2: Specs and descriptions — COMPLETE
 
 - Depends on: Task 9b.1
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`,
@@ -2002,7 +2002,51 @@ complete declaration summary or an honest full-file result with a `reason`.
 - `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence --skip-nx-cache` passes
 - `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` and `nx run ptah-electron:validate-deps` pass
 - `nx run degradation-audit:lint --skip-nx-cache` at baseline
-- The Codex review lane approves
+- The Codex review lane approves (superseded by User Decision 16: fix R3-S1, commit, no further review)
+
+### Batch 9b review history
+
+- r1 (Codex lane, `reviews/batch-9b-code-logic-review-r1.md`): REVISE 4/10, findings F1-F5 → revision round 1
+- r2 (`reviews/batch-9b-code-logic-review-r2.md`): REVISE 6/10, R2-B1 (blocking), R2-M1, R2-M2 → one bounded
+  correction (revision round 2)
+- r3-postcap (`reviews/batch-9b-code-logic-review-r3-postcap.md`): REVISE 6/10, one serious finding R3-S1 (a
+  successful slow empty build never delivered its result on sequential retries)
+- User Decision 16 (context.md): fix R3-S1, commit, no further review → revision round 3 (`GraphBuildJob.delivered`,
+  `GraphBuildLatch.empty` as a job map; regression spec "delivers a slow empty build to the next call, then
+  rediscovers", failed before the fix and passes after). Details: `batch-9b-executor-report.md` rounds 1-3
+
+### Batch 9b deviations (accepted)
+
+1. Files outside the 9b.1/9b.2 lists: `types.ts` (`DependenciesNamespace.buildGraph` optional `options` carrying
+   `yieldToForeground`), `dependency-graph.service.spec.ts` (service regression specs), `system-namespace.builders.ts`
+   (namespace help line) and `workspace-intelligence/src/index.ts` (`GraphBuildState` type export)
+2. The governor cannot take a long-running job; it is used as a per-chunk admission yield with a 1 s ceiling
+3. Behaviour change: a caller-declared root that is not a host-opened folder answers `status: 'unavailable'` instead
+   of building a graph under it (Batch 2f F1)
+4. A workspace with no source files builds (and caches) an empty graph; empty-graph freshness is rediscovery on the
+   next call (shared through the latch), not a timed expiry
+5. The namespace (public to `execute_code`) gains `reserveGraphBuild` / `getGraphBuildState` so the reservation is
+   synchronous and no eviction falls between job creation and its generation; documented in the namespace help
+
+### Batch 9b team-leader verification (Mode 2, 2026-09-26)
+
+- No TODO/FIXME/PLACEHOLDER/STUB markers in the changed source files; `ptah-core-prompt.ts` and
+  `ptah-system-prompt.constant.ts` unchanged vs HEAD (`git diff --quiet`)
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence --skip-nx-cache`
+  → "Running targets test, lint, typecheck for 2 projects" → success, 2 projects
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` → success, 2 projects
+- `nx run ptah-electron:validate-deps --skip-nx-cache` → "All external imports are covered by package.json dependencies."
+- `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
+  `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
+- Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+
+### Batch 9b follow-ups (not blocking; carried in TASK_2026_561_9e57 Track B4)
+
+- (a) A single file whose synchronous parse exceeds the bound still blocks the host for that file (worker thread)
+- (b) Empty-graph rediscovery has no cooldown (every call after a delivered empty graph rediscovers)
+- (c) `workspace.getInfo` is awaited before the bounded-wait timer starts
+- (d) `execute_code` `getDependencies` / `getDependents` / `getSymbolIndex` answer `[]` when no graph exists
+- (e) `resolveDependencyQueryPath` misses a query path whose case spelling differs from the graph key
 
 ---
 
@@ -2402,6 +2446,13 @@ complete declaration summary or an honest full-file result with a `reason`.
 - The Codex review lane approves
 
 ---
+
+## Follow-up task (added 2026-09-26, user request)
+
+- Every known issue and "follow-ups (not blocking)" item above that no later 559 batch owns is collected in
+  `.ptah/specs/TASK_2026_561_9e57/context.md` (Track B), together with the open compaction work (Track A: tokaudit
+  Wave 3 + TASK_2026_406 Phases 0-3). TASK_2026_561 starts after this task merges. When a batch here records a new
+  residual, add it to that file too
 
 ## Completion notes for Mode 3
 

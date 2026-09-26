@@ -111,6 +111,34 @@ describe.each([
   });
 });
 
+// Batch 9b: a cold graph builds in the background; the tools say so.
+describe.each([
+  ['ptah_get_symbol_index', buildGetSymbolIndexTool],
+  ['ptah_get_dependents', buildGetDependentsTool],
+  ['ptah_get_dependencies', buildGetDependenciesTool],
+])('%s building status', (name, buildTool) => {
+  const tool = buildTool();
+
+  it('names the building status and the retry hint, within the budget', () => {
+    expect(tool.name).toBe(name);
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(tool.description).toContain('status: "building", retryAfterMs');
+    expect(tool.description).toContain('call again after retryAfterMs');
+    expect(tool.description).toContain('background');
+  });
+});
+
+describe.each([
+  ['ptah_get_dependents', buildGetDependentsTool],
+  ['ptah_get_dependencies', buildGetDependenciesTool],
+])('%s failed build', (_name, buildTool) => {
+  it('says a failed build is reported and how to retry it', () => {
+    const { description } = buildTool();
+    expect(description).toContain('status "failed"');
+    expect(description).toContain('calling again rebuilds');
+  });
+});
+
 /**
  * `ptah_lsp_references` / `ptah_lsp_definitions` — TASK_2026_559 Batch 8.
  *
