@@ -9,6 +9,7 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import {
   type ICodeSymbolReader,
+  type CodeIndexFreshness,
   type CodeSymbolHit,
   type CodeSymbolHitPage,
 } from '@ptah-extension/memory-contracts';
@@ -106,6 +107,27 @@ interface CodeVecRow {
 /** Default k for Reciprocal Rank Fusion — matches MemorySearchService. */
 const CODE_RRF_K = 25;
 
+/** Upper bound on `searchSymbols` topK, and so on the length of the exact-name list. */
+const CODE_SEARCH_MAX_TOP_K = 50;
+
+/**
+ * RRF weight of the exact `symbol_name` candidate list. BM25 and vector weights
+ * sum to 1, so a row absent from the exact list scores at most 1 / (k + 1).
+ * An exact row at 0-based index i scores at least W / (k + i + 1), and i is at
+ * most CODE_SEARCH_MAX_TOP_K - 1. W = 3 gives 3 / 75 = 0.04 > 1 / 26 ≈ 0.0385,
+ * so every exact-name row outranks every non-exact row. Raising the topK cap
+ * requires re-deriving this weight.
+ */
+const EXACT_NAME_RRF_WEIGHT = 3;
+
+/** A query SQLite `NOCASE` can compare case-insensitively on its own. */
+const ASCII_ONLY = /^\p{ASCII}*$/u;
+
+/** Row columns selected by the exact-name lookups. */
+const EXACT_NAME_COLUMNS = `cs.rowid AS rowid, cs.id AS id, cs.workspace_root AS workspace_root,
+             cs.file_path AS file_path, cs.kind AS kind, cs.symbol_name AS symbol_name,
+             cs.subject AS subject, cs.text AS text, cs.token_count AS token_count`;
+
 @injectable()
 export class CodeSymbolStore implements ICodeSymbolReader {
   private embedderWarnedOnce = false;
@@ -180,8 +202,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
           const vec = embeddings[i];
           if (vec && vec.length === this.embedder.dim) {
             const row = fetchRowidStmt.get(e.workspaceRoot, e.subject) as
-              | { rowid: number }
-              | undefined;
+              { rowid: number } | undefined;
             if (row) {
               deleteVecStmt.run(row.rowid);
               insertVecStmt.run(
@@ -210,6 +231,25 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       .prepare(`SELECT COUNT(*) AS n FROM code_symbols ${whereSql}`)
       .get(...clause.values) as { n: number } | undefined;
     return row?.n ?? 0;
+  }
+
+  /**
+   * Symbol count and newest `updated_at` for one workspace root, in a single
+   * aggregate query. An empty index yields `{ symbolCount: 0, newestUpdatedAt: null }`.
+   */
+  async getIndexFreshness(workspaceRoot: string): Promise<CodeIndexFreshness> {
+    const row = this.connection.db
+      .prepare(
+        `SELECT COUNT(*) AS n, MAX(updated_at) AS newest FROM code_symbols WHERE workspace_root = ?`,
+      )
+      .get(workspaceRoot) as { n: number; newest: number | null } | undefined;
+    const symbolCount = row?.n ?? 0;
+    const newest = row?.newest;
+    return {
+      symbolCount,
+      newestUpdatedAt:
+        symbolCount > 0 && typeof newest === 'number' ? newest : null,
+    };
   }
 
   /** Paginated search over code_symbols with optional workspace, name/path, and kind filters. */
@@ -259,8 +299,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const db = this.connection.db;
     const countSql = `SELECT COUNT(*) AS n FROM code_symbols ${whereSql}`;
     const countRow = db.prepare(countSql).get(...values) as
-      | { n: number }
-      | undefined;
+      { n: number } | undefined;
     const total = countRow?.n ?? 0;
 
     const rowsSql = `SELECT id, workspace_root, file_path, kind, symbol_name, subject, token_count, updated_at
@@ -288,19 +327,23 @@ export class CodeSymbolStore implements ICodeSymbolReader {
 
   /**
    * Hybrid BM25 (code_symbols_fts) + vector (code_symbols_vec) search over the
-   * indexed symbols, fused with Reciprocal Rank Fusion. Falls back to BM25-only
-   * when sqlite-vec is unavailable or the vector query fails. Returns `''`-safe
-   * empty page on empty query.
+   * indexed symbols, plus an exact `symbol_name` candidate list, fused with
+   * Reciprocal Rank Fusion. An exact-name row always ranks above every other row
+   * (see `EXACT_NAME_RRF_WEIGHT`); the porter tokenizer keeps a camelCase name as
+   * one opaque token, so BM25 alone does not guarantee that. Falls back to
+   * BM25-only when sqlite-vec is unavailable or the vector query fails. Returns
+   * `''`-safe empty page on empty query.
    */
   async searchSymbols(
     query: string,
     topK = 10,
     workspaceRoot?: string,
   ): Promise<CodeSymbolHitPage> {
-    const limit = Math.max(1, Math.min(50, topK));
+    const limit = Math.max(1, Math.min(CODE_SEARCH_MAX_TOP_K, topK));
     const trimmed = query.trim();
     if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
 
+    const exactRows = this.exactNameSymbols(trimmed, limit, workspaceRoot);
     const bm25Rows = this.bm25SearchSymbols(trimmed, limit * 4, workspaceRoot);
     let vecRows: CodeSymbolHitRow[] = [];
     let bm25Only = !this.vecStatus.available;
@@ -322,7 +365,8 @@ export class CodeSymbolStore implements ICodeSymbolReader {
 
     const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
     const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
-    const fused = this.rrfFuseSymbols(bm25Rows, vecRows, limit, {
+    const fused = this.rrfFuseSymbols(exactRows, bm25Rows, vecRows, limit, {
+      exact: EXACT_NAME_RRF_WEIGHT,
       bm25: bm25Weight,
       vec: 1 - bm25Weight,
     });
@@ -339,6 +383,114 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       score,
     }));
     return { hits, bm25Only };
+  }
+
+  /**
+   * Rows whose `symbol_name` equals the query. Case-sensitive matches win: when
+   * any exists, only those are returned; otherwise the case-insensitive matches
+   * are — through SQL `NOCASE` for an ASCII query (`nocaseNameSymbols`), or the
+   * JS Unicode fallback for any other (`foldedNameSymbols`). Ties (the same
+   * name in several files) order by file path. A query containing whitespace
+   * cannot be a symbol name, so it skips the lookup and natural-language
+   * searches fuse exactly as before. The query is bound as a parameter and `=`
+   * has no wildcards, so `%`, `_` and quotes stay literal.
+   */
+  private exactNameSymbols(
+    query: string,
+    limit: number,
+    workspaceRoot?: string,
+  ): CodeSymbolHitRow[] {
+    if (/\s/.test(query)) return [];
+    const rows = this.nameEqualsSymbols('', query, limit, workspaceRoot);
+    if (rows.length > 0) return rows;
+    return ASCII_ONLY.test(query)
+      ? this.nameEqualsSymbols('COLLATE NOCASE', query, limit, workspaceRoot)
+      : this.foldedNameSymbols(query, limit, workspaceRoot);
+  }
+
+  /**
+   * `symbol_name = ?` with the given collation, workspace-scoped, in file-path
+   * order, capped at `limit`. With `COLLATE NOCASE` this is the ASCII
+   * case-insensitive tier: for an ASCII query it matches exactly the rows the
+   * JS fallback would, except that a stored name containing U+212A KELVIN SIGN
+   * lowers to ASCII `k` under `toLowerCase()` but is not folded by `NOCASE`, so
+   * `kelvin` does not find `Kelvin`. That gap is accepted to keep an ASCII
+   * miss off the JS scan.
+   */
+  private nameEqualsSymbols(
+    collation: '' | 'COLLATE NOCASE',
+    query: string,
+    limit: number,
+    workspaceRoot?: string,
+  ): CodeSymbolHitRow[] {
+    const wsFilter = workspaceRoot ? 'AND cs.workspace_root = ?' : '';
+    const sql = `
+      SELECT ${EXACT_NAME_COLUMNS}
+      FROM code_symbols cs
+      WHERE cs.symbol_name = ? ${collation}
+      ${wsFilter}
+      ORDER BY cs.file_path ASC, cs.rowid ASC
+      LIMIT ?
+    `;
+    const params: unknown[] = [query];
+    if (workspaceRoot) params.push(workspaceRoot);
+    params.push(limit);
+    return this.connection.db.prepare(sql).all(...params) as CodeSymbolHitRow[];
+  }
+
+  /**
+   * Case-insensitive fallback for a query with non-ASCII characters. SQLite's
+   * `NOCASE` folds only ASCII, so the comparison runs in JS with
+   * `String.prototype.toLowerCase()`: the Unicode default lowercase mapping,
+   * independent of the host locale. `Äpfel` matches `äpfel` and `ẞ` matches
+   * `ß`, but there is no full case folding: `STRASSE` does not match `straße`,
+   * `İ` lowers to `i` + U+0307 so `İndex` does not match `index`, and `I`
+   * always lowers to `i`, never Turkish `ı`.
+   *
+   * SQL narrows the candidates by character length first. Lowercasing never
+   * shortens a string and only U+0130 (`İ`) lengthens, by one, so a matching
+   * name has between `L - d` and `L` characters, where `L` is the length of the
+   * lowered query and `d` the number of `i` + U+0307 pairs in it. The scan
+   * streams only rowid and name in file-path order and stops after `limit`
+   * matches; full rows are fetched for the matched rowids alone. The scan is
+   * still O(workspace) on a miss; an indexed lowercase-key column would make
+   * it a lookup.
+   */
+  private foldedNameSymbols(
+    query: string,
+    limit: number,
+    workspaceRoot?: string,
+  ): CodeSymbolHitRow[] {
+    const folded = query.toLowerCase();
+    const foldedLength = [...folded].length;
+    const dottedI = folded.split('i̇').length - 1;
+    const wsFilter = workspaceRoot ? 'AND cs.workspace_root = ?' : '';
+    const scanSql = `
+      SELECT cs.rowid AS rowid, cs.symbol_name AS symbol_name
+      FROM code_symbols cs
+      WHERE length(cs.symbol_name) BETWEEN ? AND ?
+      ${wsFilter}
+      ORDER BY cs.file_path ASC, cs.rowid ASC
+    `;
+    const params: unknown[] = [foldedLength - dottedI, foldedLength];
+    if (workspaceRoot) params.push(workspaceRoot);
+    const matchedRowids: number[] = [];
+    for (const row of this.connection.db.prepare(scanSql).iterate(...params)) {
+      const candidate = row as { rowid: number; symbol_name: string };
+      if (candidate.symbol_name.toLowerCase() !== folded) continue;
+      matchedRowids.push(candidate.rowid);
+      if (matchedRowids.length >= limit) break;
+    }
+    if (matchedRowids.length === 0) return [];
+    const placeholders = matchedRowids.map(() => '?').join(',');
+    return this.connection.db
+      .prepare(
+        `SELECT ${EXACT_NAME_COLUMNS}
+         FROM code_symbols cs
+         WHERE cs.rowid IN (${placeholders})
+         ORDER BY cs.file_path ASC, cs.rowid ASC`,
+      )
+      .all(...matchedRowids) as CodeSymbolHitRow[];
   }
 
   private bm25SearchSymbols(
@@ -416,26 +568,27 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     return out;
   }
 
-  /** Reciprocal Rank Fusion over BM25 and vector result lists, keyed by rowid. */
+  /** Reciprocal Rank Fusion over the exact-name, BM25 and vector result lists, keyed by rowid. */
   private rrfFuseSymbols(
+    exact: readonly CodeSymbolHitRow[],
     bm25: readonly CodeSymbolHitRow[],
     vec: readonly CodeSymbolHitRow[],
     limit: number,
-    weights: { bm25: number; vec: number },
+    weights: { exact: number; bm25: number; vec: number },
   ): Array<{ row: CodeSymbolHitRow; score: number }> {
     const k = CODE_RRF_K;
     const acc = new Map<number, { row: CodeSymbolHitRow; score: number }>();
-    bm25.forEach((row, idx) => {
-      acc.set(row.rowid, {
-        row,
-        score: weights.bm25 / (k + idx + 1),
+    const add = (list: readonly CodeSymbolHitRow[], weight: number): void => {
+      list.forEach((row, idx) => {
+        const contribution = weight / (k + idx + 1);
+        const existing = acc.get(row.rowid);
+        if (existing) existing.score += contribution;
+        else acc.set(row.rowid, { row, score: contribution });
       });
-    });
-    vec.forEach((row, idx) => {
-      const existing = acc.get(row.rowid);
-      if (existing) existing.score += weights.vec / (k + idx + 1);
-      else acc.set(row.rowid, { row, score: weights.vec / (k + idx + 1) });
-    });
+    };
+    add(exact, weights.exact);
+    add(bm25, weights.bm25);
+    add(vec, weights.vec);
     return Array.from(acc.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
