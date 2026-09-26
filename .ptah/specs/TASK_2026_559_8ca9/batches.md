@@ -1952,7 +1952,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 9b: Dependency graph — background build through the governor; non-blocking tools — COMPLETE
+## Batch 9b: Dependency graph — background build through the governor; non-blocking tools — COMPLETE (commit 00d1e43e3)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2039,6 +2039,8 @@ complete declaration summary or an honest full-file result with a `reason`.
 - `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
   `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
 - Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+- Committed 11 code paths + 6 task-spec docs as **00d1e43e3** with hooks active: pre-commit (lint-staged, affected
+  lint, `ptah-electron:validate-deps`) passed; commitlint passed (also checked with `npx commitlint` beforehand)
 
 ### Batch 9b follow-ups (not blocking; carried in TASK_2026_561_9e57 Track B4)
 
