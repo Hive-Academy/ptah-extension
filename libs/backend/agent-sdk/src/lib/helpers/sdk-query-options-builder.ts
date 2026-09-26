@@ -1126,6 +1126,11 @@ export class SdkQueryOptionsBuilder {
         : [],
       mcpOverrides: redactMcpOverrideMap(mcpServersOverride),
     });
+    if (!includesUserSettingSource(effectiveAuthEnv.ANTHROPIC_BASE_URL)) {
+      this.logger.info(
+        '[SdkQueryOptionsBuilder] Localhost ANTHROPIC_BASE_URL session (translation proxy or local provider): user-tier settings (~/.claude skills, commands, agents, hooks, output styles, settings.json) are not loaded; project (.claude/) and local tiers are. See TASK_2026_408 ownership.md.',
+      );
+    }
 
     const backingOffServers =
       this.mcpBackoffService?.getBackingOffServers() ?? [];
@@ -1222,6 +1227,9 @@ export class SdkQueryOptionsBuilder {
         // predicate. `output-styles` calls the same function to decide whether
         // a user-tier style file will be visible to the binary — the two must
         // agree, and now they cannot disagree.
+        // Host-loop entry point for path A (translation proxy): a localhost
+        // base URL drops the user tier, so only project/local `.claude/`
+        // skills and commands load. See .ptah/specs/TASK_2026_408/ownership.md.
         settingSources: includesUserSettingSource(
           effectiveAuthEnv.ANTHROPIC_BASE_URL,
         )
