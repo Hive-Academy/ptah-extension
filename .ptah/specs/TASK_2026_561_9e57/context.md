@@ -144,6 +144,14 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   ~1,329-char host spool root the trailer alone exceeds the 2,000-token budget, so the shared budget step cuts and
   spools a second time and the evaluate hint is lost (raw value still in the first spool). Use a bounded/relative
   locator (`tool-result-budget.ts:386` strategy)
+- Batch 13 KI-13-1 (Moderate, r3 R3-M1, same class as KI-18-1): `agent_read` spool locators are absolute paths inserted
+  without a locator budget; a 4,334-char host root makes the locators alone exceed the 8,000-char / 2,000-token stdio
+  budget (9,010 chars, zero lines shown). Reserve bounded locator metadata before selecting content, use a short
+  recoverable locator, budget-check the zero-content fallback; add a long-root regression
+- Batch 13 r3: spool storage (`.ptah/tmp/mcp-out`) has age-only cleanup — no dedup and no quota, so high-frequency
+  large reads have no hard disk bound
+- Test hygiene: rpc-handlers `harness-skill-selection-rpc.service.spec.ts:113` searches upward for `.ptah` and breaks
+  when `%TEMP%/.ptah` exists — bound the search to its `mkdtemp` root
 - Batch 2f: an error thrown inside `execute_code` reaches the agent as "Code execution failed: Unknown error" (sandbox
   errors are not host-realm `instanceof Error`)
 - Batch 2f / 2e: `ptah_browser_content` HTML section is cut or omitted by the 32 KiB + 1 KiB override

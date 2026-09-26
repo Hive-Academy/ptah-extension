@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 111 | Batches: 60 | Complete: 28/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 3 complete — 28a, 28b, 22)
+Total tasks: 111 | Batches: 60 | Complete: 31/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 5 complete — 28a, 28b, 22, 23a, 24a)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,29 +2151,30 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                                                                                    | State                                                       |
-| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15 COMPLETE; next 13 → 20.2 → 21       |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                        |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                            |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                                 |
-| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 COMPLETE (merged 96f9a5553); 23a in review (uncommitted) |
-| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | 24a IN_PROGRESS                                             |
-| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                      |
-| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                         |
-| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                          |
-| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                            |
-| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3                     |
-| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                      |
+| Lane | Worktree                                | Batches                                                                                    | State                                                        |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15, 13 COMPLETE; next 20.2 → 21         |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                         |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                             |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                                  |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22, 23a merged (130b9453d); next 24b → 23b → 25a → 25b → 26a |
+| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | done (24a merged de6f56118)                                  |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                       |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                          |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                           |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                             |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3                      |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                       |
 
 Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
 section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
-decomposition notes D1-D10. Lane A next runs 13 → 20.2 → 21 in this worktree (15, 17 and 18 COMPLETE).
-**22 (H)** is merged (96f9a5553); H's **23a** is uncommitted and under review. **24a (I)** is in progress under a
-coordinated handoff: 24a may edit only the `AstCodeInsights` interface in vscode-lm-tools `types.ts`; Lane A's 13
-edits the other interfaces in that file. **P** is done (28a merged e3578b2ca, 28b merged 44336de6a). Batch 37b will split
-three ways per `o2-go-vet-consent-surface.md`; it is decomposed when reached. Hub batches 24b, 23b, 25b, 26a wait
-for Lane A 13; 24c and 27 wait for Lane A 21 (D1, D2). At most 3 CLI lanes at once, reviews included.
+decomposition notes D1-D10. Lane A's 13 is COMPLETE (7d92f9f77); Lane A next runs 20.2 → 21 in this worktree.
+**22, 23a (H)** are merged (96f9a5553, 130b9453d; 23a under User Decision 20); Lane H's branch is fast-forwarded to
+this branch's tip and runs next **24b → 23b → 25a → 25b → 26a**. **24a (I)** is merged (de6f56118; its
+`AstCodeInsights` hunk in `types.ts` merged cleanly with 13). **P** is done (28a merged e3578b2ca, 28b merged 44336de6a).
+Batch 37b will split three ways per `o2-go-vet-consent-surface.md`; it is decomposed when reached. The Lane A 13 gate
+on hub batches 24b, 23b, 25b, 26a is met; 24c and 27 wait for Lane A 21 (D1, D2). At most 3 CLI lanes at once,
+reviews included.
 
 Only the team-leader merges lanes into this branch; lane executors never run git across worktrees. Batch
 states for lanes stay as recorded below until their merge.
@@ -2341,7 +2342,7 @@ states for lanes stay as recorded below until their merge.
 
 ---
 
-## Batch 13: agent_read / agent_status at the MCP surface — PENDING
+## Batch 13: agent_read / agent_status at the MCP surface — COMPLETE with known issue KI-13-1 (commit 7d92f9f77)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2350,7 +2351,7 @@ states for lanes stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batches 11, 12
 
-### Task 13.1: Pass `offset`, render the window, describe the default — PENDING
+### Task 13.1: Pass `offset`, render the window, describe the default — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts` (:324), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:848-859), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts` (`formatAgentRead` :636-665), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`ptah_agent_read` :653-676)
 - Plan reference: research/agent-task-harness.md:134-141
@@ -2359,7 +2360,7 @@ states for lanes stay as recorded below until their merge.
 - Validation notes: none beyond Batch 12
 - Implementation details: covered by the specs in Task 13.2's files
 
-### Task 13.2: 60s repeat-status throttle, and specs for both tasks — PENDING
+### Task 13.2: 60s repeat-status throttle, and specs for both tasks — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:838-846), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 13.1
@@ -2371,8 +2372,49 @@ states for lanes stay as recorded below until their merge.
 
 ### Batch 13 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The review lane approves (r3 APPROVE 7/10)
+
+### Batch 13 review history
+
+- Executed in Lane A (this worktree) by a backend-developer subagent; reviewed by a code-logic-reviewer lane.
+  Details: `batch-13-executor-report.md` (initial + revision rounds 1-2)
+- r1 (`reviews/batch-13-code-logic-review-r1.md`): REVISE 4/10. F1 (Blocking): the generic budget cut kept the oldest
+  lines of the default window and dropped the newest while the range claimed them; F2: stdio `agent_status`
+  unthrottled; F3: combined stdout+stderr counts shown as one contiguous range; F4: stdio `agent_read` unbudgeted →
+  all fixed in round 1
+- r2 (`reviews/batch-13-code-logic-review-r2.md`): REVISE 6/10. R2-S1: the omitted middle of a partially rendered long
+  line was unrecoverable; R2-S2: a huge peer stream clipped an otherwise fitting final line → fixed in round 2
+- r3 (`reviews/batch-13-code-logic-review-r3.md`): APPROVE 7/10, 0 blocking, 0 serious, 1 moderate (R3-M1 → KI-13-1)
+
+### Batch 13 deviations (accepted)
+
+1. `mcp-stdio/agent-tool.dispatcher.ts` changed (not in the 13.1 list; named in Batch 12's deferral): its strict schema
+   would reject the advertised `offset`; stdio `agent_read`/`agent_status` now share the HTTP view and throttle
+2. New `mcp-core/agent-read.view.ts` (+ spec) and `mcp-core/agent-status-throttle.ts`: one renderer and one throttle
+   policy for HTTP and stdio. The read is a budget-sized per-stream tail window that always keeps each stream's end;
+   a narrowed stream's full returned window is spooled per Decision 7 and named in the result
+3. Batch 12's files touched again: `readOutput` reports per-stream totals (cli-agent-runtime) and `AgentOutput` gains
+   per-stream fields (libs/shared), so each stream's range is exact (r1 F3)
+4. HTTP `ptah_agent_read` arguments are zod-validated: malformed or negative `tail`/`offset` now error instead of a
+   silent 0. Anonymous/workspace-only HTTP callers are not throttled (no stable identity)
+5. Coordinated handoff honoured: `AstCodeInsights` in `types.ts` untouched (Lane I 24a owns it; merged cleanly)
+
+### Batch 13 known issues
+
+- **KI-13-1** (= r3 R3-M1, Moderate): a very long host root (reproduced at 4,334 chars) makes the spool locators alone
+  exceed the 8,000-char / 2,000-token stdio result budget (9,010 chars, zero lines shown). Recovery still works (not
+  silent loss). Same class as KI-18-1. Fix: reserve bounded locator metadata before selecting content, use a short
+  recoverable locator, and budget-check the zero-content fallback; add a long-root regression. Carried to
+  TASK_2026_561_9e57 Track B
+- Spool storage has age-only cleanup (no dedup/quota) — r3 top risk; carried to TASK_2026_561_9e57 Track B
+
+### Batch 13 team-leader verification (Mode 2, 2026-09-26)
+
+- Production diff verified on disk (17 files); `nx run-many "-t=test,lint,typecheck"` for vscode-lm-tools,
+  cli-agent-runtime, shared (`--skip-nx-cache`) → 9 tasks pass; `ptah-cli`/`ptah-electron` typecheck pass;
+  `ptah-electron:validate-deps` pass; `degradation-audit:lint` → TOTAL 300
+- Committed as **7d92f9f77** (code only; commitlint checked first; hooks active)
 
 ---
 
@@ -2759,6 +2801,8 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 - Rationale: covers every tool in `tools/list` at the choke point, plus a manifest that fails when a prompt-mandated tool has no guard
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 20
+- Test hygiene (added after Batch 13): every spec that makes the budget layer spool injects a `mkdtemp` spool root and
+  removes it in `afterEach`; no spec writes into `os.tmpdir()/.ptah` or the repo's `.ptah`
 
 ### Task 21.1: Budget and size sweep over `tools/list` — PENDING
 
@@ -3016,7 +3060,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 23a: Graph accounting, bounds, atomic publish — PENDING
+## Batch 23a: Graph accounting, bounds, atomic publish — COMPLETE with known issues carried to 23b (lane commit 4af7d3eba, merged 130b9453d)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3025,7 +3069,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 22
 
-### Task 23a.1: `graph-coverage` accounting module — PENDING
+### Task 23a.1: `graph-coverage` accounting module — COMPLETE
 
 - Files: `WI/ast/graph-coverage.ts` (new), `WI/ast/graph-coverage.spec.ts` (new)
 - Plan reference: "Dependency graphs" → "Bounds"; "Coverage contract" → "Multi-root merge"
@@ -3034,7 +3078,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB "cap does not starve the second language"
 - Implementation details: WI barrel export added only if a consumer outside `ast/` needs it (D8)
 
-### Task 23a.2: Publish coverage with the graph — PENDING
+### Task 23a.2: Publish coverage with the graph — COMPLETE
 
 - Depends on: Task 23a.1
 - Files: `WI/ast/dependency-graph.service.ts`, `WI/ast/dependency-graph.service.spec.ts`
@@ -3048,11 +3092,25 @@ Edge cases (carried by the named task):
 
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
-- FB evidence; Codex review approves
+- FB evidence; Codex review approves (not reached — committed under User Decision 20, see below)
+
+### Batch 23a review history and outcome
+
+- Executed in Lane H (`fix/task-559-lane-h`); details: `batch-23a-executor-report.md` (initial, rounds 1-2, bounded
+  post-cap correction)
+- r1 REVISE 5/10 (invalidation left clean coverage; a supplied `paths` object certified resolution) → fixed;
+  r2 REVISE 6/10 (R2-B1 cached ancestor graphs missed by invalidation) → fixed; r3 REVISE 6/10 (R3-B1 lexical
+  containment misses equivalent Windows/linked paths) → bounded post-cap correction (one path identity);
+  r4-postcap REVISE 6/10 (`reviews/batch-23a-code-logic-review-r1.md` … `-r4-postcap.md`)
+- User Decision 20 (context.md): commit 23a now; R4-B1 (case-variant query path returns `[]` with clean coverage) and
+  R4-M1 (root realpath failure drops junction identity silently) are acceptance criteria of Batch 23b — see
+  "Batch 23b carried acceptance criteria"
+- Lane commit **4af7d3eba**; merged into this branch as **130b9453d** (`--no-ff`, no conflicts). Post-merge
+  integration: see Batch 24a
 
 ---
 
-## Batch 24a: Parse status; ast sub-operations — PENDING
+## Batch 24a: Parse status; ast sub-operations — COMPLETE with known issue KI-24a-1 (lane commit a45cdd96d, merged de6f56118)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3061,7 +3119,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 22
 
-### Task 24a.1: `parseStatus` in the parser and analysis service — PENDING
+### Task 24a.1: `parseStatus` in the parser and analysis service — COMPLETE
 
 - Files: `WI/ast/ast-analysis.interfaces.ts`, `WI/ast/tree-sitter-parser.service.ts`, `WI/ast/tree-sitter-parser.service.spec.ts`, `WI/ast/ast-analysis.service.ts`, `WI/ast/ast-analysis.service.spec.ts`
 - Plan reference: Inventory rows `ptah_ast_analyze`; "Extraction contract" (the 24a parse fields)
@@ -3070,7 +3128,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB "recovered parse not reported clean" (a `.tsx` file with JSX parsed by the TS grammar)
 - Implementation details: status computed once per parse
 
-### Task 24a.2: `queryExports` without `publicSymbols` errors — PENDING
+### Task 24a.2: `queryExports` without `publicSymbols` errors — COMPLETE
 
 - Depends on: Task 24a.1
 - Files: `MCP/namespace-builders/ast-namespace.builder.ts`, `MCP/namespace-builders/ast-namespace.builder.spec.ts`
@@ -3085,6 +3143,22 @@ Edge cases (carried by the named task):
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - FB evidence; Codex review approves
+
+### Batch 24a review history and integration
+
+- Executed in Lane I (`fix/task-559-lane-i`) by a Codex CLI author; reviewed by a Claude code-logic-reviewer:
+  r1 APPROVE 8/10 (`reviews/batch-24a-code-logic-review-r1.md`). Details: `batch-24a-executor-report.md`
+- Coordinated handoff: its only `types.ts` change is the `AstCodeInsights` hunk; it auto-merged with Batch 13's
+  `types.ts` changes (no conflict)
+- Lane commit **a45cdd96d**; merged as **de6f56118** (`--no-ff`). Post-merge integration (after 13, 23a, 24a):
+  `nx run-many "-t=test,lint,typecheck"` for vscode-lm-tools, workspace-intelligence, platform-core,
+  cli-agent-runtime, shared (`--skip-nx-cache`) → 15 tasks pass; `ptah-cli`/`ptah-electron` typecheck pass;
+  validate-deps pass; degradation-audit TOTAL 300
+- **KI-24a-1** (r1 Moderate): `parseQuality` (`tree-sitter-parser.service.ts:70-79`) checks the 20-error cap only
+  between pops, so one ERROR node with a very wide flat child list enqueues all children in one generation. Fix: check
+  the cap inside the child-push loop
+- r1 M2 "parse/queryFunctions/queryClasses/queryImports carry no honesty signal on recovered parses" → acceptance
+  criterion of Batch 24c and on the Batch 38 gate list
 
 ---
 
@@ -3151,6 +3225,16 @@ Edge cases (carried by the named task):
 - Quality requirements: `.py` (unsupported) → `unsupported-language` answer; `fileInGraph`; `coverage` after the Batch 9 status fields and before `file`/lists; symbol-index paginator carries coverage in its header; multi-root merge; discovery glob `:2679-2693` replaced by `discoverSourceFiles`
 - Validation notes: FB "dependents of a python file is not a silent empty list"; a very long path + oversized list keeps `coverage` inside the budget cut (Decision 15 pattern). No `from "<word>"` in messages
 - Implementation details: `building` stays success, `failed` stays error
+
+### Batch 23b carried acceptance criteria (User Decision 20)
+
+- R4-B1 (from `reviews/batch-23a-code-logic-review-r4-postcap.md`, pre-existing Batch 9b follow-up): graph queries
+  (`ptah_get_dependents`, `ptah_get_dependencies`, `ptah_get_symbol_index` `pathPrefix`) resolve relative and absolute
+  query paths through the Batch 23a canonical path identity, so a Windows case-variant spelling returns the same
+  answer as the matching-case spelling — never `[]` with clean coverage. Spec: the r4 case-variant probe (fails before)
+- R4-M1: a root `realpath` failure (e.g. EIO) that drops the junction identity is disclosed in coverage (not clean),
+  never silent. Spec: the r4 injected-EIO probe (fails before)
+- The 23b review verifies both with the r4 probes
 
 ### Batch 23b verification
 
@@ -3321,6 +3405,15 @@ Edge cases (carried by the named task):
 - Quality requirements: each language-bound tool's language list is generated from the registry; descriptions distinguish the SQLite code index from the graph export index and name the host mechanisms. Per-tool descriptions only (Decision 4)
 - Validation notes: FB "description language list equals registry". Shared prompt constants unchanged
 - Implementation details: per-tool description budgets from 21.1 still hold
+
+### Batch 24c carried acceptance criterion (from Batch 24a r1 M2)
+
+- `ast.parse`, `ast.queryFunctions`, `ast.queryClasses` and `ast.queryImports` carry the parse honesty signal
+  (`parseStatus`/coverage, as `analyze` does since 24a) on a recovered parse — never a clean-looking result. Adds
+  `MCP/namespace-builders/ast-namespace.builder.ts` + spec (and the parser service only if a signal is missing there).
+  Spec: a `.tsx` JSX file parsed by the TS grammar reports `recovered` on each of the four operations (fails before).
+  Placed here, not 24b, because 24b is already at 5 files and this keeps both batches within the 6-file cap. The 24c
+  review verifies it
 
 ### Batch 24c verification
 
@@ -4053,6 +4146,9 @@ Edge cases (carried by the named task):
 - Quality requirements: the union of all fragments equals the enumerated required keys exactly, including the ten honesty keys, kotlin keys, php/ruby/cpp graph keys and `typeCheck:go`
 - Validation notes: fails on any earlier base (shown by removing one fragment locally, then restored)
 - Implementation details: none
+- Gate list additions: Batch 24a r1 M2 — `ast.parse`/`queryFunctions`/`queryClasses`/`queryImports` report the parse
+  honesty signal on recovered parses (landed in 24c); the gate fails if any of the four returns a clean-looking result
+  for a recovered parse
 
 ### Batch 38 verification
 

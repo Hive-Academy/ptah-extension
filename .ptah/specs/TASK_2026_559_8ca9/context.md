@@ -58,6 +58,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 19. Language plan approval (user, 2026-09-26, on `implementation-plan-languages.md` after two design revision rounds): Q1 — bundle the MIT Kotlin WASM grammar (~3.4 MB, provenance recorded); parse `.c/.h` with the installed C++ grammar (no separate C grammar). Q2 — `go vet` only, opt-in (consent setting, allowlisted env); pyright excluded (it can run project startup code); every other language reports "not checked" honestly. Q3 — checkers that run project build code (cargo, dotnet, gradle/maven) are never run. Q4 — include Batch 36 (PHP, Ruby, C/C++ dependency graphs); it becomes required and the Batch 38 gate checks it. Plan approved subject to one short independent Codex review (r3) of the round-2 changes; then Batch 22 starts in a new lane worktree while Lane A finishes 17 → 18 → 15 → 13. Same review bar as Decision 17.
 
+20. Batch 23a post-cap (user, 2026-09-26, after the r4-postcap review returned REVISE 6/10): commit 23a now and fix in 23b. R4-B1 (pre-existing Batch 9b follow-up: a Windows case-variant relative/absolute query path returns `[]` with clean coverage while the matching-case path returns the edge — graph queries must use the Batch 23a canonical path identity) and R4-M1 (a root realpath failure such as EIO drops the junction identity without disclosure — disclose it in coverage) become acceptance criteria of Batch 23b, and the 23b review must verify both with the r4 probes.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
