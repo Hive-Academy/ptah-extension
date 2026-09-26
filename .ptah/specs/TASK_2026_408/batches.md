@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 16 | Batches: 10 | Complete: 4/10
+Total tasks: 17 | Batches: 10 | Complete: 5/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -154,7 +154,7 @@ Edge cases:
 - Phase 1 complete after this commit (TASK_2026_561 A8 unblocked)
 - Review history: `code-logic-review-b2.md` REJECTED 6/10 (post-header socket abort destroyed downstream before a terminal; CR-only terminal dropped at EOF); fixed in the same four files (`streamingOwnsUpstreamFailure` on the Responses streaming lane, guarded single `finish`, new idempotent `endOfStream()`); `code-logic-review-b2-r1.md` APPROVED 8/10. Final run 50 suites / 1164 tests.
 
-## Batch 3: Phase 2a - tool-name guard module and collector resolver — IN_PROGRESS
+## Batch 3: Phase 2a - tool-name guard module and collector resolver — COMPLETE (commit f02215eec)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent
@@ -164,7 +164,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-tool-names.ts` (C), `responses-tool-names.spec.ts` (C), `responses-stream-collector.ts`, `responses-stream-collector.spec.ts`
 - Commit: `fix(auth-providers): add deterministic Responses tool-name guard`
 
-### Task 3.1: Tool-name guard module — IMPLEMENTED
+### Task 3.1: Tool-name guard module — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.ts`; CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.spec.ts`
 - Plan reference: implementation-plan.md:229-252 (component 5), :498, :502
@@ -173,7 +173,7 @@ Edge cases:
 - Validation notes: alias `${sanitized.slice(0,53)}_${sha256(original).hex.slice(0,10)}` via `node:crypto`; rewrite `tools[].name` and every `input[]` `function_call`; collision throws `ResponsesToolNameCollisionError`; unknown upstream name passes through
 - Implementation details: export `guardResponsesToolNames(request)` returning `{ request, toOriginalName }` and the collision error; spec: 70-char `mcp__server.with.dots__tool`, determinism, valid names deep-equal, history rewrite, reverse lookup, collision, replay pairing (call ids, alias equality, order)
 
-### Task 3.2: Collector tool-name resolver — IMPLEMENTED
+### Task 3.2: Collector tool-name resolver — COMPLETE
 
 - Depends on: Task 3.1
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.spec.ts`
@@ -187,18 +187,19 @@ Edge cases:
 
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Reviewer: code-logic review via codex CLI lane (collision and reverse-map correctness)
+- Review: `code-logic-review-b3.md` APPROVED 8/10; one minor coverage suggestion (exact 65-char boundary, emoji / UTF-16 slicing, lone-surrogate collision pair) carried into Batch 4 as Task 4.4. Final run 51 suites / 1183 tests.
 
-## Batch 4: Phase 2b - stream tool-call state and guard plumbing — PENDING
+## Batch 4: Phase 2b - stream tool-call state and guard plumbing — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent
 - Execution mode: sequential
 - Rationale: component 5 resolver and component 6 rewrite share the translator constructor and emission paths; the base then threads the resolver into all three handlers
-- Tasks: 3 | Depends on: Batch 3
-- Files (4, 1 lib): `responses-stream-translator.ts`, `responses-stream-translator.spec.ts`, `translation-proxy-base.ts`, `translation-proxy-base.spec.ts`
+- Tasks: 4 | Depends on: Batch 3
+- Files (6, 1 lib): `responses-stream-translator.ts`, `responses-stream-translator.spec.ts`, `translation-proxy-base.ts`, `translation-proxy-base.spec.ts`, `responses-tool-names.spec.ts` (Task 4.4), `responses-tool-names.ts` (orchestrator-approved one-line fix found by Task 4.4, see below)
 - Commit: `fix(auth-providers): fix streamed tool-call args and block indexes`
 
-### Task 4.1: Translator resolver parameter — PENDING
+### Task 4.1: Translator resolver parameter — IMPLEMENTED
 
 - File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts` (+ spec)
 - Plan reference: implementation-plan.md:243
@@ -207,7 +208,7 @@ Edge cases:
 - Validation notes: aliased names never reach the SDK
 - Implementation details: constructor parameter plus spec with an alias resolver
 
-### Task 4.2: Block-index allocator and received/emitted argument state — PENDING
+### Task 4.2: Block-index allocator and received/emitted argument state — IMPLEMENTED
 
 - Depends on: Task 4.1
 - File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.spec.ts`
@@ -217,7 +218,7 @@ Edge cases:
 - Validation notes (open item 2, mandatory): a delta handler does append to `receivedArgs`, then starts the block if this delta supplies the name, then performs ONE flush of `receivedArgs.slice(emittedLength)`. It must not keep today's two independent branches (start at `:374`, emit at `:401`) that would emit the current delta twice. Distinguish already-started from started-this-event. Required regression: buffered pre-name argument deltas, then a delta that supplies the name plus the final fragment; the installed `MessageStream` final `tool_use.input` equals one complete parsed object and the concatenated `input_json_delta` text equals the full args exactly once
 - Implementation details: `nextBlockIndex` plus open-text-block index; `emittedLength` per call; done payloads fill `receivedArgs` only when empty, otherwise ignored; start from `added`/delta/done flushes once; unseen call at `output_item.done` with `call_id` + `name` does start, flush, stop; nameless call emits nothing and is kept in `closedToolArgs`; `MessageStream` cases (a) deltas only, (b) done only, (c) deltas plus matching done, (d) delayed name at `output_item.done`, (e) name-bearing delta after buffered deltas; two interleaved calls get distinct indexes and intact inputs
 
-### Task 4.3: Proxy-base guard call and resolver plumbing — PENDING
+### Task 4.3: Proxy-base guard call and resolver plumbing — IMPLEMENTED
 
 - Depends on: Tasks 3.2, 4.2
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.spec.ts`
@@ -227,11 +228,22 @@ Edge cases:
 - Validation notes: the JSON path applies the resolver at the name read (`:1201`); valid names produce byte-identical upstream requests
 - Implementation details: call `guardResponsesToolNames` right after `translateAnthropicToResponses`; pass `toOriginalName` to the translator constructor, `collectResponsesStream` and `handleResponsesNonStreamingResponse`; HTTP spec: 70-char MCP-style name round-trips on stream true and stream false, and in replayed history
 
+### Task 4.4: Tool-name guard boundary and Unicode regression cases (carried from code-logic-review-b3.md) — IMPLEMENTED
+
+- File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.spec.ts` (test-only; `responses-tool-names.ts` must not change unless a new case exposes a real defect, which must then be reported, not silently fixed)
+- Plan reference: implementation-plan.md:229-252; code-logic-review-b3.md minor finding 1
+- Pattern to follow: existing table-driven cases in the same spec (`:78`, `:85`)
+- Quality requirements: table-driven; each row asserts the exact alias length, the sanitized prefix length, validity against `^[a-zA-Z0-9_-]{1,64}$`, and the reverse lookup
+- Validation notes: rows for exactly 64 valid characters (kept), exactly 65 valid characters (aliased to 64), emoji / UTF-16 surrogate-pair input (each code unit replaced, prefix sliced by code units), and an actual lone-surrogate pair of distinct originals that sanitize identically (distinct aliases via hash, reverse lookup returns each original)
+- Implementation details: add cases only; no production change
+
 ### Batch 4 verification
 
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Open item 2 regression present and passing
 - Reviewer: code-logic review via codex CLI lane (exactly-once emission and index allocation are correctness-critical for the pinned CLI)
+- Scope addition (orchestrator-approved, reported by the executor rather than silently fixed): Task 4.4 exposed that `aliasFor` hashed UTF-8, so distinct lone-surrogate originals (`'x\uD83D'` vs `'x\uDE00'`) produced one alias (fail-safe 400). Fixed by hashing `'utf16le'` (`responses-tool-names.ts:41-43`, only change in that file). Aliases are recomputed per request from the SDK's original names and never persisted, so the value change needs no migration. Rides in the Batch 4 commit and is named in its body.
+- closedToolArgs decision (carried from Batch 2): recorded only when the call started or carried arguments (`responses-stream-translator.ts:600-612`); an unseen, nameless, argless done is not recorded; a started call with no args records `''` (gives `upstream_incomplete`). Pinned by tests.
 
 ## Batch 5: Phase 2c - tool-result image translation and downgrade post-pass — PENDING
 
