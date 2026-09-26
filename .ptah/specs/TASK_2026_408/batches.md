@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 18 | Batches: 10 | Complete: 8/10
+Total tasks: 19 | Batches: 11 | Complete: 10/11
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -284,7 +284,7 @@ Edge cases:
 - TASK_2026_562 boundary CONFIRMED: the codex lane cannot run git, so the orchestrator ran `git diff -U1` on `responses-request-translator.ts` — 4 hunks, all inside the `ResponsesFunctionCallOutputItem` interface (doc + `output` type) and `translateToolResultToFunctionCallOutput` (doc comment + body). Matches the team-leader's `-U0` check above.
 - Review: `code-logic-review-b5.md` APPROVED 8/10; 0 blocking/serious/moderate. `image_url` string shape checked against installed OpenAI declarations and pinned Codex strings; the omitted `detail` field is recorded as an evidence limit, not a defect. One minor coverage finding carried into Batch 6 as Task 6.2. Final run 52 suites / 1250 tests.
 
-## Formatting follow-up (decided in Batch 5 verification) — IMPLEMENTED (formatter run after Batch 6 commit 3613f2ebf; commit SHA recorded after it lands)
+## Formatting follow-up (decided in Batch 5 verification) — COMPLETE (commit 2c77b33c9, after Batch 6 commit 3613f2ebf)
 
 - Finding: `npx nx format:check` fails on 10 files this task committed or edits (`responses-error-mapping.ts` + spec, `responses-stream-collector.ts` + spec, `responses-stream-translator.ts` + spec, `responses-tool-names.ts` + spec, `translation-proxy-base.ts` + spec). `translation-proxy-helpers.ts` also fails but is unchanged since `ebfc73321`, so it is pre-existing on main and out of scope.
 - Hook: `.husky/pre-commit` runs lint-staged, and `.lintstagedrc.mjs` runs `npx nx format:write --files=<staged>`. None of these paths is in `.prettierignore`, yet the committed content is unformatted, so the hook's format step is not taking effect for these commits. Root cause not established; it is a repository tooling issue outside this task and is recorded for `future-enhancements`, not fixed here.
@@ -381,7 +381,7 @@ Edge cases:
 - Targeted guard (open item 1, the only unchanged-project run): `npx nx test @ptah-extension/output-styles --testPathPattern=output-style-activation.resolver` passes
 - Reviewer: code-logic review via codex CLI lane (shipping code; confirms settingSources unchanged)
 
-## Batch 9: Integration test through the installed SDK — PENDING
+## Batch 9: Integration test through the installed SDK — IN_PROGRESS (revise round 2 of 2)
 
 - Recommended executor: senior-tester (sub-agent; plan names it owner of the first real-binary run)
 - Fallback executor: backend-developer (sub-agent)
@@ -391,7 +391,7 @@ Edge cases:
 - Files (1, 1 lib): `translation-proxy.sdk.integration.spec.ts` (C)
 - Commit: `test(auth-providers): prove skill, command and overflow flows via SDK`
 
-### Task 9.1: S1-S6 through real SDK, real CLI, real CodexTranslationProxy, mocked upstream — PENDING
+### Task 9.1: S1-S6 through real SDK, real CLI, real CodexTranslationProxy, mocked upstream — IN_PROGRESS
 
 - File: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy.sdk.integration.spec.ts`
 - Plan reference: implementation-plan.md:395-453, :505, :577 (R1)
@@ -404,8 +404,12 @@ Edge cases:
 
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed); report states which S6 variant passed
 - Reviewer: code-logic review via codex CLI lane (proof claims must match assertions)
+- Files as delivered: `translation-proxy.sdk.integration.spec.ts` (C) plus `.ptah/specs/TASK_2026_408/integration-observations.md` (C, observed A3/A5 outcomes). Neither is staged in any commit yet.
+- Review history: `code-logic-review-b9-b11.md` REJECTED Batch 9; `code-logic-review-b9-b11-r1.md` REJECTED Batch 9 again (child-process cleanup on Windows: with unavailable or slow CIM the returned promise stays pending past the scenario budget, and cleanup can overlap later tests, N1/N2 at spec `:496`, `:825`). No production defect was attributed to Batch 9. Last permitted revise round in progress.
+- Observed outcome that produced Batch 11: a streamed `response.failed` overflow after 200 SSE headers made the pinned CLI retry (`api_retry` loop) instead of compacting. S6a (HTTP 400) and S6b (streamed failure, now answered error-first as HTTP) both require an auto `compact_boundary` and a success result with `S6-DONE`; the propagation-only fallback was removed (`integration-observations.md:192`).
+- Environment note: 17 `agent-role-resolver` failures in `@ptah-extension/cli-agent-runtime` under the normal TEMP come from a stray `C:\Users\abdal\AppData\Local\Temp\.claude` folder (created 17:09:54, empty `commands/` and `skills/`). It was not created by this task's spec, and the suite passes with an isolated TEMP. Recorded as an environment issue, not a regression; `test-report.md` must note it.
 
-## Batch 10: Ownership doc and entry-point comments — PENDING
+## Batch 10: Ownership doc and entry-point comments — COMPLETE (commit 54038450c)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: technical-content-writer (sub-agent)
@@ -415,7 +419,7 @@ Edge cases:
 - Files (3, 2 projects + doc): `.ptah/specs/TASK_2026_408/ownership.md` (C), `codex-cli.adapter.ts` (comment), `anthropic-proxy.service.ts` (comment)
 - Commit: `docs: document translation proxy vs native Codex vs CLI proxy ownership`
 
-### Task 10.1: ownership.md plus two header comments — PENDING
+### Task 10.1: ownership.md plus two header comments — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension-task-408\.ptah\specs\TASK_2026_408\ownership.md`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-adapters\codex-cli.adapter.ts` (header `:1-6`, comment only); MODIFY `D:\projects\ptah-extension-task-408\apps\ptah-cli\src\services\proxy\anthropic-proxy.service.ts` (header `:1-42`, comment only; TASK_2026_564_87a6 owns fixes)
 - Plan reference: implementation-plan.md:368-393
@@ -429,8 +433,45 @@ Edge cases:
 - `git diff` of both code files shows comment lines only
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime ptah-cli` passes (tailed); this includes the `ptah-cli-registry` spec that reads `staticModels[0]` and count after Batch 7
 - Reviewer: code-style review sub-agent (docs and comments; facts checked against citations)
+- As executed:
+  - Both code diffs are comment-only, +5 lines each (verified with `git diff`).
+  - Verification: `cli-agent-runtime` and `ptah-cli` lint/typecheck pass. `cli-agent-runtime` tests: 68/68 suites, 1207 passed + 1 skipped, with an isolated TEMP (see the Batch 9 environment note). The `ptah-cli` test target was not run: its change is comment-only and its typecheck passes.
+  - Review route: the code-logic lane was used in place of code-style, because the doc makes behavioural claims.
+- Review history:
+  - `code-logic-review-b10.md` REJECTED 6/10: four moderate wording findings, fixed.
+  - `code-logic-review-b10-r1.md` REJECTED 7/10: three resolved; one left, the doc claimed S6a proof while S6a did not require compaction.
+  - The orchestrator made one bounded correction in `ownership.md`: the overflow bullet, a new "Streamed errors" bullet, and the filled Batch 9 section. That correction was independently APPROVED 8/10 in `code-logic-review-b9-b11-r1.md` ("Ownership.md correction").
+- Ordering deviation (orchestrator instruction): committed before Batch 9, whose dependency this batch records. `ownership.md` cites the current uncommitted integration spec and `integration-observations.md` by line. When Batch 9 lands, the team-leader re-checks those citations and any S1-S6 claim against the final spec. Any drift gets a `docs:` follow-up, not a silent edit.
 
-## After Batch 10
+## Batch 11: Error-first Responses stream failures as HTTP errors — COMPLETE (commit f4a1222fb)
+
+- Origin: added during execution, not in the Mode 1 decomposition. Batch 9's real-SDK run showed a streamed `response.failed` overflow after 200 headers produced a CLI `api_retry` loop instead of compaction, so the Phase 1 overflow contract was not met on the streaming path. Within this task's scope: reactive only, and no pre-send token or window check (Gate 2).
+- Executor: backend-developer (sub-agent). Execution mode: sequential. Tasks: 1. Depends on: Batches 1-6.
+- Files (4, 1 lib), under `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\`: `translation\translation-proxy-base.ts`, `translation\translation-proxy-base.spec.ts`, `translation\responses-stream-translator.ts`, `providers\codex\codex-stream-parity.spec.ts`
+
+### Task 11.1: Defer stream headers; answer error-first terminals as HTTP; header deadline — COMPLETE
+
+- Behaviour:
+  - The 200 SSE headers and `message_start` wait for the first client-visible output (`hasClientOutput()`).
+  - An error terminal that comes first is sent through `sendErrorResponse`, using `getTerminalError()` with the mapped status, type and message; a 400 prompt-too-long compacts.
+  - After output has gone out, a later error is the single SSE `error` terminal.
+- Lifecycle:
+  - The cancel path returns early when `res.writableEnded` (it no longer overwrites a completed terminal's timing).
+  - F6: after an error-first answer, the upstream is destroyed if not complete.
+  - F7: a header deadline on `getUpstreamTimeoutMs()` answers 504 when no client-visible output arrives, since upstream heartbeats keep the socket-idle timeout alive.
+- Stream translator: `hasClientOutput`, `getTerminalError`, `failStream` carrying the full mapping, and a TS4111 fix that had broken the `ptah-cli` typecheck.
+- `codex-stream-parity.spec.ts`: `maxRetries: 0`.
+- Team-leader diff check: the header deadline is a time bound on upstream silence, not a token or window check; Gate 2 holds.
+
+### Batch 11 verification
+
+- `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers`: 53/53 suites, 1315/1315 tests (including the uncommitted integration spec in the working tree), lint 0 errors, typecheck ok. `npx nx run-many -t typecheck -p ptah-cli` passes.
+- Review history: `code-logic-review-b9-b11.md` REJECTED Batch 11 6/10 (F6 upstream not released after error-first; F7 no header deadline) → fixed → `code-logic-review-b9-b11-r1.md` Batch 11 APPROVED 8/10.
+- Residual (recorded in `ownership.md`): an SSE error after output was already sent is retried by the pinned CLI, not compacted. The unit test proves the wire behaviour only.
+
+## After all batches (Batch 9 last)
+
+- senior-tester QA also covers the coverage item deferred from `code-logic-review-b6.md`: compare raw Codex upstream bodies directly, and run the full text-only HTTP byte-parity case across Codex, OpenCode Zen and OpenCode Go. It also records the stray-TEMP `.claude` environment issue (Batch 9 note), with the isolated-TEMP counts.
 
 - senior-tester writes `D:\projects\ptah-extension-task-408\.ptah\specs\TASK_2026_408\test-report.md` with exact pass counts per project (`auth-providers`, `shared`, `agent-sdk`, `cli-agent-runtime`, `ptah-cli`, targeted `output-styles`), Batch 9 labelled "real SDK + real CLI binary + real proxy, MOCKED upstream", live checks = none, and the S6 variant that passed.
 - Parity check N/A (no surface replaced); visual evidence N/A (no UI); write-path trace N/A (no persisted-settings writes; Batch 8 is logging only).
