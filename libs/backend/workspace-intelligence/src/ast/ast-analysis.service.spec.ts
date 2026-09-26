@@ -46,6 +46,32 @@ describe('AstAnalysisService', () => {
   });
 
   describe('analyzeAst (traversal-based fallback)', () => {
+    it.each(['ok', 'recovered'] as const)(
+      '24a carries %s parse quality through analysis',
+      async (parseStatus) => {
+        mockParserService.queryMulti.mockResolvedValue(
+          Result.ok(
+            Object.assign(new Map<string, QueryMatch[]>(), {
+              parseStatus,
+              errorNodeCount: parseStatus === 'ok' ? 0 : 2,
+              errorNodeCountCapped: false,
+            }),
+          ),
+        );
+        const result = await service.analyzeSource(
+          'source',
+          'typescript',
+          'view.tsx',
+        );
+        expect(result.value).toMatchObject({
+          parseStatus,
+          errorNodeCount: parseStatus === 'ok' ? 0 : 2,
+          errorNodeCountCapped: false,
+        });
+        expect(mockParserService.queryMulti).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it('should return empty insights for empty AST', async () => {
       const mockAst: GenericAstNode = {
         type: 'program',

@@ -105,7 +105,16 @@ export interface ExportInfo {
 /**
  * Represents the structured code insights extracted from a single file's AST.
  */
-export interface CodeInsights {
+export interface ParseQuality {
+  /** Unknown is used for legacy ASTs that did not retain parser metadata. */
+  parseStatus: 'ok' | 'recovered' | 'unknown';
+  /** Saturates at 20; null means the original parse was not observed. */
+  errorNodeCount: number | null;
+  /** True means the count is a lower bound. */
+  errorNodeCountCapped: boolean;
+}
+
+export interface CodeInsights extends Partial<ParseQuality> {
   /**
    * An array of identified function definitions.
    */

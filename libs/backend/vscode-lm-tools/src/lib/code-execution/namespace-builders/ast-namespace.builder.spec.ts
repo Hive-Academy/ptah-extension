@@ -12,13 +12,13 @@
  *     values
  */
 
-// The SUT imports `EXTENSION_LANGUAGE_MAP` as a value from
-// `@ptah-extension/workspace-intelligence`, which transitively loads
-// `vscode-core` → `vscode`. Replace the whole module at the boundary so only
-// the symbols our SUT reads are materialized, keeping `vscode` out of the
-// graph entirely. Mirrors the stubbing pattern used by
-// `code-execution-mcp.service.spec.ts`.
+// Use the real registry for capability/coverage assertions and stub service
+// instances at the boundary. The project's Jest mappings supply vscode and
+// the WASM path shim when the workspace-intelligence barrel is loaded.
+import 'reflect-metadata';
+
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ...jest.requireActual('@ptah-extension/workspace-intelligence'),
   EXTENSION_LANGUAGE_MAP: {
     '.ts': 'typescript',
     '.tsx': 'typescript',
@@ -38,6 +38,8 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import {
   FileType,
+  isCleanAnswer,
+  type LanguageCoverage,
   type IFileSystemProvider,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -130,6 +132,60 @@ describe('buildAstNamespace — shape', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAstNamespace — analyze', () => {
+  it.each(['ok', 'recovered'])(
+    '24a exposes %s status and coverage before unbounded fields',
+    async (parseStatus) => {
+      const { deps, analysis } = makeDeps();
+      analysis.analyzeSource.mockResolvedValue(
+        Result.ok({
+          parseStatus,
+          errorNodeCount: parseStatus === 'ok' ? 0 : 1,
+          errorNodeCountCapped: false,
+          functions: [],
+          classes: [],
+          imports: [],
+          exports: [],
+        }),
+      );
+      const out = await buildAstNamespace(deps).analyze(
+        'a'.repeat(10000) + '.tsx',
+      );
+      expect(out).toMatchObject({
+        parseStatus,
+        coverage: {
+          census: 'complete',
+          analyzed: parseStatus === 'ok' ? 1 : 0,
+          failed: parseStatus === 'ok' ? 0 : 1,
+        },
+      });
+      const coverage = Reflect.get(out, 'coverage') as LanguageCoverage;
+      expect(isCleanAnswer(coverage)).toBe(parseStatus === 'ok');
+      expect(JSON.stringify(out).slice(0, 1000)).toContain('"coverage"');
+      expect(Object.keys(out).indexOf('coverage')).toBeLessThan(
+        Object.keys(out).indexOf('file'),
+      );
+    },
+  );
+
+  it.each(['sample.java', 'sample.xyz', 'sample.mjs'])(
+    '24a rejects %s with shared coverage ahead of the path',
+    async (file) => {
+      const { deps } = makeDeps();
+      await expect(buildAstNamespace(deps).analyze(file)).rejects.toThrow(
+        /coverage.*supportedLanguages/,
+      );
+    },
+  );
+
+  it('24a rejects Python exports instead of a silent empty list', async () => {
+    const { deps, parser } = makeDeps();
+    parser.queryExports.mockResolvedValue(Result.ok([]));
+    await expect(
+      buildAstNamespace(deps).queryExports('main.py'),
+    ).rejects.toThrow(/python.*typescript.*javascript/);
+    expect(parser.queryExports).not.toHaveBeenCalled();
+  });
+
   it('resolves workspace-relative paths, reads the file and delegates to analyzeSource', async () => {
     const { deps, analysis, fs } = makeDeps();
     analysis.analyzeSource.mockResolvedValue(
@@ -150,6 +206,10 @@ describe('buildAstNamespace — analyze', () => {
       expect.stringContaining('a.ts'),
     );
     expect(out).toEqual({
+      parseStatus: 'unknown',
+      errorNodeCount: null,
+      errorNodeCountCapped: false,
+      coverage: expect.objectContaining({ unchecked: 1, analyzed: 0 }),
       file: 'src/a.ts',
       language: 'typescript',
       functions: [{ name: 'f' }],

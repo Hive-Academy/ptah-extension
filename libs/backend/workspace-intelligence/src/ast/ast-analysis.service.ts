@@ -125,6 +125,9 @@ export class AstAnalysisService {
       );
 
       const insights: CodeInsights = {
+        parseStatus: map.parseStatus ?? 'unknown',
+        errorNodeCount: map.errorNodeCount ?? null,
+        errorNodeCountCapped: map.errorNodeCountCapped ?? false,
         functions,
         classes,
         imports,

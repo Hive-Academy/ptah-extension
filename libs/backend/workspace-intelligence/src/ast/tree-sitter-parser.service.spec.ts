@@ -104,6 +104,103 @@ describe('TreeSitterParserService', () => {
   });
 
   describe('parse()', () => {
+    it.each(['ERROR', 'MISSING'])(
+      '24a reports %s recovery once per queryMulti parse',
+      async (kind) => {
+        const root = {
+          ...mockRootNode,
+          children: [
+            {
+              ...mockRootNode,
+              type: kind === 'ERROR' ? 'ERROR' : ';',
+              isMissing: kind === 'MISSING',
+            },
+          ],
+        };
+        mockParserInstance.parse.mockReturnValue({
+          ...mockTreeInstance,
+          rootNode: root,
+        });
+        const result = await service.queryMulti('broken', 'typescript', [
+          { key: 'functions', queryString: '(program) @root' },
+        ]);
+        expect(result.value).toMatchObject({
+          parseStatus: 'recovered',
+          errorNodeCount: 1,
+          errorNodeCountCapped: false,
+        });
+        expect(mockParserInstance.parse).toHaveBeenCalledTimes(1);
+        expect(mockTreeInstance.delete).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('24a bounds recovery counts', async () => {
+      mockParserInstance.parse.mockReturnValue({
+        ...mockTreeInstance,
+        rootNode: {
+          ...mockRootNode,
+          children: Array.from({ length: 50 }, () => ({
+            ...mockRootNode,
+            type: 'ERROR',
+          })),
+        },
+      });
+      const result = await service.queryMulti('broken', 'typescript', [
+        { key: 'functions', queryString: '(program) @root' },
+      ]);
+      expect(result.value).toMatchObject({
+        parseStatus: 'recovered',
+        errorNodeCount: 20,
+        errorNodeCountCapped: true,
+      });
+    });
+
+    it('24a reports clean and empty parses explicitly', async () => {
+      for (const content of ['const x = 1;', '']) {
+        const result = await service.queryMulti(content, 'typescript', [
+          { key: 'functions', queryString: '(program) @root' },
+        ]);
+        expect(result.value).toMatchObject({
+          parseStatus: 'ok',
+          errorNodeCount: 0,
+          errorNodeCountCapped: false,
+        });
+      }
+    });
+
+    it('24a detects real TSX recovery with the shipped TypeScript grammar', async () => {
+      const actual =
+        jest.requireActual<typeof import('web-tree-sitter')>('web-tree-sitter');
+      const { readFileSync } = await import('fs');
+      const { dirname, join } = await import('path');
+      await actual.Parser.init();
+      const grammar = await actual.Language.load(
+        new Uint8Array(
+          readFileSync(
+            join(
+              dirname(require.resolve('@vscode/tree-sitter-wasm/package.json')),
+              'wasm/tree-sitter-typescript.wasm',
+            ),
+          ),
+        ),
+      );
+      const realParser = new actual.Parser();
+      realParser.setLanguage(grammar);
+      mockParserInstance.parse.mockImplementation((content: string) =>
+        realParser.parse(content),
+      );
+      try {
+        const result = await service.queryMulti(
+          'export const App = () => <div>Hello</div>;',
+          'typescript',
+          [],
+        );
+        expect(result.value).toMatchObject({ parseStatus: 'recovered' });
+      } finally {
+        realParser.delete();
+      }
+    });
+
     it('parses TypeScript code and returns Result.ok with the root AST node', async () => {
       const result = await service.parse(
         'function hello() { return "world"; }',
