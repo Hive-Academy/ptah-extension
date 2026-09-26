@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 16 | Batches: 10 | Complete: 2/10
+Total tasks: 16 | Batches: 10 | Complete: 3/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -78,7 +78,7 @@ Edge cases:
 - Text-only tool results stay byte-identical strings on all providers — Tasks 5.1, 5.2, 6.1
 - Missing pinned SDK or platform binary fails loudly — Task 9.1
 
-## Batch 1: Phase 1a - error classifier and collector terminal handling — IN_PROGRESS
+## Batch 1: Phase 1a - error classifier and collector terminal handling — COMPLETE (commit 8cb5697f8)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a second backend-developer sub-agent resumed with the reviewer's findings
@@ -88,7 +88,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-error-mapping.ts` (C), `responses-error-mapping.spec.ts` (C), `responses-stream-collector.ts`, `responses-stream-collector.spec.ts`
 - Commit: `fix(auth-providers): classify Responses overflow and terminal failures` (preceded by the separate `docs(task-specs): add TASK_2026_408 phase 1-2 plan and batches` commit for tracking files)
 
-### Task 1.1: Upstream error classifier module — IMPLEMENTED
+### Task 1.1: Upstream error classifier module — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-error-mapping.ts`; CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-error-mapping.spec.ts`
 - Plan reference: implementation-plan.md:52-83 (SDK contract, overflow shapes), :113-152 (component 1, terminal table), :493 (test cases)
@@ -97,7 +97,7 @@ Edge cases:
 - Validation notes: A1 — only the five listed patterns, statuses 400/413 only, no generic "too many tokens"; numbers extracted only from the two listed regexes; output must satisfy the CLI's `F6e` regex when numbers exist and `QQ` always; sentinel `private-upstream-value` never in output; 401/403/500/non-JSON/non-overflow 400 return `undefined`
 - Implementation details: export `AnthropicErrorMapping`, `classifyUpstreamHttpError(status, rawBody)`, `classifyResponsesError(code, message)`, `classifyResponsesTerminal(...)` (precedence rule: for `incomplete`, any tool args failing `isCompleteToolArguments` gives the 502 `upstream_incomplete` mapping with the existing collector text, regardless of reason), `isCompleteToolArguments(args)`, `promptTooLongMessage(actual?, limit?)`; request-describing `ResponseError.code` values give 400 `invalid_request_error`, `rate_limit_exceeded` gives 429, everything else 502
 
-### Task 1.2: Collector terminal handling and schema widening — IMPLEMENTED
+### Task 1.2: Collector terminal handling and schema widening — COMPLETE
 
 - Depends on: Task 1.1
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.spec.ts`
@@ -115,7 +115,7 @@ Edge cases:
 - Edge cases for Tasks 1.1/1.2 above addressed
 - Carried into Batch 2 (Task 2.2, already in scope): the base collector catch (`translation-proxy-base.ts:762-773`) must honour `ResponsesStreamError.mapping`. Until then `upstream_failed` goes out as 502 `api_error` `upstream_failed: <mapped message>` (transient on this branch only). The three-path parity `it.each` table still lives in `translation-proxy-base.spec.ts` (Task 2.2); Batch 1's collector-only table does not satisfy it.
 
-## Batch 2: Phase 1b - stream translator terminals and proxy-base lifecycle — PENDING
+## Batch 2: Phase 1b - stream translator terminals and proxy-base lifecycle — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent with reviewer findings
@@ -125,7 +125,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-stream-translator.ts`, `responses-stream-translator.spec.ts`, `translation-proxy-base.ts`, `translation-proxy-base.spec.ts`
 - Commit: `fix(auth-providers): end Responses streams with one Anthropic terminal`
 
-### Task 2.1: Stream translator frame state, accumulator and terminal events — PENDING
+### Task 2.1: Stream translator frame state, accumulator and terminal events — IMPLEMENTED
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.spec.ts`
 - Plan reference: implementation-plan.md:169-199 (component 3), :495-496
@@ -134,7 +134,7 @@ Edge cases:
 - Validation notes: R6 (frame dispatch on blank line, pending frame at EOF not dispatched); R3 accepted; precedence rule uses `event.response.output` args first, else `receivedArgs` of active plus `closedToolArgs`; all new handlers respect and set `finalized`; failed/error emit no `content_block_stop`/`message_delta`
 - Implementation details: move pending event name and data lines to instance fields next to `lineBuffer`; add `receivedArgs` to `ActiveToolCall` and a `closedToolArgs` record; handle `response.incomplete`, `response.failed`, `error`; `emitFinalEvents` optional `stopReason`; public idempotent `terminateTruncated()`; spec every terminal row plus `MessageStream.fromReadableStream` resolve/reject
 
-### Task 2.2: Proxy-base overflow mapping, truncation terminal, non-stream parity, header comment — PENDING
+### Task 2.2: Proxy-base overflow mapping, truncation terminal, non-stream parity, header comment — IMPLEMENTED
 
 - Depends on: Task 2.1
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.spec.ts`
@@ -145,6 +145,9 @@ Edge cases:
 - Implementation details: `forwardToApi` calls `classifyUpstreamHttpError` first; streaming `end` writes `terminateTruncated()` when not finalised; collector catch honours `error.mapping`; `handleResponsesNonStreamingResponse` handles `failed`/`incomplete` via the classifier; header comment (at most 5 lines) naming path A and `.ptah/specs/TASK_2026_408/ownership.md`; shared `it.each` parity table across stream true, stream false + `forceResponsesStream`, and stream false JSON; installed `@anthropic-ai/sdk` `APIError.generate(400, body)` message contains `prompt is too long`
 
 ### Batch 2 verification
+
+- Team-leader decision on the one edited pre-existing expectation (`responses-stream-translator.spec.ts:164-171`, was `[]`, now one `error` event and `onUsage` not called): accepted. That case pinned the `default: return []` swallow the plan explicitly replaces (implementation-plan.md:108); its intent (no usage published from a failed terminal) is kept.
+- Carried into Batch 4 (Task 4.2): `output_item.done` for a call never seen via `added`/delta with no `arguments` records `undefined` in `closedToolArgs`, so a later `response.incomplete` gives `upstream_incomplete`. Task 4.2 must keep that deliberate, or record only calls that were started or carried args.
 
 - Files contain the required work; `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Reviewer: code-logic review via codex CLI lane (stream lifecycle, parity across three paths)
