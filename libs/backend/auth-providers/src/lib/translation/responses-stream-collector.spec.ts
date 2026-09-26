@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { collectResponsesStream, ResponsesStreamError } from './responses-stream-collector';
 import { MAX_BODY_SIZE } from './translation-proxy-helpers';
+import { guardResponsesToolNames } from './responses-tool-names';
 
 const snapshot = {
   status: 'completed',
@@ -12,11 +13,12 @@ const snapshot = {
 };
 const frame = (type: string, response: unknown = snapshot) =>
   `event: ${type}\r\ndata: ${JSON.stringify({ type, response })}\r\n\r\n`;
-function harness() {
+function harness(resolveToolName?: (upstream: string) => string) {
   const upstream = new PassThrough();
   const downstream = new EventEmitter();
+  // `undefined` selects the parameter defaults, exactly like omitting them.
   const result = collectResponsesStream(upstream as unknown as IncomingMessage,
-    downstream as unknown as ServerResponse, 'gpt-test', 'test');
+    downstream as unknown as ServerResponse, 'gpt-test', 'test', undefined, resolveToolName);
   return { upstream, downstream, result };
 }
 
@@ -319,6 +321,36 @@ describe('collectResponsesStream', () => {
         expect(outcome).toMatchObject({ error: expected[name] });
         expect((outcome as { error: Error }).error).toBeInstanceOf(ResponsesStreamError);
       }
+    });
+  });
+
+  describe('tool-name resolver', () => {
+    const LONG_MCP = 'mcp__server.with.dots__tool' + 'x'.repeat(43);
+    const guarded = guardResponsesToolNames({ model: 'gpt-test', input: [], tools: [
+      { type: 'function', name: LONG_MCP, parameters: { type: 'object' }, strict: false },
+      { type: 'function', name: 'search', parameters: { type: 'object' }, strict: false },
+    ] });
+    const alias = guarded.request.tools?.[0]?.name ?? '';
+    const calls = (...names: string[]) => frame('response.completed', { ...snapshot,
+      output: names.map((name, i) => ({ type: 'function_call', call_id: `call${i}`, name, arguments: '{"q":"ok"}' })) });
+
+    it('returns the original name for an upstream alias', async () => {
+      expect(alias).toMatch(/^mcp__server_with_dots__tool\w*_[0-9a-f]{10}$/);
+      const h = harness(guarded.toOriginalName);
+      h.upstream.end(calls(alias, 'search', 'unknown_tool'));
+      const result = await h.result;
+      expect(result['content']).toEqual([
+        { type: 'tool_use', id: 'call0', name: LONG_MCP, input: { q: 'ok' } },
+        { type: 'tool_use', id: 'call1', name: 'search', input: { q: 'ok' } },
+        { type: 'tool_use', id: 'call2', name: 'unknown_tool', input: { q: 'ok' } },
+      ]);
+      expect(JSON.stringify(result)).not.toContain(alias);
+    });
+
+    it('defaults to the upstream name when no resolver is passed', async () => {
+      const h = harness();
+      h.upstream.end(calls(alias));
+      expect(await h.result).toMatchObject({ content: [{ type: 'tool_use', name: alias }] });
     });
   });
 

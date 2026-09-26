@@ -84,23 +84,30 @@ function collectMessageContent(item: z.infer<typeof outputItem>): Array<Record<s
   return content;
 }
 
-function collectFunctionCall(item: z.infer<typeof outputItem>): Record<string, unknown> {
+function collectFunctionCall(
+  item: z.infer<typeof outputItem>,
+  resolveToolName: (upstream: string) => string,
+): Record<string, unknown> {
   if (!item.call_id || !item.name) throw new Error('Invalid function call');
   // Anthropic JSON tool_use requires an object; never fabricate {}. Incomplete
   // snapshots with truncated arguments were already rejected by the terminal
   // precedence rule, so a failure here is a malformed completed response.
   if (typeof item.arguments !== 'string') throw new Error('Missing function arguments');
   const input = z.record(z.string(), z.unknown()).parse(JSON.parse(item.arguments));
-  return { type: 'tool_use', id: item.call_id, name: item.name, input };
+  // Upstream aliases (responses-tool-names.ts) must never reach the SDK.
+  return { type: 'tool_use', id: item.call_id, name: resolveToolName(item.name), input };
 }
 
-function collectOutputContent(response: z.infer<typeof responseSchema>): Array<Record<string, unknown>> {
+function collectOutputContent(
+  response: z.infer<typeof responseSchema>,
+  resolveToolName: (upstream: string) => string,
+): Array<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [];
   for (const item of response.output) {
     if (item.type === 'message') {
       for (const part of collectMessageContent(item)) content.push(part);
     } else if (item.type === 'function_call') {
-      content.push(collectFunctionCall(item));
+      content.push(collectFunctionCall(item, resolveToolName));
     }
   }
   return content;
@@ -132,6 +139,7 @@ export function collectResponsesStream(
   model: string,
   requestId: string,
   onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void = () => undefined,
+  resolveToolName: (upstream: string) => string = (name) => name,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let buffer = '';
@@ -237,7 +245,7 @@ export function collectResponsesStream(
         // SSE dispatch requires a blank line; never treat truncated JSON as success.
         if (buffer || data.length || !response) throw new Error('Incomplete Responses stream');
         stopReason = terminalStopReason(terminalName, response);
-        content = collectOutputContent(response);
+        content = collectOutputContent(response, resolveToolName);
         usage = translateResponsesUsage(response.usage);
       } catch (error: unknown) {
         fail(error instanceof ResponsesStreamError ? error : new ResponsesStreamError('invalid_response'));
