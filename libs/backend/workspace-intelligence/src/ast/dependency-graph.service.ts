@@ -1,4 +1,5 @@
 import { injectable, inject } from 'tsyringe';
+import * as fs from 'fs';
 import * as path from 'path';
 import {
   TOKENS,
@@ -6,6 +7,10 @@ import {
   type BackgroundWorkAdmission,
 } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
+import type {
+  FailureReason,
+  LanguageCoverage,
+} from '@ptah-extension/platform-core';
 import { SupportedLanguage } from './ast.types';
 import { EXTENSION_LANGUAGE_MAP } from './tree-sitter.config';
 import {
@@ -15,6 +20,15 @@ import {
 } from './ast-analysis.interfaces';
 import { AstAnalysisService } from './ast-analysis.service';
 import { FileSystemService } from '../services/file-system.service';
+import {
+  GRAPH_EDGE_CAP,
+  buildGraphCoverage,
+  classifyUnresolvedSpecifier,
+  invalidatedCoverage,
+  mergeGraphCoverages,
+  selectGraphFiles,
+  type GraphResolutionCounts,
+} from './graph-coverage';
 
 /** A node in the dependency graph representing a single file */
 export interface FileNode {
@@ -53,10 +67,24 @@ export type SymbolIndex = Map<string, ExportInfo[]>;
  * the uncapped count, so the graph can say it is incomplete.
  */
 export interface GraphCoverage {
-  /** Files the graph was built from (the list given to `buildGraph`). */
+  /**
+   * Files the graph was built from: the list given to `buildGraph`, less the
+   * graph-capable files its own parse cap dropped.
+   */
   graphedFiles: number;
   /** Files the caller discovered before any cap; never below `graphedFiles`. */
   discoveredFiles: number;
+}
+
+/**
+ * Everything published about one graph, set in the same step as the graph
+ * itself (one generation), so the two never describe different builds.
+ */
+export interface GraphCoverageReport {
+  /** The Batch 9 file counts ({@link DependencyGraphService.getCoverage}). */
+  readonly files: GraphCoverage;
+  /** What the build analysed, could not analyse, and how imports resolved. */
+  readonly languages: LanguageCoverage;
 }
 
 /** How one {@link DependencyGraphService.buildGraph} call runs. */
@@ -78,6 +106,12 @@ export interface BuildGraphOptions {
    * discovering), supersedes it. Unset: the build takes a new generation.
    */
   generation?: number;
+  /**
+   * Set when the caller's file discovery stopped at this many files, so the
+   * files past it were never seen: the coverage census is `truncated`. Unset:
+   * the caller discovered every file (`complete`).
+   */
+  censusLimit?: number;
 }
 
 /** What {@link DependencyGraphService.getBuildState} reports for one root. */
@@ -117,6 +151,98 @@ function nextMacrotask(): Promise<void> {
   return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/**
+ * Whether this host's paths compare case-insensitively. Win32 volumes are
+ * case-insensitive by default. macOS volumes usually are too, but APFS can be
+ * formatted case-sensitive and detecting that needs a probe on each volume,
+ * so darwin keeps exact case: a case-variant spelling there is not matched,
+ * while a symlinked spelling still is (through the real path).
+ */
+const CASE_INSENSITIVE_PATHS = process.platform === 'win32';
+
+/**
+ * The one path identity the graph service compares roots, containment and
+ * node lookups with: forward slashes, a win32 extended-length prefix
+ * (`//?/`) dropped, no trailing slash, case folded where the host's paths
+ * are case-insensitive. Lexical only; links are followed separately.
+ */
+export function graphPathIdentity(
+  filePath: string,
+  caseInsensitive: boolean = CASE_INSENSITIVE_PATHS,
+): string {
+  const lexical = filePath
+    .replace(/\\/g, '/')
+    .replace(/^\/\/[?.]\/(?=[A-Za-z]:)/, '')
+    .replace(/\/+$/, '');
+  return caseInsensitive ? lexical.toLowerCase() : lexical;
+}
+
+/** Whether identity `fileIdentity` is `rootIdentity` or lies under it. */
+function isUnderIdentity(fileIdentity: string, rootIdentity: string): boolean {
+  return (
+    fileIdentity === rootIdentity ||
+    fileIdentity.startsWith(
+      rootIdentity.endsWith('/') ? rootIdentity : rootIdentity + '/',
+    )
+  );
+}
+
+/** UNC paths are never resolved: touching a network share is a side effect. */
+function isUncPath(filePath: string): boolean {
+  return /^[\\/]{2}(?![?.][\\/])/.test(filePath);
+}
+
+/**
+ * The identity of `root`'s real path (links and junctions followed), or
+ * `undefined` when it cannot be resolved (missing, a UNC share, or a failed
+ * lookup): the lexical key is then the root's only identity.
+ */
+async function realRootIdentity(root: string): Promise<string | undefined> {
+  if (isUncPath(root)) return undefined;
+  try {
+    return graphPathIdentity(await fs.promises.realpath(root));
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability — a root that cannot be
+    // resolved keeps its lexical identity (the pre-alias behaviour); only a
+    // link alias of it goes unmatched. Nothing is hidden: `error` is unused.
+    void error;
+    return undefined;
+  }
+}
+
+/**
+ * The identities a file named for invalidation has: its lexical identity,
+ * plus its real path's identity (for a file that is gone, its directory's
+ * real path joined with its name). One synchronous lookup per invalidation,
+ * never per root; a failed lookup leaves the lexical identity alone.
+ */
+function fileIdentities(normalizedPath: string): string[] {
+  const lexical = graphPathIdentity(normalizedPath);
+  if (isUncPath(normalizedPath)) return [lexical];
+  let real: string | undefined;
+  try {
+    real = fs.realpathSync.native(normalizedPath);
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability — the file may be deleted;
+    // its directory's real path is the next best identity (below).
+    void error;
+    try {
+      real = path.join(
+        fs.realpathSync.native(path.dirname(normalizedPath)),
+        path.basename(normalizedPath),
+      );
+    } catch (dirError: unknown) {
+      // degradation-audit: optional-capability — nothing on disk to follow;
+      // the lexical identity is still matched against every root.
+      void dirError;
+    }
+  }
+  const realIdentity = real === undefined ? undefined : graphPathIdentity(real);
+  return realIdentity === undefined || realIdentity === lexical
+    ? [lexical]
+    : [lexical, realIdentity];
+}
+
 /** Extensions to try when resolving relative imports (in order) */
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -150,8 +276,11 @@ export class DependencyGraphService {
   /** Symbol index per workspace root, derived lazily from that graph's nodes. */
   private readonly symbolIndexes = new Map<string, SymbolIndex>();
 
-  /** Coverage of each cached graph, keyed and evicted with {@link graphs}. */
-  private readonly coverages = new Map<string, GraphCoverage>();
+  /**
+   * Coverage of each cached graph, keyed and evicted with {@link graphs} and
+   * set in the same {@link publish} step as the graph.
+   */
+  private readonly coverages = new Map<string, GraphCoverageReport>();
 
   /**
    * Per root, the generation of the latest build started or reserved for it
@@ -168,6 +297,38 @@ export class DependencyGraphService {
 
   /** Generations whose `buildGraph` is running; see {@link getBuildState}. */
   private readonly running = new Set<number>();
+
+  /**
+   * Per running generation: its root key and the files
+   * {@link invalidateFile} named under that root while it ran. The build
+   * applies them to the graph it publishes (it may have read the old content).
+   */
+  private readonly inFlightInvalidations = new Map<
+    number,
+    {
+      readonly key: string;
+      /** The root's real-path identity, once resolved. */
+      realRoot: string | undefined;
+      /**
+       * Identities of every file invalidated while the build ran (see
+       * `fileIdentities`); matched against the root when it publishes, once
+       * its real path is known.
+       */
+      readonly paths: Set<readonly string[]>;
+    }
+  >();
+
+  /**
+   * Real-path identity of each published root whose real path differs from
+   * its key (a junction or symlink alias); dropped with the graph.
+   */
+  private readonly realRoots = new Map<string, string>();
+
+  /** Lazily built node-identity lookups; see {@link nodeKeyFor}. */
+  private readonly nodeIdentityIndexes = new WeakMap<
+    DependencyGraph,
+    Map<string, string>
+  >();
 
   /** Latch: a defective governor is warned about once, not per chunk. */
   private governorFailureWarned = false;
@@ -193,13 +354,18 @@ export class DependencyGraphService {
    * @param filePaths - Absolute paths of files to include
    * @param workspaceRoot - Workspace root for relative path resolution
    * @param tsconfigPaths - Optional tsconfig compilerOptions.paths for alias resolution
+   * Only graph-capable files are parsed (see `selectGraphFiles`): at most
+   * `GRAPH_PARSE_CAP` of them, shared round-robin across their languages.
+   * Every other file is counted in the published coverage, never parsed.
+   *
    * @param discoveredFiles - Files the caller discovered before capping
    *   `filePaths`; defaults to `filePaths.length` (nothing was dropped). Read
-   *   back through {@link getCoverage}.
+   *   back through {@link getCoverage} and {@link getCoverageReport} (the
+   *   difference counts as `omittedByCap`).
    * @param options - See {@link BuildGraphOptions}.
-   * @returns The built dependency graph. It is published (answers queries)
-   *   only when no later build of the same root started, and the root was not
-   *   evicted, while this one ran; otherwise it is returned unpublished.
+   * @returns The built dependency graph. It is published (answers queries),
+   *   with its coverage, only when no later build of the same root started,
+   *   and the root was not evicted, while this one ran; otherwise neither is.
    */
   async buildGraph(
     filePaths: string[],
@@ -216,13 +382,38 @@ export class DependencyGraphService {
       `DependencyGraphService.buildGraph() - Building graph for ${filePaths.length} files`,
     );
     this.running.add(generation);
+    const invalidatedWhileBuilding = new Set<readonly string[]>();
+    const inFlight = {
+      key,
+      realRoot: undefined as string | undefined,
+      paths: invalidatedWhileBuilding,
+    };
+    this.inFlightInvalidations.set(generation, inFlight);
     try {
+      // Resolved once per build, so invalidations named through a junction
+      // or symlink alias of the root (or its target) are matched.
+      const realRoot = await realRootIdentity(workspaceRoot);
+      inFlight.realRoot = realRoot === key ? undefined : realRoot;
       const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
       const background = options.yieldToForeground === true;
+      const selection = selectGraphFiles(filePaths);
+      const failedByReason: Partial<Record<FailureReason, number>> = {};
+      const recordFailure = (reason: FailureReason): void => {
+        failedByReason[reason] = (failedByReason[reason] ?? 0) + 1;
+      };
       const nodes = background
-        ? await this.parseInBackground(filePaths, normalizedRoot, isCurrent)
-        : await this.parseAwaited(filePaths, normalizedRoot);
-      const graph = await this.linkNodes(
+        ? await this.parseInBackground(
+            selection.selected,
+            normalizedRoot,
+            isCurrent,
+            recordFailure,
+          )
+        : await this.parseAwaited(
+            selection.selected,
+            normalizedRoot,
+            recordFailure,
+          );
+      const { graph, resolution } = await this.linkNodes(
         nodes,
         normalizedRoot,
         tsconfigPaths,
@@ -235,7 +426,36 @@ export class DependencyGraphService {
         );
         return graph;
       }
-      this.publish(key, graph, filePaths.length, discoveredFiles);
+      const listedFiles = filePaths.length;
+      const discovered =
+        Number.isSafeInteger(discoveredFiles) &&
+        (discoveredFiles as number) > listedFiles
+          ? (discoveredFiles as number)
+          : listedFiles;
+      this.publish(key, graph, {
+        files: {
+          graphedFiles: listedFiles - selection.omittedByCap,
+          discoveredFiles: discovered,
+        },
+        languages: buildGraphCoverage({
+          selection,
+          analyzed: nodes.size,
+          failedByReason,
+          resolution,
+          omittedUpstream: discovered - listedFiles,
+          ...(options.censusLimit === undefined
+            ? {}
+            : { censusLimit: options.censusLimit }),
+        }),
+      });
+      if (inFlight.realRoot === undefined) this.realRoots.delete(key);
+      else this.realRoots.set(key, inFlight.realRoot);
+      // A file invalidated while this build ran may have been read before the
+      // change: treat it as invalidated in the graph just published, in the
+      // same synchronous step, so no reader sees it as current.
+      for (const identities of invalidatedWhileBuilding) {
+        this.invalidateMatching(key, graph, identities, inFlight.realRoot);
+      }
       const elapsed = Date.now() - startTime;
       this.logger.info(
         `DependencyGraphService.buildGraph() - Graph built in ${elapsed}ms: ` +
@@ -246,6 +466,7 @@ export class DependencyGraphService {
       return graph;
     } finally {
       this.running.delete(generation);
+      this.inFlightInvalidations.delete(generation);
     }
   }
 
@@ -273,15 +494,16 @@ export class DependencyGraphService {
    * files in parallel, never yielding on purpose (the caller waits on it).
    */
   private async parseAwaited(
-    filePaths: string[],
+    filePaths: readonly string[],
     normalizedRoot: string,
+    recordFailure: (reason: FailureReason) => void,
   ): Promise<Map<string, FileNode>> {
     const nodes = new Map<string, FileNode>();
     for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
       const chunk = filePaths.slice(i, i + CHUNK_SIZE);
       await Promise.allSettled(
         chunk.map((filePath) =>
-          this.parseFile(filePath, normalizedRoot, nodes),
+          this.parseFile(filePath, normalizedRoot, nodes, recordFailure),
         ),
       );
     }
@@ -296,72 +518,96 @@ export class DependencyGraphService {
    * says the build was superseded (nothing it parses could be published).
    */
   private async parseInBackground(
-    filePaths: string[],
+    filePaths: readonly string[],
     normalizedRoot: string,
     isCurrent: () => boolean,
+    recordFailure: (reason: FailureReason) => void,
   ): Promise<Map<string, FileNode>> {
     const nodes = new Map<string, FileNode>();
     for (let i = 0; i < filePaths.length; i++) {
       if (i % CHUNK_SIZE === 0) await this.yieldToForeground();
       await nextMacrotask();
       if (!isCurrent()) break;
-      await this.parseFile(filePaths[i], normalizedRoot, nodes);
+      await this.parseFile(filePaths[i], normalizedRoot, nodes, recordFailure);
     }
     return nodes;
   }
 
-  /** Read and parse one file into `nodes`; a file that fails is skipped. */
+  /**
+   * Read and parse one file into `nodes`. A file that fails is left out of
+   * the graph and reported to `recordFailure` with its reason: `read` when
+   * the read fails, `parse` when the analysis fails or reports an error.
+   */
   private async parseFile(
     filePath: string,
     normalizedRoot: string,
     nodes: Map<string, FileNode>,
+    recordFailure: (reason: FailureReason) => void,
   ): Promise<void> {
     const normalizedPath = filePath.replace(/\\/g, '/');
     const ext = path.extname(normalizedPath).toLowerCase();
     const language = EXTENSION_LANGUAGE_MAP[ext];
 
     if (!language) {
-      this.logger.debug(
-        `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`,
-      );
+      // Unreachable for a selected (graph-capable) file; counted, not dropped.
+      recordFailure('grammar-unavailable');
       return;
     }
 
+    let content: string;
     try {
-      const content = await this.fileSystem.readFile(filePath);
-
-      const analysisResult = await this.astAnalysis.analyzeSource(
-        content,
-        language,
-        normalizedPath,
-      );
-
-      if (!analysisResult.isOk()) {
-        this.logger.debug(
-          `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
-        );
-        return;
-      }
-
-      const insights: CodeInsights = analysisResult.value!;
-      const relativePath = path
-        .relative(normalizedRoot, normalizedPath)
-        .replace(/\\/g, '/');
-
-      nodes.set(normalizedPath, {
-        path: normalizedPath,
-        relativePath,
-        imports: insights.imports,
-        exports: insights.exports ?? [],
-        language,
-      });
-    } catch (error) {
+      content = await this.fileSystem.readFile(filePath);
+    } catch (error: unknown) {
+      // degradation-audit: reported — the file stays out of the graph and is
+      // counted as `failedByReason.read` in the coverage published with it.
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.debug(
         `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`,
       );
+      recordFailure('read');
+      return;
     }
+
+    let analysisResult: Result<CodeInsights, Error>;
+    try {
+      analysisResult = await this.astAnalysis.analyzeSource(
+        content,
+        language,
+        normalizedPath,
+      );
+    } catch (error: unknown) {
+      // degradation-audit: reported — the file stays out of the graph and is
+      // counted as `failedByReason.parse` in the coverage published with it.
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.debug(
+        `DependencyGraphService.buildGraph() - Error analyzing ${normalizedPath}: ${errorMessage}`,
+      );
+      recordFailure('parse');
+      return;
+    }
+
+    if (!analysisResult.isOk()) {
+      this.logger.debug(
+        `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
+      );
+      recordFailure('parse');
+      return;
+    }
+
+    const insights: CodeInsights = analysisResult.value!;
+    const relativePath = path
+      .relative(normalizedRoot, normalizedPath)
+      .replace(/\\/g, '/');
+
+    nodes.set(normalizedPath, {
+      path: normalizedPath,
+      relativePath,
+      imports: insights.imports,
+      exports: insights.exports ?? [],
+      language,
+    });
   }
 
   /**
@@ -371,16 +617,27 @@ export class DependencyGraphService {
    * import, so one import-heavy file cannot hold the host; once `isCurrent`
    * says it was superseded it stops and returns the partial graph, which
    * `buildGraph` does not publish. An awaited build never yields.
+   *
+   * Every import is tallied for coverage: resolved to an edge, `external`,
+   * or `unresolvedInternal` (see `classifyUnresolvedSpecifier`). Once the graph
+   * holds {@link GRAPH_EDGE_CAP} distinct edges, the next new edge stops
+   * linking with `edgeCapHit`, so the graph is disclosed as incomplete
+   * instead of growing without bound.
    */
   private async linkNodes(
     nodes: Map<string, FileNode>,
     normalizedRoot: string,
     tsconfigPaths: Record<string, string[]> | undefined,
     isCurrent: (() => boolean) | undefined,
-  ): Promise<DependencyGraph> {
+  ): Promise<{ graph: DependencyGraph; resolution: GraphResolutionCounts }> {
     const edges = new Map<string, Set<string>>();
     const reverseEdges = new Map<string, Set<string>>();
     let unresolvedCount = 0;
+    let external = 0;
+    let unresolvedInternal = 0;
+    let edgeCount = 0;
+    let edgeCapHit = false;
+    let contextDependent = false;
     const knownFiles = new Set(nodes.keys());
     let sliceStart = Date.now();
     /** False once a background build was superseded: stop linking. */
@@ -391,20 +648,36 @@ export class DependencyGraphService {
       sliceStart = Date.now();
       return isCurrent();
     };
-    const graph = (): DependencyGraph => ({
-      nodes,
-      edges,
-      reverseEdges,
-      builtAt: Date.now(),
-      unresolvedCount,
+    const finish = (): {
+      graph: DependencyGraph;
+      resolution: GraphResolutionCounts;
+    } => ({
+      graph: {
+        nodes,
+        edges,
+        reverseEdges,
+        builtAt: Date.now(),
+        unresolvedCount,
+      },
+      resolution: {
+        external,
+        unresolvedInternal,
+        truncatedImports: 0, // one target per import until resolver dispatch
+        edgeCapHit,
+        // A bare specifier not proven external may be a workspace alias
+        // (tsconfig paths/baseUrl, package imports) this build cannot read
+        // yet (Batch 32b); a supplied `paths` object does not prove there is
+        // no other alias mechanism, so it never certifies completeness.
+        context: contextDependent ? 'partial' : 'complete',
+      },
     });
     for (const [filePath, node] of nodes) {
-      if (!(await continueLinking())) return graph();
+      if (!(await continueLinking())) return finish();
       const fileEdges = new Set<string>();
       edges.set(filePath, fileEdges);
 
       for (const imp of node.imports) {
-        if (!(await continueLinking())) return graph();
+        if (!(await continueLinking())) return finish();
         const resolvedPath = this.resolveImportPath(
           imp.source,
           filePath,
@@ -414,6 +687,15 @@ export class DependencyGraphService {
         );
 
         if (resolvedPath) {
+          if (fileEdges.has(resolvedPath)) continue;
+          if (edgeCount >= GRAPH_EDGE_CAP) {
+            edgeCapHit = true;
+            this.logger.info(
+              'DependencyGraphService.buildGraph() - Edge cap reached; linking stopped',
+            );
+            return finish();
+          }
+          edgeCount++;
           fileEdges.add(resolvedPath);
           if (!reverseEdges.has(resolvedPath)) {
             reverseEdges.set(resolvedPath, new Set());
@@ -421,6 +703,16 @@ export class DependencyGraphService {
           reverseEdges.get(resolvedPath)!.add(filePath);
         } else {
           unresolvedCount++;
+          const kind = classifyUnresolvedSpecifier(
+            imp.source,
+            this.claimedByTsconfigPaths(imp.source, tsconfigPaths),
+          );
+          if (kind === 'internal') {
+            unresolvedInternal++;
+          } else {
+            external++;
+            if (kind === 'context-dependent') contextDependent = true;
+          }
           this.logger.debug(
             `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
           );
@@ -428,26 +720,34 @@ export class DependencyGraphService {
       }
     }
 
-    return graph();
+    return finish();
   }
 
-  /** Make `graph` the one that answers queries for `key`. */
+  /** Whether a supplied tsconfig `paths` pattern claims `importSource`. */
+  private claimedByTsconfigPaths(
+    importSource: string,
+    tsconfigPaths: Record<string, string[]> | undefined,
+  ): boolean {
+    return (
+      tsconfigPaths !== undefined &&
+      Object.keys(tsconfigPaths).some(
+        (pattern) => this.matchTsconfigPattern(importSource, pattern) !== null,
+      )
+    );
+  }
+
+  /**
+   * Make `graph` and its coverage the ones that answer queries for `key`, in
+   * one synchronous step, so no reader sees one without the other.
+   */
   private publish(
     key: string,
     graph: DependencyGraph,
-    graphedFiles: number,
-    discoveredFiles: number | undefined,
+    report: GraphCoverageReport,
   ): void {
     this.graphs.set(key, graph);
     this.symbolIndexes.delete(key); // Invalidate cached symbol index for this root
-    this.coverages.set(key, {
-      graphedFiles,
-      discoveredFiles:
-        Number.isSafeInteger(discoveredFiles) &&
-        (discoveredFiles as number) > graphedFiles
-          ? (discoveredFiles as number)
-          : graphedFiles,
-    });
+    this.coverages.set(key, report);
   }
 
   /**
@@ -552,17 +852,93 @@ export class DependencyGraphService {
 
   /**
    * Invalidate cached graph data for a specific file.
-   * Removes the file's node and all edges to/from it.
+   * Removes the file's node and all edges to/from it, and qualifies the
+   * graph's coverage in the same step (see `invalidatedCoverage`): the graph
+   * no longer describes that file, so its answers stop reading as clean until
+   * the next build publishes. Every published graph whose root contains the
+   * file (parent and nested roots alike) or that holds its node is
+   * invalidated in the same synchronous call; every build of such a root
+   * that is running now applies the same invalidation to the graph it
+   * publishes.
    *
    * @param filePath - Absolute file path to invalidate
    */
   invalidateFile(filePath: string): void {
     const normalizedPath = filePath.replace(/\\/g, '/');
-    const entry = this.findGraphEntryForFile(normalizedPath);
-    if (!entry) {
+    // One identity set for every comparison below: case folded where the
+    // host is case-insensitive, and the file's real path (r3 B1).
+    const identities = fileIdentities(normalizedPath);
+    // Matched when each build publishes, once its root's real path is known.
+    for (const inFlight of this.inFlightInvalidations.values()) {
+      inFlight.paths.add(identities);
+    }
+    // Every published graph that can hold the file, not only the one that
+    // routes queries for it: a parent root and a nested root both contain a
+    // nested file, and the parent answers again once the nested root is
+    // evicted (r2 B1). A graph built from an explicit list may also hold the
+    // node outside its root.
+    let invalidated = false;
+    for (const [key, graph] of [...this.graphs.entries()]) {
+      if (
+        this.invalidateMatching(key, graph, identities, this.realRoots.get(key))
+      ) {
+        invalidated = true;
+      }
+    }
+    if (invalidated) {
       return;
     }
-    const [key, graph] = entry;
+    // No containing root: the graph that routes the file (the sole graph).
+    const entry = this.findGraphEntryForFile(normalizedPath);
+    if (entry) {
+      this.invalidateInGraph(entry[0], entry[1], undefined);
+    }
+  }
+
+  /**
+   * Invalidate the file with these identities in one published graph when
+   * its root (key or real path) contains the file or the graph holds its
+   * node. Whether it did.
+   */
+  private invalidateMatching(
+    key: string,
+    graph: DependencyGraph,
+    identities: readonly string[],
+    realRoot: string | undefined,
+  ): boolean {
+    const underRoot = this.identitiesUnderRoot(identities, key, realRoot);
+    let nodeKey: string | undefined;
+    for (const identity of [...underRoot, ...identities]) {
+      nodeKey ??= this.nodeKeyFor(graph, identity);
+    }
+    if (underRoot.length === 0 && nodeKey === undefined) {
+      return false;
+    }
+    this.invalidateInGraph(key, graph, nodeKey);
+    return true;
+  }
+
+  /**
+   * {@link invalidateFile} for one published graph (`key`, `graph`):
+   * qualify its coverage and remove the node `nodeKey` (the stored spelling),
+   * when the graph holds one.
+   */
+  private invalidateInGraph(
+    key: string,
+    graph: DependencyGraph,
+    nodeKey: string | undefined,
+  ): void {
+    const report = this.coverages.get(key);
+    if (report) {
+      this.coverages.set(key, {
+        files: report.files,
+        languages: invalidatedCoverage(report.languages, nodeKey !== undefined),
+      });
+    }
+    if (nodeKey === undefined) {
+      return;
+    }
+    const normalizedPath = nodeKey;
 
     const forwardDeps = graph.edges.get(normalizedPath);
     if (forwardDeps) {
@@ -614,19 +990,7 @@ export class DependencyGraphService {
    *   {@link getSymbolIndex}).
    */
   getCoverage(workspaceRoot?: string): GraphCoverage | undefined {
-    if (workspaceRoot) {
-      const coverage = this.coverages.get(this.normalizeRoot(workspaceRoot));
-      return coverage ? { ...coverage } : undefined;
-    }
-    if (this.coverages.size === 0) {
-      return undefined;
-    }
-    const total: GraphCoverage = { graphedFiles: 0, discoveredFiles: 0 };
-    for (const coverage of this.coverages.values()) {
-      total.graphedFiles += coverage.graphedFiles;
-      total.discoveredFiles += coverage.discoveredFiles;
-    }
-    return total;
+    return this.getCoverageReport(workspaceRoot)?.files;
   }
 
   /**
@@ -636,9 +1000,53 @@ export class DependencyGraphService {
    * `undefined` when no graph answers it.
    */
   getCoverageForFile(filePath: string): GraphCoverage | undefined {
+    return this.getCoverageReportForFile(filePath)?.files;
+  }
+
+  /**
+   * The file counts and the language coverage of a built graph, both
+   * published with it by the same build, or `undefined` when none is built.
+   * @param workspaceRoot - When provided, that workspace's graph; otherwise
+   *   every cached graph combined (file counts summed, language coverage
+   *   merged by `mergeGraphCoverages`).
+   */
+  getCoverageReport(workspaceRoot?: string): GraphCoverageReport | undefined {
+    if (workspaceRoot) {
+      return this.copyReport(
+        this.coverages.get(this.normalizeRoot(workspaceRoot)),
+      );
+    }
+    const reports = [...this.coverages.values()];
+    const languages = mergeGraphCoverages(
+      reports.map((report) => report.languages),
+    );
+    if (languages === undefined) {
+      return undefined;
+    }
+    const files: GraphCoverage = { graphedFiles: 0, discoveredFiles: 0 };
+    for (const report of reports) {
+      files.graphedFiles += report.files.graphedFiles;
+      files.discoveredFiles += report.files.discoveredFiles;
+    }
+    return { files, languages };
+  }
+
+  /**
+   * {@link getCoverageReport} for the graph that answers `filePath` (the
+   * selection {@link getCoverageForFile} uses).
+   */
+  getCoverageReportForFile(filePath: string): GraphCoverageReport | undefined {
     const entry = this.findGraphEntryForFile(filePath.replace(/\\/g, '/'));
-    const coverage = entry ? this.coverages.get(entry[0]) : undefined;
-    return coverage ? { ...coverage } : undefined;
+    return this.copyReport(entry ? this.coverages.get(entry[0]) : undefined);
+  }
+
+  /** A caller may mutate the file counts it gets; the stored ones stay. */
+  private copyReport(
+    report: GraphCoverageReport | undefined,
+  ): GraphCoverageReport | undefined {
+    return report
+      ? { files: { ...report.files }, languages: report.languages }
+      : undefined;
   }
 
   /**
@@ -649,6 +1057,7 @@ export class DependencyGraphService {
     const key = this.normalizeRoot(workspaceRoot);
     // Also when no graph is published yet: a build in flight must not publish.
     this.generations.delete(key);
+    this.realRoots.delete(key);
     if (this.graphs.delete(key)) {
       this.symbolIndexes.delete(key);
       this.coverages.delete(key);
@@ -676,6 +1085,7 @@ export class DependencyGraphService {
         this.graphs.delete(key);
         this.symbolIndexes.delete(key);
         this.coverages.delete(key);
+        this.realRoots.delete(key);
         this.logger.debug(
           `DependencyGraphService.retainOnly() - Evicted graph for ${key}`,
         );
@@ -689,6 +1099,7 @@ export class DependencyGraphService {
     this.graphs.clear();
     this.symbolIndexes.clear();
     this.coverages.clear();
+    this.realRoots.clear();
   }
 
   /** Give `key` a new generation, unique across every root and never reused. */
@@ -727,9 +1138,56 @@ export class DependencyGraphService {
     }
   }
 
-  /** Normalize a workspace root to the map-key form (forward slashes, no trailing slash). */
+  /** The map key of a workspace root: its {@link graphPathIdentity}. */
   private normalizeRoot(root: string): string {
-    return root.replace(/\\/g, '/').replace(/\/+$/, '');
+    return graphPathIdentity(root);
+  }
+
+  /**
+   * Identity of every node, keyed by {@link graphPathIdentity}, so an
+   * invalidation spelt differently (case on win32, a junction alias) finds
+   * the stored node key. Built on first use; a published graph never gains
+   * nodes, and a removed node is re-checked against `graph.nodes`.
+   */
+  private nodeKeyFor(
+    graph: DependencyGraph,
+    identity: string,
+  ): string | undefined {
+    let index = this.nodeIdentityIndexes.get(graph);
+    if (index === undefined) {
+      index = new Map();
+      for (const nodeKey of graph.nodes.keys()) {
+        index.set(graphPathIdentity(nodeKey), nodeKey);
+      }
+      this.nodeIdentityIndexes.set(graph, index);
+    }
+    const nodeKey = index.get(identity);
+    return nodeKey !== undefined && graph.nodes.has(nodeKey)
+      ? nodeKey
+      : undefined;
+  }
+
+  /**
+   * The spellings of `root`'s files a file with these identities has: for
+   * every root identity (lexical key and canonical real path) that contains
+   * one of the file identities, the file's identity re-rooted at the lexical
+   * key (how the graph spells its nodes). Empty: the root does not contain it.
+   */
+  private identitiesUnderRoot(
+    fileIdentities: readonly string[],
+    key: string,
+    realRoot: string | undefined,
+  ): string[] {
+    const rootIdentities = realRoot === undefined ? [key] : [key, realRoot];
+    const result = new Set<string>();
+    for (const rootIdentity of rootIdentities) {
+      for (const fileIdentity of fileIdentities) {
+        if (isUnderIdentity(fileIdentity, rootIdentity)) {
+          result.add(key + fileIdentity.slice(rootIdentity.length));
+        }
+      }
+    }
+    return [...result];
   }
 
   /**
@@ -742,6 +1200,11 @@ export class DependencyGraphService {
     normalizedPath: string,
   ): DependencyGraph | undefined {
     return this.findGraphEntryForFile(normalizedPath)?.[1];
+  }
+
+  /** Whether `filePath` is the root keyed `rootKey` or lies under it. */
+  private isUnderRoot(filePath: string, rootKey: string): boolean {
+    return isUnderIdentity(graphPathIdentity(filePath), rootKey);
   }
 
   private findGraphEntryForFile(
@@ -757,10 +1220,7 @@ export class DependencyGraphService {
     let best: [string, DependencyGraph] | undefined;
     for (const entry of this.graphs.entries()) {
       const root = entry[0];
-      if (
-        normalizedPath === root ||
-        normalizedPath.startsWith(root.endsWith('/') ? root : root + '/')
-      ) {
+      if (this.isUnderRoot(normalizedPath, root)) {
         if (!best || root.length > best[0].length) {
           best = entry;
         }
