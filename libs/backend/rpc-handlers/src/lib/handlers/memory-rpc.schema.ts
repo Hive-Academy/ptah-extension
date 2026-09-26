@@ -111,6 +111,46 @@ export const MemoryStatsParamsSchema = z.object({
   scope: MemoryQueryScopeSchema,
 });
 
+/** A quarantine rule reason as written by the rules, e.g. `rule:commitlint-scope-facts`. */
+const QuarantineReasonSchema = z
+  .string()
+  .max(200)
+  .regex(/^rule:[a-z0-9-]+$/, 'reason must match rule:<id>');
+
+/** Most ids one `memory:restoreQuarantined` call accepts (the store's cap). */
+const RESTORE_QUARANTINED_MAX_IDS = 500;
+
+export const MemoryListQuarantinedParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).nullable().optional(),
+  scope: MemoryQueryScopeSchema,
+  reason: QuarantineReasonSchema.optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+/**
+ * `workspaceRoot` is a REQUIRED key: an omitted key must never fall back to
+ * "current workspace" or "all workspaces". An explicit `null` targets exactly
+ * the unscoped rows. Exactly one of `ids`, `reason`, `all` selects the rows.
+ */
+export const MemoryRestoreQuarantinedParamsSchema = z
+  .object({
+    workspaceRoot: z.union([z.string().min(1), z.null()]),
+    ids: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(RESTORE_QUARANTINED_MAX_IDS)
+      .optional(),
+    reason: QuarantineReasonSchema.optional(),
+    all: z.literal(true).optional(),
+  })
+  .refine(
+    (p) =>
+      [p.ids, p.reason, p.all].filter((selector) => selector !== undefined)
+        .length === 1,
+    { message: 'exactly one of ids, reason or all is required' },
+  );
+
 export const MemorySearchSymbolsParamsSchema = z.object({
   workspaceRoot: z.string().min(1).nullable().optional(),
   scope: MemoryQueryScopeSchema,

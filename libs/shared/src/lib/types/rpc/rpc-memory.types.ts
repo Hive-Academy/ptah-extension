@@ -133,6 +133,52 @@ export interface MemoryPurgeJunkResult {
   readonly deleted: number;
 }
 
+/**
+ * `memory:listQuarantined` — review the rows the quarantine rules withheld
+ * from every agent-facing read. Scope follows {@link MemoryQueryScope}.
+ */
+export interface MemoryListQuarantinedParams {
+  readonly workspaceRoot?: string | null;
+  /** See {@link MemoryQueryScope}. Defaults to `'workspace'`. */
+  readonly scope?: MemoryQueryScope;
+  /** Exact rule reason, e.g. `rule:r4-commitlint-scope`. */
+  readonly reason?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+export interface QuarantinedMemoryWire {
+  readonly id: string;
+  /** The row's own scope, so an all-scope listing can route to a scoped restore. */
+  readonly workspaceRoot: string | null;
+  readonly subject: string | null;
+  readonly kind: MemoryKindWire;
+  readonly tier: MemoryTierWire;
+  readonly reason: string | null;
+  readonly quarantinedAt: number;
+  /** First 200 characters of the memory content. */
+  readonly excerpt: string;
+}
+export interface MemoryListQuarantinedResult {
+  readonly items: readonly QuarantinedMemoryWire[];
+  readonly total: number;
+}
+
+/**
+ * `memory:restoreQuarantined` — lift the quarantine on rows of exactly one
+ * scope. `workspaceRoot` is a REQUIRED key: a string is that (authorized)
+ * workspace, an explicit `null` is the unscoped rows only. There is no
+ * all-workspaces restore. Exactly one of `ids`, `reason` or `all` selects rows.
+ */
+export interface MemoryRestoreQuarantinedParams {
+  readonly workspaceRoot: string | null;
+  readonly ids?: readonly string[];
+  readonly reason?: string;
+  readonly all?: boolean;
+}
+export interface MemoryRestoreQuarantinedResult {
+  readonly restored: number;
+}
+
 export interface CodeSymbolListItem {
   readonly id: string;
   readonly workspaceRoot: string;

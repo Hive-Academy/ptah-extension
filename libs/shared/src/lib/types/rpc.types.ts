@@ -386,6 +386,10 @@ import type {
   MemoryPurgeJunkResult,
   MemorySearchSymbolsParams,
   MemorySearchSymbolsResult,
+  MemoryListQuarantinedParams,
+  MemoryListQuarantinedResult,
+  MemoryRestoreQuarantinedParams,
+  MemoryRestoreQuarantinedResult,
 } from './rpc/rpc-memory.types';
 
 import type {
@@ -1723,6 +1727,14 @@ export interface RpcMethodRegistry {
   'memory:getTriggers': {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
+  };
+  'memory:listQuarantined': {
+    params: MemoryListQuarantinedParams;
+    result: MemoryListQuarantinedResult;
+  };
+  'memory:restoreQuarantined': {
+    params: MemoryRestoreQuarantinedParams;
+    result: MemoryRestoreQuarantinedResult;
   };
   'mem:searchIndex': {
     params: MemSearchIndexParams;
@@ -3717,6 +3729,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:runNow': true,
   'memory:setTriggers': true,
   'memory:getTriggers': true,
+  'memory:listQuarantined': true,
+  'memory:restoreQuarantined': true,
 
   'mem:searchIndex': true,
   'mem:timeline': true,
