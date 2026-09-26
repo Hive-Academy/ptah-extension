@@ -8,8 +8,20 @@ import type {
   ICompactionCallbackRegistry,
   ITranscriptReader,
 } from '@ptah-extension/memory-contracts';
+import type {
+  IEmbedder,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import { MemoryCuratorService } from './memory-curator.service';
-import type { MemoryStore } from './memory.store';
+import { MemoryStore } from './memory.store';
+import type { MemorySearchService } from './memory-search.service';
+import { memoryId, type MemorySearchHit } from './memory.types';
+import {
+  openRetentionTestDb,
+  removeRetentionTempDirs,
+  seedMemories,
+  type RetentionTestDb,
+} from './retention/retention-sqlite.test-support';
 import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
 import { CURATOR_TRANSCRIPT_MAX_CHARS } from './curator-llm/clamp-transcript';
 import { CURATOR_MAX_WINDOWS } from './curator-llm/transcript-windows';
@@ -1898,5 +1910,310 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
 
     expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
     expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: undefined });
+  });
+});
+
+/**
+ * TASK_2026_563 M3 + M5 criterion 8: the resolve candidates are tier 1 plus a
+ * scoped tier 2 of semantic hits, and a resolver-chosen merge target is used
+ * only when it was in that list and is still an active row in this workspace.
+ * Real SQLite store, so the guard reads the actual `quarantined_at` and
+ * `workspace_root` columns.
+ */
+describe('MemoryCuratorService — tier-2 merge candidates and the merge guard', () => {
+  const WS = '/ws/guard';
+  const TRANSCRIPT = '{"type":"user","content":"remember the alpha decision"}';
+  const zeroEmbedder = {
+    dim: 384,
+    embed: async (texts: readonly string[]) =>
+      texts.map(() => new Float32Array(384)),
+  } as unknown as IEmbedder;
+
+  let t: RetentionTestDb;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+    store = new MemoryStore(makeLogger(), t.connection, zeroEmbedder, {
+      available: true,
+    } as VecStatusService);
+    seedMemories(t.raw, [
+      { id: 'tier1-row', workspaceRoot: WS, salience: 0.7 },
+      { id: 'quarantine-me', workspaceRoot: WS, salience: 0.4 },
+      { id: 'semantic-row', workspaceRoot: WS, salience: 0.5 },
+      { id: 'foreign-row', workspaceRoot: '/ws/other', salience: 0.5 },
+    ]);
+    const setSubject = t.raw.prepare(
+      'UPDATE memories SET subject = ? WHERE id = ?',
+    );
+    setSubject.run('alpha', 'tier1-row');
+    setSubject.run('alpha', 'quarantine-me');
+    setSubject.run('unrelated topic', 'semantic-row');
+    setSubject.run('alpha', 'foreign-row');
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  const draft = {
+    kind: 'fact' as const,
+    subject: 'alpha',
+    content: 'alpha decision recorded',
+    salienceHint: 0.5,
+  };
+
+  function searchReturning(ids: readonly string[]): {
+    search: MemorySearchService;
+    searchRich: jest.Mock;
+  } {
+    const searchRich = jest.fn(async () => ({
+      hits: ids.map((id) => {
+        const memory = store.getById(memoryId(id));
+        if (!memory) throw new Error(`seed row ${id} missing`);
+        return { memory } as unknown as MemorySearchHit;
+      }),
+      bm25Only: false,
+    }));
+    return {
+      search: { searchRich } as unknown as MemorySearchService,
+      searchRich,
+    };
+  }
+
+  function build(
+    resolve: jest.Mock,
+    search: MemorySearchService | null,
+    logger: Logger = makeLogger(),
+  ): MemoryCuratorService {
+    return new MemoryCuratorService(
+      logger,
+      {
+        register: jest.fn(() => () => undefined),
+      } as unknown as ICompactionCallbackRegistry,
+      store,
+      { read: jest.fn() } as unknown as ITranscriptReader,
+      {
+        extract: jest
+          .fn()
+          .mockResolvedValue({ status: 'extracted', drafts: [draft] }),
+        resolve,
+      } as unknown as ICuratorLLM,
+      null,
+      null,
+      null,
+      undefined,
+      null,
+      search,
+    );
+  }
+
+  const chunkCount = (id: string): number =>
+    Number(
+      (
+        t.raw
+          .prepare(
+            'SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id = ?',
+          )
+          .get(id) as { n: number | bigint }
+      ).n,
+    );
+  const memoryCount = (): number =>
+    Number(
+      (
+        t.raw.prepare('SELECT COUNT(*) AS n FROM memories').get() as {
+          n: number | bigint;
+        }
+      ).n,
+    );
+  const refusals = (logger: Logger): unknown[] =>
+    (logger.info as jest.Mock).mock.calls
+      .filter((c) => String(c[0]).includes('merge target refused'))
+      .map((c) => (c[1] as { reason: string }).reason);
+
+  it('sends tier 1 then scoped tier-2 hits to resolve and merges into a tier-2 candidate', async () => {
+    const { search, searchRich } = searchReturning(['semantic-row']);
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: 'semantic-row' }]);
+    const svc = build(resolve, search);
+
+    const stats = await svc.curate({
+      sessionId: 's-tier2',
+      workspaceRoot: WS,
+      transcript: TRANSCRIPT,
+    });
+
+    expect(searchRich).toHaveBeenCalledWith(
+      'alpha alpha decision recorded',
+      5,
+      WS,
+    );
+    const related = resolve.mock.calls[0][1] as ReadonlyArray<{ id: string }>;
+    expect(
+      related
+        .slice(0, 2)
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(['quarantine-me', 'tier1-row']);
+    expect(related.map((c) => c.id)[2]).toBe('semantic-row');
+    expect(related).toHaveLength(3);
+    expect(stats.merged).toBe(1);
+    expect(stats.created).toBe(0);
+    expect(chunkCount('semantic-row')).toBe(2);
+  });
+
+  it('inserts as new when the merge target is outside the candidate list (another workspace)', async () => {
+    const { search } = searchReturning([]);
+    const logger = makeLogger();
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: 'foreign-row' }]);
+    const before = memoryCount();
+
+    const stats = await build(resolve, search, logger).curate({
+      sessionId: 's-foreign',
+      workspaceRoot: WS,
+      transcript: TRANSCRIPT,
+    });
+
+    expect(stats.merged).toBe(0);
+    expect(stats.created).toBe(1);
+    expect(chunkCount('foreign-row')).toBe(1);
+    expect(memoryCount()).toBe(before + 1);
+    expect(refusals(logger)).toEqual(['not-in-candidates']);
+  });
+
+  it('inserts as new when the merge target is a candidate from another workspace scope', async () => {
+    // The pass is unscoped (null), so tier 1 is the NULL-workspace rows; the
+    // resolver still names a '/ws/guard' id, which getMergeTarget refuses even
+    // when forced into the candidate set.
+    t.raw
+      .prepare('UPDATE memories SET workspace_root = NULL WHERE id = ?')
+      .run('quarantine-me');
+    const logger = makeLogger();
+    const resolve = jest.fn(
+      async (_d: unknown, related: ReadonlyArray<{ id: string }>) => {
+        expect(related.map((c) => c.id)).toContain('quarantine-me');
+        // Simulate the row moving scope between collection and write.
+        t.raw
+          .prepare('UPDATE memories SET workspace_root = ? WHERE id = ?')
+          .run(WS, 'quarantine-me');
+        return [{ ...draft, mergeTargetId: 'quarantine-me' }];
+      },
+    );
+
+    const stats = await build(resolve, null, logger).curate({
+      sessionId: 's-scope',
+      workspaceRoot: null,
+      transcript: TRANSCRIPT,
+    });
+
+    expect(stats.merged).toBe(0);
+    expect(stats.created).toBe(1);
+    expect(chunkCount('quarantine-me')).toBe(1);
+    expect(refusals(logger)).toEqual(['ineligible']);
+  });
+
+  it('inserts as new when the merge target was quarantined after the candidates were collected', async () => {
+    const { search } = searchReturning([]);
+    const logger = makeLogger();
+    const resolve = jest.fn(
+      async (_d: unknown, related: ReadonlyArray<{ id: string }>) => {
+        expect(related.map((c) => c.id)).toContain('quarantine-me');
+        t.raw
+          .prepare(
+            `UPDATE memories SET quarantined_at = 5000, quarantine_reason = 'rule:test' WHERE id = ?`,
+          )
+          .run('quarantine-me');
+        return [{ ...draft, mergeTargetId: 'quarantine-me' }];
+      },
+    );
+
+    const stats = await build(resolve, search, logger).curate({
+      sessionId: 's-quarantined',
+      workspaceRoot: WS,
+      transcript: TRANSCRIPT,
+    });
+
+    expect(stats.merged).toBe(0);
+    expect(stats.created).toBe(1);
+    expect(chunkCount('quarantine-me')).toBe(1);
+    expect(refusals(logger)).toEqual(['ineligible']);
+  });
+
+  it('inserts once, without counting a merge, when the target is quarantined while its chunk is embedded', async () => {
+    // Gate the FIRST embed (the append's) and quarantine the target while it
+    // is held: after the pre-resolve guard passed, before the append commits.
+    let releaseEmbed: () => void = () => undefined;
+    const embedGate = new Promise<void>((resolve) => {
+      releaseEmbed = resolve;
+    });
+    let embedCalls = 0;
+    const gatedEmbedder = {
+      dim: 384,
+      embed: async (texts: readonly string[]) => {
+        embedCalls++;
+        if (embedCalls === 1) await embedGate;
+        return texts.map(() => new Float32Array(384));
+      },
+    } as unknown as IEmbedder;
+    store = new MemoryStore(makeLogger(), t.connection, gatedEmbedder, {
+      available: true,
+    } as VecStatusService);
+    const getMergeTarget = jest.spyOn(store, 'getMergeTarget');
+    const insert = jest.spyOn(store, 'insertMemoryWithChunks');
+    const logger = makeLogger();
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: 'tier1-row' }]);
+    const before = memoryCount();
+
+    const pass = build(resolve, null, logger).curate({
+      sessionId: 's-commit-race',
+      workspaceRoot: WS,
+      transcript: TRANSCRIPT,
+    });
+    while (embedCalls === 0) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(getMergeTarget).toHaveReturnedWith(memoryId('tier1-row'));
+    t.raw
+      .prepare(
+        `UPDATE memories SET quarantined_at = 5000, quarantine_reason = 'rule:test' WHERE id = ?`,
+      )
+      .run('tier1-row');
+    releaseEmbed();
+    const stats = await pass;
+
+    expect(stats.merged).toBe(0);
+    expect(stats.created).toBe(1);
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(memoryCount()).toBe(before + 1);
+    expect(chunkCount('tier1-row')).toBe(1);
+    expect(refusals(logger)).toEqual(['ineligible-at-commit']);
+  });
+
+  it('leaves salience, hits and last_used_at of every candidate unchanged after a pass without a merge', async () => {
+    const { search } = searchReturning(['semantic-row']);
+    const resolve = jest
+      .fn()
+      .mockResolvedValue([{ ...draft, mergeTargetId: null }]);
+    const snapshot = () =>
+      t.raw
+        .prepare(
+          `SELECT id, salience, hits, last_used_at FROM memories
+           WHERE id IN ('tier1-row', 'quarantine-me', 'semantic-row') ORDER BY id`,
+        )
+        .all();
+    const before = snapshot();
+
+    const stats = await build(resolve, search).curate({
+      sessionId: 's-readonly',
+      workspaceRoot: WS,
+      transcript: TRANSCRIPT,
+    });
+
+    expect(stats.created).toBe(1);
+    expect((resolve.mock.calls[0][1] as unknown[]).length).toBe(3);
+    expect(snapshot()).toEqual(before);
   });
 });
