@@ -386,14 +386,16 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
 }
 
 /**
- * Build the ptah_lsp_references tool definition
- * LSP-accurate cross-file reference finding
+ * Build the ptah_lsp_references tool definition.
+ * The mechanism depends on the host that registers IDE capabilities: the VS
+ * Code language server in the extension (`ide-capabilities.vscode.ts`), a
+ * name-based scan in the desktop app (`electron-ide-capabilities.ts`).
  */
 export function buildLspReferencesTool(): MCPToolDefinition {
   return {
     name: 'ptah_lsp_references',
     description:
-      'Find all references to a symbol at a specific file position using VS Code LSP. More accurate than Grep for finding usages — handles renames, re-exports, and type references. Essential before refactoring.',
+      "Find all references to a symbol at a specific file position. In the VS Code extension this uses VS Code's language server: more accurate than Grep for finding usages — handles renames, re-exports, and type references. In the desktop app it is a name-based scan (word-boundary matches outside strings and comments, limited to importing files once the dependency graph is built), so same-named symbols can appear and aliased imports are missed. Essential before refactoring.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -417,14 +419,16 @@ export function buildLspReferencesTool(): MCPToolDefinition {
 }
 
 /**
- * Build the ptah_lsp_definitions tool definition
- * Go-to-definition via LSP
+ * Build the ptah_lsp_definitions tool definition.
+ * Host-dependent mechanism, as for ptah_lsp_references: the VS Code language
+ * server in the extension; the symbol index plus import resolution in the
+ * desktop app.
  */
 export function buildLspDefinitionsTool(): MCPToolDefinition {
   return {
     name: 'ptah_lsp_definitions',
     description:
-      'Go to definition for a symbol at a specific file position using VS Code LSP. Returns the source location where the symbol is defined. Works across files, through re-exports, and into node_modules.',
+      "Go to definition for a symbol at a specific file position. Returns the source location where the symbol is defined. In the VS Code extension this uses VS Code's language server and works across files, through re-exports, and into node_modules. In the desktop app it is name-based: the workspace symbol index, then the cursor file's own declarations and its relative imports; it can return several same-named candidates, and package, path-alias or re-exported symbols may return no location. Without a symbol-index match, lookups from or into .tsx files return no location.",
     inputSchema: {
       type: 'object',
       properties: {

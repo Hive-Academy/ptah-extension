@@ -4,6 +4,8 @@ import {
   buildAgentReportTool,
   buildAgentSpawnTool,
   buildCodeReindexTool,
+  buildLspDefinitionsTool,
+  buildLspReferencesTool,
 } from './tool-description.builder';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
@@ -43,6 +45,63 @@ describe('buildExecuteCodeTool', () => {
     expect(tool.inputSchema.required ?? []).toEqual([]);
     expect(tool.description).toContain('background');
     expect(tool.description).toContain('ptah_code_search_symbols');
+  });
+});
+
+/**
+ * `ptah_lsp_references` / `ptah_lsp_definitions` — TASK_2026_559 Batch 8.
+ *
+ * Both tools are served by two hosts: the VS Code extension (the language
+ * server, via `vscode.execute*Provider`) and the desktop app (a name-based
+ * resolver). Neither description may claim the VS Code language server
+ * unconditionally, and each must name the desktop mechanism.
+ */
+describe.each([
+  ['ptah_lsp_references', buildLspReferencesTool],
+  ['ptah_lsp_definitions', buildLspDefinitionsTool],
+])('%s description', (name, buildTool) => {
+  const description = buildTool().description;
+
+  it('keeps its name and stays within the description budget', () => {
+    expect(buildTool().name).toBe(name);
+    expect(description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+  });
+
+  it('does not claim "VS Code LSP" as the unconditional mechanism', () => {
+    expect(description).not.toMatch(/using VS Code LSP/i);
+    expect(description).toContain(
+      "In the VS Code extension this uses VS Code's language server",
+    );
+  });
+
+  it('states the desktop app mechanism is name-based', () => {
+    expect(description).toMatch(/In the desktop app it is (a )?name-based/);
+  });
+});
+
+describe('ptah_lsp_definitions description — desktop limits', () => {
+  it('names the index, the import fallback and what stays unresolved', () => {
+    const description = buildLspDefinitionsTool().description;
+    expect(description).toContain('workspace symbol index');
+    expect(description).toContain('relative imports');
+    expect(description).toContain('path-alias');
+  });
+
+  it('discloses that the index-free fallback does not resolve .tsx files', () => {
+    const description = buildLspDefinitionsTool().description;
+    expect(description).toContain(
+      'Without a symbol-index match, lookups from or into .tsx files return no location.',
+    );
+  });
+
+  it('scopes the node_modules claim to the VS Code extension', () => {
+    const description = buildLspDefinitionsTool().description;
+    const vscodeClause = description.indexOf('In the VS Code extension');
+    const desktopClause = description.indexOf('In the desktop app');
+    const nodeModules = description.indexOf('node_modules');
+    expect(vscodeClause).toBeGreaterThanOrEqual(0);
+    expect(nodeModules).toBeGreaterThan(vscodeClause);
+    expect(nodeModules).toBeLessThan(desktopClause);
   });
 });
 

@@ -13,14 +13,21 @@
  *     to its declaration(s) via the SQLite symbol index (ICodeSymbolReader),
  *     then disambiguate multiple same-named candidates using the cursor file's
  *     own imports (declaration in the same file, or in the imported module, wins).
+ *     When the index has no candidate (empty, stale, or no reader), fall back to
+ *     a Tree-sitter scan for a top-level declaration in the cursor file, then in
+ *     the ONE workspace file the cursor file's relative import of the
+ *     identifier resolves to. That file is read only when its canonical
+ *     (realpath) location lies inside the canonical workspace root, so a
+ *     junction or symlink never leads the read outside the workspace.
  *   - getReferences: word-boundary scan of indexed workspace files for the
  *     identifier, with two precision passes:
- *       (1) when the dependency graph is built, scope the scan to the
- *           declaration file(s) + their transitive dependents (references to a
- *           symbol can only appear in modules that import it) instead of the
- *           whole workspace;
+ *       (1) when THIS workspace's dependency graph is built and the symbol
+ *           index names the declaration, scope the scan to the declaration
+ *           file(s) + their transitive dependents instead of the whole
+ *           workspace. The index-free fallback above never scopes the scan:
+ *           global-script references have no import edge to follow;
  *       (2) drop matches that fall inside string/comment nodes via Tree-sitter.
- *     Falls back to a bounded full-workspace scan when the graph is unbuilt.
+ *     Otherwise it runs a bounded full-workspace scan.
  *   - getHover: surface the matched symbol's index entry text.
  *   - getSignatureHelp: unsupported name-based — returns null.
  *
@@ -29,6 +36,7 @@
  * therefore graceful no-ops here.
  */
 
+import { promises as nodeFs } from 'node:fs';
 import * as path from 'node:path';
 import type {
   IEditorProvider,
@@ -84,6 +92,119 @@ const SCAN_EXTENSIONS = [
   '.cs',
 ];
 
+/** Script extensions an import specifier may carry or omit (ESM `./x.js` → `x.ts`). */
+const MODULE_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+];
+/**
+ * Probe order for an extensionless relative module, following TypeScript's
+ * own order: the module file's sources, then its declaration file, then the
+ * directory index's sources, then the index declaration file.
+ */
+const MODULE_FILE_SUFFIXES = [
+  ...MODULE_EXTENSIONS,
+  '.d.ts',
+  ...MODULE_EXTENSIONS.map((ext) => `/index${ext}`),
+  '/index.d.ts',
+];
+
+/** TypeScript declaration nodes, each capturing its name as `@name`. */
+const TS_DECLARATIONS = `[
+  (class_declaration name: (_) @name)
+  (abstract_class_declaration name: (_) @name)
+  (interface_declaration name: (_) @name)
+  (type_alias_declaration name: (_) @name)
+  (enum_declaration name: (_) @name)
+  (function_declaration name: (_) @name)
+  (generator_function_declaration name: (_) @name)
+  (function_signature name: (_) @name)
+  (internal_module name: (_) @name)
+  (module name: (_) @name)
+  (lexical_declaration (variable_declarator name: (identifier) @name))
+  (variable_declaration (variable_declarator name: (identifier) @name))
+]`;
+
+/** JavaScript declaration nodes, each capturing its name as `@name`. */
+const JS_DECLARATIONS = `[
+  (class_declaration name: (_) @name)
+  (function_declaration name: (_) @name)
+  (generator_function_declaration name: (_) @name)
+  (lexical_declaration (variable_declarator name: (identifier) @name))
+  (variable_declaration (variable_declarator name: (identifier) @name))
+]`;
+
+/** Any parse error in the file makes a declaration answer uncertain. */
+const ERROR_PATTERN = '(ERROR) @error';
+
+/**
+ * Per-language Tree-sitter queries for TOP-LEVEL declarations (direct
+ * children of the root, optionally behind `export` / `declare`). Parsing the
+ * file, rather than matching lines, keeps declaration-shaped text inside
+ * comments, strings and template literals, and declarations nested in a
+ * function body, from answering a definition lookup.
+ */
+const DECLARATION_QUERIES: Partial<Record<SupportedLanguage, string>> = {
+  typescript: [
+    `(program ${TS_DECLARATIONS})`,
+    `(program (export_statement ${TS_DECLARATIONS}))`,
+    `(program (ambient_declaration ${TS_DECLARATIONS}))`,
+    `(program (export_statement (ambient_declaration ${TS_DECLARATIONS})))`,
+    '(program (expression_statement (internal_module name: (_) @name)))',
+    ERROR_PATTERN,
+  ].join('\n'),
+  javascript: [
+    `(program ${JS_DECLARATIONS})`,
+    `(program (export_statement ${JS_DECLARATIONS}))`,
+    ERROR_PATTERN,
+  ].join('\n'),
+  python: [
+    `(module [
+      (function_definition name: (_) @name)
+      (class_definition name: (_) @name)
+      (decorated_definition definition: [
+        (function_definition name: (_) @name)
+        (class_definition name: (_) @name)
+      ])
+    ])`,
+    ERROR_PATTERN,
+  ].join('\n'),
+  go: [
+    `(source_file [
+      (function_declaration name: (_) @name)
+      (method_declaration name: (_) @name)
+      (type_declaration (type_spec name: (_) @name))
+      (type_declaration (type_alias name: (_) @name))
+      (var_declaration (var_spec name: (_) @name))
+      (const_declaration (const_spec name: (_) @name))
+    ])`,
+    ERROR_PATTERN,
+  ].join('\n'),
+};
+
+/**
+ * Outcome of a declaration scan: the 0-based position of the declared name,
+ * `null` when the file parses cleanly and declares nothing by that name, or
+ * `'uncertain'` when the file cannot be parsed reliably (no query for the
+ * language, a failed parse, or a parse error in the file).
+ */
+type DeclarationScan = { line: number; column: number } | null | 'uncertain';
+
+/** Module file to read: the reported (lexical) path and its canonical path. */
+interface ModuleFile {
+  file: string;
+  readPath: string;
+}
+
+/** Canonicalises a filesystem path, following every link (fs.realpath). */
+type RealpathFn = (filePath: string) => Promise<string>;
+
 /** Identifier characters for symbol-at-position extraction. */
 const IDENTIFIER_RE = /[A-Za-z0-9_$]/;
 
@@ -118,6 +239,8 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     private readonly astAnalysis: AstAnalysisService,
     private readonly treeSitter: TreeSitterParserService,
     private readonly logger: Logger,
+    private readonly realpath: RealpathFn = (filePath) =>
+      nodeFs.realpath(filePath),
   ) {}
 
   readonly lsp: IIDECapabilities['lsp'] = {
@@ -190,7 +313,6 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     line: number,
     col: number,
   ): Promise<Location[]> {
-    if (!this.symbolReader) return [];
     const cursorPath = this.resolveAbsolutePath(file);
     if (!cursorPath) return [];
     const content = await this.safeReadFile(cursorPath);
@@ -201,18 +323,61 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   }
 
   /**
-   * Look the identifier up in the symbol index and disambiguate multiple
-   * same-named declarations using the cursor file's imports:
-   *   - a declaration in the cursor file itself wins;
-   *   - otherwise the declaration in the module the cursor file imports the
-   *     identifier from wins;
-   *   - otherwise all exact-name candidates are returned (no confident pick).
+   * Declarations named by the symbol index; with zero index candidates,
+   * declarationsWithoutIndex() answers instead.
    */
   private async declarationsFor(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
   ): Promise<Location[]> {
+    const indexed = await this.indexedDeclarations(
+      cursorPath,
+      cursorContent,
+      identifier,
+    );
+    if (indexed.length > 0) return indexed;
+    return this.declarationsWithoutIndex(cursorPath, cursorContent, identifier);
+  }
+
+  /**
+   * Look the identifier up in the symbol index and disambiguate multiple
+   * same-named declarations using the cursor file's imports:
+   *   - a declaration in the cursor file itself wins;
+   *   - otherwise the declaration in the module the cursor file imports the
+   *     identifier from wins;
+   *   - otherwise all exact-name candidates are returned (no confident pick).
+   * Returns [] when the index has no candidate (or there is no reader).
+   */
+  private async indexedDeclarations(
+    cursorPath: string,
+    cursorContent: string,
+    identifier: string,
+  ): Promise<Location[]> {
+    const candidates = await this.indexCandidates(identifier);
+    if (candidates.length <= 1) return candidates;
+
+    const cursorNorm = this.normalize(cursorPath) as string;
+    const local = candidates.filter((c) => c.file === cursorNorm);
+    if (local.length > 0) return local;
+
+    const importedModule = await this.resolveImportedModule(
+      cursorPath,
+      cursorContent,
+      identifier,
+    );
+    if (importedModule) {
+      const matched = candidates.filter((c) =>
+        fileMatchesModule(c.file, importedModule),
+      );
+      if (matched.length > 0) return matched;
+    }
+
+    return candidates;
+  }
+
+  /** Exact-name declaration candidates from the symbol index ([] without one). */
+  private async indexCandidates(identifier: string): Promise<Location[]> {
     if (!this.symbolReader) return [];
     const wsRoot = this.normalize(this.workspaceProvider.getWorkspaceRoot());
     const page = await this.symbolReader.searchSymbols(
@@ -233,26 +398,135 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       seen.add(key);
       candidates.push({ file: filePath, line: startLine, column: 0 });
     }
+    return candidates;
+  }
 
-    if (candidates.length <= 1) return candidates;
-
+  /**
+   * Index-independent resolution, used when the index has no candidate:
+   *   1. a top-level declaration of the identifier in the cursor file itself;
+   *   2. otherwise the top-level declaration in the ONE workspace file the
+   *      cursor file's relative import of the identifier resolves to (a single
+   *      file read).
+   * A file that does not parse cleanly makes the answer unresolved ([]), as do
+   * package, alias (tsconfig paths) and re-exported (barrel) symbols, and a
+   * .tsx cursor or target file (see declarationLanguage).
+   */
+  private async declarationsWithoutIndex(
+    cursorPath: string,
+    cursorContent: string,
+    identifier: string,
+  ): Promise<Location[]> {
     const cursorNorm = this.normalize(cursorPath) as string;
-    const local = candidates.filter((c) => c.file === cursorNorm);
-    if (local.length > 0) return local;
+    const local = await this.findDeclaration(
+      cursorContent,
+      identifier,
+      declarationLanguage(cursorNorm),
+    );
+    if (local === 'uncertain') return [];
+    if (local) return [{ file: cursorNorm, ...local }];
 
-    const importedModule = await this.resolveImportedModule(
+    const modulePath = await this.resolveImportedModule(
       cursorPath,
       cursorContent,
       identifier,
     );
-    if (importedModule) {
-      const matched = candidates.filter((c) =>
-        fileMatchesModule(c.file, importedModule),
-      );
-      if (matched.length > 0) return matched;
-    }
+    if (!modulePath) return [];
+    const target = await this.findModuleFile(modulePath);
+    if (!target) return [];
+    const targetLanguage = declarationLanguage(target.file);
+    if (!targetLanguage) return [];
+    const content = await this.safeReadFile(target.readPath);
+    if (content === null) return [];
+    const found = await this.findDeclaration(
+      content,
+      identifier,
+      targetLanguage,
+    );
+    return found && found !== 'uncertain'
+      ? [{ file: target.file, ...found }]
+      : [];
+  }
 
-    return candidates;
+  /**
+   * First top-level declaration of `identifier` in `content`, found by parsing
+   * the content with Tree-sitter (see DECLARATION_QUERIES).
+   */
+  private async findDeclaration(
+    content: string,
+    identifier: string,
+    language: SupportedLanguage | null,
+  ): Promise<DeclarationScan> {
+    const query = language ? DECLARATION_QUERIES[language] : undefined;
+    if (!language || !query) return 'uncertain';
+    const result = await this.treeSitter.query(content, language, query);
+    if (!result.isOk() || !result.value) return 'uncertain';
+
+    let first: { row: number; column: number } | null = null;
+    for (const match of result.value) {
+      for (const capture of match.captures) {
+        if (capture.name === 'error') return 'uncertain';
+        if (capture.name !== 'name' || capture.text !== identifier) continue;
+        const pos = capture.startPosition;
+        if (
+          !first ||
+          pos.row < first.row ||
+          (pos.row === first.row && pos.column < first.column)
+        ) {
+          first = pos;
+        }
+      }
+    }
+    return first ? { line: first.row, column: first.column } : null;
+  }
+
+  /**
+   * First existing file for an extensionless module path, probing the module
+   * file suffixes in order. Returns null when no candidate exists, or when the
+   * module lies outside the workspace root either lexically (a `../../..`
+   * import) or physically (a junction or symlink inside the workspace that
+   * points outside it) — checked BEFORE the file is read.
+   */
+  private async findModuleFile(modulePath: string): Promise<ModuleFile | null> {
+    const wsRoot = this.normalize(this.workspaceProvider.getWorkspaceRoot());
+    if (!wsRoot || !isInsideDirectory(modulePath, wsRoot)) return null;
+    for (const suffix of MODULE_FILE_SUFFIXES) {
+      const candidate = `${modulePath}${suffix}`;
+      if (!(await this.fs.exists(candidate))) continue;
+      const readPath = await this.canonicalPathInside(candidate, wsRoot);
+      return readPath ? { file: candidate, readPath } : null;
+    }
+    return null;
+  }
+
+  /**
+   * The canonical path of `filePath` when it lies inside the canonical
+   * `root`, else null. Both sides are resolved through every junction and
+   * symlink, so containment is judged on where the bytes physically live.
+   */
+  private async canonicalPathInside(
+    filePath: string,
+    root: string,
+  ): Promise<string | null> {
+    const [realFile, realRoot] = await Promise.all([
+      this.canonicalPath(filePath),
+      this.canonicalPath(root),
+    ]);
+    if (!realFile || !realRoot) return null;
+    return isInsideDirectory(realFile, realRoot) ? realFile : null;
+  }
+
+  private async canonicalPath(filePath: string): Promise<string | null> {
+    try {
+      return toForwardSlashes(await this.realpath(filePath));
+    } catch {
+      // degradation-audit: optional-capability - a path that cannot be
+      // canonicalised cannot be shown to lie inside the workspace; null
+      // leaves the import unresolved (fail closed) instead of reading it.
+      this.logger.debug(
+        '[ElectronIDECapabilities] Import target could not be canonicalised',
+      );
+      return null;
+    }
   }
 
   /**
@@ -287,9 +561,8 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     );
     if (!imp || !imp.source.startsWith('.')) return null;
 
-    const dir = path.posix.dirname(this.normalize(cursorPath) as string);
     return stripExtension(
-      path.posix.normalize(path.posix.join(dir, imp.source)),
+      resolveRelative(this.normalize(cursorPath) as string, imp.source),
     );
   }
 
@@ -320,6 +593,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       cursorPath,
       cursorContent,
       identifier,
+      workspaceFolder,
     );
     const locations: Location[] = [];
 
@@ -349,16 +623,20 @@ export class ElectronIDECapabilities implements IIDECapabilities {
 
   /**
    * Returns the scoped file set (declaration files + transitive dependents +
-   * the cursor file) when the dependency graph is built and the declaration is
-   * known, or null to signal a full-workspace brute scan.
+   * the cursor file) when this workspace's dependency graph is built and the
+   * symbol index names the declaration, or null to signal a full-workspace
+   * brute scan. The index-free declaration fallback is deliberately NOT used
+   * here: a guessed declaration says nothing about scope completeness, and
+   * global-script references have no import edge in the graph.
    */
   private async computeReferenceScope(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
+    workspaceFolder: string,
   ): Promise<string[] | null> {
-    if (!this.dependencyGraph.isBuilt()) return null;
-    const declarations = await this.declarationsFor(
+    if (!this.dependencyGraph.isBuilt(workspaceFolder)) return null;
+    const declarations = await this.indexedDeclarations(
       cursorPath,
       cursorContent,
       identifier,
@@ -581,6 +859,19 @@ function parseDeclarationLine(text: string): number | null {
 }
 
 /**
+ * Language for the index-free declaration scan, or null (an unresolved
+ * answer) when no grammar can parse the file reliably. The packaged
+ * TypeScript grammar has no JSX, so valid JSX in a .tsx file parses as ERROR;
+ * .tsx is therefore always unresolved here rather than resolved only when the
+ * file happens to contain no JSX. Resolving .tsx needs a packaged TSX grammar.
+ */
+function declarationLanguage(filePath: string): SupportedLanguage | null {
+  return path.posix.extname(filePath).toLowerCase() === '.tsx'
+    ? null
+    : extToLanguage(filePath);
+}
+
+/**
  * Map a file path to a Tree-sitter SupportedLanguage, or null when the language
  * has no grammar wired (matches the symbol indexer's coverage).
  */
@@ -606,10 +897,64 @@ function extToLanguage(filePath: string): SupportedLanguage | null {
   }
 }
 
-/** Strip a trailing file extension from a forward-slash path. */
+/**
+ * Strip a trailing script-module extension from a forward-slash path. Other
+ * dotted suffixes stay (`./foo.service` is the module `foo.service`, not `foo`).
+ */
 function stripExtension(p: string): string {
-  const ext = path.posix.extname(p);
-  return ext ? p.slice(0, -ext.length) : p;
+  const ext = path.posix.extname(p).toLowerCase();
+  return MODULE_EXTENSIONS.includes(ext) ? p.slice(0, -ext.length) : p;
+}
+
+function toForwardSlashes(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/** A drive-letter (`C:/…`) or UNC (`//server/share/…`) forward-slash path. */
+function isWindowsPath(p: string): boolean {
+  return /^[a-zA-Z]:\//.test(p) || p.startsWith('//');
+}
+
+/**
+ * Resolve a relative specifier against the directory of a forward-slash file
+ * path. Windows paths use win32 semantics, which keep a UNC `//server/share`
+ * root intact (POSIX normalisation would collapse it to `/server/share`).
+ */
+function resolveRelative(fromFile: string, specifier: string): string {
+  if (isWindowsPath(fromFile)) {
+    return toForwardSlashes(
+      path.win32.resolve(path.win32.dirname(fromFile), specifier),
+    );
+  }
+  return path.posix.normalize(
+    path.posix.join(path.posix.dirname(fromFile), specifier),
+  );
+}
+
+/**
+ * Comparable form of an absolute path: forward slashes, no `\\?\` long-path
+ * prefix, normalised with the path's own semantics (UNC roots preserved), no
+ * trailing slash, and case-folded where the filesystem is case-insensitive
+ * (a Windows host, or a Windows-shaped path).
+ */
+function comparablePath(p: string): string {
+  const plain = toForwardSlashes(p)
+    .replace(/^\/\/\?\/UNC\//i, '//')
+    .replace(/^\/\/\?\//, '');
+  const windows = isWindowsPath(plain);
+  const normalized = (
+    windows
+      ? toForwardSlashes(path.win32.normalize(plain))
+      : path.posix.normalize(plain)
+  ).replace(/\/+$/, '');
+  return windows || process.platform === 'win32'
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+/** Whether an absolute path lies strictly inside `dir`. */
+function isInsideDirectory(filePath: string, dir: string): boolean {
+  return comparablePath(filePath).startsWith(`${comparablePath(dir)}/`);
 }
 
 /**
