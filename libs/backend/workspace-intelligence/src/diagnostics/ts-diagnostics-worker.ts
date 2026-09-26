@@ -19,7 +19,18 @@
  * workspace (TASK_2026_325 finding 4). Keyed by path, two workspaces on two
  * compilers both resolve. The map stays small on its own: each entry
  * self-terminates after `IDLE_TERMINATE_MS` and removes itself, so its size is
- * bounded by the number of distinct compilers used inside any one idle window.
+ * bounded by twice the number of distinct compilers used inside any one idle
+ * window.
+ *
+ * **Two lanes per compiler** (TASK_2026_559 Batch 19): the key is
+ * `(tsModulePath, lane)`, with a `scoped` and an `unscoped` thread. A scoped
+ * check must not queue behind a whole-workspace one, and the provider keeps an
+ * unscoped compile running after answering its caller (so a retry can share
+ * it) — on one shared thread that kept compile made every later scoped check
+ * wait for all of it. Runs of the same lane still share their thread. The cost
+ * is memory: one compiler can now hold two `typescript` module loads and two
+ * in-flight programs at once, never more, and each lane gives its share back
+ * after its own idle window.
  *
  * Requests need no queue — the compile is synchronous inside the worker, so a
  * second message simply waits in that worker's own message queue. Ids correlate
@@ -84,7 +95,26 @@ export interface TsDiagnosticsRunRequest {
    * rule from a Linux CI runner.
    */
   readonly platform: NodeJS.Platform;
+  /**
+   * Which thread of this compiler the run queues on: `scoped` for a check
+   * narrowed to the projects owning named files, `unscoped` for a
+   * whole-workspace check. See {@link TsDiagnosticsLane}.
+   */
+  readonly lane: TsDiagnosticsLane;
 }
+
+/**
+ * A class of run that gets its own thread per compiler.
+ *
+ * A scoped check costs seconds; an unscoped one on a monorepo costs minutes,
+ * and it outlives its caller — the provider's budget answers at 45 s but keeps
+ * the compile so a retry can share it. On one shared thread every later scoped
+ * check queued behind that abandoned compile: measured at 86 s for a ~21 s
+ * scoped run (TASK_2026_559 Task 1.2, case e). Two lanes per compiler, one per
+ * class, remove that wait without cancelling the run the budget promised to
+ * keep.
+ */
+export type TsDiagnosticsLane = 'scoped' | 'unscoped';
 
 export interface TsDiagnosticsRunOutcome {
   readonly collected: readonly CollectedDiagnostic[];
@@ -117,7 +147,8 @@ interface PendingRun {
 
 /** One live thread plus everything outstanding on it. */
 interface WorkerEntry {
-  readonly tsModulePath: string;
+  /** Registration key in `workers`: the compiler and the lane together. */
+  readonly key: string;
   readonly worker: Worker;
   readonly pending: Map<number, PendingRun>;
   idleTimer: NodeJS.Timeout | null;
@@ -142,19 +173,56 @@ export class TsDiagnosticsWorker {
   private readonly workers = new Map<string, WorkerEntry>();
   private readonly terminations = new Set<Promise<void>>();
   private nextId = 1;
+  /** Bumped when a disposal starts; see {@link admissionToken}. */
+  private disposals = 0;
+  /** Disposals started and not yet finished. Admission is closed while > 0. */
+  private disposing = 0;
+
+  /**
+   * @param workerSource program each thread runs. Parameterized so a spec can
+   *   start real threads that hold their lane for a known time — the only way
+   *   to prove one run does not queue behind another; hosts never pass it.
+   */
+  constructor(
+    private readonly workerSource: string = TS_DIAGNOSTICS_WORKER_SOURCE,
+  ) {}
+
+  /**
+   * Permission to run later, taken when a request STARTS. `null` while a
+   * disposal is in progress: a request that starts then is refused outright.
+   *
+   * A caller that awaits anything between starting and calling {@link run}
+   * (the provider's config discovery) takes a token first and compares a fresh
+   * one right before `run`. Any disposal that began in between — finished or
+   * not — changes the token, so a request begun before or during a disposal
+   * can never start a thread after that disposal reported none left
+   * (TASK_2026_559 Batch 19 r1 S1, r2 R2-S1). Disposal ends a generation, not
+   * the pool: a request that starts after it completes is admitted as normal.
+   */
+  admissionToken(): number | null {
+    return this.disposing > 0 ? null : this.disposals;
+  }
 
   /**
    * Run one type-check off-thread.
    *
    * Rejects — it never resolves a partial answer — when the worker dies, when
-   * the compiler throws, or when the run exceeds `RUN_TIMEOUT_MS`. The caller
-   * turns that into an `unavailable` result; reporting zero diagnostics from a
-   * failed run would be the false clean this provider exists to avoid.
+   * the compiler throws, when the run exceeds `RUN_TIMEOUT_MS`, or when it is
+   * posted while {@link dispose} is in progress. The caller turns that into an
+   * `unavailable` result; reporting zero diagnostics from a failed run would be
+   * the false clean this provider exists to avoid.
    */
   run(request: TsDiagnosticsRunRequest): Promise<TsDiagnosticsRunOutcome> {
+    // Admission is closed while a disposal is running: `dispose()` joins the
+    // lanes that exist when it starts, so a thread created now would outlive
+    // it, alive and ref'd, after it had reported none left.
+    if (this.disposing > 0) {
+      return Promise.reject(disposedError());
+    }
+
     let entry: WorkerEntry;
     try {
-      entry = this.ensureWorker(request.tsModulePath);
+      entry = this.ensureWorker(request.tsModulePath, request.lane);
     } catch (error: unknown) {
       return Promise.reject(toError(error));
     }
@@ -199,30 +267,42 @@ export class TsDiagnosticsWorker {
    * Terminate every worker and reject anything outstanding. Idempotent.
    *
    * Resolves only once all threads are actually gone — including any that a
-   * timeout or a worker `error` event started terminating earlier.
+   * timeout or a worker `error` event started terminating earlier. No run is
+   * admitted until it resolves, so the set it joins is complete.
    */
   async dispose(): Promise<void> {
-    const disposed = new Error('TypeScript diagnostics worker was disposed.');
-    await Promise.all(
-      [...this.workers.values()].map((entry) =>
-        this.failWorker(entry, disposed),
-      ),
-    );
-    await Promise.all([...this.terminations]);
+    this.disposals += 1;
+    this.disposing += 1;
+    try {
+      const disposed = disposedError();
+      await Promise.all(
+        [...this.workers.values()].map((entry) =>
+          this.failWorker(entry, disposed),
+        ),
+      );
+      await Promise.all([...this.terminations]);
+    } finally {
+      this.disposing -= 1;
+    }
   }
 
-  private ensureWorker(tsModulePath: string): WorkerEntry {
-    const existing = this.workers.get(tsModulePath);
+  private ensureWorker(
+    tsModulePath: string,
+    lane: TsDiagnosticsLane,
+  ): WorkerEntry {
+    // NUL cannot occur in a path, so no module path can forge another's key.
+    const key = `${tsModulePath}\u0000${lane}`;
+    const existing = this.workers.get(key);
     if (existing) return existing;
 
-    const worker = new Worker(TS_DIAGNOSTICS_WORKER_SOURCE, {
+    const worker = new Worker(this.workerSource, {
       eval: true,
       workerData: { tsModulePath },
     });
     worker.unref();
 
     const entry: WorkerEntry = {
-      tsModulePath,
+      key,
       worker,
       pending: new Map<number, PendingRun>(),
       idleTimer: null,
@@ -244,7 +324,7 @@ export class TsDiagnosticsWorker {
       );
     });
 
-    this.workers.set(tsModulePath, entry);
+    this.workers.set(key, entry);
     return entry;
   }
 
@@ -271,7 +351,8 @@ export class TsDiagnosticsWorker {
    * Reject every run outstanding on one worker and terminate it. Used for
    * worker death, timeout and disposal alike — in all three cases that
    * thread's state is no longer trustworthy, so it is replaced rather than
-   * reused. Workers bound to OTHER compilers are untouched.
+   * reused. Workers bound to OTHER compilers, and the other lane of this
+   * compiler, are untouched.
    */
   private failWorker(entry: WorkerEntry, error: Error): Promise<void> {
     this.forget(entry);
@@ -281,8 +362,8 @@ export class TsDiagnosticsWorker {
 
   /** Drop an entry's registration and its idle timer. Safe to repeat. */
   private forget(entry: WorkerEntry): void {
-    if (this.workers.get(entry.tsModulePath) === entry) {
-      this.workers.delete(entry.tsModulePath);
+    if (this.workers.get(entry.key) === entry) {
+      this.workers.delete(entry.key);
     }
     this.cancelIdleTimer(entry);
   }
@@ -316,15 +397,15 @@ export class TsDiagnosticsWorker {
 
   private settleIdle(entry: WorkerEntry): void {
     if (entry.pending.size > 0) return;
-    if (this.workers.get(entry.tsModulePath) !== entry) return;
+    if (this.workers.get(entry.key) !== entry) return;
 
     entry.worker.unref();
     this.cancelIdleTimer(entry);
     entry.idleTimer = setTimeout(() => {
       entry.idleTimer = null;
       if (entry.pending.size > 0) return;
-      if (this.workers.get(entry.tsModulePath) !== entry) return;
-      this.workers.delete(entry.tsModulePath);
+      if (this.workers.get(entry.key) !== entry) return;
+      this.workers.delete(entry.key);
       void this.trackTermination(entry.worker.terminate());
     }, IDLE_TERMINATE_MS);
     entry.idleTimer.unref?.();
@@ -336,6 +417,10 @@ export class TsDiagnosticsWorker {
       entry.idleTimer = null;
     }
   }
+}
+
+function disposedError(): Error {
+  return new Error('TypeScript diagnostics worker was disposed.');
 }
 
 function toError(error: unknown): Error {
