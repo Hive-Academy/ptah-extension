@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 111 | Batches: 60 | Complete: 25/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 1 complete — 28a)
+Total tasks: 111 | Batches: 60 | Complete: 28/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 3 complete — 28a, 28b, 22)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,24 +2151,27 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                                                                                    | State                                      |
-| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13                                                          | 11, 11b, 16, 17, 18 COMPLETE; next 15 → 13 |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                       |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                           |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                |
-| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 IN_PROGRESS, revision round 1           |
-| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | 28a COMPLETE (merged); next 28b            |
-| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                        |
-| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge         |
-| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21           |
-| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3    |
-| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                     |
+| Lane | Worktree                                | Batches                                                                                    | State                                                       |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15 COMPLETE; next 13 → 20.2 → 21       |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                        |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                            |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                                 |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 COMPLETE (merged 96f9a5553); 23a in review (uncommitted) |
+| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | 24a IN_PROGRESS                                             |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                      |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                         |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                          |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                            |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3                     |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                      |
 
 Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
 section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
-decomposition notes D1-D10. Lane A still finishes 15 → 13, then 20.2 and 21, in this worktree (17 and 18
-COMPLETE). **22 (H)** is in revision round 1; **28a (P)** is merged, and P's next is **28b**. Batch 37b will split
+decomposition notes D1-D10. Lane A next runs 13 → 20.2 → 21 in this worktree (15, 17 and 18 COMPLETE).
+**22 (H)** is merged (96f9a5553); H's **23a** is uncommitted and under review. **24a (I)** is in progress under a
+coordinated handoff: 24a may edit only the `AstCodeInsights` interface in vscode-lm-tools `types.ts`; Lane A's 13
+edits the other interfaces in that file. **P** is done (28a merged e3578b2ca, 28b merged 44336de6a). Batch 37b will split
 three ways per `o2-go-vet-consent-surface.md`; it is decomposed when reached. Hub batches 24b, 23b, 25b, 26a wait
 for Lane A 13; 24c and 27 wait for Lane A 21 (D1, D2). At most 3 CLI lanes at once, reviews included.
 
@@ -2420,7 +2423,7 @@ states for lanes stay as recorded below until their merge.
 
 ---
 
-## Batch 15: ptah_task_list / ptah_task_check — paged, summary by default — PENDING
+## Batch 15: ptah_task_list / ptah_task_check — paged, summary by default — COMPLETE (commit ce6ba2c00)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2429,7 +2432,7 @@ states for lanes stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 13 (hub-file ordering)
 
-### Task 15.1: `limit`/`cursor`/`fields` on list — PENDING
+### Task 15.1: `limit`/`cursor`/`fields` on list — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.ts` (`TaskListArgsSchema` :204-207, `list()` :479-504), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`buildTaskListTool` :207-233)
 - Plan reference: research/agent-task-harness.md:307-362
@@ -2438,7 +2441,7 @@ states for lanes stay as recorded below until their merge.
 - Validation notes: re-check that no UI/RPC path uses `ptah.tasks.list` before changing defaults. Edge case: cursor past the end
 - Implementation details: specs with 150 tasks: default ≤ 25 rows and ≤ 8,000 chars; cursor continuation covers all 150 with no duplicates; fields full includes description
 
-### Task 15.2: Cap `invalid`/`excluded` in check — PENDING
+### Task 15.2: Cap `invalid`/`excluded` in check — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.ts` (`check()` :506-538), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.spec.ts`
 - Depends on: Task 15.1
@@ -2450,8 +2453,43 @@ states for lanes stay as recorded below until their merge.
 
 ### Batch 15 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The Codex review lane approves (r3 APPROVE 8/10)
+
+### Batch 15 record (Lane A)
+
+- Tasks 15.1 and 15.2 COMPLETE; details in `batch-15-executor-report.md` (initial, revision rounds 1-2, minor
+  follow-ups after r3)
+- Why: `ptah_task_list` returned every row with its description (164,507 chars for 150 tasks). It now returns
+  token-fitted pages of whole rows with a signed cursor that never silently skips or repeats a row; `ptah_task_check`
+  caps `invalid`/`excluded` at 50 each with `invalidTotal`/`excludedTotal`, verdict computed on the full set
+- Review history: r1 REVISE 5/10 (page not cut by the token budget; rename/filter cursor holes) → r2 REVISE 6/10
+  (a status change invalidated a filtered walk; forged v2 cursor accepted; long Unicode ids broke the cursor) → r3
+  APPROVE 8/10, 0 Blocking/Serious. The three r3 minors were applied after approval exactly as specified
+  (`timingSafeEqual` signature check; a forgery regression that only the HMAC can refuse, bypass-proven; the stale
+  `registerList` JSDoc in `tasks-rpc.handlers.ts`); no further review
+- Deviations (accepted):
+  - The MCP default page is token-fitted, not a fixed 25: the dispatcher passes `fitsBudget(text,
+getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary rows (5,733 chars, 1,929 of 2,000
+    tokens). `limit` (default 25, max 200) still bounds the page; through `execute_code` only `limit` applies
+  - `count` now means rows on this page; `total` carries every match (previously `count`)
+  - Summary rows also drop `folderName`/`validationIssues`, omit empty relation arrays and emit `frontmatterValid`
+    only when false (needed for the size budget); `fields:'full'` returns the unchanged row
+  - Cursor is `v:3`, fixed width (~140 chars), with an HMAC-SHA256 signature under a per-process `randomBytes(32)`
+    key. Trade-off: a cursor does not survive a host restart or cross hosts (Electron ↔ CLI); the agent gets
+    `INVALID_CURSOR` and restarts, as documented in `ptah.help('tasks')`. A rename/add/delete in the cursor's
+    same-instant group also returns `INVALID_CURSOR` (detected, never silent)
+  - `list()` reads the index once unfiltered and applies status/type with the shared `mergeStatusTypeFacets` +
+    `filterTasks` pair, so a status change never invalidates a filtered walk
+  - Files beyond the batch list: `protocol-dispatcher.ts` (+spec; budget `fits` hook), `system-namespace.builders.ts`
+    (help topic), `tool-description.builder.spec.ts`, and the `tasks-rpc.handlers.ts` comment
+- Pre-commit verification (2026-09-26, `--skip-nx-cache`): vscode-lm-tools test/lint/typecheck pass; rpc-handlers
+  lint/typecheck pass, test 1 failure in `harness/selection/harness-skill-selection-rpc.service.spec.ts:113`
+  ("never writes state.json") — environmental and unrelated: the precondition fails because the machine's `%TEMP%`
+  carries a stray `.ptah` directory, so the workspace root resolves above the fixture; deterministic in isolation (8/9),
+  and the file is outside Batch 15. `ptah-cli`/`ptah-electron` typecheck pass; validate-deps pass; degradation-audit
+  TOTAL 300
+- Commit **ce6ba2c00**
 
 ---
 
@@ -2922,7 +2960,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 22: Coverage contract + language registry — IN_PROGRESS
+## Batch 22: Coverage contract + language registry — COMPLETE (lane commit 186ba8cde, merged 96f9a5553)
 
 - Recommended executor: backend-developer (sub-agent), Lane H (`task-559-lane-h`)
 - Fallback executor: backend-developer, fresh invocation
@@ -2931,7 +2969,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: none (base: integration tip; file-disjoint from uncommitted Batch 17)
 
-### Task 22.1: `LanguageCoverage` contract and barrel — IN_PROGRESS
+### Task 22.1: `LanguageCoverage` contract and barrel — COMPLETE
 
 - Files: `PC/interfaces/language-coverage.interface.ts` (new), `PC/index.ts`
 - Plan reference: implementation-plan-languages.md "Coverage contract (Batch 22)", "Closed vocabularies", "Size", "Clean answer rule"
@@ -2940,7 +2978,7 @@ Edge cases (carried by the named task):
 - Validation notes: RISK size — worst case asserted ≤ 1,000 chars; the serialised worst-case fixture is committed and its measured length recorded (r3 finding 2: 920 measured, not a universal max). Approximation overflow keeps four by priority and discloses the rest via `approximationsOmitted`
 - Implementation details: one exported priority array drives the overflow rule; `unknown` census never clean
 
-### Task 22.2: Language registry with separate capabilities — IN_PROGRESS
+### Task 22.2: Language registry with separate capabilities — COMPLETE
 
 - Depends on: Task 22.1
 - Files: `WI/ast/language-registry.ts` (new), `WI/ast/language-registry.spec.ts` (new), `WI/ast/tree-sitter.config.ts`, `WI/index.ts`
@@ -2955,6 +2993,26 @@ Edge cases (carried by the named task):
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/platform-core @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
 - `nx run ptah-electron:validate-deps --skip-nx-cache` passes; `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300; other common checks
 - FB evidence in the report; the Codex review lane approves
+
+### Batch 22 record (Lane H)
+
+- Tasks 22.1 and 22.2 COMPLETE; details in `batch-22-executor-report.md` (initial, revision rounds 1-2, orchestrator
+  ruling, bounded post-cap correction). Lane commit **186ba8cde**, merged into this branch as **96f9a5553** (no
+  conflicts)
+- Review history: r1 REVISE 6/10 (common source extensions disappeared; grammar guard compared the wrong mapping) →
+  r2 REVISE 6/10 (`.mdx`, `CMakeLists.txt` misclassified as non-source) → r3 REVISE 6/10 (artefacts and checksum files
+  landed in `unrecognised`) → r4-postcap APPROVE 8/10 (`reviews/batch-22-code-logic-review-r1..r3.md`,
+  `-r4-postcap.md`)
+- Orchestrator rulings: unknown/`null` is never clean (`isCleanAnswer` requires `unrecognised === 0`; a census tool
+  always sets a number; unknown extensions default to `unrecognised`); non-source files never qualify an answer, via
+  a new disjoint `nonSource` bucket (deviation from the ruling's "excluded" wording, accepted); ordinary artefacts
+  (pdf, archives/packages, compiled binaries/bytecode, `.wasm`, `.map`) and lock/checksum files (`go.sum`,
+  `go.work.sum`, `*.lock`, `package-lock.json`, `pnpm-lock.yaml`) are `nonSource`; SVG stays unrecognised (can embed
+  `<script>`); `.mdx` stays unrecognised; code base names (`CMakeLists.txt`, `build.xml`) outrank extensions
+- Size: worst-case serialised coverage pinned at 965 chars (≤ 1,000)
+- Integration verification after merge (2026-09-26, `--skip-nx-cache`): vscode-lm-tools, workspace-intelligence,
+  platform-core test/lint/typecheck pass; ptah-extension-vscode/ptah-electron/ptah-cli lint/typecheck pass;
+  validate-deps pass; degradation-audit TOTAL 300
 
 ---
 
@@ -3376,7 +3434,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 28b: VSIX packed check — PENDING
+## Batch 28b: VSIX packed check — COMPLETE (lane commit 5d19d8971, merged 44336de6a)
 
 - Recommended executor: Codex CLI lane, Lane P
 - Fallback executor: devops-engineer (sub-agent)
@@ -3385,7 +3443,7 @@ Edge cases (carried by the named task):
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batch 28a
 
-### Task 28b.1: `verify-packed-wasm.cjs` after `package` — PENDING
+### Task 28b.1: `verify-packed-wasm.cjs` after `package` — COMPLETE
 
 - Files: `<WT>/apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs` (new; the `scripts/` dir does not exist yet), `<WT>/apps/ptah-extension-vscode/project.json`
 - Plan reference: codebase evidence `apps/ptah-extension-vscode/project.json:118-122`
@@ -3400,6 +3458,19 @@ Edge cases (carried by the named task):
 - `node_modules/.bin/nx run-many -t=lint -p ptah-extension-vscode --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - The Claude reviewer approves
+
+### Batch 28b record (Lane P)
+
+- Task 28b.1 COMPLETE; details in `batch-28b-executor-report.md`. Author: Codex CLI lane; reviewer: Claude
+  `code-logic-reviewer`, r1 APPROVE 8/10 (`reviews/batch-28b-code-logic-review-r1.md`)
+- `apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs` (new) runs after VSCE packaging on the exact
+  name/version `.vsix` and fails on any missing or empty manifest-active grammar; `project.json` package target runs
+  self-test → VSCE package → verify. FB: a real VSCE-built VSIX with Python omitted packaged successfully before and
+  is rejected (exit 1) after
+- Real artifact: `ptah-coding-orchestra-0.2.43.vsix` 11,415,494 bytes before/after, 0-byte delta, 40 entries
+  hash-identical (executor-measured). Caveat: the reviewer did not re-run the full VSCE build (~4 min); that number is
+  trusted from the executor's report, with the self-test's ZIP path exercised by the reviewer
+- Lane commit **5d19d8971**, merged into this branch as **44336de6a** (no conflicts). Post-merge `--self-test` PASS
 
 ---
 
