@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 19 | Batches: 11 | Complete: 10/11
+Total tasks: 19 | Batches: 11 | Complete: 11/11
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -381,7 +381,7 @@ Edge cases:
 - Targeted guard (open item 1, the only unchanged-project run): `npx nx test @ptah-extension/output-styles --testPathPattern=output-style-activation.resolver` passes
 - Reviewer: code-logic review via codex CLI lane (shipping code; confirms settingSources unchanged)
 
-## Batch 9: Integration test through the installed SDK — IN_PROGRESS (revise round 2 of 2)
+## Batch 9: Integration test through the installed SDK — COMPLETE (commit ba13acf27)
 
 - Recommended executor: senior-tester (sub-agent; plan names it owner of the first real-binary run)
 - Fallback executor: backend-developer (sub-agent)
@@ -391,7 +391,7 @@ Edge cases:
 - Files (1, 1 lib): `translation-proxy.sdk.integration.spec.ts` (C)
 - Commit: `test(auth-providers): prove skill, command and overflow flows via SDK`
 
-### Task 9.1: S1-S6 through real SDK, real CLI, real CodexTranslationProxy, mocked upstream — IN_PROGRESS
+### Task 9.1: S1-S6 through real SDK, real CLI, real CodexTranslationProxy, mocked upstream — COMPLETE
 
 - File: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy.sdk.integration.spec.ts`
 - Plan reference: implementation-plan.md:395-453, :505, :577 (R1)
@@ -404,8 +404,21 @@ Edge cases:
 
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed); report states which S6 variant passed
 - Reviewer: code-logic review via codex CLI lane (proof claims must match assertions)
-- Files as delivered: `translation-proxy.sdk.integration.spec.ts` (C) plus `.ptah/specs/TASK_2026_408/integration-observations.md` (C, observed A3/A5 outcomes). Neither is staged in any commit yet.
-- Review history: `code-logic-review-b9-b11.md` REJECTED Batch 9; `code-logic-review-b9-b11-r1.md` REJECTED Batch 9 again (child-process cleanup on Windows: with unavailable or slow CIM the returned promise stays pending past the scenario budget, and cleanup can overlap later tests, N1/N2 at spec `:496`, `:825`). No production defect was attributed to Batch 9. Last permitted revise round in progress.
+- Files as delivered: `translation-proxy.sdk.integration.spec.ts` (C, 1336 lines) plus `.ptah/specs/TASK_2026_408/integration-observations.md` (C, observed A3/A5 outcomes). Both committed in ba13acf27.
+- Review history (all in the task folder):
+  1. `code-logic-review-b9-b11.md` REJECTED 5/10 (F1-F5); fixed.
+  2. `code-logic-review-b9-b11-r1.md` REJECTED 6/10 (N1-N3: Windows child-process cleanup; with unavailable or slow CIM the promise stays pending past the scenario budget, and cleanup can overlap later tests); fixed in the last permitted revise round.
+  3. `code-logic-review-b9-r2.md` REJECTED 7/10 (new N4: the `taskkill` `execFile` was not cancelled). The orchestrator made one bounded correction: `boundedTreeKill` with an `execFile` timeout.
+  4. `code-logic-review-b9-r3.md`: N4 resolved; new N5 (`taskkill` run by bare name through `PATH`).
+  5. **User authorization beyond the revise cap:** the USER explicitly authorized one more fix (answer to AskUserQuestion: "Fix N5, then PR"). The developer now resolves `taskkill.exe` from `%SystemRoot%` (or `%windir%`) `\System32`, with no bare-name fallback; the spec throws if neither variable is set (spec `:578-590`).
+  6. `code-logic-review-b9-r4.md` APPROVED 8/10, no new findings.
+  No production defect was attributed to Batch 9 in any round.
+- Team-leader on-disk check: pinned `0.3.278` asserted (`:53`); `findPinnedSdk()` throws, never skips (`:19`, `:79-114`); no `.skip`/`xit`; `taskkill` resolved from `SystemRoot` (`:578-590`); S6 asserts `compact_boundary` (`:1310`) and `S6-DONE` (`:1325`).
+- Latest runs (orchestrator): integration 9/9 (130 s after the N5 fix; 88 s after N4); eslint and prettier clean on the spec. The 100 leftover `%TEMP%\ptah-sdk-int-*` items from early runs were removed; new runs leave none.
+- `ownership.md` re-check after Batch 9 landed:
+  - Its Batch 9 section cites no spec line numbers, and every scenario claim (S1-S6b) matches `integration-observations.md`, including S3 forwarded literally and S6a/S6b with required auto-compaction.
+  - One citation had drifted because of Batch 11: the `[DONE]`-only bullet pointed at `responses-stream-translator.ts:314`/`:770`, now `:353`/`:812`. Fixed in `952cf82d0` (`docs:`).
+  - The other production citations were spot-checked and still point at the cited code.
 - Observed outcome that produced Batch 11: a streamed `response.failed` overflow after 200 SSE headers made the pinned CLI retry (`api_retry` loop) instead of compacting. S6a (HTTP 400) and S6b (streamed failure, now answered error-first as HTTP) both require an auto `compact_boundary` and a success result with `S6-DONE`; the propagation-only fallback was removed (`integration-observations.md:192`).
 - Environment note: 17 `agent-role-resolver` failures in `@ptah-extension/cli-agent-runtime` under the normal TEMP come from a stray `C:\Users\abdal\AppData\Local\Temp\.claude` folder (created 17:09:54, empty `commands/` and `skills/`). It was not created by this task's spec, and the suite passes with an isolated TEMP. Recorded as an environment issue, not a regression; `test-report.md` must note it.
 
