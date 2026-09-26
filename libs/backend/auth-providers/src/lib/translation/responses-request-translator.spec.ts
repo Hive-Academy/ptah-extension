@@ -28,8 +28,10 @@
 import {
   translateAnthropicToResponses,
   translateToolsForResponses,
+  type ResponsesFunctionCallOutputItem,
 } from './responses-request-translator';
 import type {
+  AnthropicContentBlock,
   AnthropicImageBlock,
   AnthropicMessagesRequest,
   AnthropicToolDefinition,
@@ -548,6 +550,68 @@ describe('translateAnthropicToResponses (end-to-end round-trip)', () => {
         },
         { type: 'function_call_output', call_id: 'shot_2', output: 'none' },
         { role: 'user', content: [{ type: 'input_text', text: 'next' }] },
+      ]);
+    });
+
+    // Pins today's edge-case semantics (code-logic-review-b5.md minor 1).
+    const unknownBlock = {
+      type: 'document',
+      source: { type: 'text', media_type: 'text/plain', data: 'doc' },
+    } as unknown as AnthropicContentBlock;
+    it.each<
+      [
+        string,
+        AnthropicToolResultBlock['content'],
+        boolean | undefined,
+        ResponsesFunctionCallOutputItem['output'],
+      ]
+    >([
+      ['missing content', undefined, undefined, ''],
+      ['missing content with is_error', undefined, true, ''],
+      ['empty-array content', [], undefined, ''],
+      ['empty-array content with is_error', [], true, ''],
+      ['empty string with is_error', '', true, ''],
+      [
+        'empty text block with is_error',
+        [{ type: 'text', text: '' }],
+        true,
+        '',
+      ],
+      ['only an unknown block', [unknownBlock], undefined, ''],
+      [
+        'an unknown block beside text, no image',
+        [
+          { type: 'text', text: 'a' },
+          unknownBlock,
+          { type: 'text', text: 'b' },
+        ],
+        undefined,
+        'a\nb',
+      ],
+      [
+        'an unknown block beside an image',
+        [{ type: 'text', text: 'a' }, unknownBlock, png],
+        undefined,
+        [
+          { type: 'input_text', text: 'a' },
+          { type: 'input_image', image_url: PNG_URL },
+        ],
+      ],
+      [
+        'a leading unknown block before an image with is_error',
+        [unknownBlock, png],
+        true,
+        [
+          { type: 'input_text', text: 'Error:' },
+          { type: 'input_image', image_url: PNG_URL },
+        ],
+      ],
+    ])('maps %s', (_name, content, isError, output) => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest(content, isError),
+      );
+      expect(out.input).toEqual([
+        { type: 'function_call_output', call_id: 'img_call', output },
       ]);
     });
   });

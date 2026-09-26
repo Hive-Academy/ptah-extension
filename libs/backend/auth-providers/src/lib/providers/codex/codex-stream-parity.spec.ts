@@ -15,12 +15,15 @@ const response = (usage: unknown, output: unknown[] = [
   { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
 ]) => ({ status: 'completed', output, usage });
 
-function auth(endpoint: string): ICodexAuthService {
+function auth(
+  endpoint: string,
+  ensureTokensFresh: () => Promise<boolean> = async () => false,
+): ICodexAuthService {
   return {
     getAccountUsageEligibility: async () => 'supported',
     getApiEndpoint: () => endpoint,
     getHeaders: async () => ({ authorization: 'Bearer fake-only' }),
-    ensureTokensFresh: async () => false,
+    ensureTokensFresh,
     isAuthenticated: async () => true,
     listModels: async () => [],
     clearCache: () => undefined,
@@ -174,5 +177,119 @@ describe('Codex Responses real-consumer usage parity', () => {
       await proxy.stop();
       await upstream.close();
     }
+  });
+});
+
+describe('Codex Responses tool-result images', () => {
+  const PNG_1X1_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=';
+  const request: Anthropic.MessageCreateParamsNonStreaming = {
+    model: 'gpt-test',
+    max_tokens: 50,
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call-1', name: 'screenshot', input: {} },
+          { type: 'tool_use', id: 'call-2', name: 'read_file', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: [
+              { type: 'text', text: 'captured' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: PNG_1X1_B64,
+                },
+              },
+            ],
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-2',
+            content: 'plain result',
+          },
+        ],
+      },
+    ],
+  };
+
+  async function run(statuses: number[]) {
+    const bodies: string[] = [];
+    const upstream = await server((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        bodies.push(body);
+        res.writeHead(statuses[bodies.length - 1] ?? 200, {
+          'content-type': 'application/json',
+        });
+        res.end(
+          JSON.stringify(response({ input_tokens: 1, output_tokens: 1 })),
+        );
+      });
+    });
+    const proxy = new CodexTranslationProxy(
+      createMockLogger() as unknown as Logger,
+      auth(upstream.origin, async () => true),
+    );
+    try {
+      const { url } = await proxy.start();
+      const client = new Anthropic({
+        apiKey: 'fake-client-key',
+        baseURL: url,
+        maxRetries: 0,
+      });
+      await client.messages.create(request);
+      return bodies.map(
+        (body) => JSON.parse(body) as { input: Array<Record<string, unknown>> },
+      );
+    } finally {
+      await proxy.stop();
+      await upstream.close();
+    }
+  }
+
+  const outputs = (body: { input: Array<Record<string, unknown>> }) =>
+    body.input.filter((item) => item['type'] === 'function_call_output');
+
+  it('forwards an image tool_result as an input_image array and a text-only one as a string', async () => {
+    const [body] = await run([200]);
+    expect(outputs(body)).toEqual([
+      {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: [
+          { type: 'input_text', text: 'captured' },
+          {
+            type: 'input_image',
+            image_url: `data:image/png;base64,${PNG_1X1_B64}`,
+          },
+        ],
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-2',
+        output: 'plain result',
+      },
+    ]);
+  });
+
+  it('resends the same image array on the 401 refresh retry', async () => {
+    const bodies = await run([401, 200]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+    expect(JSON.stringify(bodies[1])).toContain('"input_image"');
   });
 });

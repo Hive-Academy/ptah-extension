@@ -49,6 +49,7 @@ import {
   ResponsesToolNameCollisionError,
   type GuardedResponsesRequest,
 } from './responses-tool-names';
+import { downgradeToolOutputImages } from './responses-tool-output-images';
 import {
   collectResponsesStream,
   ResponsesStreamError,
@@ -562,10 +563,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         sendErrorResponse(res, 400, 'invalid_request_error', error.message);
         return;
       }
+      // Decided once here, so the 401 retry resends this same request.
+      const responsesRequest = this.supportsResponsesToolOutputImages()
+        ? guarded.request
+        : downgradeToolOutputImages(guarded.request);
 
       try {
         await this.forwardToResponsesApi(
-          guarded.request,
+          responsesRequest,
           guarded.toOriginalName,
           anthropicRequest,
           res,
@@ -710,6 +715,15 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   }
 
   protected requiresResponsesStream(_target: URL): boolean {
+    return false;
+  }
+
+  /**
+   * Whether the upstream accepts an array `function_call_output.output` with
+   * `input_image` parts. Default `false`: images become text placeholders
+   * until a provider opts in with wire-format evidence.
+   */
+  protected supportsResponsesToolOutputImages(): boolean {
     return false;
   }
 

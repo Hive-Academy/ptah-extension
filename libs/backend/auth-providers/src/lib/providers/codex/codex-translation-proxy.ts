@@ -137,4 +137,15 @@ export class CodexTranslationProxy extends TranslationProxyBase {
       target.hostname === 'chatgpt.com' &&
       target.pathname.replace(/\/$/, '') === '/backend-api/codex/responses';
   }
+
+  /**
+   * Codex keeps tool-result images as `input_image` parts. Evidence: the
+   * pinned Codex 0.155.1 client serializes `FunctionCallOutputContentItem` as
+   * an internally tagged enum whose `FunctionCallOutputContentItem::InputImage`
+   * variant is sent in `function_call_output.output`. Rollback (risk R2):
+   * delete this override and the base placeholder path takes over.
+   */
+  protected override supportsResponsesToolOutputImages(): boolean {
+    return true;
+  }
 }

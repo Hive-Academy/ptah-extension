@@ -5,6 +5,7 @@ import {
 import {
   translateAnthropicToResponses,
   type OpenAIResponsesRequest,
+  type ResponsesFunctionCallOutputItem,
 } from './responses-request-translator';
 import type { AnthropicMessagesRequest } from './openai-translation.types';
 
@@ -75,6 +76,41 @@ describe('downgradeToolOutputImages', () => {
         call_id: 'c1',
         output: TOOL_OUTPUT_IMAGE_PLACEHOLDER,
       },
+    ]);
+  });
+
+  // Pins today's edge-case semantics (code-logic-review-b5.md minor 1).
+  it.each<[string, ResponsesFunctionCallOutputItem['output'], string]>([
+    [
+      'only an unsupported-media placeholder part',
+      [{ type: 'input_text', text: '[image omitted: unsupported media type]' }],
+      '[image omitted: unsupported media type]',
+    ],
+    [
+      'only images',
+      [
+        { type: 'input_image', image_url: PNG_URL },
+        { type: 'input_image', image_url: PNG_URL },
+      ],
+      `${TOOL_OUTPUT_IMAGE_PLACEHOLDER}\n${TOOL_OUTPUT_IMAGE_PLACEHOLDER}`,
+    ],
+    ['an empty array', [], ''],
+    [
+      'a text-only array',
+      [
+        { type: 'input_text', text: 'a' },
+        { type: 'input_text', text: 'b' },
+      ],
+      'a\nb',
+    ],
+    ['a string', 'kept as is', 'kept as is'],
+  ])('downgrades %s', (_name, output, expected) => {
+    const req: OpenAIResponsesRequest = {
+      model: 'gpt-5.4',
+      input: [{ type: 'function_call_output', call_id: 'c1', output }],
+    };
+    expect(downgradeToolOutputImages(req).input).toEqual([
+      { type: 'function_call_output', call_id: 'c1', output: expected },
     ]);
   });
 
