@@ -420,7 +420,7 @@ Edge cases:
   - One citation had drifted because of Batch 11: the `[DONE]`-only bullet pointed at `responses-stream-translator.ts:314`/`:770`, now `:353`/`:812`. Fixed in `952cf82d0` (`docs:`).
   - The other production citations were spot-checked and still point at the cited code.
 - Observed outcome that produced Batch 11: a streamed `response.failed` overflow after 200 SSE headers made the pinned CLI retry (`api_retry` loop) instead of compacting. S6a (HTTP 400) and S6b (streamed failure, now answered error-first as HTTP) both require an auto `compact_boundary` and a success result with `S6-DONE`; the propagation-only fallback was removed (`integration-observations.md:192`).
-- Environment note: 17 `agent-role-resolver` failures in `@ptah-extension/cli-agent-runtime` under the normal TEMP come from a stray `C:\Users\abdal\AppData\Local\Temp\.claude` folder (created 17:09:54, empty `commands/` and `skills/`). It was not created by this task's spec, and the suite passes with an isolated TEMP. Recorded as an environment issue, not a regression; `test-report.md` must note it.
+- Environment note: 17 `agent-role-resolver` failures in `@ptah-extension/cli-agent-runtime` under the normal TEMP come from a stray `C:\Users\abdal\AppData\Local\Temp\.claude` folder (created 17:09:54, empty `commands/` and `skills/`). It was not created by this task's spec. **Corrected by QA:** the stray-folder cause and the claim that "the suite passes with an isolated TEMP" did not reproduce (`test-report.md:78-85`: same 17 failures under two fresh isolated TEMPs). The failures are PRE-EXISTING. The same spec on the unchanged main checkout (`D:\projects\ptah-extension`, base `ebfc73321`) gives 1 suite failed, 17 failed / 18 passed (35 total) (`test-report.md:109-111`). This branch changes only a 5-line comment in `cli-agent-runtime`, so this is not a regression. The cause stays open, outside this task.
 
 ## Batch 10: Ownership doc and entry-point comments — COMPLETE (commit 54038450c)
 
@@ -448,7 +448,7 @@ Edge cases:
 - Reviewer: code-style review sub-agent (docs and comments; facts checked against citations)
 - As executed:
   - Both code diffs are comment-only, +5 lines each (verified with `git diff`).
-  - Verification: `cli-agent-runtime` and `ptah-cli` lint/typecheck pass. `cli-agent-runtime` tests: 68/68 suites, 1207 passed + 1 skipped, with an isolated TEMP (see the Batch 9 environment note). The `ptah-cli` test target was not run: its change is comment-only and its typecheck passes.
+  - Verification: `cli-agent-runtime` and `ptah-cli` lint/typecheck pass. `cli-agent-runtime` tests: 68/68 suites, 1207 passed + 1 skipped, reported by the developer with an isolated TEMP. QA could not reproduce that isolation result; the 17 `agent-role-resolver` failures are pre-existing on main (see the corrected Batch 9 environment note). The `ptah-cli` test target was not run: its change is comment-only and its typecheck passes.
   - Review route: the code-logic lane was used in place of code-style, because the doc makes behavioural claims.
 - Review history:
   - `code-logic-review-b10.md` REJECTED 6/10: four moderate wording findings, fixed.
@@ -481,6 +481,21 @@ Edge cases:
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers`: 53/53 suites, 1315/1315 tests (including the uncommitted integration spec in the working tree), lint 0 errors, typecheck ok. `npx nx run-many -t typecheck -p ptah-cli` passes.
 - Review history: `code-logic-review-b9-b11.md` REJECTED Batch 11 6/10 (F6 upstream not released after error-first; F7 no header deadline) → fixed → `code-logic-review-b9-b11-r1.md` Batch 11 APPROVED 8/10.
 - Residual (recorded in `ownership.md`): an SSE error after output was already sent is retried by the pinned CLI, not compacted. The unit test proves the wire behaviour only.
+
+## QA (senior-tester) — COMPLETE (test commit 134b4171b; report committed with this file)
+
+- Deliverable: `test-report.md`.
+  - Scoped runs of `auth-providers`, `shared`, `agent-sdk`, `cli-agent-runtime`, `ptah-cli`, plus the targeted `output-styles` run.
+  - MOCKED vs LIVE split: live provider checks = none; probe P7 is not authorized.
+  - All five architecture-level functional criteria (implementation-plan.md:474-479) PASS.
+- New tests (test-only; production code unchanged): 3 in `codex-stream-parity.spec.ts` and `opencode-translation-proxy.spec.ts`, covering the raw-byte parity item deferred from `code-logic-review-b6.md`. `auth-providers` goes from 1315 to 1318; the number of record is a clean isolated run of 53/53 suites and 1318/1318 tests.
+- Flaky under concurrent load, passing clean: the OpenCode native-timeout test and the integration spec's Windows CIM tree-kill check. Neither was touched by QA.
+- Review: `code-logic-review-qa.md` REJECTED 6/10, with 0 blocking, 0 serious and 1 moderate finding: the text-only expected bodies are built with the production translator and name guard, so the test does not pin independent wire bytes. The rest of the QA test change was confirmed valid.
+- **Reviewer override (orchestrator decision, recorded in `test-report.md:113-115`):** the moderate finding is accepted as intended.
+  - Reason: those tests assert that `downgradeToolOutputImages` and the HTTP transport leave a text-only request byte-identical to the translator output. That is the same method as the Batch 6 test approved in `code-logic-review-b6.md`.
+  - Team-leader assessment: the reason holds for the property the tests claim. This is a test-only commit, so no production code rests on the override.
+  - For `future-enhancements`: the reviewer's recommendation, a hand-authored literal wire fixture that pins translator field order independently.
+- The Batch 9 environment note was corrected: the `agent-role-resolver` failures are pre-existing on main, not caused by TEMP.
 
 ## After all batches (Batch 9 last)
 
