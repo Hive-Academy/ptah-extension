@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 53 | Batches: 27 | Complete: 13/27
+Total tasks: 54 | Batches: 28 | Complete: 15/28
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1738,7 +1738,28 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 8: ptah_lsp_definitions (Electron) — fallback that does not depend on the index; LSP descriptions — IN_PROGRESS
+## Batch 2y-jest: Jest `marked` ESM mapping and role-resolver fixture isolation (unplanned) — COMPLETE (commit 609b57bb5)
+
+- Origin: unplanned test-infrastructure fix, approved by the orchestrator on 2026-09-26; reviewed with Batch 8 as
+  "Part B" of the Batch 8 review lane
+- Executor: orchestrator (`batch-2y-jest-marked-report.md`)
+- Execution mode: sequential
+- Tasks: 1 | Depends on: Batch 2e (which pulled `marked` into the app Jest graphs)
+
+### Task 2y.1: Map `marked` to its UMD build in the root Jest preset; hermetic role fixture — COMPLETE
+
+- Files: `<WT>/jest.preset.js` (`moduleNameMapper` `^marked$` → `node_modules/marked/lib/marked.umd.js`; Jest 30
+  merges the preset mapper with each project's own), `<WT>/libs/backend/cli-agent-runtime/src/lib/roles/agent-role-resolver.service.spec.ts`
+  (fixture creates its own `.ptah/` marker so a stray `%TEMP%/.ptah` cannot win root resolution)
+- Why: `marked` 18 is ESM-only; ptah-cli, ptah-extension-vscode, ptah-tui and ptah-electron specs failed with "Must use
+  import to load ES Module" since Batch 2e, hidden because hooks did not run (`.husky/_` missing)
+- The orchestrator's temporary electron Jest workaround was removed: `apps/ptah-electron/jest.config.ts` and
+  `tsconfig.spec.json` have no diff against HEAD (verified)
+- Review: Batch 8 r1 Part B (M3 role fixture, redundant electron workaround) → fixed; r3-postcap APPROVE for Part B
+
+---
+
+## Batch 8: ptah_lsp_definitions (Electron) — fallback that does not depend on the index; LSP descriptions — COMPLETE (commit 3feea4f6a)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1747,7 +1768,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 6
 
-### Task 8.1: Import-resolution fallback in `declarationsFor` — IN_PROGRESS
+### Task 8.1: Import-resolution fallback in `declarationsFor` — COMPLETE (.tsx accepted as scoped)
 
 - Files: `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.ts` (:188-294, :534-553), `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`
 - Plan reference: research/code-intel.md:498-519
@@ -1756,7 +1777,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Validation notes: the guard must not rely on a mock that always returns data. Use a real temp fixture tree (two files, one importing a class from the other) plus a symbol reader returning no hits → the definition is still found. Keep the existing multi-candidate disambiguation behaviour
 - Implementation details: bounded work, one resolved file read per call
 
-### Task 8.2: Host-accurate LSP tool descriptions — IN_PROGRESS
+### Task 8.2: Host-accurate LSP tool descriptions — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`ptah_lsp_references` :392-396, `ptah_lsp_definitions` :423-428), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.spec.ts`
 - Plan reference: research/code-intel.md:508-512; context.md User Decision 4
@@ -1768,11 +1789,71 @@ complete declaration summary or an honest full-file result with a `reason`.
 ### Batch 8 verification
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p ptah-electron @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- The Codex review lane approves (met: r3-postcap APPROVE 8/10)
+
+### Batch 8 review history
+
+- Executor: backend-developer (`batch-8-executor-report.md`)
+- Review r1 (`reviews/batch-8-code-logic-review-r1.md`, Codex): **REVISE 4/10**. Part A: B1 junction/symlink escape
+  from the workspace on the import read; B2 the fallback narrowed `getReferences` scope; B3 declaration-shaped text in
+  comments answered a lookup; M1 UNC roots collapsed by POSIX normalisation; M2 `.d.ts` targets not probed. Part B
+  (2y-jest): M3 role-resolver fixture not hermetic; redundant electron Jest workaround. All fixed
+- Review r2 (`reviews/batch-8-code-logic-review-r2.md`, Codex): **REVISE 6/10**. S1 `.tsx` files with JSX parsed as
+  ERROR, losing empty-index definitions without disclosure; M1 Go `type_alias` not captured. Revise cap reached; one
+  bounded correction (`.tsx` unresolved in the index-free path and disclosed in the description; Go `type_alias` query)
+- Review r3-postcap (`reviews/batch-8-code-logic-review-r3-postcap.md`, Codex): **APPROVE 8/10** for Part A and Part B
+
+### Batch 8 deviations (accepted)
+
+1. `.tsx` accepted as scoped: the index-free fallback returns `[]` for a `.tsx` cursor or target (the packaged
+   TypeScript grammar has no JSX); disclosed in the `ptah_lsp_definitions` description. The index path still resolves
+   `.tsx`. `main` had no index-free fallback at all, so this is not a regression
+2. `stripExtension` now strips only script-module extensions (`./foo.service` stays `foo.service`)
+3. Declarations are found by per-language Tree-sitter queries, top-level only; any ERROR node → unresolved
+4. The fallback also runs when there is no symbol reader (the old early `return []` was removed)
+5. `realpath` is injected as the last constructor parameter (default `fs.promises.realpath`); the class is registered
+   via `useValue` in `phase-3-storage.ts`, so DI is unaffected
+6. Reference scoping uses only index-named declarations and `dependencyGraph.isBuilt(workspaceFolder)`
+
+### Batch 8 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `declarationsFor` → `indexedDeclarations` / `declarationsWithoutIndex`, `DECLARATION_QUERIES` (ts, js,
+  python, go), `findModuleFile` + `canonicalPathInside` (realpath containment before read), `resolveRelative` /
+  `comparablePath` (UNC, `\\?\`, case folding); both LSP descriptions host-qualified. No TODO/FIXME/PLACEHOLDER/STUB
+  markers; no stray files
+- `nx run-many "-t=test,lint,typecheck" -p ptah-electron @ptah-extension/vscode-lm-tools @ptah-extension/cli-agent-runtime --skip-nx-cache`
+  → success, 3 projects
+- `nx run-many -t=test -p ptah-cli ptah-extension-vscode ptah-tui @ptah-extension/tool-output-reducers --skip-nx-cache`
+  → success, 4 projects (2y-jest fix confirmed)
+- `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `apps/ptah-electron: 4 ok (baseline 4)`, every
+  directory within baseline
+- `nx run ptah-electron:validate-deps --skip-nx-cache` → success
+- Commits 609b57bb5 (2y-jest) and 3feea4f6a (Batch 8): pre-commit and commit-msg hooks passed on both
+
+### Batch 8 follow-ups (not blocking)
+
+- (a) CROSS-BATCH: package `tree-sitter-tsx.wasm` (`scripts/copy-wasm.js`, the `verify-packed-wasm` scripts, the
+  `TreeSitterParserService` grammar set, `SupportedLanguage`). Unblocks the Batch 2d JSX refusal, Batch 7 `.tsx`
+  summaries (follow-up 7b) and the Batch 8 `.tsx` fallback
+- (b) The `ptah_lsp_references` description needs a qualifier: "limited to importing files once the dependency graph
+  is built" applies only when the index names the declaration
+- (c) `safeReadFile` logs a file path and the raw error message (pre-existing)
+- (d) `apps/ptah-electron/src/di/phase-3-storage.ts:203` log text "via symbol index" is out of date
+- (e) TOCTOU between the realpath containment check and the read is not addressed (local tool; accepted)
+
+### Notes for Batch 9 (added at Batch 8 close)
+
+- Batch 9 edits `tool-description.builder.ts` again (`buildGetSymbolIndexTool`); the `ptah_lsp_*` and
+  `ptah_context_enrich_file` blocks changed in 3feea4f6a / c42b8cee6 must not be touched; the description spec budget
+  still applies
+- The root Jest preset now maps `marked`; do not add per-project `marked` mappers or `transformIgnorePatterns`
+- Hooks are active (`.husky/_` present): pre-commit runs affected lint, `ptah-electron:validate-deps`; commitlint
+  enforces the scope enum
+- The shared prompt constants stay frozen (User Decision 4)
 
 ---
 
-## Batch 9: ptah_get_symbol_index — pathPrefix/limit/offset; cold-latency measurement — PENDING
+## Batch 9: ptah_get_symbol_index — pathPrefix/limit/offset; cold-latency measurement — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1781,7 +1862,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 8 (hub-file ordering)
 
-### Task 9.1: Paging and filtering at the namespace and tool — PENDING
+### Task 9.1: Paging and filtering at the namespace and tool — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.ts` (`getSymbolIndex` :381-400), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:1840-1848), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`buildGetSymbolIndexTool` :1815-1826)
 - Plan reference: research/code-intel.md:362-377; research-report.md:89
@@ -1790,7 +1871,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Validation notes: pathPrefix-matches-nothing edge case. Backward compatible for execute_code callers passing only `workspaceRoot`
 - Implementation details: specs with a synthetic 3,000-entry index: default page size, prefix filter, offset continuation, last page has no nextOffset
 
-### Task 9.2: Cold first-call latency measurement (rows 5/6) — PENDING
+### Task 9.2: Cold first-call latency measurement (rows 5/6) — IN_PROGRESS
 
 - File: none modified. Evidence in the report
 - Plan reference: research/code-intel.md:420-438
