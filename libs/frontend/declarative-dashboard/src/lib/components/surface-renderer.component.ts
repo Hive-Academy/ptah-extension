@@ -62,7 +62,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
-  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+  return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 const LAYOUT_KINDS: ReadonlySet<string> = new Set(['section', 'stack', 'grid', 'card']);
@@ -118,7 +118,9 @@ function attemptBuild(builder: SurfaceViewModelBuilder, renderable: SurfaceRende
       ? (viewModel as unknown as SurfaceViewModel)
       : null;
   } catch {
-    // A throwing builder (or a throwing getter in its result) is a render failure.
+    // degradation-audit: reported - a throwing builder (or a throwing getter
+    // in its result) is a render failure: `null` is the documented failed
+    // build, which the component reports through `renderFailed` (Req 3.6).
     return null;
   }
 }
@@ -150,7 +152,7 @@ function surfaceIdOf(renderable: SurfaceRenderable): string {
 }
 
 function sameSelection(left: SurfaceSelection | null, right: SurfaceSelection): boolean {
-  if (left === null || left.componentId !== right.componentId || left.target.kind !== right.target.kind) return false;
+  if (left?.componentId !== right.componentId || left.target.kind !== right.target.kind) return false;
   return JSON.stringify(left.target) === JSON.stringify(right.target);
 }
 

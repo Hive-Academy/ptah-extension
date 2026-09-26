@@ -13,11 +13,18 @@ export function cellText(cell: DashboardTableCell): string {
 }
 
 /** Ascending groups: numbers, nonempty text/booleans, then null/empty. */
+function cellRank(cell: DashboardTableCell): number {
+  if (cell === null || cell === '') return 2;
+  return typeof cell === 'number' ? 0 : 1;
+}
+
 function compareCells(left: DashboardTableCell, right: DashboardTableCell): number {
-  const rank = (cell: DashboardTableCell) => cell === null || cell === '' ? 2 : typeof cell === 'number' ? 0 : 1;
-  const rankDifference = rank(left) - rank(right);
+  const rankDifference = cellRank(left) - cellRank(right);
   if (rankDifference) return rankDifference;
-  if (typeof left === 'number' && typeof right === 'number') return left < right ? -1 : left > right ? 1 : 0;
+  if (typeof left === 'number' && typeof right === 'number') {
+    if (left < right) return -1;
+    return left > right ? 1 : 0;
+  }
   return cellText(left).localeCompare(cellText(right));
 }
 

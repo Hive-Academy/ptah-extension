@@ -667,8 +667,8 @@ describe('AppsSurfaceOperations', () => {
 
       expect(callsOf('surface:action')).toHaveLength(1);
       expect(
-        calls.filter((call) => call.method.startsWith('chat:')).length,
-      ).toBe(before);
+        calls.filter((call) => call.method.startsWith('chat:')),
+      ).toHaveLength(before);
       expect(callsOf('chat:start')).toHaveLength(1); // the conversation start only
       expect(callsOf('chat:continue')).toHaveLength(0);
     });
@@ -687,7 +687,7 @@ describe('AppsSurfaceOperations', () => {
       expect(jest.getTimerCount()).toBe(0);
       const count = calls.length;
       await jest.advanceTimersByTimeAsync(APPS_ECHO_WAIT_LIMIT_MS * 4);
-      expect(calls.length).toBe(count);
+      expect(calls).toHaveLength(count);
     });
 
     it('release() aborts the mutation in flight and ignores its late result', async () => {

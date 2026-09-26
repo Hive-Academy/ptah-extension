@@ -109,8 +109,7 @@ export class AppsOperationOverlays {
   ): AppsOperationOverlays {
     const existing = this.entries.get(operationId);
     if (
-      existing === undefined ||
-      existing.settledRevision !== null ||
+      existing?.settledRevision !== null ||
       !Number.isFinite(ackRevision)
     ) {
       return this;

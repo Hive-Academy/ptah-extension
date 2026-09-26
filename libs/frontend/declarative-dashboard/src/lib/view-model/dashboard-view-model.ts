@@ -90,8 +90,7 @@ export function buildDashboardViewModel(
   spec: DashboardSpecEnvelope,
 ): DashboardViewModel {
   if (
-    !spec ||
-    spec.schemaVersion !== 'dashboard-spec/1' ||
+    spec?.schemaVersion !== 'dashboard-spec/1' ||
     spec.catalogVersion !== 'dashboard-catalog/1' ||
     typeof spec.title?.text !== 'string' ||
     !Array.isArray(spec.components)
@@ -110,12 +109,13 @@ export function buildDashboardViewModel(
       ) {
         throw new TypeError('Invalid dashboard children.');
       }
+      if (component.children === undefined) {
+        return mapDisplayNode(component, undefined);
+      }
       const children =
-        component.children === undefined
-          ? undefined
-          : depth < DASHBOARD_LIMITS.maxTreeDepth
-            ? mapComponents(component.children, depth + 1)
-            : [];
+        depth < DASHBOARD_LIMITS.maxTreeDepth
+          ? mapComponents(component.children, depth + 1)
+          : [];
       return mapDisplayNode(component, children);
     });
 

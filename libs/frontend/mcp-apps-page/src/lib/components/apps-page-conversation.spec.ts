@@ -492,7 +492,7 @@ describe('AppsPageComponent — conversation controls', () => {
       expect(entry().viewState).toBe(stored);
       // The write-back itself sends nothing, moves no revision and touches
       // no overlay: reconcile re-ran and left the lane and the submit alone.
-      expect(methods().length).toBe(callsBefore);
+      expect(methods()).toHaveLength(callsBefore);
       expect(entry().materializedRevision).toBe(1);
       expect(entry().overlays).toBe(overlays);
     }
@@ -504,7 +504,7 @@ describe('AppsPageComponent — conversation controls', () => {
     // Its debounced commit is a real user commit: it queues behind the
     // change in flight and sends nothing yet; the submit still waits.
     await settle();
-    expect(methods().length).toBe(callsBefore);
+    expect(methods()).toHaveLength(callsBefore);
     expect(entry().overlays.pendingValues().get('form.name')).toBe('Grace H');
   });
 

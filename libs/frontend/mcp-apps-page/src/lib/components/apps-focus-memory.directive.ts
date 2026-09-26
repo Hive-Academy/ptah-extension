@@ -24,14 +24,11 @@ export class AppsFocusMemoryDirective {
       try {
         const target = event.target;
         if (!(target instanceof Element)) return;
-        const control = target.closest('[data-apps-focus-key]');
+        const control = target.closest<HTMLElement>('[data-apps-focus-key]');
         if (control && this.host.contains(control)) {
-          this.session.recordFocusKey(
-            control.getAttribute('data-apps-focus-key'),
-          );
+          this.session.recordFocusKey(control.dataset['appsFocusKey'] ?? null);
         }
-      } catch (error: unknown) {
-        void error;
+      } catch {
         // A removed control or unavailable host must not break navigation.
       }
     };
@@ -50,20 +47,18 @@ export class AppsFocusMemoryDirective {
         for (const control of this.host.querySelectorAll<HTMLElement>(
           '[data-apps-focus-key]',
         )) {
-          if (control.getAttribute('data-apps-focus-key') !== key) continue;
+          if (control.dataset['appsFocusKey'] !== key) continue;
           if (!this.canFocus(control)) continue;
           control.focus();
           if (this.host.ownerDocument.activeElement === control) return;
         }
       }
-    } catch (error: unknown) {
-      void error;
+    } catch {
       // Fall back even if a control's focus implementation throws.
     }
     try {
       this.host.focus();
-    } catch (error: unknown) {
-      void error;
+    } catch {
       // Focus restoration is best effort; no timers or deferred retries.
     }
   }

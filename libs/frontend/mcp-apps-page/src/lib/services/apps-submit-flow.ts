@@ -383,23 +383,21 @@ export class AppsSubmitFlow {
 
   private advance(): void {
     const active = this.active;
-    if (active === null || active.phase !== 'waiting') return;
+    if (active?.phase !== 'waiting') return;
     const state = this.host.syncState(active.surfaceId);
     if (state === 'settled') {
       this.clearTimer();
       this.preCheckAndSend(active);
       return;
     }
-    if (this.timer === null) {
-      this.timer = setTimeout(() => this.onWaitTick(), APPS_ECHO_GRACE_MS);
-    }
+    this.timer ??= setTimeout(() => this.onWaitTick(), APPS_ECHO_GRACE_MS);
   }
 
   /** Rule 3 for the submit: its own read every grace period while behind. */
   private onWaitTick(): void {
     this.timer = null;
     const active = this.active;
-    if (this.disposed || active === null || active.phase !== 'waiting') return;
+    if (this.disposed || active?.phase !== 'waiting') return;
     try {
       const state = this.host.syncState(active.surfaceId);
       if (state === 'settled') {
@@ -499,6 +497,10 @@ export class AppsSubmitFlow {
         outcome = 'transport';
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged and becomes a
+      // `transport` outcome, which polls the operation id and settles the
+      // submit status the user sees. The early return only drops the result
+      // of a submit that reset, Stop or a newer submit already replaced.
       if (this.active !== active) return;
       console.warn(`${WARN_PREFIX} surface:action failed: ${errorName(error)}`);
       outcome = 'transport';
@@ -558,6 +560,10 @@ export class AppsSubmitFlow {
         );
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged and counts as a
+      // poll failure. At APPS_SUBMIT_POLL_MAX_FAILURES the submit settles
+      // `unknown`, which the user sees. The early return only drops the
+      // result of a submit that reset, Stop or a newer submit replaced.
       if (this.active !== active) return;
       console.warn(
         `${WARN_PREFIX} surface:operation failed: ${errorName(error)}`,

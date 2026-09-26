@@ -116,8 +116,7 @@ export function appsFallbackText(entry: AppsSurfaceEntry): string {
             lastSubmit: renderable.lastSubmit,
           });
     return `${APPS_UNSHOWN_TEXT}\nReason: this page could not draw it. Its text follows.\n\n${text}`;
-  } catch (error: unknown) {
-    void error;
+  } catch {
     return `${APPS_UNSHOWN_TEXT}\nReason: its text could not be produced either.`;
   }
 }

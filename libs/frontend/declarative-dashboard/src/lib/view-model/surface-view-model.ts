@@ -177,13 +177,13 @@ function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard
 export function buildSurfaceViewModel(renderable: SurfaceRenderable): SurfaceViewModelBuild {
   try {
     if (!isObject(renderable)) throw new TypeError('Invalid surface content.');
-    const viewModel = renderable.contract === 'dashboard-spec/1'
-      ? buildDashboardViewModel(renderable.spec)
-      : renderable.contract === 'dashboard-spec/2'
-        ? buildSurface(renderable)
-        : null;
-    if (viewModel === null) throw new TypeError('Unknown surface contract.');
-    return { renderFailed: false, viewModel };
+    if (renderable.contract === 'dashboard-spec/1') {
+      return { renderFailed: false, viewModel: buildDashboardViewModel(renderable.spec) };
+    }
+    if (renderable.contract === 'dashboard-spec/2') {
+      return { renderFailed: false, viewModel: buildSurface(renderable) };
+    }
+    throw new TypeError('Unknown surface contract.');
   } catch (error: unknown) {
     // Our own shape checks throw TypeError with fixed text; anything else is not echoed.
     return { renderFailed: true, reason: error instanceof TypeError ? error.message : BUILD_FAILED, viewModel: null };

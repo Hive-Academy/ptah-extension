@@ -53,5 +53,5 @@ export function chartGeometry(series: readonly DashboardSeries[], kind: 'line-ch
   });
   return { series: geometry, rows, baseline, minY, maxY,
     firstX: numeric && points.length ? minX : categories[0] ?? '',
-    lastX: numeric && points.length ? maxX : categories[categories.length - 1] ?? '' };
+    lastX: numeric && points.length ? maxX : categories.at(-1) ?? '' };
 }

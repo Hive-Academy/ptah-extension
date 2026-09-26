@@ -129,7 +129,7 @@ export class AppsSurfaceOperations {
       untracked(() => this.reconcile(owned, routingId));
     });
     inject(DestroyRef).onDestroy(() => {
-      for (const routingId of [...this.records.keys()]) this.release(routingId);
+      for (const routingId of this.records.keys()) this.release(routingId);
     });
   }
 
@@ -177,8 +177,7 @@ export class AppsSurfaceOperations {
       if (routingId === null) return;
       const entry = this.entryFor(routingId, surfaceId);
       if (
-        entry === null ||
-        entry.renderable.status !== 'accepted' ||
+        entry?.renderable.status !== 'accepted' ||
         entry.renderable.content.contract !== 'dashboard-spec/2'
       )
         return;

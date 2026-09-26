@@ -126,7 +126,9 @@ export class AppsSurfaceSync {
         this.followUp = true;
         return;
       }
-      void this.runRead(reason);
+      this.runRead(reason).catch((error: unknown) =>
+        console.warn(`${WARN_PREFIX} read not completed: ${errorName(error)}`),
+      );
     } catch (error: unknown) {
       console.warn(`${WARN_PREFIX} read not requested: ${errorName(error)}`);
     }
@@ -217,6 +219,10 @@ export class AppsSurfaceSync {
         errorCode = result.errorCode;
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - a failed read keeps its error code,
+      // which is logged below and published as the refresh-failed notice.
+      // The early return only drops the result of a read that dispose() or
+      // a newer read already replaced; that newer read reports for itself.
       if (this.disposed || this.inFlight !== controller) return;
       errorCode = errorName(error);
     }
@@ -250,7 +256,7 @@ export class AppsSurfaceSync {
    */
   private reconcileExpected(afterRead: boolean): void {
     const entries = this.store.surfaces().entries;
-    for (const [surfaceId, revision] of [...this.expected]) {
+    for (const [surfaceId, revision] of this.expected) {
       const entry = entries.get(surfaceId);
       if (entry === undefined) {
         if (afterRead) this.expected.delete(surfaceId);

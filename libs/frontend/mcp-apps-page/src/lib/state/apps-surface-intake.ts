@@ -46,8 +46,8 @@ export type AppsRenderable =
       readonly reason: string;
     };
 
-const ORIGINS: readonly string[] = ['agent', 'ui', 'host'];
-const DELETE_REASONS: readonly string[] = ['agent-deleted', 'evicted'];
+const ORIGINS: ReadonlySet<string> = new Set(['agent', 'ui', 'host']);
+const DELETE_REASONS: ReadonlySet<string> = new Set(['agent-deleted', 'evicted']);
 const WARN_PREFIX = '[apps-surface-intake]';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,6 +88,19 @@ function viewBreach(raw: unknown): string | null {
   return null;
 }
 
+function snapshotBreach(
+  state: unknown,
+  surfaceId: string,
+  revision: number,
+): string | null {
+  const breach = viewBreach(state);
+  if (breach !== null) return `change.state (${breach})`;
+  const view = state as Record<string, unknown>;
+  if (view['surfaceId'] !== surfaceId) return 'change.state.surfaceId';
+  if (view['revision'] !== revision) return 'change.state.revision';
+  return null;
+}
+
 function changeBreach(
   change: unknown,
   surfaceId: string,
@@ -95,15 +108,8 @@ function changeBreach(
 ): string | null {
   if (!isRecord(change)) return 'change';
   switch (change['kind']) {
-    case 'snapshot': {
-      const state = change['state'];
-      const breach = viewBreach(state);
-      if (breach !== null) return `change.state (${breach})`;
-      const view = state as Record<string, unknown>;
-      if (view['surfaceId'] !== surfaceId) return 'change.state.surfaceId';
-      if (view['revision'] !== revision) return 'change.state.revision';
-      return null;
-    }
+    case 'snapshot':
+      return snapshotBreach(change['state'], surfaceId, revision);
     case 'ops': {
       if (!Number.isSafeInteger(change['fromRevision']))
         return 'change.fromRevision';
@@ -113,7 +119,7 @@ function changeBreach(
       return ops.every(isRecord) ? null : 'change.ops';
     }
     case 'deleted':
-      return DELETE_REASONS.includes(change['reason'] as string)
+      return DELETE_REASONS.has(change['reason'] as string)
         ? null
         : 'change.reason';
     default:
@@ -134,7 +140,7 @@ export function guardSurfacePush(raw: unknown): SurfaceUpdatedPayload | null {
   if (!isSurfaceId(surfaceId)) return drop('surface push', 'surfaceId');
   const revision = raw['revision'];
   if (!isRevision(revision)) return drop('surface push', 'revision');
-  if (!ORIGINS.includes(raw['origin'] as string))
+  if (!ORIGINS.has(raw['origin'] as string))
     return drop('surface push', 'origin');
   if (!isOptionalString(raw['toolCallId']))
     return drop('surface push', 'toolCallId');

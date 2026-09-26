@@ -466,7 +466,7 @@ describe('AppsSubmitFlow (through AppsSurfaceOperations)', () => {
       expect(jest.getTimerCount()).toBe(0);
       const count = calls.length;
       await jest.advanceTimersByTimeAsync(APPS_SUBMIT_POLL_LIMIT_MS);
-      expect(calls.length).toBe(count);
+      expect(calls).toHaveLength(count);
     });
   });
 
@@ -650,7 +650,7 @@ describe('AppsSubmitFlow (through AppsSurfaceOperations)', () => {
       expect(jest.getTimerCount()).toBe(0);
       const count = calls.length;
       await jest.advanceTimersByTimeAsync(APPS_SUBMIT_POLL_LIMIT_MS);
-      expect(calls.length).toBe(count);
+      expect(calls).toHaveLength(count);
       expect(callsOf('surface:change')).toHaveLength(0);
     });
   });

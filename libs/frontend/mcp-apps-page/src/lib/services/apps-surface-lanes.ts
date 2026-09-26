@@ -214,6 +214,19 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown error';
 }
 
+/** The Req 6.6 notice detail for a selection the host did not apply. */
+function selectFailureDetail(
+  outcome: Exclude<MutationOutcome, { kind: 'applied' }>,
+): string {
+  if (outcome.kind === 'rejected') {
+    console.warn(`${WARN_PREFIX} select rejected: ${outcome.reason ?? '?'}`);
+    return outcome.detail.length > 0 ? outcome.detail : SELECTION_DETAIL.refused;
+  }
+  if (outcome.kind === 'not-found') return SELECTION_DETAIL.notFound;
+  if (outcome.readAfter) return SELECTION_DETAIL.unconfirmed;
+  return outcome.detail ?? SELECTION_DETAIL.refused;
+}
+
 export class AppsSurfaceLanes {
   private readonly lanes = new Map<string, Lane>();
   /** Aborted by `dispose()`, which also releases the RPC timers in flight. */
@@ -291,7 +304,7 @@ export class AppsSurfaceLanes {
   /** Re-checks every lane: an echo or a read may let one send. */
   public pumpAll(): void {
     try {
-      for (const lane of [...this.lanes.values()]) this.pump(lane);
+      for (const lane of this.lanes.values()) this.pump(lane);
     } catch (error: unknown) {
       console.warn(`${WARN_PREFIX} lanes not pumped: ${errorName(error)}`);
     }
@@ -645,19 +658,11 @@ export class AppsSurfaceLanes {
       }));
       return;
     }
-    let detail: string;
-    if (outcome.kind === 'rejected') {
-      console.warn(`${WARN_PREFIX} select rejected: ${outcome.reason ?? '?'}`);
-      detail =
-        outcome.detail.length > 0 ? outcome.detail : SELECTION_DETAIL.refused;
-    } else if (outcome.kind === 'not-found') detail = SELECTION_DETAIL.notFound;
-    else if (outcome.readAfter) detail = SELECTION_DETAIL.unconfirmed;
-    else detail = outcome.detail ?? SELECTION_DETAIL.refused;
     // Req 6.6: the selection stays shown, marked unsynced, with a notice.
     this.host.markUnsynced(
       surfaceId,
       op.operationId,
-      `${APPS_SELECTION_NOTICE_PREFIX}${detail}`,
+      `${APPS_SELECTION_NOTICE_PREFIX}${selectFailureDetail(outcome)}`,
     );
   }
 }
