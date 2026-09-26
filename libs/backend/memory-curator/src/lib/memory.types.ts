@@ -132,6 +132,28 @@ export interface MemoryListResponse {
   readonly total: number;
 }
 
+/**
+ * One quarantined memory as listed for review. `workspaceRoot` is carried per
+ * row so an all-scope listing can be routed back to a scoped restore.
+ */
+export interface QuarantinedMemoryRow {
+  readonly id: MemoryId;
+  readonly workspaceRoot: string | null;
+  readonly subject: string | null;
+  readonly kind: MemoryKind;
+  readonly tier: MemoryTier;
+  readonly reason: string | null;
+  readonly quarantinedAt: number;
+  /** First 200 characters of the memory content. */
+  readonly excerpt: string;
+}
+
+/** A page of quarantined memories plus the total matching the filter. */
+export interface QuarantinedMemoryPage {
+  readonly rows: readonly QuarantinedMemoryRow[];
+  readonly total: number;
+}
+
 /** Response shape for `memory:stats`. */
 export interface MemoryStatsResponse {
   readonly core: number;

@@ -29,15 +29,20 @@ import {
   type MemoryChunk,
   type MemoryId,
   type MemoryInsert,
+  type MemoryKind,
   type MemoryListResponse,
   type MemoryStatsResponse,
   type MemoryTier,
   type MemoryType,
+  type QuarantinedMemoryPage,
 } from './memory.types';
 import {
   salienceRankExpression,
   salienceRankOrderBy,
 } from './salience-ranking';
+
+/** Most ids one `restoreQuarantined` call accepts; the rest are dropped. */
+const RESTORE_ID_CAP = 500;
 
 interface MemoryRow {
   id: string;
@@ -160,21 +165,29 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     return this.writeCounts.get(workspaceRoot) ?? 0;
   }
 
-  /** Invalidate search-cache generations after lifecycle writes committed. */
+  /**
+   * Invalidate search-cache generations after committed writes. Each root's
+   * generation advances, and the unscoped ('') generation advances exactly once
+   * per call: all-workspace searches key their cache on it, so a named-root
+   * write must invalidate them too.
+   */
   markWorkspacesChanged(roots: Iterable<string | null>): void {
     let changed = false;
     let unscopedChanged = false;
     for (const root of roots) {
-      this.bumpWriteCounter(root);
+      this.incrementGeneration(root ?? '');
       changed = true;
       if (root === null || root === '') unscopedChanged = true;
     }
-    if (changed && !unscopedChanged) this.bumpWriteCounter('');
+    if (changed && !unscopedChanged) this.incrementGeneration('');
   }
 
-  /** Increment the write counter for the given workspaceRoot (or '' if null). */
+  /** One committed write to `workspaceRoot` (null/undefined = unscoped). */
   private bumpWriteCounter(workspaceRoot: string | null | undefined): void {
-    const key = workspaceRoot ?? '';
+    this.markWorkspacesChanged([workspaceRoot ?? null]);
+  }
+
+  private incrementGeneration(key: string): void {
     this.writeCounts.set(key, (this.writeCounts.get(key) ?? 0) + 1);
   }
 
@@ -283,8 +296,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
           const vec = embeddings[i];
           if (vec && vec.length === this.embedder.dim) {
             const row = fetchRowidStmt.get(cid) as
-              | { rowid: number }
-              | undefined;
+              { rowid: number } | undefined;
             if (row) {
               insertVecStmt.run(
                 row.rowid,
@@ -334,6 +346,31 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     return row ? rowToMemory(row) : null;
   }
 
+  /**
+   * Content-facing lookup by id: a quarantined row reads as missing. `getById`
+   * stays the raw identity lookup for callers that already filtered in SQL.
+   */
+  getActiveById(id: MemoryId): Memory | null {
+    const row = this.connection.db
+      .prepare(`SELECT * FROM memories WHERE id = ? AND quarantined_at IS NULL`)
+      .get(id) as MemoryRow | undefined;
+    return row ? rowToMemory(row) : null;
+  }
+
+  /**
+   * The id when `id` names an active (not quarantined) row in exactly
+   * `workspaceRoot` (`null` = the unscoped rows), else `null`. The curator
+   * checks a resolver-chosen merge target through this before appending to it.
+   */
+  getMergeTarget(id: MemoryId, workspaceRoot: string | null): MemoryId | null {
+    const row = this.connection.db
+      .prepare(
+        `SELECT id FROM memories WHERE id = ? AND workspace_root IS ? AND quarantined_at IS NULL`,
+      )
+      .get(id, workspaceRoot) as { id: string } | undefined;
+    return row ? memoryId(row.id) : null;
+  }
+
   findBySubjectAndTier(subject: string, tier: MemoryTier): readonly Memory[] {
     const rows = this.connection.db
       .prepare(
@@ -379,6 +416,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
            WHERE m.workspace_root IS ?
              AND m.subject IS NOT NULL
               AND TRIM(LOWER(m.subject)) IN (${placeholders})
+             AND m.quarantined_at IS NULL
          ), ranked AS (
            SELECT id,
                   subject,
@@ -417,7 +455,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       offset?: number;
     } = {},
   ): MemoryListResponse {
-    const where: string[] = [];
+    const where: string[] = ['quarantined_at IS NULL'];
     const params: Record<string, unknown> = {};
     if (filter.workspaceRoot !== undefined) {
       where.push('workspace_root IS @workspace_root');
@@ -427,7 +465,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       where.push('tier = @tier');
       params['tier'] = filter.tier;
     }
-    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const whereSql = `WHERE ${where.join(' AND ')}`;
     const limit = Math.max(1, Math.min(500, filter.limit ?? 100));
     const offset = Math.max(0, filter.offset ?? 0);
     const totalRow = this.connection.db
@@ -459,7 +497,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     limit = 50,
     offset = 0,
   ): MemoryListPage {
-    const conditions: string[] = [];
+    const conditions: string[] = ['quarantined_at IS NULL'];
     const params: unknown[] = [];
     if (workspaceRoot) {
       conditions.push('workspace_root IS ?');
@@ -469,8 +507,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       conditions.push('tier = ?');
       params.push(tier);
     }
-    const where =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
     const clampedLimit = Math.max(1, Math.min(500, limit));
     const clampedOffset = Math.max(0, offset);
     const rows = this.connection.db
@@ -512,12 +549,22 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     return rows.map(rowToChunk);
   }
 
-  setPinned(id: MemoryId, pinned: boolean): void {
+  /**
+   * Set the pinned flag of an active row. Returns `true` when an active row
+   * matched (SQLite counts a matched row even when `pinned` already held the
+   * value), `false` for a missing or quarantined id, whose state stays frozen.
+   * Callers must report `false` as a failed mutation, never as success.
+   */
+  setPinned(id: MemoryId, pinned: boolean): boolean {
     const ws = this.lookupWorkspaceRoot(id);
-    this.connection.db
-      .prepare(`UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?`)
+    const result = this.connection.db
+      .prepare(
+        `UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ? AND quarantined_at IS NULL`,
+      )
       .run(pinned ? 1 : 0, Date.now(), id);
-    this.bumpWriteCounter(ws);
+    const matched = Number(result.changes) > 0;
+    if (matched) this.bumpWriteCounter(ws);
+    return matched;
   }
 
   forget(id: MemoryId): void {
@@ -624,7 +671,8 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
             `SELECT DISTINCT workspace_root
                FROM memories
               WHERE id IN (SELECT value FROM json_each(@ids))
-                AND tier = 'archival'`,
+                AND tier = 'archival'
+                AND quarantined_at IS NULL`,
           )
           .all({ ids: params.ids }) as Array<{ workspace_root: string | null }>;
         db.prepare(
@@ -633,12 +681,15 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
                   last_used_at = @now,
                   tier = CASE WHEN tier = 'archival' THEN 'recall' ELSE tier END,
                   archived_at = NULL
-            WHERE id IN (SELECT value FROM json_each(@ids))`,
+            WHERE id IN (SELECT value FROM json_each(@ids))
+              AND quarantined_at IS NULL`,
         ).run(params);
         return roots;
       })();
-      for (const row of restoredRoots) {
-        this.bumpWriteCounter(row.workspace_root);
+      if (restoredRoots.length > 0) {
+        this.markWorkspacesChanged(
+          restoredRoots.map((row) => row.workspace_root),
+        );
       }
     } catch (error: unknown) {
       this.logger.warn('[memory-curator] failed to record memory use', {
@@ -647,30 +698,37 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
     }
   }
 
-  /** Append source content to an existing memory's chunk list (used on merge). */
+  /**
+   * Append source content to an existing memory's chunk list (used on merge).
+   *
+   * Eligibility is checked inside the write transaction, after embeddings are
+   * computed: the target must still exist in exactly `opts.workspaceRoot`
+   * (`null` = the unscoped rows) and must not be quarantined. Otherwise nothing
+   * is written and the result is `'ineligible'`, so the caller can insert the
+   * draft as a new memory instead. A merge counts only on `'appended'`.
+   */
   async appendChunks(
     id: MemoryId,
     additional: readonly Omit<ChunkInsert, 'memoryId'>[],
-  ): Promise<void> {
-    if (additional.length === 0) return;
-    const existing = this.connection.db
-      .prepare(`SELECT workspace_root, tier FROM memories WHERE id = ?`)
-      .get(id) as
-      | { workspace_root: string | null; tier: MemoryTier }
-      | undefined;
-    const ws = existing?.workspace_root;
+    opts: { readonly workspaceRoot: string | null },
+  ): Promise<'appended' | 'ineligible'> {
+    const ws = opts.workspaceRoot;
+    const db = this.connection.db;
+    const eligibleStmt = db.prepare(
+      `SELECT 1 AS ok FROM memories WHERE id = ? AND workspace_root IS ? AND quarantined_at IS NULL`,
+    );
+    const isEligible = (): boolean => eligibleStmt.get(id, ws) !== undefined;
+    if (additional.length === 0) {
+      return isEligible() ? 'appended' : 'ineligible';
+    }
     const now = Date.now();
     const vecAvailable = this.vecStatus.available;
     const embeddings: Float32Array[] = vecAvailable
       ? await this.embedderEmbed(additional.map((c) => c.text))
       : [];
-    const db = this.connection.db;
-    const baseOrdRow = db
-      .prepare(
-        `SELECT COALESCE(MAX(ord), -1) AS m FROM memory_chunks WHERE memory_id = ?`,
-      )
-      .get(id) as { m: number } | undefined;
-    const baseOrd = (baseOrdRow?.m ?? -1) + 1;
+    const baseOrdStmt = db.prepare(
+      `SELECT COALESCE(MAX(ord), -1) AS m FROM memory_chunks WHERE memory_id = ?`,
+    );
     const insertChunkStmt = db.prepare(
       `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
        VALUES (@id, @memory_id, @ord, @text, @token_count, @created_at)`,
@@ -684,9 +742,14 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       `SELECT rowid AS rowid FROM memory_chunks WHERE id = ?`,
     );
     const updateMemoryStmt = db.prepare(
-      `UPDATE memories SET updated_at = ?, last_used_at = ?, tier = CASE WHEN tier = 'archival' THEN 'recall' ELSE tier END, archived_at = NULL WHERE id = ?`,
+      `UPDATE memories SET updated_at = ?, last_used_at = ?, tier = CASE WHEN tier = 'archival' THEN 'recall' ELSE tier END, archived_at = NULL WHERE id = ? AND quarantined_at IS NULL`,
     );
-    const txn = db.transaction(((..._args: unknown[]) => {
+    const txn = db.transaction(((): 'appended' | 'ineligible' => {
+      // Re-checked here, after the embedding await: another writer may have
+      // quarantined the row or moved it to another workspace meanwhile.
+      if (!isEligible()) return 'ineligible';
+      const baseOrdRow = baseOrdStmt.get(id) as { m: number } | undefined;
+      const baseOrd = (baseOrdRow?.m ?? -1) + 1;
       for (let i = 0; i < additional.length; i++) {
         const c = additional[i];
         const cid = chunkId(ulid());
@@ -702,8 +765,7 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
           const vec = embeddings[i];
           if (vec && vec.length === this.embedder.dim) {
             const row = fetchRowidStmt.get(cid) as
-              | { rowid: number }
-              | undefined;
+              { rowid: number } | undefined;
             if (row) {
               insertVecStmt.run(
                 row.rowid,
@@ -714,14 +776,18 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
         }
       }
       updateMemoryStmt.run(now, now, id);
-    }) as (...args: unknown[]) => unknown);
+      return 'appended';
+    }) as (...args: unknown[]) => unknown) as unknown as () =>
+      'appended' | 'ineligible';
+    let outcome: 'appended' | 'ineligible';
     try {
-      txn();
-      this.bumpWriteCounter(ws);
+      outcome = txn();
     } catch (err: unknown) {
       this.connection.handleFatalWriteError(err);
       throw err;
     }
+    if (outcome === 'appended') this.bumpWriteCounter(ws);
+    return outcome;
   }
 
   /**
@@ -739,11 +805,16 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
    * reachable from an RPC call: `MemoryRpcHandlers` resolves the tri-state at
    * the boundary, because `memory:stats` landing in this branch is what made a
    * no-workspace call answer with a cross-workspace union (TASK_2026_315 A4).
+   *
+   * Quarantined rows are excluded in every state, so the counts equal what
+   * search can return.
    */
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
     const db = this.connection.db;
     const whereSql =
-      workspaceRoot !== undefined ? 'WHERE workspace_root IS ?' : '';
+      workspaceRoot !== undefined
+        ? 'WHERE workspace_root IS ? AND quarantined_at IS NULL'
+        : 'WHERE quarantined_at IS NULL';
     const args = workspaceRoot !== undefined ? [workspaceRoot] : [];
 
     const tiers = db
@@ -768,6 +839,130 @@ export class MemoryStore implements IMemoryLister, IMemoryUsageRecorder {
       archival: counts.archival,
       lastCuratedAt: last?.m ?? null,
     };
+  }
+
+  /**
+   * Quarantined memories, newest quarantine first. `workspaceRoot` is the same
+   * tri-state as {@link stats}: a string is that workspace, `null` the unscoped
+   * rows, `undefined` every workspace (each row carries its own root).
+   */
+  listQuarantined(filter: {
+    workspaceRoot: string | null | undefined;
+    reason?: string;
+    limit?: number;
+    offset?: number;
+  }): QuarantinedMemoryPage {
+    const where: string[] = ['quarantined_at IS NOT NULL'];
+    const params: Record<string, unknown> = {};
+    if (filter.workspaceRoot !== undefined) {
+      where.push('workspace_root IS @workspace_root');
+      params['workspace_root'] = filter.workspaceRoot;
+    }
+    if (filter.reason !== undefined) {
+      where.push('quarantine_reason = @reason');
+      params['reason'] = filter.reason;
+    }
+    const whereSql = `WHERE ${where.join(' AND ')}`;
+    const limit = Math.max(1, Math.min(500, filter.limit ?? 100));
+    const offset = Math.max(0, filter.offset ?? 0);
+    const db = this.connection.db;
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS n FROM memories ${whereSql}`)
+      .get(params) as { n: number } | undefined;
+    const rows = db
+      .prepare(
+        `SELECT id, workspace_root, subject, kind, tier, quarantine_reason,
+                quarantined_at, SUBSTR(content, 1, 200) AS excerpt
+           FROM memories ${whereSql}
+          ORDER BY quarantined_at DESC, id DESC
+          LIMIT @__limit OFFSET @__offset`,
+      )
+      .all({ ...params, __limit: limit, __offset: offset }) as Array<{
+      id: string;
+      workspace_root: string | null;
+      subject: string | null;
+      kind: MemoryKind;
+      tier: MemoryTier;
+      quarantine_reason: string | null;
+      quarantined_at: number;
+      excerpt: string;
+    }>;
+    return {
+      rows: rows.map((r) => ({
+        id: memoryId(r.id),
+        workspaceRoot: r.workspace_root,
+        subject: r.subject,
+        kind: r.kind,
+        tier: r.tier,
+        reason: r.quarantine_reason,
+        quarantinedAt: r.quarantined_at,
+        excerpt: r.excerpt,
+      })),
+      total: totalRow?.n ?? rows.length,
+    };
+  }
+
+  /**
+   * Lift the quarantine on the selected rows of exactly one scope
+   * (`workspaceRoot: null` = `workspace_root IS NULL`; there is no
+   * all-workspaces form). Only the two quarantine columns are cleared, so every
+   * other field, the chunks, FTS and vectors come back exactly as they were.
+   * Restoring an active row matches nothing, so the call is idempotent.
+   */
+  restoreQuarantined(
+    selector:
+      | { readonly ids: readonly string[] }
+      | { readonly reason: string }
+      | { readonly all: true },
+    workspaceRoot: string | null,
+  ): { restored: number } {
+    const params: Record<string, unknown> = { ws: workspaceRoot };
+    let selectorSql: string;
+    if ('ids' in selector) {
+      const uniqueIds = [...new Set(selector.ids)];
+      if (uniqueIds.length > RESTORE_ID_CAP) {
+        this.logger.debug(
+          '[memory-curator] restoreQuarantined truncated memory ids',
+          { received: uniqueIds.length, restored: RESTORE_ID_CAP },
+        );
+      }
+      const ids = uniqueIds.slice(0, RESTORE_ID_CAP);
+      if (ids.length === 0) return { restored: 0 };
+      selectorSql = 'AND id IN (SELECT value FROM json_each(@ids))';
+      params['ids'] = JSON.stringify(ids);
+    } else if ('reason' in selector) {
+      selectorSql = 'AND quarantine_reason = @reason';
+      params['reason'] = selector.reason;
+    } else {
+      selectorSql = '';
+    }
+    const db = this.connection.db;
+    const statement = db.prepare(
+      `UPDATE memories
+          SET quarantined_at = NULL, quarantine_reason = NULL
+        WHERE quarantined_at IS NOT NULL
+          AND workspace_root IS @ws
+          ${selectorSql}`,
+    );
+    const txn = db.transaction((() =>
+      Number(statement.run(params).changes)) as (
+      ...args: unknown[]
+    ) => unknown) as unknown as () => number;
+    let restored: number;
+    try {
+      restored = txn();
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
+    if (restored > 0) {
+      this.markWorkspacesChanged([workspaceRoot]);
+      this.logger.info('[memory-curator] restored quarantined memories', {
+        restored,
+        scope: workspaceRoot === null ? 'unscoped' : 'workspace',
+      });
+    }
+    return { restored };
   }
 
   /** Iterate all memory rows (for the decay job sweep). */

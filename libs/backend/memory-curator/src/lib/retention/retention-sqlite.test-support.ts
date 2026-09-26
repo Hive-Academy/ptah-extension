@@ -217,7 +217,7 @@ export function openRetentionTestDb(
     loadVec(raw);
   }
   const versions = options.memorySchema
-    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44, 47]
+    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44, 47, 48]
     : [16, 43, 47];
   for (const version of versions) {
     const migration = MIGRATIONS.find((item) => item.version === version);
@@ -273,7 +273,9 @@ export function openRetentionTestDb(
       loadVec(raw);
       raw.exec('PRAGMA foreign_keys = OFF');
       if (pragmaNumber(raw, 'foreign_keys') !== 0) {
-        throw new Error('failed to reopen retention test database with foreign_keys = OFF');
+        throw new Error(
+          'failed to reopen retention test database with foreign_keys = OFF',
+        );
       }
       db = adaptSqliteDatabase(raw, issued);
     },
