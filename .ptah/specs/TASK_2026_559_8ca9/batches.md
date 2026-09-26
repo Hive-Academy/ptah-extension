@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 53 | Batches: 27 | Complete: 11/27
+Total tasks: 53 | Batches: 27 | Complete: 12/27
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1530,7 +1530,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 
 ---
 
-## Batch 6: Index freshness at the MCP surface — lazy reindex and `ptah_code_reindex` — PENDING
+## Batch 6: Index freshness at the MCP surface — lazy reindex and `ptah_code_reindex` — COMPLETE (commit 31c6b6995)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1539,7 +1539,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 3 | Depends on: Batches 2f, 5
 
-### Task 6.1: `ensureIndexFresh` in the code namespace, and freshness in search results — PENDING
+### Task 6.1: `ensureIndexFresh` in the code namespace, and freshness in search results — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/code-namespace.builder.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/code-namespace.builder.spec.ts`
 - Plan reference: context.md User Decision 1; research/code-intel.md:294-308
@@ -1548,7 +1548,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Validation notes: RISK "deadlock / double run" is carried here. Specs: a stale index triggers exactly once across 3 concurrent calls; a fresh index never triggers; no freshness method → no trigger; indexer rejection does not surface as a search error; the result shape includes freshness
 - Implementation details: inject the clock (`now()`) through deps for tests
 
-### Task 6.2: `ptah_code_reindex` tool and dispatcher wiring — PENDING
+### Task 6.2: `ptah_code_reindex` tool and dispatcher wiring — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 6.1
@@ -1558,7 +1558,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Validation notes: VS Code (no indexer) → a graceful error result for reindex, and no throw from ensureIndexFresh
 - Implementation details: specs for the new case (full → started, file → stats), the ensureIndexFresh call on both cases, and tools/list containing the tool under `code` only
 
-### Task 6.3: Tool description guard — PENDING
+### Task 6.3: Tool description guard — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.spec.ts`
 - Depends on: Task 6.2
@@ -1572,6 +1572,51 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
 - The Codex review lane approves
+
+### Batch 6 review history
+
+- Executor: backend-developer (`batch-6-executor-report.md`)
+- Review r1 (`reviews/batch-6-code-logic-review-r1.md`, Codex cross-side lane): **REVISE 7/10**. M1: `execute_code`
+  definition lookups bypassed the lazy freshness hook. M2: an explicit reindex returned a freshness-read error after it
+  had already started the run. The reviewer also corrected the executor's Electron boot-overlap note:
+  `boot-thoth-runtime.ts:485` is a user-triggered callback; only the VS Code startup call (`wire-runtime.ts:207`) can
+  overlap. Fixed in revision round 1
+- Review r2 (`reviews/batch-6-code-logic-review-r2.md`, Codex): **REVISE 7/10**. M1 and M2 fixed. New F1:
+  `searchSymbols` reported `reindexInFlight: false` while a run was pending and the freshness read rejected. Revise cap
+  reached; one bounded correction allowed
+- Review r3-postcap (`reviews/batch-6-code-logic-review-r3-postcap.md`, Codex): **APPROVE 8/10**, no findings
+
+### Batch 6 deviations (accepted)
+
+1. The `ptah_code_search_symbols` dispatcher case does not call `ensureIndexFresh`: `searchSymbols` runs it itself (so
+   `execute_code` callers get it too) and returns the outcome as `index`. A second call would report `reindexStarted`
+   from the call that did not start the run
+2. `ptah_code_reindex` accepts only an absolute `filePath`; a relative one is a tool error
+3. The definition-lookup hook lives only in the capability-backed IDE namespace (`onDefinitionLookup`, wired in
+   `ptah-api-builder.service.ts`); the standalone namespace has no lookup to hook
+4. Three files outside the batch list: `ptah-api-builder.service.ts` (hook wiring), `ptah-system-prompt.constant.ts`
+   (`execute_code` help text, not a frozen constant), and the plugin `internal-mcp.md` tool catalog
+
+### Batch 6 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `ensureIndexFresh` with a per-workspace in-flight latch, `index` freshness block on search, background full
+  reindex (`userInitiated: true`) and awaited file reindex, `buildCodeReindexTool` in the `code` group only,
+  `onDefinitionLookup` hook. No TODO/FIXME/PLACEHOLDER/STUB markers; no stray files
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools --skip-nx-cache` → "Successfully ran targets
+  test, lint, typecheck"
+- `nx run degradation-audit:lint --skip-nx-cache` → `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`
+- `ptah-core-prompt.ts` unchanged against HEAD; `NATIVE_AGENT_TOOL_POLICY`
+  (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`) unchanged
+- Commit 31c6b6995: pre-commit and commit-msg hooks passed
+
+### Batch 6 follow-ups (not blocking)
+
+- (a) The VS Code startup index run (`wire-runtime.ts:207`) is not covered by the namespace in-flight latch, so it can
+  overlap a lazy run: wasted work, no deadlock
+- (b) An explicit `ptah_code_reindex` uses `userInitiated: true` and so bypasses the governor's per-batch wait. Accepted
+  per the batch spec
+- (c) `internal-mcp.md` always-on tool count was already out of date before this batch (12 listed against 15 served);
+  the drift remains
 
 ---
 
