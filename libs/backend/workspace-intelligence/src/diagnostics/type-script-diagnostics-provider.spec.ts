@@ -39,7 +39,11 @@ import {
   type DiagnosticsProviderSetup,
 } from '@ptah-extension/platform-core/testing';
 import { TypeScriptDiagnosticsProvider } from './type-script-diagnostics-provider';
-import { tsDiagnosticsWorker } from './ts-diagnostics-worker';
+import {
+  TsDiagnosticsWorker,
+  tsDiagnosticsWorker,
+  type TsDiagnosticsRunOutcome,
+} from './ts-diagnostics-worker';
 
 /**
  * Every behavioural case below runs a real `ts.createProgram` +
@@ -137,14 +141,22 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Shared IDiagnosticsProvider contract (no-root path only — TS provider has
-// no seed/makeUnavailable hooks since it reads real projects from disk).
+// Shared IDiagnosticsProvider contract. The TS provider has no
+// seed/makeUnavailable hooks since it reads real projects from disk; it does
+// take the second-checkout case (TASK_2026_559 Task 19.2), with a plain copy
+// standing in for `git worktree add`.
 // ---------------------------------------------------------------------------
 
 runDiagnosticsProviderContract('TypeScriptDiagnosticsProvider', () => {
-  const fsProvider = fsProviderReturning([]);
-  const provider = new TypeScriptDiagnosticsProvider(fsProvider);
-  const setup: DiagnosticsProviderSetup = { provider };
+  const provider = new TypeScriptDiagnosticsProvider(realDirFsProvider());
+  const setup: DiagnosticsProviderSetup = {
+    provider,
+    createSecondCheckout(primaryRoot: string): string {
+      const secondRoot = `${primaryRoot}-worktree`;
+      fs.cpSync(primaryRoot, secondRoot, { recursive: true });
+      return secondRoot;
+    },
+  };
   return setup;
 });
 
@@ -1180,6 +1192,285 @@ describe('TypeScriptDiagnosticsProvider', () => {
       expect(result.status).toBe('unavailable');
       if (result.status !== 'unavailable') return;
       expect(result.reason).toContain('No tsconfig.json owns');
+    });
+  });
+
+  /**
+   * TASK_2026_559 Batch 19. `withBudget` answers at 45 s but keeps the compile
+   * (see the next block), so an abandoned whole-workspace run kept the only
+   * thread for its compiler busy, and a scoped check posted after it waited
+   * for all of it: 86 s for ~21 s of its own work (Task 1.2, case e). Every
+   * checkout on a machine shares that compiler, so this was the worktree
+   * "scoped call times out" report.
+   */
+  describe('a scoped check does not queue behind an unscoped run (TASK_2026_559 Batch 19)', () => {
+    const BLOCKER_MS = 6_000;
+    const SCOPED_MS = 200;
+
+    /**
+     * A worker program that holds its thread synchronously — as a real compile
+     * does — for a time chosen by the configs it is handed, so the blocker and
+     * the scoped run have known, very different costs on REAL threads.
+     */
+    const HOLDING_WORKER_SOURCE = [
+      "const { parentPort } = require('node:worker_threads');",
+      "parentPort.on('message', (msg) => {",
+      "  const blocker = msg.configPaths.some((p) => p.includes('blocker'));",
+      `  const end = Date.now() + (blocker ? ${BLOCKER_MS} : ${SCOPED_MS});`,
+      '  while (Date.now() < end) { /* hold the thread */ }',
+      '  parentPort.postMessage({ id: msg.id, ok: true, collected: [], errors: [], programCount: 1 });',
+      '});',
+    ].join('\n');
+
+    it('a scoped run posted while an unscoped run holds its thread completes in its own time', async () => {
+      const root = writeFixture({
+        'blocker/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg/tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'pkg/src/index.ts': 'export const ok: number = 1;\n',
+      });
+      const holding = new TsDiagnosticsWorker(HOLDING_WORKER_SOURCE);
+      let unscopedPosted: () => void = () => undefined;
+      const posted = new Promise<void>((resolve) => {
+        unscopedPosted = resolve;
+      });
+      const runSpy = jest
+        .spyOn(tsDiagnosticsWorker, 'run')
+        .mockImplementation((request) => {
+          const run = holding.run(request);
+          unscopedPosted();
+          return run;
+        });
+      const provider = new TypeScriptDiagnosticsProvider(
+        realDirFsProvider([path.join(root, 'blocker', 'tsconfig.json')]),
+      );
+
+      try {
+        const settledOrder: string[] = [];
+        const unscoped = provider.getDiagnostics(root).then((result) => {
+          settledOrder.push('unscoped');
+          return result;
+        });
+        // The audit's order: the whole-workspace run is on its thread first.
+        await posted;
+
+        const startedAt = Date.now();
+        const scoped = await provider.getDiagnostics(root, {
+          files: [path.join(root, 'pkg', 'src', 'index.ts')],
+        });
+        const scopedMs = Date.now() - startedAt;
+        settledOrder.push('scoped');
+
+        expect(scoped.status).toBe('available');
+        // Its own ~200 ms plus a thread spawn — not the blocker's 6 s on top.
+        expect(scopedMs).toBeLessThan(BLOCKER_MS / 2);
+        expect(settledOrder).toEqual(['scoped']);
+
+        // The unscoped run was not cancelled to make room: it still lands.
+        await expect(unscoped).resolves.toMatchObject({ status: 'available' });
+        expect(settledOrder).toEqual(['scoped', 'unscoped']);
+      } finally {
+        runSpy.mockRestore();
+        await holding.dispose();
+      }
+    });
+
+    it('asks the worker for the lane that matches the scope', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      const runSpy = jest
+        .spyOn(tsDiagnosticsWorker, 'run')
+        .mockResolvedValue({ collected: [], errors: [], programCount: 1 });
+      const provider = new TypeScriptDiagnosticsProvider(
+        realDirFsProvider([path.join(root, 'tsconfig.json')]),
+      );
+
+      try {
+        await provider.getDiagnostics(root);
+        await provider.getDiagnostics(root, {
+          files: [path.join(root, 'src', 'index.ts')],
+        });
+
+        expect(runSpy.mock.calls.map(([request]) => request.lane)).toEqual([
+          'unscoped',
+          'scoped',
+        ]);
+      } finally {
+        runSpy.mockRestore();
+      }
+    });
+  });
+
+  /**
+   * Batch 19 r1 S1(b). A call whose config discovery was still pending when
+   * the host disposed the worker pool went on to start a thread once
+   * discovery resolved — after `dispose()` had already reported that no
+   * thread was left.
+   */
+  describe('a call that outlives dispose() starts no thread', () => {
+    it('discovery resolving after dispose() answers unavailable and never reaches the worker', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      let finishDiscovery: (configs: string[]) => void = () => undefined;
+      const provider = new TypeScriptDiagnosticsProvider(
+        createMockFileSystemProvider({
+          findFiles: jest.fn(
+            () =>
+              new Promise<string[]>((resolve) => {
+                finishDiscovery = resolve;
+              }),
+          ),
+        }),
+      );
+      const runSpy = jest.spyOn(tsDiagnosticsWorker, 'run');
+
+      try {
+        const pending = provider.getDiagnostics(root);
+        await provider.dispose();
+        finishDiscovery([path.join(root, 'tsconfig.json')]);
+
+        const result = await pending;
+
+        expect(runSpy).not.toHaveBeenCalled();
+        expect(result.status).toBe('unavailable');
+        if (result.status !== 'unavailable') return;
+        expect(result.reason).toContain('disposed');
+
+        // Disposal ends a generation, not the provider: a new call compiles.
+        const again = provider.getDiagnostics(root);
+        finishDiscovery([path.join(root, 'tsconfig.json')]);
+        await expect(again).resolves.toMatchObject({ status: 'available' });
+        expect(runSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        runSpy.mockRestore();
+      }
+    });
+
+    /**
+     * Batch 19 r2 R2-S1. A call that STARTED while disposal was in progress
+     * read the generation disposal had already bumped, so once disposal
+     * finished and discovery resolved, the check matched and a thread was
+     * started after `dispose()` had returned.
+     */
+    it('a call started during dispose() is never admitted, even when discovery resolves after it', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      let finishDiscovery: (configs: string[]) => void = () => undefined;
+      const provider = new TypeScriptDiagnosticsProvider(
+        createMockFileSystemProvider({
+          findFiles: jest.fn(
+            () =>
+              new Promise<string[]>((resolve) => {
+                finishDiscovery = resolve;
+              }),
+          ),
+        }),
+      );
+      const runSpy = jest.spyOn(tsDiagnosticsWorker, 'run');
+
+      try {
+        // A live lane, so disposal has a real thread to wait for.
+        const warm = provider.getDiagnostics(root);
+        finishDiscovery([path.join(root, 'tsconfig.json')]);
+        await warm;
+        provider.invalidate();
+        runSpy.mockClear();
+
+        const disposal = provider.dispose();
+        const during = provider.getDiagnostics(root);
+        await disposal;
+        finishDiscovery([path.join(root, 'tsconfig.json')]);
+
+        const result = await during;
+
+        expect(runSpy).not.toHaveBeenCalled();
+        expect(result.status).toBe('unavailable');
+        if (result.status !== 'unavailable') return;
+        expect(result.reason).toContain('disposed');
+
+        // A call that starts after disposal has completed is admitted.
+        const after = provider.getDiagnostics(root);
+        finishDiscovery([path.join(root, 'tsconfig.json')]);
+        await expect(after).resolves.toMatchObject({ status: 'available' });
+        expect(runSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        runSpy.mockRestore();
+      }
+    });
+  });
+
+  /**
+   * The lanes must not change what `withBudget` promises: the run it answers
+   * for at 45 s is kept, a retry shares it instead of starting a second
+   * compile, and its result is served from the 5 s cache once it lands.
+   */
+  describe('the 45 s budget keeps the run for the retry', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('answers "still running" at 45 s, shares the kept run with the retry, then serves it from cache', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      let finish: (outcome: TsDiagnosticsRunOutcome) => void = () => undefined;
+      const runSpy = jest.spyOn(tsDiagnosticsWorker, 'run').mockImplementation(
+        () =>
+          new Promise<TsDiagnosticsRunOutcome>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+      jest.useFakeTimers();
+
+      try {
+        const first = provider.getDiagnostics(root);
+        await jest.advanceTimersByTimeAsync(45_000);
+        const answered = await first;
+        expect(answered.status).toBe('unavailable');
+        if (answered.status === 'unavailable') {
+          expect(answered.reason).toContain('still running after 45s');
+        }
+
+        // The retry shares the kept run: no second compile is started.
+        const retry = provider.getDiagnostics(root);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(runSpy).toHaveBeenCalledTimes(1);
+
+        finish({ collected: [], errors: [], programCount: 1 });
+        await expect(retry).resolves.toEqual({
+          status: 'available',
+          source: 'typescript-compiler',
+          diagnostics: [],
+        });
+
+        // Inside the 5 s window the landed result is served from cache.
+        await jest.advanceTimersByTimeAsync(4_000);
+        await expect(provider.getDiagnostics(root)).resolves.toMatchObject({
+          status: 'available',
+        });
+        expect(runSpy).toHaveBeenCalledTimes(1);
+        expect(fsProvider.findFiles).toHaveBeenCalledTimes(1);
+
+        // Past it, the next call compiles again.
+        await jest.advanceTimersByTimeAsync(1_000);
+        const again = provider.getDiagnostics(root);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(runSpy).toHaveBeenCalledTimes(2);
+        finish({ collected: [], errors: [], programCount: 1 });
+        await again;
+      } finally {
+        runSpy.mockRestore();
+      }
     });
   });
 });
