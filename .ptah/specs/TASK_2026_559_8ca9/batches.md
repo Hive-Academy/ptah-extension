@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 5/26
+Total tasks: 52 | Batches: 26 | Complete: 6/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -644,6 +644,11 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
   over-budget prose document (distinct paragraphs, some mentioning "failed") emits only verbatim input lines in
   order plus gap markers; no two distinct lines are merged
 - Implementation details: specs on SIZE (5,000-line jest log → within budget) AND PRESERVED CONTENT (all 3 `●` failure blocks with their assertion and first stack frame; a `TS2345` line; the final summary line in the tail)
+- Contract change at Batch 2e (r1 S2, commit b93ef13a8): the reducer also takes `ReduceContext.budgetChars` (optional)
+  and, when head 40 + tail 80 + errors-with-context is over either budget, degrades by priority under Decision 7
+  ("keep errors with context"): head first, then tail, then context; error lines are dropped last (then line by line:
+  first error, last line, other errors, tail, head; at worst the first error line alone). The error note reads
+  `kept K of N error line(s)` when some were dropped (r2 M1). Spec D1c changed and D1d added accordingly
 
 ### Task 2c.2: In-house HTML main-content extractor — COMPLETE (known issues KI-2c-1..KI-2c-7)
 
@@ -892,7 +897,7 @@ char per run, biasing only toward keeping a run verbatim.
 
 ---
 
-## Batch 2e: Reducer pipeline and the tool-result budget helper — PENDING
+## Batch 2e: Reducer pipeline and the tool-result budget helper — COMPLETE (commit b93ef13a8)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -904,7 +909,7 @@ char per run, biasing only toward keeping a run verbatim.
   `<WT>/libs/backend/vscode-lm-tools/package.json` plus the runtime packaging it needs — see "Notes for Batch 2e
   (added at Batch 2d close)"
 
-### Task 2e.1: `reduceOutput` pipeline — PENDING
+### Task 2e.1: `reduceOutput` pipeline — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reduce-output.ts`, `<WT>/libs/backend/tool-output-reducers/src/lib/reduce-output.spec.ts`, `<WT>/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: amendment block above (when reducers run, content-type selection, logging)
@@ -927,7 +932,7 @@ char per run, biasing only toward keeping a run verbatim.
   lexes at 0.3-1.5 s/MB — the 1 MB end-to-end < 1 s spec depends on that cap
 - Implementation details: specs — identity under budget (byte-equal); each kind routed to its reducer; hint wins; throwing reducer → fallback + one output line; 1 MB input end-to-end < 1 s
 
-### Task 2e.2: `tool-result-budget.ts` over the pipeline (original Task 2.1) — PENDING
+### Task 2e.2: `tool-result-budget.ts` over the pipeline (original Task 2.1) — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.spec.ts` (new)
 - Depends on: Task 2e.1
@@ -943,9 +948,84 @@ char per run, biasing only toward keeping a run verbatim.
 - The Codex review lane approves
 - Write-path trace recorded in the report: raw output → spool file → path in the trailer → read by the agent's Read tool. No settings or config write
 
+### Batch 2e review history
+
+| Round | Archive (`reviews/`) | Verdict | Outcome |
+| --- | --- | --- | --- |
+| r1 | `batch-2e-code-logic-review-r1.md` | REVISE 5/10 | S1 piece-wise count undercounts; S2 prefix cut drops log failures and the summary; M1 trailer can exceed the budget; M2 a throwing output channel escapes; M3 raw `Error.name` leaks into the trailer/log → revision round 1 |
+| r2 | `batch-2e-code-logic-review-r2.md` | REVISE 5/10 | B1 head/tail stitching at the 2 MiB cap changes the meaning of structured kinds; M1 log error-count note overstates kept errors. Revise cap reached → one bounded correction |
+| r3-postcap | `batch-2e-code-logic-review-r3-postcap.md` | APPROVE 8/10 | All r1/r2 findings fixed; no new reproduced defect → committed |
+
+- All three rounds are Codex cross-side lanes (the cross-vendor review the Recorded defaults ask for)
+- Executor report: `batch-2e-executor-report.md` (Deviations 1-5, the r1 fix table, the r2 bounded correction and the
+  write-path trace). Its line endings were normalised to LF at commit; content unchanged
+- The untracked `code-logic-review.md` in the task folder (the lane's canonical output) and
+  `research/diagnostics-worktree-repro.ts` are not committed
+
+### Batch 2e deviations (accepted)
+
+1. One bounded piece-wise counter in `token-measure.ts` (`countTokensPiecewise`, `fittingPrefixLength`); `fitsBudget`
+   counts piece-wise; the duplicated `lineTokens`/`MAX_PIECE_CHARS` in the Markdown and log reducers is gone. After
+   r1 S1 each piece cut falls between two o200k pre-tokens after a non-whitespace char (exact for ordinary text; an
+   upper bound, by UTF-8 bytes, for stretches with no safe cut); a spec pins the copied split pattern to the
+   installed `gpt-tokenizer`
+2. New manifest `<WT>/libs/backend/tool-output-reducers/package.json` (`0.0.1`, private) so `@nx/dependency-checks`
+   has a version for the workspace dependency
+3. `"marked": "^18.0.13"` added to `<WT>/apps/ptah-cli/package.json` and `<WT>/apps/ptah-electron/package.json`
+   (closes the Task 2e.1 `marked` packaging RISK at the manifest level)
+4. `vscode-lm-tools` jest: `transformIgnorePatterns: ['node_modules/(?!marked/)']`, `allowJs: true` in
+   `tsconfig.spec.json`, and the Batch 2d `jest.mock('marked')` shim removed from `code-outliner.adapter.spec.ts`
+5. Delivered (carried from Batch 2d): `"@ptah-extension/tool-output-reducers": "0.0.1"` in
+   `<WT>/libs/backend/vscode-lm-tools/package.json`; `vscode-lm-tools:lint` green
+
+### Batch 2e behaviour notes
+
+- Over-cap input (`MAX_REDUCER_INPUT_CHARS`, 2 MiB): the content kind is chosen before the cap (hint, else sniffed
+  from the first 2 MiB). Only the `log` kind is head/tail stitched (whole lines from both ends, a note line between,
+  room reserved for the note). Every other kind over the cap returns raw with reducer `'none'`; the budget helper
+  then cuts and spools it (r2 B1)
+- The Batch 2c log reducer contract changed (see Task 2c.1 "Contract change at Batch 2e")
+- The budget helper measures the final string, trailer included, against both limits and re-cuts with a smaller
+  window until it fits; the trailer shows the absolute spool path only when its widest form is at most a quarter of
+  the budget, otherwise `.ptah/tmp/mcp-out/<name> under the workspace root` (or `system temp directory`); last resort
+  is the trailer alone cut to the budget. Every output-channel write is wrapped; error names come from a fixed
+  built-in allow-list; errno codes must match `/^E[A-Z0-9]{1,30}$/`
+
+### Batch 2e follow-ups (not blocking)
+
+- Packaging smoke test not run: the generated `dist/apps/ptah-electron/package.json` was only checked in memory by
+  the r1 reviewer (lists `marked`), and no packaged Electron host or CLI install was exercised. Carry into the Batch
+  21 / release smoke checks: build Electron, confirm `marked` in the generated manifest, and load the pipeline in a
+  packaged host and in an installed `ptah-cli`
+- `ptah_browser_content`: its HTML section can be cut by the 32 KiB + 1 KiB override (`tool-result-budget.ts:76`)
+  once Batch 2f routes it through the budget. Out of scope for 2e; for the batch that owns browser output
+
+### Batch 2e team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `reduce-output.ts` (270 lines, `reduceOutput`, `cappedLogInput`, `reducerFor`), `reduce-output.spec.ts`
+  (515), `tool-result-budget.ts` (622, exports the two defaults, `TOOL_RESULT_BUDGET_OVERRIDES`,
+  `TOOL_CONTENT_HINTS`, `getToolResultBudget`, `applyToolResultBudget`; spool, prune, cut, trailer helpers),
+  `tool-result-budget.spec.ts` (510); no TODO/FIXME/PLACEHOLDER/STUB markers in the new or changed sources
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers
+  @ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0, all 6 targets successful
+- `node_modules/.bin/nx run-many "-t=lint,typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
+- Code commit `b93ef13a8` stages 18 files (the 13 modified + 5 new above); docs committed separately
+
+### Notes for Batch 2f (added at Batch 2e close)
+
+- `applyToolResultBudget` is async and never throws; `createToolSuccessResponse` must `await` it. Pass the
+  `TreeSitterCodeOutliner` (Batch 2d) as `outliner`, `spoolRoot` resolved by the caller
+  (`getCallerWorkspaceRoot()` ?? workspace root ?? `os.tmpdir()`), and the MCP request id as `requestId`
+- The result carries `rawTokens`, `returnedTokens`, `reducer`, `truncated`, `totalChars` — the Task 2f.1 debug line
+  reads these directly; do not re-count tokens in the dispatcher
+- `getToolResultBudget(name).chars` is the value for `_meta['anthropic/maxResultSizeChars']` (Task 2f.2)
+- Budget only text content blocks; image blocks pass through untouched
+- The `ptah_browser_content` override cut (follow-up above) becomes live once 2f lands; a 2f spec should pin the
+  current behaviour (cut + spool, trailer present) so the later fix shows as a deliberate change
+
 ---
 
-## Batch 2f: Route every success response through the budget; telemetry; declare the budget in tools/list — PENDING
+## Batch 2f: Route every success response through the budget; telemetry; declare the budget in tools/list — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -954,7 +1034,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2e
 
-### Task 2f.1: Route every success response through the budget; debug telemetry (original Task 2.2) — PENDING
+### Task 2f.1: Route every success response through the budget; debug telemetry (original Task 2.2) — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Plan reference: research-report.md:160-169, :200-204; research/cross-cutting.md:319-329
@@ -963,7 +1043,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: the telemetry-at-info risk is carried here. The image content block in the screenshot case is NOT budgeted (text only)
 - Implementation details: update every `return createToolSuccessResponse(` call to `await`. Specs: a fake tool returning 50k chars of JSON → reduced response within both limits plus the trailer, spool byte-equal to raw; a fake tool returning a 50k-char log → failure lines present; the debug log carries the fields; an error response is logged with `isError:true`
 
-### Task 2f.2: Declare the budget in `tools/list` (original Task 2.3) — PENDING
+### Task 2f.2: Declare the budget in `tools/list` (original Task 2.3) — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (`handleToolsList`/`markEagerTools` area), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 2f.1
