@@ -1512,7 +1512,12 @@ async function handleIndividualTool(
         });
         return await createToolSuccessResponse(
           request,
-          formatBrowserEvaluate(evalResult),
+          await formatBrowserEvaluate(
+            evalResult,
+            getToolResultBudget(name),
+            async (text) =>
+              spoolToolText(text, await resolveSpoolRoot(deps), request.id),
+          ),
           deps,
         );
       }

@@ -3129,6 +3129,34 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     expect(text).not.toContain('<p class="para">');
   });
 
+  // TASK_2026_559 Batch 18: an over-budget evaluate value is cut by the
+  // formatter so the whole answer fits the budget (the budget step leaves it
+  // unchanged and its trailer inline); the full value is spooled under the
+  // host-owned spool root and named in that trailer (User Decision 7).
+  it('ptah_browser_evaluate: an over-budget value is cut within the budget, spooled whole under the known folder, and named inline', async () => {
+    const value = 'v'.repeat(2000) + 'TAIL-MARKER' + 'w'.repeat(60_000);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        browser: {
+          evaluate: jest.fn().mockResolvedValue({ value, type: 'string' }),
+        } as unknown as PtahAPI['browser'],
+      }),
+    });
+
+    const text = textOf(
+      await callTool('ptah_browser_evaluate', { expression: 'x' }, deps),
+    );
+
+    expectWithinDefaultBudget(text);
+    expect(text).not.toContain('TAIL-MARKER');
+    expect(text).not.toContain('[reduced:');
+    expect(onlySpoolFile()).toBe(value);
+    const [spooled] = fs.readdirSync(spoolDir());
+    expect(text).toContain(
+      `; full value: ${path.join(spoolDir(), spooled)} — for page content use ptah_browser_content with a selector]`,
+    );
+  });
+
   // Review F1: the declared root is a URL segment (caller input). It decides
   // the spool location only when it canonicalizes to a folder the host knows.
   describe('spool root trust (review F1)', () => {

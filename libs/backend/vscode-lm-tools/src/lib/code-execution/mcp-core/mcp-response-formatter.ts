@@ -32,6 +32,11 @@ import type {
   BrowserRecordStartResult,
   BrowserRecordStopResult,
 } from '../types';
+import {
+  fitsBudget,
+  type TextBudget,
+} from '@ptah-extension/tool-output-reducers';
+import type { SpoolOutcome } from './tool-result-budget';
 
 /** Directory levels rendered, the workspace root's entries being level 1. */
 const TREE_MAX_DEPTH = 3;
@@ -1622,10 +1627,65 @@ export function formatBrowserScreenshot(
   }
 }
 
+/** Saves the full stringified evaluate value (the dispatcher passes `spoolToolText`). */
+export type EvaluateValueSpool = (text: string) => Promise<SpoolOutcome>;
+
+/** The line that replaces the dropped tail of an over-budget evaluate value. */
+function evaluateTruncationTrailer(
+  dropped: number,
+  saved: SpoolOutcome,
+): string {
+  const where =
+    'path' in saved
+      ? `full value: ${saved.path}`
+      : `full value could not be saved: ${saved.failure}`;
+  return `[...truncated: ${dropped} more chars; ${where} — for page content use ptah_browser_content with a selector]`;
+}
+
 /**
- * Format ptah_browser_evaluate result
+ * Largest `n` in `[0, max]` for which `fits(n)` holds, else 0 (`fits`
+ * monotone; `fits(0)` is not tested).
  */
-export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
+function largestFittingLength(
+  max: number,
+  fits: (n: number) => boolean,
+): number {
+  let low = 0;
+  let high = max;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low;
+}
+
+/** `end`, moved back one unit when the prefix would end on a high surrogate. */
+function surrogateSafeEnd(text: string, end: number): number {
+  const last = text.charCodeAt(end - 1);
+  return end > 0 && last >= 0xd800 && last <= 0xdbff ? end - 1 : end;
+}
+
+/**
+ * Format ptah_browser_evaluate result.
+ *
+ * A result that fits `budget` (the tool's result budget, measured the way
+ * the budget step measures it) is rendered exactly as before. Otherwise the
+ * full stringified value is saved with `spool`, and the value is cut to the
+ * longest prefix (never inside a surrogate pair) for which the whole
+ * answer, header and trailer included, still fits `budget`. The budget step
+ * then returns it unchanged, so the trailer, with the dropped count and the
+ * saved path, stays visible. Without the cut, `evaluate` would bypass the
+ * cap `formatBrowserContent` puts on page content.
+ */
+export async function formatBrowserEvaluate(
+  result: BrowserEvaluateResult,
+  budget: TextBudget,
+  spool: EvaluateValueSpool,
+): Promise<string> {
   try {
     if (result.error) {
       return json2md([
@@ -1639,18 +1699,35 @@ export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
       typeof result.value === 'object'
         ? JSON.stringify(result.value, null, 2)
         : String(result.value);
-    const blocks: any[] = [
+    const header = [
       { h2: 'JavaScript Evaluation Result' },
       { p: `**Type:** ${result.type}` },
     ];
 
-    if (result.type === 'object' || valueStr.length > 100) {
-      blocks.push({ code: { language: 'json', content: valueStr } });
-    } else {
-      blocks.push({ p: `**Value:** ${valueStr}` });
+    if (result.type !== 'object' && valueStr.length <= 100) {
+      return json2md([...header, { p: `**Value:** ${valueStr}` }]);
     }
 
-    return json2md(blocks);
+    const render = (content: string): string =>
+      json2md([...header, { code: { language: 'json', content } }]);
+    const whole = render(valueStr);
+    if (fitsBudget(whole, budget)) {
+      return whole;
+    }
+
+    const saved = await spool(valueStr);
+    const renderCut = (kept: number): string =>
+      render(
+        `${valueStr.slice(0, kept)}\n\n` +
+          evaluateTruncationTrailer(valueStr.length - kept, saved),
+      );
+    const kept = surrogateSafeEnd(
+      valueStr,
+      largestFittingLength(Math.min(valueStr.length - 1, budget.chars), (n) =>
+        fitsBudget(renderCut(n), budget),
+      ),
+    );
+    return renderCut(kept);
   } catch {
     return fallbackJson(result);
   }
