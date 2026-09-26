@@ -110,7 +110,7 @@ export function buildDashboardViewModel(
         throw new TypeError('Invalid dashboard children.');
       }
       if (component.children === undefined) {
-        return mapDisplayNode(component, undefined);
+        return mapDisplayNode(component);
       }
       const children =
         depth < DASHBOARD_LIMITS.maxTreeDepth

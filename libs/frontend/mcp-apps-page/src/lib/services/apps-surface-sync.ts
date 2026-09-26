@@ -120,18 +120,15 @@ export class AppsSurfaceSync {
    * records ONE follow-up read, however many triggers arrive meanwhile.
    */
   public requestRead(reason: AppsSurfaceReadReason): void {
-    try {
-      if (this.disposed) return;
-      if (this.inFlight !== null) {
-        this.followUp = true;
-        return;
-      }
-      this.runRead(reason).catch((error: unknown) =>
-        console.warn(`${WARN_PREFIX} read not completed: ${errorName(error)}`),
-      );
-    } catch (error: unknown) {
-      console.warn(`${WARN_PREFIX} read not requested: ${errorName(error)}`);
+    if (this.disposed) return;
+    if (this.inFlight !== null) {
+      this.followUp = true;
+      return;
     }
+    // runRead is async: a throw anywhere in it arrives here as a rejection.
+    this.runRead(reason).catch((error: unknown) =>
+      console.warn(`${WARN_PREFIX} read not completed: ${errorName(error)}`),
+    );
   }
 
   /**
