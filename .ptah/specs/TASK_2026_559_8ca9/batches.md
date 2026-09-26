@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 6/26
+Total tasks: 52 | Batches: 26 | Complete: 7/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1025,7 +1025,7 @@ char per run, biasing only toward keeping a run verbatim.
 
 ---
 
-## Batch 2f: Route every success response through the budget; telemetry; declare the budget in tools/list — IN_PROGRESS
+## Batch 2f: Route every success response through the budget; telemetry; declare the budget in tools/list — COMPLETE (commit e131070da)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1034,7 +1034,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2e
 
-### Task 2f.1: Route every success response through the budget; debug telemetry (original Task 2.2) — IN_PROGRESS
+### Task 2f.1: Route every success response through the budget; debug telemetry (original Task 2.2) — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Plan reference: research-report.md:160-169, :200-204; research/cross-cutting.md:319-329
@@ -1043,7 +1043,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: the telemetry-at-info risk is carried here. The image content block in the screenshot case is NOT budgeted (text only)
 - Implementation details: update every `return createToolSuccessResponse(` call to `await`. Specs: a fake tool returning 50k chars of JSON → reduced response within both limits plus the trailer, spool byte-equal to raw; a fake tool returning a 50k-char log → failure lines present; the debug log carries the fields; an error response is logged with `isError:true`
 
-### Task 2f.2: Declare the budget in `tools/list` (original Task 2.3) — IN_PROGRESS
+### Task 2f.2: Declare the budget in `tools/list` (original Task 2.3) — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (`handleToolsList`/`markEagerTools` area), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 2f.1
@@ -1058,9 +1058,98 @@ char per run, biasing only toward keeping a run verbatim.
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
 - The Codex review lane approves
 
+### Batch 2f review history
+
+| Round | Archive (`reviews/`) | Verdict | Outcome |
+| --- | --- | --- | --- |
+| r1 | `batch-2f-code-logic-review-r1.md` | REVISE 5/10 | F1 (blocking) the caller-declared root decides the spool location; F2 `approval_prompt` and the screenshot caption bypass the advertised budget; F3 unguarded result observers; F4 raw unknown tool names in telemetry → revision round 1 |
+| r2 | `batch-2f-code-logic-review-r2.md` | REVISE 6/10 | F1 not fixed: the caller-aware `ptahAPI.workspace.getInfo()` was trusted as host root and fallback. Revise cap reached → one bounded correction (spool root only from the platform workspace provider; exact canonical match; `\\?\` handling) |
+| r3-postcap | `batch-2f-code-logic-review-r3-postcap.md` | APPROVE 8/10 | F1-F4 fixed; no new defect → committed |
+
+- All three rounds are Codex cross-side lanes
+- Executor report: `batch-2f-executor-report.md` (Deviations 1-5, Revision round 1, Bounded correction)
+- The untracked `code-logic-review.md` and `research/diagnostics-worktree-repro.ts` are not committed
+
+### Batch 2f deviations (accepted)
+
+1. `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-http/http-mcp-server.service.ts` changed (outside
+   the file list): optional `@inject(TOKENS.TREE_SITTER_PARSER_SERVICE)` as the last constructor parameter, wrapped
+   once as `TreeSitterCodeOutliner` and passed as `codeOutliner`; it also passes the platform `workspaceProvider`
+   (the injected host provider, not the session-aware wrapper) to the dispatcher. Both new
+   `ProtocolHandlerDependencies` fields are optional
+2. The dispatcher pre-checks the budget (`tokensWithinBudget`, the same char-then-piecewise-token test as the
+   helper's identity branch) so the spool root is only resolved for text that must be reduced or cut.
+   `tool-result-budget.ts` unchanged
+3. `handleExecuteCodeCall` success text goes through `createToolSuccessResponse`; its `onToolResult` runs in
+   `runObserver`, so a throwing callback no longer turns a success into "Code execution failed"
+4. Telemetry for responses outside the budget (tool errors, JSON-RPC errors, throws, `approval_prompt`):
+   `rawTokens`/`returnedTokens` are `null` (not measured), `reducer:'none'`, `truncated:false`
+5. `ptah_browser_content` pin: over budget, the Markdown reducer (`markdown-outline`) keeps the text section whole
+   and replaces the HTML code block with `(code block, N lines, omitted)`; the raw is spooled byte-equal and the
+   trailer names the file. Pinned as-is so the later fix shows as a deliberate change
+
+### Batch 2f behaviour notes
+
+- `approval_prompt` is a documented exception: it carries no `_meta['anthropic/maxResultSizeChars']` and its
+  response (machine-control JSON, `updatedInput`) is returned whole, never reduced, no trailer
+- Screenshot: only the text caption is budgeted; the image block passes byte-identical
+- Spool root: the caller-declared root is used only when it canonically equals (`path.resolve`, `realpath` for
+  local paths, `\\?\`/`\\.\` stripped, trailing separators stripped, lowercase on win32) a folder from
+  `deps.workspaceProvider.getWorkspaceFolders()`, and the host's own record is returned. Otherwise the first
+  provider folder, else `os.tmpdir()`. Subfolders, junctions/symlinks to elsewhere and unknown UNC shares never match;
+  UNC paths are never passed to `realpath`. The spool path never calls `ptahAPI.workspace`
+- Telemetry: one `logger.debug('[MCP] tool result', …)` per `tools/call` from `handleToolsCall`'s `finally`, inside
+  `runObserver`, with `{ tool, durationMs, resultChars, rawTokens, returnedTokens, reducer, truncated, isError }`.
+  `tool` is the name only when it is in `registeredToolNames` (built once from `buildToolDefinitions` with every
+  capability on), else `'<unknown>'`; the slow-tool warn uses the same name
+- Every result observer (`onToolResult` on all paths, the `execute_code` error `logger.error`) runs in `runObserver`
+- `tools/list` key order per tool: `anthropic/alwaysLoad` (eager tools) then `anthropic/maxResultSizeChars`
+
+### Batch 2f team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `protocol-dispatcher.ts` (async `createToolSuccessResponse`, `budgetToolText`, `tokensWithinBudget`,
+  `resolveSpoolRoot`, `stripExtendedLengthPrefix`, `canonicalFolderKey`, `buildToolDefinitions`,
+  `declareResultBudgets`, `telemetryToolName`, `toolResultTelemetry`), its spec (+728 lines) and
+  `http-mcp-server.service.ts` (+20); no TODO/FIXME/PLACEHOLDER/STUB markers in the added lines; no stray files
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools --skip-nx-cache` →
+  exit 0, "Successfully ran targets test, lint, typecheck"
+- `node_modules/.bin/nx run-many "-t=typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
+- `tools/list` byte comparison against HEAD `f7f354714` (the pre-extraction dispatcher, copied to the OS temp dir
+  with its relative imports pointed at the worktree): 1,152 configurations (`hasIDECapabilities` ×
+  `hasSqliteLayer` each in {undefined, false, true} × all 128 subsets of the 7 disabled namespaces). After removing
+  only `anthropic/maxResultSizeChars` (and a then-empty `_meta`), `JSON.stringify` of the result is byte-identical in
+  all 1,152 (0 differ). Every tool except `approval_prompt` carried the key in every configuration. This closes the
+  executor's caveat (c) that `buildToolDefinitions` was not byte-compared against the pre-extraction source.
+  Temp files removed afterwards
+- Code commit `e131070da` stages exactly the 3 files above; docs committed separately
+
+### Batch 2f follow-ups (not blocking)
+
+- Pre-existing: an error thrown inside `execute_code` reaches the agent as "Code execution failed: Unknown error"
+  (sandbox errors are not host-realm `instanceof Error`), so hints such as "File not found:" never fire. Candidate
+  for a later batch that owns `handleExecuteCodeCall` / `code-execution.engine.ts`
+- Packaged-host smoke and live concurrency (concurrent spool writes, filesystem mutation during canonicalisation)
+  not exercised. Carry into the Batch 21 / release smoke checks with the Batch 2e packaging follow-up
+- `ptah_browser_content`: the HTML block is omitted over budget (Deviation 5). Still for the batch that owns browser
+  output
+- Carried: formatter caps and screenshot transcript work noted by r3 as deferred
+
+### Notes for Batch 3 (added at Batch 2f close)
+
+- The telemetry line is built in `toolResultTelemetry` (`protocol-dispatcher.ts`); Task 3.2 adds `callerKind` there.
+  Keep it a `debug` line inside `runObserver`, and never log a raw caller id or unregistered name
+- `handleToolsList` now composes through `buildToolDefinitions(deps)` → `markEagerTools` → `declareResultBudgets`.
+  Task 3.2's `buildToolSet(caller, deps)` should wrap or replace `buildToolDefinitions` without changing that order;
+  `registeredToolNames` is derived from `buildToolDefinitions({ hasIDECapabilities: true })` and must keep matching
+  the full list
+- The Batch 2f byte-stability spec (`tools/list maxResultSizeChars` describe) is the pattern for the Task 3.2
+  four-caller-kind byte-identity guard
+- The spool root must stay host-owned: do not route it through the new caller context. `getCallerWorkspaceRoot()` is
+  only a candidate that must match a provider folder
+
 ---
 
-## Batch 3: Caller identity for tools/list and the request context — PENDING
+## Batch 3: Caller identity for tools/list and the request context — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1069,7 +1158,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2f
 
-### Task 3.1: `McpCaller` resolution and `callerAgentId` in the context — PENDING
+### Task 3.1: `McpCaller` resolution and `callerAgentId` in the context — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-caller.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-caller.spec.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-request-context.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-request-context.spec.ts`
 - Plan reference: research-report.md:170-181, :290-304; research/cross-cutting.md:275-291; context.md User Decision 5
@@ -1078,7 +1167,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: confirm the stdio/CLI path (no URL) yields `anonymous`. A malformed field never borrows another caller's identity
 - Implementation details: pure function, no I/O. Specs for each kind, precedence, and malformed/empty fields
 
-### Task 3.2: Thread the caller into tools/list, tools/call and telemetry — PENDING
+### Task 3.2: Thread the caller into tools/list, tools/call and telemetry — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 3.1
