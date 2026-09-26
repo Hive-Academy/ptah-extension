@@ -7,15 +7,24 @@
  *   - per-file query routing by longest-prefix root match
  *   - workspace-root normalization (slashes / trailing slash)
  *   - eviction: evict(root) / retainOnly(roots) / clear()
+ *   - builds in flight, governor yielding, edge linking (Batch 9b)
+ *   - language coverage published with the graph (Batch 23a)
  */
 
 import 'reflect-metadata';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { Result } from '@ptah-extension/shared';
+import { isCleanAnswer } from '@ptah-extension/platform-core';
 import type {
   BackgroundWorkAdmission,
   Logger,
 } from '@ptah-extension/vscode-core';
-import { DependencyGraphService } from './dependency-graph.service';
+import {
+  DependencyGraphService,
+  graphPathIdentity,
+} from './dependency-graph.service';
 import type { AstAnalysisService } from './ast-analysis.service';
 import type { FileSystemService } from '../services/file-system.service';
 import type {
@@ -417,6 +426,44 @@ describe('DependencyGraphService — builds in flight', () => {
     },
   );
 
+  // FB (batch 23a): the graph and its language coverage publish together or
+  // not at all; a superseded build leaves neither behind.
+  it('superseded build publishes neither graph nor coverage', async () => {
+    const { svc, release } = gatedService();
+    const earlier = svc.buildGraph(
+      [...A_FILES, 'D:/ws-a/tool.py'],
+      WS_A,
+      undefined,
+      50,
+    );
+    const later = svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
+    release();
+    const [earlierGraph] = await Promise.all([earlier, later]);
+
+    expect(earlierGraph.nodes.size).toBe(2); // built, but not published
+    const report = svc.getCoverageReport(WS_A);
+    expect(report?.files).toEqual({ graphedFiles: 1, discoveredFiles: 1 });
+    expect(report?.languages).toMatchObject({
+      analyzed: 1,
+      unsupported: 0,
+      omittedByCap: 0,
+    });
+    expect(svc.getDependents('D:/ws-a/b.ts')).toEqual([]);
+
+    // An eviction mid-build: no graph and no coverage at all.
+    const { svc: evicted, release: releaseEvicted } = gatedService();
+    const build = evicted.buildGraph(A_FILES, WS_A, undefined, undefined, {
+      yieldToForeground: true,
+      generation: evicted.reserveBuild(WS_A),
+    });
+    evicted.evict(WS_A);
+    releaseEvicted();
+    await build;
+    expect(evicted.isBuilt(WS_A)).toBe(false);
+    expect(evicted.getCoverageReport(WS_A)).toBeUndefined();
+    expect(evicted.getCoverageReport()).toBeUndefined();
+  });
+
   it('keeps the later-started build when an earlier one finishes after it', async () => {
     const { svc, release } = gatedService();
     const earlier = svc.buildGraph(A_FILES, WS_A, undefined, 50);
@@ -722,5 +769,601 @@ describe('DependencyGraphService — edge linking inside one node (TASK_2026_559
     expect(linked).toBeGreaterThan(0);
     expect(linked).toBeLessThan(IMPORT_COUNT);
     expect(svc.isBuilt(WS_A)).toBe(false);
+  });
+});
+
+describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)', () => {
+  /** A service whose reads and parses fail for chosen paths. */
+  function serviceWith(
+    insightMap: Record<string, CodeInsights>,
+    failures: {
+      read?: readonly string[];
+      parseError?: readonly string[];
+      parseThrow?: readonly string[];
+    } = {},
+  ) {
+    const astAnalysis = {
+      analyzeSource: jest.fn(
+        async (_content, _lang, normalizedPath: string) => {
+          if (failures.parseThrow?.includes(normalizedPath)) {
+            throw new Error('parser crashed');
+          }
+          if (failures.parseError?.includes(normalizedPath)) {
+            return Result.err(new Error('syntax'));
+          }
+          return Result.ok(insightMap[normalizedPath] ?? insights([], []));
+        },
+      ),
+    } as unknown as AstAnalysisService & { analyzeSource: jest.Mock };
+    const fileSystem = {
+      readFile: jest.fn(async (filePath: string) => {
+        if (failures.read?.includes(filePath)) throw new Error('EACCES');
+        return 'source';
+      }),
+    } as unknown as FileSystemService;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+    } as unknown as Logger;
+    return {
+      svc: new DependencyGraphService(astAnalysis, fileSystem, logger),
+      analyzeSource: astAnalysis.analyzeSource,
+    };
+  }
+
+  it('publishes a clean coverage for a fully resolved TS graph', async () => {
+    const { svc } = serviceWith(INSIGHTS);
+    await svc.buildGraph(A_FILES, WS_A, {});
+
+    const report = svc.getCoverageReport(WS_A);
+    expect(report?.files).toEqual(svc.getCoverage(WS_A));
+    expect(report?.languages).toEqual({
+      supportedLanguages: ['typescript', 'javascript'],
+      census: 'complete',
+      analyzed: 2,
+      unchecked: 0,
+      failed: 0,
+      unsupported: 0,
+      unrecognised: 0,
+      nonSource: 0,
+      excluded: null,
+      omittedByCap: 0,
+      resolution: {
+        external: 0,
+        unresolvedInternal: 0,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'complete',
+      },
+    });
+    expect(isCleanAnswer(report!.languages)).toBe(true);
+  });
+
+  it('counts parse failures by reason and leaves those files out', async () => {
+    const files = [
+      'D:/ws-a/a.ts',
+      'D:/ws-a/b.ts',
+      'D:/ws-a/unreadable.ts',
+      'D:/ws-a/broken.ts',
+      'D:/ws-a/crash.ts',
+    ];
+    const { svc } = serviceWith(INSIGHTS, {
+      read: ['D:/ws-a/unreadable.ts'],
+      parseError: ['D:/ws-a/broken.ts'],
+      parseThrow: ['D:/ws-a/crash.ts'],
+    });
+
+    const graph = await svc.buildGraph(files, WS_A, {});
+
+    expect([...graph.nodes.keys()].sort()).toEqual(A_FILES);
+    const languages = svc.getCoverageReport(WS_A)?.languages;
+    expect(languages?.analyzed).toBe(2);
+    expect(languages?.failed).toBe(3);
+    expect(languages?.failedByReason).toEqual({ read: 1, parse: 2 });
+    expect(isCleanAnswer(languages!)).toBe(false);
+  });
+
+  it('counts external and unresolved internal imports per import', async () => {
+    const map: Record<string, CodeInsights> = {
+      'D:/ws-a/a.ts': insights(
+        [
+          imp('./b'),
+          imp('./missing'),
+          imp('lodash'),
+          imp('@app/gone'),
+          imp('@app/util'),
+        ],
+        [],
+      ),
+      'D:/ws-a/b.ts': insights([], []),
+      'D:/ws-a/src/util.ts': insights([], []),
+    };
+    const files = ['D:/ws-a/a.ts', 'D:/ws-a/b.ts', 'D:/ws-a/src/util.ts'];
+    const { svc } = serviceWith(map);
+
+    await svc.buildGraph(files, WS_A, { '@app/*': ['src/*'] });
+    // `lodash` is most likely a package, but nothing proves it (r1 B2).
+    expect(svc.getCoverageReport(WS_A)?.languages.resolution).toEqual({
+      external: 1,
+      unresolvedInternal: 2,
+      truncatedImports: 0,
+      edgeCapHit: false,
+      context: 'partial',
+    });
+
+    // Without tsconfig paths the alias imports read as packages: the
+    // context is partial and says so.
+    await svc.buildGraph(files, WS_A);
+    const languages = svc.getCoverageReport(WS_A)?.languages;
+    expect(languages?.resolution).toEqual({
+      external: 3,
+      unresolvedInternal: 1,
+      truncatedImports: 0,
+      edgeCapHit: false,
+      context: 'partial',
+    });
+    expect(languages?.approximations).toEqual(['resolver-context-partial']);
+  });
+
+  // r1 B2 (FB): a supplied `paths` object does not prove there is no other
+  // alias mechanism, so unresolved `#`/bare specifiers never read as clean.
+  it.each([
+    ['an empty paths object and a package # import', {}, '#b', 'internal'],
+    [
+      'an unrelated paths mapping and a baseUrl-style import',
+      { '@other/*': ['lib/*'] },
+      'utils/b',
+      'context-dependent',
+    ],
+  ])(
+    'a supplied paths object never certifies resolution (%s)',
+    async (_label, paths, specifier, kind) => {
+      const map: Record<string, CodeInsights> = {
+        'D:/ws-a/a.ts': insights([imp(specifier)], []),
+        'D:/ws-a/utils/b.ts': insights([], []),
+      };
+      const { svc } = serviceWith(map);
+      await svc.buildGraph(['D:/ws-a/a.ts', 'D:/ws-a/utils/b.ts'], WS_A, paths);
+
+      const languages = svc.getCoverageReport(WS_A)!.languages;
+      expect(svc.getDependents('D:/ws-a/utils/b.ts')).toEqual([]);
+      expect(languages.resolution).toMatchObject(
+        kind === 'internal'
+          ? { unresolvedInternal: 1, external: 0 }
+          : { unresolvedInternal: 0, external: 1, context: 'partial' },
+      );
+      expect(isCleanAnswer(languages)).toBe(false);
+    },
+  );
+
+  // r1 M1 (FB): a `node:` builtin is proven external without any context.
+  it('does not qualify a graph whose only unresolved import is a node: builtin', async () => {
+    const map: Record<string, CodeInsights> = {
+      'D:/ws-a/a.ts': insights([imp('./b'), imp('node:fs')], []),
+      'D:/ws-a/b.ts': insights([], []),
+    };
+    const { svc } = serviceWith(map);
+    await svc.buildGraph(A_FILES, WS_A);
+
+    const languages = svc.getCoverageReport(WS_A)!.languages;
+    expect(languages.resolution).toEqual({
+      external: 1,
+      unresolvedInternal: 0,
+      truncatedImports: 0,
+      edgeCapHit: false,
+      context: 'complete',
+    });
+    expect(languages.approximations).toBeUndefined();
+    expect(isCleanAnswer(languages)).toBe(true);
+  });
+
+  // r1 B1 (FB): invalidation revokes the clean answer in the same step.
+  it('an invalidated file makes the coverage unclean with the graph change', async () => {
+    const { svc } = serviceWith(INSIGHTS);
+    await svc.buildGraph(A_FILES, WS_A, {});
+    expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
+
+    svc.invalidateFile('D:\\ws-a\\a.ts');
+
+    expect(svc.getDependents('D:/ws-a/b.ts')).toEqual([]);
+    const languages = svc.getCoverageReport(WS_A)!.languages;
+    expect(languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+    expect(languages.resolution?.context).toBe('partial');
+    expect(isCleanAnswer(languages)).toBe(false);
+    expect(svc.getCoverage(WS_A)).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+
+    // Invalidating it again (no node left) moves no count.
+    svc.invalidateFile('D:/ws-a/a.ts');
+    expect(svc.getCoverageReport(WS_A)!.languages).toMatchObject({
+      analyzed: 1,
+      unchecked: 1,
+    });
+
+    // The next build publishes a fresh, clean report.
+    await svc.buildGraph(A_FILES, WS_A, {});
+    expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
+  });
+
+  it('an unknown file invalidated under a graph qualifies it without moving counts', async () => {
+    const { svc } = serviceWith(INSIGHTS);
+    await svc.buildGraph(A_FILES, WS_A, {});
+
+    svc.invalidateFile('D:/ws-a/new.ts');
+
+    const languages = svc.getCoverageReport(WS_A)!.languages;
+    expect(languages).toMatchObject({ analyzed: 2, unchecked: 0 });
+    expect(languages.resolution?.context).toBe('partial');
+    expect(isCleanAnswer(languages)).toBe(false);
+  });
+
+  // r2 B1 (FB): parent and nested roots both hold a nested file; the parent
+  // must not read clean once the nested root is dropped.
+  describe('overlapping parent and nested roots (r2 B1)', () => {
+    const PARENT = 'D:/repo';
+    const CHILD = 'D:/repo/pkg';
+    const PKG_FILES = ['D:/repo/pkg/a.ts', 'D:/repo/pkg/b.ts'];
+
+    async function builtParentAndChild() {
+      // a.ts has no imports when both graphs are built (it gains './b' later).
+      const map: Record<string, CodeInsights> = {
+        'D:/repo/pkg/a.ts': insights([], []),
+        'D:/repo/pkg/b.ts': insights([], []),
+      };
+      const { svc } = serviceWith(map);
+      await svc.buildGraph(PKG_FILES, PARENT, {});
+      await svc.buildGraph(PKG_FILES, CHILD, {});
+      expect(isCleanAnswer(svc.getCoverageReport(PARENT)!.languages)).toBe(
+        true,
+      );
+      return svc;
+    }
+
+    it.each([
+      ['evict(child)', (svc: DependencyGraphService) => svc.evict(CHILD)],
+      [
+        'retainOnly([parent])',
+        (svc: DependencyGraphService) => svc.retainOnly([PARENT]),
+      ],
+    ])(
+      'the reviewer probe: invalidate a nested file, then %s',
+      async (_label, dropChild) => {
+        const svc = await builtParentAndChild();
+
+        svc.invalidateFile('D:/repo/pkg/a.ts');
+        expect(isCleanAnswer(svc.getCoverageReport(CHILD)!.languages)).toBe(
+          false,
+        );
+        expect(isCleanAnswer(svc.getCoverageReport(PARENT)!.languages)).toBe(
+          false,
+        );
+
+        dropChild(svc);
+        expect(svc.getDependents('D:/repo/pkg/b.ts')).toEqual([]);
+        const parent = svc.getCoverageReportForFile('D:/repo/pkg/b.ts')!;
+        expect(parent.languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+        expect(parent.languages.resolution?.context).toBe('partial');
+        expect(isCleanAnswer(parent.languages)).toBe(false);
+      },
+    );
+
+    it('qualifies both roots for a new nested file absent from both graphs', async () => {
+      const svc = await builtParentAndChild();
+
+      svc.invalidateFile('D:/repo/pkg/new.ts');
+
+      for (const root of [PARENT, CHILD]) {
+        const languages = svc.getCoverageReport(root)!.languages;
+        expect(languages).toMatchObject({ analyzed: 2, unchecked: 0 });
+        expect(isCleanAnswer(languages)).toBe(false);
+      }
+    });
+
+    it('leaves a sibling root that does not contain the file clean', async () => {
+      const svc = await builtParentAndChild();
+      await svc.buildGraph(B_FILES, WS_B, {});
+
+      svc.invalidateFile('D:/repo/pkg/a.ts');
+
+      expect(isCleanAnswer(svc.getCoverageReport(WS_B)!.languages)).toBe(true);
+    });
+  });
+
+  // r3 B1 (FB): one platform-aware path identity for roots, nodes and
+  // containment — case variants on win32, and junction/symlink aliases.
+  describe('path identity (r3 B1)', () => {
+    const onWin32 = process.platform === 'win32';
+    // Case folding applies only where paths are case-insensitive (win32).
+    const itOnWin32 = onWin32 ? it : it.skip;
+
+    async function parentAndChild(parent: string, child: string) {
+      const files = [`${child}/a.ts`, `${child}/b.ts`];
+      const { svc } = serviceWith({});
+      await svc.buildGraph(files, parent, {});
+      await svc.buildGraph(files, child, {});
+      expect(isCleanAnswer(svc.getCoverageReport(parent)!.languages)).toBe(
+        true,
+      );
+      return svc;
+    }
+
+    it('graphPathIdentity folds case only when asked, and normalizes the rest', () => {
+      expect(graphPathIdentity('D:\\Repo\\Pkg\\', true)).toBe('d:/repo/pkg');
+      expect(graphPathIdentity('D:\\Repo\\Pkg\\', false)).toBe('D:/Repo/Pkg');
+      expect(graphPathIdentity('\\\\?\\D:\\Repo', true)).toBe('d:/repo');
+      expect(graphPathIdentity('/srv/Repo//', false)).toBe('/srv/Repo');
+    });
+
+    itOnWin32(
+      'the reviewer probe: a case-variant invalidation qualifies parent and child, and the parent after the child is evicted',
+      async () => {
+        const svc = await parentAndChild('D:/Repo', 'D:/Repo/pkg');
+
+        svc.invalidateFile('d:\\repo\\PKG\\a.ts');
+
+        for (const root of ['D:/Repo', 'D:/Repo/pkg']) {
+          const languages = svc.getCoverageReport(root)!.languages;
+          expect(languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+          expect(isCleanAnswer(languages)).toBe(false);
+        }
+        svc.evict('d:/REPO/pkg/');
+        expect(svc.getCoverageReport('D:/Repo/pkg')).toBeUndefined();
+        expect(svc.getDependents('D:/Repo/pkg/b.ts')).toEqual([]);
+        expect(
+          isCleanAnswer(
+            svc.getCoverageReportForFile('D:/Repo/pkg/b.ts')!.languages,
+          ),
+        ).toBe(false);
+      },
+    );
+
+    itOnWin32(
+      'a case-variant invalidation during a cold build reaches the graph it publishes',
+      async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const svc = new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () => Result.ok(insights([], []))),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => {
+              await gate;
+              return 'source';
+            }),
+          } as unknown as FileSystemService,
+          {
+            info: jest.fn(),
+            debug: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+          } as unknown as Logger,
+        );
+
+        const build = svc.buildGraph(
+          ['D:/Repo/pkg/a.ts', 'D:/Repo/pkg/b.ts'],
+          'D:/Repo',
+          {},
+        );
+        svc.invalidateFile('d:/REPO/Pkg/A.TS');
+        release();
+        await build;
+
+        const languages = svc.getCoverageReport('D:/Repo')!.languages;
+        expect(languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+        expect(isCleanAnswer(languages)).toBe(false);
+      },
+    );
+
+    it('keeps a trailing-separator/backslash spelling and a sibling boundary apart', async () => {
+      const svc = await parentAndChild('D:/Repo', 'D:/Repo/pkg');
+      await svc.buildGraph(['D:/Repo2/x.ts'], 'D:/Repo2', {});
+
+      svc.invalidateFile('D:\\Repo\\pkg\\a.ts');
+
+      expect(isCleanAnswer(svc.getCoverageReport('D:/Repo/')!.languages)).toBe(
+        false,
+      );
+      expect(isCleanAnswer(svc.getCoverageReport('D:/Repo2')!.languages)).toBe(
+        true,
+      );
+    });
+
+    describe('a junction/symlink alias root (real filesystem fixture)', () => {
+      // Built while the suite is collected, so a host that cannot create a
+      // directory link skips the spec by name instead of passing it.
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-graph-alias-'),
+      );
+      const realRoot = path.join(tempDir, 'real');
+      const aliasRoot = path.join(tempDir, 'alias');
+      fs.mkdirSync(path.join(realRoot, 'pkg'), { recursive: true });
+      for (const name of ['a.ts', 'b.ts']) {
+        fs.writeFileSync(path.join(realRoot, 'pkg', name), '');
+      }
+      let linked = true;
+      try {
+        // A junction needs no privilege on Windows; elsewhere a dir symlink.
+        fs.symlinkSync(realRoot, aliasRoot, onWin32 ? 'junction' : 'dir');
+      } catch (error: unknown) {
+        linked = false;
+        console.warn(
+          `[r3 B1] junction spec skipped: cannot create a directory link (${String(error)})`,
+        );
+      }
+
+      afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      });
+
+      (linked ? it : it.skip)(
+        'invalidating through the real path qualifies both alias roots, and the parent after the child is evicted',
+        async () => {
+          const alias = aliasRoot.replace(/\\/g, '/');
+          expect(
+            fs.realpathSync.native(path.join(aliasRoot, 'pkg', 'a.ts')),
+          ).toBe(fs.realpathSync.native(path.join(realRoot, 'pkg', 'a.ts')));
+          const svc = await parentAndChild(alias, `${alias}/pkg`);
+
+          svc.invalidateFile(path.join(realRoot, 'pkg', 'a.ts'));
+
+          for (const root of [alias, `${alias}/pkg`]) {
+            const languages = svc.getCoverageReport(root)!.languages;
+            expect(languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+            expect(isCleanAnswer(languages)).toBe(false);
+          }
+          svc.evict(`${alias}/pkg`);
+          expect(svc.getDependents(`${alias}/pkg/b.ts`)).toEqual([]);
+          expect(isCleanAnswer(svc.getCoverageReport(alias)!.languages)).toBe(
+            false,
+          );
+        },
+      );
+    });
+  });
+
+  it('applies an invalidation made during a running build to the graph it publishes', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const astAnalysis = {
+      analyzeSource: jest.fn(async (_content, _lang, p: string) =>
+        Result.ok(INSIGHTS[p] ?? insights([], [])),
+      ),
+    } as unknown as AstAnalysisService;
+    const fileSystem = {
+      readFile: jest.fn(async () => {
+        await gate;
+        return 'source';
+      }),
+    } as unknown as FileSystemService;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+    } as unknown as Logger;
+    const svc = new DependencyGraphService(astAnalysis, fileSystem, logger);
+
+    const build = svc.buildGraph(A_FILES, WS_A, {});
+    svc.invalidateFile('D:/ws-a/a.ts'); // no graph published yet
+    svc.invalidateFile('D:/ws-b/c.ts'); // another root: not this build's
+    release();
+    await build;
+
+    expect(svc.isBuilt(WS_A)).toBe(true);
+    expect(svc.getDependencies('D:/ws-a/a.ts')).toEqual([]);
+    const languages = svc.getCoverageReport(WS_A)!.languages;
+    expect(languages).toMatchObject({ analyzed: 1, unchecked: 1 });
+    expect(isCleanAnswer(languages)).toBe(false);
+
+    // The latch is per build: a later build is not affected.
+    await svc.buildGraph(A_FILES, WS_A, {});
+    expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
+  });
+
+  // FB (batch 23a): the aggregate edge cap stops linking and is disclosed.
+  it('edge cap is disclosed', async () => {
+    const FILE_COUNT = 501; // 501 files x 500 imports = 250,500 edges
+    const files = Array.from(
+      { length: FILE_COUNT },
+      (_, i) => `D:/ws-a/f${i}.ts`,
+    );
+    const map: Record<string, CodeInsights> = {};
+    files.forEach((file, i) => {
+      map[file] = insights(
+        files.flatMap((_, j) => (j === i ? [] : [imp(`./f${j}`)])),
+        [],
+      );
+    });
+    const { svc } = serviceWith(map);
+
+    const graph = await svc.buildGraph(files, WS_A, {});
+
+    let edgeCount = 0;
+    for (const set of graph.edges.values()) edgeCount += set.size;
+    expect(edgeCount).toBe(250_000);
+    const languages = svc.getCoverageReport(WS_A)?.languages;
+    expect(languages?.resolution?.edgeCapHit).toBe(true);
+    expect(isCleanAnswer(languages!)).toBe(false);
+    expect(svc.isBuilt(WS_A)).toBe(true);
+  });
+
+  it('parses only graph-capable files and counts the rest', async () => {
+    const { svc, analyzeSource } = serviceWith(INSIGHTS);
+    await svc.buildGraph(
+      [...A_FILES, 'D:/ws-a/tool.py', 'D:/ws-a/build.zig', 'D:/ws-a/README.md'],
+      WS_A,
+      {},
+    );
+
+    expect(analyzeSource).toHaveBeenCalledTimes(2);
+    const report = svc.getCoverageReport(WS_A);
+    // Batch 9 meaning unchanged: the list the graph was built from.
+    expect(report?.files).toEqual({ graphedFiles: 5, discoveredFiles: 5 });
+    expect(report?.languages).toMatchObject({
+      analyzed: 2,
+      unsupported: 1,
+      unsupportedByLanguage: { python: 1 },
+      unrecognised: 1,
+      nonSource: 1,
+    });
+  });
+
+  it('caps parsing at 5,000 graph-capable files, fairly across languages', async () => {
+    const ts = Array.from({ length: 5_010 }, (_, i) => `D:/ws-a/t${i}.ts`);
+    const { svc, analyzeSource } = serviceWith({});
+
+    await svc.buildGraph([...ts, 'D:/ws-a/late.js'], WS_A, {});
+
+    expect(analyzeSource).toHaveBeenCalledTimes(5_000);
+    expect(
+      analyzeSource.mock.calls.some(([, , p]) => p === 'D:/ws-a/late.js'),
+    ).toBe(true);
+    const report = svc.getCoverageReport(WS_A);
+    expect(report?.files).toEqual({
+      graphedFiles: 5_000,
+      discoveredFiles: 5_011,
+    });
+    expect(report?.languages.omittedByCap).toBe(11);
+  });
+
+  it('counts files a caller dropped before the build, and a truncated census', async () => {
+    const { svc } = serviceWith(INSIGHTS);
+    await svc.buildGraph(A_FILES, WS_A, {}, 7, { censusLimit: 50_001 });
+
+    const languages = svc.getCoverageReport(WS_A)?.languages;
+    expect(languages?.omittedByCap).toBe(5);
+    expect(languages?.census).toBe('truncated');
+    expect(languages?.censusLimit).toBe(50_001);
+  });
+
+  it('merges every root when none is given, and routes a file to its root', async () => {
+    const { svc } = serviceWith(INSIGHTS);
+    await svc.buildGraph([...A_FILES, 'D:/ws-a/x.py'], WS_A, {});
+    await svc.buildGraph(B_FILES, WS_B, {}, 4);
+
+    const merged = svc.getCoverageReport();
+    expect(merged?.files).toEqual({ graphedFiles: 4, discoveredFiles: 7 });
+    expect(merged?.languages).toMatchObject({
+      analyzed: 3,
+      unsupported: 1,
+      omittedByCap: 3,
+    });
+    expect(svc.getCoverageReportForFile('D:\\ws-b\\c.ts')?.languages).toBe(
+      svc.getCoverageReport(WS_B)?.languages,
+    );
+    expect(svc.getCoverageReportForFile('E:/elsewhere/x.ts')).toBeUndefined();
+
+    svc.evict(WS_B);
+    expect(svc.getCoverageReport(WS_B)).toBeUndefined();
+    expect(svc.getCoverageReport()?.languages.analyzed).toBe(2);
   });
 });
