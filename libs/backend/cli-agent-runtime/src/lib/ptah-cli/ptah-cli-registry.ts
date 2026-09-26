@@ -999,6 +999,8 @@ export class PtahCliRegistry {
     try {
       return this.container.resolve<T>(token);
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn below; the caller treats
+      // `null` as "not available" and the spawn fails closed.
       this.logger.warn(
         `[PtahCliRegistry] Could not resolve ${String(token)} (ignored): ${
           error instanceof Error ? error.message : String(error)

@@ -33,7 +33,7 @@
  */
 
 import { realpathSync } from 'fs';
-import { basename, resolve as resolvePath } from 'path';
+import { basename, dirname, resolve as resolvePath } from 'path';
 import { z } from 'zod';
 import { resolveHarnessWorkspaceRoot } from '@ptah-extension/harness-sync';
 import type {
@@ -100,6 +100,7 @@ const LOG_PREFIX = '[CapabilityResolver]';
 export type CapabilityPluginSource = Pick<
   PluginLoaderService,
   | 'getEffectivePluginConfig'
+  | 'hasWorkspaceState'
   | 'getWorkspacePluginConfig'
   | 'saveWorkspacePluginConfig'
   | 'getAvailablePlugins'
@@ -272,7 +273,35 @@ export class CapabilityResolverService implements ICapabilityResolver {
       physicalRoot,
       policyKey,
       wsKey: capabilityWorkspaceKey(policyKey),
+      stateRoot: this.stateRootFor(cwd, root, physicalRoot),
     };
+  }
+
+  /**
+   * The folder whose host storage holds the workspace skill/plugin config.
+   *
+   * The host keys that storage by the folder it opened, which can be a
+   * sub-folder of the policy root. A lookup by the policy root alone would
+   * then find nothing and read as "nothing switched off". So when the policy
+   * root has no storage, the nearest folder from `cwd` up to `root` that has
+   * one answers instead. Plugin FILES are still found under the policy root.
+   */
+  private stateRootFor(
+    cwd: string,
+    root: string,
+    physicalRoot: string,
+  ): string {
+    const { plugins } = this.deps;
+    if (plugins.hasWorkspaceState(physicalRoot)) return physicalRoot;
+    // `root` is an ancestor of `resolvePath(cwd)` in the same spelling (the
+    // walk that found it used `dirname`), so plain equality ends the loop.
+    let dir = resolvePath(cwd);
+    for (;;) {
+      if (plugins.hasWorkspaceState(dir)) return dir;
+      const parent = dirname(dir);
+      if (dir === root || parent === dir) return physicalRoot;
+      dir = parent;
+    }
   }
 
   /**
@@ -381,7 +410,7 @@ export class CapabilityResolverService implements ICapabilityResolver {
         this.deps.store.readGlobalLayer(),
         this.deps.store.readWorkspaceItems(ctx.wsKey),
         this.deps.store.readImported(ctx.wsKey),
-        this.readPluginPolicy(ctx.physicalRoot),
+        this.readPluginPolicy(ctx),
       ]);
 
     const reasons: CapabilityPolicyReason[] = [
@@ -431,12 +460,24 @@ export class CapabilityResolverService implements ICapabilityResolver {
     return snapshot;
   }
 
+  /** The loader's policy: files under the policy root, config from `stateRoot`. */
+  private effectivePluginConfig(ctx: WorkspaceContext) {
+    return ctx.stateRoot === ctx.physicalRoot
+      ? this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot)
+      : this.deps.plugins.getEffectivePluginConfig(ctx.physicalRoot, {
+          stateRoot: ctx.stateRoot,
+        });
+  }
+
   /** The skill/plugin policy, or why it is unknown. Never throws. */
-  private async readPluginPolicy(root: string): Promise<PluginPolicyRead> {
+  private async readPluginPolicy(
+    ctx: WorkspaceContext,
+  ): Promise<PluginPolicyRead> {
+    const root = ctx.physicalRoot;
     try {
       return {
         status: 'ok',
-        policy: await this.deps.plugins.getEffectivePluginConfig(root),
+        policy: await this.effectivePluginConfig(ctx),
       };
     } catch (error: unknown) {
       if (isCapabilityPolicyUnknownError(error)) {
@@ -570,7 +611,7 @@ export class CapabilityResolverService implements ICapabilityResolver {
     id: string,
     enabled: boolean,
   ): Promise<void> {
-    const pluginRead = await this.readPluginPolicy(ctx.physicalRoot);
+    const pluginRead = await this.readPluginPolicy(ctx);
     const catalog = this.catalogOrThrow(ctx.physicalRoot);
     const config = pluginRead.status === 'ok' ? pluginRead.policy.config : null;
     const defaultValue = this.requireKnownPluginOrSkill(
@@ -602,16 +643,14 @@ export class CapabilityResolverService implements ICapabilityResolver {
     // Strict guard: rejects with CapabilityPolicyUnknownError when the global
     // layer or the workspace config cannot be read, so nothing is written over
     // a config nobody could read.
-    const effective = await this.deps.plugins.getEffectivePluginConfig(
-      ctx.physicalRoot,
-    );
+    const effective = await this.effectivePluginConfig(ctx);
     // From here to the save there is no await, so the lenient read below sees
     // the same storage the strict guard just proved readable and valid.
     // `getWorkspacePluginConfig` is the WRITE PAYLOAD BASE only — it is the one
     // accessor for the stored workspace layer without the global items layered
     // in — and is never a resolution input (those come from
     // `getEffectivePluginConfig` alone).
-    const stored = this.deps.plugins.getWorkspacePluginConfig(ctx.physicalRoot);
+    const stored = this.deps.plugins.getWorkspacePluginConfig(ctx.stateRoot);
     const defaultValue = this.requireKnownPluginOrSkill(
       catalog,
       effective.config,
@@ -625,7 +664,7 @@ export class CapabilityResolverService implements ICapabilityResolver {
     });
     await this.deps.plugins.saveWorkspacePluginConfig(
       withWorkspaceValue(stored, kind, id, value),
-      ctx.physicalRoot,
+      ctx.stateRoot,
     );
   }
 

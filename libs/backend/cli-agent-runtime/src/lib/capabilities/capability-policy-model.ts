@@ -46,6 +46,11 @@ export interface WorkspaceContext {
   physicalRoot: string;
   policyKey: string;
   wsKey: string;
+  /**
+   * The folder whose host storage holds the workspace skill/plugin config.
+   * `physicalRoot` unless the host registered a sub-folder of it instead.
+   */
+  stateRoot: string;
 }
 
 /** One capability with every layer's say and the outcome. */

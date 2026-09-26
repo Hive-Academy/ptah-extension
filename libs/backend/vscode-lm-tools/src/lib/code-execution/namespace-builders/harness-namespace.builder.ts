@@ -333,6 +333,8 @@ export async function resolveEffectivePluginPaths(
     if (enabledIds.length === 0) return undefined;
     return pluginLoader.resolvePluginPaths(enabledIds, workspaceRoot);
   } catch (error: unknown) {
+    // degradation-audit: reported - logged at warn below; the spawned agent
+    // gets no plugins, which is the fail-closed answer.
     const message = error instanceof Error ? error.message : String(error);
     logger.warn(
       isCapabilityPolicyUnknownError(error)

@@ -981,6 +981,56 @@ describe('CapabilityResolverService', () => {
       expect(policy.disabledPluginIds).not.toContain('ptah-harness-alpha');
     });
 
+    it('reads the workspace config of an opened sub-folder, not an empty one at the policy root', async () => {
+      const env = setup();
+      const sub = path.join(env.repo, 'libs', 'foo');
+      fs.mkdirSync(sub, { recursive: true });
+      // A workspace-scoped host that registered only the opened sub-folder.
+      const subStorage = createStateStorage({
+        enabledPluginIds: [],
+        disabledSkillIds: ['alpha-skill'],
+      });
+      const scoped = {
+        ...subStorage,
+        getStorageForWorkspace: (root: string) =>
+          root === path.resolve(sub) ? subStorage : undefined,
+        getAllWorkspacePaths: () => [path.resolve(sub)],
+      };
+      const loader = new PluginLoaderService(
+        createMockLogger() as unknown as Logger,
+        { isInstalled: () => false, listInstalled: () => [] } as never,
+        { getWorkspaceRoot: () => sub } as never,
+        env.store,
+      );
+      loader.initialize(path.join(env.home, 'plugins'), scoped);
+      const resolver = new CapabilityResolverService({
+        output: env.output,
+        store: env.store,
+        inventory: env.inventory,
+        approvals: env.approvals,
+        plugins: loader,
+        homeDir: env.home,
+      });
+
+      const policy = await resolver.resolve(sub);
+
+      // The policy root is still the repository; only the config lookup moved.
+      expect(policy.physicalRoot).toBe(env.physical());
+      expect(policy.deniedSkillNames).toContain('alpha-skill');
+
+      await resolver.set({
+        cwd: sub,
+        scope: 'workspace',
+        kind: 'skill',
+        id: 'alpha-skill',
+        enabled: true,
+      });
+      expect(
+        (subStorage.raw.get(CONFIG_KEY) as { disabledSkillIds: string[] })
+          .disabledSkillIds,
+      ).not.toContain('alpha-skill');
+    });
+
     it('denies the children of a globally-OFF plugin, bare and plugin:skill', async () => {
       const env = setup();
       const before = await env.resolver.resolve(env.repo);

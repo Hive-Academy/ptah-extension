@@ -806,6 +806,16 @@ export class PluginLoaderService {
     return null;
   }
 
+  /**
+   * Whether this host keeps workspace state for `workspaceRoot` — the
+   * {@link storageFor} answer as a yes/no, so a caller whose own root differs
+   * from the folder the host registered (a policy root above an opened
+   * sub-folder) can find the folder that actually holds the config.
+   */
+  hasWorkspaceState(workspaceRoot: string): boolean {
+    return this.storageFor(workspaceRoot) !== null;
+  }
+
   /** `realpath` of `root` (the resolved path when it cannot be read), folded on win32. */
   private static canonicalRootKey(root: string): string {
     let canonical = path.resolve(root);
@@ -969,16 +979,22 @@ export class PluginLoaderService {
    * save landing mid-call is either wholly in this answer or wholly absent,
    * never half of it.
    *
+   * @param options.stateRoot Read the workspace config from THIS root's
+   *   storage while plugin files are still found under `workspaceRoot` — for
+   *   a caller whose host registered a sub-folder of the policy root.
    * @throws CapabilityPolicyUnknownError when the global layer or the workspace
    *   config cannot be read. Unknown is never answered as "nothing is off".
    */
   async getEffectivePluginConfig(
     workspaceRoot?: string,
+    options: { stateRoot?: string } = {},
   ): Promise<EffectivePluginConfig> {
     const globalRead = this.globalLayer
       ? await this.globalLayer.readGlobalLayer()
       : { status: 'ok' as const, items: [], fingerprintEntries: [] };
-    const workspace = this.readWorkspaceLayer(workspaceRoot);
+    const workspace = this.readWorkspaceLayer(
+      options.stateRoot ?? workspaceRoot,
+    );
 
     if (globalRead.status === 'error' || workspace.status === 'error') {
       const reasons: CapabilityPolicyReason[] = [
