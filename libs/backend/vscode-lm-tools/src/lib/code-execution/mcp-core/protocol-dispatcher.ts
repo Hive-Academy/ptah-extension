@@ -110,6 +110,7 @@ import {
 import { handleSurfaceToolCall } from './surface-tool-handlers';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
+import { buildServerInstructions } from './server-instructions';
 import {
   getCallerAgentId,
   getCallerSessionId,
@@ -292,6 +293,8 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
         name: 'ptah',
         version: '1.0.0',
       },
+      // One variant for every caller: the handshake is byte-stable.
+      instructions: buildServerInstructions(),
     },
   };
 }

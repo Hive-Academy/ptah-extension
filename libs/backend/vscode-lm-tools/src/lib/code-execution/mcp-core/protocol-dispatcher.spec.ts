@@ -37,6 +37,7 @@ import {
   getToolResultBudget,
 } from './tool-result-budget';
 import { formatBrowserContent } from './mcp-response-formatter';
+import { buildServerInstructions } from './server-instructions';
 import {
   getCallerAgentId,
   getCallerSessionId,
@@ -129,10 +130,12 @@ describe('protocol-handlers › handshake (initialize)', () => {
       protocolVersion: string;
       capabilities: { tools: Record<string, unknown> };
       serverInfo: { name: string; version: string };
+      instructions: string;
     };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.capabilities.tools).toEqual({});
     expect(result.serverInfo).toEqual({ name: 'ptah', version: '1.0.0' });
+    expect(result.instructions).toBe(buildServerInstructions());
     // Logger must record both the top-level MCP Request and the initialize hook.
     expect(logger.info).toHaveBeenCalled();
   });
@@ -2926,6 +2929,30 @@ describe('protocol-handlers › caller identity (TASK_2026_559 Batch 3)', () => 
         expect(await listJson(fields, overrides)).toBe(reference);
         expect(await listJson(fields, overrides)).toBe(reference);
       }
+    }
+  });
+
+  it('returns the same derived instructions from initialize for all four caller kinds (Batch 4)', async () => {
+    const initialize = async (fields: Partial<MCPRequest>): Promise<string> => {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'caller-init',
+          method: 'initialize',
+          params: { clientInfo: { name: 'codex-mcp-client', version: '1' } },
+          ...fields,
+        }),
+        buildDeps(),
+      );
+      expect(res.error).toBeUndefined();
+      return (res.result as { instructions: string }).instructions;
+    };
+
+    const reference = await initialize({});
+    expect(reference).toBe(buildServerInstructions());
+    expect(reference.length).toBeLessThanOrEqual(512);
+    expect(reference.endsWith('ptah.help()')).toBe(true);
+    for (const { fields } of CALLERS) {
+      expect(await initialize(fields)).toBe(reference);
     }
   });
 
