@@ -23,18 +23,46 @@
 const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
+const assert = require('node:assert/strict');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
 
-const REQUIRED_WASM = [
-  'wasm/web-tree-sitter.wasm',
-  'wasm/tree-sitter-typescript.wasm',
-  'wasm/tree-sitter-javascript.wasm',
-  // C# (TASK_2026_270 Batch 1b) — largest grammar by far (~4.9 MB raw); see
-  // `scripts/copy-wasm.js` and `workspace-intelligence/src/ast/tree-sitter.config.ts`.
-  'wasm/tree-sitter-c-sharp.wasm',
-];
+// Packaging metadata is a JSON file, not a cross-project source import.
+const manifestPath = fs.realpathSync(
+  path.join(ROOT, 'scripts/tree-sitter-grammars.json'),
+);
+const manifestRelative = path.relative(fs.realpathSync(ROOT), manifestPath);
+if (
+  manifestRelative.startsWith('..') ||
+  path.isAbsolute(manifestRelative) ||
+  fs.statSync(manifestPath).size > 128 * 1024
+) {
+  throw new Error(
+    'Grammar manifest must be bounded and contained in the repository',
+  );
+}
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+if (
+  manifest.schemaVersion !== 1 ||
+  !Array.isArray(manifest.assets) ||
+  !manifest.assets.every(
+    (row) =>
+      row &&
+      typeof row.active === 'boolean' &&
+      typeof row.filename === 'string' &&
+      /^[a-z0-9-]+\.wasm$/.test(row.filename),
+  ) ||
+  manifest.assets.filter((row) => row.kind === 'runtime' && row.active)
+    .length !== 1 ||
+  new Set(manifest.assets.map((row) => row.filename)).size !==
+    manifest.assets.length
+) {
+  throw new Error('Invalid grammar manifest');
+}
+const REQUIRED_WASM = manifest.assets
+  .filter((row) => row.active)
+  .map((row) => `wasm/${row.filename}`);
 
 /** Recursively collect every app.asar under dist/release (win/linux/mac layouts). */
 function findAsars(dir, found) {
@@ -68,7 +96,7 @@ function verifyAsar(asarPath) {
       problems.push(`${wasm} is missing from the asar`);
       continue;
     }
-    let size = 0;
+    let size;
     try {
       size = asar.extractFile(asarPath, wasm).length;
     } catch (err) {
@@ -88,7 +116,7 @@ function verifyAsar(asarPath) {
   return problems;
 }
 
-(() => {
+function main() {
   if (!fs.existsSync(RELEASE_DIR)) {
     throw new Error(`No packaged output found at ${RELEASE_DIR}`);
   }
@@ -126,4 +154,47 @@ function verifyAsar(asarPath) {
     `\n✅ All ${asars.length} packed app.asar archive(s) contain the ` +
       `tree-sitter WASM runtime + grammars.`,
   );
-})();
+}
+
+async function selfTest() {
+  const dir = fs.mkdtempSync(path.join(ROOT, '.wasm-asar-test-'));
+  try {
+    const fixture = path.join(dir, 'fixture');
+    fs.mkdirSync(path.join(fixture, 'wasm'), { recursive: true });
+    for (const wasm of REQUIRED_WASM)
+      fs.writeFileSync(path.join(fixture, wasm), 'fixture');
+    let index = 0;
+    async function pack() {
+      const archive = path.join(dir, `${index++}.asar`);
+      await asar.createPackage(fixture, archive);
+      return verifyAsar(archive);
+    }
+    assert.deepEqual(await pack(), []);
+    for (const wasm of REQUIRED_WASM) {
+      const file = path.join(fixture, wasm);
+      fs.unlinkSync(file);
+      assert.deepEqual(await pack(), [`${wasm} is missing from the asar`]);
+      fs.writeFileSync(file, '');
+      assert.deepEqual(await pack(), [
+        `${wasm} is present but empty (0 bytes)`,
+      ]);
+      fs.writeFileSync(file, 'fixture');
+    }
+  } finally {
+    asar.uncacheAll();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  console.log(
+    `Electron WASM self-test PASS: complete archive; ${REQUIRED_WASM.length} missing and ${REQUIRED_WASM.length} empty asset negatives`,
+  );
+}
+
+if (require.main === module) {
+  if (process.argv[2] === '--self-test') {
+    selfTest().catch((error) => {
+      // degradation-audit: reported — a failed self-test fails the packaging gate.
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+  } else main();
+}
