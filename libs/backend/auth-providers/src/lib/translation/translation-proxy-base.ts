@@ -907,9 +907,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       onTranslationError: () => void,
     ) => void | Promise<void>;
     /**
-     * The streaming handler writes its own protocol terminal on upstream
-     * failure (socket error, abort, timeout) and resolves once `res` is ended,
-     * so the shared lifecycle must not destroy the already-open downstream.
+     * The streaming handler writes its own terminal on upstream failure
+     * (socket error, abort, timeout) and resolves once `res` is ended, so the
+     * shared lifecycle must not destroy an already-open downstream. Before
+     * the handler has sent headers, that terminal is a plain HTTP error.
      */
     streamingOwnsUpstreamFailure?: boolean;
     onNonStreamingSuccess: (
@@ -1005,6 +1006,34 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       // Set once a streaming handler that owns upstream-failure termination
       // is running (see `streamingOwnsUpstreamFailure`).
       let streamingHandlerOwnsFailure = false;
+      // Time-to-headers bound for an owning streaming handler. It reuses the
+      // upstream timeout budget (production 10 min, enough for long reasoning)
+      // and answers exactly like the socket-idle timeout below.
+      let headerDeadline: ReturnType<typeof setTimeout> | undefined;
+      const clearHeaderDeadline = () => {
+        if (headerDeadline !== undefined) clearTimeout(headerDeadline);
+        headerDeadline = undefined;
+      };
+      const armHeaderDeadline = () => {
+        headerDeadline = setTimeout(() => {
+          headerDeadline = undefined;
+          if (res.headersSent || res.writableEnded || res.destroyed) return;
+          finishTiming('timeout');
+          this.logger.error(
+            `${this.logPrefix} [${requestId}] ${apiLabel} sent no client-visible output before the header deadline`,
+          );
+          sendErrorResponse(
+            res,
+            504,
+            'api_error',
+            `${this.config.name} API request timed out`,
+          );
+          // The handler sees the destroyed upstream; `res` is already ended,
+          // so it writes nothing more and settles.
+          proxyReq.destroy();
+          resolve();
+        }, this.getUpstreamTimeoutMs());
+      };
       const requestFn =
         targetUrl.protocol === 'http:' ? http.request : https.request;
       const proxyReq = requestFn(
@@ -1023,6 +1052,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             // An owning streaming handler ends `res` with its own terminal and
             // then settles this promise through `complete`.
             if (streamingHandlerOwnsFailure) return;
+            clearHeaderDeadline();
             finishTiming('invalid-response');
             if (res.headersSent) res.destroy();
             proxyRes.destroy();
@@ -1149,7 +1179,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           this.noteUpstreamQuota(false);
           let translationFailed = false;
           const complete = () => {
+            clearHeaderDeadline();
             finishTiming(translationFailed ? 'invalid-response' : 'success');
+            // An owning streaming handler can settle before upstream EOF (an
+            // error-first HTTP answer). Timing is recorded above; release the
+            // upstream now so no answered attempt keeps a connection open.
+            if (streamingHandlerOwnsFailure && !proxyRes.complete) {
+              proxyRes.destroy();
+            }
             resolve();
           };
           try {
@@ -1167,10 +1204,15 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               },
             );
             if (completion) {
-              // Taken only after the handler is running (headers and its
-              // first frame are written), so earlier failures keep the shared path.
+              // Taken only once the handler is running, so failures before it
+              // keep the shared path. An owning handler answers a failure
+              // before its headers with an HTTP error, never a destroyed socket.
               streamingHandlerOwnsFailure =
                 !!originalRequest.stream && !!params.streamingOwnsUpstreamFailure;
+              // The owning handler defers its headers until client-visible
+              // output. Upstream heartbeats keep the socket-idle timeout
+              // alive, so bound the wait for headers separately.
+              if (streamingHandlerOwnsFailure) armHeaderDeadline();
               // degradation-audit: reported - failResponse destroys the streams and rejects the enclosing request promise; the forwarding boundary logs and sends an error response.
               completion.then(complete).catch((error: unknown) => {
                 streamingHandlerOwnsFailure = false;
@@ -1186,6 +1228,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       );
 
       proxyReq.on('timeout', () => {
+        clearHeaderDeadline();
         finishTiming('timeout');
         this.logger.error(
           `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 600s`,
@@ -1215,12 +1258,21 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       });
 
       const cancel = () => {
+        // A close after the proxy's own `res.end()` is not a cancellation:
+        // Node emits it on the next tick, possibly before the ending path's
+        // promise job records its terminal. Every path that ends `res`
+        // records its own status and settles this promise.
+        if (res.writableEnded) return;
+        clearHeaderDeadline();
         finishTiming('cancelled');
-        if (!res.writableEnded) proxyReq.destroy();
+        proxyReq.destroy();
         resolve();
       };
       res.once('close', cancel);
-      proxyReq.once('close', () => res.off('close', cancel));
+      proxyReq.once('close', () => {
+        clearHeaderDeadline();
+        res.off('close', cancel);
+      });
       if (res.destroyed) {
         finishTiming('cancelled');
         proxyReq.destroy();
@@ -1236,9 +1288,18 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * Handle a streaming response from the upstream Responses API.
    * Reads Responses SSE events, translates to Anthropic SSE, and writes to client.
    *
-   * Owns the stream's terminal: clean EOF, upstream socket error, abort and
-   * timeout all end `res` after exactly one Anthropic terminal (unless the
-   * client already disconnected). Resolves once `res` is ended; never rejects.
+   * The 200 SSE headers and `message_start` wait for the first client-visible
+   * output (a content block or a successful terminal). An error terminal that
+   * comes first (failed, standalone error, incomplete-as-error, truncation,
+   * upstream socket error) is answered as a plain HTTP error with the same
+   * status, type and message as the non-streaming paths: the SDK CLI compacts
+   * on an HTTP 400 prompt-too-long but retries an SSE `error`. Once output
+   * was sent, a later error is the stream's single SSE `error` terminal.
+   *
+   * Owns the response's terminal: clean EOF, upstream socket error, abort and
+   * timeout all end `res` after exactly one terminal (unless the client
+   * already disconnected, or the shared lifecycle already answered with its
+   * pre-header timeout). Resolves once `res` is ended; never rejects.
    */
   private handleResponsesStreamingResponse(
     proxyRes: http.IncomingMessage,
@@ -1249,13 +1310,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     onTranslationError: () => void,
     toOriginalName: (upstream: string) => string,
   ): Promise<void> {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'Transfer-Encoding': 'chunked',
-    });
-
     const translator = new ResponsesStreamTranslator(
       model,
       requestId,
@@ -1263,21 +1317,37 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       onTranslationError,
       toOriginalName,
     );
-    res.write(translator.getInitialEvents());
+    let streamStarted = false;
 
-    // A client that went away must not be written to.
+    // A client that went away, or a response already answered, must not be
+    // written to.
     const writeEvents = (events: readonly string[]) => {
       if (res.destroyed || res.writableEnded) return;
+      if (!streamStarted) {
+        if (!translator.hasClientOutput()) {
+          // Nothing visible yet; the only possible event is an error-first
+          // terminal, which becomes the HTTP error response.
+          const error = translator.getTerminalError();
+          if (error && !res.headersSent) {
+            sendErrorResponse(res, error.status, error.type, error.message);
+          }
+          return;
+        }
+        streamStarted = true;
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'Transfer-Encoding': 'chunked',
+        });
+        res.write(translator.getInitialEvents());
+      }
       for (const event of events) {
         res.write(event);
       }
     };
 
     proxyRes.setEncoding('utf8');
-
-    proxyRes.on('data', (chunk: string) => {
-      writeEvents(translator.processChunk(chunk));
-    });
 
     return new Promise<void>((resolve) => {
       let settled = false;
@@ -1291,6 +1361,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         resolve();
       };
 
+      proxyRes.on('data', (chunk: string) => {
+        writeEvents(translator.processChunk(chunk));
+        // An error-first HTTP answer ends `res` while the upstream may still
+        // be open: settle now so timing records the failure, not the close.
+        if (!streamStarted && res.writableEnded) finish([]);
+      });
+
       proxyRes.once('end', () => {
         // Clean EOF: flush a completed final frame, else one SSE error.
         finish(translator.endOfStream());
@@ -1300,6 +1377,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       });
 
       proxyRes.once('error', (err) => {
+        // After settling, the only upstream error is our own release of it.
+        if (settled) return;
         this.logger.error(
           `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`,
         );

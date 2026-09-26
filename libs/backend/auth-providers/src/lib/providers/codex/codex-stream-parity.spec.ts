@@ -162,7 +162,9 @@ describe('Codex Responses real-consumer usage parity', () => {
     );
     try {
       const { url } = await proxy.start();
-      const client = new Anthropic({ apiKey: 'fake-client-key', baseURL: url });
+      // A failure before any output is an HTTP 502, which the SDK would
+      // otherwise retry: one attempt keeps this at one proxy request.
+      const client = new Anthropic({ apiKey: 'fake-client-key', baseURL: url, maxRetries: 0 });
       const stream = client.messages.stream({
         model: 'gpt-test', max_tokens: 50,
         messages: [{ role: 'user', content: 'hi' }],

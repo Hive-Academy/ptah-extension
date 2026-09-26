@@ -742,10 +742,15 @@ describe('TranslationProxyBase â€” Responses JSON usage', () => {
         expect(records).toHaveLength(1);
         expect(records[0].status).toBe('invalid-response');
         if (stream) {
-          expect(result.status).toBe(200);
-          expect(result.body).toContain('Invalid upstream Responses usage');
-          expect(result.body).not.toContain('message_stop');
-          expect(result.body).not.toContain('message_delta');
+          // No output preceded the rejected terminal, so no stream was opened.
+          expect(result.status).toBe(502);
+          expect(JSON.parse(result.body)).toEqual({
+            type: 'error',
+            error: {
+              type: 'api_error',
+              message: 'Invalid upstream Responses usage',
+            },
+          });
         } else {
           expect(result.status).toBe(500);
           expect(JSON.parse(result.body)).toEqual({
@@ -1507,6 +1512,8 @@ interface ParityRow {
   /** Upstream JSON body; `undefined` when the JSON API has no such shape. */
   json?: Record<string, unknown>;
   expected: ParityOutcome;
+  /** The terminal is the first upstream event: no output precedes it. */
+  errorFirst?: boolean;
 }
 
 function upstreamSse(event: string, data: Record<string, unknown>): string {
@@ -1621,11 +1628,27 @@ const PARITY_ROWS: ParityRow[] = [
   },
 ];
 
+/**
+ * Every error row again with its terminal as the FIRST upstream event. The
+ * stream path has sent nothing yet, so it answers with the same HTTP status
+ * and body as the non-stream paths (the SDK CLI compacts only on HTTP 400).
+ */
+const upstreamTerminal = (row: ParityRow): string =>
+  row.sse.slice(row.sse.lastIndexOf('event: '));
+const ERROR_FIRST_ROWS: ParityRow[] = PARITY_ROWS.filter(
+  (row) => row.expected.kind === 'error',
+).map((row) => ({
+  ...row,
+  name: `${row.name}, error first`,
+  sse: upstreamTerminal(row),
+  errorFirst: true,
+}));
+
 const PARITY_PATHS: ParityPath[] = ['stream', 'forced-sse', 'json'];
 
 // The JSON API has no standalone `error` event, so those rows run on the two
 // SSE paths only.
-const PARITY_CASES = PARITY_ROWS.flatMap((row) =>
+const PARITY_CASES = [...PARITY_ROWS, ...ERROR_FIRST_ROWS].flatMap((row) =>
   PARITY_PATHS.filter((path) => path !== 'json' || row.json !== undefined).map(
     (path) => [row.name, path, row] as const,
   ),
@@ -1660,7 +1683,10 @@ async function runParityCase(
         stream: path === 'stream',
       }),
     });
-    if (path === 'stream') {
+    // Only an error-first terminal may leave the stream path as an HTTP error.
+    const streamAnsweredHttpError =
+      path === 'stream' && !!row.errorFirst && row.expected.kind === 'error';
+    if (path === 'stream' && !streamAnsweredHttpError) {
       expect(result.status).toBe(200);
       const frames = parseSseBody(result.body);
       const terminals = frames.filter(
@@ -1790,7 +1816,9 @@ describe('TranslationProxyBase Responses terminal parity', () => {
       await recordedPromise;
       // The proxy keeps serving after the failure.
       expect((await request(`${h.url}/health`)).status).toBe(200);
-      return { result, frames: parseSseBody(result.body), records };
+      // An error before any output is a plain JSON HTTP error, not a stream.
+      const frames = result.status === 200 ? parseSseBody(result.body) : [];
+      return { result, frames, records };
     } finally {
       await h.stop();
       await upstream.close();
@@ -1862,26 +1890,179 @@ describe('TranslationProxyBase Responses terminal parity', () => {
     expect(records[0].status).toBe('success');
   });
 
-  it('delivers a CR-only response.failed overflow as the prompt-too-long SSE error at EOF', async () => {
-    const { frames, records } = await streamThrough((_req, res) => {
+  it('delivers a CR-only response.failed overflow as the HTTP 400 prompt-too-long error at EOF', async () => {
+    const { result, records } = await streamThrough((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       // Exactly two final CRs: the last one is only resolved by clean EOF.
       res.end(
         'event: response.failed\rdata: {"response":{"error":{"code":"context_length_exceeded"}}}\r\r',
       );
     });
-    expect(frames.map((frame) => frame.event)).toEqual([
-      'message_start',
-      'error',
-    ]);
-    expect(frames[1].data).toEqual({
+    // Nothing preceded the failure, so no stream was opened.
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.body)).toEqual({
       type: 'error',
       error: {
         type: 'invalid_request_error',
         message: PROMPT_TOO_LONG_DEFAULT,
       },
     });
+    expect(records).toHaveLength(1);
     expect(records[0].status).toBe('invalid-response');
+  });
+
+  it('answers a response.failed overflow split across chunks before any output with HTTP 400', async () => {
+    const wire = upstreamSse('response.failed', {
+      response: { status: 'failed', error: { code: 'context_length_exceeded', message: SENTINEL } },
+    });
+    const { result, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(wire.slice(0, 20));
+      setTimeout(() => res.end(wire.slice(20)), 20);
+    });
+    expect(result.status).toBe(400);
+    expect(result.body).not.toContain(SENTINEL);
+    expect(JSON.parse(result.body).error).toEqual({
+      type: 'invalid_request_error',
+      message: PROMPT_TOO_LONG_DEFAULT,
+    });
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('invalid-response');
+  });
+
+  it('keeps an overflow that follows output as the single SSE error terminal', async () => {
+    const { result, frames, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(
+        upstreamSse('response.output_text.delta', { delta: 'partial' }) +
+          upstreamSse('response.failed', {
+            response: { error: { code: 'context_length_exceeded', message: SENTINEL } },
+          }),
+      );
+    });
+    expect(result.status).toBe(200);
+    expect(frames.map((frame) => frame.event)).toEqual([
+      'message_start',
+      'content_block_start',
+      'content_block_delta',
+      'error',
+    ]);
+    expect(frames.at(-1)?.data).toEqual({
+      type: 'error',
+      error: { type: 'invalid_request_error', message: PROMPT_TOO_LONG_DEFAULT },
+    });
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('invalid-response');
+  });
+
+  it('answers an upstream socket abort before any output with an HTTP 502, not a destroyed socket', async () => {
+    const { result, records } = await streamThrough((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': keep-alive\n\n');
+      setTimeout(() => res.socket?.destroy(), 30);
+    });
+    expect(result.status).toBe(502);
+    expect(JSON.parse(result.body)).toEqual(TRUNCATED_ERROR);
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('invalid-response');
+  });
+
+  /** An upstream handler that never ends on its own; resolves when it closes. */
+  function openUpstream(first: string) {
+    let upstreamClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      upstreamClosed = resolve;
+    });
+    const handler: http.RequestListener = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(first);
+      // Heartbeats keep the proxy's socket-idle timeout from ever firing.
+      const beat = setInterval(() => res.write(': ping\n\n'), 10);
+      res.once('close', () => {
+        clearInterval(beat);
+        upstreamClosed();
+      });
+    };
+    return { handler, closed };
+  }
+
+  const within = (promise: Promise<void>, ms: number) =>
+    Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+    ]);
+
+  it('releases an upstream that stays open after an error-first HTTP answer', async () => {
+    const upstream = openUpstream(
+      upstreamSse('response.failed', {
+        response: { error: { code: 'context_length_exceeded', message: SENTINEL } },
+      }),
+    );
+    const { result, records } = await streamThrough(upstream.handler);
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.body).error.message).toBe(PROMPT_TOO_LONG_DEFAULT);
+    expect(await within(upstream.closed, 1000)).toBe(true);
+    // No second response or timing record from the release.
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('invalid-response');
+  });
+
+  it('answers HTTP 504 at the header deadline while upstream sends only non-output traffic', async () => {
+    const upstream = openUpstream(
+      upstreamSse('response.created', { response: { status: 'in_progress' } }),
+    );
+    const { result, records } = await streamThrough(upstream.handler, (proxy) => {
+      proxy.upstreamTimeoutMs = 50;
+    });
+    expect(result.status).toBe(504);
+    expect(JSON.parse(result.body).error).toEqual({
+      type: 'api_error',
+      message: 'Fake API request timed out',
+    });
+    expect(await within(upstream.closed, 1000)).toBe(true);
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('timeout');
+  });
+
+  it('does not fire the header deadline once output has started', async () => {
+    const { result, frames, records } = await streamThrough(
+      (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(upstreamSse('response.output_text.delta', { delta: 'hi' }));
+        const beat = setInterval(() => res.write(': ping\n\n'), 10);
+        setTimeout(() => {
+          clearInterval(beat);
+          res.end(
+            upstreamSse('response.completed', {
+              response: parityResponse('completed', {}),
+            }),
+          );
+        }, 150);
+      },
+      (proxy) => {
+        proxy.upstreamTimeoutMs = 50;
+      },
+    );
+    expect(result.status).toBe(200);
+    expect(frames.at(-1)?.event).toBe('message_stop');
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('success');
+  });
+
+  it('answers an upstream timeout before any output with the shared HTTP 504', async () => {
+    const { result, records } = await streamThrough(
+      (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(': keep-alive\n\n');
+      },
+      (proxy) => {
+        proxy.upstreamTimeoutMs = 50;
+      },
+    );
+    expect(result.status).toBe(504);
+    expect(JSON.parse(result.body).error.type).toBe('api_error');
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe('timeout');
   });
 });
 

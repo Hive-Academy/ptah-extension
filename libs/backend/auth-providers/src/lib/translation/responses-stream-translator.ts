@@ -19,6 +19,11 @@
  * `message_stop`, or one `error` event. The caller ends the stream through
  * `endOfStream()` on clean EOF, or `terminateTruncated()` on upstream failure.
  *
+ * `hasClientOutput()` and `getTerminalError()` let the caller defer its
+ * headers and `message_start` until output exists: an error that finalises
+ * the stream before any output can then go out as a plain HTTP error, which
+ * the SDK CLI handles (prompt-too-long compaction) where an SSE error is not.
+ *
  * Each instance tracks:
  * - Content block indices: allocated densely, only when a block starts
  * - Tool call state by output index: arguments received from upstream and
@@ -118,7 +123,17 @@ interface ActiveToolCall {
   emittedLength: number;
 }
 
-const TRUNCATED_STREAM_MESSAGE = 'Upstream Responses stream ended before completion';
+const TRUNCATED_STREAM_MAPPING: AnthropicErrorMapping = {
+  status: 502,
+  type: 'api_error',
+  message: 'Upstream Responses stream ended before completion',
+};
+
+const INVALID_USAGE_MAPPING: AnthropicErrorMapping = {
+  status: 502,
+  type: 'api_error',
+  message: 'Invalid upstream Responses usage',
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -131,12 +146,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * ```
  * const translator = new ResponsesStreamTranslator('gpt-5.4', 'req-123');
  *
- * // Emit initial message_start before processing chunks
- * response.write(translator.getInitialEvents());
- *
  * // Process each SSE chunk from Responses API
  * for (const rawChunk of chunks) {
  *   const events = translator.processChunk(rawChunk);
+ *   // Before the first output, an error terminal can still become an HTTP error.
+ *   if (!started && !translator.hasClientOutput()) continue;
+ *   // Emit message_start once, before the first output event
+ *   if (!started) {
+ *     started = true;
+ *     response.write(translator.getInitialEvents());
+ *   }
  *   for (const event of events) {
  *     response.write(event);
  *   }
@@ -152,6 +171,12 @@ export class ResponsesStreamTranslator {
 
   /** Whether termination events have already been emitted */
   private finalized = false;
+
+  /** Whether a content block or a successful terminal was emitted */
+  private emittedOutput = false;
+
+  /** The mapping of the `error` terminal, once the stream failed */
+  private terminalError: AnthropicErrorMapping | undefined;
 
   /** Active tool calls by output_index */
   private readonly activeToolCalls: Map<number, ActiveToolCall> = new Map();
@@ -205,8 +230,8 @@ export class ResponsesStreamTranslator {
   ) {}
 
   /**
-   * Get the initial message_start event to emit at the beginning of the stream.
-   * Call this once before processing any chunks.
+   * Get the message_start event that opens the Anthropic stream. Call it once,
+   * before writing the first event of the stream.
    */
   getInitialEvents(): string {
     return sseEvent('message_start', {
@@ -230,6 +255,20 @@ export class ResponsesStreamTranslator {
   /** Whether a terminal Responses event (valid or rejected) was observed. */
   isFinalized(): boolean {
     return this.finalized;
+  }
+
+  /**
+   * Whether an event the client must see as a turn was produced: a content
+   * block start or a successful terminal. Before that, the only event this
+   * translator can have returned is a single `error` terminal.
+   */
+  hasClientOutput(): boolean {
+    return this.emittedOutput;
+  }
+
+  /** The status, type and message of the `error` terminal, once failed. */
+  getTerminalError(): AnthropicErrorMapping | undefined {
+    return this.terminalError;
   }
 
   /**
@@ -286,7 +325,7 @@ export class ResponsesStreamTranslator {
    */
   terminateTruncated(): string[] {
     if (this.finalized) return [];
-    return this.failStream({ type: 'api_error', message: TRUNCATED_STREAM_MESSAGE });
+    return this.failStream(TRUNCATED_STREAM_MAPPING);
   }
 
   /** Apply one SSE line to the pending frame; a blank line dispatches it. */
@@ -524,6 +563,7 @@ export class ResponsesStreamTranslator {
 
   /** Allocate the next dense block index; called only when a block starts. */
   private allocateBlockIndex(): number {
+    this.emittedOutput = true;
     return this.nextBlockIndex++;
   }
 
@@ -690,7 +730,7 @@ export class ResponsesStreamTranslator {
    * closed calls' final arguments).
    */
   private finalToolArgs(response: ResponsesCompletedData | undefined): unknown[] {
-    const output: unknown = isRecord(response) ? response.output : undefined;
+    const output: unknown = isRecord(response) ? response['output'] : undefined;
     if (Array.isArray(output)) {
       const snapshotArgs = output
         .filter((item): item is ResponsesOutputItem =>
@@ -723,7 +763,7 @@ export class ResponsesStreamTranslator {
       // Completion runs inside an HTTP data listener: validation errors must not
       // escape as uncaught exceptions or allow a later sentinel to claim success.
       void error;
-      return this.failStream({ type: 'api_error', message: 'Invalid upstream Responses usage' });
+      return this.failStream(INVALID_USAGE_MAPPING);
     }
   }
 
@@ -731,9 +771,10 @@ export class ResponsesStreamTranslator {
    * Finalise with one Anthropic `error` event. No `content_block_stop` or
    * `message_delta` precedes it: the client must not see a successful turn.
    */
-  private failStream(error: Pick<AnthropicErrorMapping, 'type' | 'message'>): string[] {
+  private failStream(error: AnthropicErrorMapping): string[] {
     this.onTranslationError();
     this.finalized = true;
+    this.terminalError = error;
     this.activeToolCalls.clear();
     this.textBlockIndex = undefined;
     return [sseEvent('error', {
@@ -752,6 +793,7 @@ export class ResponsesStreamTranslator {
   private emitFinalEvents(stopReasonOverride?: ResponsesStopReason): string[] {
     if (this.finalized) return [];
     this.finalized = true;
+    this.emittedOutput = true;
 
     const events: string[] = [];
     this.closeTextBlock(events);
