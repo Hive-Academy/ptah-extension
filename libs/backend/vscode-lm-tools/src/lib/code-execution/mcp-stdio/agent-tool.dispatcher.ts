@@ -35,12 +35,20 @@ import type { PtahAPI } from '../types';
 import {
   formatAgentSpawn,
   formatAgentStatus,
-  formatAgentRead,
   formatAgentMessage,
   formatAgentReport,
   formatAgentStop,
   formatAgentList,
 } from '../mcp-core/mcp-response-formatter';
+import { renderAgentRead } from '../mcp-core/agent-read.view';
+import {
+  AGENT_STATUS_REPEAT_WINDOW_MS,
+  checkRepeatAgentStatus,
+} from '../mcp-core/agent-status-throttle';
+import {
+  getToolResultBudget,
+  spoolToolText,
+} from '../mcp-core/tool-result-budget';
 import { MAX_AGENT_MESSAGE_LENGTH } from '../mcp-core/tool-description.builder';
 import { AgentSpawnArgsSchema } from '../mcp-core/agent-spawn-args.schema';
 import {
@@ -58,6 +66,7 @@ const AgentReadSchema = z
   .object({
     agentId: z.string().min(1),
     tail: z.number().int().positive().optional(),
+    offset: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -185,6 +194,15 @@ export class AgentToolDispatcher {
      * `agent_report` refuse with `unattributed-caller` rather than guess.
      */
     private readonly callerAgentId?: string,
+    /** Clock (epoch ms) of the `agent_status` repeat throttle. */
+    private readonly now: () => number = () => Date.now(),
+    /**
+     * Root of the `agent_read` spool (`<root>/.ptah/tmp/mcp-out`). The host
+     * process's working directory: set by whoever launched `mcp-serve`, not
+     * by the calling model — the stdio counterpart of the HTTP surface's
+     * host-owned workspace folder.
+     */
+    private readonly spoolRoot: () => string = () => process.cwd(),
   ) {}
 
   static readonly TOOL_NAMES: readonly string[] = [
@@ -333,6 +351,32 @@ export class AgentToolDispatcher {
     }
     try {
       const result = await this.ptahAPI.agent.status(parsed.data.agentId);
+      const now = this.now();
+      const unchanged = checkRepeatAgentStatus(
+        this.ptahAPI,
+        { agentId: this.callerAgentId, sessionId: this.callerSessionId },
+        parsed.data.agentId,
+        result,
+        now,
+      );
+      if (unchanged !== null) {
+        // A stdio host does not receive `<agent-lane-completed>`; it is told
+        // when a repeat call returns the full status again.
+        const fullAgain = new Date(
+          Date.parse(unchanged.since) + AGENT_STATUS_REPEAT_WINDOW_MS,
+        ).toISOString();
+        return toolSuccess(
+          request,
+          `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
+            `Repeat calls return this line until ${fullAgain}; a status ` +
+            'change is reported at once.',
+          {
+            agentId: unchanged.agentId,
+            status: unchanged.status,
+            unchangedSince: unchanged.since,
+          },
+        );
+      }
       return toolSuccess(request, formatAgentStatus(result), {
         agents: Array.isArray(result) ? result : [result],
       });
@@ -363,10 +407,23 @@ export class AgentToolDispatcher {
       const result = await this.ptahAPI.agent.read(
         parsed.data.agentId,
         parsed.data.tail,
+        parsed.data.offset,
       );
-      return toolSuccess(request, formatAgentRead(result), {
+      // The same budgeted window the HTTP surface returns: stdio has no
+      // budget step of its own, so this is the only bound on the answer.
+      const view = await renderAgentRead(
+        result,
+        parsed.data.offset,
+        getToolResultBudget('ptah_agent_read'),
+        (text) => spoolToolText(text, this.spoolRoot(), request.id),
+      );
+      return toolSuccess(request, view.text, {
         agentId: result.agentId,
-        lineCount: result.lineCount,
+        lineCount: view.shownLines,
+        totalLines: result.totalLines,
+        omittedLines: result.totalLines - view.shownLines,
+        stdout: view.stdout,
+        stderr: view.stderr,
         truncated: result.truncated,
       });
     } catch (err) {

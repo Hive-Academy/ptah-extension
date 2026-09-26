@@ -706,7 +706,12 @@ export function buildAgentReadTool(): MCPToolDefinition {
     description:
       'Read the stdout/stderr output from an agent. ' +
       'For running agents, returns output captured so far. ' +
-      'Use tail parameter to get only the last N lines.',
+      'By default returns the last 200 lines of each stream, fewer when they ' +
+      'would exceed the result size limit (the newest lines are kept; a line ' +
+      'too long to fit is shown in part, and the full window is then saved to ' +
+      'a file the result names). Each ' +
+      'stream states the exact lines shown and how many were left out. Pass tail ' +
+      'for a different window size, and offset to read forward starting at a given line.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -716,7 +721,13 @@ export function buildAgentReadTool(): MCPToolDefinition {
         },
         tail: {
           type: 'number',
-          description: 'Only return the last N lines of output',
+          description:
+            'Lines to return per stream (default 200). Without offset these are the last lines',
+        },
+        offset: {
+          type: 'number',
+          description:
+            '0-based first line of a forward window of tail lines (default 200) per stream',
         },
       },
       required: ['agentId'],

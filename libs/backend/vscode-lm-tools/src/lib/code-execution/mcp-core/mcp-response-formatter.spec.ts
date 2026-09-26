@@ -28,7 +28,6 @@ import {
   formatAgentList,
   formatAgentSpawn,
   formatAgentStatus,
-  formatAgentRead,
   formatWorktreeList,
   formatWorktreeAdd,
   formatJsonValidate,
@@ -46,7 +45,6 @@ import type {
 import type {
   SpawnAgentResult,
   AgentProcessInfo,
-  AgentOutput,
   CliDetectionResult,
 } from '@ptah-extension/shared';
 
@@ -1266,37 +1264,6 @@ describe('mcp-response-formatter › agent namespace', () => {
       /\*\*Role:\*\* architect \(preamble via task-prompt\)/,
     );
     expect(formatAgentStatus(withoutRole)).not.toMatch(/Role:/);
-  });
-
-  it('formatAgentRead emits stdout/stderr blocks or the no-output marker', () => {
-    const withOutput: AgentOutput = {
-      agentId: 'a1' as AgentOutput['agentId'],
-      stdout: 'line1\nline2',
-      stderr: 'oops',
-      lineCount: 3,
-      totalLines: 3,
-      omittedLines: 0,
-      truncated: false,
-    };
-    const withoutOutput: AgentOutput = {
-      agentId: 'a2' as AgentOutput['agentId'],
-      stdout: '',
-      stderr: '',
-      lineCount: 0,
-      totalLines: 0,
-      omittedLines: 0,
-      truncated: false,
-    };
-
-    const outA = formatAgentRead(withOutput);
-    expect(outA).toMatch(/Agent Output: a1/);
-    expect(outA).toMatch(/stdout/);
-    expect(outA).toMatch(/line1/);
-    expect(outA).toMatch(/stderr/);
-    expect(outA).toMatch(/oops/);
-
-    const outB = formatAgentRead(withoutOutput);
-    expect(outB).toMatch(/No output yet/);
   });
 });
 

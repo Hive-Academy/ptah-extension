@@ -274,10 +274,15 @@ export interface AgentNamespace {
   /**
    * Read agent output (stdout + stderr)
    * @param agentId - Agent ID
-   * @param tail - Optional: only return last N lines
+   * @param tail - Optional: lines per stream (default 200, the last ones)
+   * @param offset - Optional: 0-based first line of a forward window
    * @returns Agent output
    */
-  read: (agentId: string, tail?: number) => Promise<AgentOutput>;
+  read: (
+    agentId: string,
+    tail?: number,
+    offset?: number,
+  ) => Promise<AgentOutput>;
 
   /**
    * Send a message to a running agent.

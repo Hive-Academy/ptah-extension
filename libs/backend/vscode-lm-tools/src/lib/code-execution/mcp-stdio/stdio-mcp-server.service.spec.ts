@@ -23,6 +23,9 @@
  */
 
 import 'reflect-metadata';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
@@ -38,6 +41,11 @@ import { MCP_MVP_TOOL_NAMES } from './tool-builders';
 import type { MCPRequest } from '../mcp-core/types/mcp-protocol.types';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PtahAPI } from '../types';
+import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
+import {
+  DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+  DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+} from '../mcp-core/tool-result-budget';
 import type { ISessionSubmitHandler } from './session-submit.port';
 
 function makeLogger(): Logger {
@@ -65,6 +73,10 @@ function makeAgentApi(
       stdout: '',
       stderr: '',
       lineCount: 0,
+      totalLines: 0,
+      omittedLines: 0,
+      stdoutTotalLines: 0,
+      stderrTotalLines: 0,
       truncated: false,
     }),
     message: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
@@ -341,7 +353,66 @@ describe('StdioMcpServerService', () => {
           },
         }),
       );
-      expect(api.read).toHaveBeenCalledWith('a-1', 50);
+      expect(api.read).toHaveBeenCalledWith('a-1', 50, undefined);
+    });
+
+    // TASK_2026_559 Batch 13: the shared ptah_agent_read schema has `offset`,
+    // and the structured result carries the window counts (Batch 12 r1 M2).
+    it('routes agent_read with offset and reports the window counts', async () => {
+      const { svc, api } = makeService({
+        read: jest.fn().mockResolvedValue({
+          agentId: 'a-1',
+          stdout: 'l11\nl12\n',
+          stderr: '',
+          lineCount: 2,
+          totalLines: 40,
+          omittedLines: 38,
+          stdoutTotalLines: 40,
+          stderrTotalLines: 0,
+          truncated: false,
+        }) as never,
+      });
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_read',
+            arguments: { agentId: 'a-1', tail: 2, offset: 10 },
+          },
+        }),
+      );
+      expect(api.read).toHaveBeenCalledWith('a-1', 2, 10);
+      const result = resp.result as {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        structuredContent: Record<string, unknown>;
+      };
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toEqual({
+        agentId: 'a-1',
+        lineCount: 2,
+        totalLines: 40,
+        omittedLines: 38,
+        stdout: { totalLines: 40, shownLines: 2, firstLine: 11, lastLine: 12 },
+        stderr: { totalLines: 0, shownLines: 0, firstLine: 0, lastLine: 0 },
+        truncated: false,
+      });
+      expect(result.content[0].text).toContain(
+        'Showing lines 11-12 of 40 (38 omitted; pass offset/tail to page)',
+      );
+    });
+
+    it('rejects a negative agent_read offset as mcp_invalid_tool_args', async () => {
+      const { svc, api } = makeService();
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: {
+            name: 'agent_read',
+            arguments: { agentId: 'a-1', offset: -1 },
+          },
+        }),
+      );
+      expect(api.read).not.toHaveBeenCalled();
+      expect(JSON.stringify(resp)).toContain('mcp_invalid_tool_args');
     });
 
     it('routes agent_message to PtahAPI.agent.message and reports the mode', async () => {
@@ -460,6 +531,219 @@ describe('StdioMcpServerService', () => {
         expect(resp.error).toBeUndefined();
         expect(resp.result).toBeDefined();
       }
+    });
+  });
+
+  // TASK_2026_559 Batch 13, review r1 F4: the stdio read is held to the same
+  // result budget as the HTTP one, keeping the newest lines.
+  describe('agent_read result budget', () => {
+    // The stdio spool root is the host process's working directory; point it
+    // at a throw-away directory so no spec writes into a real one.
+    let spoolRoot: string;
+
+    beforeEach(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b13-stdio-'));
+      jest.spyOn(process, 'cwd').mockReturnValue(spoolRoot);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    /** The spool file a `Lines <range> in full: <path>` notice names, read back. */
+    function spooledWindow(text: string, range: string): string {
+      const named = new RegExp(`Lines ${range} in full: (\\S+)`).exec(text);
+      expect(named).not.toBeNull();
+      const file = named?.[1] ?? '';
+      expect(path.dirname(file)).toBe(
+        path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out'),
+      );
+      return fs.readFileSync(file, 'utf8');
+    }
+
+    // Review r2 R2-S1 on the stdio surface: the clipped middle is reachable.
+    it('spools the whole window when a line is clipped, and names the file', async () => {
+      const line =
+        'BEGIN ' +
+        'a'.repeat(20_000) +
+        ' MIDDLE_FAILURE ' +
+        'b'.repeat(20_000) +
+        ' END';
+      const { svc } = makeService({
+        read: jest.fn().mockResolvedValue({
+          agentId: 'a-1',
+          stdout: `${line}\n`,
+          stderr: '',
+          lineCount: 1,
+          totalLines: 1,
+          omittedLines: 0,
+          stdoutTotalLines: 1,
+          stderrTotalLines: 0,
+          truncated: false,
+        }) as never,
+      });
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'agent_read', arguments: { agentId: 'a-1' } },
+        }),
+      );
+      const text = (resp.result as { content: Array<{ text: string }> })
+        .content[0].text;
+      expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+        DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+      );
+      expect(text).toContain(' END');
+      expect(spooledWindow(text, '1-1')).toBe(`${line}\n`);
+    });
+
+    function longLines(count: number): string[] {
+      return Array.from({ length: count }, (_, i) => {
+        const head =
+          i === count - 1
+            ? `[L${i + 1}] FINAL_FAILURE exit 1 `
+            : `[L${i + 1}] step ok `;
+        return head + 'x'.repeat(200 - head.length);
+      });
+    }
+
+    it('returns the default read of 200 long lines within both limits, keeping the final line, with counts that match the text', async () => {
+      const lines = longLines(5_000);
+      const shown = lines.slice(-200);
+      const { svc } = makeService({
+        read: jest.fn().mockResolvedValue({
+          agentId: 'a-1',
+          stdout: shown.join('\n') + '\n',
+          stderr: '',
+          lineCount: 200,
+          totalLines: 5_000,
+          omittedLines: 4_800,
+          stdoutTotalLines: 5_000,
+          stderrTotalLines: 0,
+          truncated: false,
+        }) as never,
+      });
+      const resp = await svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'agent_read', arguments: { agentId: 'a-1' } },
+        }),
+      );
+      const result = resp.result as {
+        content: Array<{ text: string }>;
+        structuredContent: { lineCount: number; omittedLines: number };
+      };
+      const text = result.content[0].text;
+      expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+        DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+      );
+      expect(text).toContain('[L5000] FINAL_FAILURE');
+      const visible = [...text.matchAll(/\[L(\d+)\]/g)].length;
+      expect(visible).toBeGreaterThan(0);
+      expect(result.structuredContent.lineCount).toBe(visible);
+      expect(result.structuredContent.omittedLines).toBe(5_000 - visible);
+      expect(text).toContain(
+        `Showing lines ${5_001 - visible}-5000 of 5000 (${
+          5_000 - visible
+        } omitted; pass offset/tail to page)`,
+      );
+      expect(spooledWindow(text, '4801-5000')).toBe(shown.join('\n') + '\n');
+    });
+  });
+
+  // TASK_2026_559 Batch 13, review r1 F2: the repeat-status throttle applies
+  // to the stdio surface too, keyed by the host-declared session.
+  describe('agent_status repeat throttle', () => {
+    const ORIGINAL = process.env['PTAH_MCP_HOST_SESSION_ID'];
+    const T0 = Date.parse('2026-09-26T10:00:00.000Z');
+    let now = T0;
+
+    beforeEach(() => {
+      now = T0;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      if (ORIGINAL === undefined) {
+        delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+      } else {
+        process.env['PTAH_MCP_HOST_SESSION_ID'] = ORIGINAL;
+      }
+    });
+
+    const running = {
+      agentId: 'a-1',
+      cli: 'codex',
+      status: 'running',
+      task: 'noop',
+      startedAt: '2026-09-26T09:59:00.000Z',
+    };
+
+    const statusCall = (svc: StdioMcpServerService) =>
+      svc.handleToolsCall(
+        makeRequest({
+          params: { name: 'agent_status', arguments: { agentId: 'a-1' } },
+        }),
+      );
+
+    type StatusResult = {
+      content: Array<{ text: string }>;
+      structuredContent: Record<string, unknown>;
+    };
+
+    it('answers a repeat within 60 s with one line and no agent body, then the full body after 60 s', async () => {
+      process.env['PTAH_MCP_HOST_SESSION_ID'] = 'host-session-1';
+      const { svc } = makeService({
+        status: jest.fn().mockResolvedValue(running) as never,
+      });
+
+      const first = (await statusCall(svc)).result as StatusResult;
+      expect(first.content[0].text).toContain('## Agent Status');
+
+      now = T0 + 20_000;
+      const second = (await statusCall(svc)).result as StatusResult;
+      expect(second.content[0].text).toMatch(
+        /^Status unchanged since 2026-09-26T10:00:00\.000Z \(running\)\./,
+      );
+      expect(second.content[0].text).not.toContain('## Agent Status');
+      expect(second.structuredContent).toEqual({
+        agentId: 'a-1',
+        status: 'running',
+        unchangedSince: '2026-09-26T10:00:00.000Z',
+      });
+
+      now = T0 + 60_000;
+      const third = (await statusCall(svc)).result as StatusResult;
+      expect(third.content[0].text).toContain('## Agent Status');
+    });
+
+    it('returns the full body for a finished agent and for a caller without identity', async () => {
+      process.env['PTAH_MCP_HOST_SESSION_ID'] = 'host-session-1';
+      const done = makeService({
+        status: jest.fn().mockResolvedValue({
+          ...running,
+          status: 'completed',
+          exitCode: 0,
+        }) as never,
+      });
+      await statusCall(done.svc);
+      now = T0 + 1_000;
+      expect(
+        ((await statusCall(done.svc)).result as StatusResult).content[0].text,
+      ).toContain('**Status:** completed');
+
+      delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+      const anonymous = makeService({
+        status: jest.fn().mockResolvedValue(running) as never,
+      });
+      await statusCall(anonymous.svc);
+      now = T0 + 2_000;
+      expect(
+        ((await statusCall(anonymous.svc)).result as StatusResult).content[0]
+          .text,
+      ).toContain('## Agent Status');
     });
   });
 

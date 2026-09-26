@@ -5710,3 +5710,486 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// ptah_agent_status repeat throttle and ptah_agent_read window
+// (TASK_2026_559 Batch 13). The clock is injected through `deps.now`.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › agent status throttle and read window (TASK_2026_559 Batch 13)', () => {
+  const T0 = Date.parse('2026-09-26T10:00:00.000Z');
+  const SESSION_A: Partial<MCPRequest> = { _callerSessionId: 'session-a' };
+  const SESSION_B: Partial<MCPRequest> = { _callerSessionId: 'session-b' };
+
+  function runningAgent(overrides: Record<string, unknown> = {}) {
+    return {
+      agentId: 'lane-1',
+      cli: 'codex',
+      task: 'review batch 13',
+      workingDirectory: 'D:\\projects\\ws',
+      status: 'running',
+      startedAt: '2026-09-26T09:59:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function statusHarness(status: jest.Mock) {
+    const clock = { now: T0 };
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        agent: { status } as unknown as PtahAPI['agent'],
+      }),
+      now: () => clock.now,
+    });
+    const call = (
+      id: string,
+      caller: Partial<MCPRequest> = SESSION_A,
+      args: Record<string, unknown> = { agentId: 'lane-1' },
+    ) =>
+      handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_agent_status', arguments: args },
+          ...caller,
+        }),
+        deps,
+      );
+    return { clock, call };
+  }
+
+  function textOf(res: MCPResponse): string {
+    return (res.result as { content: Array<{ text: string }> }).content[0].text;
+  }
+
+  const unchangedLine = (iso: string, status: string) =>
+    `Status unchanged since ${iso} (${status}). Wait for <agent-lane-completed> instead of polling.`;
+
+  it('answers a repeat status call for the same agent within 60 s with one line, and the full body again after 60 s', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    const first = textOf(await h.call('s1'));
+    expect(first).toContain('## Agent Status');
+    expect(first).toContain('**Status:** running');
+
+    h.clock.now = T0 + 30_000;
+    expect(textOf(await h.call('s2'))).toBe(
+      unchangedLine('2026-09-26T10:00:00.000Z', 'running'),
+    );
+
+    // A throttled answer does not extend the window.
+    h.clock.now = T0 + 60_001;
+    expect(textOf(await h.call('s3'))).toContain('## Agent Status');
+    expect(status).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns the full body when the status changed inside the window', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockResolvedValueOnce(
+        runningAgent({ status: 'completed', exitCode: 0 }),
+      );
+    const h = statusHarness(status);
+
+    await h.call('c1');
+    h.clock.now = T0 + 5_000;
+    const second = textOf(await h.call('c2'));
+    expect(second).toContain('**Status:** completed');
+    expect(second).toContain('**Exit Code:** 0');
+  });
+
+  it('returns the full body when a CLI session id appeared inside the window', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockResolvedValueOnce(runningAgent({ cliSessionId: 'sess-42' }));
+    const h = statusHarness(status);
+
+    await h.call('i1');
+    h.clock.now = T0 + 5_000;
+    expect(textOf(await h.call('i2'))).toContain('**CLI Session ID:** sess-42');
+  });
+
+  it('never throttles an exited agent', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValue(runningAgent({ status: 'failed', exitCode: 1 }));
+    const h = statusHarness(status);
+
+    for (const [i, offset] of [0, 1_000, 2_000].entries()) {
+      h.clock.now = T0 + offset;
+      const text = textOf(await h.call(`e${i}`));
+      expect(text).toContain('**Status:** failed');
+      expect(text).toContain('**Exit Code:** 1');
+    }
+  });
+
+  it('never hides an error behind the throttle', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockRejectedValueOnce(new Error('No agent found with id lane-1'));
+    const h = statusHarness(status);
+
+    await h.call('x1');
+    h.clock.now = T0 + 1_000;
+    const res = await h.call('x2');
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(res)).toContain('No agent found with id lane-1');
+  });
+
+  it('throttles per caller: another session or agent asking about the same agent gets the full body', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    await h.call('p1', SESSION_A);
+    h.clock.now = T0 + 10_000;
+    expect(textOf(await h.call('p2', SESSION_B))).toContain('## Agent Status');
+    expect(textOf(await h.call('p3', SESSION_A))).toBe(
+      unchangedLine('2026-09-26T10:00:00.000Z', 'running'),
+    );
+    expect(
+      textOf(await h.call('p4', { _callerAgentId: 'parent-lane' })),
+    ).toContain('## Agent Status');
+    expect(textOf(await h.call('p5', { _callerAgentId: 'parent-lane' }))).toBe(
+      unchangedLine('2026-09-26T10:00:10.000Z', 'running'),
+    );
+  });
+
+  it('does not throttle a caller without an agent or session identity, nor the all-agents form', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    await h.call('n1', {});
+    h.clock.now = T0 + 1_000;
+    expect(textOf(await h.call('n2', {}))).toContain('## Agent Status');
+
+    status.mockResolvedValue([runningAgent()]);
+    await h.call('n3', SESSION_A, {});
+    expect(textOf(await h.call('n4', SESSION_A, {}))).toContain(
+      '## Agent Status',
+    );
+  });
+
+  describe('ptah_agent_read', () => {
+    let spoolRoot: string;
+
+    beforeEach(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b13-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    /** `count` short lines `[<tag><n>] ok`, 1-based. */
+    function shortLines(count: number, tag = 'L'): string[] {
+      return Array.from({ length: count }, (_, i) => `[${tag}${i + 1}] ok`);
+    }
+
+    /**
+     * `count` 200-char lines `[L<n>] …`; the last one carries FINAL_FAILURE,
+     * the line a read-once-at-the-end caller must never lose.
+     */
+    function longLines(count: number): string[] {
+      return Array.from({ length: count }, (_, i) => {
+        const head =
+          i === count - 1
+            ? `[L${i + 1}] FINAL_FAILURE exit 1 `
+            : `[L${i + 1}] step ok `;
+        return head + 'x'.repeat(200 - head.length);
+      });
+    }
+
+    /**
+     * A `read` that windows each stream separately, the way
+     * `AgentProcessManager.readOutput` does: the last 200 lines of each by
+     * default, or `tail` lines starting at `offset`.
+     */
+    function streamReader(streams: { stdout: string[]; stderr?: string[] }) {
+      const window = (lines: string[], tail?: number, offset?: number) => {
+        const size = tail ?? 200;
+        const start = offset ?? Math.max(0, lines.length - size);
+        const shown = lines.slice(start, start + size);
+        return {
+          text: shown.length > 0 ? shown.join('\n') + '\n' : '',
+          count: shown.length,
+        };
+      };
+      return jest.fn(
+        async (agentId: string, tail?: number, offset?: number) => {
+          const stderrLines = streams.stderr ?? [];
+          const out = window(streams.stdout, tail, offset);
+          const err = window(stderrLines, tail, offset);
+          const total = streams.stdout.length + stderrLines.length;
+          return {
+            agentId,
+            stdout: out.text,
+            stderr: err.text,
+            lineCount: out.count + err.count,
+            totalLines: total,
+            omittedLines: total - out.count - err.count,
+            stdoutTotalLines: streams.stdout.length,
+            stderrTotalLines: stderrLines.length,
+            truncated: false,
+          };
+        },
+      );
+    }
+
+    const bufferReader = (total: number) =>
+      streamReader({ stdout: shortLines(total) });
+
+    /**
+     * The `[<tag><n>]` markers visible in `text`, and every stated range
+     * `Showing lines A-B of N` for that stream section.
+     */
+    function visibleMarkers(text: string, tag = 'L'): number[] {
+      return [...text.matchAll(new RegExp(`\\[${tag}(\\d+)\\]`, 'g'))].map(
+        (m) => Number(m[1]),
+      );
+    }
+
+    function statedRanges(text: string): Array<[number, number, number]> {
+      return [...text.matchAll(/Showing lines (\d+)-(\d+) of (\d+)/g)].map(
+        (m) => [Number(m[1]), Number(m[2]), Number(m[3])],
+      );
+    }
+
+    /** A range covers exactly the markers shown, in order, with nothing else. */
+    function expectExactRange(
+      markers: number[],
+      [first, last]: [number, number, number],
+    ): void {
+      expect(markers).toEqual(
+        Array.from({ length: last - first + 1 }, (_, i) => first + i),
+      );
+    }
+
+    function callRead(read: jest.Mock, args: Record<string, unknown>) {
+      return handleMCPRequest(
+        makeRequest({
+          id: 'read-1',
+          method: 'tools/call',
+          params: { name: 'ptah_agent_read', arguments: args },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            agent: { read } as unknown as PtahAPI['agent'],
+          }),
+          workspaceProvider: knownFolders(spoolRoot),
+        }),
+      );
+    }
+
+    it('passes offset through to the agent namespace and renders the window', async () => {
+      const read = bufferReader(500);
+      const text = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 100, tail: 50 }),
+      );
+      expect(read).toHaveBeenCalledWith('lane-1', 50, 100);
+      expect(text).toContain(
+        'Showing lines 101-150 of 500 (450 omitted; pass offset/tail to page)',
+      );
+    });
+
+    it('rejects a non-numeric or negative offset instead of reading it as zero', async () => {
+      for (const offset of ['100', -1]) {
+        const read = bufferReader(10);
+        const res = await callRead(read, { agentId: 'lane-1', offset });
+        expect((res.result as { isError?: boolean }).isError).toBe(true);
+        expect(textOf(res)).toContain('invalid ptah_agent_read arguments');
+        expect(textOf(res)).toContain('offset');
+        expect(read).not.toHaveBeenCalled();
+      }
+    });
+
+    it('renders the omitted-lines line on the default call', async () => {
+      const read = bufferReader(300);
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+      expect(text).toContain(
+        'Showing lines 101-300 of 300 (100 omitted; pass offset/tail to page)',
+      );
+    });
+
+    /** Within both limits, and left alone by the budget layer (no cut trailer). */
+    function expectFitsUntouched(text: string): void {
+      expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+        DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+      );
+      expect(text).not.toContain('[reduced:');
+    }
+
+    /**
+     * Review r2 R2-S1: a read that narrowed a stream's window names, in that
+     * stream's notice, a spool file holding the whole window; returns the
+     * spooled text. The file is under the injected temp root only.
+     */
+    function spooledWindow(text: string, range: string): string {
+      const named = new RegExp(`Lines ${range} in full: (\\S+)`).exec(text);
+      expect(named).not.toBeNull();
+      const file = named?.[1] ?? '';
+      expect(path.dirname(file)).toBe(
+        path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out'),
+      );
+      return fs.readFileSync(file, 'utf8');
+    }
+
+    function expectNoSpool(): void {
+      expect(fs.existsSync(path.join(spoolRoot, '.ptah'))).toBe(false);
+    }
+
+    // Review r1 B1: the default read keeps the NEWEST lines that fit, and
+    // the stated range is exactly what is shown.
+    it.each([5_000, 200])(
+      'keeps the final line of a %i-line buffer of long lines inline, with an exact range',
+      async (total) => {
+        const read = streamReader({ stdout: longLines(total) });
+        const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+        expectFitsUntouched(text);
+        expect(text).toContain(`[L${total}] FINAL_FAILURE`);
+        const ranges = statedRanges(text);
+        expect(ranges).toHaveLength(1);
+        const [first, last, of] = ranges[0];
+        expect([last, of]).toEqual([total, total]);
+        expect(first).toBeGreaterThan(total - 200);
+        expect(text).toContain(
+          `Showing lines ${first}-${total} of ${total} (${
+            first - 1
+          } omitted; pass offset/tail to page)`,
+        );
+        expectExactRange(visibleMarkers(text), ranges[0]);
+        expect(text).toContain(`**Lines:** ${total - first + 1} of ${total} |`);
+        // Review r2 R2-S1: the narrowed window is spooled byte-equal.
+        const window = longLines(total).slice(-200);
+        expect(spooledWindow(text, `${total - 199}-${total}`)).toBe(
+          window.join('\n') + '\n',
+        );
+      },
+    );
+
+    it('does not spool a read that shows its whole window', async () => {
+      const read = streamReader({ stdout: shortLines(300) });
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+      expectFitsUntouched(text);
+      expect(text).not.toContain('in full:');
+      expectNoSpool();
+    });
+
+    it('keeps the first lines of a forward page and states where the next page starts', async () => {
+      const read = streamReader({ stdout: longLines(5_000) });
+      const text = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 1_000 }),
+      );
+
+      expectFitsUntouched(text);
+      const ranges = statedRanges(text);
+      expect(ranges).toHaveLength(1);
+      expect(ranges[0][0]).toBe(1_001);
+      expectExactRange(visibleMarkers(text), ranges[0]);
+      expect(spooledWindow(text, '1001-1200')).toBe(
+        longLines(5_000).slice(1_000, 1_200).join('\n') + '\n',
+      );
+    });
+
+    it('shows the end of a single line too long for the budget, and says so', async () => {
+      const huge = `[L1] start ${'y'.repeat(20_000)} FINAL_FAILURE`;
+      const read = streamReader({ stdout: [huge] });
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+      expectFitsUntouched(text);
+      expect(text).toContain('FINAL_FAILURE');
+      const stated =
+        /Showing the last (\d+) of (\d+) chars of line 1 of 1 \(0 other lines omitted/.exec(
+          text,
+        );
+      expect(stated).not.toBeNull();
+      expect(Number(stated?.[2])).toBe(huge.length);
+      expect(text).toContain(huge.slice(huge.length - Number(stated?.[1])));
+      expect(text).not.toContain('[L1] start');
+    });
+
+    // Review r2 R2-S1: the middle of a clipped line is reachable, in the
+    // spool the notice names, for a tail and for a forward page.
+    it.each([{}, { offset: 0, tail: 1 }])(
+      'spools the whole window when a line is clipped (%o), so its middle is reachable',
+      async (paging) => {
+        const line =
+          'BEGIN ' +
+          'a'.repeat(20_000) +
+          ' MIDDLE_FAILURE ' +
+          'b'.repeat(20_000) +
+          ' END';
+        const read = streamReader({ stdout: [line] });
+        const text = textOf(
+          await callRead(read, { agentId: 'lane-1', ...paging }),
+        );
+
+        expectFitsUntouched(text);
+        expect(text).not.toContain('MIDDLE_FAILURE');
+        expect(spooledWindow(text, '1-1')).toBe(`${line}\n`);
+      },
+    );
+
+    // Review r2 R2-S2: a huge peer stream must not clip a final line that
+    // fits on its own; checked with the huge line in either stream.
+    it.each(['stdout', 'stderr'] as const)(
+      'keeps the whole final line of the short stream when the %s peer holds one huge line',
+      async (hugeStream) => {
+        const short =
+          'FINAL_FAILURE ' + 'summary details; '.repeat(110) + ' OUT_END';
+        const huge = 'y'.repeat(30_000) + ' ERR_END';
+        const read = streamReader(
+          hugeStream === 'stderr'
+            ? { stdout: [short], stderr: [huge] }
+            : { stdout: [huge], stderr: [short] },
+        );
+        const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+        expectFitsUntouched(text);
+        expect(text).toContain(short);
+        expect(text).toContain('ERR_END');
+        expect(text).toMatch(
+          /Showing the last \d+ of 30008 chars of line 1 of 1/,
+        );
+        expect(spooledWindow(text, '1-1')).toBe(`${huge}\n`);
+      },
+    );
+
+    // Review r1 S2: each stream states its own range; no combined interval.
+    it('states a separate, exact range for each stream', async () => {
+      const read = streamReader({
+        stdout: shortLines(300, 'O'),
+        stderr: shortLines(250, 'E'),
+      });
+      const paged = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 100, tail: 2 }),
+      );
+      expect(paged).toContain(
+        'Showing lines 101-102 of 300 (298 omitted; pass offset/tail to page)',
+      );
+      expect(paged).toContain(
+        'Showing lines 101-102 of 250 (248 omitted; pass offset/tail to page)',
+      );
+      expect(paged).not.toMatch(/Showing lines \d+-\d+ of 550/);
+      expect(paged).toContain('**Lines:** 4 of 550 |');
+
+      const tail = textOf(
+        await callRead(read, { agentId: 'lane-1', tail: 50 }),
+      );
+      expect(tail).toContain(
+        'Showing lines 251-300 of 300 (250 omitted; pass offset/tail to page)',
+      );
+      expect(tail).toContain(
+        'Showing lines 201-250 of 250 (200 omitted; pass offset/tail to page)',
+      );
+      expect(tail).toContain('[O300] ok');
+      expect(tail).toContain('[E250] ok');
+    });
+  });
+});

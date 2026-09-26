@@ -948,6 +948,8 @@ export class AgentProcessManager {
       lineCount,
       totalLines,
       omittedLines: totalLines - lineCount,
+      stdoutTotalLines: stdoutWindow.totalLines,
+      stderrTotalLines: stderrWindow.totalLines,
       truncated: tracked.truncated,
     };
   }

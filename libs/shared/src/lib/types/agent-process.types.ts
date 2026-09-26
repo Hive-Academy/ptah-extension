@@ -218,6 +218,10 @@ export interface AgentOutput {
   readonly totalLines: number;
   /** Parsed lines excluded by the read window (totalLines minus lineCount) */
   readonly omittedLines: number;
+  /** Parsed stdout lines before windowing (each stream is windowed on its own) */
+  readonly stdoutTotalLines: number;
+  /** Parsed stderr lines before windowing */
+  readonly stderrTotalLines: number;
   /** Whether output was truncated due to buffer limit */
   readonly truncated: boolean;
 }

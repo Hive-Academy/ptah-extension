@@ -320,8 +320,8 @@ export function buildAgentNamespace(
       return agentProcessManager.getStatus(agentId);
     },
 
-    read: async (agentId, tail?) => {
-      return agentProcessManager.readOutput(agentId, tail);
+    read: async (agentId, tail?, offset?) => {
+      return agentProcessManager.readOutput(agentId, tail, offset);
     },
 
     message: async (agentId, message) => {

@@ -846,6 +846,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         lineCount: 400,
         totalLines: 1300,
         omittedLines: 900,
+        // TASK_2026_559 Batch 13 r1 S2: per-stream totals, for exact ranges.
+        stdoutTotalLines: 1000,
+        stderrTotalLines: 300,
       });
     });
 

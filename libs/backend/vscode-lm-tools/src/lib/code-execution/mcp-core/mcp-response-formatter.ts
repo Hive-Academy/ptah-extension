@@ -14,7 +14,6 @@ import json2md from 'json2md';
 import type {
   SpawnAgentResult,
   AgentProcessInfo,
-  AgentOutput,
   AgentMessageOutcome,
   AgentMessagingMode,
   CliDetectionResult,
@@ -1197,40 +1196,6 @@ export function formatAgentStatus(
       }
       blocks.push({ h3: `Agent: ${a.agentId}` });
       blocks.push({ p: lines.join('  \n') });
-    }
-
-    return json2md(blocks);
-  } catch {
-    return fallbackJson(result);
-  }
-}
-
-/**
- * Format ptah_agent_read result
- */
-export function formatAgentRead(result: AgentOutput): string {
-  try {
-    const blocks: any[] = [
-      { h2: `Agent Output: ${result.agentId}` },
-      {
-        p: `**Lines:** ${result.lineCount} | **Truncated:** ${
-          result.truncated ? 'Yes' : 'No'
-        }`,
-      },
-    ];
-
-    if (result.stdout) {
-      blocks.push({ h3: 'stdout' });
-      blocks.push({ code: { language: '', content: result.stdout } });
-    }
-
-    if (result.stderr) {
-      blocks.push({ h3: 'stderr' });
-      blocks.push({ code: { language: '', content: result.stderr } });
-    }
-
-    if (!result.stdout && !result.stderr) {
-      blocks.push({ p: '*No output yet.*' });
     }
 
     return json2md(blocks);

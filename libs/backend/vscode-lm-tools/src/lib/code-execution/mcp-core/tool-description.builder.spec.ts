@@ -1,6 +1,7 @@
 import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
+  buildAgentReadTool,
   buildAgentReportTool,
   buildAgentSpawnTool,
   buildCodeReindexTool,
@@ -292,6 +293,24 @@ describe('buildAgentReportTool', () => {
     for (const cli of SYSTEM_CLI_TYPES) {
       expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
     }
+  });
+});
+
+// TASK_2026_559 Batch 13: the read default and the paging parameters are stated.
+describe('buildAgentReadTool', () => {
+  it('states the 200-line default and documents offset', () => {
+    const tool = buildAgentReadTool();
+    expect(tool.description).toContain('200 lines');
+    expect(tool.description).toContain('offset');
+    // Review r1 B1: the budget narrowing is disclosed, and which end it keeps.
+    expect(tool.description).toContain('the newest lines are kept');
+    // Review r2 R2-S1: a narrowed window is saved, and the result names it.
+    expect(tool.description).toContain('saved to a file the result names');
+    const offset = (tool.inputSchema.properties ?? {})['offset'] as
+      { type?: string; description?: string } | undefined;
+    expect(offset?.type).toBe('number');
+    expect(offset?.description).toMatch(/0-based/);
+    expect(tool.inputSchema.required).toEqual(['agentId']);
   });
 });
 

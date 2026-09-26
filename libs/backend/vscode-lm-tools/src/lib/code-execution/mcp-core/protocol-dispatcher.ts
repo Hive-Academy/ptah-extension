@@ -136,6 +136,8 @@ import {
   type SpoolOutcome,
   type ToolResultBudgetOutcome,
 } from './tool-result-budget';
+import { renderAgentRead } from './agent-read.view';
+import { checkRepeatAgentStatus } from './agent-status-throttle';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -146,7 +148,6 @@ import {
   formatTokenCount,
   formatAgentSpawn,
   formatAgentStatus,
-  formatAgentRead,
   formatAgentMessage,
   formatAgentReport,
   formatAgentStop,
@@ -211,6 +212,8 @@ export interface ProtocolHandlerDependencies {
    * the first folder, else the system temp directory.
    */
   workspaceProvider?: Pick<IWorkspaceProvider, 'getWorkspaceFolders'>;
+  /** Clock (epoch ms) of the `ptah_agent_status` repeat throttle. Default `Date.now`. */
+  now?: () => number;
 }
 
 /**
@@ -586,6 +589,18 @@ const AgentReportArgsSchema = z
     summary: z.string().min(1).max(200).optional(),
   })
   .strict();
+
+/**
+ * `ptah_agent_read` arguments (TASK_2026_559 Batch 13). Not `strict()`: this
+ * surface has always ignored unknown keys here. `readOutput` floors both
+ * numbers, so a fraction is accepted; a string or a negative number is not,
+ * where it used to be read as zero.
+ */
+const AgentReadArgsSchema = z.object({
+  agentId: z.string().min(1),
+  tail: z.number().finite().nonnegative().optional(),
+  offset: z.number().finite().nonnegative().optional(),
+});
 
 /** Render a Zod failure as one readable line naming each offending field. */
 function describeZodIssues(error: z.ZodError): string {
@@ -1084,22 +1099,34 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.status(agentId);
         return await createToolSuccessResponse(
           request,
-          formatAgentStatus(result),
+          repeatAgentStatusLine(request, agentId, result, deps) ??
+            formatAgentStatus(result),
           deps,
         );
       }
 
       case 'ptah_agent_read': {
-        const { agentId, tail } = args as {
-          agentId: string;
-          tail?: number;
-        };
-        const result = await ptahAPI.agent.read(agentId, tail);
-        return await createToolSuccessResponse(
-          request,
-          formatAgentRead(result),
-          deps,
+        const parsed = AgentReadArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
         );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ptah_agent_read arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "agentId".`,
+          );
+        }
+        const { agentId, tail, offset } = parsed.data;
+        const result = await ptahAPI.agent.read(agentId, tail, offset);
+        const view = await renderAgentRead(
+          result,
+          offset,
+          getToolResultBudget('ptah_agent_read'),
+          async (text) =>
+            spoolToolText(text, await resolveSpoolRoot(deps), request.id),
+        );
+        return await createToolSuccessResponse(request, view.text, deps);
       }
 
       case 'ptah_agent_message': {
@@ -2364,6 +2391,30 @@ function missingStringArgResponse(
       isError: true,
     },
   };
+}
+
+/**
+ * The HTTP wording of the repeat-status short answer, or `null` for the full
+ * body (policy in {@link checkRepeatAgentStatus}). HTTP callers are the Ptah
+ * sessions and lanes that receive `<agent-lane-completed>`.
+ */
+function repeatAgentStatusLine(
+  request: MCPRequest,
+  agentId: unknown,
+  result: Awaited<ReturnType<PtahAPI['agent']['status']>>,
+  deps: ProtocolHandlerDependencies,
+): string | null {
+  const unchanged = checkRepeatAgentStatus(
+    deps.ptahAPI,
+    resolveMcpCaller(request),
+    agentId,
+    result,
+    (deps.now ?? Date.now)(),
+  );
+  return unchanged === null
+    ? null
+    : `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
+        'Wait for <agent-lane-completed> instead of polling.';
 }
 
 /**
