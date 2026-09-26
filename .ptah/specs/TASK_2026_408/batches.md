@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 17 | Batches: 10 | Complete: 5/10
+Total tasks: 17 | Batches: 10 | Complete: 6/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -189,7 +189,7 @@ Edge cases:
 - Reviewer: code-logic review via codex CLI lane (collision and reverse-map correctness)
 - Review: `code-logic-review-b3.md` APPROVED 8/10; one minor coverage suggestion (exact 65-char boundary, emoji / UTF-16 slicing, lone-surrogate collision pair) carried into Batch 4 as Task 4.4. Final run 51 suites / 1183 tests.
 
-## Batch 4: Phase 2b - stream tool-call state and guard plumbing — IN_PROGRESS
+## Batch 4: Phase 2b - stream tool-call state and guard plumbing — COMPLETE (commit 118380beb)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent
@@ -199,7 +199,7 @@ Edge cases:
 - Files (6, 1 lib): `responses-stream-translator.ts`, `responses-stream-translator.spec.ts`, `translation-proxy-base.ts`, `translation-proxy-base.spec.ts`, `responses-tool-names.spec.ts` (Task 4.4), `responses-tool-names.ts` (orchestrator-approved one-line fix found by Task 4.4, see below)
 - Commit: `fix(auth-providers): fix streamed tool-call args and block indexes`
 
-### Task 4.1: Translator resolver parameter — IMPLEMENTED
+### Task 4.1: Translator resolver parameter — COMPLETE
 
 - File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts` (+ spec)
 - Plan reference: implementation-plan.md:243
@@ -208,7 +208,7 @@ Edge cases:
 - Validation notes: aliased names never reach the SDK
 - Implementation details: constructor parameter plus spec with an alias resolver
 
-### Task 4.2: Block-index allocator and received/emitted argument state — IMPLEMENTED
+### Task 4.2: Block-index allocator and received/emitted argument state — COMPLETE
 
 - Depends on: Task 4.1
 - File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.spec.ts`
@@ -218,7 +218,7 @@ Edge cases:
 - Validation notes (open item 2, mandatory): a delta handler does append to `receivedArgs`, then starts the block if this delta supplies the name, then performs ONE flush of `receivedArgs.slice(emittedLength)`. It must not keep today's two independent branches (start at `:374`, emit at `:401`) that would emit the current delta twice. Distinguish already-started from started-this-event. Required regression: buffered pre-name argument deltas, then a delta that supplies the name plus the final fragment; the installed `MessageStream` final `tool_use.input` equals one complete parsed object and the concatenated `input_json_delta` text equals the full args exactly once
 - Implementation details: `nextBlockIndex` plus open-text-block index; `emittedLength` per call; done payloads fill `receivedArgs` only when empty, otherwise ignored; start from `added`/delta/done flushes once; unseen call at `output_item.done` with `call_id` + `name` does start, flush, stop; nameless call emits nothing and is kept in `closedToolArgs`; `MessageStream` cases (a) deltas only, (b) done only, (c) deltas plus matching done, (d) delayed name at `output_item.done`, (e) name-bearing delta after buffered deltas; two interleaved calls get distinct indexes and intact inputs
 
-### Task 4.3: Proxy-base guard call and resolver plumbing — IMPLEMENTED
+### Task 4.3: Proxy-base guard call and resolver plumbing — COMPLETE
 
 - Depends on: Tasks 3.2, 4.2
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.spec.ts`
@@ -228,7 +228,7 @@ Edge cases:
 - Validation notes: the JSON path applies the resolver at the name read (`:1201`); valid names produce byte-identical upstream requests
 - Implementation details: call `guardResponsesToolNames` right after `translateAnthropicToResponses`; pass `toOriginalName` to the translator constructor, `collectResponsesStream` and `handleResponsesNonStreamingResponse`; HTTP spec: 70-char MCP-style name round-trips on stream true and stream false, and in replayed history
 
-### Task 4.4: Tool-name guard boundary and Unicode regression cases (carried from code-logic-review-b3.md) — IMPLEMENTED
+### Task 4.4: Tool-name guard boundary and Unicode regression cases (carried from code-logic-review-b3.md) — COMPLETE
 
 - File: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.spec.ts` (test-only; `responses-tool-names.ts` must not change unless a new case exposes a real defect, which must then be reported, not silently fixed)
 - Plan reference: implementation-plan.md:229-252; code-logic-review-b3.md minor finding 1
@@ -244,8 +244,9 @@ Edge cases:
 - Reviewer: code-logic review via codex CLI lane (exactly-once emission and index allocation are correctness-critical for the pinned CLI)
 - Scope addition (orchestrator-approved, reported by the executor rather than silently fixed): Task 4.4 exposed that `aliasFor` hashed UTF-8, so distinct lone-surrogate originals (`'x\uD83D'` vs `'x\uDE00'`) produced one alias (fail-safe 400). Fixed by hashing `'utf16le'` (`responses-tool-names.ts:41-43`, only change in that file). Aliases are recomputed per request from the SDK's original names and never persisted, so the value change needs no migration. Rides in the Batch 4 commit and is named in its body.
 - closedToolArgs decision (carried from Batch 2): recorded only when the call started or carried arguments (`responses-stream-translator.ts:600-612`); an unseen, nameless, argless done is not recorded; a started call with no args records `''` (gives `upstream_incomplete`). Pinned by tests.
+- Review history: `code-logic-review-b4.md` REJECTED 6/10 (snapshot precedence could bless truncated emitted input; empty name-bearing delta lost the buffered call; repeated done reopened a closed call); fixed in the translator and its spec only (`closedEmittedArgs` checked by `finalToolArgs`, early return only when empty and nameless, `isClosedCall` guard on all four entry points); `code-logic-review-b4-r1.md` APPROVED 8/10. Final run 51 suites / 1236 tests.
 
-## Batch 5: Phase 2c - tool-result image translation and downgrade post-pass — PENDING
+## Batch 5: Phase 2c - tool-result image translation and downgrade post-pass — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lanes x 2 (the two tasks are file-disjoint and self-contained)
@@ -255,7 +256,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-request-translator.ts`, `responses-request-translator.spec.ts`, `responses-tool-output-images.ts` (C), `responses-tool-output-images.spec.ts` (C)
 - Commit: `fix(auth-providers): translate tool-result images for Responses`
 
-### Task 5.1: Request translator image parts (two permitted locations only) — PENDING
+### Task 5.1: Request translator image parts (two permitted locations only) — IMPLEMENTED
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-request-translator.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-request-translator.spec.ts`
 - Plan reference: implementation-plan.md:289-314, :500
@@ -264,7 +265,7 @@ Edge cases:
 - Validation notes: text-only stays a string; unresolvable media gives `input_text` `[image omitted: unsupported media type]`; `is_error` prefixes the first text part or inserts an `Error:` part before a leading image
 - Implementation details: widen `output` to `string | Array<ResponsesInputTextPart | ResponsesInputImagePart>`; build the array in block order via `resolveImageMediaType`
 
-### Task 5.2: Downgrade post-pass module — PENDING
+### Task 5.2: Downgrade post-pass module — IMPLEMENTED
 
 - Depends on: Task 5.1
 - Files: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-output-images.ts`; CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-output-images.spec.ts`
@@ -279,6 +280,15 @@ Edge cases:
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Reviewer diffs `responses-request-translator.ts` to confirm only the two locations changed
 - Reviewer: code-logic review via codex CLI lane
+- On-disk hunks in `responses-request-translator.ts`: `@@ -66` / `@@ -70` (interface doc + `output` type) and `@@ -389,0` / `@@ -393,0` (doc comment and body of `translateToolResultToFunctionCallOutput`; the `-389` hunk header names the preceding function only because git labels hunks by the nearest earlier declaration). Existing `ResponsesInputTextPart` / `ResponsesInputImagePart` (`:41-50`) reused; no new types.
+- TASK_2026_562 boundary CONFIRMED: the codex lane cannot run git, so the orchestrator ran `git diff -U1` on `responses-request-translator.ts` — 4 hunks, all inside the `ResponsesFunctionCallOutputItem` interface (doc + `output` type) and `translateToolResultToFunctionCallOutput` (doc comment + body). Matches the team-leader's `-U0` check above.
+- Review: `code-logic-review-b5.md` APPROVED 8/10; 0 blocking/serious/moderate. `image_url` string shape checked against installed OpenAI declarations and pinned Codex strings; the omitted `detail` field is recorded as an evidence limit, not a defect. One minor coverage finding carried into Batch 6 as Task 6.2. Final run 52 suites / 1250 tests.
+
+## Formatting follow-up (decided in Batch 5 verification)
+
+- Finding: `npx nx format:check` fails on 10 files this task committed or edits (`responses-error-mapping.ts` + spec, `responses-stream-collector.ts` + spec, `responses-stream-translator.ts` + spec, `responses-tool-names.ts` + spec, `translation-proxy-base.ts` + spec). `translation-proxy-helpers.ts` also fails but is unchanged since `ebfc73321`, so it is pre-existing on main and out of scope.
+- Hook: `.husky/pre-commit` runs lint-staged, and `.lintstagedrc.mjs` runs `npx nx format:write --files=<staged>`. None of these paths is in `.prettierignore`, yet the committed content is unformatted, so the hook's format step is not taking effect for these commits. Root cause not established; it is a repository tooling issue outside this task and is recorded for `future-enhancements`, not fixed here.
+- Decision: no prettier writes folded into feature batches (they would bury behavioural diffs under reformatting and exceed the 6-file cap). One format-only step runs after Batch 6 and before Batch 9, when no other auth-providers work is in flight: a backend-developer runs `npx nx format:write --files=<the 10 files above plus any Batch 5/6 file that fails the check>`, then `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers --parallel=2`; code-style-reviewer confirms the diff is formatting only; commit `style(auth-providers): apply prettier to TASK_2026_408 translation files`.
 
 ## Batch 6: Phase 2d - image capability hook and provider HTTP specs — PENDING
 
@@ -286,8 +296,8 @@ Edge cases:
 - Fallback executor: second backend-developer sub-agent
 - Execution mode: sequential
 - Rationale: base hook, Codex override and the two provider HTTP specs are one wiring change
-- Tasks: 1 | Depends on: Batch 5
-- Files (4, 1 lib): `translation-proxy-base.ts`, `providers/codex/codex-translation-proxy.ts`, `providers/codex/codex-stream-parity.spec.ts`, `providers/opencode/opencode-translation-proxy.spec.ts`
+- Tasks: 2 | Depends on: Batch 5
+- Files (6, 1 lib): `translation-proxy-base.ts`, `providers/codex/codex-translation-proxy.ts`, `providers/codex/codex-stream-parity.spec.ts`, `providers/opencode/opencode-translation-proxy.spec.ts`, `responses-request-translator.spec.ts` and `responses-tool-output-images.spec.ts` (test-only, Task 6.2)
 - Commit: `fix(auth-providers): keep tool-result images for Codex only`
 
 ### Task 6.1: Capability hook, post-pass call, Codex opt-in — PENDING
@@ -298,6 +308,15 @@ Edge cases:
 - Quality requirements: default `false`; only Codex overrides `true` with a comment citing pinned-client evidence
 - Validation notes: R2 rollback is one line; OpenCode GPT/responses upstream body has a string `output` with the placeholder and no `input_image`; Codex upstream body has an array with `input_image`
 - Implementation details: `protected supportsResponsesToolOutputImages(): boolean`; after `guardResponsesToolNames`, downgrade unless supported; separate HTTP specs for Codex and OpenCode
+
+### Task 6.2: Tool-result image edge-case regression fixtures (carried from code-logic-review-b5.md) — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-request-translator.spec.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-output-images.spec.ts` (test-only; no production file changes; a case that exposes a real defect is reported, not silently fixed)
+- Plan reference: implementation-plan.md:289-320; code-logic-review-b5.md minor finding 1
+- Pattern to follow: the existing `tool_result images` block (`responses-request-translator.spec.ts:353`) and `responses-tool-output-images.spec.ts:43`
+- Quality requirements: compact table-driven fixtures pinning today's behaviour exactly
+- Validation notes: rows for missing tool-result content, empty-array content, empty `is_error` output, unknown nested block types with and without an image present; downgrade of an array holding only placeholder/unsupported parts, of an empty array, and of a text-only array
+- Implementation details: add cases only
 
 ### Batch 6 verification
 
