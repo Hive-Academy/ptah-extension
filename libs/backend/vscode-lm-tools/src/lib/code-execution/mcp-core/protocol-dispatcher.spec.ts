@@ -38,6 +38,7 @@ import {
 } from './tool-result-budget';
 import { formatBrowserContent } from './mcp-response-formatter';
 import {
+  getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
@@ -1606,6 +1607,56 @@ describe('protocol-handlers › ptah_agent_report', () => {
     expect(text).toMatch(/unattributed-caller/);
   });
 
+  it.each(['', '   '])(
+    'refuses with unattributed-caller when the URL agent id is %j (empty/whitespace is absent)',
+    async (agentId) => {
+      const report = jest.fn();
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'ar-blank',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_agent_report',
+            arguments: { message: 'blocked' },
+          },
+          _callerAgentId: agentId,
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            agent: { report } as unknown as PtahAPI['agent'],
+          }),
+        }),
+      );
+
+      expect(report).not.toHaveBeenCalled();
+      expect(agentToolResult(res).text).toMatch(/unattributed-caller/);
+    },
+  );
+
+  it('never attributes a report to the caller session when no agent is named', async () => {
+    const report = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-session',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'blocked' },
+        },
+        _callerSessionId: 'tab-abc',
+        _callerWorkspaceRoot: 'D:\\ws-A',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).not.toHaveBeenCalled();
+    expect(agentToolResult(res).text).toMatch(/unattributed-caller/);
+  });
+
   it('renders a router refusal as a refusal, not a success', async () => {
     const report = jest
       .fn()
@@ -2307,6 +2358,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     expect(fs.existsSync(spoolDir())).toBe(false);
     expect(telemetryOf(logger)).toEqual({
       tool: 'ptah_search_files',
+      callerKind: 'workspace',
       durationMs: expect.any(Number),
       resultChars: text.length,
       rawTokens: countTokensPiecewise(text),
@@ -2336,6 +2388,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
 
     expect(telemetryOf(logger)).toEqual({
       tool: 'ptah_search_files',
+      callerKind: 'workspace',
       durationMs: expect.any(Number),
       resultChars: textOf(res).length,
       rawTokens: null,
@@ -2810,6 +2863,190 @@ describe('protocol-handlers › tools/list maxResultSizeChars (TASK_2026_559 2f.
       const first = JSON.stringify(await listResult(overrides));
       const second = JSON.stringify(await listResult(overrides));
       expect(second).toBe(first);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Caller identity — tools/list, tools/call context, telemetry (TASK_2026_559 Batch 3)
+//
+// Every caller kind gets the same tool list (User Decision 6: no per-caller
+// narrowing), byte for byte, so the prompt cache holds across callers. The
+// telemetry line carries the caller KIND only — never an id or a root.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › caller identity (TASK_2026_559 Batch 3)', () => {
+  const WS_ROOT = 'D:\\projects\\caller-ws';
+
+  /** The `_caller*` fields the HTTP handler stamps for each URL shape. */
+  const CALLERS: ReadonlyArray<{
+    kind: string;
+    fields: Partial<MCPRequest>;
+  }> = [
+    {
+      kind: 'agent',
+      fields: {
+        _callerAgentId: 'agent-secret-id',
+        _callerWorkspaceRoot: WS_ROOT,
+      },
+    },
+    {
+      kind: 'session',
+      fields: {
+        _callerSessionId: 'session-secret-id',
+        _callerWorkspaceRoot: WS_ROOT,
+      },
+    },
+    { kind: 'workspace', fields: { _callerWorkspaceRoot: WS_ROOT } },
+    { kind: 'anonymous', fields: {} },
+  ];
+
+  const LIST_CONFIGS: ReadonlyArray<Partial<ProtocolHandlerDependencies>> = [
+    {},
+    { hasIDECapabilities: true, hasSqliteLayer: true },
+    { hasIDECapabilities: true, disabledMcpNamespaces: ['browser', 'git'] },
+  ];
+
+  async function listJson(
+    fields: Partial<MCPRequest>,
+    overrides: Partial<ProtocolHandlerDependencies>,
+  ): Promise<string> {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'caller-list', method: 'tools/list', ...fields }),
+      buildDeps(overrides),
+    );
+    expect(res.error).toBeUndefined();
+    return JSON.stringify(res.result);
+  }
+
+  it('returns a byte-identical tools/list for all four caller kinds and across repeated calls', async () => {
+    for (const overrides of LIST_CONFIGS) {
+      const reference = await listJson({}, overrides);
+      for (const { fields } of CALLERS) {
+        expect(await listJson(fields, overrides)).toBe(reference);
+        expect(await listJson(fields, overrides)).toBe(reference);
+      }
+    }
+  });
+
+  it('gives a malformed caller (blank or non-string fields) the same list, not a different identity’s', async () => {
+    const overrides = { hasIDECapabilities: true, hasSqliteLayer: true };
+    const reference = await listJson({}, overrides);
+    const malformed = [
+      { _callerAgentId: '   ' },
+      { _callerSessionId: '' },
+      { _callerWorkspaceRoot: '\t' },
+      { _callerAgentId: 7 } as unknown as Partial<MCPRequest>,
+    ];
+
+    for (const fields of malformed) {
+      expect(await listJson(fields, overrides)).toBe(reference);
+    }
+  });
+
+  it('gives the anonymous caller the full default set (no narrowing)', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'caller-anon', method: 'tools/list' }),
+        buildDeps({ hasIDECapabilities: true, hasSqliteLayer: true }),
+      ),
+    );
+
+    for (const name of [
+      'ptah_workspace_analyze',
+      'execute_code',
+      'approval_prompt',
+      'ptah_task_create',
+      'ptah_lsp_references',
+      'ptah_agent_spawn',
+      'ptah_agent_report',
+      'ptah_git_worktree_add',
+      'ptah_json_validate',
+      'ptah_browser_navigate',
+      'ptah_harness_propose_config',
+      'ptah_code_search_symbols',
+    ]) {
+      expect(names).toContain(name);
+    }
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('binds the resolved agent id in the tools/call context beside the raw session and workspace fields', async () => {
+    const seen: Array<Record<string, string | undefined>> = [];
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seen.push({
+              agent: getCallerAgentId(),
+              session: getCallerSessionId(),
+              workspace: getCallerWorkspaceRoot(),
+            });
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+    const call = (fields: Partial<MCPRequest>): Promise<MCPResponse> =>
+      handleMCPRequest(
+        makeRequest({
+          id: 'caller-ctx',
+          method: 'tools/call',
+          params: { name: 'ptah_task_check', arguments: {} },
+          ...fields,
+        }),
+        deps,
+      );
+
+    await call({ _callerAgentId: 'agent-1', _callerWorkspaceRoot: WS_ROOT });
+    await call({ _callerAgentId: '  ', _callerSessionId: 'tab-abc' });
+    await call({});
+
+    expect(seen).toEqual([
+      { agent: 'agent-1', session: undefined, workspace: WS_ROOT },
+      { agent: undefined, session: 'tab-abc', workspace: undefined },
+      { agent: undefined, session: undefined, workspace: undefined },
+    ]);
+  });
+
+  it('logs the caller kind on the telemetry line, and never a caller id or the declared root', async () => {
+    for (const { kind, fields } of CALLERS) {
+      const logger = createMockLogger();
+      const deps = buildDeps({
+        logger: asLogger(logger),
+        ptahAPI: buildPtahAPIStub({
+          tasks: { check: jest.fn().mockResolvedValue({ ok: true }) },
+        }),
+      });
+
+      await handleMCPRequest(
+        makeRequest({
+          id: `caller-telemetry-${kind}`,
+          method: 'tools/call',
+          params: { name: 'ptah_task_check', arguments: {} },
+          ...fields,
+        }),
+        deps,
+      );
+
+      const lines = logger.debug.mock.calls.filter(
+        (call) => call[0] === '[MCP] tool result',
+      );
+      expect(lines).toHaveLength(1);
+      expect(lines[0][2]).toMatchObject({
+        tool: 'ptah_task_check',
+        callerKind: kind,
+        isError: false,
+      });
+      const everything = JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+      ]);
+      expect(everything).not.toContain('agent-secret-id');
+      expect(everything).not.toContain('session-secret-id');
+      expect(everything).not.toContain('caller-ws');
     }
   });
 });

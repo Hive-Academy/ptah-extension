@@ -29,6 +29,14 @@ export interface McpRequestContext {
    * be anonymous by construction.
    */
   readonly callerWorkspaceRoot?: string;
+  /**
+   * Spawned-agent id from the `/agent/{id}` URL segment (decoded to
+   * `request._callerAgentId` by the HTTP handler, then normalised by
+   * `resolveMcpCaller`: an empty or whitespace-only id is absent). The only
+   * identity a spawned CLI agent has; `ptah_agent_report` attributes a report
+   * to it and to nothing else.
+   */
+  readonly callerAgentId?: string;
 }
 
 const storage = new AsyncLocalStorage<McpRequestContext>();
@@ -61,6 +69,14 @@ export function getCallerSessionId(): string | undefined {
  */
 export function getCallerWorkspaceRoot(): string | undefined {
   return storage.getStore()?.callerWorkspaceRoot;
+}
+
+/**
+ * The spawned-agent id of the in-flight MCP tool call, or `undefined` when the
+ * URL named no agent or when not running inside `runWithMcpRequestContext`.
+ */
+export function getCallerAgentId(): string | undefined {
+  return storage.getStore()?.callerAgentId;
 }
 
 /**

@@ -111,10 +111,16 @@ import { handleSurfaceToolCall } from './surface-tool-handlers';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import {
+  getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
   runWithMcpRequestContext,
 } from './mcp-request-context';
+import {
+  resolveMcpCaller,
+  type McpCaller,
+  type McpCallerKind,
+} from './mcp-caller';
 import {
   applyToolResultBudget,
   getToolResultBudget,
@@ -225,14 +231,22 @@ export async function handleMCPRequest(
       case 'tools/list':
         return handleToolsList(request, deps);
 
-      case 'tools/call':
+      case 'tools/call': {
+        const caller = resolveMcpCaller(request);
+        // The session and workspace fields stay the transport's raw values:
+        // the workspace resolvers and the spool root already judge them (a
+        // declared root that is not open is refused by name, not dropped).
+        // The agent id is the resolved one, so `ptah_agent_report` reads a
+        // single, normalised source.
         return await runWithMcpRequestContext(
           {
             callerSessionId: request._callerSessionId,
             callerWorkspaceRoot: request._callerWorkspaceRoot,
+            callerAgentId: caller.agentId,
           },
-          () => handleToolsCall(request, deps),
+          () => handleToolsCall(request, deps, caller.kind),
         );
+      }
 
       default:
         return createErrorResponse(
@@ -318,7 +332,7 @@ function handleToolsList(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
-  const tools = buildToolDefinitions(deps);
+  const tools = buildToolSet(resolveMcpCaller(request), deps);
 
   markEagerTools(tools, deps);
   declareResultBudgets(tools);
@@ -328,6 +342,27 @@ function handleToolsList(
     id: request.id,
     result: { tools },
   };
+}
+
+/**
+ * The ordered tool list for one caller — the single composition point for
+ * per-caller tool sets.
+ *
+ * Every caller kind, `anonymous` included, gets the host's full set today (no
+ * user decision licenses narrowing any caller's tools), so the list is
+ * byte-identical across callers and stays prompt-cache stable. A per-caller
+ * or per-workspace effective set layers on here, keyed on
+ * `(caller.kind, caller.workspaceRoot, caller.agentId)`; it must keep the
+ * order `buildToolDefinitions` produces.
+ */
+function buildToolSet(
+  caller: McpCaller,
+  deps: Pick<
+    ProtocolHandlerDependencies,
+    'hasIDECapabilities' | 'disabledMcpNamespaces'
+  >,
+): MCPToolDefinition[] {
+  return buildToolDefinitions(deps);
 }
 
 /** The tool definitions this host lists, after namespace and capability gating. */
@@ -648,6 +683,7 @@ const mcpSlowToolWarnMs = ((): number => {
 async function handleToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
+  callerKind: McpCallerKind,
 ): Promise<MCPResponse> {
   const toolName = telemetryToolName(toolNameOf(request));
   const startedAt = performance.now();
@@ -661,7 +697,7 @@ async function handleToolsCall(
       deps.logger.debug(
         '[MCP] tool result',
         'CodeExecutionMCP',
-        toolResultTelemetry(toolName, durationMs, response),
+        toolResultTelemetry(toolName, callerKind, durationMs, response),
       ),
     );
     if (durationMs >= mcpSlowToolWarnMs) {
@@ -684,6 +720,11 @@ function toolNameOf(request: MCPRequest): string {
 /** One `tools/call` telemetry record (the `debug` line's metadata). */
 interface ToolResultTelemetry {
   readonly tool: string;
+  /**
+   * The caller KIND only. Caller ids and the declared workspace root are
+   * URL-supplied values (a root is a local path), so they are never logged.
+   */
+  readonly callerKind: McpCallerKind;
   readonly durationMs: number;
   /** Total length of the text content blocks returned to the model. */
   readonly resultChars: number;
@@ -702,6 +743,7 @@ interface ToolResultTelemetry {
  */
 function toolResultTelemetry(
   tool: string,
+  callerKind: McpCallerKind,
   durationMs: number,
   response: MCPResponse | undefined,
 ): ToolResultTelemetry {
@@ -718,6 +760,7 @@ function toolResultTelemetry(
     response === undefined ? undefined : budgetOutcomes.get(response);
   return {
     tool,
+    callerKind,
     durationMs,
     resultChars,
     rawTokens: budget?.rawTokens ?? null,
@@ -1073,8 +1116,10 @@ async function handleIndividualTool(
         // Identity comes from the transport, NEVER from the arguments. An
         // absent id is reported as an honest refusal rather than guessed at:
         // guessing would deliver one agent's report into another's session.
-        const callerAgentId = request._callerAgentId;
-        if (callerAgentId === undefined || callerAgentId.length === 0) {
+        // Read from the request context only: `resolveMcpCaller` already
+        // treats an empty or whitespace-only id as absent.
+        const callerAgentId = getCallerAgentId();
+        if (callerAgentId === undefined) {
           return await createToolSuccessResponse(
             request,
             formatAgentReport({

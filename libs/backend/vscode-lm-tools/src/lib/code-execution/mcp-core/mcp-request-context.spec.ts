@@ -9,6 +9,7 @@
 
 import {
   runWithMcpRequestContext,
+  getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
   isMcpRequestInFlight,
@@ -105,6 +106,65 @@ describe('mcp-request-context', () => {
 
     expect(a).toBe('D:\\ws-A');
     expect(b).toBe('D:\\ws-B');
+  });
+
+  describe('getCallerAgentId', () => {
+    it('exposes the caller agent id inside the context', () => {
+      expect(
+        runWithMcpRequestContext({ callerAgentId: 'agent-7' }, () =>
+          getCallerAgentId(),
+        ),
+      ).toBe('agent-7');
+    });
+
+    it('returns undefined outside any context', () => {
+      expect(getCallerAgentId()).toBeUndefined();
+    });
+
+    it('returns undefined in a context that named no agent', () => {
+      expect(
+        runWithMcpRequestContext(
+          { callerSessionId: 'sess-A', callerWorkspaceRoot: 'D:\\ws-A' },
+          () => getCallerAgentId(),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('carries the agent id beside the other fields independently', () => {
+      const seen = runWithMcpRequestContext(
+        { callerAgentId: 'agent-7', callerWorkspaceRoot: 'D:\\ws-A' },
+        () => ({
+          agent: getCallerAgentId(),
+          session: getCallerSessionId(),
+          workspace: getCallerWorkspaceRoot(),
+        }),
+      );
+      expect(seen).toEqual({
+        agent: 'agent-7',
+        session: undefined,
+        workspace: 'D:\\ws-A',
+      });
+    });
+
+    it('isolates concurrent agent ids and does not leak after settling', async () => {
+      const observe = (
+        id: string,
+        delayMs: number,
+      ): Promise<string | undefined> =>
+        runWithMcpRequestContext({ callerAgentId: id }, async () => {
+          await new Promise((r) => setTimeout(r, delayMs));
+          return getCallerAgentId();
+        });
+
+      const [a, b] = await Promise.all([
+        observe('agent-A', 5),
+        observe('agent-B', 1),
+      ]);
+
+      expect(a).toBe('agent-A');
+      expect(b).toBe('agent-B');
+      expect(getCallerAgentId()).toBeUndefined();
+    });
   });
 
   describe('isMcpRequestInFlight', () => {
