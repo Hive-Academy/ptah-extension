@@ -14,6 +14,21 @@ export const EXTENSION_LANGUAGE_MAP: Readonly<
   '.csx': 'csharp',
 };
 
+/**
+ * WASM grammar file loaded for each parsed language (bundled by
+ * `scripts/copy-wasm.js`). `language-registry.ts` reads it for `grammarFile`.
+ * `TreeSitterParserService.initialize()` still names the same files inline;
+ * `language-registry.spec.ts` pins the two lists equal until lazy per-language
+ * loading (Batch 29a2) reads this map directly.
+ */
+export const GRAMMAR_FILE_MAP: Readonly<Record<SupportedLanguage, string>> = {
+  javascript: 'tree-sitter-javascript.wasm',
+  typescript: 'tree-sitter-typescript.wasm',
+  python: 'tree-sitter-python.wasm',
+  go: 'tree-sitter-go.wasm',
+  csharp: 'tree-sitter-c-sharp.wasm',
+};
+
 export interface LanguageQueries {
   /** Query for function declarations, expressions, and arrow functions */
   functionQuery: string;

@@ -103,6 +103,22 @@ export * from './ast/ast.types';
 export * from './ast/ast-analysis.interfaces';
 export * from './ast/tree-sitter.config';
 export {
+  CODE_FILE_NAMES,
+  LANGUAGE_REGISTRY,
+  NON_SOURCE_EXTENSIONS,
+  NON_SOURCE_FILE_NAMES,
+  classifyFileForCoverage,
+  extensionHasCapability,
+  hasCapability,
+  languageForExtension,
+  supportedLanguagesFor,
+  type CoverageFileClass,
+  type GraphEdgesCapability,
+  type LanguageCapabilities,
+  type LanguageCapability,
+  type LanguageRegistryEntry,
+} from './ast/language-registry';
+export {
   CodeSymbolIndexer,
   type CodeSymbolIndexerOptions,
   type IndexingStats,

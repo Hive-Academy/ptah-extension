@@ -75,6 +75,30 @@ export type {
   DiagnosticsScope,
 } from './interfaces/diagnostics-provider.interface';
 export type {
+  Approximation,
+  Count,
+  CoverageCensus,
+  CoverageChecks,
+  CoverageResolution,
+  CoverageState,
+  FailureReason,
+  LanguageCoverage,
+  LanguageId,
+  RecognisedLanguageId,
+  UnsupportedLanguageAnswer,
+} from './interfaces/language-coverage.interface';
+export {
+  APPROXIMATION_PRIORITY,
+  COVERAGE_COUNT_MAX,
+  FAILURE_REASONS,
+  LANGUAGE_IDS,
+  MAX_REPORTED_APPROXIMATIONS,
+  MAX_UNSUPPORTED_LANGUAGE_KEYS,
+  RECOGNISED_LANGUAGE_IDS,
+  isCleanAnswer,
+  limitApproximations,
+} from './interfaces/language-coverage.interface';
+export type {
   IMemoryWriter,
   MemoryWriteRequest,
   MemoryWriteResult,
