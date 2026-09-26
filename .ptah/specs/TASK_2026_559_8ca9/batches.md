@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 9/26
+Total tasks: 53 | Batches: 27 | Complete: 11/27
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -80,23 +80,23 @@ Assumptions:
 - `get_diagnostics` main-thread blocking and workspace-wide-only scoping are fixed at HEAD (`e70130bf5`). This is
   scheduled as verification (Task 1.1), not as a fix.
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| A global 8k cap cuts tools that already promise a larger bound (`ptah_browser_content` 32 KB, `ptah_surface_get_state` `maxStateReadBytes`), and silently truncates `get_diagnostics` before its own cap has sorted requested-file entries first | HIGH | Batch 1 lands the diagnostics cap before the budget; Task 2e.2 hints it `preformatted` so no generic reducer re-cuts it. Task 2e.2 adds a per-tool override table (default 8,000; an override only where the tool's own description documents a bound). The same table feeds `_meta['anthropic/maxResultSizeChars']` |
-| Single-line JSON results (most `JSON.stringify` tools) have no newline to cut at, so a cut leaves invalid JSON in context | MEDIUM | Task 2e.2 (after the Batch 2b JSON reducer has compacted it): when there is no newline in the last 20% of the window, cut at a char boundary and ALWAYS spool the full text. The trailer states the payload is partial and names the spool path. The paging batches (9, 13, 15) keep the paged tools under budget so they never hit the cut |
-| Spool filename collision: JSON-RPC ids restart at 1 per client, so `<toolCallId>.txt` from two sessions overwrites | MEDIUM | Task 2e.2: name the file `<sanitised id>-<epoch ms>-<4 random hex>.txt` under `<caller workspace root or workspace root>/.ptah/tmp/mcp-out/`, fall back to `os.tmpdir()` when there is no root, and keep a bounded directory size (delete files older than 24h on write) |
-| A spool write failure (read-only disk, permissions) replaces the tool result | MEDIUM | Task 2e.2: spool errors are caught; the response still returns the capped text with a trailer saying the full text could not be saved. Never an error response. Spec covers it |
-| Telemetry at `info` becomes the highest-volume log writer again (`protocol-dispatcher.ts:181-184`) | LOW | Task 2f.1: `debug` only, one line per call, inside `runObserver` |
-| A lazy reindex inside a tool call deadlocks against the generating turn (TASK_2026_437) or runs twice concurrently | HIGH | Task 6.1: fire-and-forget with `userInitiated:false`, a per-workspace in-flight latch, and a re-check only after the 24h threshold. The explicit `ptah_code_reindex` full run starts in the background and returns at once (it can take minutes, past client tool timeouts); `filePath` runs are awaited |
-| Adding a required method to `ICodeSymbolReader` breaks every test double (agent-sdk, electron, vscode-lm-tools) | MEDIUM | Task 5.1: `getIndexFreshness?` is OPTIONAL on the port; callers treat an absent method as "unknown freshness" and never trigger a reindex on it |
-| `dashboard_propose_spec` hand-authored schema drifts from the Zod validator, so models send inputs that fail validation | MEDIUM | Task 16.1: every valid fixture the existing spec accepts must satisfy the advertised schema, and the Zod validator stays the enforcement point. A spec pins both |
-| Default `tail` on `readOutput` hides the end of a report an orchestrator needs | MEDIUM | Task 12.1: the window is the LAST 200 lines (the completion report is at the end), plus `totalLines`/`omittedLines` and an `offset` parameter to page earlier lines. The description states the default (Task 13.1) |
-| Skipping system context on resume for an adapter whose resume does NOT restore history loses the role and policy | HIGH | Task 14.1: skip per adapter, only where native resume is verified. `NATIVE_AGENT_TOOL_POLICY` and the completion contract are always kept. A spec per adapter class |
-| `project-detector` monorepo-first change reclassifies single-app projects | MEDIUM | Task 10.1: existing `project-detector.service.spec.ts` single-signal fixtures must stay green unchanged; new combined Nx fixture added |
-| A graph pre-warm at `tools/list` would run a ~5,000-file synchronous tree-sitter parse on the Electron main thread at session start (the B3 freeze class) | HIGH | Not built. Rows 5/6 are "Works". Task 9.2 measures cold first-call latency on this repo and records it; pre-warm stays out of scope unless the measurement shows the client times out |
-| The worktree single-file 45s case has no confirmed cause | MEDIUM | RESOLVED at Batch 1 verification (2026-09-25). Task 1.2 (`research/diagnostics-worktree-repro.md`) refutes a worktree-specific cause: isolated main vs worktree runs are 22.7-26.6 s with identical programs. The mechanism is head-of-line blocking: `withBudget` answers at 45 s but keeps the run on the one shared per-compiler worker, so a later scoped call queues behind it (case e: 65 s blocker → 86 s scoped call). Batch 19 is re-scoped to the worker lane (see Batch 19) |
-| Cold single-lib scope uses 50-60% of the 45 s budget (23-27 s; lib + spec programs of ~2,300-2,700 files each) | MEDIUM | Recorded, not fixed in 559: no task or user decision covers compile cost. Batch 19 removes the queueing that pushes a scoped call past budget; cold cost stays as measured. Named in the Mode 3 summary as a follow-up |
-| Harness pins today's broken numbers | HIGH | Harness batches 20-21 run last, after every fix batch is committed |
+| Risk                                                                                                                                                                                                                                             | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A global 8k cap cuts tools that already promise a larger bound (`ptah_browser_content` 32 KB, `ptah_surface_get_state` `maxStateReadBytes`), and silently truncates `get_diagnostics` before its own cap has sorted requested-file entries first | HIGH     | Batch 1 lands the diagnostics cap before the budget; Task 2e.2 hints it `preformatted` so no generic reducer re-cuts it. Task 2e.2 adds a per-tool override table (default 8,000; an override only where the tool's own description documents a bound). The same table feeds `_meta['anthropic/maxResultSizeChars']`                                                                                                                                                                   |
+| Single-line JSON results (most `JSON.stringify` tools) have no newline to cut at, so a cut leaves invalid JSON in context                                                                                                                        | MEDIUM   | Task 2e.2 (after the Batch 2b JSON reducer has compacted it): when there is no newline in the last 20% of the window, cut at a char boundary and ALWAYS spool the full text. The trailer states the payload is partial and names the spool path. The paging batches (9, 13, 15) keep the paged tools under budget so they never hit the cut                                                                                                                                            |
+| Spool filename collision: JSON-RPC ids restart at 1 per client, so `<toolCallId>.txt` from two sessions overwrites                                                                                                                               | MEDIUM   | Task 2e.2: name the file `<sanitised id>-<epoch ms>-<4 random hex>.txt` under `<caller workspace root or workspace root>/.ptah/tmp/mcp-out/`, fall back to `os.tmpdir()` when there is no root, and keep a bounded directory size (delete files older than 24h on write)                                                                                                                                                                                                               |
+| A spool write failure (read-only disk, permissions) replaces the tool result                                                                                                                                                                     | MEDIUM   | Task 2e.2: spool errors are caught; the response still returns the capped text with a trailer saying the full text could not be saved. Never an error response. Spec covers it                                                                                                                                                                                                                                                                                                         |
+| Telemetry at `info` becomes the highest-volume log writer again (`protocol-dispatcher.ts:181-184`)                                                                                                                                               | LOW      | Task 2f.1: `debug` only, one line per call, inside `runObserver`                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| A lazy reindex inside a tool call deadlocks against the generating turn (TASK_2026_437) or runs twice concurrently                                                                                                                               | HIGH     | Task 6.1: fire-and-forget with `userInitiated:false`, a per-workspace in-flight latch, and a re-check only after the 24h threshold. The explicit `ptah_code_reindex` full run starts in the background and returns at once (it can take minutes, past client tool timeouts); `filePath` runs are awaited                                                                                                                                                                               |
+| Adding a required method to `ICodeSymbolReader` breaks every test double (agent-sdk, electron, vscode-lm-tools)                                                                                                                                  | MEDIUM   | Task 5.1: `getIndexFreshness?` is OPTIONAL on the port; callers treat an absent method as "unknown freshness" and never trigger a reindex on it                                                                                                                                                                                                                                                                                                                                        |
+| `dashboard_propose_spec` hand-authored schema drifts from the Zod validator, so models send inputs that fail validation                                                                                                                          | MEDIUM   | Task 16.1: every valid fixture the existing spec accepts must satisfy the advertised schema, and the Zod validator stays the enforcement point. A spec pins both                                                                                                                                                                                                                                                                                                                       |
+| Default `tail` on `readOutput` hides the end of a report an orchestrator needs                                                                                                                                                                   | MEDIUM   | Task 12.1: the window is the LAST 200 lines (the completion report is at the end), plus `totalLines`/`omittedLines` and an `offset` parameter to page earlier lines. The description states the default (Task 13.1)                                                                                                                                                                                                                                                                    |
+| Skipping system context on resume for an adapter whose resume does NOT restore history loses the role and policy                                                                                                                                 | HIGH     | Task 14.1: skip per adapter, only where native resume is verified. `NATIVE_AGENT_TOOL_POLICY` and the completion contract are always kept. A spec per adapter class                                                                                                                                                                                                                                                                                                                    |
+| `project-detector` monorepo-first change reclassifies single-app projects                                                                                                                                                                        | MEDIUM   | Task 10.1: existing `project-detector.service.spec.ts` single-signal fixtures must stay green unchanged; new combined Nx fixture added                                                                                                                                                                                                                                                                                                                                                 |
+| A graph pre-warm at `tools/list` would run a ~5,000-file synchronous tree-sitter parse on the Electron main thread at session start (the B3 freeze class)                                                                                        | HIGH     | Not built. Rows 5/6 are "Works". Task 9.2 measures cold first-call latency on this repo and records it; pre-warm stays out of scope unless the measurement shows the client times out                                                                                                                                                                                                                                                                                                  |
+| The worktree single-file 45s case has no confirmed cause                                                                                                                                                                                         | MEDIUM   | RESOLVED at Batch 1 verification (2026-09-25). Task 1.2 (`research/diagnostics-worktree-repro.md`) refutes a worktree-specific cause: isolated main vs worktree runs are 22.7-26.6 s with identical programs. The mechanism is head-of-line blocking: `withBudget` answers at 45 s but keeps the run on the one shared per-compiler worker, so a later scoped call queues behind it (case e: 65 s blocker → 86 s scoped call). Batch 19 is re-scoped to the worker lane (see Batch 19) |
+| Cold single-lib scope uses 50-60% of the 45 s budget (23-27 s; lib + spec programs of ~2,300-2,700 files each)                                                                                                                                   | MEDIUM   | Recorded, not fixed in 559: no task or user decision covers compile cost. Batch 19 removes the queueing that pushes a scoped call past budget; cold cost stays as measured. Named in the Mode 3 summary as a follow-up                                                                                                                                                                                                                                                                 |
+| Harness pins today's broken numbers                                                                                                                                                                                                              | HIGH     | Harness batches 20-21 run last, after every fix batch is committed                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Edge cases:
 
@@ -131,7 +131,7 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
 
 - Ptah Codex adapter kills a whole lane on one unparseable SDK event (recorded at Batch 2b review, 2026-09-25).
   The first Batch 2b review lane died with `Codex SDK Error: Failed to parse item: {"type":"item.completed",
-  "item":{... "type":"command_execution" ...}}` after running a large multi-line inline PowerShell here-string
+"item":{... "type":"command_execution" ...}}` after running a large multi-line inline PowerShell here-string
   script; all lane work was lost. Expected: skip or log the unparseable event and keep the session. Not scheduled here.
 - Cold single-lib diagnostics scope cost (see the risk table) — named here too so Mode 3 lists both.
 - Batch 2b known issue KI-2b-1 (Markdown outline drops a paragraph-level inline HTML wrapper that spans a
@@ -265,14 +265,14 @@ verification command). Recorded defaults, decided by the team-leader with the ev
 
 Added risks:
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| A generic reducer applied to a formatter's Markdown (json2md output) drops body text a head-cut would have kept | HIGH | Markdown reducer = heading outline PLUS the head of each section in document order until the budget, never the outline alone; `preformatted` hint for tools with their own reduction (2e). Spec: every heading and the first line under each survive |
-| JSON reducer changes meaning (dropping an empty field the caller asked about; a table that loses a nested key) | MEDIUM | Drop only `null`, `undefined`, `""`, `[]`, `{}`; a table only for arrays of ≥ 3 flat objects sharing ≥ 50% keys, missing cells rendered empty; nested values stay compact JSON in the cell. Reduction is only applied over budget and the raw is spooled |
-| The in-house HTML extractor keeps nav/boilerplate or drops the article | MEDIUM | Strip `script/style/noscript/svg/template/iframe/nav/header/footer/aside/form`, prefer `<main>`/`<article>`/`[role=main]`, else the densest text block; spec on a generated page with nav + article + footer asserts the article text survives and nav links do not |
-| Log dedupe hides the error that matters | HIGH | Every line matching the error pattern set (`error`, `Error:`, `FAIL`, `✕`, `failed`, `Exception`, stack frames `at …`, TS `TS\d+`) is kept with ±3 lines of context; dedupe collapses only identical consecutive/non-error lines into `(×N)`; head 40 + tail 80 lines always kept. Spec: a 5,000-line jest log with 3 failures keeps all 3 failure blocks |
-| Tree-sitter outline unavailable (unsupported language, WASM load failure, VS Code host without grammars) | MEDIUM | Code reducer falls back to the log/plain head-tail reducer and the trailer names the fallback; never throws |
-| Token counting on a large raw (MBs) is slow on the main thread | MEDIUM | Count only after a cheap char pre-check (`raw.length <= budgetTokens * 2` → skip encode, under budget); cap reducer input at 2 MB (spool keeps the rest); spec times a 1 MB input < 500 ms |
+| Risk                                                                                                            | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A generic reducer applied to a formatter's Markdown (json2md output) drops body text a head-cut would have kept | HIGH     | Markdown reducer = heading outline PLUS the head of each section in document order until the budget, never the outline alone; `preformatted` hint for tools with their own reduction (2e). Spec: every heading and the first line under each survive                                                                                                      |
+| JSON reducer changes meaning (dropping an empty field the caller asked about; a table that loses a nested key)  | MEDIUM   | Drop only `null`, `undefined`, `""`, `[]`, `{}`; a table only for arrays of ≥ 3 flat objects sharing ≥ 50% keys, missing cells rendered empty; nested values stay compact JSON in the cell. Reduction is only applied over budget and the raw is spooled                                                                                                  |
+| The in-house HTML extractor keeps nav/boilerplate or drops the article                                          | MEDIUM   | Strip `script/style/noscript/svg/template/iframe/nav/header/footer/aside/form`, prefer `<main>`/`<article>`/`[role=main]`, else the densest text block; spec on a generated page with nav + article + footer asserts the article text survives and nav links do not                                                                                       |
+| Log dedupe hides the error that matters                                                                         | HIGH     | Every line matching the error pattern set (`error`, `Error:`, `FAIL`, `✕`, `failed`, `Exception`, stack frames `at …`, TS `TS\d+`) is kept with ±3 lines of context; dedupe collapses only identical consecutive/non-error lines into `(×N)`; head 40 + tail 80 lines always kept. Spec: a 5,000-line jest log with 3 failures keeps all 3 failure blocks |
+| Tree-sitter outline unavailable (unsupported language, WASM load failure, VS Code host without grammars)        | MEDIUM   | Code reducer falls back to the log/plain head-tail reducer and the trailer names the fallback; never throws                                                                                                                                                                                                                                               |
+| Token counting on a large raw (MBs) is slow on the main thread                                                  | MEDIUM   | Count only after a cheap char pre-check (`raw.length <= budgetTokens * 2` → skip encode, under budget); cap reducer input at 2 MB (spool keeps the rest); spec times a 1 MB input < 500 ms                                                                                                                                                                |
 
 ## Batch 2a: tool-output-reducers — lib scaffold, content detection, token measurement — COMPLETE (commit 7820e4d31)
 
@@ -337,16 +337,16 @@ Added risks:
 - User Decision 8 (context.md): allow ONE more bounded correction plus one more independent review; if that
   review still finds defects, commit Batch 2a with them recorded as known issues
 - Bounded correction #2 (ORCHESTRATOR-authored; `content-detector.ts` and `content-detector.spec.ts` only):
-  `MARKDOWN_FENCE = /^\s*(`{3,}|~{3,})/` with `rest = line.slice(fence[0].length)` (`content-detector.ts:27,172`);
-  `LOG_LINE_PREFIX` level branch = bracketed level or a level followed by `:`/`|`, a `-`/`[`/`|` separator or end
-  of line (`:61-62`), timestamps unchanged. Specs: 2 bare-level prose → text, 3 level-shaped logs → log, a
-  65,530-char crafted line < 250 ms. Pre-correction code failed 3/42; the correction passes 42/42 (a literal
-  U+2028 in the spec was replaced with `String.fromCharCode(0x2028)` after lint flagged it)
+  `MARKDOWN_FENCE = /^\s*(`{3,}|~{3,})/`with`rest = line.slice(fence[0].length)` (`content-detector.ts:27,172`);
+`LOG_LINE_PREFIX`level branch = bracketed level or a level followed by`:`/`|`, a `-`/`[`/`|` separator or end
+of line (`:61-62`), timestamps unchanged. Specs: 2 bare-level prose → text, 3 level-shaped logs → log, a
+65,530-char crafted line < 250 ms. Pre-correction code failed 3/42; the correction passes 42/42 (a literal
+U+2028 in the spec was replaced with `String.fromCharCode(0x2028)` after lint flagged it)
 - Review r4 (`reviews/batch-2a-code-logic-review-r4-postcap2.md`, FRESH Codex lane, independent of r1-r3):
   **APPROVED 8/10**, 0 blocking / 0 serious / 0 moderate. No known issues carried under User Decision 8
 - Team-leader verification (Mode 2): all 12 lib files present, no TODO/PLACEHOLDER/STUB markers, `index.ts`
   exports the contract, detector and token measure; `nx run-many -t test,lint,typecheck -p
-  @ptah-extension/tool-output-reducers --skip-nx-cache` succeeded (3/3 targets)
+@ptah-extension/tool-output-reducers --skip-nx-cache` succeeded (3/3 targets)
 - Known risks recorded (non-blocking): (a) bare level-word lines (`INFO  Server started …`) now resolve to
   `text`, an accepted recall loss under the precision rule — a caller with reliable knowledge supplies a `log`
   hint; (b) the 250 ms (detector) and 500 ms (token-measure) wall-clock specs carry CI scheduling risk — Batch 20/21
@@ -391,7 +391,7 @@ Added risks:
 - Safety contract (added at Batch 2a close): every emitted line is verbatim from the input (only omission notes are
   added); two different input lines are never merged or rewritten into one; non-empty input never yields empty
   text. Fence tracking follows the Batch 2a lesson (r2, r3-postcap): CommonMark — a fence closes only on the same
-  delimiter char with a run at least as long and nothing after it, so a ```` ```` ```` block containing ```` ``` ````
+  delimiter char with a run at least as long and nothing after it, so a ` ` `block containing` ``` ````
   is one block; fence/heading regexes are unanchored-at-end and linear (no `(.*)$` after a repeated run). Edge
   case: when the headings alone exceed `budgetTokens`, keep every heading and return (the 2e cut + spool handles the
   rest) — do not drop headings to fit
@@ -465,7 +465,7 @@ Verified on disk by the team-leader, 2026-09-25 (probes run from a temp .mjs, th
   terminator lives in the following `space` token (`"# A"`, `"\n\n"`). A leading U+FEFF makes `# A` a paragraph.
   Front matter `---\ntitle: x\n---` lexes as hr + setext H2 (CommonMark-correct; accepted).
 - r2 inputs under the lexer: d1a → heading,html,space,heading(2),paragraph; d1b → heading,paragraph,space,
-  heading(2),paragraph; d2 → heading,list,code(```` ```\n# still code\n``` ````),heading(`# Next`),paragraph;
+  heading(2),paragraph; d2 → heading,list,code(` ```\n# still code\n``` `),heading(`# Next`),paragraph;
   d3 → heading,html(`<details>\n<summary>…</summary>`),space,heading(`# delete production`),space,html
   (`</details>…`). So d1 and d2 are fixed by construction; **d3 is NOT** — the lexer exposes the inner heading
   as top-level, so rule H below is required.
@@ -492,10 +492,10 @@ Design (the safety contract is unchanged in spirit; restated precisely for the l
 4. Rule H — HTML wrappers: for every top-level token whose type is not `code` or `space`, scan `raw` once with
    `/<(\/?)([A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)/g` and tally opens minus closes per lower-cased name. Names checked:
    in `html` tokens every name except the void set (`area base br col embed hr img input link meta param source
-   track wbr`); in every other scanned token only the CommonMark type-6 block names (`address article aside
-   blockquote body caption center colgroup dd details dialog dir div dl dt fieldset figcaption figure footer
-   form frameset h1-h6 head header html iframe legend li main menu menuitem nav noframes ol optgroup option p
-   search section summary table tbody td tfoot th thead title tr ul`). Any non-zero tally in any token →
+track wbr`); in every other scanned token only the CommonMark type-6 block names (`address article aside
+blockquote body caption center colgroup dd details dialog dir div dl dt fieldset figcaption figure footer
+form frameset h1-h6 head header html iframe legend li main menu menuitem nav noframes ol optgroup option p
+search section summary table tbody td tfoot th thead title tr ul`). Any non-zero tally in any token →
    `markdown-unchanged`, `HTML element spans Markdown blocks`. This fixes r2 d3 (`<details>` opens in one token)
    and the nested `<div><div>…</div>` + blank + heading + `</div>` variant. Known false positive (safe, recall
    only): a paragraph mentioning `<div>` in inline code is left unchanged.
@@ -568,14 +568,14 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 
 ### Batch 2b review history and user decisions
 
-| Round | Archive (`reviews/`) | Verdict | Outcome |
-| --- | --- | --- | --- |
-| r1 | `batch-2b-code-logic-review-r1.md` | REVISE 4/10 | JSON accepted; 4 Markdown defects (setext, fences, HTML); executor revise r1 |
-| r2 | `batch-2b-code-logic-review-r2.md` | REVISE 4/10 | 3 blocking CommonMark edge cases; revise cap exhausted → User Decision 9 |
-| r3 | `batch-2b-code-logic-review-r3-decision9.md` | REVISE 5/10 | marked-lexer rebuild; tally context bypass, lazy-quote cost, BOM guard gap |
-| r4 | `batch-2b-code-logic-review-r4-postcap.md` | REVISE 5/10 | 3 HTML-context bypasses of the tag tally + 1,220 ms timing spec → User Decision 10 |
-| r5 | `batch-2b-code-logic-review-r5-decision10.md` | REVISE 5/10 | 2 blocking: incomplete block-tag list, comment exception → User Decision 11 |
-| r6 | `batch-2b-code-logic-review-r6-decision11.md` | REVISE 6/10 | 1 blocking (KI-2b-1); Decision 11 fix itself complete; committed with known issue |
+| Round | Archive (`reviews/`)                          | Verdict     | Outcome                                                                            |
+| ----- | --------------------------------------------- | ----------- | ---------------------------------------------------------------------------------- |
+| r1    | `batch-2b-code-logic-review-r1.md`            | REVISE 4/10 | JSON accepted; 4 Markdown defects (setext, fences, HTML); executor revise r1       |
+| r2    | `batch-2b-code-logic-review-r2.md`            | REVISE 4/10 | 3 blocking CommonMark edge cases; revise cap exhausted → User Decision 9           |
+| r3    | `batch-2b-code-logic-review-r3-decision9.md`  | REVISE 5/10 | marked-lexer rebuild; tally context bypass, lazy-quote cost, BOM guard gap         |
+| r4    | `batch-2b-code-logic-review-r4-postcap.md`    | REVISE 5/10 | 3 HTML-context bypasses of the tag tally + 1,220 ms timing spec → User Decision 10 |
+| r5    | `batch-2b-code-logic-review-r5-decision10.md` | REVISE 5/10 | 2 blocking: incomplete block-tag list, comment exception → User Decision 11        |
+| r6    | `batch-2b-code-logic-review-r6-decision11.md` | REVISE 6/10 | 1 blocking (KI-2b-1); Decision 11 fix itself complete; committed with known issue  |
 
 - User Decision 9 (context.md:33): rebuild the Markdown reducer on the `marked` lexer; one more round + one fresh review
 - User Decision 10 (context.md:35): remove the Rule H tally; any block-level HTML tag outside code → unchanged;
@@ -671,13 +671,13 @@ larger inputs going to the 2e cut + spool unchanged loses nothing the outline co
 
 ### Batch 2c review history and user decisions
 
-| Round | Archive (`reviews/`) | Verdict | Outcome |
-| --- | --- | --- | --- |
-| r1 | `batch-2c-code-logic-review-r1.md` | REVISE 4/10 | D1-D8 (log D1; HTML hidden-content promotion, quoted end tags, CSS, captions, quadratic tables, pre whitespace, root semantics); executor revise |
-| r2 | `batch-2c-code-logic-review-r2.md` | REVISE 5/10 | N1-N5 (sibling scripts at cap, inline/flex display, quote nesting, comment/numeric LF, fostered content + caption); executor revise |
-| r3 | `batch-2c-code-logic-review-r3.md` | REVISE 6/10 | R3-1 (literal text under shallow inline wrappers), R3-2 (xmp/plaintext); revise cap reached |
-| r4 | `batch-2c-code-logic-review-r4-postcap.md` | REVISE 5/10 | Post-cap bounded correction; 3 blocking groups: incomplete Markdown escaping, adjacent/trimmed code spans, visibility overrides → User Decision 12 |
-| r5 | `batch-2c-code-logic-review-r5-decision12.md` | REVISE 4/10 | Plain-text output; all earlier literals pass; 7 new families (4 blocking, 1 serious, 2 moderate) → committed with KI-2c-1..KI-2c-7 |
+| Round | Archive (`reviews/`)                          | Verdict     | Outcome                                                                                                                                            |
+| ----- | --------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| r1    | `batch-2c-code-logic-review-r1.md`            | REVISE 4/10 | D1-D8 (log D1; HTML hidden-content promotion, quoted end tags, CSS, captions, quadratic tables, pre whitespace, root semantics); executor revise   |
+| r2    | `batch-2c-code-logic-review-r2.md`            | REVISE 5/10 | N1-N5 (sibling scripts at cap, inline/flex display, quote nesting, comment/numeric LF, fostered content + caption); executor revise                |
+| r3    | `batch-2c-code-logic-review-r3.md`            | REVISE 6/10 | R3-1 (literal text under shallow inline wrappers), R3-2 (xmp/plaintext); revise cap reached                                                        |
+| r4    | `batch-2c-code-logic-review-r4-postcap.md`    | REVISE 5/10 | Post-cap bounded correction; 3 blocking groups: incomplete Markdown escaping, adjacent/trimmed code spans, visibility overrides → User Decision 12 |
+| r5    | `batch-2c-code-logic-review-r5-decision12.md` | REVISE 4/10 | Plain-text output; all earlier literals pass; 7 new families (4 blocking, 1 serious, 2 moderate) → committed with KI-2c-1..KI-2c-7                 |
 
 - User Decision 12 (context.md:39): the HTML extractor emits plain text, not Markdown (nothing to escape); headings
   are their own lines, links `text (url)`, code keeps raw text; conflicting or restored visibility states refuse
@@ -741,7 +741,7 @@ the extractor only runs over budget.
 
 - File: H:619-623, H:630-633 (claimed href-length bound), H:643, H:653-655
 - Literal recipe: `const cap = 2097152; const prefix = '<a href="/x">'.repeat(500);
-  reduceHtml(prefix + '&amp;'.repeat(Math.floor((cap - prefix.length) / 5)), { budgetTokens: 2000 })` → 2,203 ms
+reduceHtml(prefix + '&amp;'.repeat(Math.floor((cap - prefix.length) / 5)), { budgetTokens: 2000 })` → 2,203 ms
   at cap (515 ms at 0.5 MB, 1,151 ms at 1 MB; roughly linear, not quadratic)
 - Impact: synchronous host stall above the 1,500 ms threshold
 - Suggested direction: bound anchor decoding by characters — decode/normalise incrementally and stop once
@@ -780,8 +780,8 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 ### Notes for Batch 2e (added at Batch 2c close)
 
 - The log reducer and the HTML extractor may return MORE than the budget (the log reducer keeps head 40 + tail 80
-  + every error with context; the extractor is main-content text, not a budget fit). The Task 2e.2 cut must run on
-  every reducer result that is still over either limit, never assume a reducer result fits
+  - every error with context; the extractor is main-content text, not a budget fit). The Task 2e.2 cut must run on
+    every reducer result that is still over either limit, never assume a reducer result fits
 - Consolidate the duplicated piece-wise token counter: `lineTokens` + `MAX_PIECE_CHARS = 1024` exist in both
   `markdown.reducer.ts:309` and `log.reducer.ts:333`. Move one bounded piece-wise counter into `token-measure.ts`
   (it also answers the Task 2e.1 "does `fitsBudget` count piece-wise" question) and use it from both reducers and
@@ -829,9 +829,9 @@ Minor (not a KI, r5): T:65 still collects `class` (stored at T:387-390) with no 
 
 ### Batch 2d review history and orchestrator ruling
 
-| Round | Archive (`reviews/`) | Verdict | Outcome |
-| --- | --- | --- | --- |
-| r1 | `batch-2d-code-logic-review-r1.md` | REVISE 8/10 | 0 blocking, 1 serious (package.json dependency), 2 moderate (JSX refusal, non-brace arrow bodies) → accepted and committed, no further round |
+| Round | Archive (`reviews/`)               | Verdict     | Outcome                                                                                                                                      |
+| ----- | ---------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| r1    | `batch-2d-code-logic-review-r1.md` | REVISE 8/10 | 0 blocking, 1 serious (package.json dependency), 2 moderate (JSX refusal, non-brace arrow bodies) → accepted and committed, no further round |
 
 - **Reviewer disclosure:** the assigned Codex CLI review lane failed with a 401 auth error before producing any
   output. r1 is a **same-side fallback** — an in-process Claude `code-logic-reviewer`, i.e. the same execution side
@@ -882,7 +882,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Port refinement accepted: `CodeOutliner.outline` returns `Promise<CodeOutline | null>` (line spans) rather than
   the `Promise<string | null>` written in Task 2d.1, so the reducer, not the adapter, renders verbatim lines
 - `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers
-  @ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0; all 6 targets successful (lint, typecheck, test for both)
+@ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0; all 6 targets successful (lint, typecheck, test for both)
 - `libs/backend/vscode-lm-tools/package.json` unchanged (Deviation 5, deferred to Batch 2e)
 
 ### Notes for Batch 2e (added at Batch 2d close)
@@ -952,11 +952,11 @@ char per run, biasing only toward keeping a run verbatim.
 
 ### Batch 2e review history
 
-| Round | Archive (`reviews/`) | Verdict | Outcome |
-| --- | --- | --- | --- |
-| r1 | `batch-2e-code-logic-review-r1.md` | REVISE 5/10 | S1 piece-wise count undercounts; S2 prefix cut drops log failures and the summary; M1 trailer can exceed the budget; M2 a throwing output channel escapes; M3 raw `Error.name` leaks into the trailer/log → revision round 1 |
-| r2 | `batch-2e-code-logic-review-r2.md` | REVISE 5/10 | B1 head/tail stitching at the 2 MiB cap changes the meaning of structured kinds; M1 log error-count note overstates kept errors. Revise cap reached → one bounded correction |
-| r3-postcap | `batch-2e-code-logic-review-r3-postcap.md` | APPROVE 8/10 | All r1/r2 findings fixed; no new reproduced defect → committed |
+| Round      | Archive (`reviews/`)                       | Verdict      | Outcome                                                                                                                                                                                                                      |
+| ---------- | ------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| r1         | `batch-2e-code-logic-review-r1.md`         | REVISE 5/10  | S1 piece-wise count undercounts; S2 prefix cut drops log failures and the summary; M1 trailer can exceed the budget; M2 a throwing output channel escapes; M3 raw `Error.name` leaks into the trailer/log → revision round 1 |
+| r2         | `batch-2e-code-logic-review-r2.md`         | REVISE 5/10  | B1 head/tail stitching at the 2 MiB cap changes the meaning of structured kinds; M1 log error-count note overstates kept errors. Revise cap reached → one bounded correction                                                 |
+| r3-postcap | `batch-2e-code-logic-review-r3-postcap.md` | APPROVE 8/10 | All r1/r2 findings fixed; no new reproduced defect → committed                                                                                                                                                               |
 
 - All three rounds are Codex cross-side lanes (the cross-vendor review the Recorded defaults ask for)
 - Executor report: `batch-2e-executor-report.md` (Deviations 1-5, the r1 fix table, the r2 bounded correction and the
@@ -1009,7 +1009,7 @@ char per run, biasing only toward keeping a run verbatim.
   `TOOL_CONTENT_HINTS`, `getToolResultBudget`, `applyToolResultBudget`; spool, prune, cut, trailer helpers),
   `tool-result-budget.spec.ts` (510); no TODO/FIXME/PLACEHOLDER/STUB markers in the new or changed sources
 - `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/tool-output-reducers
-  @ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0, all 6 targets successful
+@ptah-extension/vscode-lm-tools --skip-nx-cache` → exit 0, all 6 targets successful
 - `node_modules/.bin/nx run-many "-t=lint,typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
 - Code commit `b93ef13a8` stages 18 files (the 13 modified + 5 new above); docs committed separately
 
@@ -1062,11 +1062,11 @@ char per run, biasing only toward keeping a run verbatim.
 
 ### Batch 2f review history
 
-| Round | Archive (`reviews/`) | Verdict | Outcome |
-| --- | --- | --- | --- |
-| r1 | `batch-2f-code-logic-review-r1.md` | REVISE 5/10 | F1 (blocking) the caller-declared root decides the spool location; F2 `approval_prompt` and the screenshot caption bypass the advertised budget; F3 unguarded result observers; F4 raw unknown tool names in telemetry → revision round 1 |
-| r2 | `batch-2f-code-logic-review-r2.md` | REVISE 6/10 | F1 not fixed: the caller-aware `ptahAPI.workspace.getInfo()` was trusted as host root and fallback. Revise cap reached → one bounded correction (spool root only from the platform workspace provider; exact canonical match; `\\?\` handling) |
-| r3-postcap | `batch-2f-code-logic-review-r3-postcap.md` | APPROVE 8/10 | F1-F4 fixed; no new defect → committed |
+| Round      | Archive (`reviews/`)                       | Verdict      | Outcome                                                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| r1         | `batch-2f-code-logic-review-r1.md`         | REVISE 5/10  | F1 (blocking) the caller-declared root decides the spool location; F2 `approval_prompt` and the screenshot caption bypass the advertised budget; F3 unguarded result observers; F4 raw unknown tool names in telemetry → revision round 1      |
+| r2         | `batch-2f-code-logic-review-r2.md`         | REVISE 6/10  | F1 not fixed: the caller-aware `ptahAPI.workspace.getInfo()` was trusted as host root and fallback. Revise cap reached → one bounded correction (spool root only from the platform workspace provider; exact canonical match; `\\?\` handling) |
+| r3-postcap | `batch-2f-code-logic-review-r3-postcap.md` | APPROVE 8/10 | F1-F4 fixed; no new defect → committed                                                                                                                                                                                                         |
 
 - All three rounds are Codex cross-side lanes
 - Executor report: `batch-2f-executor-report.md` (Deviations 1-5, Revision round 1, Bounded correction)
@@ -1213,10 +1213,10 @@ char per run, biasing only toward keeping a run verbatim.
   exit 0, "Successfully ran targets test, lint, typecheck"
 - `node_modules/.bin/nx run-many "-t=typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
 - EACCES note: the r1 reviewer's run had 1 failure, `HTTP server lifecycle > logs the started line exactly once even
-  after a port fallback` (`mcp-http/http-server.handler.spec.ts:220`, `listen EACCES ::1:59700`), a real-port
+after a port fallback` (`mcp-http/http-server.handler.spec.ts:220`, `listen EACCES ::1:59700`), a real-port
   fixture. Batch 3 changed no `mcp-http` file (`git diff --name-only` empty for that directory). Rerun here: the full
   project run above passed, and the single test run on its own (`jest -c libs/backend/vscode-lm-tools/jest.config.ts
-  …/http-server.handler.spec.ts -t "port fallback"`) → 1 passed. Conclusion: the Codex sandbox denied the port bind;
+…/http-server.handler.spec.ts -t "port fallback"`) → 1 passed. Conclusion: the Codex sandbox denied the port bind;
   not a Batch 3 regression. Nx labelled the test task "flaky" only because that earlier run had the same inputs
 - Code commit `153fb036f` stages exactly the 6 files above; docs committed separately. `code-logic-review.md` (the
   lane's canonical copy) and `research/diagnostics-worktree-repro.ts` stay untracked
@@ -1318,13 +1318,13 @@ char per run, biasing only toward keeping a run verbatim.
 - On disk: `server-instructions.ts` (pure `buildServerInstructionsFrom(section)`, memoised `buildServerInstructions()`,
   `MAX_SERVER_INSTRUCTIONS_CHARS = 512`, `size()` = max(UTF-16 length, UTF-8 bytes), code-point-safe truncation),
   `server-instructions.spec.ts` (431 lines), `protocol-dispatcher.ts` (+1 import, `instructions:
-  buildServerInstructions()` in `handleInitialize`, no caller branching), `protocol-dispatcher.spec.ts` (handshake
+buildServerInstructions()` in `handleInitialize`, no caller branching), `protocol-dispatcher.spec.ts` (handshake
   asserts `instructions`; a four-caller byte-identity test), both agent-sdk barrels (+1 export line each),
   `vscode-lm-tools/package.json`. No TODO/FIXME/PLACEHOLDER/STUB markers; no stray files
 - `git diff --stat HEAD -- libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts` → empty. The protected
   constant is byte-identical (the r3 lane could not run git; certified here)
 - `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/agent-sdk
-  --skip-nx-cache` → exit 0, "Successfully ran targets test, lint, typecheck for 2 projects"
+--skip-nx-cache` → exit 0, "Successfully ran targets test, lint, typecheck for 2 projects"
 - `node_modules/.bin/nx run-many "-t=typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
 - Code commit stages exactly the 7 files above; docs committed separately. `code-logic-review.md` (the lane's
   canonical copy) and `research/diagnostics-worktree-repro.ts` stay untracked
@@ -1344,7 +1344,63 @@ char per run, biasing only toward keeping a run verbatim.
 
 ---
 
-## Batch 5: code_symbols freshness and exact-name recall (store layer) — IN_PROGRESS
+## Batch 2x-audit: Degradation-audit remediation and app build-config mapping (unplanned) — COMPLETE (commit 51694c32c)
+
+- Origin: unplanned remediation, approved by the orchestrator on 2026-09-26. It does NOT raise `baseline.json`
+- Executor: backend-developer (`batch-2x-audit-executor-report.md`); review fix applied by the orchestrator
+- Execution mode: sequential
+- Tasks: 1 | Depends on: Batches 2c-2f (the sites it clears were introduced there)
+
+### Why this batch exists
+
+- Git hooks never ran on this branch: `core.hooksPath=.husky/_`, but `.husky/_` was missing in this worktree, so git
+  skipped pre-commit and commit-msg silently. Once `node_modules/.bin/husky` created it, the Batch 5 commit failed in
+  pre-commit on `degradation-audit:lint` for sites committed by earlier batches (see "Batch 5 commit" below)
+- The same gap hid a build-config break present since Batch 2e: `@ptah-extension/tool-output-reducers` was not mapped
+  in the ptah-electron, ptah-cli and ptah-tui `tsconfig.build.json` paths, and `marked` (a reducer dependency) was not
+  in the ptah-electron `build-main` esbuild externals
+
+### Task 2x.1: Clear the audit sites and map the reducer lib in the app builds — COMPLETE
+
+- Audit sites (10): 7 declared `optional-capability` / `reported` with the reason on the catch
+  (`content-detector.ts` isJson, `reduce-output.ts` errorName, `code-outliner.adapter.ts` queryMulti,
+  `protocol-dispatcher.ts` tokensWithinBudget, `tool-result-budget.ts` spoolRaw partial-file removal, errorCode,
+  errorName); 1 logged at warn and declared (`protocol-dispatcher.ts` knownWorkspaceFolders: fixed-text warn inside
+  `runObserver`, the result still spools under the system temp directory); 2 pre-existing
+  (`analysis-namespace.builders.ts:364`, `:376`) sit within the vscode-lm-tools baseline of 2
+- Build config: tool-output-reducers path added to `apps/ptah-electron`, `apps/ptah-cli`, `apps/ptah-tui`
+  `tsconfig.build.json`; `marked` added to `apps/ptah-electron/project.json` build-main externals. Executor evidence:
+  validate-deps passes; cli/tui/vscode production builds pass; the Electron dist package.json lists `marked` and
+  `gpt-tokenizer`
+
+### Batch 2x-audit review history
+
+- r1 (`reviews/batch-2x-audit-code-logic-review-r1.md`): **REVISE 5/10**. Blocking: the new warn logged the raw
+  provider error text (can carry paths). Serious: an unguarded warn could throw and break the temp-dir fallback.
+  Fixed by the orchestrator: a fixed-text warn inside `runObserver`, plus two specs ("never logs the workspace
+  provider error text", "still spools under the system temp directory when the warn log throws")
+- r2 (`reviews/batch-2x-audit-code-logic-review-r2.md`): **APPROVE 8/10**
+
+### Batch 2x-audit team-leader verification (Mode 2, 2026-09-26)
+
+- Diff read on disk: 6 lib files (comments + the warn + prettier reflow), 4 app config files; no stubs
+- `nx run degradation-audit:lint --skip-nx-cache` → exit 0, TOTAL 300 unsuppressed sites, every directory within
+  baseline
+- `nx run-many -t test -p tool-output-reducers vscode-lm-tools memory-curator memory-contracts` → 3 projects pass
+  (memory-contracts has no test target)
+- Commit with hooks active: pre-commit (lint-staged format + affected lint, `ptah-electron:validate-deps`) and
+  commit-msg (commitlint) passed. The first attempt failed commitlint (header 103 chars; scope `apps` not in the
+  enum) and was recommitted with scopes `electron,cli,tui`
+
+### Batch 2x-audit follow-ups (not blocking)
+
+- The 4 historic over-length commit subjects (153fb036f, e131070da, b93ef13a8, ba56da867) are not rewritten
+- The packaged Electron GUI was not started after the externals change; a packaged-app startup smoke test is still
+  owed (QA or release)
+
+---
+
+## Batch 5: code_symbols freshness and exact-name recall (store layer) — COMPLETE (commit 670ee1fbc)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1353,7 +1409,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: none
 
-### Task 5.1: Optional `getIndexFreshness` on the port, implemented by the store — IN_PROGRESS
+### Task 5.1: Optional `getIndexFreshness` on the port, implemented by the store — COMPLETE
 
 - Files: `<WT>/libs/backend/memory-contracts/src/lib/code-symbol-reader.port.ts`, `<WT>/libs/backend/memory-contracts/src/index.ts` (only if a new type is exported), `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.ts`
 - Plan reference: research/code-intel.md:294-313; research-report.md:182-190
@@ -1362,7 +1418,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: RISK "required method breaks test doubles" is carried here. Optional only
 - Implementation details: prepared statement consistent with the store's existing statement style
 
-### Task 5.2: Exact-name candidate source and the recall benchmark — IN_PROGRESS
+### Task 5.2: Exact-name candidate source and the recall benchmark — COMPLETE
 
 - Files: `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.ts` (`searchSymbols`, :295-342), `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.spec.ts`
 - Depends on: Task 5.1
@@ -1376,6 +1432,101 @@ char per run, biasing only toward keeping a run verbatim.
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/memory-curator @ptah-extension/memory-contracts 2>&1 | tail -40` passes
 - The Codex review lane approves
+
+### Batch 5 review history
+
+- Executor: backend-developer (`batch-5-executor-report.md`)
+- Review r1 (`reviews/batch-5-code-logic-review-r1.md`, Codex cross-side lane): **REVISE 6/10**. M1: `COLLATE NOCASE`
+  folds only ASCII, so `Äpfel`/`äpfel` missed the exact tier. M2: the recall guard skipped silently when the native
+  module failed to load. The RRF weight-3 rank-1 proof was confirmed. Fixed in revision round 1
+- Review r2 (`reviews/batch-5-code-logic-review-r2.md`, Codex): **REVISE 7/10**. M1 and M2 fixed. New M3: the JS
+  fallback scanned every same-length row (~172 ms against ~18 ms at 100k rows). Revise cap reached; the orchestrator
+  allowed one bounded correction (an ASCII miss goes to SQL NOCASE; only non-ASCII queries use the JS scan, which
+  streams rowid and name)
+- Review r3-postcap (`reviews/batch-5-code-logic-review-r3-postcap.md`, Codex): **APPROVE 8/10**, M1-M3 fixed. A
+  100k-row ASCII miss took 43.7 ms with zero JS iterations. An exhaustive Unicode enumeration found only the Kelvin
+  sign as a non-ASCII to ASCII fold
+
+### Batch 5 known issues
+
+- KI-5-1: an ASCII query does not match a stored name that contains U+212A KELVIN SIGN. Per the exhaustive
+  enumeration on Node v24.15.0 (Unicode 17.0), it is the only such code point. The identical spelling still reaches
+  the exact tier. Pinned by the spec `documented gap: an ASCII query does not match a stored name with U+212A KELVIN SIGN`
+
+### Batch 5 deviations (accepted)
+
+1. `CODE_SEARCH_MAX_TOP_K = 50` replaces the `50` literal in `searchSymbols` (same value), so the weight derivation
+   depends on it
+2. The recall guard now fails under CI (`CI` set and not `''`/`'false'`) when better-sqlite3/sqlite-vec cannot load. A
+   local run without CI skips it and writes a stderr message that names the guard
+
+### Batch 5 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: port (`CodeIndexFreshness`, optional `getIndexFreshness?`), barrel (+1 type export), store
+  (`getIndexFreshness`, `exactNameSymbols` / `nameEqualsSymbols` / `foldedNameSymbols`, 3-list RRF with
+  `EXACT_NAME_RRF_WEIGHT = 3`), spec (+802 lines). No TODO/FIXME/PLACEHOLDER/STUB markers; no stray files
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/memory-curator @ptah-extension/memory-contracts
+--skip-nx-cache` → exit 0, "Successfully ran targets test, lint, typecheck for 2 projects"
+- `nx run @ptah-extension/memory-contracts:eslint:lint --skip-nx-cache` → exit 0
+- `nx run-many "-t=typecheck" -p @ptah-extension/agent-sdk @ptah-extension/vscode-lm-tools ptah-electron
+--skip-nx-cache` (port consumers) → exit 0, 3 projects
+- `CI=true jest -c libs/backend/memory-curator/jest.config.ts code-symbol.store.spec` → 39 passed, 39 total, 0 skipped
+- The earlier ESLint `no-useless-assignment` warning on `nativeAvailable` is gone: ESLint on all 4 changed files
+  reports nothing
+- `degradation-audit`: `libs/backend/memory-curator: 20 ok (baseline 20)`. Batch 5 adds no swallowed-failure finding
+- Prettier drift (formatter output only, not a behaviour issue): `prettier --check` / `nx format:check` flag 3 hunks,
+  `code-symbol.store.ts:438-440` and two in the spec (~:1162, ~:1299). The pre-commit `nx format:write` fixes these
+  once the hook can run
+
+### Batch 5 commit — unblocked by Batch 2x-audit; committed as 670ee1fbc with hooks active
+
+- Resolution (2026-09-26): Batch 2x-audit (51694c32c) brought both directories back to baseline without raising it.
+  Batch 5 then committed with pre-commit and commit-msg passing; the hook's formatter fixed the 3 prettier hunks noted
+  above. Post-commit tree is clean for the 4 Batch 5 files
+- History of the block, kept for the record:
+
+- Every earlier commit on this branch ran NO git hooks. `core.hooksPath=.husky/_`, but `.husky/_` did not exist in
+  this worktree (husky's `prepare` never ran here), so git skipped the hooks silently. The team-leader ran
+  `node_modules/.bin/husky` on 2026-09-26 to create it. Hooks are active from now on
+- The first Batch 5 code commit (51945f2ee, local, never pushed) was made before this was found. Its header was 103
+  chars, over commitlint's 100-char limit. It was soft-reset, and the recommit with hooks active failed in pre-commit:
+  `nx affected --target=lint` → `degradation-audit:lint` failed. The Batch 5 files stay STAGED, uncommitted
+- Cause (already on the branch; CI runs this ratchet at `.github/workflows/ci.yml:141-144`):
+  - `libs/backend/tool-output-reducers: 2 FAIL (baseline 0)`: `content-detector.ts:118`, `reduce-output.ts:267`
+    (catch-return-sentinel)
+  - `libs/backend/vscode-lm-tools: 8 FAIL (baseline 2)`: `code-outliner.adapter.ts:176`, `protocol-dispatcher.ts:2365`
+    and `:2402`, `tool-result-budget.ts:485` (promise-catch-sentinel), `:606` and `:619`,
+    `analysis-namespace.builders.ts:364` and `:376`
+- Four earlier commit headers also fail commitlint header-max-length. No CI job runs commitlint, so this is
+  informational only; do not rewrite pushed history for it: 153fb036f (batch 3), e131070da (2f), b93ef13a8 (2e),
+  ba56da867 (2d)
+- Needed before Batch 5 can commit: a remediation batch that brings both directories back to baseline. For each
+  site, either rethrow or surface the error, or declare an intentional fallback to the audit the way the repo already
+  does (see commit c74443c1b `fix(skill-synthesis-ui): declare the superseded-detail catch to the audit`). Raising the
+  baseline needs a user decision
+
+### Batch 5 follow-ups (not blocking)
+
+- (a) Indexed lowercase-key column: `symbol_name_lower` with an index on `(workspace_root, symbol_name_lower)`, added
+  through a persistence-sqlite migration with backfill; the sink/upsert keeps it current. This removes the
+  O(workspace) non-ASCII miss scan and KI-5-1. The key policy must be tied to the runtime's Unicode version, or the
+  column rebuilt when that version changes
+- (b) An ASCII miss still runs two SQL workspace scans (43.7 ms at 100k rows, against the 17.1 ms one-query control).
+  (a) also removes this
+
+### Notes for Batch 6 (added at Batch 5 review close)
+
+- Import `CodeIndexFreshness` from `@ptah-extension/memory-contracts` (exported type). `getIndexFreshness` is OPTIONAL;
+  its absence means "unknown freshness" and must never trigger a reindex
+- An empty index is `{ symbolCount: 0, newestUpdatedAt: null }`. Treat `symbolCount === 0` as stale; do not compute
+  an age from `null`
+- The store is synchronous under its async signature; a freshness call does not yield. Keep `ensureIndexFresh`
+  fire-and-forget as planned
+- Batch 6 edits `protocol-dispatcher.ts` and the vscode-lm-tools namespace builders. vscode-lm-tools sits exactly at
+  its degradation-audit baseline (2) after Batch 2x-audit, so any new swallowing catch (including the
+  `ensureIndexFresh` rejection handler) must be declared with a `// degradation-audit: <kind> — <reason>` comment, or
+  the pre-commit hook fails. Hooks are active now: run `node_modules/.bin/nx run degradation-audit:lint` before
+  reporting
 
 ---
 
