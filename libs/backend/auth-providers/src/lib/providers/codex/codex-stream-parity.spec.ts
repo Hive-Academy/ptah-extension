@@ -10,6 +10,9 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexTranslationProxy } from './codex-translation-proxy';
 import type { ICodexAuthService } from './codex-provider.types';
+import { translateAnthropicToResponses } from '../../translation/responses-request-translator';
+import { guardResponsesToolNames } from '../../translation/responses-tool-names';
+import type { AnthropicMessagesRequest } from '../../translation/openai-translation.types';
 
 const response = (usage: unknown, output: unknown[] = [
   { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
@@ -224,7 +227,10 @@ describe('Codex Responses tool-result images', () => {
     ],
   };
 
-  async function run(statuses: number[]) {
+  async function run(
+    statuses: number[],
+    requestOverride: Anthropic.MessageCreateParamsNonStreaming = request,
+  ) {
     const bodies: string[] = [];
     const upstream = await server((req, res) => {
       let body = '';
@@ -253,10 +259,17 @@ describe('Codex Responses tool-result images', () => {
         baseURL: url,
         maxRetries: 0,
       });
-      await client.messages.create(request);
-      return bodies.map(
-        (body) => JSON.parse(body) as { input: Array<Record<string, unknown>> },
-      );
+      await client.messages.create(requestOverride);
+      // `raw` is the exact wire string (not re-serialized), so callers can
+      // assert byte-for-byte parity instead of structural equality on the
+      // parsed object, which would hide field-order or whitespace drift.
+      return {
+        raw: bodies,
+        parsed: bodies.map(
+          (body) =>
+            JSON.parse(body) as { input: Array<Record<string, unknown>> },
+        ),
+      };
     } finally {
       await proxy.stop();
       await upstream.close();
@@ -267,7 +280,9 @@ describe('Codex Responses tool-result images', () => {
     body.input.filter((item) => item['type'] === 'function_call_output');
 
   it('forwards an image tool_result as an input_image array and a text-only one as a string', async () => {
-    const [body] = await run([200]);
+    const {
+      parsed: [body],
+    } = await run([200]);
     expect(outputs(body)).toEqual([
       {
         type: 'function_call_output',
@@ -289,9 +304,46 @@ describe('Codex Responses tool-result images', () => {
   });
 
   it('resends the same image array on the 401 refresh retry', async () => {
-    const bodies = await run([401, 200]);
-    expect(bodies).toHaveLength(2);
-    expect(bodies[1]).toEqual(bodies[0]);
-    expect(JSON.stringify(bodies[1])).toContain('"input_image"');
+    const { parsed, raw } = await run([401, 200]);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[1]).toEqual(parsed[0]);
+    expect(JSON.stringify(parsed[1])).toContain('"input_image"');
+    // Byte-for-byte, not just structurally equal: the resend must be the
+    // literal wire string the base class cached before the 401, so field
+    // order and whitespace prove it was not rebuilt.
+    expect(raw[1]).toBe(raw[0]);
+    expect(raw[1]).toContain('"input_image"');
+  });
+
+  it('sends a text-only tool_result byte-identical to the translator output', async () => {
+    const textOnlyRequest: Anthropic.MessageCreateParamsNonStreaming = {
+      model: 'gpt-test',
+      max_tokens: 50,
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'call-2', name: 'read_file', input: {} },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'call-2', content: 'plain result' },
+          ],
+        },
+      ],
+    };
+    const { raw } = await run([200], textOnlyRequest);
+    expect(raw[0]).toBe(
+      JSON.stringify(
+        guardResponsesToolNames(
+          translateAnthropicToResponses(
+            textOnlyRequest as unknown as AnthropicMessagesRequest,
+            { modelPrefix: '' },
+          ),
+        ).request,
+      ),
+    );
   });
 });

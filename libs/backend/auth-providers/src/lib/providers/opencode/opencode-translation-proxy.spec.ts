@@ -488,46 +488,58 @@ describe('OpenCodeTranslationProxy', () => {
       },
     );
 
-    it('sends a text-only tool_result byte-identical to the translator output', async () => {
-      const { url } = await proxy('opencode-zen');
-      const textRequest = toolTurn([
-        { type: 'tool_result', tool_use_id: 'call_1', content: 'plain result' },
-      ]);
-      expect((await post(url, JSON.stringify(textRequest))).status).toBe(200);
-      expect(requests[0].raw).toBe(
-        JSON.stringify(
-          guardResponsesToolNames(
-            translateAnthropicToResponses(textRequest, { modelPrefix: '' }),
-          ).request,
-        ),
-      );
-      expect(functionOutput(requests[0].raw)).toEqual({
-        type: 'function_call_output',
-        call_id: 'call_1',
-        output: 'plain result',
-      });
-    });
+    it.each(['opencode-zen', 'opencode-go'] as const)(
+      '%s sends a text-only tool_result byte-identical to the translator output',
+      async (id) => {
+        const { url } = await proxy(id);
+        const textRequest = toolTurn([
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: 'plain result',
+          },
+        ]);
+        expect((await post(url, JSON.stringify(textRequest))).status).toBe(200);
+        expect(requests[0].raw).toBe(
+          JSON.stringify(
+            guardResponsesToolNames(
+              translateAnthropicToResponses(textRequest, { modelPrefix: '' }),
+            ).request,
+          ),
+        );
+        expect(functionOutput(requests[0].raw)).toEqual({
+          type: 'function_call_output',
+          call_id: 'call_1',
+          output: 'plain result',
+        });
+      },
+    );
 
-    it('resends the same placeholder string on the 401 refresh retry', async () => {
-      let calls = 0;
-      respond = (_req, res) => {
-        calls += 1;
-        if (calls === 1) {
-          res.writeHead(401);
-          res.end('expired');
-          return;
-        }
-        res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify(responsesResponse));
-      };
-      const { p, url } = await proxy('opencode-go');
-      p.authRecovers = true;
-      expect((await post(url, JSON.stringify(imageRequest))).status).toBe(200);
-      expect(requests).toHaveLength(2);
-      expect(requests[1].raw).toBe(requests[0].raw);
-      expect(requests[1].raw).toContain(TOOL_OUTPUT_IMAGE_PLACEHOLDER);
-      expect(requests[1].raw).not.toContain('input_image');
-    });
+    it.each(['opencode-zen', 'opencode-go'] as const)(
+      '%s resends the same placeholder string on the 401 refresh retry',
+      async (id) => {
+        let calls = 0;
+        respond = (_req, res) => {
+          calls += 1;
+          if (calls === 1) {
+            res.writeHead(401);
+            res.end('expired');
+            return;
+          }
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(responsesResponse));
+        };
+        const { p, url } = await proxy(id);
+        p.authRecovers = true;
+        expect((await post(url, JSON.stringify(imageRequest))).status).toBe(
+          200,
+        );
+        expect(requests).toHaveLength(2);
+        expect(requests[1].raw).toBe(requests[0].raw);
+        expect(requests[1].raw).toContain(TOOL_OUTPUT_IMAGE_PLACEHOLDER);
+        expect(requests[1].raw).not.toContain('input_image');
+      },
+    );
   });
 
   it('normalizes native aliases without dropping extension fields', async () => {
