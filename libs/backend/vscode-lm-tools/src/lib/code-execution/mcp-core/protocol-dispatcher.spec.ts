@@ -702,6 +702,31 @@ describe('tools/call — task specs routing', () => {
     expect(tasks.check).toHaveBeenCalled();
   });
 
+  // TASK_2026_559 Batch 15 r1 S1: the page is sized by the SAME test the
+  // result budget applies, so the budget step never cuts inside a row.
+  it('hands ptah_task_list the result-budget test so the page fits whole', async () => {
+    const { tasks, deps } = buildTasksApi();
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'call-list',
+        method: 'tools/call',
+        params: { name: 'ptah_task_list', arguments: { limit: 5 } },
+      }),
+      deps,
+    );
+
+    expect(tasks.list).toHaveBeenCalledTimes(1);
+    const [args, options] = tasks.list.mock.calls[0] as [
+      unknown,
+      { fits?: (text: string) => boolean } | undefined,
+    ];
+    expect(args).toEqual({ limit: 5 });
+    expect(typeof options?.fits).toBe('function');
+    expect(options?.fits?.('{"ok":true}')).toBe(true);
+    expect(options?.fits?.('x'.repeat(8_001))).toBe(false);
+  });
+
   /**
    * A validation refusal is DATA, not a protocol error: the namespace returns
    * `{ ok: false, ... }` and the dispatcher passes it through as a successful

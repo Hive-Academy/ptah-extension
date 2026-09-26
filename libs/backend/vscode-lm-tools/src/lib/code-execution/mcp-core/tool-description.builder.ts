@@ -11,6 +11,11 @@ import {
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
 import {
+  TASK_CHECK_ENTRY_CAP,
+  TASK_LIST_DEFAULT_LIMIT,
+  TASK_LIST_MAX_LIMIT,
+} from '../namespace-builders/tasks-namespace.builder';
+import {
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
@@ -212,11 +217,19 @@ export function buildTaskListTool(): MCPToolDefinition {
   return {
     name: 'ptah_task_list',
     description:
-      'List tasks, optionally filtered by status and/or type. Every task ' +
-      'carries its labels, estimate, parent, duplicates and relatesTo, so use ' +
-      'this to discover which labels a workspace already uses instead of ' +
-      'inventing new ones. Use it to find the highest existing id too, rather ' +
-      'than reading a generated registry, which can be stale.',
+      `List tasks, optionally filtered by status and/or type, newest-created ` +
+      `first. Paged: limit ${TASK_LIST_DEFAULT_LIMIT} (max ` +
+      `${TASK_LIST_MAX_LIMIT}); a page holds fewer rows when the response ` +
+      `budget is reached. The result gives count (rows on this page), total ` +
+      `(every match), and nextCursor when more rows follow — pass it back ` +
+      `unchanged as cursor. If tasks at that position were renamed, added ` +
+      `or removed, it is refused with INVALID_CURSOR: restart without ` +
+      `cursor. Rows are summaries by ` +
+      `default: no description or validation issues. For a full row call ` +
+      `ptah_task_get, or pass fields:'full'. Summaries keep labels, estimate, ` +
+      `parent and relations, so use this to reuse a label the workspace ` +
+      `already has, and to find the newest ids rather than reading a ` +
+      `generated registry, which can be stale.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -230,6 +243,21 @@ export function buildTaskListTool(): MCPToolDefinition {
           items: { type: 'string', enum: [...TASK_TYPES] },
           description: 'Only include these types',
         },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: TASK_LIST_MAX_LIMIT,
+          description: `Rows per page (default ${TASK_LIST_DEFAULT_LIMIT})`,
+        },
+        cursor: {
+          type: 'string',
+          description: 'The nextCursor of the previous page, unchanged',
+        },
+        fields: {
+          type: 'string',
+          enum: ['summary', 'full'],
+          description: "'full' adds description and validation issues",
+        },
       },
     },
     annotations: { readOnlyHint: true },
@@ -241,10 +269,12 @@ export function buildTaskCheckTool(): MCPToolDefinition {
   return {
     name: 'ptah_task_check',
     description:
-      'Health-check the whole task tree. Names every SKIPPED folder with the ' +
-      'typed reason it was skipped, plus every included task carrying a ' +
-      'validation warning. Run this when a task folder you expect is missing ' +
-      'from the board.',
+      `Health-check the whole task tree. Names SKIPPED folders with the typed ` +
+      `reason each was skipped, plus included tasks carrying a validation ` +
+      `warning — at most ${TASK_CHECK_ENTRY_CAP} of each, with excludedTotal ` +
+      `and invalidTotal giving the full counts; healthy is judged on the ` +
+      `full set. Run this when a task folder you expect is missing from the ` +
+      `board.`,
     inputSchema: { type: 'object', properties: {} },
     annotations: { readOnlyHint: true },
   };

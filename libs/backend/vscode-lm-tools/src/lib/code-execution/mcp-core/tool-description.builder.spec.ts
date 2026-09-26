@@ -9,6 +9,8 @@ import {
   buildGetSymbolIndexTool,
   buildLspDefinitionsTool,
   buildLspReferencesTool,
+  buildTaskCheckTool,
+  buildTaskListTool,
 } from './tool-description.builder';
 import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
@@ -290,5 +292,55 @@ describe('buildAgentReportTool', () => {
     for (const cli of SYSTEM_CLI_TYPES) {
       expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
     }
+  });
+});
+
+// TASK_2026_559 Batch 15: the task list is paged and summary-first, and the
+// check caps its lists. Both descriptions must say so, within the budget.
+describe('buildTaskListTool / buildTaskCheckTool', () => {
+  it('documents limit, cursor and fields, and how to get a full row', () => {
+    const tool = buildTaskListTool();
+    const properties = tool.inputSchema.properties as Record<
+      string,
+      { type?: string; maximum?: number; enum?: string[] }
+    >;
+
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(Object.keys(properties)).toEqual([
+      'status',
+      'type',
+      'limit',
+      'cursor',
+      'fields',
+    ]);
+    expect(properties['limit']).toMatchObject({
+      type: 'integer',
+      maximum: 200,
+    });
+    expect(properties['fields'].enum).toEqual(['summary', 'full']);
+    expect(tool.description).toContain('limit 25 (max 200)');
+    expect(tool.description).toContain('nextCursor');
+    expect(tool.description).toContain('ptah_task_get');
+    expect(tool.description).toContain("fields:'full'");
+  });
+
+  // Batch 15 r1 M3/S1: count vs total, and pages that can hold fewer rows.
+  it('states that count is the rows on this page and total is every match', () => {
+    const { description } = buildTaskListTool();
+
+    expect(description).toContain('count (rows on this page)');
+    expect(description).toContain('total (every match)');
+    expect(description).toContain('fewer rows');
+    expect(description).toContain('INVALID_CURSOR');
+  });
+
+  it('states the check cap and the full-set totals', () => {
+    const tool = buildTaskCheckTool();
+
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(tool.description).toContain('at most 50');
+    expect(tool.description).toContain('invalidTotal');
+    expect(tool.description).toContain('excludedTotal');
+    expect(tool.description).not.toContain('every SKIPPED');
   });
 });

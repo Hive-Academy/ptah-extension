@@ -616,11 +616,12 @@ export class TasksRpcHandlers {
    * filter spec (FR-C1.5). **No new RPC method, therefore no
    * `ALLOWED_METHOD_PREFIXES` edit** (BR-1).
    *
-   * The three facet bags are handed to the index untouched. Folding them into
-   * one spec and running the predicate happens in ONE place — the store — so
-   * the MCP `ptah_task_list` path, which reaches the store with only
-   * `status`/`type`, goes through the identical predicate rather than a second
-   * comparison that agrees with it today.
+   * The three facet bags are handed to the index untouched; the store folds
+   * them into one spec and runs the shared `filterTasks` predicate. The MCP
+   * `ptah_task_list` path reads the index UNFILTERED (its paging cursor must
+   * not depend on filter membership) and applies `status`/`type` itself
+   * through the same `mergeStatusTypeFacets` + `filterTasks` pair — one
+   * predicate, not a second comparison that agrees with it today.
    */
   private registerList(): void {
     this.rpcHandler.registerMethod<TasksListParams, TasksListResult>(

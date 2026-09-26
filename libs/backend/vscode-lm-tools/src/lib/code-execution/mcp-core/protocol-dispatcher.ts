@@ -2249,7 +2249,13 @@ async function handleIndividualTool(
       }
 
       case 'ptah_task_list': {
-        const result = await ptahAPI.tasks.list(args);
+        // The page holds only whole rows that pass this tool's result budget
+        // unchanged, so the budget step never cuts inside a row while
+        // `nextCursor` points past it.
+        const budget = getToolResultBudget(name);
+        const result = await ptahAPI.tasks.list(args, {
+          fits: (text) => fitsBudget(text, budget),
+        });
         return await createToolSuccessResponse(
           request,
           JSON.stringify(result),

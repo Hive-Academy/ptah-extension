@@ -18,6 +18,11 @@ import {
   DASHBOARD_CONTRACT_RULES,
   describeDashboardContract,
 } from './dashboard-contract-help';
+import {
+  TASK_CHECK_ENTRY_CAP,
+  TASK_LIST_DEFAULT_LIMIT,
+  TASK_LIST_MAX_LIMIT,
+} from './tasks-namespace.builder';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
@@ -53,6 +58,7 @@ ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
+TASKS: ptah.tasks.* (task specs: create, update, get, paged list, check)
 DASHBOARD: ptah.dashboard.* (propose a declarative dashboard spec to the surface)
 SURFACE: ptah.surface.* (create, replace, patch, delete and read scoped surface state)
 
@@ -134,6 +140,41 @@ and store nothing. Anonymous patch/delete return 'surface state unavailable for
 this caller'; anonymous reads return 'no surface state for this caller'. A
 missing store returns 'surface state unavailable on this host'. v1 surfaces
 (v1:<specId>) are readable here but managed by ptah_dashboard_propose_spec.`,
+
+  tasks: `ptah.tasks - Task specs under .ptah/specs/
+
+Also exposed as MCP tools: ptah_task_create, ptah_task_update, ptah_task_get,
+ptah_task_list, ptah_task_check. Every method returns { ok: false, error, code? }
+instead of throwing.
+
+- create({ title, type, description?, dependsOn?, labels?, estimate?, parent?,
+    duplicates?, relatesTo? }) - Allocate an id and write a valid carrier.
+- update({ taskId, status?, labels?, ... }) - Change status and/or metadata;
+    every field is a full replacement. TASK_CONFLICT means re-read and retry.
+- get({ taskId }) - One full task: metadata, carrier body, folder documents,
+    and derived relations (children, blocks, related, ...).
+- ptah.tasks.list({ status?, type?, limit?, cursor?, fields? }) - A page of
+    tasks, newest created first (undated last, ties by id).
+    limit: ${TASK_LIST_DEFAULT_LIMIT} by default, at most ${TASK_LIST_MAX_LIMIT}.
+    Returns { ok, fields, tasks, count, total, nextCursor?, excludedCount,
+    specsDirExists }. count = rows on THIS page; total = every task matching
+    the filters. Through MCP a page may hold fewer than limit rows so it fits
+    the response budget whole.
+    nextCursor is present only when more rows follow; pass it back unchanged
+    as cursor, with the same filters. A cursor that is malformed, altered, or
+    whose position changed (a task there renamed, added or removed) returns
+    code INVALID_CURSOR: call again without cursor. A status change (e.g. a
+    returned task completed mid-walk) never invalidates a cursor; a host
+    restart does. A cursor past the last row returns an empty page.
+    fields: 'summary' (default) rows carry id, status, type, title, labels,
+    created, updated; estimate/parent/executor only when set; dependsOn,
+    duplicates, relatesTo only when non-empty; frontmatterValid only when
+    false. No description or validation issues. fields: 'full' returns every
+    field. A row too large for one response appears as { id, oversized: true }
+    with a note; read it with get().
+- check() - Tree health: { healthy, taskCount, invalid, invalidTotal, excluded,
+    excludedTotal }. invalid and excluded hold at most ${TASK_CHECK_ENTRY_CAP} entries each;
+    the totals and healthy count the full set.`,
 
   harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
 
