@@ -483,21 +483,26 @@ export function renderRoleBlock(
  * Appends the shared native-agent tool policy, file context, and task folder
  * instructions to the base task.
  *
- * Adapters with native system prompt support (Copilot via systemMessage)
- * should strip both systemPrompt and projectGuidance
- * before calling this function to avoid duplication.
+ * History-restoring adapters opt in to omit system context and the role on
+ * resume. Unknown resume behavior keeps the full prefix by default. Native
+ * role channels remain the adapter's responsibility.
  */
 export function buildTaskPrompt(
-  options: CliCommandOptions,
+  options: CliCommandOptions & {
+    /** Opt in only when the adapter restores the prior conversation on resume. */
+    readonly resumeRestoresContext?: boolean;
+  },
   cli?: CliType,
 ): string {
+  const restoredContext =
+    !!options.resumeSessionId && options.resumeRestoresContext === true;
   let taskPrompt = '';
   const systemContext = options.systemPrompt || options.projectGuidance;
-  if (systemContext) {
+  if (systemContext && !restoredContext) {
     taskPrompt += systemContext + PROMPT_SECTION_DELIMITER;
   }
 
-  if (options.role) {
+  if (options.role && !restoredContext) {
     if (!cli) {
       throw new Error(
         `buildTaskPrompt received role "${options.role.name}" without the CLI it is rendered for`,

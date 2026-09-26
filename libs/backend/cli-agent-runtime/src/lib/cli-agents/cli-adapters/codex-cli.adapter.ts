@@ -666,7 +666,10 @@ export class CodexCliAdapter implements CliAdapter {
     const thread = options.resumeSessionId
       ? codex.resumeThread(options.resumeSessionId, threadOptions)
       : codex.startThread(threadOptions);
-    const taskPrompt = buildTaskPrompt({ ...options, role: undefined });
+    const taskPrompt = buildTaskPrompt(
+      { ...options, role: undefined, resumeRestoresContext: true },
+      this.name,
+    );
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();

@@ -98,12 +98,7 @@ type CursorSdkMessage =
   | {
       type: 'status';
       status:
-        | 'CREATING'
-        | 'RUNNING'
-        | 'FINISHED'
-        | 'ERROR'
-        | 'CANCELLED'
-        | 'EXPIRED';
+        'CREATING' | 'RUNNING' | 'FINISHED' | 'ERROR' | 'CANCELLED' | 'EXPIRED';
       message?: string;
     }
   | { type: 'request'; request_id: string }
@@ -282,7 +277,10 @@ export class CursorCliAdapter implements CliAdapter {
    * run's typed SDKMessage stream. Abort cancels the in-flight run.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const taskPrompt = buildTaskPrompt(options, this.name);
+    const taskPrompt = buildTaskPrompt(
+      { ...options, resumeRestoresContext: true },
+      this.name,
+    );
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
     let activeRun: CursorRun | undefined;
