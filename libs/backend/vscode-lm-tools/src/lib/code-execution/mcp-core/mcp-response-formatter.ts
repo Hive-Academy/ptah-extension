@@ -415,9 +415,14 @@ export function formatWorkspaceAnalysis(result: unknown): string {
 }
 
 /**
- * Format ptah_search_files result
+ * Format ptah_search_files result. `moreAvailable` says the provider matched
+ * more files than `files` holds; the notice then sits in the header line, not
+ * after the list, so a result-budget cut of the tail cannot drop it.
  */
-export function formatSearchFiles(files: unknown): string {
+export function formatSearchFiles(
+  files: unknown,
+  moreAvailable = false,
+): string {
   try {
     if (!Array.isArray(files)) return fallbackJson(files);
     if (files.length === 0)
@@ -431,9 +436,14 @@ export function formatSearchFiles(files: unknown): string {
       return `${i + 1}. ${filePath}`;
     });
 
+    const counted = `${files.length} file${files.length !== 1 ? 's' : ''}`;
+    const found = moreAvailable
+      ? `Found: more than ${counted} (showing first ${files.length}; narrow the pattern or raise limit)`
+      : `Found: ${counted}`;
+
     return json2md([
       { h2: 'File Search' },
-      { p: `Found: ${files.length} file${files.length !== 1 ? 's' : ''}` },
+      { p: found },
       { ol: items.map((item) => item.replace(/^\d+\.\s*/, '')) },
     ]);
   } catch {

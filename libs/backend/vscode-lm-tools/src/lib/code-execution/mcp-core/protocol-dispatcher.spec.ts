@@ -853,7 +853,8 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       deps,
     );
 
-    expect(findFiles).toHaveBeenCalledWith('**/*.ts', 10);
+    // One more than the limit, to learn whether the result was capped.
+    expect(findFiles).toHaveBeenCalledWith('**/*.ts', 11);
     const content = (
       res.result as { content: Array<{ type: string; text: string }> }
     ).content;
@@ -861,6 +862,153 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(content[0].type).toBe('text');
     expect(content[0].text).toContain('a.ts');
     expect(content[0].text).toContain('b.ts');
+  });
+
+  // TASK_2026_559 Batch 11: a capped search looked complete, and an empty
+  // pattern reached the provider and came back as its thrown error.
+  describe('ptah_search_files limit probe and argument validation', () => {
+    const NOTICE_TAIL = 'narrow the pattern or raise limit)';
+
+    async function searchFiles(
+      args: Record<string, unknown>,
+      findFiles: jest.Mock,
+    ): Promise<{ text: string; isError: boolean | undefined }> {
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          search: { findFiles } as unknown as PtahAPI['search'],
+        }),
+      });
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'sf',
+          method: 'tools/call',
+          params: { name: 'ptah_search_files', arguments: args },
+        }),
+        deps,
+      );
+      const result = res.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      return { text: result.content[0].text, isError: result.isError };
+    }
+
+    const files = (n: number): string[] =>
+      Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+
+    it('shows the first `limit` files and a notice when more matched', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(4));
+
+      const { text, isError } = await searchFiles(
+        { pattern: '**/*.ts', limit: 3 },
+        findFiles,
+      );
+
+      expect(isError).toBeFalsy();
+      expect(findFiles).toHaveBeenCalledWith('**/*.ts', 4);
+      expect(text).toContain(
+        'Found: more than 3 files (showing first 3; narrow the pattern or raise limit)',
+      );
+      expect(text).toContain('src/f2.ts');
+      expect(text).not.toContain('src/f3.ts');
+    });
+
+    it('applies the default limit of 50 through the same probe', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(51));
+
+      const { text } = await searchFiles({ pattern: '**/*' }, findFiles);
+
+      expect(findFiles).toHaveBeenCalledWith('**/*', 51);
+      expect(text).toContain('(showing first 50; ' + NOTICE_TAIL);
+      expect(text).toContain('src/f49.ts');
+      expect(text).not.toContain('src/f50.ts');
+    });
+
+    it('adds no notice when exactly `limit` files matched', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(3));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 3 },
+        findFiles,
+      );
+
+      expect(text).toContain('Found: 3 files');
+      expect(text).not.toContain(NOTICE_TAIL);
+    });
+
+    it('adds no notice under the limit', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(2));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 10 },
+        findFiles,
+      );
+
+      expect(text).toContain('Found: 2 files');
+      expect(text).not.toContain(NOTICE_TAIL);
+    });
+
+    it('caps a provider that ignores the requested maximum', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(9));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 2 },
+        findFiles,
+      );
+
+      expect(text).toContain('(showing first 2; ' + NOTICE_TAIL);
+      expect(text).not.toContain('src/f2.ts');
+    });
+
+    it('treats a null limit as the default', async () => {
+      const findFiles = jest.fn().mockResolvedValue([]);
+
+      await searchFiles({ pattern: '*.ts', limit: null }, findFiles);
+
+      expect(findFiles).toHaveBeenCalledWith('*.ts', 51);
+    });
+
+    it.each([
+      ['an empty string', ''],
+      ['whitespace only', '   \t'],
+      ['a number', 42],
+      ['missing', undefined],
+    ])(
+      'returns a tool error without calling the provider when the pattern is %s',
+      async (_label, pattern) => {
+        const findFiles = jest.fn().mockResolvedValue([]);
+
+        const { text, isError } = await searchFiles({ pattern }, findFiles);
+
+        expect(isError).toBe(true);
+        expect(text).toBe(
+          'Error: "pattern" is required and must be a non-empty string.',
+        );
+        expect(findFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['zero', 0],
+      ['negative', -5],
+      ['a fraction', 2.5],
+      ['NaN', Number.NaN],
+      ['a numeric string', '10'],
+    ])(
+      'returns a tool error without calling the provider when the limit is %s',
+      async (_label, limit) => {
+        const findFiles = jest.fn().mockResolvedValue([]);
+
+        const { text, isError } = await searchFiles(
+          { pattern: '*.ts', limit },
+          findFiles,
+        );
+
+        expect(isError).toBe(true);
+        expect(text).toBe('Error: "limit" must be a positive integer.');
+        expect(findFiles).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {

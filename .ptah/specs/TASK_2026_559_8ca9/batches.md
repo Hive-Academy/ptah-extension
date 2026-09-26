@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 18/29
+Total tasks: 56 | Batches: 29 | Complete: 19/29 (Batch 11b scheduled as a follow-up round of Batch 11)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2149,7 +2149,21 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 11: ptah_search_files truncation notice + ptah_relevance_rank_files reason dedupe — PENDING
+## Parallel lanes (User Decision 17) — status 2026-09-26
+
+| Lane | Worktree                                | Batches                           | State                 |
+| ---- | --------------------------------------- | --------------------------------- | --------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11 COMPLETE; 11b next |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12                                | in review             |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | in review             |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3                        | in progress           |
+
+Only the team-leader merges lanes B/C/D into this branch; lane executors never run git across worktrees. Batch
+states for lanes B/C/D stay as recorded below until their merge.
+
+---
+
+## Batch 11: ptah_search_files truncation notice + ptah_relevance_rank_files reason dedupe — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2158,7 +2172,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 10
 
-### Task 11.1: `limit+1` probe, `atLimit` notice, pattern validation — PENDING
+### Task 11.1: `limit+1` probe, `atLimit` notice, pattern validation — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:682-690), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts` (`formatSearchFiles` :192), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter-extra.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Plan reference: research/workspace-files.md:157-166
@@ -2167,7 +2181,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Validation notes: none
 - Implementation details: specs for at-limit, under-limit and empty pattern
 
-### Task 11.2: Dedupe matched terms in relevance reasons — PENDING
+### Task 11.2: Dedupe matched terms in relevance reasons — COMPLETE
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.ts`, `<WT>/libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.spec.ts`
 - Plan reference: research-report.md:94 (row 9)
@@ -2178,8 +2192,56 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ### Batch 11 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence 2>&1 | tail -40` passes
+- [x] The review lane approves (r1 APPROVE 7/10; two Moderate + one Minor scheduled as Batch 11b)
+
+### Batch 11 review history
+
+- r1 (`reviews/batch-11-code-logic-review-r1.md`): APPROVE 7/10, 0 blocking, 0 serious, 2 Moderate (M1, M2),
+  1 Minor → Batch 11b. Details: `batch-11-executor-report.md` (fails-before evidence for every new spec)
+
+### Batch 11 deviations (accepted)
+
+1. The truncation notice is part of the `Found:` header line ("Found: more than N file(s) (showing first N; narrow
+   the pattern or raise limit)"), not appended after the list, so a result-budget tail cut cannot drop it
+2. `limit` is validated: undefined/null → 50 (`SEARCH_FILES_DEFAULT_LIMIT`); anything not a safe integer ≥ 1 is a
+   tool error (`parseSymbolIndexQuery` precedent). This tightens direct-MCP input (0, negatives, fractions were
+   previously coerced by the adapters); the published schema is aligned in Batch 11b (M1)
+3. The formatter flag is `moreAvailable` (plan: `atLimit`); same value, `files.length > limit` before the slice
+4. 11.2 dedupes the final reason strings (`[...new Set(reasons)]`), which also removes duplicate export reasons from
+   two query words; scores unchanged ("auth auth token" 40 vs "auth token" 30 pinned — keyword dedupe would change
+   ranking and is left to the planner). ~20 lines of Prettier-only hunks in `file-relevance-scorer.service.ts`
+
+### Batch 11 team-leader verification (Mode 2, 2026-09-26)
+
+- Production diffs read on disk (`protocol-dispatcher.ts:896-925`, `:2346`; `mcp-response-formatter.ts:417-447`;
+  `file-relevance-scorer.service.ts` Set dedupe). No TODO/FIXME/PLACEHOLDER/STUB in the 6 changed files;
+  `ptah-core-prompt.ts` and `ptah-system-prompt.constant.ts` unchanged vs HEAD (`git diff --quiet`)
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence --skip-nx-cache`
+  → "Successfully ran targets test, lint, typecheck for 2 projects" on the first run (Nx labelled
+  workspace-intelligence:test flaky from run history — the `project-detector.service.spec.ts:748` timeout, M2 below;
+  it did not fail this run)
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` → success, 2 projects
+- `nx run ptah-electron:validate-deps --skip-nx-cache` → "All external imports are covered by package.json dependencies."
+- `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
+  `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
+- Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+
+### Batch 11b (scheduled, Lane A next) — r1 findings
+
+- M1 (Moderate): `ptah_search_files` schema publishes `limit` as an unrestricted `number`
+  (`mcp-core/tool-description.builder.ts:351-354`) while the handler requires a positive safe integer
+  (`mcp-core/protocol-dispatcher.ts:906-915`; pinned at `protocol-dispatcher.spec.ts:991`). Fix: `type: 'integer'`,
+  `minimum: 1` (plus the supported ceiling), describe the rule, add a schema/handler agreement regression, and note
+  the direct-MCP tightening in the change notes
+- M2 (Moderate): Batch 10 real-disk inspection-cap spec `project-detector.service.spec.ts:748-765` (206+4 projects,
+  serial reads at `project-detector.service.ts:390-394`, real I/O at spec `:1013-1015`) exceeds Jest's 5,000 ms default
+  under load (reproduced with +30 ms/read; outer `:504:1`). Fix: exercise the 200-project cap through a deterministic
+  in-memory provider and keep a small real-disk smoke test with an explicit integration timeout
+- Minor: no regression pins the truncation notice through the budget/reducer (`mcp-response-formatter-extra.spec.ts:41`
+  checks ordering only; dispatcher cases `protocol-dispatcher.spec.ts:899-959` fit the budget). Fix: dispatcher-level
+  oversized search with a temp spool root asserting the notice in final content and byte-equal raw spool, for both
+  Markdown reduction and plain cut
 
 ---
 

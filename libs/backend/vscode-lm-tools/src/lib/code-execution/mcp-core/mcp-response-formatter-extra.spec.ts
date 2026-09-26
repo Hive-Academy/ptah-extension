@@ -15,6 +15,7 @@ import {
   formatBrowserClose,
   formatBrowserRecordStart,
   formatBrowserRecordStop,
+  formatSearchFiles,
 } from './mcp-response-formatter';
 import type {
   BrowserScreenshotResult,
@@ -25,6 +26,44 @@ import type {
   BrowserRecordStopResult,
 } from '../types';
 import type { AgentProcessInfo } from '@ptah-extension/shared';
+
+// TASK_2026_559 Batch 11: a capped search printed "Found: N files" with no sign
+// that more files matched.
+describe('mcp-response-formatter › formatSearchFiles truncation notice', () => {
+  const NOTICE = '(showing first 3; narrow the pattern or raise limit)';
+
+  it('says more matched and how to get them when more files are available', () => {
+    const out = formatSearchFiles(['a.ts', 'b.ts', 'c.ts'], true);
+    expect(out).toContain(`Found: more than 3 files ${NOTICE}`);
+    expect(out).toContain('c.ts');
+  });
+
+  it('puts the notice before the list, so a cut tail cannot drop it', () => {
+    const files = Array.from({ length: 3 }, (_, i) => `f${i}.ts`);
+    const out = formatSearchFiles(files, true);
+    expect(out.indexOf(NOTICE)).toBeLessThan(out.indexOf('f0.ts'));
+  });
+
+  it('adds no notice when the result count equals the limit and nothing more matched', () => {
+    const out = formatSearchFiles(['a.ts', 'b.ts', 'c.ts'], false);
+    expect(out).toContain('Found: 3 files');
+    expect(out).not.toContain('showing first');
+    expect(out).not.toContain('more than');
+  });
+
+  it('adds no notice by default (under the limit)', () => {
+    const out = formatSearchFiles(['a.ts']);
+    expect(out).toContain('Found: 1 file');
+    expect(out).not.toContain('showing first');
+  });
+
+  it('uses the singular for a single shown file', () => {
+    const out = formatSearchFiles(['a.ts'], true);
+    expect(out).toContain(
+      'Found: more than 1 file (showing first 1; narrow the pattern or raise limit)',
+    );
+  });
+});
 
 describe('mcp-response-formatter › formatLspDefinitions', () => {
   it('falls back to JSON when defs is not an array', () => {

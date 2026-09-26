@@ -894,11 +894,32 @@ async function handleIndividualTool(
       }
 
       case 'ptah_search_files': {
-        const { pattern, limit } = args as { pattern: string; limit?: number };
-        const files = await ptahAPI.search.findFiles(pattern, limit ?? 50);
+        // Validated here: an empty pattern used to reach the provider and
+        // come back as its thrown "Patterns must be a string (non empty)".
+        const { pattern, limit: rawLimit } = args as {
+          pattern?: unknown;
+          limit?: unknown;
+        };
+        if (typeof pattern !== 'string' || !pattern.trim()) {
+          return missingStringArgResponse(request, 'pattern');
+        }
+        const limit = rawLimit ?? SEARCH_FILES_DEFAULT_LIMIT;
+        if (
+          typeof limit !== 'number' ||
+          !Number.isSafeInteger(limit) ||
+          limit < 1
+        ) {
+          return toolErrorResponse(
+            request,
+            'Error: "limit" must be a positive integer.',
+          );
+        }
+        // One file past the limit tells a capped result apart from one that
+        // matched exactly `limit` files.
+        const files = await ptahAPI.search.findFiles(pattern, limit + 1);
         return await createToolSuccessResponse(
           request,
-          formatSearchFiles(files),
+          formatSearchFiles(files.slice(0, limit), files.length > limit),
           deps,
         );
       }
@@ -2321,6 +2342,9 @@ function missingStringArgResponse(
     },
   };
 }
+
+/** `ptah_search_files` page size when `limit` is not given (its schema says 50). */
+const SEARCH_FILES_DEFAULT_LIMIT = 50;
 
 /**
  * Most source files the workspace import graph is built from. Discovery lists
