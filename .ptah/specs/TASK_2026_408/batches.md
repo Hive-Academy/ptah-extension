@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 16 | Batches: 10 | Complete: 0/10
+Total tasks: 16 | Batches: 10 | Complete: 2/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -288,7 +288,7 @@ Edge cases:
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Reviewer: code-logic review via codex CLI lane (provider capability gating)
 
-## Batch 7: Codex static model list demotion — IN_PROGRESS
+## Batch 7: Codex static model list demotion — COMPLETE (commit 389566769)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane x 1 (self-contained)
@@ -298,7 +298,7 @@ Edge cases:
 - Files (2, 1 lib): `codex-provider-entry.ts`, `codex-provider-entry.spec.ts` (C)
 - Commit: `fix(shared): demote Codex static model windows to catalog-only`
 
-### Task 7.1: IDs-only fallback list — IMPLEMENTED
+### Task 7.1: IDs-only fallback list — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\shared\src\lib\providers\entries\codex-provider-entry.ts`; CREATE `D:\projects\ptah-extension-task-408\libs\shared\src\lib\providers\entries\codex-provider-entry.spec.ts`
 - Plan reference: implementation-plan.md:339-351, :503
@@ -312,7 +312,7 @@ Edge cases:
 - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/shared` passes (tailed); `provider-registry.spec.ts` and `provider-lookup.spec.ts` green
 - Reviewer: code-style review sub-agent (data and comment change, low behavioural surface)
 
-## Batch 8: Disclosure of dropped user-tier settings — IN_PROGRESS
+## Batch 8: Disclosure of dropped user-tier settings — COMPLETE (commit b0632f949)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane x 1
@@ -322,7 +322,7 @@ Edge cases:
 - Files (2, 1 lib): `sdk-query-options-builder.ts`, `sdk-query-options-builder.spec.ts`
 - Commit: `fix(agent-sdk): disclose dropped user-tier settings on proxy sessions`
 
-### Task 8.1: Info log and entry-point comment — IMPLEMENTED
+### Task 8.1: Info log and entry-point comment — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.spec.ts`
 - Plan reference: implementation-plan.md:353-366, :387-389, :504
