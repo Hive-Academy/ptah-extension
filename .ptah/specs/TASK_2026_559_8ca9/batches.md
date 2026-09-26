@@ -2052,7 +2052,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 10: ptah_workspace_analyze — monorepo-first detection; bounded tree — COMPLETE
+## Batch 10: ptah_workspace_analyze — monorepo-first detection; bounded tree — COMPLETE (commit d1d015fd4)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2124,6 +2124,8 @@ complete declaration summary or an honest full-file result with a `reason`.
 - `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
   `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
 - Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+- Committed 9 code paths + 7 task-spec docs as **d1d015fd4** with hooks active: pre-commit and commitlint passed
+  (also checked with `npx commitlint` beforehand)
 
 ### Batch 10 known issues (r4-postcap Moderate residuals; carried in TASK_2026_561_9e57 Track B8)
 

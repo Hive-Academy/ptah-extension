@@ -33,7 +33,7 @@ Track B stay one task or split at planning time.
 Not merged here (tracked elsewhere or not compaction): TASK_2026_400 and TASK_2026_418_a91c are `in_review` (status
 flip only); TASK_2026_376 F6 (compaction hooks on one-shot queries) stays in 376; TASK_2026_362 owns the native pi-ai
 loop compaction. Tokaudit Waves 2 and 4 (proxy allowlist, lane prefix, spec split, resume gate) are open but are not
-compaction; they need their own task. Tokaudit Wave 0 is user-owned settings (`~/.codex/config.toml`) — never edited
+compaction; they are TASK_2026_562_4b1d. Tokaudit Wave 0 is user-owned settings (`~/.codex/config.toml`) — never edited
 by an agent.
 
 ## Track A — Ptah-owned compaction layer
@@ -63,6 +63,16 @@ threshold compaction + entry-time capping + session rotation; not `clear_tool_us
   BACKOFF / OBSERVE_ONLY); `/compact` path with no `endSession` first, rebinding to the new session id; bounded 180 s
   dwell in `no-activity-watchdog.ts arm()`; auto/manual dedup; `IContextUsagePort` with provenance; keep the curator
   PreCompact reactor; telemetry. Fork/resume rollback only after E4
+- A9. Wave 0 as settings (user request 2026-09-26: "make those settings the user can easily set from our UI and we
+  write them down to those files"). New Ptah settings with a UI for the Codex budgets — auto-compact tokens (tokaudit
+  0.1, default suggestion 120000) and tool-output token limit (0.2, suggestion 2500), optionally reasoning effort and
+  web search (0.3). Ptah lanes receive them through the SDK config (A2/A4). For the Codex app/CLI outside Ptah, write
+  them to `~/.codex/config.toml` through the existing `harness-sync` Codex TOML writer (`codex-toml-mcp-facet.ts`
+  pattern). Rules: write only after explicit opt-in with a diff preview; keep other keys and comments; back the file up;
+  write only the keys the user set; an empty value removes the key. `ptah.compaction.threshold` (0.4) and the curator
+  provider (0.6) are already Ptah settings — A1 makes the threshold take effect; 0.6 only needs a UI hint. The MCP
+  allowlist in `.claude/settings.local.json` (0.5) belongs to TASK_2026_560_2ae5; lane effort (0.7) to
+  TASK_2026_562_4b1d Wave 2.3
 - Not buildable on SDK 0.3.150 (406 §4.3): cancel/edit of a running compaction, history replacement, Codex parity —
   record, do not attempt
 
@@ -139,6 +149,22 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   pipeline; packaged-app startup after the externals change; live concurrent spool writes. Carried to 559 Batch 21 /
   release — move them here if 559 closes without them
 - `http-server.handler.spec.ts:220` real-port lifecycle spec fails in sandboxes that deny port binding
+
+### B8. ptah_workspace_analyze (Batch 10)
+
+- R4-M1 (Moderate): pnpm-workspace.yaml folded (`- >-`), escaped double-quoted and doubled-single-quote scalars
+  become wrong literal patterns while membership reports `complete: true` (`monorepo-detector.service.ts:78, :95, :140,
+:145, :688`) — decode them or reject with an issue and incomplete status; add exact-membership fixtures
+- R4-M2 (Moderate): a tooling executor (e.g. `@angular-eslint/builder:lint`) under a reserved application target name
+  (`build`, `serve`) decides the framework; only the second pass applies `AUXILIARY_EXECUTOR`
+  (`project-detector.service.ts:174-182, :459`; `workspace.service.ts:552`) — reject tooling in both passes
+- The structure walk in `workspace.service.ts` (`shouldSkipDirectory`) still reads `tmp/` to depth 3 and counts it in
+  Total Files; only the renderer drops it
+- A durable formatter-through-budget regression spec (r4 probe: 8,247 → 7,893 chars, summary retained)
+- No wall-clock deadline on member discovery or inspection reads (count and depth bounds only)
+- `FrameworkDetectorService` has no `@nestjs/core` rule (NestJS members with generic executors show `node`);
+  `ProjectDiscovery` is not exported from `workspace-intelligence/src/index.ts`; declared globs can match
+  `dist`-named directories
 
 ### Accepted, not scheduled (recorded so nothing is lost)
 
