@@ -46,6 +46,10 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 13. Batch 7 enrich-file summary (user, after the post-cap r3 REVISE 4/10 with R3-B1 runtime-published API loss, R3-B2 referenced methods lost in elided objects, R3-S1 wrapped/mixed initialisers, R3-M1 char-based not-smaller gate): refuse more. A structural summary is produced only for pure declaration files; any runtime-export pattern (exports alias, globalThis, prototype assignment, defineProperty, spread or computed keys, objects mixing methods and data) returns the whole file with a reason; the not-smaller gate counts tokens. One final narrow fix and one more independent review: commit if it approves; otherwise commit with its defects recorded as known issues.
 
+14. Dependency graph (user, after the Batch 9 r1 review escalated a 225 s cold `ensureDependencyGraphBuilt` that blocks the MCP call past a 60 s client timeout, and a silent 5,000-file graph cap): disclose + new batch. Batch 9 fixes its oversized-entry JSON defect and discloses the cap (an incomplete flag and file counts) in the results of ptah_get_symbol_index, ptah_get_dependents and ptah_get_dependencies. A new Batch 9b builds the graph in the background through the governor; until the build ends, those tools return a "building" status with a retry hint instead of blocking the call.
+
+15. Batch 9 post-cap (user, after the r3-postcap review returned REVISE 7/10 with one moderate edge: a very long query path pushed the graph-cap fields out of the budget cut): reorder, then commit. `count`, `incomplete`, `graphedFiles` and `discoveredFiles` go before `file` in ptah_get_dependents and ptah_get_dependencies, pinned by a spec that keeps them ahead of a very long query path (it fails on the old order and passes on the new). No further Codex review.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

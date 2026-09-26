@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 54 | Batches: 28 | Complete: 15/28
+Total tasks: 56 | Batches: 29 | Complete: 16/29
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1853,7 +1853,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 9: ptah_get_symbol_index — pathPrefix/limit/offset; cold-latency measurement — IN_PROGRESS
+## Batch 9: ptah_get_symbol_index — pathPrefix/limit/offset; cold-latency measurement — COMPLETE (commit 138c55f99)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1862,7 +1862,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 8 (hub-file ordering)
 
-### Task 9.1: Paging and filtering at the namespace and tool — IN_PROGRESS
+### Task 9.1: Paging and filtering at the namespace and tool — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.ts` (`getSymbolIndex` :381-400), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:1840-1848), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`buildGetSymbolIndexTool` :1815-1826)
 - Plan reference: research/code-intel.md:362-377; research-report.md:89
@@ -1871,7 +1871,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Validation notes: pathPrefix-matches-nothing edge case. Backward compatible for execute_code callers passing only `workspaceRoot`
 - Implementation details: specs with a synthetic 3,000-entry index: default page size, prefix filter, offset continuation, last page has no nextOffset
 
-### Task 9.2: Cold first-call latency measurement (rows 5/6) — IN_PROGRESS
+### Task 9.2: Cold first-call latency measurement (rows 5/6) — COMPLETE
 
 - File: none modified. Evidence in the report
 - Plan reference: research/code-intel.md:420-438
@@ -1883,6 +1883,125 @@ complete declaration summary or an honest full-file result with a `reason`.
 ### Batch 9 verification
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- The Codex review lane approves (not met: committed under User Decision 15 after r3-postcap REVISE 7/10 and the reorder)
+
+### Batch 9 review history
+
+- Executor: backend-developer (`batch-9-executor-report.md`)
+- Review r1 (`reviews/batch-9-code-logic-review-r1.md`, Codex): **REVISE 5/10**. F1 an oversized entry produced
+  invalid JSON; F2 a cold `ensureDependencyGraphBuilt` (225 s) blocks the call past a 60 s client timeout; F3 the
+  5,000-file graph cap was silent → **User Decision 14** (context.md): fix F1, disclose F3 now, F2 → new Batch 9b
+- Review r2 (`reviews/batch-9-code-logic-review-r2.md`, Codex): **REVISE 6/10**. B1 cross-root coverage; S1
+  dependents/dependencies lost the cap metadata under the budget cut; M1 token-heavy metadata produced invalid JSON.
+  Revise cap reached; one bounded correction
+- Review r3-postcap (`reviews/batch-9-code-logic-review-r3-postcap.md`, Codex): **REVISE 7/10**, one moderate edge
+  (a very long query path pushed the cap fields out of the cut) → **User Decision 15** (context.md): reorder, then
+  commit, no further review. `count`/`incomplete`/`graphedFiles`/`discoveredFiles` now precede `file` in both tools;
+  pinned by the spec "keeps incomplete and both counts ahead of a very long query path" (fails on the old order)
+
+### Batch 9 deviations (accepted)
+
+1. Default `limit` 30, not 200: 200 entries measured 39,053 chars against the 8,000-char target
+2. New file `namespace-builders/symbol-index-query.ts` (argument parsing); `types.ts` edited (`SymbolIndexPage`)
+3. A page may end early at the result budget; `count` and `nextOffset` are recomputed so paging always advances
+4. Shared `DependencyGraphService` changes: `buildGraph` optional 4th param (discovered count), `getCoverage`,
+   `getCoverageForFile`
+5. `ensureDependencyGraphBuilt` returns `void`; discovery lists every matching file before the 5,000-file cap
+
+### Task 9.2 measurement
+
+- Cold `ensureDependencyGraphBuilt` on this worktree: **225,040 ms** (5,354 files matched, 5,000 graphed, 2,652 in
+  the index; under Jest on a shared machine). Exceeds a 60 s client timeout → Batch 9b
+
+### Batch 9 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `renderSymbolIndexPage` (whole page / longest fitting run / spooled oversized entry / fixed-size skip
+  error), `largestFitting`, `graphCompleteness`, `DEPENDENCY_GRAPH_FILE_CAP`, `parseSymbolIndexQuery` before the
+  graph build; `getGraphCoverage`/`getGraphCoverageForFile` in the namespace. No TODO/FIXME/PLACEHOLDER/STUB
+  markers; `ptah-core-prompt.ts` and `NATIVE_AGENT_TOOL_POLICY` unchanged vs HEAD
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence --skip-nx-cache`
+  → success, 2 projects
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` → success, 2 projects
+- `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
+  `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
+- **Commit blocked by the pre-commit hook**: `ptah-electron:validate-deps` reports `nextOffset` as a MISSING
+  runtime dependency. Cause: `SYMBOL_INDEX_ENTRY_TOO_LONG` (`protocol-dispatcher.ts:2481-2482`) ends with
+  `Continue from "nextOffset".`, which the bundle-import scanner reads as `from "nextOffset"`. Returned to the
+  executor to rephrase the message (no `from "<word>"` shape) and re-run validate-deps; Batch 9 stays IN_PROGRESS
+- **Hook fix (one string)**: the orchestrator changed the message to `Continue at "nextOffset".`; no other
+  `from "<word>"` string literal remains in `protocol-dispatcher.ts` (line 2482). Re-verified:
+  `nx run ptah-electron:validate-deps --skip-nx-cache` → success; `nx run-many "-t=test,lint,typecheck" -p
+@ptah-extension/vscode-lm-tools --skip-nx-cache` → success
+- Committed the same 14 code paths (13 modified + untracked `symbol-index-query.ts`) as **138c55f99** with hooks
+  active: pre-commit (lint-staged, affected lint, `ptah-electron:validate-deps` "All external imports are covered")
+  passed; commitlint passed (also checked with `npx commitlint --edit` beforehand). Not staged:
+  `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+
+### Note for all later batches (added at Batch 9 close)
+
+- The `ptah-electron:validate-deps` bundle scanner treats any `from "<word>"` / `from '<word>'` inside a **string
+  literal** (messages, descriptions, prompts) as an import and fails the commit with a MISSING runtime dependency.
+  Never write the word `from` directly before a quoted token in user-facing text; phrase it as `at "x"`,
+  `starting with "x"`, etc. Run `nx run ptah-electron:validate-deps --skip-nx-cache` before returning a batch
+
+### Batch 9 follow-ups (not blocking)
+
+- (a) Listing every matching file before the cap may cost memory on 100k+ file repositories (not benchmarked)
+- (b) `ptah-system-prompt.constant.ts` line-210 bullet still shows `getSymbolIndex()` without arguments (incomplete,
+  not wrong)
+
+---
+
+## Batch 9b: Dependency graph — background build through the governor; non-blocking tools — IN_PROGRESS
+
+- Recommended executor: backend-developer (sub-agent)
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: User Decision 14. Motivating evidence: Task 9.2 measured a cold `ensureDependencyGraphBuilt` at
+  225,040 ms, past a 60 s client timeout. One hub file (`protocol-dispatcher.ts`) plus the namespace and the shared
+  graph service — coupled, so sequential
+- Review: Codex CLI lane (logic + structure)
+- Tasks: 2 | Depends on: Batch 9
+
+### Task 9b.1: Background graph build with a per-workspace in-flight latch — IN_PROGRESS
+
+- Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`
+  (`ensureDependencyGraphBuilt` and its three call sites: `ptah_get_dependents`, `ptah_get_dependencies`,
+  `ptah_get_symbol_index`), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.ts`
+  (the `dependencies` namespace, when `execute_code` reaches the same build path), and, only if needed,
+  `<WT>/libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts`
+- Plan reference: context.md User Decision 14; Batch 9 r1 F2 (`reviews/batch-9-code-logic-review-r1.md`); Task 9.2 measurement
+- Pattern to follow: Batch 6 `ensureIndexFresh` in-flight latch (`code-namespace.builder.ts:145`, :216-220, :424-436);
+  `libs/backend/vscode-core/src/diagnostics/background-work-governor.ts`
+- Quality requirements: the three tools never await a cold build past a bounded wait (≤ 2 s). The build starts in
+  the background through the existing governor with a per-workspace in-flight latch (concurrent calls start one
+  build). While building, return a small valid JSON status `{ status: 'building', retryAfterMs, filesDiscovered? }`
+  with a retry hint; once built, answer normally (Batch 9 paging and cap disclosure unchanged). A failed build
+  returns an honest error status and clears the latch so a later call can retry — never a silent empty result.
+  Host-owned roots only (Batch 2f F1). No work moved into `tools/list`. Fixed-text logs (no paths or raw error text
+  interpolated). Degradation audit stays at baseline
+- Validation notes: RISK — an unhandled rejection from the detached build promise; attach a handler. RISK — graph
+  eviction or an explicit rebuild while a build is in flight must not leave the latch set or answer from a stale
+  graph. ASSUMPTION — the governor accepts a long-running job; verify its API before wiring
+- Implementation details: status JSON stays within the tool result budget and ahead of any unbounded field
+
+### Task 9b.2: Specs and descriptions — IN_PROGRESS
+
+- Depends on: Task 9b.1
+- Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`,
+  `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.spec.ts`,
+  `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (+ spec) for the
+  three tools' "may return building" note
+- Quality requirements: specs with a never-resolving / slow fake build: a cold call returns `building` within the
+  bounded wait; a later call after the build resolves returns the real answer; N concurrent cold calls start
+  exactly one build; a failing build returns the error status and a later call restarts it; eviction/rebuild
+  covered. Description budget spec still passes; the shared prompt constants stay frozen (User Decision 4)
+
+### Batch 9b verification
+
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence --skip-nx-cache` passes
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` and `nx run ptah-electron:validate-deps` pass
+- `nx run degradation-audit:lint --skip-nx-cache` at baseline
 - The Codex review lane approves
 
 ---
