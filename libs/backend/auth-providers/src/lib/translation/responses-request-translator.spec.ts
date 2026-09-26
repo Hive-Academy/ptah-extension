@@ -30,8 +30,10 @@ import {
   translateToolsForResponses,
 } from './responses-request-translator';
 import type {
+  AnthropicImageBlock,
   AnthropicMessagesRequest,
   AnthropicToolDefinition,
+  AnthropicToolResultBlock,
 } from './openai-translation.types';
 
 const PNG_1X1_B64 =
@@ -345,6 +347,208 @@ describe('translateAnthropicToResponses (end-to-end round-trip)', () => {
       type: 'function_call_output',
       call_id: 'err_call',
       output: 'Error: line 1\nline 2',
+    });
+  });
+
+  describe('tool_result images', () => {
+    const PNG_URL = `data:image/png;base64,${PNG_1X1_B64}`;
+    const png = {
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: 'image/png',
+        data: PNG_1X1_B64,
+      },
+    };
+    const toolResultRequest = (
+      content: AnthropicToolResultBlock['content'],
+      is_error?: boolean,
+    ): AnthropicMessagesRequest => ({
+      model: 'gpt-5.4',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'img_call',
+              content,
+              ...(is_error !== undefined ? { is_error } : {}),
+            },
+          ],
+        },
+      ],
+    });
+
+    it('keeps a text-only array result a plain string', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([
+          { type: 'text', text: 'a' },
+          { type: 'text', text: 'b' },
+        ]),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: 'a\nb',
+      });
+    });
+
+    it('builds an array of parts in block order when an image is present', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([
+          { type: 'text', text: 'before' },
+          png,
+          { type: 'text', text: 'after' },
+        ]),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          { type: 'input_text', text: 'before' },
+          { type: 'input_image', image_url: PNG_URL },
+          { type: 'input_text', text: 'after' },
+        ],
+      });
+    });
+
+    it('resolves the media type from the bytes, like user-message images', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([
+          { ...png, source: { ...png.source, media_type: 'image/jpeg' } },
+        ]),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [{ type: 'input_image', image_url: PNG_URL }],
+      });
+    });
+
+    it('replaces an unresolvable image with a placeholder text part', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([
+          { type: 'text', text: 'shot' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/svg+xml',
+              data: 'PHN2Zy8+',
+            },
+          },
+        ]),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          { type: 'input_text', text: 'shot' },
+          {
+            type: 'input_text',
+            text: '[image omitted: unsupported media type]',
+          },
+        ],
+      });
+    });
+
+    it('treats a URL image source (no base64 data) as unresolvable', () => {
+      const urlImage = {
+        type: 'image',
+        source: { type: 'url', url: 'https://example.test/a.png' },
+      } as unknown as AnthropicImageBlock;
+      const out = translateAnthropicToResponses(
+        toolResultRequest([urlImage, png]),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          {
+            type: 'input_text',
+            text: '[image omitted: unsupported media type]',
+          },
+          { type: 'input_image', image_url: PNG_URL },
+        ],
+      });
+    });
+
+    it('prefixes Error: on the first part when it is text', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([{ type: 'text', text: 'boom' }, png], true),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          { type: 'input_text', text: 'Error: boom' },
+          { type: 'input_image', image_url: PNG_URL },
+        ],
+      });
+    });
+
+    it('inserts an Error: part before a leading image', () => {
+      const out = translateAnthropicToResponses(
+        toolResultRequest([png, { type: 'text', text: 'boom' }], true),
+      );
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          { type: 'input_text', text: 'Error:' },
+          { type: 'input_image', image_url: PNG_URL },
+          { type: 'input_text', text: 'boom' },
+        ],
+      });
+    });
+
+    it('keeps call_id pairing and order for a replayed tool_use and image tool_result', () => {
+      const req: AnthropicMessagesRequest = {
+        model: 'gpt-5.4',
+        max_tokens: 1000,
+        messages: [
+          { role: 'user', content: 'take two screenshots' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'shot_1', name: 'screenshot', input: {} },
+              { type: 'tool_use', id: 'shot_2', name: 'screenshot', input: {} },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'shot_1', content: [png] },
+              { type: 'tool_result', tool_use_id: 'shot_2', content: 'none' },
+              { type: 'text', text: 'next' },
+            ],
+          },
+        ],
+      };
+      const out = translateAnthropicToResponses(req);
+      expect(out.input.slice(1)).toEqual([
+        {
+          type: 'function_call',
+          call_id: 'shot_1',
+          name: 'screenshot',
+          arguments: '{}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'shot_2',
+          name: 'screenshot',
+          arguments: '{}',
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'shot_1',
+          output: [{ type: 'input_image', image_url: PNG_URL }],
+        },
+        { type: 'function_call_output', call_id: 'shot_2', output: 'none' },
+        { role: 'user', content: [{ type: 'input_text', text: 'next' }] },
+      ]);
     });
   });
 
