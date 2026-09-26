@@ -194,7 +194,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Tasks, Tribunal, Analytics tabs in order', () => {
+  it('shows the workspace app shell and Chat, Apps, Tasks, Tribunal, Analytics tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -206,12 +206,14 @@ describe('ElectronShellComponent configuration gate', () => {
     );
     expect(tabs.map((tab) => tab.title)).toEqual([
       'Chat',
+      'Apps',
       'Tasks',
       'Tribunal',
       'Analytics',
     ]);
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
       'Chat',
+      'Apps',
       'Tasks',
       'Tribunal',
       'Analytics',
@@ -221,8 +223,9 @@ describe('ElectronShellComponent configuration gate', () => {
       'false',
       'false',
       'false',
+      'false',
     ]);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(4);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(5);
   });
 
   it('keeps the configuration menu and back button in global no-drag actions without a workspace', () => {

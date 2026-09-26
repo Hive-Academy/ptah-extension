@@ -149,6 +149,7 @@ export class HarnessWorkflowService {
   private rehydrateStarted = false;
 
   readonly mode = this._mode.asReadonly();
+  readonly surfaceId = this._surfaceId.asReadonly();
   /**
    * Mode the view should render as, whether or not a workflow has started.
    * Survives navigation because it lives here rather than on the component.

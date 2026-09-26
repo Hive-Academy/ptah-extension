@@ -21,3 +21,121 @@ Cold start time does not change when the page is not open (lazy load).
 ## Source
 
 `.ptah/specs/TASK_2026_490_583c/research-report.md` Revision 4 Track A and Revision 5. `.ptah/specs/TASK_2026_490_583c/ptah-integration-seams.md` sections 3, 4, 6.
+
+## User Request
+
+orchestrate task 494 in a new worktree of main
+
+## Task Type
+
+FEATURE
+
+## Complexity
+
+Complex
+
+## Strategy
+
+FEATURE, Full depth: project-manager → software-architect → team-leader → developers → QA.
+Research (TASK_2026_490) and design (TASK_2026_492) are done, so researcher and designer are skipped.
+Worktree: `.claude-worktrees/feat-task-494-apps-page-98c5a1802772`, branch `feat/task-494-apps-page`, based on `main` at 34dd972f8.
+
+## CLI Lanes
+
+Mode: enabled
+
+| Agent | Type | Status | Capabilities |
+| ----- | ---- | ------ | ------------ |
+| codex | cli | installed | messaging: queue, role delivery: preamble/developer-instructions |
+| copilot | cli | disabled (installed) | messaging: queue, role delivery: preamble/task-prompt |
+| cursor | cli | not installed | messaging: interrupt, role delivery: preamble/task-prompt |
+| antigravity | cli | installed | messaging: queue, role delivery: preamble/task-prompt |
+| opencode | cli | installed | messaging: none, role delivery: preamble/task-prompt |
+| pi | cli | not installed | messaging: steer, role delivery: preamble/task-prompt |
+| Glm | ptah-cli | available | provider: Ollama Cloud, ptahCliId: pc-355b645d-35af-4974-84cf-9cf961ea0164, messaging: queue, role delivery: preamble/system-prompt |
+
+## Conversation Summary
+
+- Dependencies TASK_2026_492 (design spec) and TASK_2026_493 (contract, PR #565) are merged on `main`.
+- Placement (user, Gate 1 discussion): keep the full-page Apps tab with its own conversation. A sidebar beside the coding chat (the user's earlier generative-UI idea, similar to the agent monitor) is not part of this task.
+- Gate 1 APPROVED. `implementation-plan.md` written. Research lanes: `research-property-hub-agent-ui.md` (codex), `research-chat-visual-output-history.md` (Glm).
+- Gate 2 reopened by the user (2026-09-23): the Apps page must let the agent build forms, sections, lists and selects with two-way UI/agent state. Decision: **contract v2 first**. This task is `blocked` on `TASK_2026_538_3ccf`. When it lands, the software-architect revises this plan (D3 intake, D4 selection channel -> general surface state channel, renderer view model for v2); D1, D2, D5, D6, D7 and the display renderers stay. Implementation has not started; no team-leader run yet.
+- TASK_2026_538 Gate 1 passed (2026-09-23, other session). Worktree `.claude-worktrees/feat-task-538-surface-contract-v2`, branch `feat/task-538-surface-contract-v2`. Its `task-description.md` Requirement 12 is the handoff for this plan's revision (D3, D4, view model). Decisions there: `ptah_dashboard_propose_spec` stays and feeds the same store and push as v2; the `getActiveWebviews()` fix lands in 538 for the Electron and CLI adapters (drop Component 7 here); one in-memory store keyed by `tabId` on all three hosts. Still open in 538: the busy rule for submit, whether D4 selection injection survives, and store release on tab close or LRU.
+- TASK_2026_540 Gate 2 passed (2026-09-23, other session, branch `feat/task-540-global-config-menu`). Effect on this task: the Electron tab row becomes Chat, [Apps slot], Tasks, Tribunal, Analytics ("Chat" and "Analytics" replace the labels "Canvas" and "Dashboard"). The Apps slot is ONE comment between the Chat and Tasks tab buttons in `electron-shell.component.ts`; replace that comment with the Apps tab button (plan Component 2) and move nothing else. 540 does not touch `webview-surface.types.ts` or `app.routes.ts`. Router batch 3 is not needed by 540. Merge order: 540 first, then 533 (marketplace); rebase this branch on 540 before implementation.
+- 2026-09-25: TASK_2026_540 merged (PR #586) and TASK_2026_538 merged (PR #596, `9afac1aa2`). Branch fast-forwarded to
+  `origin/main` at `9afac1aa2` (no own commits existed). Status blocked -> in_progress. The binding input for the plan
+  revision is `.ptah/specs/TASK_2026_538_3ccf/handoff-494.md` (Revision 1): D3 -> `surface:updated` generic routing-id
+  inbox; D4 -> `surface:*` RPC (Component 8 dropped almost entirely); Component 7 delivered; renderer view model for 13
+  kinds with materialized-revision reconciliation (Rules 1-4). Software-architect revision started.
+- Plan Revision 2 written (1,086 lines, R1-R11). Decisions: generic `SurfaceUpdateInbox` in `@ptah-extension/chat-routing`
+  (no `/services` subpath); Components 7 and 8 deleted (494 adds no backend file); no selection injector, the agent
+  pulls with `ptah_surface_get_state` (prompt pinned by spec); `surface:release` deferred to 539/follow-up; a stale field
+  change is not auto-resent; submit waits for pending echoes; surface switcher when >1 surface; Apps tab at
+  `electron-shell.component.ts:136`. Open: task-description Req 6.2/6.3 still say the turn "receives" the selection.
+  Awaiting Gate 2.
+- Gate 2 (Revision 2) APPROVED by the user (2026-09-25) with "fix Req 6": orchestrator rewrote task-description.md Req 6
+  criteria 1-6 and the scope bullets for v2 (selection via `surface:select`, agent reads via `ptah_surface_get_state`,
+  no new host channel). Next: team-leader decomposition (Mode 1) into batches.md.
+- Team-leader Mode 1 done: 19 batches in batches.md (B1 IN_PROGRESS). Plan validation PASS WITH RISKS; 4 plan defects
+  fixed by ordering/task notes (routing spec restructure in 16.1, B17 after B16, B14 before B15, B3 exports types).
+  Open for the user: visual source for completion (no prototype exists) and CLI lane quotas.
+- User decisions (2026-09-25): (1) "Prototype first": a ui-ux-designer builds an HTML prototype of the Apps page
+  (dark + light) under this task's `prototype/` folder before B15 (page); the user reviews it; completion screenshots are
+  checked against it. (2) CLI lane pool: opencode, Glm, codex, antigravity, plus orchestrator subagents at discretion.
+  Rotate lanes so a batch's reviewer is never its executor; if a lane hits a quota, fall back to another pool member.
+- Prototype delivered (prototype/index.html, states.html, README.md, 10 screenshots). User is reviewing it (2026-09-25);
+  NOT yet approved, and the two designer proposals (narrow stacking <480px, no colored small rejected-state text) are
+  undecided. B15 must not start until the prototype is approved. Orchestrator notes for B15: chart "Expand" must be a
+  client-only toggle (host returns unsupported for dashboard.* except select); the table must show the pager (page size 25).
+- Batch 1 committed `c9b6eddd2` (code-logic APPROVED 8/10, 0 fix rounds; test-strength notes M1-M3 deferred to B12).
+  Batch 2 (lib scaffolds) running with the frontend-developer subagent.
+- 2026-09-25: user APPROVED the prototype ("design is approved") -> it is the visual source for B15 and completion,
+  including the designer's two proposals (narrow stacking <480px; rejected-state color on icon + spine only). Commit
+  prototype/ with the next batch commit.
+- User addition (B15 scope): a splitter between the Apps conversation column and the surface panel. Reuse
+  `ElectronResizeHandleComponent` (`ptah-electron-resize-handle`, `libs/frontend/chat-ui/src/lib/atoms/electron-resize-handle.component.ts`,
+  exported from `@ptah-extension/chat-ui` index.ts:12; chat-ui is type:feature, so feature->feature import is allowed;
+  used in electron-shell.component.ts:232,253). Notes: (1) the handle emits a viewport-relative width (pointer X), so
+  the page subtracts its container's left offset; (2) clamp (prototype default 360px, sensible min/max so the surface
+  panel stays usable); (3) Escape/blur restore is built in; (4) the handle has no keyboard resize -> page adds
+  arrow-key resize and aria-valuenow/min/max on the separator if design-spec "Accessibility" requires keyboard-operable
+  separators; (5) persist the width like the other Electron panel widths (ElectronLayoutService pattern,
+  electron-layout.service.ts:145-196) or in the Apps page state - team-leader decides without widening B15 past 6 files;
+  (6) hidden when the layout stacks below ~480px.
+- Follow-ups created: `TASK_2026_539_67f5` (render surfaces in the coding chat, depends on this task), `TASK_2026_540_0940` (apply the TASK_2026_492 navigation sets, global configuration menu).
+
+- 2026-09-25: Glm/Ollama Cloud weekly limit reached; opencode Go exhausted; lane pool = codex, antigravity, subagents.
+- 2026-09-25: B13 round 2 APPROVED (code-logic-reviewer 9/10, antigravity 9/10); committed. B7 round 2: codex APPROVED 8/10, subagent pending.
+- 2026-09-25: B13 committed a652f510c. B7 round 2 APPROVED (code-logic-reviewer 8/10, codex 8/10); committed; B8 IN_PROGRESS.
+- 2026-09-25: B7 committed 60a2bf643. B8 round 1 NEEDS_REVISION (5/10 x2); fix round 1 removed the renderer echo guard; round 2 running.
+- Future enhancement: include tsconfig.spec.json in the typecheck target (spec type errors are invisible to nx typecheck today; B8 TS2367).
+- 2026-09-25: B8 ACCEPTED (code-logic-reviewer 8/10 round 2; codex 8/10 round 2b after a bounded consumed-drafts fix); committed; B9 IN_PROGRESS.
+- 2026-09-25: B8 committed 6f5321476. B9 APPROVED 8/10 + DOM-count tightening; committed; B15 IN_PROGRESS (then B20 || B16, B17, B19).
+- Follow-up: 8 pre-existing TS2352 spec-tsc errors reached transitively from mcp-apps-page (core/src/testing/mock-rpc-service.ts:54,60,66,69; git-ui monaco-loader.service.ts:113,151,171,187) - out of scope for TASK_2026_494; the lib's spec-tsc gate is 'no new errors beyond this baseline'.
+- RESOLVED in this PR (2026-09-26). This entry was wrongly recorded as pre-existing; it is our own B12/B15 code.
+  - The gap: "New conversation" or Stop after `chat:start` returns but before the session binding arrives.
+  - The fix is commit 81b3c9040, "fix(mcp-apps-page): abort the started session on reset or Stop before the session
+    binding".
+  - Details are in batches.md, section "Post-batch bounded fix: reset or Stop between chat:start and the session
+    binding".
+- 2026-09-25: B9 committed 37822b07f. B15 APPROVED round 2 (code-logic-reviewer 9/10, codex 8/10); committed; B20 and B16 IN_PROGRESS in parallel.
+- Future enhancement (B20): extract the workspace restore out of ElectronLayoutService (electron-layout.service.ts is 822 lines).
+- Follow-up (pre-existing, found in B20): ElectronLayoutService.persistLayout() never saves the workspace fields (workspaceFolders/activeWorkspaceIndex) that restoreLayout() reads.
+- Follow-up (B20): apps-submit-flow.spec.ts timing tests failed once under load during B20 execution (green on the team-leader re-run); isolate their fake timers if it recurs.
+- Follow-up addendum (spec tsc): apps/ptah-extension-webview/src/app/base-content-muted.spec.ts:110 is a further pre-existing spec-tsc error (webview baseline = the 8 above + this one).
+- Follow-up (B16): webview-routing.spec.ts ELECTRON_ONLY_SURFACES is a hand-maintained list; derive it from the route table (canMatch guard) so a new Electron-only surface cannot be missed.
+- 2026-09-25: B15 committed 6b14e831c. B16 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B17 IN_PROGRESS. B20 in fix round 1.
+- Follow-up addendum (spec tsc): @ptah-extension/chat has 249 pre-existing spec-tsc errors (none in electron-shell files); B17's gate is no new errors in its files.
+- 2026-09-26: B16 committed 268035a63. B20 APPROVED (antigravity 8/10 r1, code-logic-reviewer 9/10 r2); committed. B17 in progress (approved config-gate edit).
+- 2026-09-26: B20 committed 6da0c30a2. B17 APPROVED (codex no-role 10/10, code-logic-reviewer 9/10); committed; B19 IN_PROGRESS. R10 visual review will be run by the coordinator via the webview e2e harness.
+- Cleanup before the worktree is removed (B19; kept per the coordinator's ruling, because the visual-review build needs them):
+  - The B19 executor created Windows junctions under the gitignored node_modules of the feat-task-494 worktree.
+  - Remove each junction link on its own, using the cmd rmdir built-in on that one path. Do not pass the recursive flag, and never delete recursively.
+  - Afterwards, confirm that each target still exists.
+  - Junctions and their targets:
+    - node_modules\better-sqlite3 -> D:\projects\ptah-extension\node_modules\better-sqlite3
+    - node_modules\daisyui -> D:\projects\ptah-extension\node_modules\daisyui
+    - node_modules\electron -> D:\projects\ptah-extension\node_modules\electron
+    - node_modules\monaco-editor -> D:\projects\ptah-extension\node_modules\monaco-editor
+    - node_modules\prismjs -> D:\projects\ptah-extension\node_modules\prismjs
+- 2026-09-26: B17 committed 9cc979b06. B19 ACCEPTED after round 2 + bounded one-word fix (9.1/R8/9.3 PASS, 9.2 open manual QA); committed. All 20 batches committed.
