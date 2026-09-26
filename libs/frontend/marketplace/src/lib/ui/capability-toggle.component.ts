@@ -34,7 +34,8 @@ export interface CapabilityBadge {
 /** Per-tone classes, kept as whole strings so Tailwind can see them. */
 const BADGE_TONE_CLASSES: Readonly<Record<CapabilityBadgeTone, string>> = {
   info: 'border-info/40 bg-info/10 text-info',
-  warning: 'border-warning/40 bg-warning/10 text-warning',
+  // Solid fill: `text-warning` on a `/10` tint is 2.25:1 in anubis-light.
+  warning: 'border-warning bg-warning text-warning-content',
   neutral: 'border-base-300 bg-base-200/60 text-base-content-muted',
 };
 
@@ -219,7 +220,7 @@ let nextToggleId = 0;
         [id]="descriptionId"
         class="flex min-w-0 flex-col gap-1 text-[11px] leading-snug text-base-content-muted"
       >
-        <p data-testid="capability-toggle-scope">
+        <p class="text-base-content" data-testid="capability-toggle-scope">
           <span class="font-medium text-base-content">{{ scopeText() }}</span>
           <span aria-hidden="true"> · </span>
           <span>{{ nextSessionNote }}</span>
@@ -249,7 +250,7 @@ let nextToggleId = 0;
 
         @if (showPtahWarning()) {
           <p
-            class="rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-warning"
+            class="rounded-md border border-warning bg-warning/10 px-2 py-1 text-base-content"
             role="status"
             data-testid="capability-ptah-off-warning"
           >
