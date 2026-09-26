@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 18 | Batches: 10 | Complete: 7/10
+Total tasks: 18 | Batches: 10 | Complete: 8/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -284,15 +284,21 @@ Edge cases:
 - TASK_2026_562 boundary CONFIRMED: the codex lane cannot run git, so the orchestrator ran `git diff -U1` on `responses-request-translator.ts` — 4 hunks, all inside the `ResponsesFunctionCallOutputItem` interface (doc + `output` type) and `translateToolResultToFunctionCallOutput` (doc comment + body). Matches the team-leader's `-U0` check above.
 - Review: `code-logic-review-b5.md` APPROVED 8/10; 0 blocking/serious/moderate. `image_url` string shape checked against installed OpenAI declarations and pinned Codex strings; the omitted `detail` field is recorded as an evidence limit, not a defect. One minor coverage finding carried into Batch 6 as Task 6.2. Final run 52 suites / 1250 tests.
 
-## Formatting follow-up (decided in Batch 5 verification)
+## Formatting follow-up (decided in Batch 5 verification) — IMPLEMENTED (formatter run after Batch 6 commit 3613f2ebf; commit SHA recorded after it lands)
 
 - Finding: `npx nx format:check` fails on 10 files this task committed or edits (`responses-error-mapping.ts` + spec, `responses-stream-collector.ts` + spec, `responses-stream-translator.ts` + spec, `responses-tool-names.ts` + spec, `translation-proxy-base.ts` + spec). `translation-proxy-helpers.ts` also fails but is unchanged since `ebfc73321`, so it is pre-existing on main and out of scope.
 - Hook: `.husky/pre-commit` runs lint-staged, and `.lintstagedrc.mjs` runs `npx nx format:write --files=<staged>`. None of these paths is in `.prettierignore`, yet the committed content is unformatted, so the hook's format step is not taking effect for these commits. Root cause not established; it is a repository tooling issue outside this task and is recorded for `future-enhancements`, not fixed here.
 - EOL hypothesis checked in Batch 6 verification and REJECTED: `core.autocrlf=true`, but `git ls-files --eol` shows `i/lf w/lf attr/text=auto eol=lf` for the failing files, and `npx prettier --check --end-of-line auto` still fails on all six probed files. Piping the untouched main file `translation-proxy-helpers.ts` through prettier 3.9.8 (repo pins `^3.8.1`) gives real layout changes (zod method chains broken onto separate lines). These are genuine formatting differences that main already carries, so the style commit is kept.
 - Scope (orchestrator decision after Batch 6, supersedes the wider 12-file scope first recorded here): format ONLY files this task CREATED that fail `prettier --check`. The failures in pre-existing files (`translation-proxy-base.ts`, the stream translator, the collector, the Codex proxy and their specs) are prettier-version drift that main already carries; reformatting them would rewrite many lines this task did not write and make the TASK_2026_561 / TASK_2026_562 rebases harder. Of the files added since `ebfc73321`, four fail: `responses-error-mapping.ts`, `responses-error-mapping.spec.ts`, `responses-tool-names.ts`, `responses-tool-names.spec.ts` (all under `libs/backend/auth-providers/src/lib/translation/`). Passing, so untouched: `responses-tool-output-images.ts` + spec, `codex-provider-entry.spec.ts`. The drift in pre-existing files is left for `future-enhancements`.
 - Decision: no prettier writes folded into feature batches (they would bury behavioural diffs under reformatting and exceed the 6-file cap). One format-only step runs after Batch 6 and before Batch 9, when no other auth-providers work is in flight: a backend-developer runs `npx nx format:write --files=<the 4 files above>`, then `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers --parallel=2`; code-style-reviewer confirms the diff is formatting only; commit `style(auth-providers): apply prettier to new TASK_2026_408 translation modules`.
+- As executed: the orchestrator ran `npx prettier --write` (3.9.8, repo `.prettierrc`) on exactly the four files, so no code was authored. `git status` showed only those four plus `batches.md`. The diff is 622+ / 187-, and it is line-wrapping to the default 80-column house style: 100 of 130 auth-providers `.ts` files already pass `prettier --check`, while the new modules used ~100-column lines. `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers --parallel=2 --skip-nx-cache` passed: 52/52 suites, 1271/1271 tests (same as Batch 6), lint 0 errors / 4 warnings.
+- Reviewer gate: the orchestrator waived the separate code-style-reviewer because deterministic formatter output plus an unchanged test count and typecheck show no semantic change; the final QA pass covers it. In its place the team-leader ran a mechanical token check:
+  - With all whitespace stripped and trailing commas removed, `responses-tool-names.ts` and `responses-tool-names.spec.ts` are identical to HEAD.
+  - `responses-error-mapping.ts` differs only by a dropped leading `|` in a multi-line type union, one pair of grouping parentheses, and two `;` member separators in type literals.
+  - `responses-error-mapping.spec.ts` differs only by one pair of grouping parentheses and one string literal with no apostrophe (`maximum context length is 1000 tokens, …`) moved from `"` to `'`.
+  - All of these are semantics-neutral. `prettier --check` now passes on all four.
 
-## Batch 6: Phase 2d - image capability hook and provider HTTP specs — IN_PROGRESS
+## Batch 6: Phase 2d - image capability hook and provider HTTP specs — COMPLETE (commit 3613f2ebf)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent
@@ -302,7 +308,7 @@ Edge cases:
 - Files (6, 1 lib): `translation-proxy-base.ts`, `providers/codex/codex-translation-proxy.ts`, `providers/codex/codex-stream-parity.spec.ts`, `providers/opencode/opencode-translation-proxy.spec.ts`, `responses-request-translator.spec.ts` and `responses-tool-output-images.spec.ts` (test-only, Task 6.2)
 - Commit: `fix(auth-providers): keep tool-result images for Codex only`
 
-### Task 6.1: Capability hook, post-pass call, Codex opt-in — IMPLEMENTED
+### Task 6.1: Capability hook, post-pass call, Codex opt-in — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\providers\codex\codex-translation-proxy.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\providers\codex\codex-stream-parity.spec.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\providers\opencode\opencode-translation-proxy.spec.ts`
 - Plan reference: implementation-plan.md:321-332
@@ -311,7 +317,7 @@ Edge cases:
 - Validation notes: R2 rollback is one line; OpenCode GPT/responses upstream body has a string `output` with the placeholder and no `input_image`; Codex upstream body has an array with `input_image`
 - Implementation details: `protected supportsResponsesToolOutputImages(): boolean`; after `guardResponsesToolNames`, downgrade unless supported; separate HTTP specs for Codex and OpenCode
 
-### Task 6.2: Tool-result image edge-case regression fixtures (carried from code-logic-review-b5.md) — IMPLEMENTED
+### Task 6.2: Tool-result image edge-case regression fixtures (carried from code-logic-review-b5.md) — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-request-translator.spec.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-output-images.spec.ts` (test-only; no production file changes; a case that exposes a real defect is reported, not silently fixed)
 - Plan reference: implementation-plan.md:289-320; code-logic-review-b5.md minor finding 1
