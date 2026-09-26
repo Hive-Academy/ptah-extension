@@ -10,6 +10,14 @@
 
 import * as path from 'path';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import {
+  DASHBOARD_LIMITS,
+  describeDashboardLimits,
+} from '@ptah-extension/shared/mcp-apps-contracts';
+import {
+  DASHBOARD_CONTRACT_RULES,
+  describeDashboardContract,
+} from './dashboard-contract-help';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
@@ -26,6 +34,9 @@ export interface SystemNamespaceDependencies {
   workspaceProvider: IWorkspaceProvider;
   fileSystemProvider: IFileSystemProvider;
 }
+
+/** The dashboard contract, rendered once at the zod schema (Batch 16 r1). */
+const DASHBOARD_CONTRACT_HELP = describeDashboardContract();
 
 /**
  * Help documentation for Ptah namespaces
@@ -50,16 +61,34 @@ Use ptah.help('namespace') for details on any namespace.`,
   dashboard: `ptah.dashboard - Declarative dashboards
 
 Also exposed as the MCP tool ptah_dashboard_propose_spec, which is the surface to
-prefer: its input schema is generated from the zod contract, so it teaches you the
-exact shape and the current limits. The two surfaces are the same one method.
+prefer. Its advertised schema outlines only the envelope; this topic is the full
+contract. The two surfaces are the same one method.
 
 - proposeSpec(spec, { sessionId?, toolCallId }) - Validate a spec and push it to
     the surface. Returns { status: 'accepted', specId, revision, bytes, text } or
     { status: 'rejected', reason }.
 
-You emit JSON from a FIXED catalog and never write HTML. Component kinds: stat,
-line-chart, bar-chart, table, list. Envelope: { schemaVersion, catalogVersion,
-specId, revision, generatedAt, title, components }.
+You emit JSON from a FIXED catalog; you never write HTML, CSS or a template, and
+there is no escape hatch that would let you.
+
+SHAPE (rendered at runtime from the zod contract, so it is always current). "?"
+marks an optional field; every object is closed, so an unknown key rejects the
+spec; every string is at most ${DASHBOARD_LIMITS.maxStringLength} chars unless stated. children is
+layout nesting.
+${DASHBOARD_CONTRACT_HELP.text}
+
+RULES the shape cannot show (each is enforced):
+${DASHBOARD_CONTRACT_RULES.map((rule) => `- ${rule}`).join('\n')}
+
+Use { data: { resultId } } rather than embedding a large dataset. Text fields are
+{ text } and are rendered as PLAIN TEXT -
+there is no markdown and no HTML anywhere in this contract, so markup in a text
+field is shown to the user literally. Put a link in a dashboard.open-url action instead.
+
+Limits: ${describeDashboardLimits()}.
+
+Every call replaces the previous spec in full: send a complete spec each time and
+bump revision.
 
 Validation is ALL-OR-NOTHING. An unknown schemaVersion, an unknown catalogVersion,
 an unknown component kind, a duplicate component id or any breached budget rejects

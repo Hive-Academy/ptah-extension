@@ -52,6 +52,43 @@ function withoutDescription(schema: unknown): unknown {
   return rest;
 }
 
+/**
+ * TASK_2026_559 Task 16.2 — growth guard, not a cut. Both definitions ride
+ * every `tools/list`. Sizes are `JSON.stringify(tool).length` measured on
+ * 2026-09-26 at HEAD 4cd9a91da; each ceiling is that size + 5%, floored.
+ * Raising a ceiling is a deliberate decision, never a drive-by edit.
+ */
+const SURFACE_UPDATE_MEASURED_CHARS = 65_190; // 2026-09-26
+const SURFACE_GET_STATE_MEASURED_CHARS = 2_141; // 2026-09-26
+const growthCeiling = (measured: number): number => Math.floor(measured * 1.05);
+
+describe('surface tool definition growth guard', () => {
+  it.each([
+    [
+      'ptah_surface_update',
+      buildSurfaceUpdateTool,
+      SURFACE_UPDATE_MEASURED_CHARS,
+    ],
+    [
+      'ptah_surface_get_state',
+      buildSurfaceGetStateTool,
+      SURFACE_GET_STATE_MEASURED_CHARS,
+    ],
+  ] as const)(
+    '%s stays within its measured size + 5%%',
+    (_name, build, measured) => {
+      expect(JSON.stringify(build()).length).toBeLessThanOrEqual(
+        growthCeiling(measured),
+      );
+    },
+  );
+
+  it('pins the ceilings to the numbers written above', () => {
+    expect(growthCeiling(SURFACE_UPDATE_MEASURED_CHARS)).toBe(68_449);
+    expect(growthCeiling(SURFACE_GET_STATE_MEASURED_CHARS)).toBe(2_248);
+  });
+});
+
 const DELIVERED = { status: 'delivered' as const, surfaces: 1 };
 const QUIET_LOG = { info: jest.fn(), warn: jest.fn(), debug: jest.fn() };
 
