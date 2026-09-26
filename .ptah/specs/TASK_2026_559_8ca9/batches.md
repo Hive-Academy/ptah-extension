@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 8/26
+Total tasks: 52 | Batches: 26 | Complete: 9/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -144,6 +144,8 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
 - Remove the dead `class` attribute collection in `html-tree.ts` (r5 minor) with that work.
 - Batch 2d known issues KI-2d-1 (`.tsx`/`.jsx` always fall back, no JSX grammar) and KI-2d-2 (non-brace
   multi-line arrow bodies under-compress). Both are conservative; see "Batch 2d known issues". Not fixed in 559.
+- Batch 4 follow-up (a): per-host server instructions filtered by the served tool set would fit more substitution
+  rows than the single byte-stable 509-byte variant. Not approved scope; needs a user decision.
 
 ---
 
@@ -1247,7 +1249,7 @@ char per run, biasing only toward keeping a run verbatim.
 
 ---
 
-## Batch 4: Server `instructions` derived from the shipped mandate — IN_PROGRESS
+## Batch 4: Server `instructions` derived from the shipped mandate — COMPLETE (commit 53e823e13)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1256,7 +1258,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 3
 
-### Task 4.1: Export the substitution section from the agent-sdk barrel — IN_PROGRESS
+### Task 4.1: Export the substitution section from the agent-sdk barrel — COMPLETE
 
 - Files: `<WT>/libs/backend/agent-sdk/src/lib/prompt-harness/index.ts`, `<WT>/libs/backend/agent-sdk/src/index.ts`
 - Plan reference: research-report.md:151-155; context.md User Decision 4 (constants unchanged)
@@ -1265,7 +1267,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: re-check `@nx/enforce-module-boundaries` lint for the new vscode-lm-tools → agent-sdk value import
 - Implementation details: add `PTAH_MCP_SUBSTITUTION_SECTION` to both export lists
 
-### Task 4.2: `server-instructions.ts` and `handleInitialize` — IN_PROGRESS
+### Task 4.2: `server-instructions.ts` and `handleInitialize` — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.spec.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (`handleInitialize`, :235-254), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 4.1
@@ -1281,9 +1283,68 @@ char per run, biasing only toward keeping a run verbatim.
 - `git diff --stat -- libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts` is empty
 - The Codex review lane approves
 
+### Batch 4 review history
+
+- Executor: backend-developer (`batch-4-executor-report.md`)
+- Review r1 (`reviews/batch-4-code-logic-review-r1.md`, Codex cross-side lane): **REVISE 7/10**. M1: the closing sent
+  the omitted substitutions to `ptah.help()`, which documents only the `execute_code` API. M2: the 512 limit counted
+  UTF-16 chars, not UTF-8 bytes. The agent-sdk value import was checked: no cycle, and no new heavy load (agent-sdk
+  is already reached through cli-agent-runtime). Fixed in revision round 1
+- Review r2 (`reviews/batch-4-code-logic-review-r2.md`, Codex): **REVISE 7/10**. M2 fixed. M1 remainder: the mappings
+  were unconditional and the closing promised a count of further tools, which is false on non-IDE hosts and when the
+  `ide`/`code` namespaces are disabled. Revise cap reached; the orchestrator allowed one bounded correction
+  (conditional wording, no count)
+- Review r3-postcap (`reviews/batch-4-code-logic-review-r3-postcap.md`, Codex): **APPROVE 8/10**, no findings. The
+  lane swept 768 host configurations, 6,144 `initialize` executions (one distinct string) and 14,721 Unicode cases
+
+### Batch 4 shipped text and trade-off
+
+- Shipped instructions: 509 chars / 509 bytes (all ASCII; measured by r3). A conditional header ("Prefer these
+  ptah_* tools when listed in tools/list:"), 3 derived table rows, the derived "Fall back to …" line, a fixed "If a
+  tool is not listed, use the built-in." line, "Also, if listed: ptah_lsp_references", and a conditional closing
+  that ends with `execute_code API: ptah.help()`. No line states a tool count
+- Trade-off: to stay truthful on every host under 512 bytes, most substitutions are reachable only through
+  `tools/list`. Follow-up idea (NOT approved scope): per-host instructions filtered by the served tool set would
+  allow more rows. That would give up the single byte-stable variant, so it needs a user decision
+
+### Batch 4 deviations (accepted)
+
+1. `libs/backend/vscode-lm-tools/package.json` gained `"@ptah-extension/agent-sdk": "0.0.1"`. The
+   `@nx/dependency-checks` lint rule requires it for the new value import. Module boundaries: both libs are tagged
+   `scope:extension` / `type:feature`; lint passes
+
+### Batch 4 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `server-instructions.ts` (pure `buildServerInstructionsFrom(section)`, memoised `buildServerInstructions()`,
+  `MAX_SERVER_INSTRUCTIONS_CHARS = 512`, `size()` = max(UTF-16 length, UTF-8 bytes), code-point-safe truncation),
+  `server-instructions.spec.ts` (431 lines), `protocol-dispatcher.ts` (+1 import, `instructions:
+  buildServerInstructions()` in `handleInitialize`, no caller branching), `protocol-dispatcher.spec.ts` (handshake
+  asserts `instructions`; a four-caller byte-identity test), both agent-sdk barrels (+1 export line each),
+  `vscode-lm-tools/package.json`. No TODO/FIXME/PLACEHOLDER/STUB markers; no stray files
+- `git diff --stat HEAD -- libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts` → empty. The protected
+  constant is byte-identical (the r3 lane could not run git; certified here)
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/agent-sdk
+  --skip-nx-cache` → exit 0, "Successfully ran targets test, lint, typecheck for 2 projects"
+- `node_modules/.bin/nx run-many "-t=typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
+- Code commit stages exactly the 7 files above; docs committed separately. `code-logic-review.md` (the lane's
+  canonical copy) and `research/diagnostics-worktree-repro.ts` stay untracked
+
+### Batch 4 follow-ups (not blocking)
+
+- (a) Per-host instructions filtered by the served tool set (see the trade-off above). Not approved scope
+- (b) Out of scope: specs in OTHER projects that import `protocol-dispatcher.ts` now load the agent-sdk barrel, so they
+  must load `reflect-metadata` first (the pattern at `vendor-roster-drift.spec.ts:28-33`). No such spec fails today
+  (every checked project passed); a new one written without the import would fail at load
+
+### Notes for Batch 5 (added at Batch 4 close)
+
+- Batch 5 touches no hub file (store and port only: memory-contracts, memory-curator). No overlap with Batches 1-4
+- Keep `getIndexFreshness?` OPTIONAL on the port (risk table): Batch 6 treats its absence as "unknown freshness"
+- The recall guard must fail on regression (seed ≥ 12 symbols, camelCase names); a logging-only spec does not count
+
 ---
 
-## Batch 5: code_symbols freshness and exact-name recall (store layer) — PENDING
+## Batch 5: code_symbols freshness and exact-name recall (store layer) — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1292,7 +1353,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: none
 
-### Task 5.1: Optional `getIndexFreshness` on the port, implemented by the store — PENDING
+### Task 5.1: Optional `getIndexFreshness` on the port, implemented by the store — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/memory-contracts/src/lib/code-symbol-reader.port.ts`, `<WT>/libs/backend/memory-contracts/src/index.ts` (only if a new type is exported), `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.ts`
 - Plan reference: research/code-intel.md:294-313; research-report.md:182-190
@@ -1301,7 +1362,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: RISK "required method breaks test doubles" is carried here. Optional only
 - Implementation details: prepared statement consistent with the store's existing statement style
 
-### Task 5.2: Exact-name candidate source and the recall benchmark — PENDING
+### Task 5.2: Exact-name candidate source and the recall benchmark — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.ts` (`searchSymbols`, :295-342), `<WT>/libs/backend/memory-curator/src/lib/code-symbol.store.spec.ts`
 - Depends on: Task 5.1
