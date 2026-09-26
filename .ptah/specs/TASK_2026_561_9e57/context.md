@@ -138,6 +138,8 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   :306); a malformed escape returns `-32700` with `id:0` instead of the `anonymous` caller
 - Batch 3 (c): `protocol-dispatcher.ts` is far over the 700-line soft ceiling — facade split (tool catalogue, budget /
   spool, telemetry, graph readiness, per-tool handlers)
+- Batch 17 R2-MIN-1: browser capability check is all-or-nothing (a host with a partial method set loses every browser
+  tool); per-method honesty preferred when such a host appears
 - Batch 2f: an error thrown inside `execute_code` reaches the agent as "Code execution failed: Unknown error" (sandbox
   errors are not host-realm `instanceof Error`)
 - Batch 2f / 2e: `ptah_browser_content` HTML section is cut or omitted by the 32 KiB + 1 KiB override

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 23/29 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted)
+Total tasks: 111 | Batches: 60 | Complete: 23/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 0 complete)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,18 +2151,28 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                           | State                                        |
-| ---- | --------------------------------------- | --------------------------------- | -------------------------------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11, 11b, 16 COMPLETE; next 17 → 18 → 15 → 13 |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | done (12, 14 merged)                         |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | done (19 merged)                             |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                  | done (20a merged 1c2ad2f92)                  |
+| Lane | Worktree                                | Batches                                                                                    | State                                               |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13                                                          | 11, 11b, 16 COMPLETE; next 17 → 18 → 15 → 13        |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                    |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                         |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 IN_PROGRESS (to create; base = integration tip)  |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | 28a IN_PROGRESS (to create; base = integration tip) |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                 |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                  |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                    |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3             |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                              |
 
-Language support (Decision 18): design `implementation-plan-languages.md` under review; Batches 22-37 proposed,
-pending user approval. They are not part of the counter above until approved.
+Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
+section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
+decomposition notes D1-D10. Lane A still finishes 17 → 18 → 15 → 13, then 20.2 and 21, in this worktree. Next
+runnable now: **22 (H)** and **28a (P)**, in parallel with Lane A (file-disjoint). Hub batches 24b, 23b, 25b, 26a wait
+for Lane A 13; 24c and 27 wait for Lane A 21 (D1, D2). At most 3 CLI lanes at once, reviews included.
 
-Only the team-leader merges lanes B/C/D into this branch; lane executors never run git across worktrees. Batch
-states for lanes B/C/D stay as recorded below until their merge.
+Only the team-leader merges lanes into this branch; lane executors never run git across worktrees. Batch
+states for lanes stay as recorded below until their merge.
 
 ---
 
@@ -2495,7 +2505,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 17: ptah_browser_screenshot — jpeg q60 default; drop the duplicate re-encode — PENDING
+## Batch 17: ptah_browser_screenshot — jpeg q60 default; drop the duplicate re-encode — COMPLETE (commit 3f45c6483)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2504,7 +2514,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 1 | Depends on: Batch 16
 
-### Task 17.1: Default format and `onToolResult` summary — PENDING
+### Task 17.1: Default format and `onToolResult` summary — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/browser-namespace.builder.ts` (:276-286), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/browser-namespace.builder.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (:1152-1225), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (:1038-1058)
 - Plan reference: context.md User Decision 3; research/browser.md:130-155
@@ -2515,8 +2525,30 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ### Batch 17 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The review lane approves (r2 APPROVE 8/10; reviewer reassigned, see below)
+
+### Batch 17 record (Lane A)
+
+- Task 17.1 COMPLETE; details in `batch-17-executor-report.md` (initial + revision round 1)
+- Default capture is jpeg at quality 60, still returned inline as an `image` block (no saveTo suppression, no
+  auto-offload). An explicit png/webp/quality is honoured; png drops any quality unchecked; jpeg/webp quality must be
+  an integer 0-100. On success `onToolResult` receives a one-line summary of at most 299 chars (format, ~KB, saved
+  path with a middle ellipsis when long, control characters replaced) instead of the base64 markdown block
+- Also fixed: a host that registers a browser placeholder without the capability methods (the CLI) now gets the
+  not-available namespace instead of a TypeError
+- Deviation (accepted by r1): when no format is given, a `saveTo` extension (`.png`, `.jpg`/`.jpeg`, `.webp`) selects
+  the format so the bytes match the file name; otherwise jpeg/60 applies
+- Review history: r1 Codex REVISE 6/10 (S1: png + quality was rejected; M1: the summary could reach 389 chars) → r2
+  APPROVE 8/10 (`reviews/batch-17-code-logic-review-r{1,2}.md`). r2 was first sent to the r1 Codex session, which
+  failed twice with "Codex SDK Error: Failed to parse item" (a Codex adapter defect on large or special-character
+  command output); under the lane rules it was reassigned to an Antigravity CLI lane (same CLI side, different model
+  family), which produced the r2 verdict. The adapter defect is recorded as TASK_2026_562_4b1d Wave 4 item 6
+- Minor carried forward: R2-MIN-1, the browser capability check is all-or-nothing (a host with a partial method set
+  loses every browser tool); recorded in TASK_2026_561_9e57 Track B (B6)
+- Pre-commit verification (2026-09-26): vscode-lm-tools test/lint/typecheck `--skip-nx-cache` pass; `ptah-cli` /
+  `ptah-electron` typecheck pass; `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
+- Commit **3f45c6483**
 
 ---
 
@@ -2690,6 +2722,1227 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
 - The Codex review lane approves
+
+---
+
+## Language support (User Decisions 18-19) — Batches 22-38
+
+Added 2026-09-26 (team-leader Mode 1, append-only). Source of truth: `implementation-plan-languages.md` (revision 2 +
+r3 edits, approved by User Decision 19) and its three design reviews (`implementation-plan-languages-review.md`,
+`-review-r2.md`, `-review-r3.md`). 31 batches (the plan's 29, with 36 split into 36a/36b/36c — see decomposition note
+D5). Same review bar as Decision 17: cross-side review, 2 revise rounds, one bounded correction + a post-cap review,
+then the user. Every fix and every review finding gets a regression spec that fails before the fix (FB).
+
+Path prefixes used below (all absolute under `<WT>`):
+`PC` = `<WT>/libs/backend/platform-core/src`, `WI` = `<WT>/libs/backend/workspace-intelligence/src`,
+`MCP` = `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution`, `WIT` = `<WT>/libs/backend/workspace-intelligence/src/testing/mcp-contract`.
+
+### Common checks for every language batch
+
+- The batch's scoped command: `node_modules/.bin/nx run-many -t=test,lint,typecheck -p <owned projects> --skip-nx-cache 2>&1 | tail -40`
+- `node_modules/.bin/nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache`
+- `node_modules/.bin/nx run ptah-electron:validate-deps --skip-nx-cache` → "All external imports are covered". Tree-sitter
+  query text, messages and fixtures that contain `from "x"`, `import("x")`, bare `import "x"` or `require("x")` shapes
+  are built by concatenation (or lane D's `${FROM}`, `fixture-workspace.ts:88`) — see the Batch 9 note. This bites
+  Go (`import "fmt"`), Python (`from . import`), PHP (`require('x.php')`) and Ruby (`require 'x'`) queries and fixtures
+- `node_modules/.bin/nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300 (per-lib baselines unchanged)
+- `ptah-core-prompt.ts` (`libs/backend/agent-sdk/src/lib/prompt-harness/`) and `NATIVE_AGENT_TOOL_POLICY`
+  (`cli-adapter.utils.ts`) unchanged vs the batch base (Decision 4)
+- The FB spec is shown failing on the batch base (its last listed dependency merged into the integration branch) and
+  passing after; the evidence goes in the executor report
+- Budget rule (Decisions 2, 15): `coverage` goes after the Batch 9 status fields (`count`, `incomplete`,
+  `graphedFiles`, `discoveredFiles`) and before `file`, lists and hits
+
+### Lane plan (Decision 17 amended for Decisions 18-19)
+
+Worktrees live under `D:/projects/ptah-extension/.claude-worktrees/`. Each lane branch is `fix/task-559-lane-<x>`. Only
+the team-leader creates worktrees, merges and commits; lane executors never run git.
+
+Per-batch integration rule (needed for the FB-base definition): each approved batch is committed on its lane branch
+and merged `--no-ff` into `fix/task-559-mcp-tool-contract` in a quiet window, followed by the post-merge re-run
+(scoped test/lint/typecheck of every project the merge touched, ptah-cli/ptah-electron typecheck, validate-deps,
+degradation audit TOTAL 300). Before the next batch in the same lane starts, the team-leader merges the integration
+branch into the lane branch, so every batch starts on a base that has its dependencies.
+
+| Lane          | Worktree           | Batches (in order)                                                                                                                                                          | Author                                                          | Reviewer (other side)                 | Starts after                                                                                                  |
+| ------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| H (hub)       | `task-559-lane-h`  | 22 → 23a → 24a → ‖ Lane A 13 merged ‖ → 24b → 23b → 25a → 25b → 26a → ‖ Lane A 21 merged ‖ → 24c → ‖ 29a2 merged ‖ → 29b → ‖ 32b merged ‖ → 32c → ‖ 37a + 27 merged ‖ → 37b | Claude `backend-developer` subagent                             | Codex CLI lane                        | now (base = integration tip, a44e1ec04 or the Batch 17 commit if it lands first; 22 is file-disjoint from 17) |
+| P (packaging) | `task-559-lane-p`  | 28a → 28b                                                                                                                                                                   | Codex CLI lane                                                  | Claude `code-logic-reviewer` subagent | now (same base)                                                                                               |
+| E (Electron)  | `task-559-lane-e`  | 26b                                                                                                                                                                         | Antigravity CLI lane                                            | Claude `code-logic-reviewer` subagent | 26a merged (includes 23b)                                                                                     |
+| K (checker)   | `task-559-lane-k`  | 37a                                                                                                                                                                         | Claude `backend-developer` subagent                             | Codex CLI lane                        | O2 amendment reviewed AND 25a merged                                                                          |
+| T (harness)   | `task-559-lane-t`  | 27 → … → 38                                                                                                                                                                 | Claude `senior-tester` subagent                                 | Codex CLI lane                        | 27: 26b and 24c merged (whole honesty chain) and Lane A 21 merged; 38: every gate dependency merged           |
+| G (grammars)  | `task-559-lane-g`  | 29a1 → 29a2, later 30 → 31 → 30k (G1)                                                                                                                                       | Codex CLI lane (29a1, 29a2); Antigravity CLI lane (30, 31, 30k) | Claude `code-logic-reviewer` subagent | 29a1: 27 and 28a merged; 30: 29b merged; 30k: 31 merged AND Kotlin provenance record (O3) reviewer-checked    |
+| G2 (graphs)   | `task-559-lane-g2` | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                                                                                                  | Codex CLI lane                                                  | Claude `code-logic-reviewer` subagent | 32a: 29b AND 30 merged (note D3); 34: 30 merged (handoff of `java.language.ts`); 36a-c: 31 merged             |
+
+Concurrency (Decision 17, at most 3 CLI lanes at once; a Codex review lane counts): the orchestrator queues CLI work
+so the count never passes 3. Expected peaks and how they stay at 3:
+
+- Now: Lane A 17 Codex review (1) + P 28a Codex author (2) + H 22 Codex review when 22 returns (3). Lane A 18 → 15 →
+  13 reviews queue behind whichever Codex lane frees first.
+- After 26a: E 26b Antigravity (1) + H 24c Codex review (2) + K 37a Codex review (3); Lane A 20.2/21 reviews queue.
+- After 29b: G 30 Antigravity (1) + G2 32a Codex (2) + one Codex review (3). H 32c and K/H 37a/37b queue.
+
+Ownership handoffs (plan "Lanes"): G1 hands `java.language.ts` and `rust.language.ts` to G2 at the 30 merge and
+`php`/`ruby`/`cpp.language.ts` at the 31 merge; after a handoff G1 never edits those files. The grammar manifest
+`scripts/tree-sitter-grammars.json` `active` flags are edited only by H (29b) and G1 (30, 31, 30k), one batch at a time.
+`WIT/matrix/required-keys.ts` is written once (27); every activating batch **creates** its own
+`WIT/matrix/activations/<batch>.ts`.
+
+### Decomposition notes (stress test of the plan's batch list)
+
+- **D1 — Lane A hub overlap (resolved sequential).** Lane A's tail 17 → 18 → 15 → 13 edits `protocol-dispatcher.ts`
+  (17, 13), `mcp-response-formatter.ts` (18, 13) and `tool-description.builder.ts` (17, 15, 13); 17 is uncommitted in
+  this worktree right now. Language batches that touch those files — **23b, 25b, 26a** (dispatcher/formatter) and
+  **24c** (descriptions) — run in lane H only after Lane A's **13** is merged. **24b** also waits for 13: Batch 13's
+  `offset` plumbing needs `AgentNamespace.read` in `MCP/types.ts` (`types.ts:259`), which 24b also edits. Only
+  22 → 23a → 24a (no Lane A file) run in H before 13. The plan's H order (22 → 23a → 23b → 24a → 24b → …) is
+  re-sequenced to 22 → 23a → 24a → 24b → 23b → …; 24a and 24b depend only on 22, so no dependency is violated.
+  If 24a turns out to need `MCP/types.ts` (`AstNamespace` return types, `types.ts:1041`), it too waits for 13.
+- **D2 — Batch 21 pins vs 24c/27 (resolved sequential).** Lane A still owes 20.2 and 21 after 13. 21's sweep pins
+  the total `tools/list` JSON size (+5%) and per-tool description budgets, which 24c changes. 24c starts only after
+  21 merges and updates the sweep pin in the same batch when the regenerated descriptions exceed it (the sweep file is
+  then listed in 24c). 27 also starts only after 21 merges and carries the plan's "+H rows" (new shapes into the
+  sweep, new guards into the mandate manifest) itself: Lane A has finished by then, so there is no concurrent owner.
+- **D3 — 32a under-declared (resolved sequential; footprint corrected).** 32a's FB ("two inline Rust modules keep
+  separate scopePath") and its required fixtures (Rust inline modules, Java nested/static imports, C# nested
+  namespaces) need the Rust and Java grammars from 30, and the plan puts `declarationQuery`/`extractImports` in each
+  language module. 32a therefore depends on **30** as well as 29b, and its file list adds the five language modules
+  it extends (`python`, `go`, `csharp`, `java`, `rust`) — 9 files, 1 lib. `java`/`rust` are G2-owned after the 30
+  handoff, so there is no overlap with G1's 31.
+- **D4 — 37b needs the matrix (resolved sequential).** 37b creates `activations/b37b.ts`, which is only meaningful
+  (⊆ required keys, unique) once 27 has written `required-keys.ts`. 37b depends on 27 as well as 37a.
+- **D5 — 36 split (≤ 6 files where possible).** Plan 36 is 10 files. Each resolver is independent (resolver + spec +
+  language module + fragment = 4 files), so it becomes 36a PHP, 36b Ruby, 36c C/C++ in G2, each with its own fragment
+  (`b36a.ts`, `b36b.ts`, `b36c.ts`). Gate 38 requires all three. `required-keys.ts` is unchanged (owners are not
+  encoded in it). Other oversize batches keep the plan's justification: 24a (7; one field end to end), 29a1 (9; pure
+  move), 29b (12; exhaustive union + outliner record must land together, r2-4), 30 (9), 31 (10), 30k (10), 37b (≥ 6
+  - O2 files).
+- **D6 — 27 FB base.** The plan says "on base 22 the honesty keys fail", but 27's base is its last dependency (26b /
+  24c / 21), where the honesty fixes already exist, and 27 creates the harness. 27's FB is therefore a deliberate
+  local revert (the 20.x precedent): revert one honesty fix (e.g. 23b's unsupported answer, 25b's clean-answer rule)
+  and show the matching `honesty:<tool>` key failing, then restore. Evidence in the report.
+- **D7 — vendored-asset path.** The plan names `assets/tree-sitter/tree-sitter-kotlin.wasm`; no `assets/` directory
+  exists at `<WT>`. 28a's manifest must support a `vendored` row (repo-relative path + sha256 + licence file) and
+  `copy-wasm.js` must sha256-check it (plan "Security notes"), proven by a `--self-test` negative even though no
+  vendored row is active until 30k. 30k places the files at the path 28a's manifest defines.
+- **D8 — 22 barrels.** 22 owns the `PC/index.ts` and `WI/index.ts` barrel edits; later batches that add exported
+  symbols to the same barrels (23a `graph-coverage`, 25a provider, 37a runner) are all sequential behind 22 in
+  H/K, never concurrent with another barrel edit. Stated per batch.
+- **D9 — Hub-file disjointness check (parallel-marked pairs).** `tree-sitter.config.ts`: 22 (H) then 29a1 (G), serial.
+  `dependency-graph.service.ts`: 23a (H) then 32b (G2), serial via 29b. `ast.types.ts` + `languages/index.ts` +
+  `code-outliner.adapter.ts` + manifest: 29b (H) → 30 → 31 → 30k (G1), serial. `ast-analysis.service.ts`: 24a (H) then
+  32a (G2), serial. `tree-sitter-parser.service.ts`: 24a then 29a2, serial. `analysis-namespace.builders.ts`: 23b, 29b,
+  32c, all H. `register.ts` / `language-aware-diagnostics-provider.ts`: 25a then 37b, both H. Packaging scripts: P only
+  (28a, 28b); 30k touches the manifest only. Concurrent pairs that remain (G1 30/31/30k ‖ G2 32a-36c ‖ H 32c/37b ‖ K 37a
+  ‖ E 26b ‖ H 24c) were checked file by file and share no file.
+- **D10 — Open gates are not batches.** O2 (go vet enable/revoke surfaces for Electron and the CLI, their files and
+  tests) and O3 (Kotlin provenance: source URL, version, sha256, LICENSE text, load record) have no owner in the plan;
+  the orchestrator must assign them (see "Orchestrator decisions").
+
+### Plan validation (language batches)
+
+Status: PASSED WITH RISKS
+
+Assumptions:
+
+- The analysis namespace deps lack `fileSystemProvider`; 23b adds it through `ptah-api-builder.service.ts` —
+  unverified; Task 23b.1 checks the builder before editing (plan "Bounds")
+- All six `@vscode/tree-sitter-wasm` 0.3.1 grammars load in `web-tree-sitter` 0.27.0 — verified by two probes (plan
+  Summary 3); each grammar batch re-proves it in its real-grammar integration spec
+- The Kotlin WASM load probe is not reproducible from this checkout — unverified; gate O3 on 30k
+- `code-symbol-indexer.service.ts` is the sole writer of `code_symbols` (`:416`, `:482`) — verified by the plan;
+  24b re-checks with a grep and records it
+- Node names in the plan's query table are design, not proof — every grammar batch confirms them against the shipped
+  WASM (C# precedent `tree-sitter.config.ts:236-240`)
+
+| Risk                                                          | Severity | Mitigation                                                                       |
+| ------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| Hub contention with Lane A (17 → 18 → 15 → 13, then 20.2, 21) | HIGH     | D1/D2 ordering; per-batch merge windows; post-merge re-run                       |
+| Grammar memory (cpp ~20 MB, C# ~16 MB RSS)                    | HIGH     | 29a2 lazy per-language loading lands before any activation (30+)                 |
+| Large synchronous parse                                       | HIGH     | 29a2 1 MiB `too-large` refusal                                                   |
+| Polyglot graph build time / quadratic edges                   | HIGH     | 23a fair cap + limits; 32b per-import 200 / aggregate 250,000, disclosed         |
+| Approximate graph used as proof of absence                    | HIGH     | 26b per-query narrowing gate with its eight tests                                |
+| Wrong node names in queries                                   | HIGH     | real-grammar integration spec per grammar batch; fixed-key recall in fragments   |
+| Coverage lost at a boundary                                   | HIGH     | 25b e2e, 27 dispatcher coverage spec                                             |
+| Tier 1 trust (`go vet`)                                       | HIGH     | O2 gate, fail-closed consent, allowlisted env, hostile real-binary fixture (37a) |
+| validate-deps false MISSING from query/fixture strings        | MEDIUM   | common check; concatenation rule                                                 |
+| Index coverage vs live rows                                   | MEDIUM   | 24b live states + same-file overlap and 2,001st-update tests                     |
+| Installed size +11.5 MB (+3.4 MB Kotlin)                      | MEDIUM   | 28a/28b record real artifact deltas                                              |
+| CLI lane cap (3) exceeded at peaks                            | MEDIUM   | queueing table above                                                             |
+
+Edge cases (carried by the named task):
+
+- `.py` file in `ptah_get_dependents` → `unsupported-language`, not `count:0` — Task 23b.2
+- File outside the graph → `fileInGraph:false` + coverage — Task 23b.2
+- Vendor tree larger than the census limit sorted before real code → code still discovered — Task 23b.1
+- `.kt` reindex → `UnsupportedLanguageAnswer`, no delete, no count (until 30k activates Kotlin `codeIndex`) — Task 24b.2
+- Search during a run → `updating`; after an abort → `incomplete`; new host session → `census:'unknown'` — Task 24b.1
+- Scoped diagnostics with 51 syntax-only files → 1 `omittedByCap`; unscoped Python → `unchecked` — Task 25a.2
+- Mixed TS/Python repo never prints a bare "No issues found" — Task 25b.1
+- No-host LSP → `mechanism:'none'`, "not available on this host" — Task 26a.1
+- `.c`/`.h` → `cpp` with `c:parsed-as-cpp` approximation — Task 31.3, 36c
+- `getStorageForWorkspace(root)` → `undefined` → consent denied, no fallback — Task 37a.1 / 37b.2
+- Multi-root merge with a `null` count → `null` sum; `census`/`state` take the worst — Task 23b.2
+
+### Orchestrator decisions
+
+- O2 (gates 37a): assign an author for the short consent-surface amendment (software-architect is the natural
+  owner) and a cross-side reviewer. It can run any time before 25a merges so 37a is not idle-blocked
+- O3 (gates 30k): assign someone to produce the Kotlin provenance record (researcher-expert) before 31 completes
+- Defaults recorded here (execution preferences from the plan): lanes as in the table above; D1-D5 ordering; 36
+  split. If the orchestrator prefers the plan's literal 36 as one batch, merge 36a-c back and keep the single fragment
+  `b36.ts`; nothing else changes
+- **Decided by the orchestrator (2026-09-26):** keep the 36a/36b/36c split. O2 (consent-surface amendment) and O3
+  (Kotlin provenance record) are both written by the **software-architect** as prerequisite documents: O2 before 37a
+  starts, O3 before 30k starts. Each is cross-side reviewed before the batch it gates begins
+
+---
+
+## Batch 22: Coverage contract + language registry — IN_PROGRESS
+
+- Recommended executor: backend-developer (sub-agent), Lane H (`task-559-lane-h`)
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: type-only contract plus a registry with separate capabilities; two libs, six files, no hub file shared with Lane A
+- Review: Codex CLI lane (logic + structure)
+- Tasks: 2 | Depends on: none (base: integration tip; file-disjoint from uncommitted Batch 17)
+
+### Task 22.1: `LanguageCoverage` contract and barrel — IN_PROGRESS
+
+- Files: `PC/interfaces/language-coverage.interface.ts` (new), `PC/index.ts`
+- Plan reference: implementation-plan-languages.md "Coverage contract (Batch 22)", "Closed vocabularies", "Size", "Clean answer rule"
+- Pattern to follow: `PC/interfaces/diagnostics-provider.interface.ts` (type-only interface + barrel export)
+- Quality requirements: `Count`, `LanguageCoverage`, `UnsupportedLanguageAnswer`, `LanguageId` (12 ids; no `c`), `RecognisedLanguageId` (9), `FailureReason` (5), `Approximation` (priority-ordered), saturation constant 9,999,999, and a pure `isCleanAnswer(coverage)` helper implementing the five-condition rule. Type-only apart from constants and that pure helper (platform-core is `scope:shared,type:util`)
+- Validation notes: RISK size — worst case asserted ≤ 1,000 chars; the serialised worst-case fixture is committed and its measured length recorded (r3 finding 2: 920 measured, not a universal max). Approximation overflow keeps four by priority and discloses the rest via `approximationsOmitted`
+- Implementation details: one exported priority array drives the overflow rule; `unknown` census never clean
+
+### Task 22.2: Language registry with separate capabilities — IN_PROGRESS
+
+- Depends on: Task 22.1
+- Files: `WI/ast/language-registry.ts` (new), `WI/ast/language-registry.spec.ts` (new), `WI/ast/tree-sitter.config.ts`, `WI/index.ts`
+- Plan reference: "Coverage contract" → "Registry"
+- Pattern to follow: `WI/ast/tree-sitter.config.ts:4-15` (`EXTENSION_LANGUAGE_MAP`)
+- Quality requirements: each language `{ id, extensions, grammarFile | null, capabilities }` with `parse`, `outline`, `enrichSummary`, `codeIndex`, `publicSymbols`, `graphEdges`, `definitionFallback`, `syntaxDiagnostics` kept separate. Initial values: `codeIndex` js/ts/py/go/cs; `publicSymbols`/`graphEdges` js/ts only; `syntaxDiagnostics` py/go/cs. Recognised-unsupported extensions (swift, scala, dart, elixir, lua, haskell, clojure, objc, r) map to `RecognisedLanguageId`
+- Validation notes: FB — `language-registry.spec.ts` "worst-case coverage ≤ 1,000 chars" and "codeIndex and publicSymbols are separate" fail on the base (files absent / no registry). No behaviour change for existing callers
+- Implementation details: registry derives from the config maps so existing specs stay green unchanged; WI barrel exports the registry
+
+### Batch 22 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/platform-core @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- `nx run ptah-electron:validate-deps --skip-nx-cache` passes; `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300; other common checks
+- FB evidence in the report; the Codex review lane approves
+
+---
+
+## Batch 23a: Graph accounting, bounds, atomic publish — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: graph coverage must publish atomically with the graph under the generation guard; one lib, four files
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 22
+
+### Task 23a.1: `graph-coverage` accounting module — PENDING
+
+- Files: `WI/ast/graph-coverage.ts` (new), `WI/ast/graph-coverage.spec.ts` (new)
+- Plan reference: "Dependency graphs" → "Bounds"; "Coverage contract" → "Multi-root merge"
+- Pattern to follow: pure helpers in `WI/ast/tree-sitter.config.ts`
+- Quality requirements: eligible-only parse cap 5,000 round-robin per language in stable path order (`omittedByCap`); resolution counts (`external`, `unresolvedInternal`, `truncatedImports`, `edgeCapHit`, `context`); saturating sums; multi-root merge (null-poisoning, worst `census`/`state`, unions, OR/partial)
+- Validation notes: FB "cap does not starve the second language"
+- Implementation details: WI barrel export added only if a consumer outside `ast/` needs it (D8)
+
+### Task 23a.2: Publish coverage with the graph — PENDING
+
+- Depends on: Task 23a.1
+- Files: `WI/ast/dependency-graph.service.ts`, `WI/ast/dependency-graph.service.spec.ts`
+- Plan reference: "Atomicity"; codebase evidence `dependency-graph.service.ts:231, :238, :339-344, :435-451`
+- Pattern to follow: existing `publish()` generation guard
+- Quality requirements: aggregate edge cap 250,000 → `edgeCapHit:true` and linking stops; a superseded build publishes neither graph nor coverage; parse failures counted by reason; Batch 9/9b field meanings unchanged
+- Validation notes: FB "edge cap is disclosed", "superseded build publishes neither". Batch 9b background-build specs stay green unchanged
+- Implementation details: coverage stored beside the graph; getter returns both from one generation
+
+### Batch 23a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 24a: Parse status; ast sub-operations — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: one field (`parseStatus`) carried end to end from the parser to the MCP namespace; 7 files / 2 libs justified by the plan. Runs before Lane A 13 (no Lane A file) unless it needs `MCP/types.ts` (D1)
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 22
+
+### Task 24a.1: `parseStatus` in the parser and analysis service — PENDING
+
+- Files: `WI/ast/ast-analysis.interfaces.ts`, `WI/ast/tree-sitter-parser.service.ts`, `WI/ast/tree-sitter-parser.service.spec.ts`, `WI/ast/ast-analysis.service.ts`, `WI/ast/ast-analysis.service.spec.ts`
+- Plan reference: Inventory rows `ptah_ast_analyze`; "Extraction contract" (the 24a parse fields)
+- Pattern to follow: existing `CodeInsights` fields
+- Quality requirements: a tree with ERROR/MISSING nodes → `recovered` (never reported clean); clean → `ok`; counts of error nodes bounded
+- Validation notes: FB "recovered parse not reported clean" (a `.tsx` file with JSX parsed by the TS grammar)
+- Implementation details: status computed once per parse
+
+### Task 24a.2: `queryExports` without `publicSymbols` errors — PENDING
+
+- Depends on: Task 24a.1
+- Files: `MCP/namespace-builders/ast-namespace.builder.ts`, `MCP/namespace-builders/ast-namespace.builder.spec.ts`
+- Plan reference: codebase evidence `ast-namespace.builder.ts:170-183, :223-231`
+- Pattern to follow: the existing unsupported-language error at `ast-namespace.builder.ts:223-231`
+- Quality requirements: `ast.queryExports` on a language whose registry entry lacks `publicSymbols` returns an error naming the language and the supported set, not `[]`; `parseStatus` surfaced in the analyze result
+- Validation notes: FB "python queryExports is not a silent []". If the return type change needs `MCP/types.ts` (`AstNamespace`), stop and report: the batch then waits for Lane A 13 (D1)
+- Implementation details: capability read from the registry, not a hand list
+
+### Batch 24a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 24b: Code index live coverage — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: live state (`updating`/`current`/`incomplete`) instead of a last-run snapshot (r2-9, r3 edit 6). **Gate: Lane A Batch 13 merged** (shared `MCP/types.ts`, D1)
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 22, Lane A Batch 13 merged
+
+### Task 24b.1: Indexer accounting and live state — PENDING
+
+- Files: `WI/services/code-symbol-indexer.service.ts`, `WI/services/code-symbol-indexer.service.spec.ts`
+- Plan reference: "Code symbol tools (24b)"
+- Pattern to follow: existing run loop `code-symbol-indexer.service.ts:203-234`
+- Quality requirements: extensions from `codeIndex`; vendor + skip filters before the eligible-only 2,000 stop; buckets `analyzed`/`failed` by reason/`unsupported`/`omittedByCap`; `beginRun(root)` synchronous before any write (including from `startBackgroundRun`); success → `current`; abort/failure → `incomplete` until a successful run; per-file writes during a run folded into that run's accounting or the run ends `incomplete`; outside a run a per-file record (`Map<file,bucket>`, ≤ 2,000) never promotes `unknown`/`incomplete`; past 2,000 → `truncated`, disclosed; new host session → `census:'unknown'`, no `state`
+- Validation notes: FB "search during a run reports updating". Required tests: same-file overlap (per-file reindex racing a full-run write), 2,001st distinct per-file update, search after abort → `incomplete`. Re-verify by grep that the indexer is the only `code_symbols` writer and record it
+- Implementation details: no SQLite snapshot claim
+
+### Task 24b.2: Namespace shapes and unsupported answers — PENDING
+
+- Depends on: Task 24b.1
+- Files: `MCP/namespace-builders/code-namespace.builder.ts`, `MCP/namespace-builders/code-namespace.builder.spec.ts`, `MCP/types.ts`
+- Plan reference: "Code symbol tools" → "Shapes"
+- Pattern to follow: Batch 6 lazy-reindex fields in `code-namespace.builder.ts:184-220`
+- Quality requirements: search → `{ index, coverage, bm25Only, hits }` with coverage before hits; search with a `filePath` in an unsupported language or a reindex of an unsupported file → `UnsupportedLanguageAnswer`, no delete, no count; Python stays searchable while Python `queryExports` errors
+- Validation notes: FB "kt reindex is not filesScanned 1". Batch 6 fire-and-forget rule (no await of the full run) unchanged
+- Implementation details: `beginRun` called before `startBackgroundRun` returns
+
+### Batch 24b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 23b: Graph tools answer honestly; bounded discovery — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: dispatcher hub batch. **Gate: Lane A Batch 13 merged** (D1: `protocol-dispatcher.ts`)
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 23a, Batch 24b (lane order), Lane A Batch 13 merged
+
+### Task 23b.1: `discoverSourceFiles` with vendor excludes inside the walk — PENDING
+
+- Files: `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`, `MCP/types.ts`, `MCP/ptah-api-builder.service.ts`
+- Plan reference: "Bounds" (Discovery row); codebase evidence `core-namespace.builders.ts:149-159`, `file-system-provider.interface.ts:106-113`
+- Pattern to follow: `core-namespace.builders.ts:149-159` `findFiles` call
+- Quality requirements: `ptah.dependencies.discoverSourceFiles(root, limit)` → `findFiles(glob, [...DEFAULT_WORKSPACE_EXCLUDES, ...GRAPH_VENDOR_EXCLUDES], 50_001, root)`; the nine vendor globs; `census:'truncated'` at 50,001; `excluded:null`
+- Validation notes: ASSUMPTION — check `ptah-api-builder.service.ts` for `fileSystemProvider` in the analysis deps before editing. FB "vendor tree does not exhaust discovery"
+- Implementation details: recognised-unsupported extensions counted through the same bounded call
+
+### Task 23b.2: Dispatcher answers with coverage — PENDING
+
+- Depends on: Task 23b.1
+- Files: `MCP/mcp-core/protocol-dispatcher.ts`, `MCP/mcp-core/protocol-dispatcher.spec.ts`
+- Plan reference: Inventory rows `ptah_get_dependents`/`_dependencies`/`ptah_get_symbol_index`; "Placement"; "Multi-root merge"
+- Pattern to follow: Batch 9 field order at `protocol-dispatcher.ts:2005-2012`; `building`/`failed` handling `:2731-2761`
+- Quality requirements: `.py` (unsupported) → `unsupported-language` answer; `fileInGraph`; `coverage` after the Batch 9 status fields and before `file`/lists; symbol-index paginator carries coverage in its header; multi-root merge; discovery glob `:2679-2693` replaced by `discoverSourceFiles`
+- Validation notes: FB "dependents of a python file is not a silent empty list"; a very long path + oversized list keeps `coverage` inside the budget cut (Decision 15 pattern). No `from "<word>"` in messages
+- Implementation details: `building` stays success, `failed` stays error
+
+### Batch 23b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 25a: Diagnostics contract + language-aware provider — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: Tier 0 syntax-only checks behind the floor-rule amendment; wraps the TS provider once at the registration point
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batches 22, 23a, 23b (bounded `discoverSourceFiles`)
+
+### Task 25a.1: Contract amendment — PENDING
+
+- Files: `PC/interfaces/diagnostics-provider.interface.ts`, `PC/testing/contracts/run-diagnostics-provider-contract.ts`
+- Plan reference: "Diagnostics" → "25a contract"
+- Pattern to follow: Batch 19 contract case in the same file
+- Quality requirements: `coverage` on both arms; floor rule governs type-check claims only; syntax-only languages named in `checks`/`approximations`; contract case "syntax-only is not a type-check claim"
+- Validation notes: FB is that contract case (fails on base: no syntax-only concept)
+- Implementation details: existing providers remain contract-compliant (coverage optional where the provider cannot know)
+
+### Task 25a.2: `LanguageAwareDiagnosticsProvider` — PENDING
+
+- Depends on: Task 25a.1
+- Files: `WI/diagnostics/language-aware-diagnostics-provider.ts` (new), `WI/diagnostics/language-aware-diagnostics-provider.spec.ts` (new), `WI/di/register.ts`
+- Plan reference: "25a provider"; codebase evidence `register.ts:80-93`, `type-script-diagnostics-provider.ts:504-508`
+- Pattern to follow: registration at `WI/di/register.ts:80-93` (function name kept)
+- Quality requirements: scoped TS/JS → TS provider (`analyzed:null`, type-check); other grammar languages → syntax check ≤ 50 files (51+ `omittedByCap`), ≤ 1 MiB/file, ≤ 20 ERROR/MISSING per file; unscoped → no syntax scan, syntax-capable files `unchecked` with "pass files", others `unsupported`; census from the graph build if present else one bounded `discoverSourceFiles`, cached per root and dropped by `invalidate`; no tsconfig → `unavailable` with coverage
+- Validation notes: edge cases 51 files → 1 omitted; unscoped Python → `unchecked`. Batch 19 lanes and `withBudget` behaviour untouched. WI barrel export only if needed (D8)
+- Implementation details: nothing spawned (Tier 0)
+
+### Batch 25a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/platform-core @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 25b: Diagnostics forwarding + end-to-end — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: formatter hub (D1: after Lane A 13); the e2e spec proves coverage survives every boundary
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 25a
+
+### Task 25b.1: Forward coverage; clean-answer rendering — PENDING
+
+- Files: `MCP/namespace-builders/core-namespace.builders.ts`, `MCP/namespace-builders/core-namespace.builders.spec.ts`, `MCP/types.ts`, `MCP/mcp-core/mcp-response-formatter.ts`, `MCP/mcp-core/mcp-response-formatter.spec.ts`
+- Plan reference: "25b forwarding and rendering"; codebase evidence `core-namespace.builders.ts:225-231, :254-259`, `mcp-response-formatter.ts:515-520`
+- Pattern to follow: Batch 1 requested-file ordering in the formatter
+- Quality requirements: `DiagnosticsPayload.coverage` forwarded on both arms; bare "No issues found" only under the clean-answer rule; VS Code `provider-defined`, `analyzed:null`
+- Validation notes: FB "mixed repo never prints a bare No issues found". Diagnostics stay `preformatted` (not reduced; Batch 2e)
+- Implementation details: qualifier text names the qualifier
+
+### Task 25b.2: End-to-end spec — PENDING
+
+- Depends on: Task 25b.1
+- Files: `MCP/mcp-core/diagnostics-coverage.e2e.spec.ts` (new)
+- Plan reference: "25b" end-to-end spec
+- Pattern to follow: `protocol-dispatcher.spec.ts` fake `PtahAPI` setup
+- Quality requirements: real provider (fake inner TS provider) → real namespace → real dispatcher → formatter on a mixed TS/Python workspace; cases empty, non-empty, `getErrors`, long result through the budget, Batch 1 requested-file order
+- Validation notes: builds fixtures without `import "x"` shapes (validate-deps)
+- Implementation details: temp-dir fixture, cleaned up
+
+### Batch 25b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 26a: LSP report contract + forwarding — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: dispatcher + formatter hub (D1); gives 26b the report shape to implement
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 25b
+
+### Task 26a.1: Report methods on the IDE capability contract — PENDING
+
+- Files: `MCP/namespace-builders/ide-namespace.builder.ts`, `MCP/namespace-builders/ide-namespace.builder.spec.ts`, `MCP/types.ts`
+- Plan reference: "LSP honesty" → 26a; codebase evidence `ide-namespace.builder.ts:42-56, :214-222, :345-352`
+- Pattern to follow: existing optional capability methods
+- Quality requirements: optional `getDefinitionReport?`/`getReferencesReport?` → `{ locations, mechanism, language, languageSupported, approximations, truncated? }`; `LSPNamespace` forwards both, preferring the report; array APIs stay; no host → `mechanism:'none'`
+- Validation notes: FB "no-host definitions are not Found: 0"
+- Implementation details: none beyond the plan
+
+### Task 26a.2: Dispatcher and formatter rendering — PENDING
+
+- Depends on: Task 26a.1
+- Files: `MCP/mcp-core/protocol-dispatcher.ts`, `MCP/mcp-core/protocol-dispatcher.spec.ts`, `MCP/mcp-core/mcp-response-formatter.ts`
+- Plan reference: 26a
+- Pattern to follow: Batch 8 LSP rendering
+- Quality requirements: `mechanism:'none'` renders "not available on this host"; mechanism and approximations shown before locations
+- Validation notes: no `from "<word>"` in messages
+- Implementation details: specs in `protocol-dispatcher.spec.ts`
+
+### Batch 26a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 26b: Electron report, C# fallback, narrowing gate — PENDING
+
+- Recommended executor: Antigravity CLI lane, Lane E (`task-559-lane-e`, branched after 26a merges)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential (one app file + its spec; runs concurrently with H 24c and K 37a — no shared file)
+- Rationale: one Electron file with a self-contained contract from 26a; good fit for a single CLI lane prompt
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batches 26a, 23b
+
+### Task 26b.1: Report methods; scan extensions; C# fallback — PENDING
+
+- Files: `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.ts`, `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`
+- Plan reference: "LSP honesty" → 26b; codebase evidence `Electron:72-93, :153, :459-460, :632-667, :683-685`
+- Pattern to follow: Batch 8 fallback in the same file
+- Quality requirements: implement both report methods; scan extensions from all recognised source extensions (registry); C# `DECLARATION_QUERIES`/`COMMENT_STRING_QUERIES`; `definitionFallback` for C# set only when the real-grammar spec passes; brute-scan caps reported as `truncated`
+- Validation notes: node names proven against the shipped C# WASM
+- Implementation details: none beyond the plan
+
+### Task 26b.2: Per-query narrowing gate — PENDING
+
+- Depends on: Task 26b.1
+- Files: same two files
+- Plan reference: 26b "Narrowing gate"
+- Pattern to follow: n/a
+- Quality requirements: narrow only when every census language has `referenceScopeComplete:true`, graph coverage passes the clean-answer rule incl. `resolution`, and the declaration files are in the graph; otherwise brute scan with `text-scan`
+- Validation notes: FB "complete-census graph with edgeCapHit is not used to narrow". Required tests: complete census with `edgeCapHit`; TS declaration imported by a Python file; vendor tree beyond the census limit sorted first; C# same-namespace references; Java same-package references; capped graph; Kotlin scan; no-host CLI
+- Implementation details: none beyond the plan
+
+### Batch 26b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-electron --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 24c: Registry-generated descriptions — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: `tool-description.builder.ts` hub (D1); **gate: Lane A Batch 21 merged** (D2: sweep pins)
+- Review: Codex CLI lane
+- Tasks: 1 | Depends on: Batch 26a, Lane A Batches 13 and 21 merged
+
+### Task 24c.1: `languagesNote(capability)` in per-tool descriptions — PENDING
+
+- Files: `MCP/mcp-core/tool-description.builder.ts`, `MCP/mcp-core/tool-description.builder.spec.ts`; conditional: `MCP/mcp-core/mcp-contract.sweep.spec.ts` (only to re-measure the pinned `tools/list` size, with date, if the new text exceeds it)
+- Plan reference: "Descriptions (24c)"
+- Pattern to follow: Batch 16 growth guard; `tool-description.builder.spec.ts:25`
+- Quality requirements: each language-bound tool's language list is generated from the registry; descriptions distinguish the SQLite code index from the graph export index and name the host mechanisms. Per-tool descriptions only (Decision 4)
+- Validation notes: FB "description language list equals registry". Shared prompt constants unchanged
+- Implementation details: per-tool description budgets from 21.1 still hold
+
+### Batch 24c verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 27: Harness H3 — polyglot fixtures, fixed keys, honesty contract — PENDING
+
+- Recommended executor: senior-tester (sub-agent), Lane T (`task-559-lane-t`)
+- Fallback executor: backend-developer
+- Execution mode: sequential
+- Rationale: the fixed Decision 18/19 key set and the honesty keys; later batches only add fragment files. Plan "+H rows" for 21's specs carried here (D2)
+- Review: Codex CLI lane
+- Tasks: 3 | Depends on: Batch 20.1 (merged), the whole honesty chain 22, 23a, 23b, 24a, 24b, 24c, 25a, 25b, 26a, 26b; Lane A Batch 21 merged
+
+### Task 27.1: Polyglot fixtures — PENDING
+
+- Files: `WIT/polyglot-fixtures.ts` (new)
+- Plan reference: "Harness" → "Fixtures"
+- Pattern to follow: `WIT/fixture-workspace.ts` (lane D API; not edited)
+- Quality requirements: `PolyglotKnownEdge extends KnownEdge { granularity }`; sets python-app, go-csharp, java-rust (+ Kotlin files for 30k), ts-python-monorepo, no-grammar (`.ex`, `.swift`), php-ruby-cpp (real `.c` and `.h` that `#include` each other + a `.cpp`); bounds fixtures: 300-file namespace, 80 manifests, vendor tree beyond the census limit, superseded build; deterministic; cleans up
+- Validation notes: import/require shapes built by concatenation
+- Implementation details: none beyond the plan
+
+### Task 27.2: Required keys, baseline fragment, honesty contract spec — PENDING
+
+- Depends on: Task 27.1
+- Files: `WIT/matrix/required-keys.ts` (new), `WIT/matrix/activations/b27-baseline.ts` (new), `WIT/language-honesty.contract.spec.ts` (new)
+- Plan reference: "Fixed keys", "Activation fragments", "Required keys" table
+- Pattern to follow: n/a
+- Quality requirements: every key enumerated; `SELECTED_OPTIONS = { kotlin: 'vendored', c: 'via-cpp', checkers: 'go-vet-opt-in', buildCheckers: 'none', extraGraphs: 'include' }`; exact key count + sorted snapshot (ten literal honesty keys, no `graphEdges:kotlin`); fragments discovered via `fs`; asserts fragment ⊆ required, no key in two fragments, 100% recall with declared approximations only, registry grants each activated capability, non-activated keys meet the tool's unsupported contract, any empty answer without coverage fails. Baseline fragment activates the ten honesty keys and `syntaxDiagnostics` python/go/csharp
+- Validation notes: FB per D6 — deliberate local revert of one honesty fix fails its key (shown, then restored)
+- Implementation details: each honesty key asserted against that tool's own contract (ast error; enrich full content + reason)
+
+### Task 27.3: Dispatcher coverage spec; 21 reconciliation — PENDING
+
+- Depends on: Task 27.2
+- Files: `MCP/mcp-core/mcp-language-coverage.spec.ts` (new), `MCP/mcp-core/mcp-contract.sweep.spec.ts`, `MCP/mcp-core/mcp-mandate-manifest.spec.ts`
+- Plan reference: "Dispatcher spec"; "H reconciles 21.1/21.2"
+- Pattern to follow: 21.1 sweep setup
+- Quality requirements: new shapes through the reducer/budget path with raw spool equality; `building`, `failed` and partial shapes stay ordered; new shapes in the sweep; new guards in the mandate manifest; 26b becomes the host guard for `ptah_lsp_references` (its exemption removed)
+- Validation notes: 21's pins are only extended, not loosened
+- Implementation details: none beyond the plan
+
+### Batch 27 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB (D6) evidence; Codex review approves
+
+---
+
+## Batch 28a: Grammar manifest — IN_PROGRESS
+
+- Recommended executor: Codex CLI lane, Lane P (`task-559-lane-p`)
+- Fallback executor: devops-engineer (sub-agent)
+- Execution mode: sequential (runs now, in parallel with H and Lane A: packaging scripts only, no source file)
+- Rationale: one manifest replaces three hand lists; activates nothing
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: none
+
+### Task 28a.1: Manifest and `copy-wasm.js` — IN_PROGRESS
+
+- Files: `<WT>/scripts/tree-sitter-grammars.json` (new), `<WT>/scripts/copy-wasm.js`
+- Plan reference: codebase evidence "Packaging lists"; "Security notes"; "Grammar sources"
+- Pattern to follow: `scripts/copy-wasm.js:38-65`
+- Quality requirements: runtime row + grammar rows with `active`; the five current grammars active; tsx/java/rust/php/ruby/cpp rows present, inactive; a `vendored` row kind (repo-relative path, sha256, licence file) with sha256 check that fails the build on mismatch (D7); `--self-test` negatives
+- Validation notes: output of `copy-wasm.js` for Electron and VSIX unchanged for active rows (compare the copied file list before/after)
+- Implementation details: no new dependency
+
+### Task 28a.2: Packed verifiers and CI self-test — IN_PROGRESS
+
+- Depends on: Task 28a.1
+- Files: `<WT>/apps/ptah-electron/scripts/verify-packed-wasm.js`, `<WT>/apps/ptah-cli/scripts/verify-packed-wasm.cjs`, `<WT>/.github/workflows/publish-cli.yml`
+- Plan reference: codebase evidence (Electron verify `:31-36` lacks py/go; CLI verify `:37-44`; `publish-cli.yml:362-363, :381`)
+- Pattern to follow: existing verifier structure
+- Quality requirements: both verifiers read the manifest's active rows; `--self-test` negatives run in CI
+- Validation notes: FB "Electron asar without python passes today" (shown with the old verifier on a crafted fixture)
+- Implementation details: none beyond the plan
+
+### Batch 28a verification
+
+- `node scripts/copy-wasm.js --self-test`, `node apps/ptah-electron/scripts/verify-packed-wasm.js --self-test`, `node apps/ptah-cli/scripts/verify-packed-wasm.cjs --self-test` pass (tail only)
+- `node_modules/.bin/nx run-many -t=lint,typecheck -p ptah-electron ptah-cli --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 28b: VSIX packed check — PENDING
+
+- Recommended executor: Codex CLI lane, Lane P
+- Fallback executor: devops-engineer (sub-agent)
+- Execution mode: sequential
+- Rationale: the VSIX has no packed-grammar check today
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batch 28a
+
+### Task 28b.1: `verify-packed-wasm.cjs` after `package` — PENDING
+
+- Files: `<WT>/apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs` (new; the `scripts/` dir does not exist yet), `<WT>/apps/ptah-extension-vscode/project.json`
+- Plan reference: codebase evidence `apps/ptah-extension-vscode/project.json:118-122`
+- Pattern to follow: `apps/ptah-cli/scripts/verify-packed-wasm.cjs`
+- Quality requirements: runs after `package` on the real `.vsix` (zip listing), checks every manifest-active grammar; `--self-test`
+- Validation notes: FB "missing grammar in .vsix passes today"
+- Implementation details: real artifact size delta recorded in the report
+
+### Batch 28b verification
+
+- `node apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs --self-test` passes; one real `nx run ptah-extension-vscode:package` + verify run recorded (tail only)
+- `node_modules/.bin/nx run-many -t=lint -p ptah-extension-vscode --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- The Claude reviewer approves
+
+---
+
+## Batch 29a1: Language modules (pure move) — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G (`task-559-lane-g`)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: 9 files / 1 lib, justified as a pure move; existing specs green unchanged
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batches 27, 28a
+
+### Task 29a1.1: Move entries and queries to `languages/<id>.language.ts` — PENDING
+
+- Files: `WI/ast/languages/typescript.language.ts`, `…/javascript.language.ts`, `…/python.language.ts`, `…/go.language.ts`, `…/csharp.language.ts`, `…/index.ts`, `…/types.ts` (all new under `WI/ast/languages/`), `WI/ast/tree-sitter.config.ts`, `WI/ast/language-registry.ts`
+- Plan reference: "Grammars and queries" → 29a1
+- Pattern to follow: current entries in `tree-sitter.config.ts:365-398`
+- Quality requirements: byte-identical queries; `tree-sitter.config.ts` becomes the assembly; the registry reads the modules
+- Validation notes: FB n/a (refactor) — existing specs green unchanged is the proof; show `git diff --stat` of spec files is empty
+- Implementation details: query strings keep validate-deps-safe shapes
+
+### Batch 29a1 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- The Claude reviewer approves
+
+---
+
+## Batch 29a2: Lazy isolated grammar loading — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: memory and isolation must precede any activation (risk table)
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batch 29a1
+
+### Task 29a2.1: Per-language latch; too-large refusal — PENDING
+
+- Files: `WI/ast/tree-sitter-parser.service.ts`, `WI/ast/tree-sitter-parser.service.spec.ts`
+- Plan reference: 29a2; codebase evidence `tree-sitter-parser.service.ts:113-149`
+- Pattern to follow: existing `initialize()`
+- Quality requirements: runtime at `initialize()`; each grammar on first use behind a per-language latch; failure → `failed.grammar-unavailable` for that language only; > 1 MiB → `failed.too-large`
+- Validation notes: FB "a failing grammar does not disable the others". 24a `parseStatus` behaviour unchanged
+- Implementation details: concurrent first uses share one load
+
+### Task 29a2.2: Manifest ↔ registry spec — PENDING
+
+- Depends on: Task 29a2.1
+- Files: `WI/ast/grammar-manifest.spec.ts` (new)
+- Plan reference: 29a2
+- Pattern to follow: `fs` reads in lane D specs
+- Quality requirements: registry grammars equal the manifest's `active` grammar rows
+- Validation notes: reads `<WT>/scripts/tree-sitter-grammars.json` via `fs`
+- Implementation details: none
+
+### Batch 29a2 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 29b: tsx, atomic — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: 12 files / 2 libs justified (r2-4): exhaustive union + outliner record + enrichment + namespace + manifest + fragment must land in one commit
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batch 29a2
+
+### Task 29b.1: `tsx` id, module, outliner, manifest, fragment — PENDING
+
+- Files: `WI/ast/ast.types.ts`, `WI/ast/languages/tsx.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/tsx-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`, `WIT/matrix/activations/b29b.ts` (new)
+- Plan reference: 29b; "Required keys" (parse/outline/codeIndex/enrichSummary: tsx)
+- Pattern to follow: `WI/ast/csharp-grammar.integration.spec.ts`
+- Quality requirements: `SupportedLanguage` gains `tsx`; `OUTLINE_QUERIES.tsx`; manifest `active:true`; fragment lists only keys proven here
+- Validation notes: FB "tsx outline not refused"; new keys fail on base 29a2. Host typechecks (ptah-cli, ptah-electron) green in the same commit
+- Implementation details: none beyond the plan
+
+### Task 29b.2: Enrichment gate and namespace alias removal — PENDING
+
+- Depends on: Task 29b.1
+- Files: `WI/context-analysis/context-enrichment.service.ts`, `WI/context-analysis/context-enrichment.service.spec.ts`, `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`
+- Plan reference: 29b; codebase evidence `context-enrichment.service.ts:155-159`, `analysis-namespace.builders.ts:84-137`
+- Pattern to follow: Batch 7 refusals (Decision 13)
+- Quality requirements: gate reads `enrichSummary`; `.tsx` alias/refusal deleted; Decision 13 refusals kept; TSX declaration-only file summarises; TSX with JSX runtime falls back with its reason; explicit and inferred language agree; MCP enrich/outline via the real dispatcher
+- Validation notes: FB "tsx declaration file summarises"
+- Implementation details: none beyond the plan
+
+### Batch 29b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 30: Java + Rust grammars — PENDING
+
+- Recommended executor: Antigravity CLI lane, Lane G (G1 phase)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: activation unit, 9 files / 2 libs justified (union + outliner record)
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batch 29b
+
+### Task 30.1: Java — PENDING
+
+- Files: `WI/ast/ast.types.ts`, `WI/ast/languages/java.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/java-rust-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`
+- Plan reference: query table (java row); "Required keys" (parse/outline/codeIndex/syntaxDiagnostics: java)
+- Pattern to follow: `WI/ast/languages/tsx.language.ts` (29b)
+- Quality requirements: node names proven against the shipped WASM
+- Validation notes: new keys fail on base 29b
+- Implementation details: `graphEdges`/`publicSymbols` stay off (34 owns them)
+
+### Task 30.2: Rust and the fragment — PENDING
+
+- Depends on: Task 30.1
+- Files: `WI/ast/languages/rust.language.ts` (new), same shared files as 30.1, `WIT/matrix/activations/b30.ts` (new)
+- Plan reference: query table (rust row)
+- Pattern to follow: Task 30.1
+- Quality requirements: fragment lists parse/outline/codeIndex/syntaxDiagnostics for java and rust only
+- Validation notes: after merge, `java.language.ts` and `rust.language.ts` are handed to G2
+- Implementation details: none
+
+### Batch 30 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 31: PHP, Ruby, C++ grammars (`.c/.h` via cpp) — PENDING
+
+- Recommended executor: Antigravity CLI lane, Lane G (G1)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: as 30; 10 files / 2 libs justified
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 3 | Depends on: Batch 30
+
+### Task 31.1: PHP — PENDING
+
+- Files: `WI/ast/ast.types.ts`, `WI/ast/languages/php.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/php-ruby-cpp-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`
+- Plan reference: query table (php row)
+- Pattern to follow: Batch 30
+- Quality requirements: include/require queries validate-deps safe
+- Validation notes: keys fail on base 30
+- Implementation details: none
+
+### Task 31.2: Ruby — PENDING
+
+- Depends on: Task 31.1
+- Files: `WI/ast/languages/ruby.language.ts` (new) + the shared files of 31.1
+- Plan reference: query table (ruby row; `#match?` on `require`/`require_relative`)
+- Pattern to follow: Task 31.1
+- Quality requirements: predicate text contains no `require("` shape
+- Validation notes: none
+- Implementation details: none
+
+### Task 31.3: C++ with `.c`/`.h`, and the fragment — PENDING
+
+- Depends on: Task 31.2
+- Files: `WI/ast/languages/cpp.language.ts` (new) + the shared files of 31.1, `WIT/matrix/activations/b31.ts` (new)
+- Plan reference: query table (cpp row); Decision 19 (`c:parsed-as-cpp`)
+- Pattern to follow: Task 31.1
+- Quality requirements: `.c`, `.h`, `.cpp` extensions → `cpp`; `c:parsed-as-cpp` approximation; cpp keys proven on real `.c`, `.h` and `.cpp` fixtures; C that fails to parse → `failed.parse`
+- Validation notes: after merge, php/ruby/cpp modules are handed to G2
+- Implementation details: none
+
+### Batch 31 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 30k: Kotlin grammar (vendored, required) — PENDING
+
+- Recommended executor: Antigravity CLI lane, Lane G (G1)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: required by Decision 19. **Batch gate (O3): the Kotlin provenance record — source URL, version (`@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0), sha256, LICENSE text, load record — is attached to the task folder and re-checked by the reviewer BEFORE the batch starts**
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batch 31, O3 provenance gate
+
+### Task 30k.1: Vendored asset + manifest row — PENDING
+
+- Files: `<WT>/assets/tree-sitter/tree-sitter-kotlin.wasm` (new; path per the 28a manifest, D7), `<WT>/assets/tree-sitter/LICENSE-tree-sitter-kotlin` (new), `<WT>/scripts/tree-sitter-grammars.json`
+- Plan reference: "Grammar sources" (Kotlin row); "Security notes"
+- Pattern to follow: the 28a `vendored` row kind
+- Quality requirements: sha256 in the manifest equals the provenance record; `copy-wasm.js` verifies it; mismatch fails the build
+- Validation notes: the file is binary — confirm `.gitattributes` treats `.wasm` as binary
+- Implementation details: real artifact delta (+~3.4 MB raw) recorded
+
+### Task 30k.2: Module, outliner, integration spec, fragment — PENDING
+
+- Depends on: Task 30k.1
+- Files: `WI/ast/ast.types.ts`, `WI/ast/languages/kotlin.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/kotlin-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `WIT/matrix/activations/b30k.ts` (new)
+- Plan reference: query table (kotlin row); "Required keys" (parse/outline/codeIndex/syntaxDiagnostics: kotlin; no graph key)
+- Pattern to follow: Batch 30
+- Quality requirements: loads under web-tree-sitter 0.27 (ABI 14); node names proven
+- Validation notes: kotlin keys fail on base 31; 24b's `.kt` unsupported answer becomes a real index answer (24b spec updated to a still-unsupported extension)
+- Implementation details: none
+
+### Batch 30k verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes; `node scripts/copy-wasm.js --self-test` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- Provenance re-checked by the reviewer; FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 32a: Extraction contract — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2 (`task-559-lane-g2`)
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: `ImportInfo`/`declarations` contract with range-containment `scopePath`. Footprint corrected per D3 (9 files / 1 lib)
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batches 29b, 30 (D3)
+
+### Task 32a.1: Contract and service — PENDING
+
+- Files: `WI/ast/ast-analysis.interfaces.ts`, `WI/ast/ast-analysis.service.ts`, `WI/ast/ast-analysis.service.spec.ts`, `WI/ast/languages/types.ts`
+- Plan reference: "Extraction contract (32a)"; codebase evidence `ast-analysis.service.ts:83-95, :300-301, :320-420`
+- Pattern to follow: existing `queryMulti` entry list
+- Quality requirements: `ImportInfo.kind` (9 kinds), `relativeLevel`, `alias`, full `importedSymbols`, `line`, `scopePath`; `CodeInsights.declarations`; `declarationQuery` runs as an extra entry of the same `queryMulti` call; TS/JS output byte-identical
+- Validation notes: existing TS/JS specs unchanged
+- Implementation details: C# nested namespaces concatenate; Rust inline modules nest; file-scoped namespaces cover the rest of the file
+
+### Task 32a.2: Per-language declaration queries and fixtures — PENDING
+
+- Depends on: Task 32a.1
+- Files: `WI/ast/languages/python.language.ts`, `…/go.language.ts`, `…/csharp.language.ts`, `…/java.language.ts`, `…/rust.language.ts` (all G2-owned after the 30 handoff)
+- Plan reference: "Required fixtures"
+- Pattern to follow: Task 32a.1
+- Quality requirements: fixtures — Rust two inline modules with different `self::`/`super::` resolution; nested C# namespaces, `using static`, alias, `global using`; Java nested-type and static imports; Python multi-name and multi-level relative; Go grouped and raw-string; Rust grouped `use {a, b::c}`
+- Validation notes: FB "two inline Rust modules keep separate scopePath". Go/Python fixture strings built by concatenation (validate-deps)
+- Implementation details: capabilities flags unchanged here (33-36 set them)
+
+### Batch 32a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 32b: Resolver seam, context, bounds — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: resolver dispatch on the importing file's language; per-import and aggregate limits
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batch 32a
+
+### Task 32b.1: `ImportResolver` seam and TS/JS resolver — PENDING
+
+- Files: `WI/ast/import-resolution/import-resolver.ts` (new), `WI/ast/import-resolution/ts-js-import-resolver.ts` (new)
+- Plan reference: "Resolver dispatch (32b)"; TS/JS resolution row
+- Pattern to follow: current resolution at `dependency-graph.service.ts:406-414, :815-841`
+- Quality requirements: `resolve(imp, fromFile, ctx) → { kind, targets, truncated? }`; TS/JS today's behaviour + tsconfig `paths` from the root `tsconfig*.json`
+- Validation notes: FB "tsconfig alias resolves on the MCP path"
+- Implementation details: case rule (exact first; unique case-fold → `case-folded`; ambiguous → `unresolved-internal`)
+
+### Task 32b.2: `ResolverContext`, bounds, graph dispatch — PENDING
+
+- Depends on: Task 32b.1
+- Files: `WI/ast/import-resolution/resolver-context.ts` (new), `WI/ast/import-resolution/resolver-context.spec.ts` (new), `WI/ast/dependency-graph.service.ts`, `WI/ast/dependency-graph.service.spec.ts`
+- Plan reference: "Bounds" table (manifests, per-import 200, aggregate 250,000)
+- Pattern to follow: 23a generation guard
+- Quality requirements: context built once per build, generation checks, yields between reads; manifests ≤ 64 files, ≤ 256 KiB each, ≤ 2 MiB total, realpath inside root, text only → else `context:'partial'`; linking yields and re-checks generation inside multi-target expansion
+- Validation notes: cancellation mid-expansion test; limits disclosed
+- Implementation details: none beyond the plan
+
+### Batch 32b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 32c: Drop the dead tsconfig parameter — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: the resolver context reads tsconfig itself now; H owns the namespace builder
+- Review: Codex CLI lane
+- Tasks: 1 | Depends on: Batch 32b
+
+### Task 32c.1: Remove the unused parameter — PENDING
+
+- Files: `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`
+- Plan reference: codebase evidence `analysis-namespace.builders.ts:453`
+- Pattern to follow: n/a
+- Quality requirements: no behaviour change; `ptah_lsp_references` on graph callers still gets tsconfig aliases via 32b
+- Validation notes: FB n/a; use `ptah_lsp_references` before the removal (Working rules)
+- Implementation details: none
+
+### Batch 32c verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- Codex review approves
+
+---
+
+## Batch 33: Python + Go graphs — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: first non-JS resolvers; 7 files / 1 lib
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batches 32b, 27
+
+### Task 33.1: Python resolver — PENDING
+
+- Files: `WI/ast/import-resolution/python-import-resolver.ts` (new), `…/python-import-resolver.spec.ts` (new), `WI/ast/languages/python.language.ts`
+- Plan reference: resolution table (Python row)
+- Pattern to follow: `ts-js-import-resolver.ts`
+- Quality requirements: relative (`relativeLevel`-1 up), source roots (root, `src/`, pyproject package-dir/packages), `a/b.py` / `a/b/__init__.py`, `from a.b import c` preference, first-segment miss → external; `graphEdges { granularity:'file', referenceScopeComplete:false }`, `publicSymbols` on
+- Validation notes: keys fail on base 32b
+- Implementation details: pyproject read text-only, bounded
+
+### Task 33.2: Go resolver and the fragment — PENDING
+
+- Depends on: Task 33.1
+- Files: `WI/ast/import-resolution/go-import-resolver.ts` (new), `…/go-import-resolver.spec.ts` (new), `WI/ast/languages/go.language.ts`, `WIT/matrix/activations/b33.ts` (new)
+- Plan reference: resolution table (Go row)
+- Pattern to follow: Task 33.1
+- Quality requirements: `go.mod` module prefix; `go.work` `use`; local `replace` only; package edges to every non-`_test.go` file; `go:package-edges`
+- Validation notes: Go fixture `import "x"` shapes by concatenation
+- Implementation details: fragment: publicSymbols/graphEdges python, go
+
+### Batch 33 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 34: C# + Java graphs — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: namespace / package edges with declared approximations
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 2 | Depends on: Batches 33, 30
+
+### Task 34.1: C# resolver — PENDING
+
+- Files: `WI/ast/import-resolution/csharp-import-resolver.ts` (new), `…/csharp-import-resolver.spec.ts` (new), `WI/ast/languages/csharp.language.ts`
+- Plan reference: resolution table (C# row)
+- Pattern to follow: Batch 33
+- Quality requirements: `using N` / `using static` / alias / `global using` → files declaring namespace N (nested composed); `csharp:namespace-edges`; per-import 200 → `truncatedImports` (300-file namespace fixture)
+- Validation notes: keys fail on base 33
+- Implementation details: none
+
+### Task 34.2: Java resolver and the fragment — PENDING
+
+- Depends on: Task 34.1
+- Files: `WI/ast/import-resolution/jvm-import-resolver.ts` (new), `…/jvm-import-resolver.spec.ts` (new), `WI/ast/languages/java.language.ts`, `WIT/matrix/activations/b34.ts` (new)
+- Plan reference: resolution table (Java row)
+- Pattern to follow: Task 34.1
+- Quality requirements: FQN → unique file declaring package + top-level type; nested → outer file; wildcard/ambiguous → package dir files with `java:package-wildcard`
+- Validation notes: none
+- Implementation details: fragment: publicSymbols/graphEdges csharp, java
+
+### Batch 34 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 35: Rust graph — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: module resolution from `scopePath` (32a) and Cargo manifests
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batch 34
+
+### Task 35.1: Rust resolver, Cargo context, fragment — PENDING
+
+- Files: `WI/ast/import-resolution/rust-import-resolver.ts` (new), `…/rust-import-resolver.spec.ts` (new), `WI/ast/languages/rust.language.ts`, `WI/ast/import-resolution/resolver-context.ts`, `WIT/matrix/activations/b35.ts` (new)
+- Plan reference: resolution table (Rust row)
+- Pattern to follow: Batch 34
+- Quality requirements: crate roots (`src/lib.rs`, `src/main.rs`, `[lib] path`, `[[bin]] path`), workspace `members`; `mod x;` → `x.rs` / `x/mod.rs`; `crate::`/`self::`/`super::` from `scopePath`; longest module prefix; other workspace crates by package name
+- Validation notes: tests: inline modules, grouped use, Cargo workspace; keys fail on base 34
+- Implementation details: Cargo read via the bounded manifest reader
+
+### Batch 35 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 36a: PHP graph (required, Decision 19) — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: plan Batch 36 split per D5
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batches 35, 31
+
+### Task 36a.1: PHP resolver and fragment — PENDING
+
+- Files: `WI/ast/import-resolution/php-import-resolver.ts` (new), `…/php-import-resolver.spec.ts` (new), `WI/ast/languages/php.language.ts`, `WIT/matrix/activations/b36a.ts` (new); `resolver-context.ts` only if composer reading is not already generic (then 5 files)
+- Plan reference: resolution table (PHP row)
+- Pattern to follow: Batch 35
+- Quality requirements: composer `autoload.psr-4` prefix → dir + class path; literal include/require → relative file
+- Validation notes: PHP keys fail on base 35; fixture strings validate-deps safe
+- Implementation details: none
+
+### Batch 36a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 36b: Ruby graph (required) — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: D5
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batch 36a
+
+### Task 36b.1: Ruby resolver and fragment — PENDING
+
+- Files: `WI/ast/import-resolution/ruby-import-resolver.ts` (new), `…/ruby-import-resolver.spec.ts` (new), `WI/ast/languages/ruby.language.ts`, `WIT/matrix/activations/b36b.ts` (new)
+- Plan reference: resolution table (Ruby row)
+- Pattern to follow: Batch 36a
+- Quality requirements: `require_relative` → file; `require` → `lib/` then root
+- Validation notes: Ruby keys fail on base 36a
+- Implementation details: none
+
+### Batch 36b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 36c: C/C++ graph (required; proven on `.c`/`.h`) — PENDING
+
+- Recommended executor: Codex CLI lane, Lane G2
+- Fallback executor: backend-developer (sub-agent)
+- Execution mode: sequential
+- Rationale: D5
+- Review: Claude `code-logic-reviewer` subagent
+- Tasks: 1 | Depends on: Batch 36b
+
+### Task 36c.1: C/C++ resolver and fragment — PENDING
+
+- Files: `WI/ast/import-resolution/cpp-import-resolver.ts` (new), `…/cpp-import-resolver.spec.ts` (new), `WI/ast/languages/cpp.language.ts`, `WIT/matrix/activations/b36c.ts` (new); `resolver-context.ts` only if `compile_commands.json` reading is added there
+- Plan reference: resolution table (C/C++ row)
+- Pattern to follow: Batch 36a
+- Quality requirements: `#include "x"` → file dir, then `-I` dirs from `compile_commands.json` (read-only, `-I` only); `<x>` → external; graph proven on real `.c`/`.h` includes
+- Validation notes: cpp keys fail on base 36b
+- Implementation details: none
+
+### Batch 36c verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 37a: `go vet` checker (required) — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane K (`task-559-lane-k`)
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: Tier 1 execution trust; Claude author with Codex review. **Batch gate (O2): a short reviewed amendment naming the Electron and CLI enable/revoke surfaces, their files and tests exists BEFORE the batch starts**
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: O2 amendment reviewed, Batch 25a
+
+### Task 37a.1: Checker runner — PENDING
+
+- Files: `WI/diagnostics/external-checkers/checker-runner.ts` (new), `WI/diagnostics/external-checkers/checker-runner.spec.ts` (new)
+- Plan reference: "Tier 1" (Binary, Environment, Execution, Isolation, Consent)
+- Pattern to follow: `PC/interfaces/process-spawner.interface.ts:26-28` (NOT `toolchain-probe.ts:115`, which spreads env)
+- Quality requirements: canonical realpath from a sanitised PATH (absolute entries, none inside the workspace, symlinks into the workspace rejected); allowlisted env (never spread); 45 s budget; tree kill; 2 MiB cap; consent read fail-closed (`getStorageForWorkspace(root)` → `undefined` → denied; no fallback)
+- Validation notes: fake-spawner tests: hostile PATH/env, delayed spawn then timeout, overflow, non-zero exit, cancellation, partial success. No paths or raw error text logged
+- Implementation details: FB "hostile PATH entry rejected"
+
+### Task 37a.2: `go vet` checker and hostile fixture — PENDING
+
+- Depends on: Task 37a.1
+- Files: `WI/diagnostics/external-checkers/go-vet-checker.ts` (new), `…/go-vet-checker.spec.ts` (new), `…/go-vet-hostile.integration.spec.ts` (new)
+- Plan reference: "Fixed invocation", Go env, "Honest not checked", hostile real-binary tests
+- Pattern to follow: Task 37a.1
+- Quality requirements: `go vet -json <validated package patterns>` only; no caller flags; missing deps / unsupported configs / failed runs → `failed`/`unchecked` with reason; hostile fixture proves no generator, no toolchain switch, no network, no cgo — each by its own observable evidence (skipped with a printed reason when `go` is absent)
+- Validation notes: a cgo failure alone never counts as exercising the later cases
+- Implementation details: none beyond the plan
+
+### Batch 37a verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes (report whether the hostile spec ran or was skipped, with reason)
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 37b: Checker host wiring + consent surfaces — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane H
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: wiring touches the 25a provider and both hosts; consent surfaces per O2
+- Review: Codex CLI lane
+- Tasks: 2 | Depends on: Batches 37a, 27 (D4)
+
+### Task 37b.1: Wire the checker into the language-aware provider — PENDING
+
+- Files: `WI/diagnostics/language-aware-diagnostics-provider.ts`, `WI/di/register.ts`, `<WT>/apps/ptah-electron/src/di/phase-2-libraries.ts`, `<WT>/libs/backend/cli-engine/src/lib/container.ts`
+- Plan reference: 37b; "Execution" (the `IProcessSpawner` each host passes in)
+- Pattern to follow: Batch 25a registration
+- Quality requirements: denied by default; one failing checker leaves other languages intact; Go checked only with consent, else Go `unchecked` with the reason
+- Validation notes: FB "checker does not run without consent"
+- Implementation details: none beyond the plan
+
+### Task 37b.2: Consent enable/revoke surfaces and the fragment — PENDING
+
+- Depends on: Task 37b.1
+- Files: the Electron and CLI consent-surface files named by the O2 amendment (added here when O2 closes), `WIT/matrix/activations/b37b.ts` (new)
+- Plan reference: "Consent"; O2
+- Pattern to follow: per O2
+- Quality requirements: key `ptah.diagnostics.goVet.consent` in host-owned workspace storage; repository files never grant consent; revoke works; fragment activates `typeCheck:go`
+- Validation notes: batch file count confirmed when O2 closes (≥ 6 + O2 files, 2 libs + app)
+- Implementation details: none beyond O2
+
+### Batch 37b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/cli-engine ptah-electron --skip-nx-cache 2>&1 | tail -40` passes (plus any O2 surface project)
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
+
+---
+
+## Batch 38: Completion gate — PENDING
+
+- Recommended executor: senior-tester (sub-agent), Lane T
+- Fallback executor: backend-developer
+- Execution mode: sequential
+- Rationale: fails until every enumerated required key is active and every mandatory batch has landed
+- Review: Codex CLI lane
+- Tasks: 1 | Depends on: Batch 21 (21.1, 21.2), 27, 28b, 29b, 30, 30k, 31, 33, 34, 35, 36a, 36b, 36c, 37b (all required)
+
+### Task 38.1: Activated keys == required keys, exactly — PENDING
+
+- Files: `WIT/language-honesty.contract.spec.ts`
+- Plan reference: "Harness (27, 38)"; "Required keys" table
+- Pattern to follow: Task 27.2
+- Quality requirements: the union of all fragments equals the enumerated required keys exactly, including the ten honesty keys, kotlin keys, php/ruby/cpp graph keys and `typeCheck:go`
+- Validation notes: fails on any earlier base (shown by removing one fragment locally, then restored)
+- Implementation details: none
+
+### Batch 38 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
+- validate-deps passes; degradation audit TOTAL 300; other common checks
+- FB evidence; Codex review approves
 
 ---
 

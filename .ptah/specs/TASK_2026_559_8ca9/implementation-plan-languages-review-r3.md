@@ -1,0 +1,63 @@
+# Language design review r3 — TASK_2026_559_8ca9
+
+**Verdict: APPROVED WITH EDITS**
+
+The round-2 revision resolves the principal architectural objections. Approval is conditional on the concrete edits below, particularly the ten-tool honesty key set and recording Decision 19 as settled scope. Batch 22 can proceed in the new worktree authorized by Decision 19 after those plan corrections; checker implementation remains blocked on the already declared consent-surface amendment O2. This is design approval, not approval of unimplemented behavior.
+
+Reviewed the revised plan (601 lines), `context.md:59` (Decision 19), and the nine r2 findings. No source or git mutations, dependency installation, checker execution, build or test run. Only this report was written. References below use the plan's `WI`, `MCP`, `PC` prefixes; `Plan` means `implementation-plan-languages.md` in this task folder.
+
+## r2 status table
+
+| r2 finding                                           | Status      | Evidence / qualification                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Shared symbols flag contradicts existing indexing | **FIXED**   | `Plan:191–200` separates `codeIndex`, `publicSymbols`, and `graphEdges`, preserving Python/Go/C# code indexing. `:311–314` pins searchable Python versus unavailable export extraction.                                                                                                                             |
+| 2. Missing partial-result accounting and size bound  | **FIXED**   | `Plan:129–174` adds unchecked files, resolution completeness, approximation overflow and an explicit clean-answer rule. The concrete vocabulary and saturated counts now fit the 1,000-character envelope in a review probe. Correct the exact measurement and overflow wording as noted below.                     |
+| 3. Narrowing and vendor discovery gaps               | **FIXED**   | `Plan:284` passes vendor excludes into the bounded provider walk and reports excluded count as unknown. `:376–390` rejects unsupported/incomplete-scope census languages and unclean resolution before narrowing, with the required regressions.                                                                    |
+| 4. TSX batch cannot independently typecheck          | **FIXED**   | `Plan:227–233`, `:493`: union, module/config assembly, exhaustive outliner entry, enrichment, namespace and activation fragment land together in 29b. The intermediate missing-record failure is removed.                                                                                                           |
+| 5. Matrix contention and understated footprints      | **FIXED**   | `Plan:409–416`, `:493–506`, `:524–525`: each activation batch creates a distinct fragment; shared required keys are written once; grammar manifest edits are serialized through H/G1. Larger atomic units now have explicit counts and justifications.                                                              |
+| 6. Deleted design references and lexical context     | **FIXED**   | Query/resolution tables are restored at `Plan:216–225`, `:265–275`; `scopePath`, declaration-query invocation, range containment and the two-inline-module fixture are specified at `:237–255`.                                                                                                                     |
+| 7. Incomplete gate / option branches                 | **PARTIAL** | `Plan:404–435`, `:507` pins required membership and includes 21, VSIX checks and selected option batches. Decision 19 must now make 30k, 36 and 37b unconditional dependencies. The honesty row still says nine tools rather than enumerating all ten (finding 1).                                                  |
+| 8. Pyright safety and consent design                 | **PARTIAL** | `Plan:340–362`, `:450–458` excludes pyright, specifies Go environment controls and host-side default-denied consent. O2 explicitly blocks 37a at `:505`, `:572–574`; enable/revoke implementation is intentionally not yet designed. Decision 19 settles Go-only opt-in but does not itself implement that surface. |
+| 9. Last-run coverage versus mutable rows             | **FIXED**   | `Plan:300–314`: synchronously invalidate counts before writes; updating during a run; incomplete after failure/abort; unknown after restart; searches make no snapshot claim. Add the bounded per-file/concurrent-write qualification in edit 6; this does not require a new storage architecture.                  |
+
+“FIXED” refers to the design remedy. Implementers must still prove the named behavior under the batch checks.
+
+## Findings from the revision
+
+### 1. Serious — The honesty key set is still not exact
+
+**Evidence:** `Plan:434` says `honesty:*` for “9 language-bound tools”; `Plan:109–117` actually inventories ten:
+
+`ptah_get_dependents`, `ptah_get_dependencies`, `ptah_get_symbol_index`, `ptah_code_search_symbols`, `ptah_code_reindex`, `ptah_ast_analyze`, `ptah_context_enrich_file`, `ptah_lsp_definitions`, `ptah_lsp_references`, `ptah_get_diagnostics`.
+
+**Fix:** Enumerate these ten literal honesty keys, preserving each tool's own honest response contract, and update the exact count/sorted snapshot. Gate 38 must require every one. A snapshot of an unspecified nine-item set can freeze an omission instead of detecting it. This is a concrete correction required before the plan is treated as final; no new user decision is needed.
+
+### 2. Moderate — Coverage measurement and qualifier guarantee need precise wording
+
+**Evidence:** `Plan:163` claims exactly 909 characters. A fresh `JSON.stringify` probe with the enumerated 13 ids, nine long allowed language keys, five failure reasons, saturated counts, full resolution, four priority approximations, state and checks measured **920 characters**; using the 50,000 census limit and approximation-overflow count 20 measured **913**. Both fit 1,000, so the material r2 size objection is resolved. `Plan:159–160` nevertheless promises essential qualifiers are “never dropped”: more than four syntax-only languages can exhaust the four retained entries before text-scan or another essential qualifier.
+
+**Fix:** Record the actual serialized worst-case fixture/measurement in Batch 22 rather than asserting 909 as a verified universal maximum. Say omitted qualifiers are explicitly disclosed; do not guarantee every per-language qualifier survives. When exact per-language check levels matter, keep an unambiguous bounded summary and the full details in the raw output. Also align the declared map key type (`LanguageId | 'other'`, `:140`) with the additional recognized-language keys permitted at `:154`.
+
+No additional Blocking/Serious problem was established in the atomic TSX change or the new activation-file ownership. The Go-only checker design no longer relies on the rejected pyright mitigation. The consent-surface deferral is explicit and must remain a real implementation gate.
+
+## Required edits for Decision 19 and execution
+
+1. **Record settled authority.** Add Decision 19 to Inputs (`Plan:55`), change the opening scope/summary to the selected design, close O1 (`:571`), and replace “Clarifications Needed” (`:581–601`) with recorded decisions. Do not ask Q1–Q4 again.
+
+2. **Kotlin and C.** Make vendored MIT Kotlin and batch 30k required, with the already specified provenance/hash/licence/load record. Retain `.c/.h` mapped to the CPP grammar with its disclosed approximation. Remove native-C batch 31c and its selected-key branch from this task's executable plan; no separate C grammar or npm-source alternative was approved. Update size/risk text accordingly.
+
+3. **Go-only opt-in.** Make 37a/37b required after O2 closes; mark pyright excluded by **user Decision 19**, not merely architect preference. Mark build-running checkers prohibited in this task, rather than offering consented execution as an open alternative. Keep default denied and repository configuration unable to grant consent. Close O2 through a short reviewed amendment naming both Electron and CLI enable/revoke surfaces, files and tests before 37a starts. Workspace storage must fail closed when `getStorageForWorkspace(root)` returns undefined; the opened `PC/interfaces/workspace-scoped-state-storage.interface.ts` expressly forbids falling back to another active workspace.
+
+4. **Batch 36 and exact completion.** Set the committed selection to Kotlin-vendored / C-via-CPP / Go-vet-opt-in / no build checkers / include extra graphs. Make `publicSymbols` and `graphEdges` for PHP, Ruby and CPP mandatory at `Plan:433`, batch 36 (`:504`), G2 (`:521`) and gate 38 (`:507`). Gate 38 must explicitly wait for 30k, 36 and 37b, along with its existing mandatory dependencies. Add the ten literal honesty keys from finding 1. Include real `.c`/`.h` fixtures in the CPP-owned graph/grammar checks so mapping those files to `cpp` does not waive Decision 19's C support. Kotlin grammar/syntax keys are required; Kotlin graph support was not required by Decision 19.
+
+5. **Go execution wording and evidence.** Retain canonical executable/PATH checks, the allowlisted environment (`Plan:345–350`), timeout/tree kill and output cap. State precisely that this executes the user's trusted Go toolchain and its inherent compiler/analyzer work; it does not run generators, tests, project build scripts, custom vet tools or downloaded toolchains. Opt-in is authorization, not a process sandbox. Pin the fixed invocation and package-argument validation in 37a; do not accept caller-supplied build/vet flags. The real hostile test must verify each no-generator/no-switch/no-network claim with observable evidence; a cgo failure alone must not count as proving later cases were exercised. Preserve honest “not checked” behavior for missing dependencies, unsupported configurations or failed vet runs. The safety statement should remain scoped to the supported invocation/environment, not arbitrary PATH programs.
+
+6. **Index accounting qualification.** Preserve the new live states. At `Plan:305–306`, replace unconditional “exact because the indexer is the only writer” with an explicit rule: unknown/incomplete census cannot become complete merely after one successful file reindex; a per-file write during a full run must be included in final accounting or leave coverage incomplete; exceeding the 2,000-entry accounting map must be disclosed. One service can have overlapping async operations. Require the same-file overlap and the 2,001st distinct per-file update cases in 24b's tests. This completes the intended honest-state design without snapshotting SQLite.
+
+7. **Lane placement and dependency clarity.** Update H/Batch 22's “this worktree” wording (`Plan:515`) to the **new language lane worktree** authorized by `Context:59`, while Lane A finishes 17 → 18 → 15 → 13. Keep shared-file changes in quiet merge windows. Add explicit edges for dependencies already implied by the listed H order: 25a needs the bounded discovery integration in 23b; 27 must depend on the completed honesty chain including 24a/24b/25b, not rely solely on transitive links that currently skip those rows. This prevents a scheduler reading only the dependency column from starting the harness too early. Existing G1/G2 module handoffs and per-batch matrix fragments are otherwise coherent.
+
+## Verification and limits
+
+The review independently checked the coverage serialization envelope in memory and opened the workspace-scoped storage contract and index-writer boundaries. No checker was executed, so this report does not claim the future Go hostile-fixture tests pass. The prior verified Go environment controls are retained; the final implementation must validate the exact command and supported toolchain versions. No need to reopen the excluded pyright research or the settled user choices.
+
+After the required plan edits, the early honesty/registry work is ready to proceed under Decision 17's existing review bar. O2 and Kotlin provenance remain explicit gates before their corresponding implementation batches, not reasons to reopen the whole architecture.

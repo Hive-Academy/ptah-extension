@@ -51,6 +51,9 @@ the audit's estimates, not measurements.
    forbid nested Codex spawn_agent in lanes
 5. Agent definitions: `tools` / `disallowedTools` / `maxTurns` frontmatter; review the opus pins; reviewer output-size
    contract; scale the cross-side review mandate to task size
+6. Lane reliability: the Codex CLI adapter fails with 'Codex SDK Error: Failed to parse item' when a command_execution
+   item carries large or special-character output (seen twice on 2026-09-26, Batch 17 r2); parse defensively or
+   truncate aggregated_output
 
 ## Tokaudit Wave 0 — owners (user request 2026-09-26: expose as UI settings Ptah writes)
 
