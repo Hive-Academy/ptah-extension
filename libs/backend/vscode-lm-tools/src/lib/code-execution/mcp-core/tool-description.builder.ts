@@ -331,6 +331,15 @@ export function buildWorkspaceAnalyzeTool(): MCPToolDefinition {
   };
 }
 
+/** `ptah_search_files` page size when `limit` is not given. */
+export const SEARCH_FILES_DEFAULT_LIMIT = 50;
+
+/**
+ * Largest `ptah_search_files` limit the handler accepts: it asks the provider
+ * for one file more, and that count must stay an exact integer.
+ */
+export const SEARCH_FILES_MAX_LIMIT = Number.MAX_SAFE_INTEGER;
+
 /**
  * Build the ptah_search_files tool definition
  * True filesystem glob discovery (not a fuzzy index)
@@ -349,8 +358,11 @@ export function buildSearchFilesTool(): MCPToolDefinition {
             'Glob pattern (e.g., "**/*.ts", "src/**/auth*", "*.spec.ts")',
         },
         limit: {
-          type: 'number',
-          description: 'Max results to return (default: 50)',
+          type: 'integer',
+          minimum: 1,
+          maximum: SEARCH_FILES_MAX_LIMIT,
+          default: SEARCH_FILES_DEFAULT_LIMIT,
+          description: `Max results to return: an integer of at least 1 (default: ${SEARCH_FILES_DEFAULT_LIMIT}). When more files match, the result says so.`,
         },
       },
       required: ['pattern'],

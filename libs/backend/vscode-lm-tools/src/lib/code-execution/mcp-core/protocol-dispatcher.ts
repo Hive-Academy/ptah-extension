@@ -101,6 +101,8 @@ import {
   buildTaskGetTool,
   buildTaskListTool,
   buildTaskCheckTool,
+  SEARCH_FILES_DEFAULT_LIMIT,
+  SEARCH_FILES_MAX_LIMIT,
 } from './tool-description.builder';
 import {
   DASHBOARD_PROPOSE_SPEC_TOOL_NAME,
@@ -903,15 +905,17 @@ async function handleIndividualTool(
         if (typeof pattern !== 'string' || !pattern.trim()) {
           return missingStringArgResponse(request, 'pattern');
         }
+        // The same rule the published schema states (buildSearchFilesTool).
         const limit = rawLimit ?? SEARCH_FILES_DEFAULT_LIMIT;
         if (
           typeof limit !== 'number' ||
-          !Number.isSafeInteger(limit) ||
-          limit < 1
+          !Number.isInteger(limit) ||
+          limit < 1 ||
+          limit > SEARCH_FILES_MAX_LIMIT
         ) {
           return toolErrorResponse(
             request,
-            'Error: "limit" must be a positive integer.',
+            `Error: "limit" must be an integer from 1 to ${SEARCH_FILES_MAX_LIMIT} (omit it for the default ${SEARCH_FILES_DEFAULT_LIMIT}).`,
           );
         }
         // One file past the limit tells a capped result apart from one that
@@ -2342,9 +2346,6 @@ function missingStringArgResponse(
     },
   };
 }
-
-/** `ptah_search_files` page size when `limit` is not given (its schema says 50). */
-const SEARCH_FILES_DEFAULT_LIMIT = 50;
 
 /**
  * Most source files the workspace import graph is built from. Discovery lists

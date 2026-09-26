@@ -522,19 +522,9 @@ describe('ProjectDetectorService — monorepo fixtures (temp dir)', () => {
   };
 
   const nxApp = (dir: string, executor: string, name?: string): void =>
-    write(`${dir}/project.json`, {
-      ...(name ? { name } : {}),
-      targets: { build: { executor } },
-    });
+    writeNxApp(write, dir, executor, name);
 
-  const compose = async () => {
-    const monorepo = await monorepoDetector.detectMonorepo(root);
-    expect(monorepo.isMonorepo).toBe(true);
-    return detector.detectMonorepoComposition(
-      root,
-      await monorepoDetector.detectDeclaredMembers(root, monorepo.type),
-    );
-  };
+  const compose = () => composeMonorepo(root, monorepoDetector, detector);
 
   const projectInfo = async () => {
     const service = new WorkspaceService(
@@ -574,29 +564,7 @@ describe('ProjectDetectorService — monorepo fixtures (temp dir)', () => {
   });
 
   describe('Nx workspace, root deps react + @angular/core, no root angular.json', () => {
-    beforeEach(() => {
-      write('nx.json', { npmScope: 'fixture' });
-      write('package.json', {
-        name: 'fixture-workspace',
-        version: '1.2.3',
-        dependencies: { react: '^18.0.0', '@angular/core': '^18.0.0' },
-        devDependencies: { nx: '^19.0.0' },
-      });
-      nxApp(
-        'apps/dashboard',
-        '@angular-devkit/build-angular:application',
-        'dashboard',
-      );
-      nxApp('apps/landing', '@nx/vite:build', 'landing');
-      write('apps/landing/package.json', {
-        name: 'landing',
-        dependencies: { react: '^18.0.0' },
-      });
-      nxApp('apps/api', '@nx/js:node', 'api');
-      nxApp('apps/storefront', '@nx/next:build');
-      // A plain folder with no manifest is not a project.
-      write('apps/notes/README.md', '# notes');
-    });
+    beforeEach(() => writeNxWorkspace(write));
 
     it('reproduces the root-only guess the composition replaces', async () => {
       // Documented bug shape: root detection alone ranks react first.
@@ -744,26 +712,6 @@ describe('ProjectDetectorService — monorepo fixtures (temp dir)', () => {
       expect(composition.complete).toBe(false);
       expect(composition.issues).toContain('apps/ could not be read');
     });
-
-    it('r1 B1: counts every project past the inspection cap and says so', async () => {
-      const extra = MAX_INSPECTED_PROJECTS + 6;
-      for (let i = 0; i < extra; i++) {
-        nxApp(`libs/pkg-${String(i).padStart(3, '0')}`, '@nx/js:tsc');
-      }
-      // Plain folders never take a project slot.
-      for (let i = 0; i < 20; i++) {
-        write(`libs/aaa-plain-${i}/README.md`, '#');
-      }
-
-      const composition = await compose();
-
-      expect(composition.totalProjects).toBe(4 + extra);
-      expect(composition.projects).toHaveLength(MAX_INSPECTED_PROJECTS);
-      expect(composition.complete).toBe(false);
-      expect(composition.issues).toContain(
-        `${4 + extra - MAX_INSPECTED_PROJECTS} of ${4 + extra} projects not inspected (limit ${MAX_INSPECTED_PROJECTS})`,
-      );
-    });
   });
 
   it('r1 S1 + S2: follows package.json workspaces (services/*, nested **) and keeps Express', async () => {
@@ -862,22 +810,6 @@ describe('ProjectDetectorService — monorepo fixtures (temp dir)', () => {
       'tools/cli',
     ]);
     expect(composition.complete).toBe(true);
-  });
-
-  it('r2 B3: summarises member inspection failures in the composition, whatever their position', async () => {
-    write('nx.json', {});
-    write('package.json', { name: 'many-root' });
-    for (let i = 0; i < 30; i++) {
-      nxApp(`libs/pkg-${String(i).padStart(2, '0')}`, '@nx/js:tsc');
-    }
-    write('libs/pkg-29/project.json', '{ "name": ');
-
-    const composition = await compose();
-
-    expect(composition.complete).toBe(false);
-    expect(composition.issues).toContain(
-      '1 project could not be fully inspected: libs/pkg-29 (project.json could not be read or parsed)',
-    );
   });
 
   it('r2 S1: the build target decides, not an auxiliary lint executor', async () => {
@@ -996,6 +928,170 @@ describe('ProjectDetectorService — monorepo fixtures (temp dir)', () => {
     );
   });
 });
+
+/**
+ * Bulk fixtures over an in-memory `IFileSystemProvider` (TASK_2026_559 Batch
+ * 11b, r1 M2). On real disk the inspection-cap case made 200+ serial manifest
+ * reads and exceeded Jest's 5 s default when disk reads slowed under machine
+ * load; here every read resolves without I/O, so only the logic is measured.
+ * The root is never created on disk: a stray real-disk read fails the test.
+ */
+describe('ProjectDetectorService — bulk monorepo fixtures (in memory)', () => {
+  const root = path.join(os.tmpdir(), 'ptah-memory-fixture-never-on-disk');
+  let files: Map<string, string>;
+  let detector: ProjectDetectorService;
+  let monorepoDetector: MonorepoDetectorService;
+
+  const write: WriteFixture = (relativePath, content) => {
+    files.set(
+      path.join(root, ...relativePath.split('/')),
+      typeof content === 'string' ? content : JSON.stringify(content),
+    );
+  };
+
+  const compose = () => composeMonorepo(root, monorepoDetector, detector);
+
+  beforeEach(() => {
+    files = new Map();
+    const fileSystem = new FileSystemService(memoryFileSystemProvider(files));
+    const provider = {
+      getWorkspaceFolders: jest.fn().mockReturnValue([root]),
+      getWorkspaceRoot: jest.fn().mockReturnValue(root),
+    } as unknown as IWorkspaceProvider;
+    detector = new ProjectDetectorService(fileSystem, provider);
+    monorepoDetector = new MonorepoDetectorService(fileSystem, provider);
+  });
+
+  it('r1 B1: counts every project past the inspection cap and says so', async () => {
+    expect(fs.existsSync(root)).toBe(false);
+    writeNxWorkspace(write);
+    const extra = MAX_INSPECTED_PROJECTS + 6;
+    for (let i = 0; i < extra; i++) {
+      writeNxApp(write, `libs/pkg-${String(i).padStart(3, '0')}`, '@nx/js:tsc');
+    }
+    // Plain folders never take a project slot.
+    for (let i = 0; i < 20; i++) {
+      write(`libs/aaa-plain-${i}/README.md`, '#');
+    }
+
+    const composition = await compose();
+
+    expect(composition.totalProjects).toBe(4 + extra);
+    expect(composition.projects).toHaveLength(MAX_INSPECTED_PROJECTS);
+    expect(composition.complete).toBe(false);
+    expect(composition.issues).toContain(
+      `${4 + extra - MAX_INSPECTED_PROJECTS} of ${4 + extra} projects not inspected (limit ${MAX_INSPECTED_PROJECTS})`,
+    );
+  });
+
+  it('r2 B3: summarises member inspection failures in the composition, whatever their position', async () => {
+    write('nx.json', {});
+    write('package.json', { name: 'many-root' });
+    for (let i = 0; i < 30; i++) {
+      writeNxApp(write, `libs/pkg-${String(i).padStart(2, '0')}`, '@nx/js:tsc');
+    }
+    write('libs/pkg-29/project.json', '{ "name": ');
+
+    const composition = await compose();
+
+    expect(composition.complete).toBe(false);
+    expect(composition.issues).toContain(
+      '1 project could not be fully inspected: libs/pkg-29 (project.json could not be read or parsed)',
+    );
+  });
+});
+
+/** Writes one fixture file, given a `/`-separated workspace-relative path. */
+type WriteFixture = (relativePath: string, content: unknown) => void;
+
+function writeNxApp(
+  write: WriteFixture,
+  dir: string,
+  executor: string,
+  name?: string,
+): void {
+  write(`${dir}/project.json`, {
+    ...(name ? { name } : {}),
+    targets: { build: { executor } },
+  });
+}
+
+/**
+ * The Nx workspace both fixture suites build on: root deps react +
+ * @angular/core, no root angular.json, four apps and one plain folder.
+ */
+function writeNxWorkspace(write: WriteFixture): void {
+  write('nx.json', { npmScope: 'fixture' });
+  write('package.json', {
+    name: 'fixture-workspace',
+    version: '1.2.3',
+    dependencies: { react: '^18.0.0', '@angular/core': '^18.0.0' },
+    devDependencies: { nx: '^19.0.0' },
+  });
+  writeNxApp(
+    write,
+    'apps/dashboard',
+    '@angular-devkit/build-angular:application',
+    'dashboard',
+  );
+  writeNxApp(write, 'apps/landing', '@nx/vite:build', 'landing');
+  write('apps/landing/package.json', {
+    name: 'landing',
+    dependencies: { react: '^18.0.0' },
+  });
+  writeNxApp(write, 'apps/api', '@nx/js:node', 'api');
+  writeNxApp(write, 'apps/storefront', '@nx/next:build');
+  // A plain folder with no manifest is not a project.
+  write('apps/notes/README.md', '# notes');
+}
+
+async function composeMonorepo(
+  root: string,
+  monorepoDetector: MonorepoDetectorService,
+  detector: ProjectDetectorService,
+) {
+  const monorepo = await monorepoDetector.detectMonorepo(root);
+  expect(monorepo.isMonorepo).toBe(true);
+  return detector.detectMonorepoComposition(
+    root,
+    await monorepoDetector.detectDeclaredMembers(root, monorepo.type),
+  );
+}
+
+/**
+ * `IFileSystemProvider` over `files` (absolute path -> content); directories
+ * are the path prefixes of those files. A missing path rejects like ENOENT.
+ */
+function memoryFileSystemProvider(
+  files: ReadonlyMap<string, string>,
+): IFileSystemProvider {
+  const entriesOf = (dir: string): Map<string, FileType> => {
+    const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+    const entries = new Map<string, FileType>();
+    for (const file of files.keys()) {
+      if (!file.startsWith(prefix)) continue;
+      const [name, ...rest] = file.slice(prefix.length).split(path.sep);
+      entries.set(name, rest.length > 0 ? FileType.Directory : FileType.File);
+    }
+    return entries;
+  };
+  const notFound = (p: string): Error =>
+    new Error(`ENOENT: no such file or directory, '${p}'`);
+  return {
+    readFile: async (p: string) => {
+      const content = files.get(path.normalize(p));
+      if (content === undefined) throw notFound(p);
+      return content;
+    },
+    readDirectory: async (p: string) => {
+      const entries = entriesOf(path.normalize(p));
+      if (entries.size === 0) throw notFound(p);
+      return [...entries].map(([name, type]) => ({ name, type }));
+    },
+    exists: async (p: string) =>
+      files.has(path.normalize(p)) || entriesOf(path.normalize(p)).size > 0,
+  } as unknown as IFileSystemProvider;
+}
 
 /**
  * `IFileSystemProvider` over the real disk, for the temp-dir fixtures. A read

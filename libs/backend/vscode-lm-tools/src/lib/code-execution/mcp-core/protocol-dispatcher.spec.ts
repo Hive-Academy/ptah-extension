@@ -36,7 +36,11 @@ import {
   DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
   getToolResultBudget,
 } from './tool-result-budget';
-import { formatBrowserContent } from './mcp-response-formatter';
+import {
+  formatBrowserContent,
+  formatSearchFiles,
+} from './mcp-response-formatter';
+import { buildSearchFilesTool } from './tool-description.builder';
 import { buildServerInstructions } from './server-instructions';
 import {
   getCallerAgentId,
@@ -1005,10 +1009,63 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         );
 
         expect(isError).toBe(true);
-        expect(text).toBe('Error: "limit" must be a positive integer.');
+        expect(text).toBe(
+          `Error: "limit" must be an integer from 1 to ${Number.MAX_SAFE_INTEGER} (omit it for the default 50).`,
+        );
         expect(findFiles).not.toHaveBeenCalled();
       },
     );
+
+    // TASK_2026_559 Batch 11b (r1 M1): discovery published `limit` as any
+    // number, so 0, -1 and 2.5 passed the schema and failed the handler.
+    it('advertises exactly the limits the handler accepts, and its default', async () => {
+      const schema = buildSearchFilesTool().inputSchema.properties['limit'] as {
+        type?: unknown;
+        minimum?: unknown;
+        maximum?: unknown;
+        default?: unknown;
+      };
+      const schemaAccepts = (value: number): boolean =>
+        (schema.type === 'integer'
+          ? Number.isInteger(value)
+          : schema.type === 'number') &&
+        (typeof schema.minimum !== 'number' || value >= schema.minimum) &&
+        (typeof schema.maximum !== 'number' || value <= schema.maximum);
+
+      for (const limit of [
+        1,
+        2,
+        50,
+        10_000,
+        Number.MAX_SAFE_INTEGER,
+        Number.MAX_SAFE_INTEGER + 1,
+        1e20,
+        0,
+        -1,
+        -50,
+        0.5,
+        2.5,
+      ]) {
+        const findFiles = jest.fn().mockResolvedValue([]);
+        const { isError } = await searchFiles(
+          { pattern: '*.ts', limit },
+          findFiles,
+        );
+        const handlerAccepts = !isError && findFiles.mock.calls.length === 1;
+        expect({ limit, accepted: schemaAccepts(limit) }).toEqual({
+          limit,
+          accepted: handlerAccepts,
+        });
+      }
+
+      const findFiles = jest.fn().mockResolvedValue([]);
+      await searchFiles({ pattern: '*.ts' }, findFiles);
+      expect(schema.default).toBe(50);
+      expect(findFiles).toHaveBeenCalledWith(
+        '*.ts',
+        Number(schema.default) + 1,
+      );
+    });
   });
 
   it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {
@@ -3426,6 +3483,45 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     );
     expect(result.content[0].text).not.toContain('observer failed');
   });
+
+  // TASK_2026_559 Batch 11b (r1 Minor): the ptah_search_files truncation
+  // notice precedes the list so the budget cannot drop it. Pinned through
+  // both oversized paths: the Markdown reducer and the plain prefix cut.
+  it.each([
+    ['the Markdown reducer', 1_000, /^\[reduced: markdown-outline — /m],
+    ['a prefix cut', 10_000, /^\[reduced: \S+ — partial, cut /m],
+  ])(
+    'keeps the search_files truncation notice through %s (%i files over the limit)',
+    async (_path, limit, trailer) => {
+      const matched = Array.from(
+        { length: limit + 1 },
+        (_, i) => `libs/group-${i % 9}/src/lib/file-${i}.service.ts`,
+      );
+      const findFiles = jest.fn().mockResolvedValue(matched);
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          search: { findFiles } as unknown as PtahAPI['search'],
+        }),
+      });
+
+      const text = textOf(
+        await callTool(
+          'ptah_search_files',
+          { pattern: '**/*.ts', limit },
+          deps,
+        ),
+      );
+
+      const raw = formatSearchFiles(matched.slice(0, limit), true);
+      expect(raw.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expectWithinDefaultBudget(text);
+      expect(text).toContain(
+        `Found: more than ${limit} files (showing first ${limit}; narrow the pattern or raise limit)`,
+      );
+      expect(text).toMatch(trailer);
+      expect(onlySpoolFile()).toBe(raw);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
