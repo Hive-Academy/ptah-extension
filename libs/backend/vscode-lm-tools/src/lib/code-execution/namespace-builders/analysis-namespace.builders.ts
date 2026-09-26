@@ -17,6 +17,8 @@ import {
   WorkspaceAnalyzerService,
   ContextEnrichmentService,
   DependencyGraphService,
+  EXTENSION_LANGUAGE_MAP,
+  type StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
@@ -69,6 +71,62 @@ function resolveWorkspaceFilePath(
   return path.join(workspaceRoot, filePath);
 }
 
+/** Languages `ContextEnrichmentService` renders as a .d.ts-style summary. */
+type EnrichLanguage = 'typescript' | 'javascript';
+
+function isEnrichLanguage(value: unknown): value is EnrichLanguage {
+  return value === 'typescript' || value === 'javascript';
+}
+
+/**
+ * ESM/CJS module-flavour extensions `EXTENSION_LANGUAGE_MAP` does not list;
+ * each parses with the grammar of its base extension.
+ */
+const MODULE_EXTENSION_BASE: Readonly<Record<string, string>> = {
+  '.mts': '.ts',
+  '.cts': '.ts',
+  '.mjs': '.js',
+  '.cjs': '.js',
+};
+
+/**
+ * `.tsx` maps to typescript in `EXTENSION_LANGUAGE_MAP`, but no loaded grammar
+ * parses TypeScript with JSX: the TypeScript grammar rejects JSX, so the parse
+ * needs error recovery and the summary would be refused anyway. `.jsx` is
+ * fine: the JavaScript grammar parses JSX.
+ */
+const TSX_EXTENSION = '.tsx';
+
+/**
+ * The language to summarise `filePath` as. An explicit supported `language`
+ * wins, even when it contradicts the extension. Otherwise (omitted or not a
+ * supported value) it is inferred from the last extension, case-insensitively,
+ * through `EXTENSION_LANGUAGE_MAP` (`.jsx` → javascript, `.spec.ts`/`.D.TS` →
+ * typescript). `.tsx` (no JSX-capable TypeScript grammar is loaded), a
+ * language the summary cannot render (python, go, csharp) or a file without an
+ * extension gives `undefined`, which the service answers with full content and
+ * `reason: 'unsupported-language'`.
+ */
+function resolveEnrichLanguage(
+  filePath: string,
+  language: string | undefined,
+): EnrichLanguage | undefined {
+  if (isEnrichLanguage(language)) {
+    return language;
+  }
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === TSX_EXTENSION) {
+    return undefined;
+  }
+  const key = Object.hasOwn(MODULE_EXTENSION_BASE, extension)
+    ? MODULE_EXTENSION_BASE[extension]
+    : extension;
+  const inferred = Object.hasOwn(EXTENSION_LANGUAGE_MAP, key)
+    ? EXTENSION_LANGUAGE_MAP[key]
+    : undefined;
+  return isEnrichLanguage(inferred) ? inferred : undefined;
+}
+
 /**
  * Build context optimization namespace
  * Manages token budgets and intelligent file selection
@@ -85,28 +143,31 @@ export function buildContextNamespace(
   } = deps;
 
   return {
-    enrichFile: async (filePath: string, language?: string) => {
+    enrichFile: async (
+      filePath: string,
+      language?: string,
+    ): Promise<StructuralSummaryResult> => {
       try {
-        const lang =
-          language === 'typescript' || language === 'javascript'
-            ? (language as 'typescript' | 'javascript')
-            : undefined;
         const resolvedPath = resolveWorkspaceFilePath(
           filePath.trim(),
           workspaceProvider,
         );
         return await contextEnrichment.generateStructuralSummary(
           resolvedPath,
-          lang,
+          resolveEnrichLanguage(resolvedPath, language),
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        // No file content was obtained (no workspace root for a relative
+        // path, or the read/summary pipeline threw), so this reads as
+        // `read-failed`; `content` stays last so a budget cut keeps the reason.
         return {
-          content: `// Error generating structural summary: ${message}`,
-          mode: 'full' as const,
+          mode: 'full',
+          reason: 'read-failed',
           tokenCount: 0,
           originalTokenCount: 0,
           reductionPercentage: 0,
+          content: `// Error generating structural summary: ${message}`,
         };
       }
     },

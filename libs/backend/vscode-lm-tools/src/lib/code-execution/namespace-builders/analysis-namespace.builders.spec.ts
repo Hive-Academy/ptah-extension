@@ -12,6 +12,24 @@
  * degrade contract.
  */
 
+// The SUT reads `EXTENSION_LANGUAGE_MAP` as a value from
+// `@ptah-extension/workspace-intelligence`, whose barrel transitively loads
+// `vscode-core` → `vscode`. Replace the module at the boundary with the
+// map's real entries (the service classes are used as types only), the same
+// pattern as `ast-namespace.builder.spec.ts`.
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  EXTENSION_LANGUAGE_MAP: {
+    '.js': 'javascript',
+    '.jsx': 'javascript',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.py': 'python',
+    '.go': 'go',
+    '.cs': 'csharp',
+    '.csx': 'csharp',
+  },
+}));
+
 import * as path from 'path';
 
 import type {
@@ -163,11 +181,11 @@ describe('buildContextNamespace', () => {
 
     expect(
       deps._contextEnrichment.generateStructuralSummary,
-    ).toHaveBeenCalledWith(abs, undefined);
+    ).toHaveBeenCalledWith(abs, 'typescript');
     expect(deps._workspaceProvider.getWorkspaceRoot).not.toHaveBeenCalled();
   });
 
-  it('enrichFile swallows errors and returns an error-mode result', async () => {
+  it('enrichFile swallows errors and returns a read-failed full result', async () => {
     const deps = makeMocks();
     deps._contextEnrichment.generateStructuralSummary.mockRejectedValue(
       new Error('bad'),
@@ -175,7 +193,138 @@ describe('buildContextNamespace', () => {
 
     const out = await buildContextNamespace(deps).enrichFile('src/a.ts');
     expect(out.content).toMatch(/Error generating structural summary: bad/);
+    expect(out.mode).toBe('full');
+    expect(out.reason).toBe('read-failed');
     expect(out.tokenCount).toBe(0);
+    const keys = Object.keys(out);
+    expect(keys[keys.length - 1]).toBe('content');
+  });
+
+  it('enrichFile reports read-failed when a relative path has no workspace root', async () => {
+    const deps = makeMocks();
+    deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
+
+    const out = await buildContextNamespace(deps).enrichFile('src/a.ts');
+
+    expect(
+      deps._contextEnrichment.generateStructuralSummary,
+    ).not.toHaveBeenCalled();
+    expect(out.mode).toBe('full');
+    expect(out.reason).toBe('read-failed');
+  });
+
+  describe('enrichFile language inference', () => {
+    /** The language `enrichFile` forwards for `file` and optional `language`. */
+    async function forwardedLanguage(
+      file: string,
+      language?: string,
+    ): Promise<unknown> {
+      const deps = makeMocks();
+      deps._contextEnrichment.generateStructuralSummary.mockResolvedValue({
+        mode: 'structural',
+        tokenCount: 1,
+        originalTokenCount: 2,
+        reductionPercentage: 50,
+        content: '// ok',
+      });
+      await buildContextNamespace(deps).enrichFile(file, language);
+      return deps._contextEnrichment.generateStructuralSummary.mock.calls[0][1];
+    }
+
+    it.each([
+      ['src/a.ts', 'typescript'],
+      ['src/a.mts', 'typescript'],
+      ['src/a.cts', 'typescript'],
+      ['src/a.js', 'javascript'],
+      ['src/a.jsx', 'javascript'],
+      ['src/a.mjs', 'javascript'],
+      ['src/a.cjs', 'javascript'],
+      ['src/a.spec.ts', 'typescript'],
+      ['src/types.D.TS', 'typescript'],
+      ['src/Legacy.MJS', 'javascript'],
+    ])('infers %s → %s when no language is given', async (file, expected) => {
+      await expect(forwardedLanguage(file)).resolves.toBe(expected);
+    });
+
+    it.each([
+      ['src/a.py'],
+      ['src/a.go'],
+      ['src/a.cs'],
+      ['src/App.tsx'],
+      ['src/App.TSX'],
+      ['README.md'],
+      ['Makefile'],
+      ['.eslintrc'],
+      ['src/dir.ts/Dockerfile'],
+    ])(
+      'forwards undefined for %s (no summary language, so the service answers unsupported-language)',
+      async (file) => {
+        await expect(forwardedLanguage(file)).resolves.toBeUndefined();
+      },
+    );
+
+    it('forwards an explicit language unchanged, even when it contradicts the extension', async () => {
+      await expect(forwardedLanguage('src/a.ts', 'javascript')).resolves.toBe(
+        'javascript',
+      );
+      await expect(forwardedLanguage('src/a.py', 'typescript')).resolves.toBe(
+        'typescript',
+      );
+    });
+
+    it('forwards an explicit typescript for a .tsx file (the service refuses a JSX parse)', async () => {
+      await expect(
+        forwardedLanguage('src/App.tsx', 'typescript'),
+      ).resolves.toBe('typescript');
+    });
+
+    it('ignores an unsupported explicit value and infers from the extension', async () => {
+      await expect(forwardedLanguage('src/a.mts', 'tsx')).resolves.toBe(
+        'typescript',
+      );
+      await expect(
+        forwardedLanguage('src/a.tsx', 'tsx'),
+      ).resolves.toBeUndefined();
+      await expect(
+        forwardedLanguage('src/a.py', 'python'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('returns the structural result for a .ts file given no language', async () => {
+      const deps = makeMocks();
+      deps._contextEnrichment.generateStructuralSummary.mockImplementation(
+        async (_file: string, language?: string) =>
+          language
+            ? {
+                mode: 'structural',
+                tokenCount: 1,
+                originalTokenCount: 10,
+                reductionPercentage: 90,
+                content: '// summary',
+              }
+            : {
+                mode: 'full',
+                reason: 'unsupported-language',
+                tokenCount: 10,
+                originalTokenCount: 10,
+                reductionPercentage: 0,
+                content: 'full body',
+              },
+      );
+      const ns = buildContextNamespace(deps);
+
+      await expect(ns.enrichFile('src/a.ts')).resolves.toMatchObject({
+        mode: 'structural',
+      });
+      await expect(ns.enrichFile('src/a.tsx')).resolves.toMatchObject({
+        mode: 'full',
+        reason: 'unsupported-language',
+      });
+      await expect(ns.enrichFile('src/a.py')).resolves.toMatchObject({
+        mode: 'full',
+        reason: 'unsupported-language',
+      });
+    });
   });
 
   it('optimize defaults maxTokens to 150000 and forwards indexed files', async () => {

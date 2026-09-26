@@ -1629,7 +1629,7 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
   return {
     name: 'ptah_context_enrich_file',
     description:
-      "Generate a .d.ts-style structural summary of a file — imports, class outlines, and function signatures without bodies — for a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation.",
+      "Generate a .d.ts-style structural summary of a declaration-only TypeScript or JavaScript file — imports, exports, functions and overloads, classes with members, interfaces, types, enums, namespaces and variables initialised with functions or literals, with function bodies and large pure-data literal values omitted — usually a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation. Summaries are produced only for declaration-only files; any other file returns mode 'full' with the whole content (empty for 'read-failed') and a `reason`: 'unsupported-language' (not TS/JS, or .tsx), 'parse-failed' (syntax errors or unparseable syntax), 'unsupported-declarations' (not declaration-only: top-level statements or calls, CommonJS/global exports, prototype or Object.defineProperty/assign writes, initialisers that are not functions or literals, or large literals that are not pure data), 'no-declarations', 'summary-not-smaller' (the summary costs no fewer tokens, e.g. a .d.ts file) or 'read-failed'.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1640,7 +1640,8 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
         language: {
           type: 'string',
           enum: ['typescript', 'javascript'],
-          description: 'Optional language hint',
+          description:
+            'Optional; inferred from the file extension when omitted (.ts/.mts/.cts → typescript, .js/.jsx/.mjs/.cjs → javascript; .tsx is not summarised). An explicit value overrides the extension.',
         },
       },
       required: ['file'],
