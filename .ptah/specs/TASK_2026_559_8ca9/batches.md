@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 52 | Batches: 26 | Complete: 7/26
+Total tasks: 52 | Batches: 26 | Complete: 8/26
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -1149,7 +1149,7 @@ char per run, biasing only toward keeping a run verbatim.
 
 ---
 
-## Batch 3: Caller identity for tools/list and the request context — IN_PROGRESS
+## Batch 3: Caller identity for tools/list and the request context — COMPLETE (commit 153fb036f)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1158,7 +1158,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 2f
 
-### Task 3.1: `McpCaller` resolution and `callerAgentId` in the context — IN_PROGRESS
+### Task 3.1: `McpCaller` resolution and `callerAgentId` in the context — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-caller.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-caller.spec.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-request-context.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-request-context.spec.ts`
 - Plan reference: research-report.md:170-181, :290-304; research/cross-cutting.md:275-291; context.md User Decision 5
@@ -1167,7 +1167,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: confirm the stdio/CLI path (no URL) yields `anonymous`. A malformed field never borrows another caller's identity
 - Implementation details: pure function, no I/O. Specs for each kind, precedence, and malformed/empty fields
 
-### Task 3.2: Thread the caller into tools/list, tools/call and telemetry — IN_PROGRESS
+### Task 3.2: Thread the caller into tools/list, tools/call and telemetry — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 3.1
@@ -1183,9 +1183,71 @@ char per run, biasing only toward keeping a run verbatim.
 - The Codex review lane approves
 - The TASK_2026_560 interface above matches what shipped (names and shape); correct this file at verification if not
 
+### Batch 3 review history
+
+- Executor: backend-developer (`batch-3-executor-report.md`)
+- Review r1 (`reviews/batch-3-code-logic-review-r1.md`, Codex cross-side lane): **APPROVED 8/10**, 0 blocking /
+  0 serious / 1 moderate. The moderate (F1) is pre-existing and outside the batch files (follow-up (a) below)
+
+### Batch 3 deviations (both accepted by r1)
+
+1. The context's `callerSessionId` / `callerWorkspaceRoot` keep the transport's RAW values; only `callerAgentId` comes
+   from the normalised `McpCaller`. Reason: `McpCallerWorkspaceResolver` refuses a declared root that is not open by
+   name, and the Batch 2f spool root treats the declared root only as a candidate; normalising a whitespace root to
+   absent would turn a refusal into an anonymous fallback. Recorded in a comment at the `tools/call` case
+2. `ptah_agent_spawn` still passes `request._callerSessionId` as `parentSessionId`; it equals the context's raw
+   session value, so there is one source
+
+### Batch 3 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `mcp-caller.ts` (86 lines, pure `resolveMcpCaller`, `McpCaller`, `McpCallerKind`), `mcp-caller.spec.ts`,
+  `mcp-request-context.ts` (`callerAgentId`, `getCallerAgentId`), its spec, `protocol-dispatcher.ts`
+  (`buildToolSet(caller, deps)` → `markEagerTools` → `declareResultBudgets`; `callerAgentId` in the `tools/call`
+  context; `callerKind` in `toolResultTelemetry`; `ptah_agent_report` reads `getCallerAgentId()` only) and its spec.
+  No TODO/FIXME/PLACEHOLDER/STUB markers; no `mcp-http` file touched; no stray files
+- TASK_2026_560 interface check: `McpCaller = { kind; sessionId?; agentId?; workspaceRoot? }` and
+  `buildToolSet(caller, deps)` shipped with the names and shape recorded above. No correction needed
+- `node_modules/.bin/nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools --skip-nx-cache` →
+  exit 0, "Successfully ran targets test, lint, typecheck"
+- `node_modules/.bin/nx run-many "-t=typecheck" -p ptah-cli ptah-electron --skip-nx-cache` → exit 0
+- EACCES note: the r1 reviewer's run had 1 failure, `HTTP server lifecycle > logs the started line exactly once even
+  after a port fallback` (`mcp-http/http-server.handler.spec.ts:220`, `listen EACCES ::1:59700`), a real-port
+  fixture. Batch 3 changed no `mcp-http` file (`git diff --name-only` empty for that directory). Rerun here: the full
+  project run above passed, and the single test run on its own (`jest -c libs/backend/vscode-lm-tools/jest.config.ts
+  …/http-server.handler.spec.ts -t "port fallback"`) → 1 passed. Conclusion: the Codex sandbox denied the port bind;
+  not a Batch 3 regression. Nx labelled the test task "flaky" only because that earlier run had the same inputs
+- Code commit `153fb036f` stages exactly the 6 files above; docs committed separately. `code-logic-review.md` (the
+  lane's canonical copy) and `research/diagnostics-worktree-repro.ts` stay untracked
+
+### Batch 3 follow-ups (not blocking)
+
+- (a) MODERATE, pre-existing (r1 F1): `http-server.handler.ts` `extractCaller*` call `decodeURIComponent` unguarded
+  (:248, :274, :306; catch at :394). A malformed escape (`/agent/%E0%A4%A`, `/session/%`, `/workspace/%FF`) returns
+  HTTP 400 / `-32700 Parse error` with `id:0` before dispatch, instead of the `anonymous` caller the edge case above
+  promises. No identity is borrowed. Needs a transport-owned fix: separate URI decoding from JSON parsing, and either
+  discard the whole attribution atomically (anonymous) or return an explicit invalid-URL error with the parsed id;
+  pin the policy with a spec
+- (b) `mcp-core/index.ts` does not export `resolveMcpCaller`, `McpCaller`, `McpCallerKind` or `getCallerAgentId`.
+  Nothing outside mcp-core needs them in 559; TASK_2026_560 adds the barrel exports when it consumes them
+- (c) `protocol-dispatcher.ts` is 2,680 lines on disk after this batch (the executor report's "2,103" is wrong),
+  far over the 700-line soft ceiling (`max-lines` lint warning). Flag for a later facade split (for example tool
+  catalogue/`buildToolSet`, budget/spool, telemetry, per-tool handlers); not in any 559 batch scope
+- Real-port lifecycle spec (`http-server.handler.spec.ts:220`) fails in sandboxes that deny port binding. Candidate
+  for Batch 20/21 (harness) to make deterministic, with the timing-spec note from Batch 2a
+
+### Notes for Batch 4 (added at Batch 3 close)
+
+- `handleInitialize` stays outside `runWithMcpRequestContext` (User Decision 5). The instructions are the same for
+  every caller (Edge case: byte-stable), so Task 4.2 must NOT branch on `resolveMcpCaller(request)`; a spec that
+  sends `initialize` with each of the four caller kinds and asserts identical `result.instructions` is the Batch 3
+  byte-identity pattern (`caller identity (TASK_2026_559 Batch 3)` describe in `protocol-dispatcher.spec.ts`)
+- The dispatcher is the hub (follow-up (c)): put the derivation in the new `server-instructions.ts` and keep the
+  dispatcher change to the `handleInitialize` result field plus the import
+- Compute the instructions once (module-level constant or lazy memo), not per request
+
 ---
 
-## Batch 4: Server `instructions` derived from the shipped mandate — PENDING
+## Batch 4: Server `instructions` derived from the shipped mandate — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1194,7 +1256,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 3
 
-### Task 4.1: Export the substitution section from the agent-sdk barrel — PENDING
+### Task 4.1: Export the substitution section from the agent-sdk barrel — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/agent-sdk/src/lib/prompt-harness/index.ts`, `<WT>/libs/backend/agent-sdk/src/index.ts`
 - Plan reference: research-report.md:151-155; context.md User Decision 4 (constants unchanged)
@@ -1203,7 +1265,7 @@ char per run, biasing only toward keeping a run verbatim.
 - Validation notes: re-check `@nx/enforce-module-boundaries` lint for the new vscode-lm-tools → agent-sdk value import
 - Implementation details: add `PTAH_MCP_SUBSTITUTION_SECTION` to both export lists
 
-### Task 4.2: `server-instructions.ts` and `handleInitialize` — PENDING
+### Task 4.2: `server-instructions.ts` and `handleInitialize` — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/server-instructions.spec.ts` (new), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts` (`handleInitialize`, :235-254), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Depends on: Task 4.1
