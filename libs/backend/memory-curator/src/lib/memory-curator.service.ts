@@ -39,6 +39,8 @@ import type {
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { CuratorWindowRunner } from './curator-llm/curator-window-runner';
+import { MergeCandidateCollector } from './curator-llm/merge-candidate-collector';
+import type { MemorySearchService } from './memory-search.service';
 import {
   CuratorActivityLog,
   type CuratorRunStats,
@@ -54,7 +56,7 @@ import {
   QueueSlotRetryBudget,
 } from './curator-llm/queue-slot-timeout';
 import type { CuratorWindow } from './curator-llm/transcript-windows';
-import { memoryId, type MemoryTier } from './memory.types';
+import { memoryId, type MemoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
 import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
@@ -168,6 +170,8 @@ export class MemoryCuratorService {
   private readonly activity: CuratorActivityLog;
   /** Governor clearance before the queue, and the network back-off (C14 f). */
   private readonly admission: CuratorPassAdmission;
+  /** Tier-1 plus tier-2 resolve candidates; constructed like {@link windowRunner}. */
+  private readonly mergeCandidates: MergeCandidateCollector;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -186,15 +190,28 @@ export class MemoryCuratorService {
     @inject(PLATFORM_TOKENS.TRACER)
     private readonly tracer: ITracer = new NoopTracer(),
     /**
-     * Optional and LAST: specs construct this service positionally, and a host
-     * without a governor admits every pass at once.
+     * Optional and after every required parameter: specs construct this
+     * service positionally, and a host without a governor admits every pass
+     * at once.
      */
     @inject(TOKENS.BACKGROUND_WORK_GOVERNOR, { isOptional: true })
     governor: BackgroundWorkAdmission | null = null,
+    /**
+     * Optional and after `governor` for the same reason: positional spec
+     * construction stays valid, and without search the resolve candidates are
+     * tier 1 only.
+     */
+    @inject(MEMORY_TOKENS.MEMORY_SEARCH, { isOptional: true })
+    search: MemorySearchService | null = null,
   ) {
     this.windowRunner = new CuratorWindowRunner(this.logger, this.llm);
     this.activity = new CuratorActivityLog(this.logger);
     this.admission = new CuratorPassAdmission(this.logger, governor);
+    this.mergeCandidates = new MergeCandidateCollector(
+      this.logger,
+      this.store,
+      search,
+    );
   }
 
   /** Begin listening for PreCompact events. Idempotent. */
@@ -600,16 +617,16 @@ export class MemoryCuratorService {
         { ...EMPTY_RUN },
       );
     }
-    const subjects = new Set(
-      drafts.map((d) => d.subject).filter((s): s is string => !!s),
-    );
-    const related =
-      subjects.size > 0
-        ? this.store.findMergeCandidates(
-            [...subjects],
-            input.workspaceRoot ?? null,
-          )
-        : [];
+    const { candidates: related, ...candidateDiagnostics } =
+      await this.mergeCandidates.collect(
+        drafts,
+        input.workspaceRoot,
+        input.signal,
+      );
+    this.logger.debug('[memory-curator] resolve merge candidates collected', {
+      sessionId: input.sessionId,
+      ...candidateDiagnostics,
+    });
 
     let resolved: readonly ResolvedMemoryDraft[];
     try {
@@ -643,23 +660,46 @@ export class MemoryCuratorService {
       );
     }
 
+    // A merge target must be one the resolver was actually shown, and still be
+    // an active row in this pass's exact workspace. Anything else is inserted
+    // as new rather than appended to a row the pass had no business touching.
+    const candidateIds = new Set(related.map((c) => c.id));
     let merged = 0;
     let created = 0;
     let skipped = 0;
     for (const r of resolved) {
       try {
         if (r.mergeTargetId) {
-          const target = this.store.getById(memoryId(r.mergeTargetId));
+          const target = this.eligibleMergeTarget(
+            r.mergeTargetId,
+            candidateIds,
+            input.workspaceRoot ?? null,
+          );
           if (target) {
-            await this.store.appendChunks(target.id, [
+            // The store re-checks eligibility inside its write transaction:
+            // the row can be quarantined or moved while the chunk is embedded.
+            const appended = await this.store.appendChunks(
+              target,
+              [
+                {
+                  ord: 0,
+                  text: r.content,
+                  tokenCount: this.estimateTokens(r.content),
+                },
+              ],
+              { workspaceRoot: input.workspaceRoot ?? null },
+            );
+            if (appended === 'appended') {
+              merged++;
+              continue;
+            }
+            this.logger.info(
+              '[memory-curator] resolver merge target refused; inserting the draft as new',
               {
-                ord: 0,
-                text: r.content,
-                tokenCount: this.estimateTokens(r.content),
+                mergeTargetId: r.mergeTargetId,
+                reason: 'ineligible-at-commit',
               },
-            ]);
-            merged++;
-            continue;
+            );
           }
         }
         const memorySalience = baseSalience(
@@ -739,6 +779,37 @@ export class MemoryCuratorService {
         );
       }
     }
+  }
+
+  /**
+   * The merge target the resolver chose, or `null` when the draft must be
+   * inserted as new (TASK_2026_563 M5 criterion 8). The id must be in the
+   * candidate list this pass sent, and `getMergeTarget` must confirm an active
+   * (not quarantined) row in exactly this workspace.
+   */
+  private eligibleMergeTarget(
+    mergeTargetId: string,
+    candidateIds: ReadonlySet<string>,
+    workspaceRoot: string | null,
+  ): MemoryId | null {
+    if (!candidateIds.has(mergeTargetId)) {
+      this.logger.info(
+        '[memory-curator] resolver merge target refused; inserting the draft as new',
+        { mergeTargetId, reason: 'not-in-candidates' },
+      );
+      return null;
+    }
+    const target = this.store.getMergeTarget(
+      memoryId(mergeTargetId),
+      workspaceRoot,
+    );
+    if (target === null) {
+      this.logger.info(
+        '[memory-curator] resolver merge target refused; inserting the draft as new',
+        { mergeTargetId, reason: 'ineligible' },
+      );
+    }
+    return target;
   }
 
   /**

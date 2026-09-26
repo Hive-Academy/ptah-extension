@@ -21,7 +21,14 @@ import {
   RpcUserError,
   ALLOWED_METHOD_PREFIXES,
 } from '@ptah-extension/vscode-core';
-import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import type { Logger } from '@ptah-extension/vscode-core';
+import { MEMORY_TOKENS, MemoryStore } from '@ptah-extension/memory-curator';
+import {
+  MIGRATIONS,
+  type IEmbedder,
+  type SqliteConnectionService,
+  type VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
@@ -62,10 +69,10 @@ function makeRpcHandler() {
 function makeMemoryStore() {
   return {
     list: jest.fn(),
-    getById: jest.fn(),
+    getActiveById: jest.fn(),
     getChunks: jest.fn(),
     recordUse: jest.fn(),
-    setPinned: jest.fn(),
+    setPinned: jest.fn().mockReturnValue(true),
     forget: jest.fn(),
     rebuildIndex: jest
       .fn()
@@ -77,6 +84,8 @@ function makeMemoryStore() {
       lastCuratedAt: null,
     }),
     purgeBySubjectPattern: jest.fn().mockReturnValue(0),
+    listQuarantined: jest.fn().mockReturnValue({ rows: [], total: 0 }),
+    restoreQuarantined: jest.fn().mockReturnValue({ restored: 0 }),
   };
 }
 
@@ -197,9 +206,16 @@ function makeMemoryDiagnostics() {
 // ---------------------------------------------------------------------------
 
 function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
+  return buildHandlersWithStore(workspaceFolders, makeMemoryStore());
+}
+
+/** Same wiring as {@link buildHandlers}, over a caller-supplied store (mock or real). */
+function buildHandlersWithStore<TStore extends object>(
+  workspaceFolders: string[],
+  store: TStore,
+) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
-  const store = makeMemoryStore();
   const codeSymbols = makeCodeSymbolStore();
   const search = makeMemorySearch();
   const curator = makeMemoryCurator();
@@ -382,7 +398,7 @@ describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
 describe('MemoryRpcHandlers — explicit use recording', () => {
   it('records a found memory:get result', async () => {
     const { rpcHandler, store } = buildHandlers();
-    store.getById.mockReturnValue(makeMemory());
+    store.getActiveById.mockReturnValue(makeMemory());
     store.getChunks.mockReturnValue([]);
 
     const result = await rpcHandler.call('memory:get', { id: 'mem-1' });
@@ -393,10 +409,22 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
 
   it('does not record memory:get when the memory is not found', async () => {
     const { rpcHandler, store } = buildHandlers();
-    store.getById.mockReturnValue(undefined);
+    store.getActiveById.mockReturnValue(null);
 
     const result = await rpcHandler.call('memory:get', { id: 'missing' });
 
+    expect(store.recordUse).not.toHaveBeenCalled();
+    expect(result).toEqual({ memory: null, chunks: [] });
+  });
+
+  it('reads through the active-only lookup, so a quarantined id reads as missing', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getActiveById.mockReturnValue(null);
+
+    const result = await rpcHandler.call('memory:get', { id: 'quarantined' });
+
+    expect(store.getActiveById).toHaveBeenCalledWith('quarantined');
+    expect(store.getChunks).not.toHaveBeenCalled();
     expect(store.recordUse).not.toHaveBeenCalled();
     expect(result).toEqual({ memory: null, chunks: [] });
   });
@@ -414,7 +442,7 @@ describe('MemoryRpcHandlers — explicit use recording', () => {
 
   it('returns a found memory unchanged when recording fails', async () => {
     const { rpcHandler, store, logger } = buildHandlers();
-    store.getById.mockReturnValue(makeMemory());
+    store.getActiveById.mockReturnValue(makeMemory());
     store.getChunks.mockReturnValue([]);
     store.recordUse.mockImplementation(() => {
       throw new Error('usage ledger unavailable');
@@ -1488,6 +1516,511 @@ describe('MemoryRpcHandlers — memory:purgeJunk workspace refusal', () => {
 
     expect(codeSymbols.purgeJunk).toHaveBeenCalledWith('/workspace/project');
     expect(result).toEqual({ deleted: 7 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quarantine review and restore surface — TASK_2026_563 M5 (component 8)
+// ---------------------------------------------------------------------------
+
+describe('MemoryRpcHandlers — memory:restoreQuarantined validation and authorization', () => {
+  it.each([
+    ['an omitted workspaceRoot key', { all: true }],
+    ['no selector', { workspaceRoot: '/workspace/project' }],
+    [
+      'two selectors',
+      { workspaceRoot: '/workspace/project', all: true, reason: 'rule:x' },
+    ],
+    [
+      'a reason that is not rule:<id>',
+      { workspaceRoot: '/workspace/project', reason: 'commitlint' },
+    ],
+    [
+      'more than 500 ids',
+      {
+        workspaceRoot: '/workspace/project',
+        ids: Array.from({ length: 501 }, (_, i) => `m-${i}`),
+      },
+    ],
+    ['an empty-string workspaceRoot', { workspaceRoot: '', all: true }],
+    ['all: false', { workspaceRoot: '/workspace/project', all: false }],
+  ])('rejects %s with INVALID_PARAMS', async (_label, params) => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:restoreQuarantined', params),
+    ).rejects.toMatchObject({
+      errorCode: 'INVALID_PARAMS',
+      message: 'Invalid parameters for memory:restoreQuarantined',
+    });
+    expect(store.restoreQuarantined).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unauthorized workspace with UNAUTHORIZED_WORKSPACE', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:restoreQuarantined', {
+        workspaceRoot: '/somewhere/else',
+        all: true,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(store.restoreQuarantined).not.toHaveBeenCalled();
+  });
+
+  it('passes an authorized workspace and the ids selector to the store', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.restoreQuarantined.mockReturnValue({ restored: 2 });
+
+    const result = await rpcHandler.call('memory:restoreQuarantined', {
+      workspaceRoot: '/workspace/project',
+      ids: ['m-1', 'm-2'],
+    });
+
+    expect(store.restoreQuarantined).toHaveBeenCalledWith(
+      { ids: ['m-1', 'm-2'] },
+      '/workspace/project',
+    );
+    expect(result).toEqual({ restored: 2 });
+  });
+
+  it('accepts an explicit null as the unscoped rows and logs the scope', async () => {
+    const { rpcHandler, store, logger } = buildHandlers([]);
+
+    await rpcHandler.call('memory:restoreQuarantined', {
+      workspaceRoot: null,
+      reason: 'rule:commitlint-scope-facts',
+    });
+
+    expect(store.restoreQuarantined).toHaveBeenCalledWith(
+      { reason: 'rule:commitlint-scope-facts' },
+      null,
+    );
+    expect(logger.info).toHaveBeenCalledWith('[memory] restoreQuarantined', {
+      scope: 'unscoped',
+    });
+  });
+
+  it('wraps a store failure in PERSISTENCE_UNAVAILABLE without leaking it', async () => {
+    const { rpcHandler, store, logger } = buildHandlers(['/workspace/project']);
+    store.restoreQuarantined.mockImplementation(() => {
+      throw new Error('SQLITE_BUSY: database is locked');
+    });
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('memory:restoreQuarantined', {
+        workspaceRoot: '/workspace/project',
+        all: true,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    const rpcErr = thrown as RpcUserError;
+    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(rpcErr.message).not.toContain('SQLITE_BUSY');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[memory] restoreQuarantined failed',
+      { error: 'SQLITE_BUSY: database is locked' },
+    );
+  });
+});
+
+describe('MemoryRpcHandlers — memory:listQuarantined scope and mapping', () => {
+  it('scopes an omitted workspaceRoot to the current workspace', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:listQuarantined', {});
+
+    expect(store.listQuarantined).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: '/workspace/project' }),
+    );
+  });
+
+  it('preserves an explicit null as the unscoped rows', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:listQuarantined', { workspaceRoot: null });
+
+    expect(store.listQuarantined).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: null }),
+    );
+  });
+
+  it("scope:'all' lists every workspace", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:listQuarantined', {
+      scope: 'all',
+      reason: 'rule:commitlint-scope-facts',
+      limit: 20,
+      offset: 40,
+    });
+
+    expect(store.listQuarantined).toHaveBeenCalledWith({
+      workspaceRoot: undefined,
+      reason: 'rule:commitlint-scope-facts',
+      limit: 20,
+      offset: 40,
+    });
+  });
+
+  it('maps every row to the wire shape, keeping its workspaceRoot', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listQuarantined.mockReturnValue({
+      rows: [
+        {
+          id: 'q-1',
+          workspaceRoot: null,
+          subject: 'commitlint scope',
+          kind: 'fact',
+          tier: 'recall',
+          reason: 'rule:commitlint-scope-facts',
+          quarantinedAt: 42,
+          excerpt: 'excerpt',
+        },
+      ],
+      total: 7,
+    });
+
+    const result = await rpcHandler.call('memory:listQuarantined', {
+      scope: 'all',
+    });
+
+    expect(result).toEqual({
+      items: [
+        {
+          id: 'q-1',
+          workspaceRoot: null,
+          subject: 'commitlint scope',
+          kind: 'fact',
+          tier: 'recall',
+          reason: 'rule:commitlint-scope-facts',
+          quarantinedAt: 42,
+          excerpt: 'excerpt',
+        },
+      ],
+      total: 7,
+    });
+  });
+
+  it.each([
+    ['an unknown scope', { scope: 'everything' }],
+    ['a reason that is not rule:<id>', { reason: 'anything' }],
+    ['a limit above 500', { limit: 501 }],
+  ])('rejects %s with INVALID_PARAMS', async (_label, params) => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:listQuarantined', params),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(store.listQuarantined).not.toHaveBeenCalled();
+  });
+
+  it('wraps a store failure in PERSISTENCE_UNAVAILABLE', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listQuarantined.mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT');
+    });
+
+    await expect(
+      rpcHandler.call('memory:listQuarantined', {}),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real store on real SQLite. `better-sqlite3` is rebuilt for Electron's ABI, so
+// under plain Jest the opener falls back to `node:sqlite`. The opener is local
+// (the skills-synthesis digest spec precedent): this lib imports its siblings
+// through their barrels only. No binding at all fails the suite, never skips it.
+// ---------------------------------------------------------------------------
+
+interface RawTestDb {
+  exec(sql: string): void;
+  prepare(sql: string): {
+    run(...params: unknown[]): { changes: number | bigint };
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+  };
+  close(): void;
+}
+
+function openRawTestDb(): RawTestDb {
+  try {
+    const Database = require('better-sqlite3') as new (
+      file: string,
+    ) => RawTestDb;
+    return new Database(':memory:');
+  } catch {
+    // Falls through to the built-in binding.
+  }
+  const { DatabaseSync } = require('node:sqlite') as {
+    DatabaseSync: new (file: string) => RawTestDb;
+  };
+  return new DatabaseSync(':memory:');
+}
+
+const WS = '/workspace/project';
+const REASON = 'rule:commitlint-scope-facts';
+
+interface RealStoreHarness {
+  readonly raw: RawTestDb;
+  readonly rpcHandler: ReturnType<typeof makeRpcHandler>;
+}
+
+const openRawDbs: RawTestDb[] = [];
+
+/**
+ * Every bundled migration's base SQL (0048 adds the quarantine columns), a
+ * real `MemoryStore` over it, and the handlers wired to that store. The
+ * connection stand-in supplies `transaction()` because `node:sqlite` has none.
+ */
+function buildRealStoreHandlers(workspaceFolders: string[]): RealStoreHarness {
+  const raw = openRawTestDb();
+  openRawDbs.push(raw);
+  raw.exec('PRAGMA foreign_keys = ON');
+  for (const migration of [...MIGRATIONS].sort(
+    (a, b) => a.version - b.version,
+  )) {
+    if (migration.sql) raw.exec(migration.sql);
+  }
+  const db = {
+    exec: (sql: string) => raw.exec(sql),
+    prepare: (sql: string) => raw.prepare(sql),
+    close: () => raw.close(),
+    transaction:
+      <T extends (...args: unknown[]) => unknown>(fn: T) =>
+      (...args: unknown[]) => {
+        raw.exec('BEGIN');
+        try {
+          const out = fn(...args);
+          raw.exec('COMMIT');
+          return out;
+        } catch (error: unknown) {
+          raw.exec('ROLLBACK');
+          throw error;
+        }
+      },
+  };
+  const connection = {
+    db,
+    isOpen: true,
+    vecExtensionLoaded: false,
+    handleFatalWriteError: () => undefined,
+  } as unknown as SqliteConnectionService;
+  const store = new MemoryStore(
+    makeLogger() as unknown as Logger,
+    connection,
+    { embed: jest.fn(), dim: 384 } as unknown as IEmbedder,
+    { available: false } as unknown as VecStatusService,
+  );
+  const { rpcHandler } = buildHandlersWithStore(workspaceFolders, store);
+  return { raw, rpcHandler };
+}
+
+function seedMemory(
+  raw: RawTestDb,
+  id: string,
+  workspaceRoot: string | null,
+  quarantined: boolean,
+): void {
+  raw
+    .prepare(
+      `INSERT INTO memories (
+         id, session_id, workspace_root, tier, kind, subject, content,
+         source_message_ids, salience, decay_rate, hits, pinned,
+         created_at, updated_at, last_used_at, expires_at,
+         type, concepts_json, files_json, quarantined_at, quarantine_reason
+       ) VALUES (?, NULL, ?, 'recall', 'fact', ?, ?, '[]', 0.5, 0.01, 0, 0,
+         1000, 1000, 1000, NULL, 'discovery', '[]', '[]', ?, ?)`,
+    )
+    .run(
+      id,
+      workspaceRoot,
+      `subject ${id}`,
+      `content of ${id}`,
+      quarantined ? 5000 : null,
+      quarantined ? REASON : null,
+    );
+  raw
+    .prepare(
+      `INSERT INTO memory_chunks (id, memory_id, ord, text, token_count, created_at)
+       VALUES (?, ?, 0, ?, 3, 1000)`,
+    )
+    .run(`${id}-chunk-0`, id, `content of ${id}`);
+}
+
+function quarantineState(raw: RawTestDb, id: string) {
+  return raw
+    .prepare(
+      'SELECT quarantined_at, quarantine_reason, hits FROM memories WHERE id = ?',
+    )
+    .get(id) as {
+    quarantined_at: number | null;
+    quarantine_reason: string | null;
+    hits: number;
+  };
+}
+
+/** One NULL-scope and one named-scope quarantined row, plus an active control. */
+function seedScopes(raw: RawTestDb): void {
+  seedMemory(raw, 'q-null', null, true);
+  seedMemory(raw, 'q-named', WS, true);
+  seedMemory(raw, 'active-named', WS, false);
+}
+
+describe('MemoryRpcHandlers — memory:pin / memory:unpin report whether a row matched', () => {
+  it.each([
+    ['memory:pin', true],
+    ['memory:unpin', false],
+  ] as const)('%s succeeds for an active row', async (method, pinned) => {
+    const { rpcHandler, store } = buildHandlers();
+    store.setPinned.mockReturnValue(true);
+
+    const result = await rpcHandler.call(method, { id: 'mem-1' });
+
+    expect(store.setPinned).toHaveBeenCalledWith('mem-1', pinned);
+    expect(result).toEqual({ success: true, pinned });
+  });
+
+  it.each(['memory:pin', 'memory:unpin'])(
+    '%s reports no success when no active row matched (missing or quarantined)',
+    async (method) => {
+      const { rpcHandler, store } = buildHandlers();
+      store.setPinned.mockReturnValue(false);
+
+      const result = await rpcHandler.call(method, { id: 'quarantined' });
+
+      expect(result).toEqual({ success: false, pinned: false });
+    },
+  );
+});
+
+describe('MemoryRpcHandlers — quarantine surface against a real store', () => {
+  afterEach(() => {
+    for (const raw of openRawDbs.splice(0)) raw.close();
+  });
+
+  it('an explicit null restore lifts only the unscoped row', async () => {
+    const { raw, rpcHandler } = buildRealStoreHandlers([WS]);
+    seedScopes(raw);
+
+    const result = await rpcHandler.call('memory:restoreQuarantined', {
+      workspaceRoot: null,
+      all: true,
+    });
+
+    expect(result).toEqual({ restored: 1 });
+    expect(quarantineState(raw, 'q-null')).toMatchObject({
+      quarantined_at: null,
+      quarantine_reason: null,
+    });
+    expect(quarantineState(raw, 'q-named')).toMatchObject({
+      quarantined_at: 5000,
+      quarantine_reason: REASON,
+    });
+  });
+
+  it('a named restore lifts only that workspace, never the unscoped row', async () => {
+    const { raw, rpcHandler } = buildRealStoreHandlers([WS]);
+    seedScopes(raw);
+
+    const result = await rpcHandler.call('memory:restoreQuarantined', {
+      workspaceRoot: WS,
+      reason: REASON,
+    });
+
+    expect(result).toEqual({ restored: 1 });
+    expect(quarantineState(raw, 'q-named').quarantined_at).toBeNull();
+    expect(quarantineState(raw, 'q-null')).toMatchObject({
+      quarantined_at: 5000,
+      quarantine_reason: REASON,
+    });
+  });
+
+  it('lists by scope tri-state with workspaceRoot on every item', async () => {
+    const { raw, rpcHandler } = buildRealStoreHandlers([WS]);
+    seedScopes(raw);
+
+    type ListResult = {
+      items: Array<{ id: string; workspaceRoot: string | null }>;
+      total: number;
+    };
+    const all = (await rpcHandler.call('memory:listQuarantined', {
+      scope: 'all',
+    })) as ListResult;
+    const unscoped = (await rpcHandler.call('memory:listQuarantined', {
+      workspaceRoot: null,
+    })) as ListResult;
+    const current = (await rpcHandler.call(
+      'memory:listQuarantined',
+      {},
+    )) as ListResult;
+
+    expect(all.total).toBe(2);
+    expect(
+      all.items
+        .map((item) => [item.id, item.workspaceRoot])
+        .sort(([a], [b]) => String(a).localeCompare(String(b))),
+    ).toEqual([
+      ['q-named', WS],
+      ['q-null', null],
+    ]);
+    expect(unscoped.items).toEqual([
+      expect.objectContaining({
+        id: 'q-null',
+        workspaceRoot: null,
+        reason: REASON,
+        excerpt: 'content of q-null',
+      }),
+    ]);
+    expect(current.items.map((item) => item.id)).toEqual(['q-named']);
+    expect(current.items[0].workspaceRoot).toBe(WS);
+  });
+
+  it('memory:get reads a quarantined id as missing, then the memory after restore', async () => {
+    const { raw, rpcHandler } = buildRealStoreHandlers([WS]);
+    seedScopes(raw);
+
+    const before = await rpcHandler.call('memory:get', { id: 'q-named' });
+    expect(before).toEqual({ memory: null, chunks: [] });
+    expect(quarantineState(raw, 'q-named').hits).toBe(0);
+
+    await rpcHandler.call('memory:restoreQuarantined', {
+      workspaceRoot: WS,
+      ids: ['q-named'],
+    });
+    const after = (await rpcHandler.call('memory:get', {
+      id: 'q-named',
+    })) as { memory: { id: string } | null; chunks: unknown[] };
+
+    expect(after.memory).toMatchObject({ id: 'q-named', workspaceRoot: WS });
+    expect(after.chunks).toHaveLength(1);
+    expect(quarantineState(raw, 'q-named').hits).toBe(1);
+  });
+
+  it('memory:pin on a quarantined id reports no success and pins nothing', async () => {
+    const { raw, rpcHandler } = buildRealStoreHandlers([WS]);
+    seedScopes(raw);
+
+    const quarantined = await rpcHandler.call('memory:pin', { id: 'q-named' });
+    const missing = await rpcHandler.call('memory:unpin', { id: 'no-such-id' });
+    const active = await rpcHandler.call('memory:pin', { id: 'active-named' });
+
+    expect(quarantined).toEqual({ success: false, pinned: false });
+    expect(missing).toEqual({ success: false, pinned: false });
+    expect(active).toEqual({ success: true, pinned: true });
+    const pinnedOf = (id: string) =>
+      (
+        raw.prepare('SELECT pinned FROM memories WHERE id = ?').get(id) as {
+          pinned: number;
+        }
+      ).pinned;
+    expect(pinnedOf('q-named')).toBe(0);
+    expect(pinnedOf('active-named')).toBe(1);
   });
 });
 

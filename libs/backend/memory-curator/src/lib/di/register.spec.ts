@@ -9,6 +9,10 @@
  * token whose dependencies do not resolve would only fail at the first cron
  * tick in production.
  *
+ * It also proves the curator's optional `MEMORY_SEARCH` injection reaches a
+ * real pass (TASK_2026_563 M3): removing the injection or the collector call
+ * fails the tier-2 case.
+ *
  * The SQLite connection is a real temp-file database (better-sqlite3 or
  * `node:sqlite`); the spec FAILS, never skips, when neither binding loads.
  */
@@ -24,10 +28,14 @@ import {
 import {
   PERSISTENCE_TOKENS,
   registerPersistenceSqliteServices,
+  type IEmbedder,
 } from '@ptah-extension/persistence-sqlite';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { registerMemoryCuratorServices } from './register';
+import { MemoryCuratorService } from '../memory-curator.service';
+import type { MemorySearchService } from '../memory-search.service';
+import type { ICuratorLLM } from '../curator-llm/curator-llm.interface';
 import { MemoryRetentionService } from '../retention/memory-retention.service';
 import { ObservationRetentionStore } from '../retention/observation-retention.store';
 import { MemoryLifecycleStore } from '../retention/memory-lifecycle.store';
@@ -194,6 +202,75 @@ describe('registerMemoryCuratorServices — memory retention reach', () => {
         .prepare('SELECT tier FROM memories WHERE id = ?')
         .get('di-old-recall'),
     ).toEqual({ tier: 'archival' });
+  });
+
+  it('wires the registered MEMORY_SEARCH into the curator so a pass queries tier 2 in its workspace', async () => {
+    const child = buildContainer();
+    const zeroEmbedder = {
+      dim: 384,
+      embed: async (texts: readonly string[]) =>
+        texts.map(() => new Float32Array(384)),
+    } as unknown as IEmbedder;
+    // The host worker is not available under Jest; a local embedder keeps the
+    // real search and store classes on their vector path.
+    child.register(PERSISTENCE_TOKENS.EMBEDDER, { useValue: zeroEmbedder });
+    child.register(MEMORY_CONTRACT_TOKENS.COMPACTION_CALLBACK_REGISTRY, {
+      useValue: { register: () => () => undefined },
+    });
+    child.register(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER, {
+      useValue: { read: async () => '' },
+    });
+    const draft = {
+      kind: 'fact' as const,
+      subject: 'di reach subject',
+      content: 'di reach content',
+      salienceHint: 0.5,
+    };
+    const llm: ICuratorLLM = {
+      extract: jest
+        .fn()
+        .mockResolvedValue({ status: 'extracted', drafts: [draft] }),
+      resolve: jest.fn().mockResolvedValue([{ ...draft, mergeTargetId: null }]),
+    } as unknown as ICuratorLLM;
+    child.register(MEMORY_TOKENS.CURATOR_LLM, { useValue: llm });
+    // KnowledgeAgentService needs agent-sdk tokens this lib does not register;
+    // the curator takes it optionally and only for the corpus auto-rebuild.
+    child.register(MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE, {
+      useValue: { rebuildCorpus: async () => undefined },
+    });
+
+    // An exact-subject tier-1 match, so Gate 2 D4 = B runs tier 2.
+    seedMemory(t.raw, { id: 'di-tier1', workspaceRoot: '/di-reach' });
+    t.raw
+      .prepare('UPDATE memories SET subject = ? WHERE id = ?')
+      .run('di reach subject', 'di-tier1');
+
+    const search = child.resolve<MemorySearchService>(
+      MEMORY_TOKENS.MEMORY_SEARCH,
+    );
+    const searchRich = jest.spyOn(search, 'searchRich');
+    const curator = child.resolve<MemoryCuratorService>(
+      MEMORY_TOKENS.MEMORY_CURATOR,
+    );
+    expect(curator).toBeInstanceOf(MemoryCuratorService);
+
+    const stats = await curator.curate({
+      sessionId: 'di-reach-session',
+      workspaceRoot: '/di-reach',
+      transcript: '{"type":"user","content":"remember the di reach"}',
+    });
+
+    expect(stats.outcome).toBe('ran');
+    expect(searchRich).toHaveBeenCalledWith(
+      'di reach subject di reach content',
+      5,
+      '/di-reach',
+    );
+    expect(
+      (llm.resolve as jest.Mock).mock.calls[0][1].map(
+        (c: { id: string }) => c.id,
+      ),
+    ).toContain('di-tier1');
   });
 
   it('supplies the governor to the retention service when registered', () => {

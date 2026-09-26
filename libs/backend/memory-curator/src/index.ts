@@ -17,6 +17,8 @@ export type {
   MemorySearchHit,
   MemorySearchResponse,
   MemoryListResponse,
+  QuarantinedMemoryRow,
+  QuarantinedMemoryPage,
   MemoryStatsResponse,
 } from './lib/memory.types';
 export { memoryId, chunkId } from './lib/memory.types';

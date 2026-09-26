@@ -11,21 +11,25 @@ import { RetentionStepError } from './observation-retention.store';
 
 const DELETE_ARCHIVED_SELECT_SQL = `SELECT m.id, m.workspace_root FROM memories m INDEXED BY idx_memories_tier_archived
  WHERE m.tier = 'archival' AND m.archived_at < @cutoff AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)
  ORDER BY m.archived_at LIMIT @limit`;
 
 const ARCHIVE_SELECT_SQL = `SELECT m.id, m.workspace_root FROM memories m INDEXED BY idx_memories_tier_last_used
  WHERE m.tier = 'recall' AND m.last_used_at < @cutoff AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)
  ORDER BY m.last_used_at LIMIT @limit`;
 
 const ARCHIVE_UPDATE_SQL = `UPDATE memories SET tier = 'archival', archived_at = @now
- WHERE id IN (SELECT value FROM json_each(@ids)) AND tier = 'recall' AND pinned = 0`;
+ WHERE id IN (SELECT value FROM json_each(@ids)) AND tier = 'recall' AND pinned = 0
+   AND quarantined_at IS NULL`;
 
 const OVER_CAP_SQL = `SELECT m.workspace_root AS workspace_root, COUNT(*) AS evictable,
        SUM(m.tier = 'recall') AS recall_evictable
   FROM memories m
  WHERE m.tier <> 'core' AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)
  GROUP BY m.workspace_root
 HAVING COUNT(*) > @cap`;
@@ -33,31 +37,37 @@ HAVING COUNT(*) > @cap`;
 const EVICT_ARCHIVAL_SELECT_SQL = `SELECT m.id FROM memories m INDEXED BY idx_memories_tier_last_used
  WHERE m.tier = 'archival' AND m.workspace_root IS @ws AND m.pinned = 0
    AND m.archived_at < @graceCutoff
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)
  ORDER BY m.last_used_at LIMIT @limit`;
 
 const EVICT_RECALL_SELECT_SQL = `SELECT m.id FROM memories m INDEXED BY idx_memories_tier_last_used
  WHERE m.tier = 'recall' AND m.workspace_root IS @ws AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)
  ORDER BY m.last_used_at LIMIT @limit`;
 
 const DELETE_CHUNKS_SQL = `DELETE FROM memory_chunks
  WHERE memory_id IN (SELECT id FROM memories
                       WHERE id IN (SELECT value FROM json_each(@ids))
-                        AND tier <> 'core' AND pinned = 0)`;
+                        AND tier <> 'core' AND pinned = 0
+                        AND quarantined_at IS NULL)`;
 
 const DELETE_MEMORIES_SQL = `DELETE FROM memories
- WHERE id IN (SELECT value FROM json_each(@ids)) AND tier <> 'core' AND pinned = 0`;
+ WHERE id IN (SELECT value FROM json_each(@ids)) AND tier <> 'core' AND pinned = 0
+   AND quarantined_at IS NULL`;
 
 const TRIGGER_EXISTS_SQL = `SELECT 1 FROM sqlite_master
  WHERE type = 'trigger' AND name = 'memory_chunks_vec_ad'`;
 
 const ARCHIVE_COUNT_SQL = `SELECT COUNT(*) AS n FROM memories m INDEXED BY idx_memories_tier_last_used
  WHERE m.tier = 'recall' AND m.last_used_at < @cutoff AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)`;
 
 const DELETE_COUNT_SQL = `SELECT COUNT(*) AS n FROM memories m INDEXED BY idx_memories_tier_archived
  WHERE m.tier = 'archival' AND m.archived_at < @cutoff AND m.pinned = 0
+   AND m.quarantined_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM corpus_memories c WHERE c.memory_id = m.id)`;
 
 export const MEMORY_LIFECYCLE_SQL = {

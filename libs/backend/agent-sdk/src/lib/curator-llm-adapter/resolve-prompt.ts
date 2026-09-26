@@ -19,15 +19,21 @@ subject as one of the existing memories. Respond ONLY with a JSON object:
     }
   ]
 }
-Prefer mergeTargetId when subjects match (case-insensitive). If unsure, set null.
+Set mergeTargetId to the id of an Existing memory when the candidate states the
+same fact, decision or preference about the same topic, even when the subjects
+are worded differently (e.g. "commitlint-scopes" and "commit-scope-rules"). Two
+different facts that only share a topic are not a merge. Use only an id that
+appears in the Existing list; any other id is ignored and the candidate is
+stored as new. If unsure, set null.
 Preserve every structured field from the candidate (type/concepts/files and the
 five summary fields) unless the candidate omits them — never invent values.
 
 TOOLS
 You have full, pre-approved access to the host's tools and nothing you call
 will prompt anyone. mcp__ptah__ptah_memory_search is the useful one here: the
-"Existing" list you are given is a shortlist, and a wider search can surface the
-memory a candidate really refines. Only what the host lists is available. Keep
+"Existing" list you are given is a shortlist, and a wider search can help you
+judge whether a candidate is new, but only memories in the Existing list can be
+merge targets. Only what the host lists is available. Keep
 it to a few calls — your turn budget is small. After the last tool result, your
 FINAL message must contain ONLY the JSON object.`;
 

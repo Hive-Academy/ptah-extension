@@ -115,7 +115,9 @@ CREATE TABLE IF NOT EXISTS memories (
   next_steps      TEXT,
   type            TEXT NOT NULL DEFAULT 'discovery',
   concepts_json   TEXT NOT NULL DEFAULT '[]',
-  files_json      TEXT NOT NULL DEFAULT '[]'
+  files_json      TEXT NOT NULL DEFAULT '[]',
+  quarantined_at  INTEGER,
+  quarantine_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_concepts_fts USING fts5(

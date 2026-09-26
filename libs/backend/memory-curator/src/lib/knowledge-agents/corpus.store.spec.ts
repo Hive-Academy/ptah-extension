@@ -11,6 +11,12 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { CorpusStore } from './corpus.store';
 import type { BuildCorpusParams } from './corpus.types';
+import {
+  openRetentionTestDb,
+  removeRetentionTempDirs,
+  seedMemory as seedFullMemory,
+  type RetentionTestDb,
+} from '../retention/retention-sqlite.test-support';
 
 function makeLogger(): Logger {
   return {
@@ -330,5 +336,60 @@ describe('CorpusStore (native-gated)', () => {
     } finally {
       service.close();
     }
+  });
+});
+
+const baseParamsForQuarantine: BuildCorpusParams = {
+  name: 'corpus-Q',
+  workspaceRoot: '/ws/X',
+  query: 'tag search',
+  type: ['feature'],
+  concepts: ['memory'],
+  files: [],
+  limit: 50,
+};
+
+// TASK_2026_563 M5: a quarantined member never reaches `corpus:query`/`prime`.
+// Runs on real SQLite through the retention harness, which fails rather than
+// skips when no binding loads.
+describe('CorpusStore quarantine exclusion (real SQLite)', () => {
+  let t: RetentionTestDb;
+  let store: CorpusStore;
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+    store = new CorpusStore(makeLogger(), t.connection);
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  it('excludes a quarantined member from getCorpusMemoriesForPriming and keeps it again after restore', () => {
+    const ref = store.create(baseParamsForQuarantine);
+    seedFullMemory(t.raw, { id: 'active-member', workspaceRoot: '/ws/X' });
+    seedFullMemory(t.raw, { id: 'quarantined-member', workspaceRoot: '/ws/X' });
+    store.setMemberIds(ref.id, ['quarantined-member', 'active-member']);
+    t.raw
+      .prepare(
+        `UPDATE memories SET quarantined_at = 5, quarantine_reason = 'rule:test' WHERE id = ?`,
+      )
+      .run('quarantined-member');
+
+    expect(
+      store.getCorpusMemoriesForPriming('corpus-Q').map((m) => m.id),
+    ).toEqual(['active-member']);
+    // Membership itself is untouched: restore brings the member back in order.
+    expect(store.getMemberIds(ref.id)).toEqual([
+      'quarantined-member',
+      'active-member',
+    ]);
+
+    t.raw
+      .prepare(
+        'UPDATE memories SET quarantined_at = NULL, quarantine_reason = NULL WHERE id = ?',
+      )
+      .run('quarantined-member');
+    expect(
+      store.getCorpusMemoriesForPriming('corpus-Q').map((m) => m.id),
+    ).toEqual(['quarantined-member', 'active-member']);
   });
 });

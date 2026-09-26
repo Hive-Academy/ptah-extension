@@ -30,7 +30,8 @@ describe('migration 0047_memory_retention_health', () => {
     expect(MIGRATIONS.filter((m) => m.version === 47)).toEqual([
       { version: 47, name: '0047_memory_retention_health', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(47);
+    // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(49);
     expect(sql).not.toContain('${');
     expect(sql.match(/ALTER TABLE/g)).toHaveLength(2);
     expect(sql).not.toMatch(/\b(CREATE|DROP|INSERT|UPDATE|DELETE|SELECT)\b/i);
