@@ -19,7 +19,7 @@ import {
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
-import { FileType } from '@ptah-extension/platform-core';
+import { FileType, withCoverageVerdict } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -217,7 +217,7 @@ function fileCoverage(
   const classification = classifyFileForCoverage(filePath, capability);
   const eligible = classification === 'eligible';
   const language = languageForExtension(path.extname(filePath));
-  return {
+  return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor(capability),
     census: 'complete',
     analyzed: eligible && parseStatus === 'ok' ? 1 : 0,
@@ -234,7 +234,7 @@ function fileCoverage(
     ...(eligible && parseStatus === 'recovered'
       ? { failedByReason: { parse: 1 } }
       : {}),
-  };
+  });
 }
 
 /**

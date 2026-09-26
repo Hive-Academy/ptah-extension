@@ -91,6 +91,19 @@ export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
     ptah_task_list: 'preformatted',
   });
 
+/**
+ * Top-level result keys the JSON reducer keeps verbatim and first (Batch
+ * 24r): the status blocks of the language-bound tools. A reduced answer must
+ * still show `coverage.clean` and every `null` (unknown) field, and a later
+ * cut of the text reaches them last.
+ */
+export const PRESERVED_RESULT_KEYS: readonly string[] = Object.freeze([
+  'coverage',
+  'status',
+  'index',
+  'parseStatus',
+]);
+
 const DEFAULT_BUDGET: TextBudget = Object.freeze({
   tokens: DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
   chars: DEFAULT_TOOL_RESULT_BUDGET_CHARS,
@@ -258,6 +271,7 @@ async function budgetText(
     hint: Object.hasOwn(TOOL_CONTENT_HINTS, input.toolName)
       ? TOOL_CONTENT_HINTS[input.toolName]
       : undefined,
+    preserveKeys: PRESERVED_RESULT_KEYS,
     outliner: input.outliner,
     output: input.output,
   });

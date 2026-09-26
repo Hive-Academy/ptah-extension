@@ -79,6 +79,8 @@ export type {
   Count,
   CoverageCensus,
   CoverageChecks,
+  CoverageFields,
+  CoverageReason,
   CoverageResolution,
   CoverageState,
   FailureReason,
@@ -90,13 +92,17 @@ export type {
 export {
   APPROXIMATION_PRIORITY,
   COVERAGE_COUNT_MAX,
+  COVERAGE_REASONS,
   FAILURE_REASONS,
   LANGUAGE_IDS,
   MAX_REPORTED_APPROXIMATIONS,
+  MAX_REPORTED_REASONS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
+  coverageReasons,
   isCleanAnswer,
   limitApproximations,
+  withCoverageVerdict,
 } from './interfaces/language-coverage.interface';
 export type {
   IMemoryWriter,

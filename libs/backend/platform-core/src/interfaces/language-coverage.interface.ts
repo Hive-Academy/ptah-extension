@@ -15,14 +15,19 @@
  *   counted separately, per import, in `resolution`.
  * - A count the source cannot know is `null`, never a guessed 0.
  * - Counts saturate at {@link COVERAGE_COUNT_MAX} so the serialised object stays
- *   bounded (measured worst case under 1,000 characters, pinned by
- *   `language-registry.spec.ts` in workspace-intelligence).
+ *   bounded: the enumerated worst case, verdict included, measures 1,000
+ *   characters and is asserted at most 1,000 (`language-registry.spec.ts`
+ *   in workspace-intelligence). A count equal to {@link COVERAGE_COUNT_MAX}
+ *   means "at least this many".
+ * - Every coverage a tool returns goes through {@link withCoverageVerdict}:
+ *   `clean` and `reasons` come first, so the verdict survives reduction.
  * - Responses place `coverage` after the Batch 9 status fields (`count`,
  *   `incomplete`, `graphedFiles`, `discoveredFiles`) and before `file`, lists
  *   and hits, so a budget cut never drops it.
  *
- * Type-only apart from the closed-vocabulary constants and two pure helpers
- * (`isCleanAnswer`, `limitApproximations`): platform-core is
+ * Type-only apart from the closed-vocabulary constants and pure helpers
+ * (`isCleanAnswer`, `coverageReasons`, `withCoverageVerdict`,
+ * `limitApproximations`): platform-core is
  * `scope:shared,type:util`.
  */
 
@@ -105,8 +110,12 @@ export const MAX_REPORTED_APPROXIMATIONS = 4;
 /** `unsupportedByLanguage` carries at most this many named keys, plus `other`. */
 export const MAX_UNSUPPORTED_LANGUAGE_KEYS = 8;
 
-/** Every count in a coverage object saturates here (multi-root sums too). */
-export const COVERAGE_COUNT_MAX = 9_999_999;
+/**
+ * Every count in a coverage object saturates here (multi-root sums too); a
+ * count equal to it means "this many or more". 999,999 since Batch 24r (was
+ * 9,999,999): the verdict needs the room within the 1,000-char bound.
+ */
+export const COVERAGE_COUNT_MAX = 999_999;
 
 export type CoverageCensus = 'complete' | 'truncated' | 'unknown';
 
@@ -126,7 +135,11 @@ export interface CoverageResolution {
   readonly context: 'complete' | 'partial';
 }
 
-export interface LanguageCoverage {
+/**
+ * The fields a producer measures. {@link withCoverageVerdict} turns them into
+ * a {@link LanguageCoverage} by adding the verdict (`clean`, `reasons`).
+ */
+export interface CoverageFields {
   /** Capability claim of this tool on this host. */
   readonly supportedLanguages: readonly LanguageId[];
   readonly census: CoverageCensus;
@@ -177,6 +190,57 @@ export interface LanguageCoverage {
 }
 
 /**
+ * Why a coverage object is not clean, one code per failed condition of the
+ * clean answer rule, highest priority first. A code ending in `?` names a
+ * count (or the census) the source could not know (`null`); unknowns come
+ * before every observed qualifier, because an unknown is the one qualifier a
+ * reader can miss. `stale` is the `incomplete` state. Codes are short on
+ * purpose: the worst-case coverage, verdict included, must stay within
+ * 1,000 characters.
+ */
+export const COVERAGE_REASONS = [
+  'census?',
+  'updating',
+  'stale',
+  'truncated',
+  'unchecked?',
+  'failed?',
+  'unsupported?',
+  'unrecognised?',
+  'omitted?',
+  'resolution?',
+  'unchecked',
+  'failed',
+  'unsupported',
+  'unrecognised',
+  'omitted-by-cap',
+  'excluded',
+  'unresolved-internal',
+  'truncated-imports',
+  'edge-cap-hit',
+  'resolver-context-partial',
+] as const;
+export type CoverageReason = (typeof COVERAGE_REASONS)[number];
+
+/**
+ * At most this many reasons are listed. The rest stay readable in the
+ * fields themselves; the list only says, bounded, why the answer is not clean.
+ */
+export const MAX_REPORTED_REASONS = 3;
+
+/**
+ * What a language-bound tool analysed, and whether its answer may be read as
+ * clean. `clean` and `reasons` come first in the serialised object, so a
+ * reader (or a budget cut) meets the verdict before the counts.
+ */
+export interface LanguageCoverage extends CoverageFields {
+  /** {@link isCleanAnswer} of the fields. */
+  readonly clean: boolean;
+  /** The first {@link MAX_REPORTED_REASONS} {@link coverageReasons}; empty when clean. */
+  readonly reasons: readonly CoverageReason[];
+}
+
+/**
  * Single-file answer for a language that lacks the requested capability. A
  * success, not an error — except where a tool keeps its own honest contract
  * (`ptah_ast_analyze` errors; enrich returns full content with a reason).
@@ -203,33 +267,82 @@ export interface UnsupportedLanguageAnswer {
  *
  * Anything else is a qualified answer that must name its qualifier.
  */
-export function isCleanAnswer(coverage: LanguageCoverage): boolean {
-  if (coverage.census !== 'complete') {
-    return false;
-  }
-  if (
-    coverage.unchecked !== 0 ||
-    coverage.failed !== 0 ||
-    coverage.unsupported !== 0 ||
-    coverage.unrecognised !== 0 ||
-    coverage.omittedByCap !== 0
-  ) {
-    return false;
-  }
-  if (coverage.excluded !== 0 && coverage.excluded !== null) {
-    return false;
-  }
+export function isCleanAnswer(coverage: CoverageFields): boolean {
+  return coverageReasons(coverage).length === 0;
+}
+
+/** Codes for one count: unknown () or observed (above 0). */
+function countReason<
+  Unknown extends CoverageReason,
+  Seen extends CoverageReason,
+>(count: Count, unknown: Unknown, seen: Seen): Unknown | Seen | undefined {
+  if (count === null) return unknown;
+  return count !== 0 ? seen : undefined;
+}
+
+/**
+ * Every condition of the clean answer rule the fields fail, as codes in
+ * {@link COVERAGE_REASONS} order. Empty exactly when the answer is clean.
+ */
+export function coverageReasons(coverage: CoverageFields): CoverageReason[] {
+  const found = new Set<CoverageReason>();
+  const add = (reason: CoverageReason | undefined): void => {
+    if (reason !== undefined) found.add(reason);
+  };
+  if (coverage.census === 'unknown') add('census?');
+  if (coverage.census === 'truncated') add('truncated');
+  if (coverage.state === 'updating') add('updating');
+  if (coverage.state === 'incomplete') add('stale');
+  add(countReason(coverage.unchecked, 'unchecked?', 'unchecked'));
+  add(countReason(coverage.failed, 'failed?', 'failed'));
+  add(countReason(coverage.unsupported, 'unsupported?', 'unsupported'));
+  add(countReason(coverage.unrecognised, 'unrecognised?', 'unrecognised'));
+  add(countReason(coverage.omittedByCap, 'omitted?', 'omitted-by-cap'));
+  // `excluded: null` is allowed: exclusion inside discovery is not observed.
+  if (coverage.excluded !== null && coverage.excluded !== 0) add('excluded');
   const resolution = coverage.resolution;
-  if (
-    resolution !== undefined &&
-    (resolution.unresolvedInternal !== 0 ||
-      resolution.truncatedImports !== 0 ||
-      resolution.edgeCapHit ||
-      resolution.context !== 'complete')
-  ) {
-    return false;
+  if (resolution !== undefined) {
+    add(
+      countReason(
+        resolution.unresolvedInternal,
+        'resolution?',
+        'unresolved-internal',
+      ),
+    );
+    add(
+      countReason(
+        resolution.truncatedImports,
+        'resolution?',
+        'truncated-imports',
+      ),
+    );
+    if (resolution.edgeCapHit) add('edge-cap-hit');
+    if (resolution.context !== 'complete') add('resolver-context-partial');
   }
-  return coverage.state === undefined || coverage.state === 'current';
+  return COVERAGE_REASONS.filter((reason) => found.has(reason));
+}
+
+/**
+ * The coverage a tool returns: the verdict first (`clean`, then at most
+ * {@link MAX_REPORTED_REASONS} `reasons`), then the fields. A verdict already
+ * present on the input is recomputed, so a merged or edited coverage never
+ * carries a stale one.
+ */
+export function withCoverageVerdict(
+  coverage: CoverageFields | LanguageCoverage,
+): LanguageCoverage {
+  const {
+    clean: _staleClean,
+    reasons: _staleReasons,
+    ...fields
+  }: CoverageFields &
+    Partial<Pick<LanguageCoverage, 'clean' | 'reasons'>> = coverage;
+  const reasons = coverageReasons(fields);
+  return {
+    clean: reasons.length === 0,
+    reasons: reasons.slice(0, MAX_REPORTED_REASONS),
+    ...fields,
+  };
 }
 
 function approximationRank(approximation: Approximation): number {
@@ -258,7 +371,7 @@ function compareApproximations(a: Approximation, b: Approximation): number {
  */
 export function limitApproximations(
   approximations: readonly Approximation[],
-): Pick<LanguageCoverage, 'approximations' | 'approximationsOmitted'> {
+): Pick<CoverageFields, 'approximations' | 'approximationsOmitted'> {
   const unique = [...new Set(approximations)].sort(compareApproximations);
   if (unique.length === 0) {
     return {};

@@ -1,6 +1,7 @@
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { withCoverageVerdict } from '@ptah-extension/platform-core';
 import { SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import {
   countTokens,
@@ -12,6 +13,7 @@ import {
   DEFAULT_TOOL_RESULT_BUDGET_CHARS,
   DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
   getToolResultBudget,
+  PRESERVED_RESULT_KEYS,
   TOOL_CONTENT_HINTS,
   TOOL_RESULT_BUDGET_OVERRIDES,
   type ApplyToolResultBudgetInput,
@@ -28,7 +30,8 @@ jest.mock('@ptah-extension/tool-output-reducers', () => {
  * The real builtin modules. The `import * as` bindings above are interop
  * wrappers whose getters read these objects, so a spy has to go here.
  */
-const realCrypto: typeof import('node:crypto') = jest.requireActual('node:crypto');
+const realCrypto: typeof import('node:crypto') =
+  jest.requireActual('node:crypto');
 const realOs: typeof import('node:os') = jest.requireActual('node:os');
 
 const DEFAULT: TextBudget = {
@@ -82,7 +85,10 @@ function expectWithin(text: string, budget: TextBudget = DEFAULT): void {
 }
 
 /** Parses the trailer and checks the returned text is within `budget`. */
-function trailerOf(text: string, budget: TextBudget = DEFAULT): RegExpExecArray {
+function trailerOf(
+  text: string,
+  budget: TextBudget = DEFAULT,
+): RegExpExecArray {
   expectWithin(text, budget);
   const match = TRAILER.exec(text);
   if (match === null) {
@@ -128,7 +134,12 @@ describe('budget tables', () => {
   });
 
   it('never resolves an inherited property name as an override', () => {
-    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    for (const name of [
+      'constructor',
+      '__proto__',
+      'toString',
+      'hasOwnProperty',
+    ]) {
       expect(getToolResultBudget(name)).toEqual(DEFAULT);
     }
   });
@@ -185,14 +196,19 @@ describe('applyToolResultBudget', () => {
     expect(Number(trailer[3])).toBeLessThan(outcome.rawTokens);
     expect(trailer[6]).toBe(outcome.spoolPath);
     expect(path.dirname(outcome.spoolPath ?? '')).toBe(spoolDir());
-    expect(path.basename(outcome.spoolPath ?? '')).toMatch(/^7-\d+-[0-9a-f]{4}\.txt$/);
+    expect(path.basename(outcome.spoolPath ?? '')).toMatch(
+      /^7-\d+-[0-9a-f]{4}\.txt$/,
+    );
     expect(fsSync.readFileSync(outcome.spoolPath ?? '', 'utf8')).toBe(raw);
     expect(outcome.returnedTokens).toBeLessThanOrEqual(DEFAULT.tokens);
   });
 
   it('cuts reduced JSON that is still over budget mid-line and marks it partial', async () => {
     const raw = JSON.stringify({
-      rows: Array.from({ length: 900 }, (_, i) => `distinct value number ${i} ${'z'.repeat(i % 13)}`),
+      rows: Array.from(
+        { length: 900 },
+        (_, i) => `distinct value number ${i} ${'z'.repeat(i % 13)}`,
+      ),
     });
     expect(raw).not.toContain('\n');
     const outcome = await call(raw);
@@ -205,7 +221,11 @@ describe('applyToolResultBudget', () => {
   it('cuts over-budget single-line text at the limit and spools it', async () => {
     const raw = 'word '.repeat(4000).trim();
     const outcome = await call(raw);
-    expect(outcome).toMatchObject({ reduced: false, truncated: true, reducer: 'none' });
+    expect(outcome).toMatchObject({
+      reduced: false,
+      truncated: true,
+      reducer: 'none',
+    });
     const trailer = trailerOf(outcome.text);
     expect(trailer[1]).toBe('none');
     expect(trailer[2]).toBe(' — partial, cut mid-line');
@@ -216,7 +236,10 @@ describe('applyToolResultBudget', () => {
   });
 
   it('cuts multi-line text at the last line break inside the window', async () => {
-    const lines = Array.from({ length: 400 }, (_, i) => `Line ${i}: an ordinary sentence of prose.`);
+    const lines = Array.from(
+      { length: 400 },
+      (_, i) => `Line ${i}: an ordinary sentence of prose.`,
+    );
     const raw = lines.join('\r\n');
     const outcome = await call(raw);
     const trailer = trailerOf(outcome.text);
@@ -238,7 +261,11 @@ describe('applyToolResultBudget', () => {
   it('cuts preformatted diagnostics and never runs a reducer on them', async () => {
     const raw = jsonRows(150);
     const outcome = await call(raw, { toolName: 'ptah_get_diagnostics' });
-    expect(outcome).toMatchObject({ reduced: false, truncated: true, reducer: 'none' });
+    expect(outcome).toMatchObject({
+      reduced: false,
+      truncated: true,
+      reducer: 'none',
+    });
     const trailer = trailerOf(outcome.text);
     expect(raw.startsWith(outcome.text.slice(0, trailer.index))).toBe(true);
   });
@@ -246,9 +273,14 @@ describe('applyToolResultBudget', () => {
   it('keeps the error lines of an over-budget log through the reducer', async () => {
     const lines: string[] = [];
     for (let i = 0; i < 3000; i++) {
-      lines.push(`[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i}`);
+      lines.push(
+        `[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i}`,
+      );
       if (i === 1500) {
-        lines.push('ERROR: expected 3 to be 4', '    at Object.<anonymous> (src/a.spec.ts:12:5)');
+        lines.push(
+          'ERROR: expected 3 to be 4',
+          '    at Object.<anonymous> (src/a.spec.ts:12:5)',
+        );
       }
     }
     const outcome = await call(lines.join('\n'));
@@ -258,9 +290,12 @@ describe('applyToolResultBudget', () => {
   });
 
   it('reports a spool write failure in the trailer and still returns the capped text', async () => {
-    const denied = Object.assign(new Error(`EACCES: permission denied, open '${root}'`), {
-      code: 'EACCES',
-    });
+    const denied = Object.assign(
+      new Error(`EACCES: permission denied, open '${root}'`),
+      {
+        code: 'EACCES',
+      },
+    );
     jest.spyOn(fsSync.promises, 'writeFile').mockRejectedValue(denied);
     const outcome = await call('word '.repeat(4000));
     expect(outcome.spoolPath).toBeUndefined();
@@ -273,7 +308,9 @@ describe('applyToolResultBudget', () => {
   it('reports a spool directory failure the same way', async () => {
     jest
       .spyOn(fsSync.promises, 'mkdir')
-      .mockRejectedValue(Object.assign(new Error('read-only'), { code: 'EROFS' }));
+      .mockRejectedValue(
+        Object.assign(new Error('read-only'), { code: 'EROFS' }),
+      );
     const outcome = await call(jsonRows(150));
     expect(outcome.reducer).toBe('json-compact');
     expect(trailerOf(outcome.text)[7]).toBe('EROFS');
@@ -281,32 +318,55 @@ describe('applyToolResultBudget', () => {
 
   it('writes two files for two calls with the same request id', async () => {
     const first = await call(`first ${'word '.repeat(4000)}`, { requestId: 1 });
-    const second = await call(`second ${'word '.repeat(4000)}`, { requestId: 1 });
+    const second = await call(`second ${'word '.repeat(4000)}`, {
+      requestId: 1,
+    });
     expect(first.spoolPath).not.toBe(second.spoolPath);
     expect(spooledFiles()).toHaveLength(2);
-    expect(fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first')).toBe(true);
-    expect(fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second')).toBe(true);
+    expect(
+      fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first'),
+    ).toBe(true);
+    expect(
+      fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second'),
+    ).toBe(true);
   });
 
   it('never overwrites an existing spool file with the same name', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(1_790_000_000_000);
     const fixed = Buffer.from([0xab, 0xcd]);
-    const random = jest.spyOn(realCrypto, 'randomBytes') as unknown as jest.Mock;
+    const random = jest.spyOn(
+      realCrypto,
+      'randomBytes',
+    ) as unknown as jest.Mock;
     // The first call's name, then the second call's first attempt: the same name.
     random.mockReturnValueOnce(fixed).mockReturnValueOnce(fixed);
-    const first = await call(`first ${'word '.repeat(4000)}`, { requestId: 'a' });
-    const second = await call(`second ${'word '.repeat(4000)}`, { requestId: 'a' });
-    expect(path.basename(first.spoolPath ?? '')).toBe('a-1790000000000-abcd.txt');
+    const first = await call(`first ${'word '.repeat(4000)}`, {
+      requestId: 'a',
+    });
+    const second = await call(`second ${'word '.repeat(4000)}`, {
+      requestId: 'a',
+    });
+    expect(path.basename(first.spoolPath ?? '')).toBe(
+      'a-1790000000000-abcd.txt',
+    );
     expect(second.spoolPath).toBeDefined();
     expect(second.spoolPath).not.toBe(first.spoolPath);
-    expect(fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first')).toBe(true);
-    expect(fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second')).toBe(true);
+    expect(
+      fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first'),
+    ).toBe(true);
+    expect(
+      fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second'),
+    ).toBe(true);
   });
 
   it('sanitises the request id so the spool file stays in the spool directory', async () => {
-    const outcome = await call('word '.repeat(4000), { requestId: '../../evil/..\\x' });
+    const outcome = await call('word '.repeat(4000), {
+      requestId: '../../evil/..\\x',
+    });
     expect(path.dirname(outcome.spoolPath ?? '')).toBe(spoolDir());
-    expect(path.basename(outcome.spoolPath ?? '')).toMatch(/^[A-Za-z0-9_-]+-\d+-[0-9a-f]{4}\.txt$/);
+    expect(path.basename(outcome.spoolPath ?? '')).toMatch(
+      /^[A-Za-z0-9_-]+-\d+-[0-9a-f]{4}\.txt$/,
+    );
   });
 
   it('falls back to os.tmpdir() for a relative or empty spool root', async () => {
@@ -354,7 +414,9 @@ describe('applyToolResultBudget', () => {
     const outcome = await call(raw, { output });
     expect(outcome.truncated).toBe(true);
     expectWithin(outcome.text);
-    expect(outcome.text).toMatch(/full output could not be saved: TypeError\]$/);
+    expect(outcome.text).toMatch(
+      /full output could not be saved: TypeError\]$/,
+    );
     expect(raw.startsWith(outcome.text.split('\n\n[reduced:')[0])).toBe(true);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('TypeError');
@@ -416,7 +478,8 @@ describe('review 2e r1 regressions', () => {
   it('S2: a verbose head never pushes the failure and the summary out of a log', async () => {
     const lines = Array.from(
       { length: 1000 },
-      (_, i) => `[2026-09-26T10:00:00] INFO step ${i} ${'normal detail '.repeat(40)}`,
+      (_, i) =>
+        `[2026-09-26T10:00:00] INFO step ${i} ${'normal detail '.repeat(40)}`,
     );
     lines.splice(700, 0, 'ERROR: UNIQUE_FAILURE', '    at fail (x.ts:1:2)');
     lines.push('Tests: 1 failed, 999 passed');
@@ -450,7 +513,10 @@ describe('review 2e r1 regressions', () => {
   });
 
   it('M1: a temp-directory spool root is named as such in a relative locator', async () => {
-    const longTmp = path.join(root, ...Array.from({ length: 30 }, () => 'tq'.repeat(100)));
+    const longTmp = path.join(
+      root,
+      ...Array.from({ length: 30 }, () => 'tq'.repeat(100)),
+    );
     jest.spyOn(realOs, 'tmpdir').mockReturnValue(longTmp);
     jest.spyOn(fsSync.promises, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fsSync.promises, 'writeFile').mockResolvedValue(undefined);
@@ -466,15 +532,22 @@ describe('review 2e r1 regressions', () => {
     const outcome = await call(raw, { output: sinkDown() });
     expect(outcome.truncated).toBe(true);
     expectWithin(outcome.text);
-    expect(outcome.text).toMatch(/full output could not be saved: TypeError\]$/);
+    expect(outcome.text).toMatch(
+      /full output could not be saved: TypeError\]$/,
+    );
   });
 
   it('M3: a custom Error name never reaches the trailer or the log', async () => {
     const lines: string[] = [];
-    const output = { ...sinkDown(), appendLine: (line: string) => lines.push(line) } as ApplyToolResultBudgetInput['output'];
+    const output = {
+      ...sinkDown(),
+      appendLine: (line: string) => lines.push(line),
+    } as ApplyToolResultBudgetInput['output'];
     jest
       .mocked(reduceOutput)
-      .mockRejectedValueOnce(Object.assign(new Error('message'), { name: '/private/SECRET' }));
+      .mockRejectedValueOnce(
+        Object.assign(new Error('message'), { name: '/private/SECRET' }),
+      );
     const outcome = await call('word '.repeat(4000), { output });
     expect(outcome.text).toMatch(/full output could not be saved: Error\]$/);
     expect(outcome.text).not.toContain('SECRET');
@@ -484,7 +557,9 @@ describe('review 2e r1 regressions', () => {
   it('M3: a spool failure with a custom name and no errno code reports only Error', async () => {
     jest
       .spyOn(fsSync.promises, 'writeFile')
-      .mockRejectedValue(Object.assign(new Error('x'), { name: '/private/SECRET' }));
+      .mockRejectedValue(
+        Object.assign(new Error('x'), { name: '/private/SECRET' }),
+      );
     const outcome = await call('word '.repeat(4000));
     expect(outcome.text).toMatch(/full output could not be saved: Error\]$/);
     expect(outcome.text).not.toContain('SECRET');
@@ -506,5 +581,74 @@ describe('review 2e r2 regressions', () => {
     expect(outcome.text).not.toContain('HIDDEN_SCRIPT_SENTINEL');
     trailerOf(outcome.text);
     expect(fsSync.readFileSync(outcome.spoolPath ?? '', 'utf8')).toBe(raw);
+  });
+});
+
+/**
+ * Batch 24r (r1 B1 of Batch 24b): the JSON reducer used to drop `null`
+ * fields, so a reduced search answer lost `coverage.unrecognised: null` — the
+ * only qualifier of an otherwise complete, current index.
+ */
+describe('applyToolResultBudget — status blocks survive reduction', () => {
+  it('a reduced search result still shows coverage.clean:false and every null field', async () => {
+    const coverage = withCoverageVerdict({
+      supportedLanguages: ['typescript', 'javascript'],
+      census: 'complete',
+      state: 'current',
+      analyzed: 2,
+      unchecked: 0,
+      failed: 0,
+      unsupported: 0,
+      unrecognised: null,
+      nonSource: null,
+      excluded: null,
+      omittedByCap: 0,
+    });
+    const result = {
+      index: {
+        symbolCount: 300,
+        indexAgeMs: null,
+        reindexStarted: false,
+        reindexInFlight: false,
+      },
+      coverage,
+      bm25Only: false,
+      hits: Array.from({ length: 300 }, (_, i) => ({
+        subject: null,
+        filePath: `/ws/src/deep/directory/module${i}/handlers.ts`,
+        symbolName: `handleRequest${i}`,
+        kind: 'function',
+        text: `function handleRequest${i}(request: Request): Response {}`,
+        score: 0.01,
+      })),
+    };
+
+    const outcome = await call(JSON.stringify(result), {
+      toolName: 'ptah_code_search_symbols',
+    });
+
+    expect(outcome.reduced || outcome.truncated).toBe(true);
+    expectWithin(outcome.text);
+    const body = JSON.parse(outcome.text.split('\n')[0]) as {
+      coverage: Record<string, unknown>;
+      index: Record<string, unknown>;
+    };
+    expect(Object.keys(body).slice(0, 2)).toEqual(['coverage', 'index']);
+    expect(body.coverage).toEqual(coverage);
+    expect(body.coverage['clean']).toBe(false);
+    expect(body.coverage['reasons']).toEqual(['unrecognised?']);
+    for (const key of ['unrecognised', 'nonSource', 'excluded']) {
+      expect(body.coverage).toHaveProperty(key, null);
+    }
+    expect(body.index).toHaveProperty('indexAgeMs', null);
+  });
+
+  it('declares the preserved keys it hands to the reducer', () => {
+    expect(PRESERVED_RESULT_KEYS).toEqual([
+      'coverage',
+      'status',
+      'index',
+      'parseStatus',
+    ]);
   });
 });

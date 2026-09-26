@@ -820,6 +820,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     const report = svc.getCoverageReport(WS_A);
     expect(report?.files).toEqual(svc.getCoverage(WS_A));
     expect(report?.languages).toEqual({
+      clean: true,
+      reasons: [],
       supportedLanguages: ['typescript', 'javascript'],
       census: 'complete',
       analyzed: 2,

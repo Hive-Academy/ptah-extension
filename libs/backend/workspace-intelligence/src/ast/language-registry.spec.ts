@@ -61,8 +61,11 @@ import {
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
   isCleanAnswer,
+  withCoverageVerdict,
   type Approximation,
-  type LanguageCoverage,
+  type Count,
+  type CoverageFields,
+  type CoverageState,
 } from '@ptah-extension/platform-core';
 import {
   LANGUAGE_REGISTRY,
@@ -117,7 +120,7 @@ function longestApproximations(): Approximation[] {
     .slice(0, MAX_REPORTED_APPROXIMATIONS);
 }
 
-const WORST_CASE: LanguageCoverage = {
+const WORST_FIELDS: CoverageFields = {
   supportedLanguages: [...LANGUAGE_IDS],
   census: 'truncated',
   censusLimit: MAX,
@@ -149,17 +152,100 @@ const WORST_CASE: LanguageCoverage = {
   checks: 'provider-defined',
 };
 
-/** Measured length of `JSON.stringify(WORST_CASE)`; recorded in the Batch 22 report. */
-const MEASURED_WORST_CASE_CHARS = 965;
+/** The fields as a tool returns them: verdict first (Batch 24r). */
+const WORST_CASE = withCoverageVerdict(WORST_FIELDS);
+
+/**
+ * Every combination of the values that make the serialised coverage longest:
+ * each count saturated or `null` (`null` is shorter, but adds an `unknown-*`
+ * reason), every census and state, and every resolution qualifier. The
+ * verdict's reasons change with each combination, so the longest object is
+ * found, not assumed.
+ */
+function longestVerdictedCoverage(): { chars: number; json: string } {
+  const counts = [
+    'analyzed',
+    'unchecked',
+    'failed',
+    'unsupported',
+    'unrecognised',
+    'nonSource',
+    'excluded',
+    'omittedByCap',
+  ] as const;
+  const censuses = ['complete', 'truncated', 'unknown'] as const;
+  const states: (CoverageState | undefined)[] = [
+    undefined,
+    'current',
+    'updating',
+    'incomplete',
+  ];
+  const { state: _unusedState, ...base } = WORST_FIELDS;
+  let longest = { chars: 0, json: '' };
+  for (let mask = 0; mask < 1 << counts.length; mask++) {
+    const patch: Partial<Record<(typeof counts)[number], Count>> = {};
+    counts.forEach((key, bit) => {
+      patch[key] = mask & (1 << bit) ? null : MAX;
+    });
+    for (const census of censuses) {
+      for (const state of states) {
+        for (const unresolvedInternal of [MAX, null]) {
+          for (const truncatedImports of [MAX, null]) {
+            for (const edgeCapHit of [false, true]) {
+              for (const context of ['complete', 'partial'] as const) {
+                const json = JSON.stringify(
+                  withCoverageVerdict({
+                    ...base,
+                    ...patch,
+                    census,
+                    ...(state === undefined ? {} : { state }),
+                    resolution: {
+                      external: MAX,
+                      unresolvedInternal,
+                      truncatedImports,
+                      edgeCapHit,
+                      context,
+                    },
+                  }),
+                );
+                if (json.length > longest.chars) {
+                  longest = { chars: json.length, json };
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return longest;
+}
+
+/**
+ * Measured length of the longest verdicted coverage (Batch 24r report, after
+ * the orchestrator ruling: saturation 999,999, short reason codes).
+ */
+const MEASURED_WORST_CASE_CHARS = 1_000;
+
+/** The plan's bound ("about 1,000 chars per response"), verdict included. */
+const WORST_CASE_BOUND_CHARS = 1_000;
 
 describe('coverage size contract', () => {
-  it('worst-case coverage <= 1,000 chars', () => {
-    const serialised = JSON.stringify(WORST_CASE);
-    expect(serialised.length).toBeLessThanOrEqual(1_000);
+  const longest = longestVerdictedCoverage();
+
+  it('worst-case coverage, verdict included, <= 1,000 chars', () => {
+    expect(longest.chars).toBeLessThanOrEqual(WORST_CASE_BOUND_CHARS);
   });
 
   it('pins the measured worst-case length so a contract change is visible', () => {
-    expect(JSON.stringify(WORST_CASE).length).toBe(MEASURED_WORST_CASE_CHARS);
+    expect(longest.chars).toBe(MEASURED_WORST_CASE_CHARS);
+  });
+
+  it('the fixed fixture carries its verdict first', () => {
+    expect(Object.keys(WORST_CASE).slice(0, 2)).toEqual(['clean', 'reasons']);
+    expect(JSON.stringify(WORST_CASE).length).toBeLessThanOrEqual(
+      longest.chars,
+    );
   });
 
   it('uses the full shape: 9 language keys, 5 reasons, 4 approximations', () => {
@@ -295,7 +381,7 @@ describe('language registry', () => {
 function censusOf(
   files: readonly string[],
   capability: LanguageCapability,
-): LanguageCoverage {
+): CoverageFields {
   const counts = { eligible: 0, unsupported: 0, unrecognised: 0, nonSource: 0 };
   for (const file of files) {
     counts[classifyFileForCoverage(file, capability)] += 1;

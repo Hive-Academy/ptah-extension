@@ -12,13 +12,17 @@ import {
   LANGUAGE_IDS,
   MAX_REPORTED_APPROXIMATIONS,
   RECOGNISED_LANGUAGE_IDS,
+  COVERAGE_REASONS,
+  MAX_REPORTED_REASONS,
+  coverageReasons,
   isCleanAnswer,
   limitApproximations,
+  withCoverageVerdict,
   type Approximation,
-  type LanguageCoverage,
+  type CoverageFields,
 } from './language-coverage.interface';
 
-const CLEAN: LanguageCoverage = {
+const CLEAN: CoverageFields = {
   supportedLanguages: ['typescript', 'javascript'],
   census: 'complete',
   analyzed: 12,
@@ -144,6 +148,87 @@ describe('isCleanAnswer', () => {
 
   it.each(['updating', 'incomplete'] as const)('rejects state %s', (state) => {
     expect(isCleanAnswer({ ...CLEAN, state })).toBe(false);
+  });
+});
+
+/**
+ * Batch 24r: every coverage object carries its verdict, first, so an agent
+ * reading a reduced or cut answer never has to evaluate the rule itself.
+ */
+describe('withCoverageVerdict', () => {
+  it('puts clean and reasons first, ahead of the fields', () => {
+    const coverage = withCoverageVerdict({ ...CLEAN, unrecognised: null });
+    expect(Object.keys(coverage).slice(0, 3)).toEqual([
+      'clean',
+      'reasons',
+      'supportedLanguages',
+    ]);
+    expect(coverage.clean).toBe(false);
+    expect(coverage.reasons).toEqual(['unrecognised?']);
+  });
+
+  it('is clean with no reasons exactly when isCleanAnswer holds', () => {
+    const variants: CoverageFields[] = [
+      CLEAN,
+      { ...CLEAN, analyzed: null, excluded: null, nonSource: null },
+      { ...CLEAN, census: 'truncated' },
+      { ...CLEAN, state: 'updating' },
+      { ...CLEAN, unrecognised: null },
+      { ...CLEAN, failed: 2 },
+      { ...CLEAN, excluded: 1 },
+      {
+        ...CLEAN,
+        resolution: {
+          external: 1,
+          unresolvedInternal: 0,
+          truncatedImports: 0,
+          edgeCapHit: false,
+          context: 'partial',
+        },
+      },
+    ];
+    for (const fields of variants) {
+      const coverage = withCoverageVerdict(fields);
+      expect(coverage.clean).toBe(isCleanAnswer(fields));
+      expect(coverage.reasons.length === 0).toBe(coverage.clean);
+    }
+  });
+
+  it('names unknowns before observed qualifiers, in COVERAGE_REASONS order, bounded', () => {
+    const fields: CoverageFields = {
+      ...CLEAN,
+      census: 'truncated',
+      failed: 4,
+      unrecognised: null,
+      omittedByCap: 9,
+      unchecked: null,
+    };
+    expect(coverageReasons(fields)).toEqual([
+      'truncated',
+      'unchecked?',
+      'unrecognised?',
+      'failed',
+      'omitted-by-cap',
+    ]);
+    expect(withCoverageVerdict(fields).reasons).toEqual([
+      'truncated',
+      'unchecked?',
+      'unrecognised?',
+    ]);
+    expect(MAX_REPORTED_REASONS).toBe(3);
+  });
+
+  it('recomputes a stale verdict carried on the input', () => {
+    const stale = { ...withCoverageVerdict(CLEAN), failed: 1 };
+    const coverage = withCoverageVerdict(stale);
+    expect(coverage.clean).toBe(false);
+    expect(coverage.reasons).toEqual(['failed']);
+  });
+
+  it('gives every reason a code of at most 24 chars', () => {
+    for (const reason of COVERAGE_REASONS) {
+      expect(reason.length).toBeLessThanOrEqual(24);
+    }
   });
 });
 

@@ -16,6 +16,7 @@ import {
   LANGUAGE_IDS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   limitApproximations,
+  withCoverageVerdict,
   type Approximation,
   type Count,
   type CoverageCensus,
@@ -250,7 +251,7 @@ export function buildGraphCoverage(
   const approximations: Approximation[] =
     resolution.context === 'partial' ? ['resolver-context-partial'] : [];
   const truncated = input.censusLimit !== undefined;
-  return {
+  return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor('graphEdges'),
     census: truncated ? 'truncated' : 'complete',
     ...(truncated ? { censusLimit: input.censusLimit } : {}),
@@ -278,7 +279,7 @@ export function buildGraphCoverage(
       context: resolution.context,
     },
     ...limitApproximations(approximations),
-  };
+  });
 }
 
 /**
@@ -326,7 +327,7 @@ export function invalidatedCoverage(
 ): LanguageCoverage {
   const moved =
     wasAnalyzed && coverage.analyzed !== null && coverage.analyzed > 0;
-  return {
+  return withCoverageVerdict({
     ...coverage,
     ...(moved
       ? {
@@ -341,7 +342,7 @@ export function invalidatedCoverage(
       edgeCapHit: coverage.resolution?.edgeCapHit ?? false,
       context: 'partial',
     },
-  };
+  });
 }
 
 const CENSUS_RANK: Readonly<Record<CoverageCensus, number>> = {
@@ -470,7 +471,7 @@ export function mergeGraphCoverages(
   );
   const checks = mergeChecks(coverages);
 
-  return {
+  return withCoverageVerdict({
     supportedLanguages: LANGUAGE_IDS.filter((id) => supported.has(id)),
     census,
     ...(limits.length > 0 ? { censusLimit: Math.max(...limits) } : {}),
@@ -493,5 +494,5 @@ export function mergeGraphCoverages(
       : { approximations: approximations.approximations }),
     ...(omitted > 0 ? { approximationsOmitted: omitted } : {}),
     ...(checks === undefined ? {} : { checks }),
-  };
+  });
 }
