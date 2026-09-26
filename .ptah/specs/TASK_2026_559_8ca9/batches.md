@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 53 | Batches: 27 | Complete: 12/27
+Total tasks: 53 | Batches: 27 | Complete: 13/27
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -146,6 +146,10 @@ for an unknown caller" means `anonymous` gets today's default set, and the guard
   multi-line arrow bodies under-compress). Both are conservative; see "Batch 2d known issues". Not fixed in 559.
 - Batch 4 follow-up (a): per-host server instructions filtered by the served tool set would fit more substitution
   rows than the single byte-stable 509-byte variant. Not approved scope; needs a user decision.
+- Batch 7 known issues KI-7-1..KI-7-4 (`ptah_context_enrich_file` structural summary is lossy for decorator-run
+  installers, instance-field installers, getter/coercion in kept literals, and elided pure-data objects over 400 chars).
+  Committed under User Decision 13; see "Batch 7 known issues". Recommended first fix: KI-7-4 (keep keys, elide values).
+  Also package `tree-sitter-tsx.wasm` so `.tsx` can be summarised (Batch 7 follow-up b). Needs a user decision.
 
 ---
 
@@ -1620,7 +1624,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 
 ---
 
-## Batch 7: ptah_context_enrich_file — infer language, name the fallback reason — PENDING
+## Batch 7: ptah_context_enrich_file — infer language, name the fallback reason — COMPLETE with known issues KI-7-1..KI-7-4 (commit c42b8cee6)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1629,7 +1633,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 6 (hub-file ordering only)
 
-### Task 7.1: Extension→language inference in `enrichFile` — PENDING
+### Task 7.1: Extension→language inference in `enrichFile` — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.ts` (:88-110), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/analysis-namespace.builders.spec.ts`, `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`ptah_context_enrich_file` `language` property text: optional, inferred from the extension; tsx/jsx covered)
 - Plan reference: research/code-intel.md:194-228; research-report.md:87
@@ -1638,7 +1642,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Validation notes: explicit/contradicting-language edge case. Import the map through the workspace-intelligence public barrel; if it is not exported there, export it (that would be a 6th file — note it in the report)
 - Implementation details: specs — `.ts` with no language → `mode:'structural'`; `.tsx` → structural; `.py` → full with reason `unsupported-language`; explicit language is forwarded unchanged
 
-### Task 7.2: `reason` on full-content fallbacks — PENDING
+### Task 7.2: `reason` on full-content fallbacks — COMPLETE (known issues KI-7-1..KI-7-4)
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/context-analysis/context-enrichment.service.ts` (`StructuralSummaryResult` :32, branches :95, :117-121, :129-134, `createFullContentResult` :354), `<WT>/libs/backend/workspace-intelligence/src/context-analysis/context-enrichment.service.spec.ts` (new)
 - Plan reference: research/code-intel.md:209-213, :226-228
@@ -1650,11 +1654,91 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 ### Batch 7 verification
 
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence 2>&1 | tail -40` passes
-- The Codex review lane approves
+- The Codex review lane approves (not met; committed under User Decision 13 with known issues)
+
+### Batch 7 review history and user decisions
+
+- Executor: backend-developer (`batch-7-executor-report.md`, all sections)
+- Review r1 (`reviews/batch-7-code-logic-review-r1.md`, Codex cross-side lane): **REVISE 4/10**. B1: inferred TSX
+  components produced an empty summary. B2: `.d.ts` files, interfaces and types produced an empty summary. Fixed in
+  revision round 1 (parse-tree writer `declaration-summary.ts`; `.tsx` unsupported)
+- Review r2 (`reviews/batch-7-code-logic-review-r2.md`, Codex): **REVISE 4/10**. R2-B1 runtime exports bypassed the
+  guard; R2-B2 blank-line cleanup changed template literals; R2-S1 huge initialisers; R2-M1 quadratic render. Revise
+  cap reached; one bounded correction allowed
+- Review r3-postcap (`reviews/batch-7-code-logic-review-r3-postcap.md`, Codex): **REVISE 4/10**. R3-B1 exports aliases,
+  `globalThis`, prototype installers; R3-B2 referenced methods in elided objects; R3-S1 wrapped/mixed initialisers;
+  R3-M1 character-based not-smaller gate. Stopped and asked the user → **User Decision 13** (context.md): refuse more —
+  summaries only for declaration-only files; token-based not-smaller gate; one final narrow fix and one more review;
+  commit if it approves, otherwise commit with its defects recorded as known issues
+- Review r4-decision13 (`reviews/batch-7-code-logic-review-r4-decision13.md`, Codex): **REVISE 4/10**. Every r1-r3
+  reproduction is fixed; four blocking defects remain → recorded below as KI-7-1..KI-7-4 and committed per Decision 13
+
+### Batch 7 known issues
+
+The structural summary must be treated as lossy for the forms below until fixed. Every other output is either a
+complete declaration summary or an honest full-file result with a `reason`.
+
+- **KI-7-1 (R4-B1)** — a decorator can call an in-file function whose body is elided and which installs API at load
+  time (decorators are exempt from the load-time rule because `@injectable()`/`@inject()` are everywhere). The summary
+  omits the installed member
+- **KI-7-2 (R4-B2)** — instance-field initialisers and factories can install public instance members through code the
+  summary elides; the summary omits those members
+- **KI-7-3 (R4-B3)** — getter reads and template coercion (`${x}`) inside a kept small literal (≤ 400 chars) run code at
+  load time that can install exports; not treated as load-time calls, so the summary omits what they install
+- **KI-7-4 (R4-B4)** — a pure-data object literal over 400 chars is elided to `{ … }`, dropping its named public
+  property keys. Likely the most common of the four in normal code. Recommended fix: keep the property keys of elided
+  pure-data objects (elide only the values), or refuse
+
+### Batch 7 deviations (accepted)
+
+1. `.jsx` is inferred as javascript (the JavaScript grammar parses JSX; pinned by a real-parser spec). `.tsx` is not
+   inferred and returns `unsupported-language`; an explicit `typescript` on `.tsx` returns `parse-failed`, because
+   `tree-sitter-tsx.wasm` is not shipped
+2. python, go and csharp always return full content with `unsupported-language`, also for `ContextSizeOptimizerService`
+   (more tokens, no lost API)
+3. `ContextEnrichmentService` injects `TOKENS.TREE_SITTER_PARSER_SERVICE` (already registered before it in
+   `di/register.ts`) in place of `TOKENS.AST_ANALYSIS_SERVICE`; the insights-based writer was deleted
+4. `.mts/.cts/.mjs/.cjs` are aliased locally in the namespace builder, not added to `EXTENSION_LANGUAGE_MAP`
+5. An explicit `language` outside the enum falls back to inference; `mode`/`reason` precede `content` in every result so
+   a budget tail cut keeps them
+6. The `reason` union grew beyond the plan: `unsupported-declarations`, `no-declarations`, `summary-not-smaller`
+   (token-based) were added. Declaration-only gate refuses constant expressions, `new Set(...)`, `Object.freeze(...)`,
+   `require(...)`, identifier initialisers and all CommonJS/browser-global files (deliberate false refusals included)
+
+### Batch 7 team-leader verification (Mode 2, 2026-09-26)
+
+- On disk: `resolveEnrichLanguage` in `analysis-namespace.builders.ts`; parse-tree writer
+  `declaration-summary.ts` (715 lines) with declaration-only gate, runtime-export refusal, load-time refusal and
+  pure-data literal elision; `context-enrichment.service.ts` with the reason union and token-based not-smaller gate;
+  new `context-enrichment.service.spec.ts`. No TODO/FIXME/PLACEHOLDER/STUB markers; no stray files
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/vscode-lm-tools @ptah-extension/workspace-intelligence
+--skip-nx-cache` → "Successfully ran targets test, lint, typecheck for 2 projects"
+- `nx run degradation-audit:lint --skip-nx-cache` → `vscode-lm-tools: 2 ok (baseline 2)`,
+  `workspace-intelligence: 1 ok (baseline 1)`, success
+- `nx run-many -t typecheck -p ptah-cli ptah-electron --skip-nx-cache` (DI change) → success
+- `ptah-core-prompt.ts` and `NATIVE_AGENT_TOOL_POLICY` (`cli-adapter.utils.ts`) unchanged against HEAD
+- Commit c42b8cee6: pre-commit and commit-msg hooks passed
+
+### Batch 7 follow-ups (not blocking)
+
+- (a) Fix KI-7-1..KI-7-4; first KI-7-4 (keep property keys of elided pure-data objects), or refuse those forms
+- (b) Package `tree-sitter-tsx.wasm` (`scripts/copy-wasm.js`, the three `verify-packed-wasm` scripts, the
+  `TreeSitterParserService` grammar set, a `SupportedLanguage` entry) so `.tsx` can be summarised
+- (c) Add `.mts/.cts/.mjs/.cjs` to `EXTENSION_LANGUAGE_MAP` once the indexer and dependency-graph treatment is decided,
+  then delete the local alias
+- (d) `types.ts` `ContextNamespace.enrichFile` JSDoc still says "Optional language hint"
+- (e) The gate refuses many ordinary files (e.g. `tool-description.builder.ts`, `declaration-summary.ts` return
+  full/unsupported-declarations); reduction on real code is lower than before. Measure in the Batch 20 harness
+
+### Notes for Batch 8 (added at Batch 7 close)
+
+- Batch 8 edits `tool-description.builder.ts` again (LSP descriptions); the `ptah_context_enrich_file` block changed in
+  c42b8cee6 must not be touched, and the spec budget for descriptions still applies
+- The shared prompt constants stay frozen (User Decision 4)
 
 ---
 
-## Batch 8: ptah_lsp_definitions (Electron) — fallback that does not depend on the index; LSP descriptions — PENDING
+## Batch 8: ptah_lsp_definitions (Electron) — fallback that does not depend on the index; LSP descriptions — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -1663,7 +1747,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 6
 
-### Task 8.1: Import-resolution fallback in `declarationsFor` — PENDING
+### Task 8.1: Import-resolution fallback in `declarationsFor` — IN_PROGRESS
 
 - Files: `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.ts` (:188-294, :534-553), `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`
 - Plan reference: research/code-intel.md:498-519
@@ -1672,7 +1756,7 @@ buildServerInstructions()` in `handleInitialize`, no caller branching), `protoco
 - Validation notes: the guard must not rely on a mock that always returns data. Use a real temp fixture tree (two files, one importing a class from the other) plus a symbol reader returning no hits → the definition is still found. Keep the existing multi-candidate disambiguation behaviour
 - Implementation details: bounded work, one resolved file read per call
 
-### Task 8.2: Host-accurate LSP tool descriptions — PENDING
+### Task 8.2: Host-accurate LSP tool descriptions — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts` (`ptah_lsp_references` :392-396, `ptah_lsp_definitions` :423-428), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.spec.ts`
 - Plan reference: research/code-intel.md:508-512; context.md User Decision 4

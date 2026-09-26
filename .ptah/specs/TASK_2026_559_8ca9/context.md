@@ -1,23 +1,29 @@
 # Task Context - TASK_2026_559_8ca9
 
 ## User Request
+
 "so each and every tool should have a proper fix, we where having those working before, now they are degraded without even knowing that! the prompts are correct and they suppose to be saving token by using our tools without loosing any quality so this is a must fix that should be deeply thought of."
 
 ## Task Type
+
 BUGFIX (regression)
 
 ## Complexity
+
 Complex — 53 tools in `tools/list`, served to Claude SDK sessions, proxied sessions, CLI lanes and external clients.
 
 ## Strategy
+
 BUGFIX, Full depth: researcher-expert (per-tool regression forensics and fix design) → team-leader Mode 1 (plan-free) → implementation batches → QA.
 
 The prompts (`ptah-core-prompt.ts`, `tool-description.builder.ts`, `NATIVE_AGENT_TOOL_POLICY`) are the contract. The user decided they are correct; do not weaken them to match degraded tools. Where a prompt claim cannot be met, report it and ask instead of editing it.
 
 ## CLI Lanes
+
 Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do research and implementation; one Codex lane reviews each batch from the other execution side. No other lanes. Roster at the time: codex, antigravity, opencode (cli, installed); Glm (ptah-cli, Ollama Cloud); copilot disabled; cursor and pi not installed.
 
 ## User Decisions (2026-09-25, on research-report.md Clarifications Needed)
+
 1. Index refresh: lazy background reindex on the first symbol call of a session when `code_symbols` is empty or older than 24h, through the existing governor; also expose `ptah_code_reindex`.
 2. Result budget: default 8k chars. Tools with a natural page unit (task rows, symbol-index entries, agent output lines) get an offset/cursor parameter; others spool the full output to `.ptah/tmp/mcp-out/<toolCallId>.txt` and name the path in a trailer.
 3. `ptah_browser_screenshot`: keep the image inline; default to jpeg quality 60 instead of png; remove the duplicate `onToolResult` re-encode.
@@ -38,7 +44,10 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 12. Batch 2c HTML extractor output (user, after the post-cap r4 REVISE 5/10 with 3 blocking defect groups: incomplete Markdown escaping, adjacent/trimmed code spans, visibility overrides): the extractor emits plain text, not Markdown — no Markdown syntax, so nothing to escape. Headings are their own lines, links are `text (url)`, code keeps its raw text. Conflicting or restored visibility states (e.g. `hidden` with a `display` override, a `visibility:visible` child under `visibility:hidden`) refuse (input unchanged). One more independent review: commit if it approves; otherwise commit with its defects recorded as known issues. The log reducer is accepted as is.
 
+13. Batch 7 enrich-file summary (user, after the post-cap r3 REVISE 4/10 with R3-B1 runtime-published API loss, R3-B2 referenced methods lost in elided objects, R3-S1 wrapped/mixed initialisers, R3-M1 char-based not-smaller gate): refuse more. A structural summary is produced only for pure declaration files; any runtime-export pattern (exports alias, globalThis, prototype assignment, defineProperty, spread or computed keys, objects mixing methods and data) returns the whole file with a reason; the not-smaller gate counts tokens. One final narrow fix and one more independent review: commit if it approves; otherwise commit with its defects recorded as known issues.
+
 ## Conversation Summary
+
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
 - Audit scripts to reuse for measurement: `C:/Users/abdal/.ptah-token-audit/` (mcp/bench.py, rerun.py, adoption/*).
 - Out of scope, tracked separately: per-workspace and global MCP server / skill on/off controls → TASK_2026_560_2ae5.
