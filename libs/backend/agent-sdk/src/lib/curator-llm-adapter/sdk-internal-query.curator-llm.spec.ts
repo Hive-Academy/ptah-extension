@@ -8,6 +8,8 @@ import {
   CURATOR_MAX_TURNS,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import { EXTRACT_SYSTEM_PROMPT } from './extract-prompt';
+import { RESOLVE_SYSTEM_PROMPT } from './resolve-prompt';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
@@ -96,8 +98,7 @@ async function* streamFrom(text: string): AsyncIterable<unknown> {
 
 /** An assistant content block as the SDK streams it. */
 type AssistantBlock =
-  | { type: 'text'; text: string }
-  | { type: 'tool_use'; name: string };
+  { type: 'text'; text: string } | { type: 'tool_use'; name: string };
 
 /**
  * A stream built from arbitrary assistant blocks, so a run whose whole
@@ -145,6 +146,7 @@ interface ExecuteCapture {
   authWasPresent?: boolean;
   maxTurns?: number;
   lane?: string;
+  systemPromptAppend?: string;
 }
 
 function makeInternalQuery(opts: {
@@ -163,8 +165,10 @@ function makeInternalQuery(opts: {
         maxTurns?: number;
         lane?: string;
         auth?: OneShotAuthOverride;
+        systemPromptAppend?: string;
       }) => {
         if (opts.capture) {
+          opts.capture.systemPromptAppend = config.systemPromptAppend;
           opts.capture.lane = config.lane;
           opts.capture.model = config.model;
           opts.capture.cwd = config.cwd;
@@ -327,6 +331,51 @@ describe('SdkInternalQueryCuratorLlm — query cwd', () => {
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(capture.cwd).toBe(os.homedir());
+  });
+});
+
+/**
+ * The rewritten prompts only matter if they reach the model. These pin the
+ * wiring: each call must hand `execute` exactly the imported constant, and the
+ * constant must carry the TASK_2026_563 rules (M4, M3/D3).
+ */
+describe('SdkInternalQueryCuratorLlm — system prompt wiring', () => {
+  function adapterCapturing(
+    capture: ExecuteCapture,
+  ): SdkInternalQueryCuratorLlm {
+    return new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}', capture }),
+      makeWorkspace(''),
+    );
+  }
+
+  it('extract passes EXTRACT_SYSTEM_PROMPT, with its DO NOT EXTRACT rules, as systemPromptAppend', async () => {
+    const capture: ExecuteCapture = {};
+    await adapterCapturing(capture).extract(EXTRACT_TRANSCRIPT);
+
+    expect(capture.systemPromptAppend).toBe(EXTRACT_SYSTEM_PROMPT);
+    expect(capture.systemPromptAppend).toContain('DO NOT EXTRACT');
+  });
+
+  it('resolve passes RESOLVE_SYSTEM_PROMPT, with the Existing-list-only rule, as systemPromptAppend', async () => {
+    const capture: ExecuteCapture = {};
+    await adapterCapturing(capture).resolve(
+      [
+        {
+          kind: 'fact',
+          subject: 'commit-scope-rules',
+          content: 'scopes are listed in commitlint config',
+          salienceHint: 0.5,
+        },
+      ],
+      [{ id: 'm1', subject: 'commitlint-scopes', content: 'older' }],
+    );
+
+    expect(capture.systemPromptAppend).toBe(RESOLVE_SYSTEM_PROMPT);
+    expect(capture.systemPromptAppend?.replace(/\s+/g, ' ')).toContain(
+      'only memories in the Existing list',
+    );
   });
 });
 
