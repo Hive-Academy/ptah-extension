@@ -521,7 +521,7 @@ export interface CapabilityEntry {
   /** `null` when the policy is unverified and the value cannot be known. */
   effectiveEnabled: boolean | null;
   inheritedFrom: CapabilityValueOrigin;
-  defaultReason?: CapabilityDefaultReason;
+  defaultReason: CapabilityDefaultReason;
   /** The value came from the one-time import of the user's Claude approvals. */
   importedFromClaude?: boolean;
   /** ON by policy, but held back by the server back-off (AC-4.7). */

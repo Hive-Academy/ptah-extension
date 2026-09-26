@@ -31,9 +31,8 @@
  *
  * ## Schema size
  *
- * `schemaTokens` is attached only when the optional `SDK_MCP_SCHEMA_SIZE`
- * service is registered (PR 2). Without it every row omits the field, which
- * the UI renders as "size unknown", never zero (AC-5.2).
+ * No row carries `schemaTokens` until PR 2 adds the measurement. The UI
+ * renders a missing field as "size unknown", never zero (AC-5.2).
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -49,7 +48,6 @@ import type {
   CapabilitiesGetStateResult,
   CapabilitiesSetEnabledParams,
   CapabilitiesSetEnabledResult,
-  CapabilityEntry,
   CapabilityInventory,
   CapabilityKind,
   CapabilityScope,
@@ -66,8 +64,8 @@ const CAPABILITY_ID_MAX_LENGTH = 1024;
 
 /** True when `value` has no C0 control character and no DEL. */
 function hasNoControlCharacters(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
     if (code < 0x20 || code === 0x7f) return false;
   }
   return true;
@@ -129,20 +127,6 @@ export const CapabilitiesSetEnabledSchema = z
   });
 
 // ---------------------------------------------------------------------------
-// Optional schema-size port
-// ---------------------------------------------------------------------------
-
-/**
- * What this handler needs from `SDK_TOKENS.SDK_MCP_SCHEMA_SIZE` (PR 2,
- * `McpSchemaSizeService`): tool-schema token estimates for the active
- * workspace, keyed by MCP server name. A server with no figure is absent from
- * the map; the service bounds its own work.
- */
-export interface McpSchemaSizeReader {
-  schemaTokensFor(cwd: string): Promise<ReadonlyMap<string, number>>;
-}
-
-// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -179,10 +163,6 @@ export class CapabilityRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_CAPABILITY_RESOLVER)
     private readonly resolver: ICapabilityResolver,
-    // Optional until PR 2 registers the measurement. Absent means every row
-    // is "size unknown".
-    @inject(SDK_TOKENS.SDK_MCP_SCHEMA_SIZE, { isOptional: true })
-    private readonly schemaSize: McpSchemaSizeReader | null = null,
   ) {}
 
   register(): void {
@@ -203,7 +183,6 @@ export class CapabilityRpcHandlers {
 
     this.logger.debug('Capability RPC handlers registered', {
       methods: CapabilityRpcHandlers.METHODS,
-      schemaSize: this.schemaSize !== null,
     });
   }
 
@@ -216,24 +195,14 @@ export class CapabilityRpcHandlers {
       'the capability list is resolved against the open workspace folder',
     );
 
-    let inventory: CapabilityInventory;
     try {
-      inventory = await this.resolver.list(cwd);
+      return await this.resolver.list(cwd);
     } catch (error: unknown) {
       this.logFailure('capabilities:getState', error, {});
       throw new Error(
         `Could not read the capability list: ${safeReason(error, READ_FALLBACK_REASON)}.`,
       );
     }
-
-    const figures = await this.readSchemaTokens(cwd);
-    if (figures === null) return inventory;
-    return {
-      ...inventory,
-      entries: inventory.entries.map((entry) =>
-        withSchemaTokens(entry, figures),
-      ),
-    };
   }
 
   private async handleGetEffective(
@@ -352,25 +321,6 @@ export class CapabilityRpcHandlers {
     return root;
   }
 
-  /**
-   * The schema-size figures, or `null` when there are none to attach: the
-   * service is not registered, or it failed (every row stays "size unknown").
-   */
-  private async readSchemaTokens(
-    cwd: string,
-  ): Promise<ReadonlyMap<string, number> | null> {
-    if (this.schemaSize === null) return null;
-    try {
-      return await this.schemaSize.schemaTokensFor(cwd);
-    } catch (error: unknown) {
-      this.logger.warn(
-        'RPC: capabilities:getState schema size unavailable; rows report size unknown',
-        { errorName: errorName(error) },
-      );
-      return null;
-    }
-  }
-
   private logFailure(
     method: CapabilityRpcMethod,
     error: unknown,
@@ -433,14 +383,3 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-function withSchemaTokens(
-  entry: CapabilityEntry,
-  figures: ReadonlyMap<string, number>,
-): CapabilityEntry {
-  if (entry.kind !== 'mcp') return entry;
-  const tokens = figures.get(entry.id);
-  if (tokens === undefined || !Number.isFinite(tokens) || tokens < 0) {
-    return entry;
-  }
-  return { ...entry, schemaTokens: tokens };
-}

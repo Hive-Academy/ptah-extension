@@ -940,8 +940,22 @@ export function baseMarketplaceFixtures(
     'plugins:list-skills': pluginSkillsResolver(),
     'harness:get-skill-selection': SKILL_SELECTION_FIXTURE,
     'harness:health': HARNESS_HEALTH_FIXTURE,
+    'capabilities:getState': CAPABILITY_STATE_FIXTURE,
   };
 }
+
+/**
+ * `capabilities:getState` — a verified policy with no rows. Without an answer
+ * the Installed servers "Use in sessions" panel and the server-detail section
+ * stay on their `aria-busy` loading state, which `waitForSettled` in
+ * `marketplace-visual.e2e.spec.ts` rejects. `capability-toggles.e2e.spec.ts`
+ * overrides this with its own rows.
+ */
+export const CAPABILITY_STATE_FIXTURE = {
+  status: 'verified',
+  reasons: [],
+  entries: [],
+};
 
 /**
  * `mcpDirectory:listInstalled` resolver that answers

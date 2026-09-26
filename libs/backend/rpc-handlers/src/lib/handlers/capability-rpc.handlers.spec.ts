@@ -11,7 +11,7 @@
  *  - an id missing from a verified inventory is refused before any write;
  *  - a rejected write is an RPC error naming the item with a safe reason and
  *    no internal text (AC-1.4);
- *  - `schemaTokens` only when `SDK_MCP_SCHEMA_SIZE` is supplied (AC-5.2).
+ *  - no row carries `schemaTokens` yet, so the UI shows "size unknown" (AC-5.2).
  */
 
 import 'reflect-metadata';
@@ -32,7 +32,6 @@ import {
 import {
   CapabilitiesSetEnabledSchema,
   CapabilityRpcHandlers,
-  type McpSchemaSizeReader,
 } from './capability-rpc.handlers';
 
 type RegisteredHandler = (params: unknown) => Promise<unknown>;
@@ -121,7 +120,6 @@ function setup(
   options: {
     root?: string | undefined;
     resolver?: jest.Mocked<ICapabilityResolver>;
-    schemaSize?: McpSchemaSizeReader | null;
   } = {},
 ) {
   const logger = createLogger();
@@ -136,7 +134,6 @@ function setup(
     rpcHandler,
     workspaceProvider,
     resolver,
-    options.schemaSize ?? null,
   ).register();
   const call = (method: string, params?: unknown) => {
     const handler = registered.get(method);
@@ -180,8 +177,8 @@ describe('CapabilityRpcHandlers', () => {
       ).resolves.toBeDefined();
     });
 
-    it('omits schemaTokens when SDK_MCP_SCHEMA_SIZE is not registered (size unknown)', async () => {
-      const { call } = setup({ schemaSize: null });
+    it('omits schemaTokens on every row (size unknown)', async () => {
+      const { call } = setup();
       const result = (await call(
         'capabilities:getState',
         {},
@@ -189,50 +186,6 @@ describe('CapabilityRpcHandlers', () => {
       for (const row of result.entries) {
         expect('schemaTokens' in row).toBe(false);
       }
-    });
-
-    it('attaches schemaTokens to MCP rows the size service has a figure for', async () => {
-      const resolver = createResolver(
-        inventory([
-          entry({ id: 'github' }),
-          entry({ id: 'linear', label: 'linear' }),
-          entry({ kind: 'skill', id: 'github', label: 'github skill' }),
-        ]),
-      );
-      const schemaSize: McpSchemaSizeReader = {
-        schemaTokensFor: jest
-          .fn()
-          .mockResolvedValue(new Map([['github', 4200]])),
-      };
-      const { call } = setup({ resolver, schemaSize });
-
-      const result = (await call(
-        'capabilities:getState',
-        {},
-      )) as CapabilityInventory;
-
-      expect(schemaSize.schemaTokensFor).toHaveBeenCalledWith(WORKSPACE);
-      expect(result.entries[0].schemaTokens).toBe(4200);
-      expect('schemaTokens' in result.entries[1]).toBe(false);
-      // The figure is per MCP server; a skill of the same name gets none.
-      expect('schemaTokens' in result.entries[2]).toBe(false);
-    });
-
-    it('keeps every row "size unknown" when the size service fails', async () => {
-      const schemaSize: McpSchemaSizeReader = {
-        schemaTokensFor: jest.fn().mockRejectedValue(new Error('timeout')),
-      };
-      const { call, logger } = setup({ schemaSize });
-
-      const result = (await call(
-        'capabilities:getState',
-        {},
-      )) as CapabilityInventory;
-
-      expect(result.entries.every((row) => !('schemaTokens' in row))).toBe(
-        true,
-      );
-      expect(logger.warn).toHaveBeenCalled();
     });
 
     it('refuses with WORKSPACE_NOT_OPEN when no workspace is open', async () => {

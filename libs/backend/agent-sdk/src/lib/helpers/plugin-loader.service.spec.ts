@@ -1506,6 +1506,23 @@ describe('PluginLoaderService — reads scoped to a workspace root', () => {
     ).toEqual(['a-only-skill']);
   });
 
+  it("[560] a root that names B through a symlink still reads B's config, never the empty default", () => {
+    const h = makeScopedHarness();
+    const linkParent = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-scoped-link-'),
+    );
+    created.push(linkParent);
+    const link = path.join(linkParent, 'ws-b-link');
+    // `junction` needs no elevation on win32 and is ignored elsewhere.
+    fs.symlinkSync(h.rootB, link, 'junction');
+
+    // The capability resolver asks with one spelling of the root and the host
+    // registered another; a miss would read as "nothing switched off".
+    expect(h.service.getWorkspacePluginConfig(link).disabledSkillIds).toEqual([
+      'b-only-skill',
+    ]);
+  });
+
   it('[346/4] a no-argument call still answers for the ACTIVE workspace, exactly as before', () => {
     const h = makeScopedHarness();
 

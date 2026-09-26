@@ -198,11 +198,6 @@ export const SDK_TOKENS = {
    * the policy fingerprint a session was built against (TASK_2026_560, N4).
    */
   SDK_HARNESS_POLICY_SYNC: Symbol.for('SdkHarnessPolicySync'),
-  /**
-   * Per-server MCP tool-schema size measurement (TASK_2026_560, PR 2).
-   * Injected optionally until that implementation lands.
-   */
-  SDK_MCP_SCHEMA_SIZE: Symbol.for('SdkMcpSchemaSize'),
 } as const;
 
 /**

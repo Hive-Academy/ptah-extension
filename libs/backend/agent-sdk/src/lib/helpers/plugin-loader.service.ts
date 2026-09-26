@@ -780,10 +780,12 @@ export class PluginLoaderService {
    *   defect (TASK_2026_346).
    *
    * Keys are `path.resolve`d by the host that registered them, so this resolves
-   * too. On win32 a second pass compares case-insensitively, because a root
-   * that arrived from a workspace provider and one that arrived from a
-   * `.ptah/specs` walk routinely disagree about the drive letter's case and
-   * name the same directory.
+   * too. A second pass compares canonical roots: the capability resolver asks
+   * with a `realpath`, so a workspace opened through a symlink (or macOS's
+   * `/var` → `/private/var`) must still find its own storage — a miss here
+   * reads as "nothing switched off". On win32 that pass is also
+   * case-insensitive, because a root from a workspace provider and one from a
+   * `.ptah/specs` walk routinely disagree about the drive letter's case.
    */
   private storageFor(workspaceRoot?: string): IStateStorage | null {
     const storage = this.workspaceState;
@@ -795,15 +797,24 @@ export class PluginLoaderService {
     const exact = storage.getStorageForWorkspace(wanted);
     if (exact !== undefined) return exact;
 
-    if (process.platform === 'win32') {
-      const folded = wanted.toLowerCase();
-      for (const registered of storage.getAllWorkspacePaths()) {
-        if (path.resolve(registered).toLowerCase() === folded) {
-          return storage.getStorageForWorkspace(registered) ?? null;
-        }
+    const wantedKey = PluginLoaderService.canonicalRootKey(wanted);
+    for (const registered of storage.getAllWorkspacePaths()) {
+      if (PluginLoaderService.canonicalRootKey(registered) === wantedKey) {
+        return storage.getStorageForWorkspace(registered) ?? null;
       }
     }
     return null;
+  }
+
+  /** `realpath` of `root` (the resolved path when it cannot be read), folded on win32. */
+  private static canonicalRootKey(root: string): string {
+    let canonical = path.resolve(root);
+    try {
+      canonical = fs.realpathSync.native(canonical);
+    } catch {
+      // A missing or unreadable folder compares by its resolved path.
+    }
+    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
   }
 
   /** The shape every "no config to read" path returns. */
@@ -1279,7 +1290,8 @@ export class PluginLoaderService {
         }
       }
     }
-    return [...ids].sort();
+    // Code-unit order, as the default sort gave: stable across locales.
+    return [...ids].sort((a, b) => Number(a > b) - Number(a < b));
   }
 
   /**

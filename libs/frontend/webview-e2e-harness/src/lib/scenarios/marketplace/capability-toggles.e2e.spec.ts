@@ -10,14 +10,10 @@
  *
  * Same real-bundle pattern as `./marketplace-servers.e2e.spec.ts` — see that
  * file's header and `./marketplace.fixtures.ts` for the host/RPC mechanism.
- * `capabilities:getState` / `capabilities:getEffective` / `capabilities:setEnabled`
- * have NO entry in `baseMarketplaceFixtures()`, so every scenario here adds
- * its own answers for them (Batch 16 reviewer acceptance item: otherwise the
- * "Use in sessions" panel and the server-detail "Use in sessions" section
- * show their error state, and no scenario below could reach the controls it
- * means to test). The capability fixtures are defined IN THIS FILE, not in
- * `marketplace.fixtures.ts`, which is imported but never modified (Batch 16
- * budget fallback).
+ * `baseMarketplaceFixtures()` answers `capabilities:getState` with an empty
+ * verified policy only, so every scenario here overrides it and adds its own
+ * `capabilities:getEffective` / `capabilities:setEnabled` answers — otherwise
+ * no scenario below could reach the controls it means to test.
  */
 import { test, expect } from '../../test-fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
@@ -80,8 +76,7 @@ const MIRRORED_CAPABILITY_ENFORCEMENT: readonly {
 ];
 
 // ---------------------------------------------------------------------------
-// Capability fixtures — local to this spec (Batch 16 budget fallback: no
-// `marketplace.fixtures.ts` edit).
+// Capability fixtures — local to this spec.
 // ---------------------------------------------------------------------------
 
 /** A server present in `INSTALLED_SERVERS_FIXTURE`, ON by the global layer. */
@@ -127,6 +122,7 @@ function baseEntries(): CapabilityEntry[] {
       effectiveEnabled: true,
       globalEnabled: true,
       inheritedFrom: 'global',
+      defaultReason: 'user-scope',
       // Deliberately no `schemaTokens` (AC-5.2: "size unknown", never zero).
     },
     {
@@ -143,6 +139,7 @@ function baseEntries(): CapabilityEntry[] {
       effectiveEnabled: true,
       globalEnabled: true,
       inheritedFrom: 'global',
+      defaultReason: 'user-scope',
     },
     {
       kind: 'mcp',
@@ -172,6 +169,7 @@ function baseEntries(): CapabilityEntry[] {
       ],
       effectiveEnabled: true,
       inheritedFrom: 'imported',
+      defaultReason: 'user-scope',
       importedFromClaude: true,
     },
   ];
@@ -326,7 +324,7 @@ test.describe('webview > marketplace > capability toggles > persistence', () => 
     await installCspStub(page);
     await installPostMessageBridge(page);
     await installHost(page, 'vscode', 'marketplace');
-    const { fixtures } = verifiedCapabilityFixtures();
+    const { fixtures, setEnabledCalls } = verifiedCapabilityFixtures();
     await installRpcAutoResponder(page, fixtures);
     await page.goto(fixtureServer.url);
     await page.setViewportSize({ width: 1100, height: 900 });
@@ -338,6 +336,12 @@ test.describe('webview > marketplace > capability toggles > persistence', () => 
 
     await input.click();
     await expect(input).not.toBeChecked();
+    // The control flips optimistically; reload only after the write reached
+    // the resolver and the store settled.
+    await expect
+      .poll(() => setEnabledCalls.filter((call) => call.id === FIRECRAWL_ID).length)
+      .toBe(1);
+    await expect(input).toBeEnabled();
 
     // A real webview reload — the postMessage bridge, host config and RPC
     // auto-responder are all `addInitScript`/`exposeFunction`-based, so they
@@ -522,9 +526,12 @@ test.describe('webview > marketplace > capability toggles > new repository serve
     await expect(input).toBeChecked();
 
     // The RPC call actually sent, read from the Node-side resolver's own
-    // observed calls — not inferred from the DOM.
+    // observed calls — not inferred from the DOM. The control flips
+    // optimistically, so wait for the call to reach the resolver.
+    await expect
+      .poll(() => setEnabledCalls.filter((call) => call.id === REPO_ONLY_ID).length)
+      .toBe(1);
     const calls = setEnabledCalls.filter((call) => call.id === REPO_ONLY_ID);
-    expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       scope: 'workspace',
       kind: 'mcp',

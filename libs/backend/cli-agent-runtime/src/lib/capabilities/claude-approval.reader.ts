@@ -30,6 +30,7 @@ import { execFile, type ExecFileException } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import which from 'which';
 import type {
   CapabilityPolicyReason,
   ClaudeApprovalRecord,
@@ -81,14 +82,24 @@ export interface ClaudeApprovalReaderOptions {
   runGit?: GitRunner;
 }
 
-/** The default {@link GitRunner}: `execFile` with no shell and a timeout. */
+/**
+ * The default {@link GitRunner}: `execFile` with no shell and a timeout, on
+ * the absolute git path resolved once (as `exec-git.ts` does), so the spawn
+ * itself never searches `PATH`.
+ */
 export function createGitRunner(
   timeoutMs: number = CLAUDE_APPROVAL_GIT_TIMEOUT_MS,
 ): GitRunner {
-  return (cwd, args) =>
-    new Promise<GitRunResult>((resolve) => {
+  let gitBinary: string | null = null;
+  return (cwd, args) => {
+    gitBinary ??= which.sync('git', { nothrow: true });
+    if (gitBinary === null) {
+      return Promise.resolve<GitRunResult>({ outcome: 'not-installed' });
+    }
+    const binary = gitBinary;
+    return new Promise<GitRunResult>((resolve) => {
       execFile(
-        'git',
+        binary,
         ['-C', cwd, ...args],
         {
           timeout: timeoutMs,
@@ -101,6 +112,7 @@ export function createGitRunner(
         },
       );
     });
+  };
 }
 
 function gitRunResult(
@@ -369,7 +381,11 @@ function stringArray(value: unknown): string[] {
  * separators always collapse; case folds only where the filesystem does.
  */
 function normalizeProjectPath(value: string, caseInsensitive: boolean): string {
-  const normalized = value.replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  // Runs are collapsed first, so at most one trailing separator remains.
+  const collapsed = value.replace(/[\\/]+/g, '/');
+  const normalized = collapsed.endsWith('/')
+    ? collapsed.slice(0, -1)
+    : collapsed;
   return caseInsensitive ? normalized.toLowerCase() : normalized;
 }
 

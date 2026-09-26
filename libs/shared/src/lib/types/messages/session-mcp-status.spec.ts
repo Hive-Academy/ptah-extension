@@ -126,6 +126,21 @@ describe('session:mcpStatus contract', () => {
       ).toBe(true);
     });
 
+    it('accepts the capability-policy-unverified notice', () => {
+      expect(
+        SessionMcpStatusPayloadSchema.safeParse({
+          sessionId: 's1',
+          servers: [],
+          notices: [
+            {
+              code: 'capability-policy-unverified',
+              message: 'The capability policy could not be read.',
+            },
+          ],
+        }).success,
+      ).toBe(true);
+    });
+
     it('REJECTS an unknown notice code — the backend is the producer', () => {
       expect(
         SessionMcpStatusPayloadSchema.safeParse({

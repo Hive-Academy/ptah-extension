@@ -143,6 +143,7 @@ const LINEAR_CAPABILITY: CapabilityEntry = {
   sources: [{ scope: 'global', path: 'C:\\Users\\me\\.cursor\\mcp.json' }],
   effectiveEnabled: false,
   inheritedFrom: 'workspace',
+  defaultReason: 'user-scope',
   workspaceEnabled: false,
   schemaTokens: 13_200,
 };

@@ -406,9 +406,7 @@ export function capabilityControlState(
   if (entry.effectiveEnabled === null) return UNKNOWN_STATE;
   // Nothing recorded globally: every workspace inherits the default.
   if (entry.inheritedFrom === 'default') return known(entry.effectiveEnabled);
-  return entry.defaultReason === undefined
-    ? UNKNOWN_STATE
-    : known(DEFAULT_REASON_ENABLED[entry.defaultReason]);
+  return known(DEFAULT_REASON_ENABLED[entry.defaultReason]);
 }
 
 function known(value: boolean): CapabilityControlState {

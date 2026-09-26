@@ -249,7 +249,10 @@ export const SessionMcpStatusPayloadSchema = z
     notices: z.array(
       z
         .object({
-          code: z.literal('claude-ai-connectors-disabled'),
+          code: z.enum([
+            'claude-ai-connectors-disabled',
+            'capability-policy-unverified',
+          ]),
           message: z.string().min(1),
         })
         .strict(),

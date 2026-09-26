@@ -367,8 +367,13 @@ export function toEffectiveSet(
       deniedMcpServers.push(row.id);
       continue;
     }
-    // Approved only by a decision, never by a default or a repository file.
-    if (row.scopes.includes('workspace') && row.resolved.origin !== 'default') {
+    // Approved only by a decision about THIS workspace, never by a default, a
+    // repository file, or a global value set for a same-name user server.
+    if (
+      row.scopes.includes('workspace') &&
+      (row.resolved.origin === 'workspace' ||
+        row.resolved.origin === 'imported')
+    ) {
       approvedProjectMcpServers.push(row.id);
     }
   }

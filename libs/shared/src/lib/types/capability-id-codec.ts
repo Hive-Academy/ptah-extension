@@ -60,7 +60,7 @@ export function encodeCapabilityId(id: string): string {
   const bytes = utf8Bytes(id);
   let pct = '';
   for (const byte of bytes) {
-    const char = String.fromCharCode(byte);
+    const char = String.fromCodePoint(byte);
     pct += LITERAL_SAFE_BYTE.test(char)
       ? char
       : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
@@ -84,7 +84,7 @@ export function decodeCapabilityId(encoded: string): string | null {
     const char = pct[index];
     if (char !== '%') {
       if (!LITERAL_SAFE_BYTE.test(char)) return null;
-      bytes.push(char.charCodeAt(0));
+      bytes.push(char.codePointAt(0) ?? 0);
       continue;
     }
     const hex = pct.slice(index + 1, index + 3);
@@ -278,15 +278,11 @@ function fnv1a64Hex(bytes: Uint8Array): string {
 
 function utf8Bytes(value: string): Uint8Array {
   const bytes: number[] = [];
-  for (let index = 0; index < value.length; index += 1) {
-    let code = value.charCodeAt(index);
+  // The string iterator pairs surrogates; only a lone one stays in range.
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
     if (code >= 0xd800 && code <= 0xdfff) {
-      const next = value.charCodeAt(index + 1);
-      if (code > 0xdbff || !(next >= 0xdc00 && next <= 0xdfff)) {
-        throw new TypeError('Capability id is not well-formed UTF-16');
-      }
-      code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
-      index += 1;
+      throw new TypeError('Capability id is not well-formed UTF-16');
     }
     if (code < 0x80) {
       bytes.push(code);
