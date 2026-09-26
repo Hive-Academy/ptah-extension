@@ -1,5 +1,11 @@
 import { encode } from 'gpt-tokenizer';
-import { countTokens, fitsBudget } from './token-measure';
+import {
+  countTokens,
+  countTokensPiecewise,
+  fitsBudget,
+  fittingPrefixLength,
+  O200K_SPLIT_PATTERN,
+} from './token-measure';
 
 jest.mock('gpt-tokenizer', () => {
   const actual =
@@ -114,9 +120,15 @@ describe('fitsBudget', () => {
     expect(encodeSpy).not.toHaveBeenCalled();
   });
 
-  it('encodes text between the two pre-checks and compares the count', () => {
+  it('counts text between the two pre-checks piece-wise and compares the count', () => {
     const words = 'alpha beta gamma delta '.repeat(150); // 3,450 chars
     expect(fitsBudget(words, budget)).toBe(true);
+    expect(encodeSpy).toHaveBeenCalledTimes(4); // pieces of at most 1,024 chars
+  });
+
+  it('stops counting once over the budget', () => {
+    const words = 'alpha beta gamma delta '.repeat(340); // 7,820 chars, ~1,360 tokens
+    expect(fitsBudget(words, { tokens: 100, chars: 8000 })).toBe(false);
     expect(encodeSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -142,3 +154,161 @@ describe('fitsBudget', () => {
     );
   });
 });
+
+describe('countTokensPiecewise', () => {
+  beforeEach(() => encodeSpy.mockClear());
+
+  it('equals the exact count for text up to one piece long', () => {
+    const text = 'The quick brown fox jumps over the lazy dog. '.repeat(22); // 990 chars
+    expect(countTokensPiecewise(text)).toBe(countTokens(text));
+  });
+
+  it('equals the exact count of a long ordinary text', () => {
+    const text = 'const request = await handler(value, 0x1f3a); '.repeat(400);
+    expect(countTokensPiecewise(text)).toBe(countTokens(text));
+  });
+
+  it('encodes a long run of one character in pieces of at most 1,024 chars', () => {
+    const run = 'a'.repeat(65_000);
+    const tokens = countTokensPiecewise(run);
+    expect(tokens).toBeGreaterThan(0);
+    for (const [piece] of encodeSpy.mock.calls) {
+      expect(piece.length).toBeLessThanOrEqual(1024);
+    }
+  });
+
+  it('copies the installed o200k split pattern verbatim', () => {
+    const installed = jest.requireActual<{ O200K_TOKEN_SPLIT_REGEX: RegExp }>(
+      'gpt-tokenizer/cjs/encodingParams/constants',
+    );
+    expect(O200K_SPLIT_PATTERN).toBe(installed.O200K_TOKEN_SPLIT_REGEX.source);
+  });
+
+  describe('review 2e r1 S1: an upper bound, never below the exact count', () => {
+    it('counts the 1,018-space boundary case exactly (the old count was 18 of 19)', () => {
+      const text = ' '.repeat(1018) + '59X!GWee0_g-';
+      expect(countTokens(text)).toBe(19);
+      expect(countTokensPiecewise(text)).toBe(19);
+    });
+
+    it('counts the reviewer default-budget case as 2,001 and rejects it at 2,000 tokens', () => {
+      const raw = reviewerS1Text();
+      expect(countTokens(raw)).toBe(2001);
+      expect(countTokensPiecewise(raw)).toBe(2001);
+      expect(fitsBudget(raw, { tokens: 2000, chars: 8000 })).toBe(false);
+    });
+
+    it('equals the exact count on 300 random texts that straddle piece boundaries', () => {
+      let seed = 7;
+      const alphabet = ['a', 'Z', ' ', '  ', '\n', '\r\n', '9', '12', '!', '?', '_', '-', "'s", 'é', '漢', '😀', '\t', '/', '.'];
+      for (let sample = 0; sample < 300; sample++) {
+        let text = '';
+        const length = 900 + (sample % 7) * 400;
+        while (text.length < length) {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          text += alphabet[seed % alphabet.length];
+        }
+        expect(countTokensPiecewise(text)).toBe(countTokens(text));
+      }
+    });
+
+    it('never cuts after whitespace: a space run before a tab stays one count', () => {
+      // "  \t." — in the whole text `\s+(?!\S)` takes the two spaces only.
+      const text = `${'word '.repeat(203)}x  \t.!-${'word '.repeat(300)}`;
+      expect(countTokensPiecewise(text)).toBe(countTokens(text));
+    });
+
+    it('bounds stretches without a safe cut or with one long pre-token', () => {
+      for (const text of [
+        `lead ${'x'.repeat(3000)} tail`,
+        '}\n'.repeat(2000),
+        ` \t${'  \n'.repeat(900)}end`,
+      ]) {
+        expect(countTokensPiecewise(text)).toBeGreaterThanOrEqual(countTokens(text));
+      }
+    });
+  });
+
+  it('stops once the running sum passes the limit', () => {
+    const words = 'alpha beta gamma delta '.repeat(3000);
+    const partial = countTokensPiecewise(words, 10);
+    expect(partial).toBeGreaterThan(10);
+    expect(encodeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds a long run of one character by its bytes without encoding it', () => {
+    const run = 'a'.repeat(65_000);
+    expect(countTokensPiecewise(run)).toBe(65_000);
+    expect(encodeSpy).not.toHaveBeenCalled();
+  });
+
+  it('never splits a surrogate pair between pieces', () => {
+    const text = `${'a'.repeat(1023)}${'😀'.repeat(600)}`;
+    countTokensPiecewise(text);
+    for (const [piece] of encodeSpy.mock.calls) {
+      const first = piece.charCodeAt(0);
+      expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
+    }
+  });
+});
+
+describe('fittingPrefixLength', () => {
+  it('returns the whole text when it fits', () => {
+    expect(fittingPrefixLength('short', { tokens: 10, chars: 100 })).toBe(5);
+  });
+
+  it('stops at the char ceiling', () => {
+    expect(fittingPrefixLength('x '.repeat(100), { tokens: 1000, chars: 51 })).toBe(51);
+  });
+
+  it('returns the longest prefix within the token limit', () => {
+    const text = 'alpha beta gamma delta '.repeat(400);
+    const budget = { tokens: 700, chars: 100_000 };
+    const length = fittingPrefixLength(text, budget);
+    expect(fitsBudget(text.slice(0, length), budget)).toBe(true);
+    expect(countTokensPiecewise(text.slice(0, length + 8))).toBeGreaterThan(700);
+  });
+
+  it('never ends inside a surrogate pair', () => {
+    const text = '😀'.repeat(5000);
+    for (const chars of [101, 1025, 3001]) {
+      const length = fittingPrefixLength(text, { tokens: 100_000, chars });
+      expect(length % 2).toBe(0);
+    }
+    const byTokens = fittingPrefixLength(text, { tokens: 333, chars: 100_000 });
+    expect(byTokens % 2).toBe(0);
+  });
+
+  it('returns 0 when nothing fits', () => {
+    expect(fittingPrefixLength('hello', { tokens: 0, chars: 100 })).toBe(0);
+  });
+
+  it('review 2e r1 S1: every returned prefix is within the budget by the exact count', () => {
+    const raw = reviewerS1Text();
+    for (const tokens of [1999, 2000, 1500, 777]) {
+      const length = fittingPrefixLength(raw, { tokens, chars: 8000 });
+      expect(countTokens(raw.slice(0, length))).toBeLessThanOrEqual(tokens);
+    }
+    const spaces = ' '.repeat(1018) + '59X!GWee0_g-'.repeat(200);
+    for (const tokens of [18, 100, 555]) {
+      const length = fittingPrefixLength(spaces, { tokens, chars: 100_000 });
+      expect(countTokens(spaces.slice(0, length))).toBeLessThanOrEqual(tokens);
+    }
+  });
+});
+
+/** The review's S1 reproduction: 2,734 chars that encode to exactly 2,001 tokens. */
+function reviewerS1Text(): string {
+  let seed = 42;
+  const alphabet = 'abcefGWiX012345679_!-??';
+  let raw = '';
+  for (let i = 0; i <= 222; i++) {
+    let s = '';
+    for (let j = 0; j < 3500; j++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      s += alphabet[seed % alphabet.length];
+    }
+    if (i === 222) raw = s.slice(0, 2734);
+  }
+  return raw;
+}

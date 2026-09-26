@@ -13,12 +13,7 @@
  *  - `Language.load(path)` in the CJS build of web-tree-sitter uses a dynamic
  *    `import('fs/promises')` that Jest's VM rejects, so the file is read here
  *    and handed over as bytes.
- * A third shim is for this lib's Jest setup only: the reducer barrel loads the
- * Markdown reducer, which imports the ESM-only `marked`, and this lib's
- * jest.config.ts does not transform it (tool-output-reducers' does). Nothing
- * here runs the Markdown reducer, so `marked` is stubbed empty.
  */
-jest.mock('marked', () => ({}));
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';

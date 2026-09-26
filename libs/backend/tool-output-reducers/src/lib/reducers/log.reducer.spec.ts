@@ -193,17 +193,22 @@ describe('reduceLog', () => {
       expect(out[out.length - 1]).toBe('Ran all test suites.');
     });
 
-    it('keeps the whole required set even at a budget too small for anything', () => {
-      const result = reduce(text, 1);
+    it('degrades by priority under a tight budget: failures and summary stay, the head goes', () => {
+      const result = reduce(text, 700);
+      expect(countTokens(result.text)).toBeLessThanOrEqual(700);
       const out = result.text.split('\n');
       for (const failure of failures) {
         expect(out).toContain(failure.bullet);
-        expect(out).toContain(failure.assertion);
         expect(out).toContain(failure.frame);
       }
-      expect(out).toContain(`ts-jest[ts-compiler] (WARN) ${TS_LINE}`);
       expect(out).toContain('Tests:       3 failed, 3997 passed, 4000 total');
       expect(out[out.length - 1]).toBe('Ran all test suites.');
+      expect(out).not.toContain('Determining test suites to run...');
+    });
+
+    it('keeps the first failure line at a budget too small for anything', () => {
+      const out = reduce(text, 1).text.split('\n');
+      expect(out.filter((line) => !GAP.test(line))).toEqual([' FAIL  src/billing/invoice-1.spec.ts']);
     });
 
     it('collapses the repeated warning run and strips colour codes', () => {
@@ -245,23 +250,37 @@ describe('reduceLog', () => {
       expect(out[120]).toBe('line 999 of the build output');
     });
 
-    it('keeps head and tail even when they exceed the budget (the pipeline cut trims)', () => {
+    it('shrinks head and tail to fit a budget they exceed, keeping the last line', () => {
       const lines = numbered(1000);
-      const out = reduce(lines.join('\n'), 300).text.split('\n');
-      expect(out).toEqual([...lines.slice(0, 40), '… 880 lines omitted …', ...lines.slice(920)]);
+      const result = reduce(lines.join('\n'), 300);
+      expect(countTokens(result.text)).toBeLessThanOrEqual(300);
+      const out = result.text.split('\n');
+      expect(out[0]).toBe(lines[0]);
+      expect(out[out.length - 1]).toBe(lines[999]);
+      expect(out.length).toBeLessThan(40 + 1 + 80);
     });
 
-    it('keeps each error line with exactly three lines of context on either side when nothing else fits', () => {
+    it('keeps an error line with its context and the last line when head and tail do not fit', () => {
       const lines = numbered(1000);
       lines[500] = 'TypeError: Cannot read properties of undefined';
       const result = reduce(lines.join('\n'), 120);
+      expect(countTokens(result.text)).toBeLessThanOrEqual(120);
       const out = result.text.split('\n');
-      for (let i = 497; i <= 503; i++) {
+      for (let i = 499; i <= 501; i++) {
         expect(out).toContain(lines[i]);
       }
-      expect(out).not.toContain(lines[496]);
-      expect(out).not.toContain(lines[504]);
       expect(out[out.length - 1]).toBe('line 999 of the build output');
+      expect(out.filter((line) => /^line [0-9] of/.test(line)).length).toBeLessThan(5);
+    });
+
+    it('honours the char budget as well as the tokens', () => {
+      const lines = Array.from({ length: 400 }, (_, i) => `${'='.repeat(120)} ${i}`);
+      lines[200] = 'Error: the build broke';
+      const result = reduceLog(lines.join('\n'), { budgetTokens: 100_000, budgetChars: 1200 });
+      expect(result.text.length).toBeLessThanOrEqual(1200);
+      expect(result.text).toContain('Error: the build broke');
+      expect(result.text.endsWith(lines[399])).toBe(true);
+      expectReconstructs(result.text, lines.join('\n'));
     });
 
     it.each([
@@ -438,14 +457,16 @@ describe('reduceLog', () => {
     }, TIMING_TEST_TIMEOUT_MS);
   });
 
-  describe('review r1 regressions (D1: the required set is unconditional)', () => {
-    it('D1a keeps the context after an error and the final summary at a tiny budget', () => {
+  describe('review r1 regressions (D1: errors, context and summary before anything else)', () => {
+    it('D1a keeps the context after an error and the final summary at a small budget', () => {
       const input =
         'Error: boom\n    at fn (a.ts:1:1)\n' +
         Array.from({ length: 100 }, (_, i) => `item ${i}`).join('\n') +
         '\nRan all test suites.';
-      const out = reduce(input, 10).text.split('\n');
-      for (const line of ['Error: boom', '    at fn (a.ts:1:1)', 'item 0', 'item 1', 'item 2', 'Ran all test suites.']) {
+      const result = reduce(input, 60);
+      expect(countTokens(result.text)).toBeLessThanOrEqual(60);
+      const out = result.text.split('\n');
+      for (const line of ['Error: boom', '    at fn (a.ts:1:1)', 'item 0', 'Ran all test suites.']) {
         expect(out).toContain(line);
       }
     });
@@ -458,12 +479,25 @@ describe('reduceLog', () => {
       expect(out[out.length - 1]).toBe('Ran all test suites.');
     });
 
-    it('D1c keeps head 40, tail 80 and ±3 context around every error at budget 1', () => {
+    it('D1c keeps the error line itself at budget 1', () => {
       const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} of the build output`);
       lines[500] = 'TypeError: Cannot read properties of undefined';
       const out = reduce(lines.join('\n'), 1).text.split('\n');
-      const expected = [...lines.slice(0, 40), ...lines.slice(497, 504), ...lines.slice(920)];
-      expect(out.filter((line) => !line.startsWith('…'))).toEqual(expected);
+      expect(out).toEqual([
+        '… 500 lines omitted …',
+        'TypeError: Cannot read properties of undefined',
+        '… 499 lines omitted …',
+      ]);
+    });
+
+    it('D1d keeps head 40, tail 80 and ±3 context around every error when they fit', () => {
+      const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} of the build output`);
+      lines[500] = 'TypeError: Cannot read properties of undefined';
+      const lineCost = (line: string): number => countTokens(line) + 1;
+      const required = [...lines.slice(0, 40), ...lines.slice(497, 504), ...lines.slice(920)];
+      const budget =
+        required.reduce((sum, line) => sum + lineCost(line), 0) + 2 * lineCost('… 9999999 lines omitted …');
+      const out = reduce(lines.join('\n'), budget).text.split('\n');
       expect(out).toEqual([
         ...lines.slice(0, 40),
         '… 457 lines omitted …',
@@ -471,6 +505,53 @@ describe('reduceLog', () => {
         '… 416 lines omitted …',
         ...lines.slice(920),
       ]);
+    });
+  });
+
+  describe('review 2e r1 S2: a verbose head never pushes out a later failure', () => {
+    /** The review's reproduction: 1,000 distinct verbose lines, a failure at 700, a summary. */
+    function verboseFailure(): string {
+      const lines = Array.from(
+        { length: 1000 },
+        (_, i) => `[2026-09-26T10:00:00] INFO step ${i} ${'normal detail '.repeat(40)}`,
+      );
+      lines.splice(700, 0, 'ERROR: UNIQUE_FAILURE', '    at fail (x.ts:1:2)');
+      lines.push('Tests: 1 failed, 999 passed');
+      return lines.join('\n');
+    }
+
+    it('keeps the failure, its frame and the summary inside the token and char budget', () => {
+      const input = verboseFailure();
+      const result = reduceLog(input, { budgetTokens: 1850, budgetChars: 7600 });
+      expect(result.reducer).toBe('log-reduced');
+      expect(countTokens(result.text)).toBeLessThanOrEqual(1850);
+      expect(result.text.length).toBeLessThanOrEqual(7600);
+      const out = result.text.split('\n');
+      expect(out).toContain('ERROR: UNIQUE_FAILURE');
+      expect(out).toContain('    at fail (x.ts:1:2)');
+      expect(out[out.length - 1]).toBe('Tests: 1 failed, 999 passed');
+      expectReconstructs(result.text, input);
+    });
+  });
+
+  describe('review 2e r2 M1: notes count only the error lines kept', () => {
+    it('reports the error lines a degraded selection dropped', () => {
+      const input = Array.from({ length: 30 }, (_, i) => `ERROR: unique ${i}`).join('\n');
+      const result = reduceLog(input, { budgetTokens: 25, budgetChars: 200 });
+      const out = result.text.split('\n');
+      const keptErrors = out.filter((line) => line.startsWith('ERROR: ')).length;
+      expect(keptErrors).toBeLessThan(30);
+      expect(result.notes).toContain(`kept ${keptErrors} of 30 error line(s)`);
+      expect(result.notes).not.toContain('kept 30 error line(s)');
+    });
+
+    it('keeps the plain count when every error line fits', () => {
+      const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} of the build output`);
+      lines[300] = 'ERROR: one';
+      lines[600] = 'ERROR: two';
+      const result = reduceLog(lines.join('\n'), { budgetTokens: 1000 });
+      expect(result.reducer).toBe('log-reduced');
+      expect(result.notes).toContain('kept 2 error line(s)');
     });
   });
 });

@@ -28,7 +28,7 @@
  * text. A reduced output uses LF line endings.
  */
 import { Lexer, getDefaults, type Token } from 'marked';
-import { countTokens } from '../token-measure';
+import { countTokens, countTokensPiecewise } from '../token-measure';
 import type { OutputReducer, ReduceResult } from '../reducer.types';
 
 /** Larger inputs are left to the pipeline's cut: lexing cost grows fast on list-heavy text. */
@@ -51,14 +51,6 @@ const MAX_QUOTE_RESTART_COST = 1_000_000;
 
 /** U+FEFF byte-order mark; stripped before lexing and re-emitted first. */
 const BOM = '﻿';
-
-/**
- * Lines up to this length are counted with one `encode`. Longer lines are
- * counted in pieces: gpt-tokenizer's BPE is super-linear on a long run of one
- * character (about 1.5 s for 65,000 chars), and a piece of this size stays
- * around a millisecond.
- */
-const MAX_PIECE_CHARS = 1024;
 
 /** Block types replaced by a typed note when they do not fit; the section then continues. */
 const TYPED_NOTES: Readonly<Record<string, string>> = {
@@ -301,37 +293,11 @@ function lineCount(text: string): number {
 }
 
 /**
- * Token cost of `text` plus its newline. Stops counting once the cost passes
- * `limit` and returns the partial sum (already over the limit). Long lines are
- * counted in pieces ending at a word start where one exists; a piece boundary
- * can only prevent merges, so the sum does not undercount in practice.
+ * Token cost of `text` plus its newline, counted piece-wise; stops once the
+ * cost passes `limit` and returns the partial sum (already over the limit).
  */
 function lineTokens(text: string, limit: number): number {
-  let total = 1;
-  let start = 0;
-  while (start < text.length && total <= limit) {
-    const end = pieceEnd(text, start);
-    total += countTokens(text.slice(start, end));
-    start = end;
-  }
-  return total;
-}
-
-function pieceEnd(text: string, start: number): number {
-  if (text.length - start <= MAX_PIECE_CHARS) {
-    return text.length;
-  }
-  let end = start + MAX_PIECE_CHARS;
-  for (let p = end; p > start + MAX_PIECE_CHARS / 2; p--) {
-    if (/\s/.test(text[p - 1]) && !/\s/.test(text[p])) {
-      return p;
-    }
-  }
-  const code = text.charCodeAt(end - 1);
-  if (code >= 0xd800 && code <= 0xdbff) {
-    end--; // do not split a surrogate pair
-  }
-  return end;
+  return 1 + countTokensPiecewise(text, limit - 1);
 }
 
 /** Cost of a raw, line by line; stops early once it passes `limit`. */

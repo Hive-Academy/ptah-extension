@@ -23,6 +23,11 @@ export type ContentKind =
 export interface ReduceContext {
   /** Token budget the reduced text should fit in (gpt-tokenizer count). */
   readonly budgetTokens: number;
+  /**
+   * Char budget (`string.length`) the reduced text should fit in, when the
+   * caller has one. Reducers that fit a budget honour it with the tokens.
+   */
+  readonly budgetChars?: number;
   /** Source language or file extension of the content, when the caller knows it. */
   readonly languageHint?: string;
   /** Symbol the caller cares about most; reducers that can keep it in full should. */

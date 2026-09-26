@@ -6,7 +6,12 @@ export type {
   ReduceResult,
 } from './lib/reducer.types';
 export { detectContentKind } from './lib/content-detector';
-export { countTokens, fitsBudget } from './lib/token-measure';
+export {
+  countTokens,
+  countTokensPiecewise,
+  fitsBudget,
+  fittingPrefixLength,
+} from './lib/token-measure';
 export type { TextBudget } from './lib/token-measure';
 export { reduceJson } from './lib/reducers/json.reducer';
 export { reduceMarkdown } from './lib/reducers/markdown.reducer';
@@ -18,3 +23,11 @@ export type {
   CodeOutline,
   CodeOutliner,
 } from './lib/reducers/code.reducer';
+export {
+  MAX_REDUCER_INPUT_CHARS,
+  reduceOutput,
+} from './lib/reduce-output';
+export type {
+  ReduceOutputOptions,
+  ReduceOutputResult,
+} from './lib/reduce-output';
