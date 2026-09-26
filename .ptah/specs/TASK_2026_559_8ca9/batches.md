@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 17/29
+Total tasks: 56 | Batches: 29 | Complete: 18/29
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2052,7 +2052,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Batch 10: ptah_workspace_analyze — monorepo-first detection; bounded tree — PENDING
+## Batch 10: ptah_workspace_analyze — monorepo-first detection; bounded tree — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2061,7 +2061,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 9 (hub-file ordering)
 
-### Task 10.1: Monorepo-aware project type — PENDING
+### Task 10.1: Monorepo-aware project type — COMPLETE
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/workspace/workspace.service.ts` (:367-420), `<WT>/libs/backend/workspace-intelligence/src/project-analysis/project-detector.service.ts`, `<WT>/libs/backend/workspace-intelligence/src/project-analysis/project-detector.service.spec.ts`
 - Plan reference: research/workspace-files.md:92-117; research-report.md:96 (`e4e2a7bd6` incomplete)
@@ -2070,7 +2070,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 - Validation notes: the existing single-signal specs stay green unchanged. New combined fixture: Nx monorepo, root deps with both react and @angular/core, no root angular.json, apps with their own project.json → never `react`, reports the monorepo plus the app set
 - Implementation details: temp-dir fixture built in the spec
 
-### Task 10.2: Tree depth/entry cap and excludes — PENDING
+### Task 10.2: Tree depth/entry cap and excludes — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts` (`renderDirectoryTree` :38-60, caller :169), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.spec.ts`
 - Plan reference: research/workspace-files.md:99-106, :115-117
@@ -2081,8 +2081,69 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ### Batch 10 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The Codex review lane approves (r4-postcap APPROVE 7/10, two Moderate residuals carried as known issues)
+
+### Batch 10 review history
+
+- r1 (`reviews/batch-10-code-logic-review-r1.md`): REVISE 4/10, B1-B2 (blocking), S1-S4 → revision round 1
+- r2 (`reviews/batch-10-code-logic-review-r2.md`): REVISE 4/10, R2-B1..R2-B3 (blocking), R2-S1, R2-S2 → revision
+  round 2
+- r3 (`reviews/batch-10-code-logic-review-r3.md`): REVISE 6/10, R3-S1, R3-S2 (serious), R3-M1 → one bounded
+  correction (post-cap)
+- r4-postcap (`reviews/batch-10-code-logic-review-r4-postcap.md`): APPROVE 7/10, 0 blocking, 0 serious, two Moderate
+  residuals (R4-M1, R4-M2). Details: `batch-10-executor-report.md` (initial, rounds 1-2, bounded correction), with
+  fails-before evidence for every round-2 and correction spec
+
+### Batch 10 deviations (accepted)
+
+1. Files outside the 10.1 list: `composite/workspace-analyzer.service.ts` and
+   `composite/workspace-analyzer.root-scope.spec.ts` (the MCP answer's Project Type / Frameworks come from the
+   analyzer's `WorkspaceInfo`; change limited to the monorepo branch)
+2. New file `project-analysis/monorepo-member-discovery.ts` (bounded glob expansion and Nx `project.json` scan), and
+   `project-analysis/monorepo-detector.service.ts` edited (membership parsers extracted as shared pure functions,
+   `detectDeclaredMembers` added; existing detector specs unchanged)
+3. The monorepo root's internal `ProjectType` is `node` (no new enum member); the analyzer labels it
+   `<tool>-monorepo` (e.g. `nx-monorepo`)
+4. The tree is emitted as a plain list (raw string, one entry per line) instead of a `p` block; a bounded
+   `### Projects` section was added
+5. Discovery depth limit 12 (raised from 5, with disclosure), bounded by the 3,000-read budget
+6. pnpm-workspace.yaml one-line flow form `packages: [...]` supported (quote- and brace-aware split)
+7. `project-detector.service.spec.ts` and `mcp-response-formatter.spec.ts` carry Prettier-only hunks (both failed
+   `prettier --check` at HEAD)
+8. `WorkspaceService` file-statistics walk rewritten to one pass over the union of extensions (counts unchanged)
+
+### Batch 10 team-leader verification (Mode 2, 2026-09-26)
+
+- No TODO/FIXME/PLACEHOLDER/STUB markers in the changed or new source; `ptah-core-prompt.ts` and
+  `ptah-system-prompt.constant.ts` unchanged vs HEAD (`git diff --quiet`)
+- `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache`
+  → "Successfully ran targets test, lint, typecheck for 2 projects"
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron --skip-nx-cache` → success, 2 projects
+- `nx run ptah-electron:validate-deps --skip-nx-cache` → "All external imports are covered by package.json dependencies."
+- `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
+  `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
+- Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+
+### Batch 10 known issues (r4-postcap Moderate residuals; carried in TASK_2026_561_9e57 Track B8)
+
+- R4-M1: unsupported YAML scalar forms in pnpm-workspace.yaml (folded `- >-`, escaped double-quoted, doubled single
+  quotes) become wrong literal patterns while membership reports `complete: true` —
+  `monorepo-detector.service.ts:78, :95, :140, :145, :688`. Fix: decode them or reject with an issue / incomplete
+- R4-M2: a tooling executor (e.g. `@angular-eslint/builder:lint`) under a reserved application target name (`build`,
+  `serve`) decides the framework, because only the second pass applies `AUXILIARY_EXECUTOR` —
+  `project-detector.service.ts:174-177, :179-182, :459`; `workspace.service.ts:552`. Fix: reject tooling executors
+  before rule matching in both passes
+
+### Batch 10 follow-ups (not blocking; carried in TASK_2026_561_9e57 Track B8)
+
+- (a) The structure walk in `workspace.service.ts` (`shouldSkipDirectory`) still reads `tmp/` to depth 3 and counts
+  it in Total Files; only the renderer drops it
+- (b) A durable formatter-through-budget regression spec (r4 probed it: 8,247 → 7,893 chars)
+- (c) No wall-clock deadline on discovery or member inspection reads (count and depth bounds only)
+- (d) `FrameworkDetectorService` has no `@nestjs/core` rule, so NestJS members built with generic executors show `node`
+- (e) `ProjectDiscovery` is not exported from `workspace-intelligence/src/index.ts`
+- (f) Declared workspace globs can match `dist`-named directories (declarations override the search skip list)
 
 ---
 

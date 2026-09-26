@@ -13,6 +13,189 @@ const DOTNET_SOLUTION_GLOBS = getStackProfile('dotnet').detect.globs.filter(
 );
 
 /**
+ * Where a monorepo declares its member projects, as read by
+ * {@link MonorepoDetectorService.detectDeclaredMembers}.
+ */
+export interface DeclaredMembership {
+  /**
+   * Workspace-relative globs naming member directories (`packages/*`,
+   * `apps/**`), in declaration order. A leading `!` excludes.
+   */
+  readonly patterns: readonly string[];
+  /**
+   * True for Nx, whose projects are the directories holding a `project.json`
+   * wherever they sit, declared or not.
+   */
+  readonly scanProjectJson: boolean;
+  /**
+   * False when this monorepo type has no member declaration this service can
+   * read (a .NET solution, a Poetry path-dependency root).
+   */
+  readonly supported: boolean;
+  /** Declarations that exist but could not be read or parsed. */
+  readonly issues: readonly string[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringEntries(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+}
+
+/** A package.json `workspaces` field: the array form or `{ packages: [...] }`. */
+function workspacesFieldPatterns(workspaces: unknown): string[] | undefined {
+  if (Array.isArray(workspaces)) {
+    return stringEntries(workspaces);
+  }
+  return isRecord(workspaces)
+    ? stringEntries(workspaces['packages'])
+    : undefined;
+}
+
+/**
+ * A YAML line without its comment: a `#` at the start of the line or after
+ * whitespace, outside single or double quotes, starts a comment.
+ */
+function stripYamlComment(line: string): string {
+  let quote: string | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quote) {
+      if (char === quote) quote = undefined;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '#' && (i === 0 || /\s/.test(line[i - 1]))) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+function unquoteYamlScalar(value: string): string {
+  const trimmed = value.trim();
+  return /^(['"]).*\1$/.test(trimmed) ? trimmed.slice(1, -1) : trimmed;
+}
+
+/**
+ * The items of a YAML flow sequence body (`'a', "b,c", '{x,y}/*'`): split on
+ * commas outside quotes and outside `{...}` brace globs.
+ */
+function splitFlowItems(body: string): string[] {
+  const items: string[] = [];
+  let quote: string | undefined;
+  let braces = 0;
+  let start = 0;
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i];
+    if (quote) {
+      if (char === quote) quote = undefined;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '{') {
+      braces++;
+    } else if (char === '}') {
+      braces = Math.max(0, braces - 1);
+    } else if (char === ',' && braces === 0) {
+      items.push(body.slice(start, i));
+      start = i + 1;
+    }
+  }
+  items.push(body.slice(start));
+  return items;
+}
+
+/** Whether a pnpm-workspace.yaml declares a top-level `packages` key. */
+function declaresPnpmPackages(content: string): boolean {
+  return content
+    .split(/\r?\n/)
+    .some((line) => /^packages\s*:/.test(stripYamlComment(line)));
+}
+
+/**
+ * The `packages` list of a pnpm-workspace.yaml, quotes removed: the block
+ * form (`- 'apps/*'` items, comments and blank lines between them allowed) or
+ * the flow form (`packages: ['apps/*', "!apps/skip"]`). `undefined` when the
+ * key is absent or lists nothing this parser recognises.
+ */
+function pnpmWorkspacePatterns(content: string): string[] | undefined {
+  const lines = content.split(/\r?\n/).map(stripYamlComment);
+  const keyIndex = lines.findIndex((line) => /^packages\s*:/.test(line));
+  if (keyIndex === -1) {
+    return undefined;
+  }
+  const inline = lines[keyIndex].replace(/^packages\s*:/, '').trim();
+  const items: string[] = [];
+  if (inline.startsWith('[') && inline.endsWith(']')) {
+    items.push(...splitFlowItems(inline.slice(1, -1)).map(unquoteYamlScalar));
+  } else {
+    for (const line of lines.slice(keyIndex + 1)) {
+      if (line.trim() === '') continue;
+      // The next top-level key ends the list.
+      if (!/^\s/.test(line)) break;
+      const item = line.trim();
+      if (item.startsWith('-')) {
+        items.push(unquoteYamlScalar(item.slice(1)));
+      }
+    }
+  }
+  const patterns = items.filter((item) => item.length > 0);
+  return patterns.length > 0 ? patterns : undefined;
+}
+
+/** `projectFolder` of each rush.json project. */
+function rushProjectFolders(projects: unknown): string[] {
+  return Array.isArray(projects)
+    ? projects
+        .map((project) =>
+          isRecord(project) ? project['projectFolder'] : undefined,
+        )
+        .filter((folder): folder is string => typeof folder === 'string')
+    : [];
+}
+
+/**
+ * Project roots of a legacy nx.json / workspace.json `projects` map, whose
+ * values are either the root path or `{ root }`.
+ */
+function nxProjectRoots(projects: unknown): string[] {
+  if (!isRecord(projects)) {
+    return [];
+  }
+  return Object.values(projects)
+    .map((value) =>
+      typeof value === 'string'
+        ? value
+        : isRecord(value)
+          ? value['root']
+          : undefined,
+    )
+    .filter((root): root is string => typeof root === 'string' && root !== '');
+}
+
+/**
+ * The quoted entries of a TOML inline array such as
+ * `members = ["packages/*", "apps/api"]`, or `undefined` when the key is
+ * absent or holds no entries — the same "not determinable" signal the
+ * JavaScript detectors use, which is why this does not fall back to [].
+ */
+function tomlArrayEntries(content: string, key: string): string[] | undefined {
+  const match = content.match(
+    new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`, 'm'),
+  );
+  if (!match) {
+    return undefined;
+  }
+  const entries = (match[1].match(/["'][^"']*["']/g) ?? []).map((entry) =>
+    entry.slice(1, -1),
+  );
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
  * Result of monorepo detection for a workspace.
  */
 export interface MonorepoDetectionResult {
@@ -191,17 +374,17 @@ export class MonorepoDetectorService {
               await this.fileSystem.readFile(packageJsonPath);
             try {
               const packageJson = JSON.parse(packageContent) as {
-                workspaces?: string[];
+                workspaces?: unknown;
               };
-              if (packageJson.workspaces) {
-                packageCount = packageJson.workspaces.length;
-              }
+              packageCount = workspacesFieldPatterns(
+                packageJson.workspaces,
+              )?.length;
             } catch {
               packageCount = undefined;
             }
           }
         } else if (lernaJson.packages) {
-          packageCount = lernaJson.packages.length;
+          packageCount = stringEntries(lernaJson.packages)?.length;
         }
       } catch {
         packageCount = undefined;
@@ -283,16 +466,8 @@ export class MonorepoDetectorService {
     const exists = await this.fileSystem.exists(pnpmWorkspacePath);
 
     if (exists) {
-      let packageCount: number | undefined;
-
       const content = await this.fileSystem.readFile(pnpmWorkspacePath);
-      const packagesMatch = content.match(/packages:\s*\n((?:\s+-\s+.+\n?)+)/);
-      if (packagesMatch) {
-        const packageLines = packagesMatch[1].trim().split('\n');
-        packageCount = packageLines.filter((line) =>
-          line.trim().startsWith('-'),
-        ).length;
-      }
+      const packageCount = pnpmWorkspacePatterns(content)?.length;
 
       return {
         isMonorepo: true,
@@ -318,16 +493,13 @@ export class MonorepoDetectorService {
       const content = await this.fileSystem.readFile(packageJsonPath);
       try {
         const packageJson = JSON.parse(content) as {
-          workspaces?: string[] | { packages?: string[] };
+          workspaces?: unknown;
         };
 
         if (packageJson.workspaces) {
-          let packageCount: number | undefined;
-          if (Array.isArray(packageJson.workspaces)) {
-            packageCount = packageJson.workspaces.length;
-          } else if (packageJson.workspaces.packages) {
-            packageCount = packageJson.workspaces.packages.length;
-          }
+          const packageCount = workspacesFieldPatterns(
+            packageJson.workspaces,
+          )?.length;
 
           return {
             isMonorepo: true,
@@ -435,7 +607,7 @@ export class MonorepoDetectorService {
         isMonorepo: true,
         type: MonorepoType.UvWorkspace,
         workspaceFiles: ['pyproject.toml'],
-        packageCount: this.countTomlArrayEntries(content, 'members'),
+        packageCount: tomlArrayEntries(content, 'members')?.length,
       };
     }
 
@@ -456,25 +628,151 @@ export class MonorepoDetectorService {
   }
 
   /**
-   * Count the quoted entries of a TOML inline array such as
-   * `members = ["packages/*", "apps/api"]`.
+   * Read where a detected monorepo declares its members, with the same
+   * parsers `detectMonorepo` counts packages with.
    *
-   * Returns `undefined` when the key is absent or holds no entries — the same
-   * "count not determinable" signal the JavaScript detectors already use, which
-   * is why this does not fall back to 0.
+   * The package-manager declarations (package.json `workspaces`,
+   * pnpm-workspace.yaml) are read for every JavaScript monorepo type, because
+   * Nx, Lerna and Turborepo workspaces usually delegate membership to them.
+   * Each tool then adds its own: Lerna `packages`, Rush `projectFolder`s, the
+   * legacy Nx `projects` map; Nx also sets {@link DeclaredMembership.scanProjectJson}.
+   *
+   * @param workspacePath - The monorepo root
+   * @param type - The type `detectMonorepo` reported for it
+   * @returns Declared patterns plus any declaration that could not be read;
+   *   never throws
    */
-  private countTomlArrayEntries(
-    content: string,
-    key: string,
-  ): number | undefined {
-    const match = content.match(
-      new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`, 'm'),
+  async detectDeclaredMembers(
+    workspacePath: string,
+    type: MonorepoType,
+  ): Promise<DeclaredMembership> {
+    const issues: string[] = [];
+    const patterns: string[] = [];
+
+    if (
+      type === MonorepoType.DotNetSolution ||
+      type === MonorepoType.PoetryWorkspace
+    ) {
+      return { patterns, scanProjectJson: false, supported: false, issues };
+    }
+
+    if (type === MonorepoType.UvWorkspace) {
+      const pyproject = await this.readDeclaration(
+        workspacePath,
+        'pyproject.toml',
+        issues,
+      );
+      patterns.push(
+        ...((pyproject && tomlArrayEntries(pyproject, 'members')) ?? []),
+      );
+      return { patterns, scanProjectJson: false, supported: true, issues };
+    }
+
+    const packageJson = await this.readJsonDeclaration(
+      workspacePath,
+      'package.json',
+      issues,
     );
-    if (!match) {
+    patterns.push(
+      ...((isRecord(packageJson) &&
+        workspacesFieldPatterns(packageJson['workspaces'])) ||
+        []),
+    );
+    const pnpm = await this.readDeclaration(
+      workspacePath,
+      'pnpm-workspace.yaml',
+      issues,
+    );
+    if (pnpm !== undefined) {
+      const pnpmPatterns = pnpmWorkspacePatterns(pnpm);
+      if (pnpmPatterns) {
+        patterns.push(...pnpmPatterns);
+      } else if (declaresPnpmPackages(pnpm)) {
+        // A declared list this parser cannot read must not look like "none".
+        issues.push('pnpm-workspace.yaml packages list could not be parsed');
+      }
+    }
+
+    if (type === MonorepoType.Lerna) {
+      const lerna = await this.readJsonDeclaration(
+        workspacePath,
+        'lerna.json',
+        issues,
+      );
+      patterns.push(
+        ...((isRecord(lerna) && stringEntries(lerna['packages'])) || []),
+      );
+    } else if (type === MonorepoType.Rush) {
+      const rush = await this.readJsonDeclaration(
+        workspacePath,
+        'rush.json',
+        issues,
+      );
+      patterns.push(
+        ...rushProjectFolders(isRecord(rush) ? rush['projects'] : undefined),
+      );
+    } else if (type === MonorepoType.Nx) {
+      for (const file of ['nx.json', 'workspace.json']) {
+        const config = await this.readJsonDeclaration(
+          workspacePath,
+          file,
+          issues,
+        );
+        patterns.push(
+          ...nxProjectRoots(isRecord(config) ? config['projects'] : undefined),
+        );
+      }
+    }
+
+    return {
+      patterns: [...new Set(patterns)],
+      scanProjectJson: type === MonorepoType.Nx,
+      supported: true,
+      issues,
+    };
+  }
+
+  /**
+   * A declaration file's text, `undefined` when it does not exist. A file
+   * that exists but cannot be read is recorded in `issues`.
+   */
+  private async readDeclaration(
+    workspacePath: string,
+    file: string,
+    issues: string[],
+  ): Promise<string | undefined> {
+    const filePath = path.join(workspacePath, file);
+    if (!(await this.fileSystem.exists(filePath))) {
       return undefined;
     }
-    const count = (match[1].match(/["'][^"']*["']/g) ?? []).length;
-    return count > 0 ? count : undefined;
+    try {
+      return await this.fileSystem.readFile(filePath);
+    } catch {
+      // degradation-audit: reported - the unreadable declaration is returned
+      // to the caller in `issues` and surfaces in the analysis result.
+      issues.push(`${file} could not be read`);
+      return undefined;
+    }
+  }
+
+  /** {@link readDeclaration} parsed as JSON; a parse failure is an issue. */
+  private async readJsonDeclaration(
+    workspacePath: string,
+    file: string,
+    issues: string[],
+  ): Promise<unknown> {
+    const content = await this.readDeclaration(workspacePath, file, issues);
+    if (content === undefined) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(content) as unknown;
+    } catch {
+      // degradation-audit: reported - the malformed declaration is returned
+      // to the caller in `issues` and surfaces in the analysis result.
+      issues.push(`${file} is not valid JSON`);
+      return undefined;
+    }
   }
 
   /**

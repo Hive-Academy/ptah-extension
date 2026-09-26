@@ -33,39 +33,262 @@ import type {
   BrowserRecordStopResult,
 } from '../types';
 
+/** Directory levels rendered, the workspace root's entries being level 1. */
+const TREE_MAX_DEPTH = 3;
+
+/** Entries listed per directory before `... and N more`. */
+const TREE_MAX_ENTRIES_PER_DIR = 25;
+
 /**
- * Recursively render a DirectoryStructure as an indented bullet list.
+ * Character budget for the whole tree. Levels are filled breadth-first, so the
+ * top of the tree is always shown and only deeper levels give way. Each shown
+ * directory also reserves room for its own `... and N more` line, so the
+ * rendered tree stays within this budget plus one root-level summary line.
  */
-function renderDirectoryTree(
-  structure: Record<string, unknown>,
-  depth = 0,
-): string {
-  const indent = '  '.repeat(depth);
-  const lines: string[] = [];
+const TREE_MAX_CHARS = 3_500;
 
-  const dirs = structure['directories'] as
-    | Array<{ name: string; structure: Record<string, unknown> | null }>
-    | undefined;
-  const files = structure['files'] as
-    | Array<{ name: string; extension: string }>
-    | undefined;
+/** Room reserved per shown directory for its `... and N more` line. */
+const TREE_MORE_LINE_RESERVE = 40;
 
-  if (Array.isArray(dirs)) {
-    for (const dir of dirs) {
-      lines.push(`${indent}- **${dir.name}/**`);
-      if (dir.structure) {
-        lines.push(renderDirectoryTree(dir.structure, depth + 1));
+/** Longest entry name rendered; longer names are cut with an ellipsis. */
+const TREE_MAX_NAME_CHARS = 80;
+
+/**
+ * Directories never expanded or listed: build output, dependencies, VCS data,
+ * scratch space and agent worktrees. Their contents are generated or copied,
+ * and one of them alone (a `tmp/` of 500 files) used to fill the result.
+ */
+const TREE_EXCLUDED_DIRS: ReadonlySet<string> = new Set([
+  'tmp',
+  'dist',
+  '.claude-worktrees',
+  '.ptah',
+  'node_modules',
+  '.git',
+  'coverage',
+]);
+
+interface TreeNode {
+  readonly name: string;
+  readonly isDir: boolean;
+  readonly structure: Record<string, unknown> | null;
+}
+
+/** One directory's listable entries: excluded directories dropped, dirs first. */
+function treeChildren(structure: Record<string, unknown> | null): TreeNode[] {
+  if (!structure) return [];
+  const dirs = Array.isArray(structure['directories'])
+    ? (structure['directories'] as Array<Record<string, unknown>>)
+    : [];
+  const files = Array.isArray(structure['files'])
+    ? (structure['files'] as Array<Record<string, unknown>>)
+    : [];
+  const nodes: TreeNode[] = [];
+  for (const dir of dirs) {
+    const name = String(dir?.['name'] ?? '');
+    if (!name || TREE_EXCLUDED_DIRS.has(name)) continue;
+    const sub = dir['structure'];
+    nodes.push({
+      name,
+      isDir: true,
+      structure:
+        sub && typeof sub === 'object'
+          ? (sub as Record<string, unknown>)
+          : null,
+    });
+  }
+  for (const file of files) {
+    const name = String(file?.['name'] ?? '');
+    if (name) nodes.push({ name, isDir: false, structure: null });
+  }
+  return nodes;
+}
+
+function treeEntryLine(node: TreeNode, level: number): string {
+  const name =
+    node.name.length > TREE_MAX_NAME_CHARS
+      ? `${node.name.slice(0, TREE_MAX_NAME_CHARS)}…`
+      : node.name;
+  return `${'  '.repeat(level)}- ${node.isDir ? `**${name}/**` : name}`;
+}
+
+/**
+ * Render a DirectoryStructure as an indented bullet list, bounded three ways:
+ * at most {@link TREE_MAX_DEPTH} levels, {@link TREE_MAX_ENTRIES_PER_DIR}
+ * entries per directory, and {@link TREE_MAX_CHARS} overall. Every directory
+ * that lists fewer entries than it has closes with `... and N more`, so a
+ * caller can tell a cut listing from a complete one.
+ *
+ * Selection is breadth-first and round-robin within a level (which entries
+ * fit), rendering depth-first (the nested list), so a single wide directory
+ * cannot starve its siblings.
+ *
+ * The result is a raw Markdown list, one entry per line; the caller must pass
+ * it to json2md as a string, not a `p` block, which would put a blank line
+ * between every entry and double the size.
+ */
+function renderDirectoryTree(structure: Record<string, unknown>): string {
+  const root: TreeNode = { name: '', isDir: true, structure };
+  const shownChildren = new Map<TreeNode, TreeNode[]>();
+  let budget = TREE_MAX_CHARS;
+  let level: TreeNode[] = [root];
+
+  for (let depth = 0; depth < TREE_MAX_DEPTH && level.length > 0; depth++) {
+    // Round-robin across the level's directories: each takes its next entry
+    // in turn, so the budget is shared instead of spent on the first one.
+    const pending = level.map((parent) => ({
+      parent,
+      candidates: treeChildren(parent.structure).slice(
+        0,
+        TREE_MAX_ENTRIES_PER_DIR,
+      ),
+      shown: [] as TreeNode[],
+      open: true,
+    }));
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (const entry of pending) {
+        if (!entry.open) continue;
+        const child = entry.candidates[entry.shown.length];
+        const cost = child
+          ? treeEntryLine(child, depth).length +
+            1 +
+            (child.isDir ? TREE_MORE_LINE_RESERVE : 0)
+          : 0;
+        if (!child || cost > budget) {
+          // A directory's listing stays a contiguous prefix: once one entry
+          // does not fit, the rest are counted in its "and N more" line.
+          entry.open = false;
+          continue;
+        }
+        budget -= cost;
+        entry.shown.push(child);
+        progressed = true;
       }
     }
+    for (const entry of pending) {
+      shownChildren.set(entry.parent, entry.shown);
+    }
+    level = pending.flatMap((entry) =>
+      entry.shown.filter((child) => child.isDir),
+    );
   }
 
-  if (Array.isArray(files)) {
-    for (const file of files) {
-      lines.push(`${indent}- ${file.name}`);
+  const lines: string[] = [];
+  const render = (parent: TreeNode, depth: number): void => {
+    const shown = shownChildren.get(parent) ?? [];
+    for (const child of shown) {
+      lines.push(treeEntryLine(child, depth));
+      if (child.isDir) render(child, depth + 1);
     }
-  }
+    // Only a directory whose level was reached is summarised: one at the
+    // depth limit was never listed, and "and N more" would misstate that.
+    if (!shownChildren.has(parent)) return;
+    const hidden = treeChildren(parent.structure).length - shown.length;
+    if (hidden > 0) {
+      lines.push(`${'  '.repeat(depth)}- ... and ${hidden} more`);
+    }
+  };
+  render(root, 0);
 
   return lines.join('\n');
+}
+
+/** Monorepo projects listed by name before `... and N more`. */
+const PROJECTS_DISPLAY_CAP = 25;
+
+/** Discovery notes listed before `... and N more notes`. */
+const DISCOVERY_ISSUES_DISPLAY_CAP = 5;
+
+/** Longest project name, path and per-row reason rendered in a project row. */
+const PROJECT_NAME_MAX_CHARS = 60;
+const PROJECT_PATH_MAX_CHARS = 80;
+const PROJECT_ISSUE_MAX_CHARS = 80;
+
+/** Longest discovery note rendered. */
+const DISCOVERY_NOTE_MAX_CHARS = 400;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * The `### Projects` section of a monorepo analysis.
+ *
+ * Counts come from `projectDiscovery.totalProjects` (every project found),
+ * not the length of the inspected list, so "and N more" is true even when
+ * inspection was capped; uninspected projects and discovery problems are
+ * stated, never implied away.
+ *
+ * Status comes first — counts, the incomplete flag and the discovery notes
+ * (which lead with any inspection-failure summary) — then the bounded
+ * project rows, so a long list can never push the reason out of a later cut.
+ */
+function projectsBlocks(projectInfo: Record<string, unknown>): unknown[] {
+  const projects = Array.isArray(projectInfo['projects'])
+    ? (projectInfo['projects'] as Array<Record<string, unknown>>)
+    : [];
+  const discovery = (projectInfo['projectDiscovery'] ?? undefined) as
+    Record<string, unknown> | undefined;
+  if (!projectInfo['monorepoType'] && projects.length === 0) {
+    return [];
+  }
+
+  const total =
+    typeof discovery?.['totalProjects'] === 'number'
+      ? discovery['totalProjects']
+      : projects.length;
+  const inspected = projects.length;
+  const issues = Array.isArray(discovery?.['issues'])
+    ? (discovery['issues'] as unknown[]).map(String)
+    : [];
+  const complete = discovery?.['complete'] !== false;
+
+  const summary = [
+    `**Found:** ${total} project${total === 1 ? '' : 's'}`,
+    ...(inspected < total
+      ? [`**Inspected:** ${inspected} (Frameworks above cover these only)`]
+      : []),
+    ...(complete ? [] : ['**Discovery:** incomplete — see notes']),
+  ];
+  const blocks: unknown[] = [{ h3: 'Projects' }, { p: summary.join('  \n') }];
+
+  if (issues.length > 0) {
+    const notes = issues
+      .slice(0, DISCOVERY_ISSUES_DISPLAY_CAP)
+      .map((note) => clip(note, DISCOVERY_NOTE_MAX_CHARS));
+    if (issues.length > notes.length) {
+      notes.push(`... and ${issues.length - notes.length} more notes`);
+    }
+    blocks.push({ p: '**Discovery notes:**' }, { ul: notes });
+  }
+
+  const shown = projects.slice(0, PROJECTS_DISPLAY_CAP);
+  const items = shown.map((p) => {
+    const type = String(p?.['type'] ?? 'unknown');
+    const framework =
+      p?.['framework'] && p['framework'] !== type
+        ? `, ${String(p['framework'])}`
+        : '';
+    const issue = p?.['issue']
+      ? ` — ${clip(String(p['issue']), PROJECT_ISSUE_MAX_CHARS)}`
+      : '';
+    const name = clip(String(p?.['name'] ?? ''), PROJECT_NAME_MAX_CHARS);
+    const where = clip(String(p?.['path'] ?? ''), PROJECT_PATH_MAX_CHARS);
+    return `${name} (${type}${framework}) — ${where}${issue}`;
+  });
+  const hidden = total - shown.length;
+  if (hidden > 0) {
+    const uninspected = total - inspected;
+    items.push(
+      `... and ${hidden} more${uninspected > 0 ? ` (${uninspected} not inspected)` : ''}`,
+    );
+  }
+  if (items.length > 0) {
+    blocks.push({ ul: items });
+  }
+  return blocks;
 }
 
 /**
@@ -119,6 +342,9 @@ export function formatWorkspaceAnalysis(result: unknown): string {
       blocks.push({ ul: fwItems });
     }
     if (projectInfo) {
+      blocks.push(...projectsBlocks(projectInfo));
+    }
+    if (projectInfo) {
       const deps = projectInfo['dependencies'] as string[] | undefined;
       const devDeps = projectInfo['devDependencies'] as string[] | undefined;
 
@@ -142,8 +368,7 @@ export function formatWorkspaceAnalysis(result: unknown): string {
     }
     if (projectInfo) {
       const fileStats = projectInfo['fileStatistics'] as
-        | Record<string, number>
-        | undefined;
+        Record<string, number> | undefined;
       if (fileStats && Object.keys(fileStats).length > 0) {
         blocks.push({ h3: 'File Statistics' });
         const rows = Object.entries(fileStats)
@@ -171,7 +396,9 @@ export function formatWorkspaceAnalysis(result: unknown): string {
         structureData as Record<string, unknown>,
       );
       if (tree) {
-        blocks.push({ p: tree });
+        // Raw string, as in formatDiagnosticList: json2md passes it through
+        // untouched. The trailing newline keeps the next heading its own block.
+        blocks.push(`${tree}\n`);
       }
     }
     const recommendations = (structure['recommendations'] ?? []) as string[];
@@ -482,7 +709,9 @@ function scopedSummary(c: DiagnosticsSummaryCounts): string {
 function coverageClause(c: DiagnosticsSummaryCounts): string {
   if (c.coverage === 0) return '';
   const inRequested =
-    c.requestedCoverage > 0 ? ` (${c.requestedCoverage} in requested files)` : '';
+    c.requestedCoverage > 0
+      ? ` (${c.requestedCoverage} in requested files)`
+      : '';
   return `${c.coverage} coverage failure${c.coverage === 1 ? '' : 's'}${inRequested}, `;
 }
 

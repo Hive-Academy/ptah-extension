@@ -147,6 +147,41 @@ describe('WorkspaceAnalyzerService — root-keyed workspace info', () => {
     expect(info?.path).toBe(ROOT_A);
   });
 
+  it('names a monorepo by its tool and lists per-project frameworks, never a root guess (TASK_2026_559 Batch 10)', async () => {
+    const harness = createHarness();
+    harness.workspaceService.getProjectInfo.mockResolvedValueOnce({
+      ...projectInfoFor(ROOT_A),
+      type: 'node',
+      monorepoType: 'nx',
+      projects: [
+        {
+          name: 'web',
+          path: 'apps/web',
+          type: 'angular',
+          framework: 'angular',
+        },
+        { name: 'site', path: 'apps/site', type: 'react', framework: 'react' },
+        { name: 'api', path: 'apps/api', type: 'node', framework: 'express' },
+        { name: 'tools', path: 'libs/tools', type: 'node' },
+        { name: 'docs', path: 'apps/docs', type: 'general' },
+        {
+          name: 'admin',
+          path: 'apps/admin',
+          type: 'angular',
+          framework: 'angular',
+        },
+      ],
+    });
+
+    const info = await harness.service.getCurrentWorkspaceInfo(ROOT_A);
+
+    expect(info?.projectType).toBe('nx-monorepo');
+    // Frameworks, not languages: `node` alone (tools) adds nothing (r1 S2).
+    expect(info?.frameworks).toEqual(['angular', 'express', 'react']);
+    expect(harness.projectDetector.detectProjectType).not.toHaveBeenCalled();
+    expect(harness.frameworkDetector.detectFrameworks).not.toHaveBeenCalled();
+  });
+
   /**
    * Criterion 13: string variants of one root collapse to ONE cache key.
    *

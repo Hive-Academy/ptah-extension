@@ -103,6 +103,380 @@ describe('mcp-response-formatter › workspace & search', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Workspace analysis — bounded directory tree (TASK_2026_559 Batch 10)
+// ---------------------------------------------------------------------------
+
+interface FixtureDir {
+  directories: Array<{ name: string; structure: FixtureDir | null }>;
+  files: Array<{ name: string; extension: string }>;
+}
+
+function fixtureFiles(count: number, prefix = 'file'): FixtureDir['files'] {
+  return Array.from({ length: count }, (_, i) => ({
+    name: `${prefix}-${String(i).padStart(3, '0')}.ts`,
+    extension: '.ts',
+  }));
+}
+
+function fixtureDir(
+  directories: FixtureDir['directories'] = [],
+  files: FixtureDir['files'] = [],
+): FixtureDir {
+  return { directories, files };
+}
+
+function analysisWithTree(tree: FixtureDir): string {
+  return formatWorkspaceAnalysis({
+    info: { projectType: 'node', rootPath: '/repo' },
+    structure: { structure: tree, recommendations: [] },
+  });
+}
+
+/** The rendered Directory Structure section alone. */
+function treeSection(out: string): string {
+  const start = out.indexOf('### Directory Structure');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = out.indexOf('\n### ', start + 1);
+  return out.slice(start, end === -1 ? undefined : end);
+}
+
+describe('mcp-response-formatter › workspace analysis tree bounds', () => {
+  it('renders a 500-flat-file directory under 4,000 chars with an "and N more" line', () => {
+    const tree = fixtureDir([], fixtureFiles(500));
+
+    const section = treeSection(analysisWithTree(tree));
+
+    expect(section.length).toBeLessThan(4_000);
+    expect(section).toContain('file-000.ts');
+    expect(section).toContain('file-024.ts');
+    expect(section).not.toContain('file-025.ts');
+    expect(section).toContain('... and 475 more');
+    // One entry per line: no json2md paragraph blank line between entries.
+    expect(section).toContain('- file-000.ts\n- file-001.ts');
+  });
+
+  it('shares the budget across sibling directories instead of spending it on the first', () => {
+    const packages = Array.from({ length: 12 }, (_, i) => ({
+      name: `pkg-${String(i).padStart(2, '0')}`,
+      structure: fixtureDir(
+        Array.from({ length: 25 }, (_, j) => ({
+          name: `module-${j}-${'m'.repeat(40)}`,
+          structure: fixtureDir(),
+        })),
+      ),
+    }));
+
+    const section = treeSection(analysisWithTree(fixtureDir(packages)));
+
+    expect(section.length).toBeLessThan(4_000);
+    expect(section).toMatch(/\*\*pkg-00\/\*\*\n {2}- \*\*module-0-/);
+    expect(section).toMatch(/\*\*pkg-11\/\*\*\n {2}- \*\*module-0-/);
+  });
+
+  it('caps each directory at 25 entries, directories before files', () => {
+    const subdirs = Array.from({ length: 30 }, (_, i) => ({
+      name: `pkg-${String(i).padStart(2, '0')}`,
+      structure: fixtureDir(),
+    }));
+    const tree = fixtureDir(subdirs, fixtureFiles(3, 'root'));
+
+    const section = treeSection(analysisWithTree(tree));
+
+    expect(section).toContain('**pkg-24/**');
+    expect(section).not.toContain('pkg-25');
+    expect(section).not.toContain('root-000.ts');
+    expect(section).toContain('... and 8 more');
+  });
+
+  it('stops at three levels and does not summarise a directory it never listed', () => {
+    const tree = fixtureDir([
+      {
+        name: 'level1',
+        structure: fixtureDir([
+          {
+            name: 'level2',
+            structure: fixtureDir([
+              {
+                name: 'level3',
+                structure: fixtureDir(
+                  [{ name: 'level4', structure: fixtureDir() }],
+                  fixtureFiles(40, 'deep'),
+                ),
+              },
+            ]),
+          },
+        ]),
+      },
+    ]);
+
+    const section = treeSection(analysisWithTree(tree));
+
+    expect(section).toContain('- **level1/**');
+    expect(section).toContain('  - **level2/**');
+    expect(section).toContain('    - **level3/**');
+    expect(section).not.toContain('level4');
+    expect(section).not.toContain('deep-000.ts');
+    expect(section).not.toMatch(/and \d+ more/);
+  });
+
+  it('skips tmp, dist, .claude-worktrees, .ptah, node_modules, .git and coverage', () => {
+    const excluded = [
+      'tmp',
+      'dist',
+      '.claude-worktrees',
+      '.ptah',
+      'node_modules',
+      '.git',
+      'coverage',
+    ];
+    const tree = fixtureDir(
+      [
+        ...excluded.map((name) => ({
+          name,
+          structure: fixtureDir([], fixtureFiles(5, `inside-${name}`)),
+        })),
+        { name: 'src', structure: fixtureDir([], fixtureFiles(1, 'main')) },
+      ],
+      [],
+    );
+
+    const section = treeSection(analysisWithTree(tree));
+
+    for (const name of excluded) {
+      expect(section).not.toContain(`**${name}/**`);
+      expect(section).not.toContain(`inside-${name}`);
+    }
+    expect(section).toContain('**src/**');
+    expect(section).toContain('main-000.ts');
+    // Excluded directories are not counted as hidden entries either.
+    expect(section).not.toMatch(/and \d+ more/);
+  });
+
+  it('keeps a wide, deep tree within the character budget', () => {
+    const wide = (depth: number): FixtureDir =>
+      depth === 0
+        ? fixtureDir([], fixtureFiles(500))
+        : fixtureDir(
+            Array.from({ length: 40 }, (_, i) => ({
+              name: `dir-${depth}-${i}-${'x'.repeat(120)}`,
+              structure: wide(depth - 1),
+            })),
+            fixtureFiles(500),
+          );
+
+    const section = treeSection(analysisWithTree(wide(3)));
+
+    expect(section.length).toBeLessThan(4_000);
+    expect(section).toContain('…/**');
+  });
+
+  it('keeps the whole analysis of a large monorepo fixture within 8,000 chars', () => {
+    const appDirs = Array.from({ length: 30 }, (_, i) => ({
+      name: `app-${String(i).padStart(2, '0')}`,
+      structure: fixtureDir(
+        [
+          {
+            name: 'src',
+            structure: fixtureDir([], fixtureFiles(500, `app${i}`)),
+          },
+        ],
+        fixtureFiles(4, 'config'),
+      ),
+    }));
+    const tree = fixtureDir(
+      [
+        { name: 'apps', structure: fixtureDir(appDirs) },
+        { name: 'libs', structure: fixtureDir(appDirs) },
+        { name: 'tmp', structure: fixtureDir([], fixtureFiles(500, 'tmp')) },
+        { name: '.ptah', structure: fixtureDir([], fixtureFiles(500, 'ptah')) },
+      ],
+      fixtureFiles(20, 'root'),
+    );
+
+    const out = formatWorkspaceAnalysis({
+      info: {
+        projectType: 'nx-monorepo',
+        rootPath: '/repo',
+        frameworks: ['angular', 'node', 'react'],
+      },
+      structure: {
+        structure: tree,
+        recommendations: [
+          'Include main source files relevant to your task',
+          'Exclude build artifacts and dependencies',
+        ],
+      },
+      projectInfo: {
+        version: '1.0.0',
+        description: 'Fixture monorepo',
+        gitRepository: true,
+        totalFiles: 120_000,
+        dependencies: Array.from({ length: 60 }, (_, i) => `dep-${i}`),
+        devDependencies: Array.from({ length: 90 }, (_, i) => `dev-${i}`),
+        fileStatistics: { '.ts': 9000, '.js': 400, '.json': 700 },
+        monorepoType: 'nx',
+        projects: Array.from({ length: 30 }, (_, i) => ({
+          name: `app-${i}`,
+          path: `apps/app-${i}`,
+          type: i % 2 === 0 ? 'angular' : 'node',
+        })),
+      },
+    });
+
+    expect(out.length).toBeLessThanOrEqual(8_000);
+    expect(out).toContain('nx-monorepo');
+    expect(out).toContain('### Projects');
+    expect(out).toContain('app-0 (angular) — apps/app-0');
+    expect(out).toContain('... and 5 more');
+    expect(out).not.toContain('tmp-000.ts');
+  });
+});
+
+describe('mcp-response-formatter › monorepo projects section (Batch 10 r1)', () => {
+  const analysis = (projectInfo: Record<string, unknown>): string =>
+    formatWorkspaceAnalysis({
+      info: { projectType: 'nx-monorepo', rootPath: '/repo' },
+      structure: { structure: { directories: [], files: [] } },
+      projectInfo,
+    });
+
+  it('r1 B1: counts hidden projects against the discovered total, not the inspected list', () => {
+    const inspected = Array.from({ length: 200 }, (_, i) => ({
+      name: `pkg-${i}`,
+      path: `libs/pkg-${i}`,
+      type: 'node',
+    }));
+
+    const out = analysis({
+      monorepoType: 'nx',
+      projects: inspected,
+      projectDiscovery: {
+        totalProjects: 206,
+        inspectedProjects: 200,
+        complete: false,
+        issues: ['6 of 206 projects not inspected (limit 200)'],
+      },
+    });
+
+    expect(out).toContain('**Found:** 206 projects');
+    expect(out).toContain('**Inspected:** 200');
+    expect(out).toContain('... and 181 more (6 not inspected)');
+    expect(out).toContain('**Discovery:** incomplete');
+    expect(out).toContain('6 of 206 projects not inspected (limit 200)');
+  });
+
+  it('r1 B2 + S2: shows an unreadable project with its reason and a framework beside its type', () => {
+    const out = analysis({
+      monorepoType: 'yarn-workspaces',
+      projects: [
+        {
+          name: 'api',
+          path: 'services/api',
+          type: 'node',
+          framework: 'express',
+        },
+        {
+          name: 'broken',
+          path: 'services/broken',
+          type: 'unknown',
+          issue: 'package.json could not be read or parsed',
+        },
+      ],
+      projectDiscovery: {
+        totalProjects: 2,
+        inspectedProjects: 2,
+        complete: true,
+        issues: [],
+      },
+    });
+
+    expect(out).toContain('api (node, express) — services/api');
+    expect(out).toContain(
+      'broken (unknown) — services/broken — package.json could not be read or parsed',
+    );
+    expect(out).not.toMatch(/and \d+ more/);
+  });
+
+  it('r2 B3: a failed project past the 25-row prefix is still stated through the composition summary', () => {
+    const projects = Array.from({ length: 30 }, (_, i) => ({
+      name: `pkg-${String(i).padStart(2, '0')}`,
+      path: `libs/pkg-${String(i).padStart(2, '0')}`,
+      type: i === 29 ? 'unknown' : 'node',
+      ...(i === 29
+        ? { issue: 'project.json could not be read or parsed' }
+        : {}),
+    }));
+
+    const out = analysis({
+      monorepoType: 'nx',
+      projects,
+      projectDiscovery: {
+        totalProjects: 30,
+        inspectedProjects: 30,
+        complete: false,
+        issues: [
+          '1 project could not be fully inspected: libs/pkg-29 (project.json could not be read or parsed)',
+        ],
+      },
+    });
+
+    expect(out).not.toContain('pkg-29 (unknown)');
+    expect(out).toContain('**Discovery:** incomplete');
+    expect(out).toContain(
+      '1 project could not be fully inspected: libs/pkg-29 (project.json could not be read or parsed)',
+    );
+  });
+
+  it('r3 M1: states the inspection failure before long project rows and bounds each row', () => {
+    const long = 'x'.repeat(300);
+    const projects = Array.from({ length: 30 }, (_, i) => ({
+      name: `pkg-${String(i).padStart(2, '0')}-${long}`,
+      path: `libs/${long}/pkg-${String(i).padStart(2, '0')}`,
+      type: i === 29 ? 'unknown' : 'node',
+    }));
+    const summary =
+      '1 project could not be fully inspected: libs/pkg-29 (project.json could not be read or parsed)';
+
+    const out = analysis({
+      monorepoType: 'nx',
+      projects,
+      projectDiscovery: {
+        totalProjects: 30,
+        inspectedProjects: 30,
+        complete: false,
+        issues: [summary],
+      },
+    });
+
+    expect(out.length).toBeLessThanOrEqual(8_000);
+    expect(out.indexOf(summary)).toBeGreaterThan(-1);
+    expect(out.indexOf(summary)).toBeLessThan(out.indexOf('pkg-00-'));
+    for (const line of out.split('\n').filter((l) => l.includes('pkg-'))) {
+      expect(line.length).toBeLessThanOrEqual(200);
+    }
+  });
+
+  it('r1 S1: renders the section for a monorepo with no projects found, with its notes', () => {
+    const out = analysis({
+      monorepoType: 'dotnet-solution',
+      projects: [],
+      projectDiscovery: {
+        totalProjects: 0,
+        inspectedProjects: 0,
+        complete: false,
+        issues: ['member listing is not supported for this monorepo type'],
+      },
+    });
+
+    expect(out).toContain('### Projects');
+    expect(out).toContain('**Found:** 0 projects');
+    expect(out).toContain(
+      'member listing is not supported for this monorepo type',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Diagnostics / LSP / tokens
 // ---------------------------------------------------------------------------
 
@@ -440,9 +814,7 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
         error('D:/repo/src/z.ts', 1, 'TARGET'),
       ];
 
-      const out = render(
-        scoped(diagnostics, ['D:/repo/../../repo/src/z.ts']),
-      );
+      const out = render(scoped(diagnostics, ['D:/repo/../../repo/src/z.ts']));
 
       expect(out).toContain('TARGET');
       expect(out).not.toContain('No diagnostics in the requested files');
