@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 22/29 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately)
+Total tasks: 56 | Batches: 29 | Complete: 23/29 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,12 +2151,15 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                           | State                     |
-| ---- | --------------------------------------- | --------------------------------- | ------------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11, 11b COMPLETE; 16 next |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | done (12, 14 merged)      |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | done (19 merged)          |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                  | 20a in revision round 2   |
+| Lane | Worktree                                | Batches                           | State                                        |
+| ---- | --------------------------------------- | --------------------------------- | -------------------------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11, 11b, 16 COMPLETE; next 17 → 18 → 15 → 13 |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | done (12, 14 merged)                         |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | done (19 merged)                             |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                  | done (20a merged 1c2ad2f92)                  |
+
+Language support (Decision 18): design `implementation-plan-languages.md` under review; Batches 22-37 proposed,
+pending user approval. They are not part of the counter above until approved.
 
 Only the team-leader merges lanes B/C/D into this branch; lane executors never run git across worktrees. Batch
 states for lanes B/C/D stay as recorded below until their merge.
@@ -2441,7 +2444,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 16: ptah_dashboard_propose_spec advertised schema; always-on description budgets — PENDING
+## Batch 16: ptah_dashboard_propose_spec advertised schema; always-on description budgets — COMPLETE (commit 2152a3305)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2450,7 +2453,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 15
 
-### Task 16.1: Minimal `$ref`-free advertised schema — PENDING
+### Task 16.1: Minimal `$ref`-free advertised schema — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/dashboard-propose-spec.tool.ts` (:43-100), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/dashboard-propose-spec.tool.spec.ts`
 - Plan reference: research/agent-task-harness.md:394-437; research-report.md:108
@@ -2459,7 +2462,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Validation notes: RISK "schema drift" is carried here — every valid fixture in the existing spec validates against the advertised schema (use the repo's JSON-schema validator if present, otherwise a structural check of required keys and types), and every invalid fixture is still rejected by Zod
 - Implementation details: char-budget spec on `JSON.stringify(buildDashboardProposeSpecTool())`
 
-### Task 16.2: Growth guard for the surface tool definitions — PENDING
+### Task 16.2: Growth guard for the surface tool definitions — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/surface-tools.spec.ts`
 - Plan reference: research-report.md:140-141 (rows 55-56)
@@ -2470,8 +2473,25 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ### Batch 16 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The review lane approves (r2 APPROVE 8/10)
+
+### Batch 16 record (Lane A)
+
+- Tasks 16.1 and 16.2 COMPLETE; details in `batch-16-executor-report.md`
+- Review history: r1 REVISE 6/10 (S1: `ptah.help('dashboard')` omitted the Zod rules; M1: prototype keys) → r2
+  APPROVE 8/10 (`reviews/batch-16-code-logic-review-r{1,2}.md`)
+- `ptah_dashboard_propose_spec` tool definition JSON: 15,183 → 1,539 chars (budget 3,000; the $ref schema alone was
+  12,567). The full contract in `ptah.help('dashboard')` is generated from the Zod contract constants; Zod
+  (`DashboardProposeSpecInputSchema`) stays the enforcement point
+- Surface growth guard: `ptah_surface_update` 65,190 (ceiling 68,449), `ptah_surface_get_state` 2,141 (ceiling
+  2,248), measured 2026-09-26; `surface-tools.ts` unchanged
+- Deviations (accepted): `namespace-builders/system-namespace.builders.ts` edited (help text carries the detail
+  removed from the description); new `namespace-builders/dashboard-contract-help.ts`; two specs that pinned the old
+  design removed (byte-equal `z.toJSONSchema` and named-definition-plus-`$ref`)
+- Pre-commit verification (2026-09-26): vscode-lm-tools test/lint/typecheck `--skip-nx-cache` pass; `ptah-cli` /
+  `ptah-electron` typecheck pass; `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
+- Commit **2152a3305**
 
 ---
 
@@ -2574,7 +2594,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 20: Regression harness H1 — service-level benchmark vs native (size AND recall) — PENDING
+## Batch 20: Regression harness H1 — service-level benchmark vs native (size AND recall) — IN_PROGRESS (20.1, 20.3 COMPLETE via lane commit db52fa759, merged 1c2ad2f92; 20.2 PENDING)
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: backend-developer
@@ -2583,7 +2603,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 3 | Depends on: Batches 1-19 (including 2a-2f) committed
 
-### Task 20.1: Generated fixture workspace — PENDING
+### Task 20.1: Generated fixture workspace — COMPLETE
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/testing/mcp-contract/fixture-workspace.ts` (new; builds a temp tree at test time — no 500 checked-in files)
 - Plan reference: research-report.md:222-255
@@ -2602,7 +2622,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Validation notes: it FAILS the run on regression; it never only logs. Runtime < 30s so it stays in the normal `test` target
 - Implementation details: real services, mocked only at platform boundaries (file system via the real fs on the temp root)
 
-### Task 20.3: Reducer bench — size AND preserved content per content type (User Decision 7) — PENDING
+### Task 20.3: Reducer bench — size AND preserved content per content type (User Decision 7) — COMPLETE
 
 - Files: `<WT>/libs/backend/tool-output-reducers/src/lib/reducers.bench.spec.ts` (new)
 - Plan reference: context.md User Decision 7 ("Guards: each reducer gets specs on size AND on preserved content"); the "Batch 2 amendment" block
@@ -2616,6 +2636,24 @@ states for lanes B/C/D stay as recorded below until their merge.
 - `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/tool-output-reducers 2>&1 | tail -40` passes
 - A deliberate local revert of the Batch 7 inference makes the bench fail (shown in the report, then restored)
 - The Codex review lane approves
+
+### Batch 20a record (Lane D — Tasks 20.1 and 20.3)
+
+- Author: Antigravity CLI lane; details in `batch-20a-executor-report.md`
+- Review history: r1 REVISE 7/10 → r2 REVISE 8/10 → r3 APPROVE 9/10 (`reviews/batch-20a-code-logic-review-r{1,2,3}.md`)
+- Files: `workspace-intelligence/src/testing/mcp-contract/fixture-workspace.ts` + `.spec.ts`,
+  `tool-output-reducers/src/lib/reducers.bench.spec.ts`, `workspace-intelligence/tsconfig.lib.json` (exclude)
+- Deliberate-break evidence (report §5, reverted): log reducer with context disabled fails the 3-failure-block
+  assertions; a fixture-workspace break fails its spec
+- The bench's `DEFAULT_BUDGET` (2000 tokens / 8000 chars) is a local constant (`type:util` boundary forbids
+  importing the production default). The production default `DEFAULT_TOOL_RESULT_BUDGET_TOKENS` is guarded by Task
+  21.1, which must pin the numeric value
+- The Batch 7 deliberate-revert item above belongs to Task 20.2 and is still open
+- Lane commit **db52fa759**; merged `--no-ff` as **1c2ad2f92** (no conflicts)
+- Integration verification after the merge (2026-09-26): `nx run-many "-t=test,lint,typecheck"` for vscode-lm-tools,
+  workspace-intelligence, tool-output-reducers `--skip-nx-cache` → "Successfully ran targets test, lint, typecheck
+  for 3 projects" (first run, no timeouts); `ptah-cli`/`ptah-electron` typecheck pass;
+  `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
 
 ---
 
