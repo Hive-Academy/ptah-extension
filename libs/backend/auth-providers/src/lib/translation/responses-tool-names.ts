@@ -38,7 +38,9 @@ export interface GuardedResponsesRequest {
 
 function aliasFor(original: string): string {
   const sanitized = original.replace(INVALID_TOOL_NAME_CHARS, '_');
-  const digest = createHash('sha256').update(original, 'utf8').digest('hex');
+  // UTF-16LE is lossless for any JS string; UTF-8 would map every lone
+  // surrogate to U+FFFD and give distinct originals one alias.
+  const digest = createHash('sha256').update(original, 'utf16le').digest('hex');
   return `${sanitized.slice(0, ALIAS_PREFIX_LENGTH)}_${digest.slice(0, ALIAS_HASH_LENGTH)}`;
 }
 

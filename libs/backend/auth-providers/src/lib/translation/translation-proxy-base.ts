@@ -45,6 +45,11 @@ import {
 } from './responses-request-translator';
 import { ResponsesStreamTranslator } from './responses-stream-translator';
 import {
+  guardResponsesToolNames,
+  ResponsesToolNameCollisionError,
+  type GuardedResponsesRequest,
+} from './responses-tool-names';
+import {
   collectResponsesStream,
   ResponsesStreamError,
 } from './responses-stream-collector';
@@ -543,13 +548,25 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
     const anthropicRequest = envelope as AnthropicMessagesRequest;
     if (protocol === 'responses') {
-      const responsesRequest = translateAnthropicToResponses(anthropicRequest, {
-        modelPrefix: this.config.modelPrefix,
-      });
+      let guarded: GuardedResponsesRequest;
+      try {
+        guarded = guardResponsesToolNames(
+          translateAnthropicToResponses(anthropicRequest, {
+            modelPrefix: this.config.modelPrefix,
+          }),
+        );
+      } catch (error: unknown) {
+        if (!(error instanceof ResponsesToolNameCollisionError)) throw error;
+        // Two tools would reach the upstream under one name: reject before
+        // any upstream call rather than route a call to the wrong tool.
+        sendErrorResponse(res, 400, 'invalid_request_error', error.message);
+        return;
+      }
 
       try {
         await this.forwardToResponsesApi(
-          responsesRequest,
+          guarded.request,
+          guarded.toOriginalName,
           anthropicRequest,
           res,
           requestId,
@@ -736,9 +753,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   /**
    * Forward a Responses API request to the upstream API.
    * Delegates to the shared `forwardToApi()` with responses-specific handlers.
+   *
+   * @param toOriginalName - Reverse map of `guardResponsesToolNames`; every
+   *   handler applies it so upstream aliases never reach the SDK.
    */
   private async forwardToResponsesApi(
     responsesRequest: OpenAIResponsesRequest,
+    toOriginalName: (upstream: string) => string,
     originalRequest: AnthropicMessagesRequest,
     res: http.ServerResponse,
     requestId: string,
@@ -779,6 +800,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           reqId,
           onUsage,
           onTranslationError,
+          toOriginalName,
         ),
       onNonStreamingSuccess: async (
         proxyRes,
@@ -796,6 +818,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               model,
               reqId,
               onUsage,
+              toOriginalName,
             );
             if (!clientRes.destroyed) sendJson(clientRes, 200, response);
           } catch (error: unknown) {
@@ -829,12 +852,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             reqId,
             onUsage,
             onTranslationError,
+            toOriginalName,
           );
         }
       },
       retryFn: (retry) =>
         this.forwardToResponsesApi(
           responsesRequest,
+          toOriginalName,
           originalRequest,
           res,
           requestId,
@@ -1208,6 +1233,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     requestId: string,
     onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
     onTranslationError: () => void,
+    toOriginalName: (upstream: string) => string,
   ): Promise<void> {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -1221,6 +1247,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       requestId,
       onUsage,
       onTranslationError,
+      toOriginalName,
     );
     res.write(translator.getInitialEvents());
 
@@ -1283,6 +1310,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     requestId: string,
     onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void,
     onTranslationError: () => void,
+    toOriginalName: (upstream: string) => string,
   ): Promise<void> {
     const chunks: Buffer[] = [];
 
@@ -1327,7 +1355,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                   id:
                     outputItem.call_id ??
                     `toolu_${requestId}_${content.length}`,
-                  name: outputItem.name ?? '',
+                  name: toOriginalName(outputItem.name ?? ''),
                   input: safeJsonParse(outputItem.arguments ?? '{}'),
                 });
               }

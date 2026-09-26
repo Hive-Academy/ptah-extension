@@ -828,3 +828,344 @@ describe('ResponsesStreamTranslator — SSE frame state across chunks', () => {
     expect(t.isFinalized()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK_2026_408 Phase 2 — tool-name resolver, dense block indexes, and
+// received/emitted argument state (each argument character emitted once)
+// ---------------------------------------------------------------------------
+
+const fnAdded = (outputIndex: number, item: Record<string, unknown> = {}): string =>
+  responsesSse('response.output_item.added', {
+    output_index: outputIndex, item: { type: 'function_call', ...item },
+  });
+const argsDelta = (outputIndex: number, delta: string, extra: Record<string, unknown> = {}): string =>
+  responsesSse('response.function_call_arguments.delta', { output_index: outputIndex, delta, ...extra });
+const argsDone = (outputIndex: number, args: string, extra: Record<string, unknown> = {}): string =>
+  responsesSse('response.function_call_arguments.done', {
+    output_index: outputIndex, item_id: `fc_${outputIndex}`, arguments: args, ...extra,
+  });
+const fnDone = (outputIndex: number, item: Record<string, unknown> = {}): string =>
+  responsesSse('response.output_item.done', {
+    output_index: outputIndex, item: { type: 'function_call', ...item },
+  });
+const COMPLETED = responsesSse('response.completed', { response: { usage: USAGE } });
+
+/** `partial_json` of every input_json_delta, optionally for one block index. */
+function inputJsonDeltas(events: readonly ParsedEvent[], index?: number): string[] {
+  return events
+    .filter((event) => event.event === 'content_block_delta' &&
+      (event.data['delta'] as { type: string }).type === 'input_json_delta' &&
+      (index === undefined || event.data['index'] === index))
+    .map((event) => (event.data['delta'] as { partial_json: string }).partial_json);
+}
+
+function eventsOfType(events: readonly ParsedEvent[], type: string): ParsedEvent[] {
+  return events.filter((event) => event.event === type);
+}
+
+function translate(wire: string, resolveToolName?: (name: string) => string) {
+  const t = new ResponsesStreamTranslator('m', 'p2', undefined, undefined, resolveToolName);
+  const initial = t.getInitialEvents();
+  const out = t.processChunk(wire);
+  return { t, initial, out, parsed: parseAll(out) };
+}
+
+describe('ResponsesStreamTranslator — tool-name resolver', () => {
+  const ORIGINAL = 'mcp__server.with.dots__tool' + 'x'.repeat(43);
+  const ALIAS = 'mcp__server_with_dots__toolxxxxxxxxxxxxxxxxxxxxxxxxxx_0123456789';
+  const resolve = (name: string) => (name === ALIAS ? ORIGINAL : name);
+
+  it.each([
+    ['output_item.added', fnAdded(0, { call_id: 'c1', name: ALIAS }) + argsDelta(0, '{"v":"42"}') +
+      fnDone(0, { call_id: 'c1', name: ALIAS, arguments: '{"v":"42"}' })],
+    ['a name-bearing delta', argsDelta(0, '{"v":"42"}', { call_id: 'c1', name: ALIAS }) +
+      fnDone(0, { call_id: 'c1', name: ALIAS, arguments: '{"v":"42"}' })],
+    ['function_call_arguments.done', fnAdded(0, { call_id: 'c1' }) +
+      argsDone(0, '{"v":"42"}', { name: ALIAS }) + fnDone(0, { call_id: 'c1' })],
+    ['output_item.done (delayed name)', fnAdded(0, { call_id: 'c1' }) + argsDelta(0, '{"v":"42"}') +
+      fnDone(0, { call_id: 'c1', name: ALIAS, arguments: '{"v":"42"}' })],
+    ['output_item.done (unseen call)', fnDone(0, { call_id: 'c1', name: ALIAS, arguments: '{"v":"42"}' })],
+  ])('resolves an aliased name that enters through %s', async (_entry, wire) => {
+    const { initial, out, parsed } = translate(wire + COMPLETED, resolve);
+    const starts = eventsOfType(parsed, 'content_block_start');
+    expect(starts).toHaveLength(1);
+    expect(starts[0].data['content_block']).toEqual(
+      { type: 'tool_use', id: 'c1', name: ORIGINAL, input: {} });
+    expect(out.join('')).not.toContain(ALIAS);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([{ type: 'tool_use', id: 'c1', name: ORIGINAL, input: { v: '42' } }]);
+  });
+
+  it('defaults to the identity resolver and passes unknown names through', () => {
+    const { parsed } = translate(fnAdded(0, { call_id: 'c1', name: 'NoSuchTool' }));
+    expect(eventsOfType(parsed, 'content_block_start')[0].data['content_block'])
+      .toMatchObject({ name: 'NoSuchTool' });
+    const resolved = translate(fnAdded(0, { call_id: 'c1', name: 'NoSuchTool' }), resolve);
+    expect(eventsOfType(resolved.parsed, 'content_block_start')[0].data['content_block'])
+      .toMatchObject({ name: 'NoSuchTool' });
+  });
+});
+
+describe('ResponsesStreamTranslator — tool-call arguments emitted exactly once', () => {
+  const ARGS = '{"path":"src/a.ts","limit":10}';
+  const PARSED = { path: 'src/a.ts', limit: 10 };
+  const named = { call_id: 'call_x', name: 'read_file' };
+
+  async function expectOneIntactCall(wire: string, deltaCount?: number) {
+    const { initial, out, parsed } = translate(wire + COMPLETED);
+    expect(eventsOfType(parsed, 'content_block_start')).toHaveLength(1);
+    expect(eventsOfType(parsed, 'content_block_stop')).toHaveLength(1);
+    expect(inputJsonDeltas(parsed).join('')).toBe(ARGS);
+    if (deltaCount !== undefined) expect(inputJsonDeltas(parsed)).toHaveLength(deltaCount);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([{ type: 'tool_use', id: 'call_x', name: 'read_file', input: PARSED }]);
+    expect(message.stop_reason).toBe('tool_use');
+    return parsed;
+  }
+
+  it('(a) deltas only: each delta is emitted as it arrives', async () => {
+    const parsed = await expectOneIntactCall(
+      fnAdded(0, named) + argsDelta(0, ARGS.slice(0, 9)) + argsDelta(0, ARGS.slice(9)) + fnDone(0, named), 2);
+    expect(inputJsonDeltas(parsed)).toEqual([ARGS.slice(0, 9), ARGS.slice(9)]);
+  });
+
+  it('(b) function_call_arguments.done only: one input_json_delta with the full args', async () => {
+    await expectOneIntactCall(fnAdded(0, named) + argsDone(0, ARGS) + fnDone(0, named), 1);
+  });
+
+  it('(b) output_item.done arguments only: one input_json_delta with the full args', async () => {
+    await expectOneIntactCall(fnAdded(0, named) + fnDone(0, { ...named, arguments: ARGS }), 1);
+  });
+
+  it('(c) deltas plus matching done payloads emit no duplicate', async () => {
+    await expectOneIntactCall(
+      fnAdded(0, named) + argsDelta(0, ARGS.slice(0, 5)) + argsDelta(0, ARGS.slice(5)) +
+      argsDone(0, ARGS) + fnDone(0, { ...named, arguments: ARGS }), 2);
+  });
+
+  it('(c) deltas are authoritative over a differing done payload', async () => {
+    await expectOneIntactCall(
+      fnAdded(0, named) + argsDelta(0, ARGS) + argsDone(0, '{"path":"other"}') +
+      fnDone(0, { ...named, arguments: '{"path":"other"}' }), 1);
+  });
+
+  it('(d) delayed name at output_item.done: one start, one flushed delta, one stop', async () => {
+    const parsed = await expectOneIntactCall(
+      fnAdded(0, { call_id: 'call_x' }) + argsDelta(0, ARGS.slice(0, 7)) + argsDelta(0, ARGS.slice(7)) +
+      fnDone(0, { ...named, arguments: ARGS }), 1);
+    expect(parsed.map((event) => event.event)).toEqual([
+      'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop',
+    ]);
+  });
+
+  // Open item 2 (implementation-plan-review.md:13): the name arrives on a delta
+  // after buffered pre-name deltas. Append, start, then ONE flush, so the
+  // current delta is never emitted a second time.
+  it.each([
+    ['after a nameless output_item.added', fnAdded(0, { call_id: 'call_x' })],
+    ['with no output_item.added at all', ''],
+  ])('(e) name-bearing delta after buffered pre-name deltas (%s) emits every character once',
+    async (_variant, prefix) => {
+      const t = new ResponsesStreamTranslator('m', 'open-item-2');
+      const initial = t.getInitialEvents();
+      const buffered = t.processChunk(prefix + argsDelta(0, ARGS.slice(0, 8)) + argsDelta(0, ARGS.slice(8, 20)));
+      expect(buffered).toEqual([]);
+
+      const onName = t.processChunk(argsDelta(0, ARGS.slice(20), named));
+      expect(parseAll(onName).map((event) => event.event)).toEqual(['content_block_start', 'content_block_delta']);
+      expect(inputJsonDeltas(parseAll(onName))).toEqual([ARGS]);
+
+      // The matching done payloads must not re-emit anything.
+      const rest = t.processChunk(argsDone(0, ARGS) + fnDone(0, { ...named, arguments: ARGS }) + COMPLETED);
+      const all = [...buffered, ...onName, ...rest];
+      expect(inputJsonDeltas(parseAll(all)).join('')).toBe(ARGS);
+      expect(inputJsonDeltas(parseAll(all))).toHaveLength(1);
+      expect(eventsOfType(parseAll(all), 'content_block_start')).toHaveLength(1);
+
+      const message = await sdkFinalMessage(initial, all);
+      expect(message.content).toEqual([{ type: 'tool_use', id: 'call_x', name: 'read_file', input: PARSED }]);
+    });
+
+  it('a delta after a name-bearing start emits only its own fragment', () => {
+    const { parsed } = translate(
+      argsDelta(0, '{"a":') + argsDelta(0, '1,', named) + argsDelta(0, '"b":2}'));
+    expect(inputJsonDeltas(parsed)).toEqual(['{"a":1,', '"b":2}']);
+  });
+
+  it('an unseen call at output_item.done with call_id + name starts, flushes, then stops', async () => {
+    const parsed = await expectOneIntactCall(fnDone(0, { ...named, arguments: ARGS }), 1);
+    expect(parsed.slice(0, 3).map((event) => event.event))
+      .toEqual(['content_block_start', 'content_block_delta', 'content_block_stop']);
+  });
+
+  it('ignores function_call_arguments.done for an unknown call without a name', () => {
+    const { t, parsed } = translate(argsDone(3, '{"x":'));
+    expect(parsed).toEqual([]);
+    // Not tracked, so it cannot turn a later incomplete terminal into an error.
+    expect(parseAll(t.processChunk(responsesSse('response.incomplete', {
+      response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+    }))).map((event) => event.event)).toEqual(['message_delta', 'message_stop']);
+  });
+
+  it('a call that never gets a name emits nothing and keeps its args for the incomplete check', () => {
+    const { t, parsed } = translate(
+      argsDelta(0, '{"x":') + fnDone(0, { call_id: 'call_x', arguments: '{"x":' }));
+    expect(parsed).toEqual([]);
+    expect(parseAll(t.processChunk(responsesSse('response.incomplete', {
+      response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+    })))).toEqual([errorEvent('api_error', INCOMPLETE_TOOL_INPUT)]);
+  });
+
+  // Carried from Batch 2: an output_item.done for a call never seen, with no
+  // name and no arguments, contributed no tool input and is NOT recorded, so a
+  // later incomplete terminal keeps its stop reason instead of upstream_incomplete.
+  it('does not record an unseen nameless done item that carried no arguments', () => {
+    const { t, parsed } = translate(fnDone(0, { call_id: 'call_x' }));
+    expect(parsed).toEqual([]);
+    const out = parseAll(t.processChunk(responsesSse('response.incomplete', {
+      response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, usage: USAGE },
+    })));
+    expect(out.map((event) => event.event)).toEqual(['message_delta', 'message_stop']);
+    expect(out[0].data).toMatchObject({ delta: { stop_reason: 'max_tokens' } });
+  });
+
+  it('still records a started call that received no arguments (its input would be a fabricated {})', () => {
+    const { t } = translate(fnAdded(0, named) + fnDone(0, named));
+    expect(parseAll(t.processChunk(responsesSse('response.incomplete', {
+      response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+    })))).toEqual([errorEvent('api_error', INCOMPLETE_TOOL_INPUT)]);
+  });
+
+  // code-logic-review-b4.md finding 2: an empty delta that supplies the name
+  // must still start the block and flush the buffered pre-name text once.
+  it('an empty name-bearing delta starts the call and flushes the buffered args once', async () => {
+    const { initial, out, parsed } = translate(
+      fnAdded(0, { call_id: 'call_x' }) + argsDelta(0, ARGS) +
+      argsDelta(0, '', named) + fnDone(0, { call_id: 'call_x', arguments: ARGS }) + COMPLETED);
+    expect(eventsOfType(parsed, 'content_block_start')).toHaveLength(1);
+    expect(inputJsonDeltas(parsed)).toEqual([ARGS]);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([{ type: 'tool_use', id: 'call_x', name: 'read_file', input: PARSED }]);
+    expect(message.stop_reason).toBe('tool_use');
+  });
+
+  it('ignores an empty delta that supplies no name', () => {
+    const { t, parsed } = translate(argsDelta(0, ''));
+    expect(parsed).toEqual([]);
+    expect(parseAll(t.processChunk(responsesSse('response.incomplete', {
+      response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } },
+    }))).map((event) => event.event)).toEqual(['message_delta', 'message_stop']);
+  });
+
+  // code-logic-review-b4.md finding 3: a closed call is never reopened.
+  it.each([
+    ['a repeated output_item.done', fnDone(0, { ...named, arguments: ARGS })],
+    ['a late arguments delta', argsDelta(0, '{"late":1}')],
+    ['a late arguments delta that names the call', argsDelta(0, '{"late":1}', named)],
+    ['a late function_call_arguments.done', argsDone(0, '{"late":1}', { name: 'read_file' })],
+    ['a late output_item.added', fnAdded(0, named)],
+    ['the same call id at another output index', fnDone(4, { ...named, arguments: ARGS })],
+  ])('%s after the call closed emits nothing', async (_case, late) => {
+    const { initial, out, parsed } = translate(
+      fnDone(0, { ...named, arguments: ARGS }) + late + COMPLETED);
+    expect(eventsOfType(parsed, 'content_block_start')).toHaveLength(1);
+    expect(eventsOfType(parsed, 'content_block_stop')).toHaveLength(1);
+    expect(inputJsonDeltas(parsed)).toEqual([ARGS]);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([{ type: 'tool_use', id: 'call_x', name: 'read_file', input: PARSED }]);
+  });
+});
+
+// code-logic-review-b4.md finding 1: the incomplete check judges the bytes
+// already delivered to the client, not only a snapshot that differs from them.
+describe('ResponsesStreamTranslator — incomplete check validates emitted tool input', () => {
+  const named = { call_id: 'c', name: 'Read' };
+  const snapshotWith = (args: string) => responsesSse('response.incomplete', {
+    response: incompleteResponse('max_output_tokens', args),
+  });
+
+  it.each([
+    ['open call, truncated emitted input', fnAdded(0, named) + argsDelta(0, '{"x":')],
+    ['open call, no emitted input', fnAdded(0, named)],
+    ['closed call, truncated emitted input', fnAdded(0, named) + argsDelta(0, '{"x":') + fnDone(0, named)],
+    ['closed call, no emitted input', fnAdded(0, named) + fnDone(0, named)],
+  ])('%s with a complete snapshot ends with upstream_incomplete', async (_case, wire) => {
+    const onUsage = jest.fn();
+    const t = new ResponsesStreamTranslator('m', 'emitted', onUsage);
+    const initial = t.getInitialEvents();
+    const out = t.processChunk(wire + snapshotWith('{"x":1}'));
+    const parsed = parseAll(out);
+    expect(parsed.at(-1)).toEqual(errorEvent('api_error', INCOMPLETE_TOOL_INPUT));
+    expect(parsed.map((event) => event.event)).not.toContain('message_delta');
+    expect(onUsage).not.toHaveBeenCalled();
+    await expect(sdkFinalMessage(initial, out)).rejects.toThrow();
+  });
+
+  it('complete emitted input with a complete snapshot still stops with max_tokens', async () => {
+    const t = new ResponsesStreamTranslator('m', 'emitted-ok');
+    const initial = t.getInitialEvents();
+    const out = t.processChunk(fnAdded(0, named) + argsDelta(0, '{"x":1}') + snapshotWith('{"x":1}'));
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.stop_reason).toBe('max_tokens');
+    expect(message.content).toEqual([{ type: 'tool_use', id: 'c', name: 'Read', input: { x: 1 } }]);
+  });
+});
+
+describe('ResponsesStreamTranslator — block index allocation', () => {
+  it.each([
+    ['without text', '', [0, 1]],
+    ['after a text block', responsesSse('response.output_text.delta', { delta: 'calling' }), [1, 2]],
+  ])('two interleaved tool calls get distinct dense indexes (%s)', async (_variant, text, indexes) => {
+    const a = { call_id: 'call_a', name: 'read_file' };
+    const b = { call_id: 'call_b', name: 'grep' };
+    const { initial, out, parsed } = translate(text +
+      fnAdded(0, a) + fnAdded(1, b) +
+      argsDelta(0, '{"path":') + argsDelta(1, '{"pattern":') +
+      argsDelta(0, '"x.ts"}') + argsDelta(1, '"foo"}') +
+      fnDone(0, { ...a, arguments: '{"path":"x.ts"}' }) + fnDone(1, { ...b, arguments: '{"pattern":"foo"}' }) +
+      COMPLETED);
+    const [ia, ib] = indexes;
+    const starts = eventsOfType(parsed, 'content_block_start').map((event) => event.data['index']);
+    expect(starts).toEqual(text ? [0, ia, ib] : [ia, ib]);
+    expect(inputJsonDeltas(parsed, ia)).toEqual(['{"path":', '"x.ts"}']);
+    expect(inputJsonDeltas(parsed, ib)).toEqual(['{"pattern":', '"foo"}']);
+    const stops = eventsOfType(parsed, 'content_block_stop').map((event) => event.data['index']);
+    expect(stops.filter((index) => index === ia)).toHaveLength(1);
+    expect(stops.filter((index) => index === ib)).toHaveLength(1);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content.filter((block) => block.type === 'tool_use')).toEqual([
+      { type: 'tool_use', id: 'call_a', name: 'read_file', input: { path: 'x.ts' } },
+      { type: 'tool_use', id: 'call_b', name: 'grep', input: { pattern: 'foo' } },
+    ]);
+  });
+
+  it('allocates an index only when a block starts: a nameless call reserves none', async () => {
+    const { initial, out, parsed } = translate(
+      fnAdded(0, { call_id: 'late' }) + argsDelta(0, '{}') +
+      fnAdded(1, { call_id: 'call_b', name: 'grep' }) + argsDelta(1, '{"pattern":"p"}') +
+      fnDone(1, { call_id: 'call_b', name: 'grep', arguments: '{"pattern":"p"}' }) +
+      fnDone(0, { call_id: 'late', name: 'read_file', arguments: '{}' }) + COMPLETED);
+    expect(eventsOfType(parsed, 'content_block_start').map((event) => event.data['index'])).toEqual([0, 1]);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([
+      { type: 'tool_use', id: 'call_b', name: 'grep', input: { pattern: 'p' } },
+      { type: 'tool_use', id: 'late', name: 'read_file', input: {} },
+    ]);
+  });
+
+  it('sequential text, tool, text blocks keep indexes 0, 1, 2', async () => {
+    const tool = { call_id: 'call_t', name: 'read_file' };
+    const { initial, out, parsed } = translate(
+      responsesSse('response.output_text.delta', { delta: 'before' }) +
+      fnAdded(1, tool) + argsDelta(1, '{"path":"a"}') + fnDone(1, { ...tool, arguments: '{"path":"a"}' }) +
+      responsesSse('response.output_text.delta', { delta: 'after' }) + COMPLETED);
+    expect(eventsOfType(parsed, 'content_block_start').map((event) => event.data['index'])).toEqual([0, 1, 2]);
+    expect(eventsOfType(parsed, 'content_block_stop').map((event) => event.data['index'])).toEqual([0, 1, 2]);
+    const message = await sdkFinalMessage(initial, out);
+    expect(message.content).toEqual([
+      { type: 'text', text: 'before' },
+      { type: 'tool_use', id: 'call_t', name: 'read_file', input: { path: 'a' } },
+      { type: 'text', text: 'after' },
+    ]);
+  });
+});

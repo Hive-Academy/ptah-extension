@@ -9,6 +9,7 @@
  * - `response.output_item.added` — new output item started
  * - `response.output_item.done` — output item completed
  * - `response.function_call_arguments.delta` — tool call argument deltas
+ * - `response.function_call_arguments.done` — final tool call arguments
  * - `response.completed` — entire response completed with usage
  * - `response.incomplete` / `response.failed` / `error` — terminal failures,
  *   classified by `responses-error-mapping.ts` into a stop reason or an
@@ -19,9 +20,10 @@
  * `endOfStream()` on clean EOF, or `terminateTruncated()` on upstream failure.
  *
  * Each instance tracks:
- * - Content block indices (incrementing for each new block)
- * - Whether the message_start event has been emitted
- * - Tool call state by output index
+ * - Content block indices: allocated densely, only when a block starts
+ * - Tool call state by output index: arguments received from upstream and
+ *   how many of their characters were emitted (each exactly once, and only
+ *   after that call's `content_block_start`)
  * - Token usage counters
  *
  * Create a new instance per request (stateful, not reusable).
@@ -60,6 +62,8 @@ interface ResponsesStreamEvent {
   call_id?: string;
   /** Function call name */
   name?: string;
+  /** `response.function_call_arguments.done`: final arguments (untrusted) */
+  arguments?: unknown;
   /** Completed item data */
   item?: ResponsesOutputItem;
   /** Full response data (on response.completed / incomplete / failed) */
@@ -104,14 +108,14 @@ interface ResponsesCompletedData {
 interface ActiveToolCall {
   /** The call_id from the Responses API */
   callId: string;
-  /** Function name */
+  /** Upstream function name ('' until one arrives); resolved only when emitted */
   name: string;
-  /** The Anthropic content block index assigned to this tool */
-  blockIndex: number;
-  /** Whether content_block_start has been emitted */
-  started: boolean;
-  /** Every non-empty argument delta received, whether or not the block started */
+  /** Anthropic content block index; set when content_block_start is emitted */
+  blockIndex: number | undefined;
+  /** Argument text received from upstream, whether or not the block started */
   receivedArgs: string;
+  /** Characters of `receivedArgs` already emitted as `input_json_delta` */
+  emittedLength: number;
 }
 
 const TRUNCATED_STREAM_MESSAGE = 'Upstream Responses stream ended before completion';
@@ -140,11 +144,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * ```
  */
 export class ResponsesStreamTranslator {
-  /** Current content block index (incrementing) */
-  private blockIndex = 0;
+  /** Index the next content_block_start gets (dense, monotonically increasing) */
+  private nextBlockIndex = 0;
 
-  /** Whether we are currently in a text content block */
-  private inTextBlock = false;
+  /** Index of the open text content block, if any */
+  private textBlockIndex: number | undefined;
 
   /** Whether termination events have already been emitted */
   private finalized = false;
@@ -158,8 +162,23 @@ export class ResponsesStreamTranslator {
   /** Final cumulative usage; upstream reports input/cache only at completion. */
   private usage = translateResponsesUsage(undefined);
 
-  /** Final argument values of function calls already closed by output_item.done */
+  /**
+   * Final argument values of function calls closed by output_item.done, for
+   * the incomplete-terminal check. Only calls that started or carried
+   * arguments are recorded: a done item with neither contributed no tool input.
+   */
   private readonly closedToolArgs: Map<number, unknown> = new Map();
+
+  /**
+   * Argument text actually delivered to the client by each closed call that
+   * started. The incomplete check validates these bytes as well as the
+   * terminal snapshot: a snapshot cannot repair input already emitted.
+   */
+  private readonly closedEmittedArgs: Map<number, string> = new Map();
+
+  /** Output indexes and call ids already closed by output_item.done */
+  private readonly closedOutputIndexes = new Set<number>();
+  private readonly closedCallIds = new Set<string>();
 
   /** Buffer for incomplete SSE lines across chunks */
   private lineBuffer = '';
@@ -173,6 +192,8 @@ export class ResponsesStreamTranslator {
   /**
    * @param model - The model name to include in Anthropic events
    * @param requestId - Unique request identifier for generating IDs
+   * @param resolveToolName - Maps an upstream tool name back to the SDK's
+   *   original (see `guardResponsesToolNames`); applied to every emitted name
    */
   constructor(
     private readonly model: string,
@@ -180,6 +201,7 @@ export class ResponsesStreamTranslator {
     private readonly onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void =
       () => undefined,
     private readonly onTranslationError: () => void = () => undefined,
+    private readonly resolveToolName: (upstream: string) => string = (name) => name,
   ) {}
 
   /**
@@ -324,6 +346,9 @@ export class ResponsesStreamTranslator {
       case 'response.function_call_arguments.delta':
         return this.handleFunctionCallArgumentsDelta(event);
 
+      case 'response.function_call_arguments.done':
+        return this.handleFunctionCallArgumentsDone(event);
+
       case 'response.output_item.done':
         return this.handleOutputItemDone(event);
 
@@ -355,20 +380,22 @@ export class ResponsesStreamTranslator {
     if (text == null || text === '') {
       return events;
     }
-    if (!this.inTextBlock) {
+    let index = this.textBlockIndex;
+    if (index === undefined) {
+      index = this.allocateBlockIndex();
+      this.textBlockIndex = index;
       events.push(
         sseEvent('content_block_start', {
           type: 'content_block_start',
-          index: this.blockIndex,
+          index,
           content_block: { type: 'text', text: '' },
         }),
       );
-      this.inTextBlock = true;
     }
     events.push(
       sseEvent('content_block_delta', {
         type: 'content_block_delta',
-        index: this.blockIndex,
+        index,
         delta: { type: 'text_delta', text },
       }),
     );
@@ -390,44 +417,12 @@ export class ResponsesStreamTranslator {
     if (!item) return events;
 
     if (item.type === 'function_call') {
+      if (this.isClosedCall(outputIndex, item.call_id)) return events;
       this.hadToolCalls = true;
-      if (this.inTextBlock) {
-        events.push(
-          sseEvent('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.blockIndex,
-          }),
-        );
-        this.blockIndex++;
-        this.inTextBlock = false;
-      }
-
-      const callId = item.call_id ?? `call_${this.requestId}_${outputIndex}`;
-      const name = item.name ?? '';
-
-      this.activeToolCalls.set(outputIndex, {
-        callId,
-        name,
-        blockIndex: this.blockIndex,
-        started: false,
-        receivedArgs: '',
-      });
-      if (name) {
-        const toolCall = this.activeToolCalls.get(outputIndex)!;
-        toolCall.started = true;
-        events.push(
-          sseEvent('content_block_start', {
-            type: 'content_block_start',
-            index: this.blockIndex,
-            content_block: {
-              type: 'tool_use',
-              id: callId,
-              name,
-              input: {},
-            },
-          }),
-        );
-      }
+      this.closeTextBlock(events);
+      const toolCall = this.trackToolCall(outputIndex);
+      this.adoptIdentity(toolCall, item.call_id, item.name);
+      this.advanceToolCall(toolCall, events);
     }
 
     return events;
@@ -435,85 +430,56 @@ export class ResponsesStreamTranslator {
 
   /**
    * Handle response.function_call_arguments.delta — streaming tool call arguments.
-   * Emits input_json_delta events for the accumulated arguments.
+   * The delta is appended to the call's received arguments, the block starts if
+   * this delta supplies the name, then ONE flush emits whatever is unemitted.
+   * A name-bearing delta after buffered pre-name deltas therefore emits the
+   * buffered text plus this delta exactly once. An empty delta that supplies
+   * the name still starts the block and flushes the buffered text.
    */
   private handleFunctionCallArgumentsDelta(
     event: ResponsesStreamEvent,
   ): string[] {
     const events: string[] = [];
     const outputIndex = event.output_index ?? 0;
-    const argumentsDelta = event.delta;
+    const argumentsDelta = typeof event.delta === 'string' ? event.delta : '';
 
-    if (argumentsDelta == null || argumentsDelta === '') {
-      return events;
-    }
+    if (argumentsDelta === '' && !event.name) return events;
+    if (this.isClosedCall(outputIndex, event.call_id)) return events;
 
-    let toolCall = this.activeToolCalls.get(outputIndex);
-    if (!toolCall) {
-      const callId = event.call_id ?? `call_${this.requestId}_${outputIndex}`;
-      const name = event.name ?? '';
-      toolCall = {
-        callId,
-        name,
-        blockIndex: this.blockIndex,
-        started: false,
-        receivedArgs: '',
-      };
-      this.activeToolCalls.set(outputIndex, toolCall);
-    }
+    const toolCall = this.trackToolCall(outputIndex);
     toolCall.receivedArgs += argumentsDelta;
-    if (event.call_id) {
-      toolCall.callId = event.call_id;
-    }
-    if (event.name) {
-      toolCall.name = event.name;
-    }
-    if (!toolCall.started && toolCall.name) {
-      if (this.inTextBlock) {
-        events.push(
-          sseEvent('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.blockIndex,
-          }),
-        );
-        this.blockIndex++;
-        this.inTextBlock = false;
-        toolCall.blockIndex = this.blockIndex;
-      }
-
-      toolCall.started = true;
-      events.push(
-        sseEvent('content_block_start', {
-          type: 'content_block_start',
-          index: toolCall.blockIndex,
-          content_block: {
-            type: 'tool_use',
-            id: toolCall.callId,
-            name: toolCall.name,
-            input: {},
-          },
-        }),
-      );
-    }
-    if (toolCall.started) {
-      events.push(
-        sseEvent('content_block_delta', {
-          type: 'content_block_delta',
-          index: toolCall.blockIndex,
-          delta: {
-            type: 'input_json_delta',
-            partial_json: argumentsDelta,
-          },
-        }),
-      );
-    }
+    this.adoptIdentity(toolCall, event.call_id, event.name);
+    this.advanceToolCall(toolCall, events);
 
     return events;
   }
 
   /**
+   * Handle response.function_call_arguments.done — the call's final arguments.
+   * They fill `receivedArgs` only when no delta arrived (deltas are
+   * authoritative; a differing payload is not merged). A done event for an
+   * unknown output index without a name is ignored.
+   */
+  private handleFunctionCallArgumentsDone(event: ResponsesStreamEvent): string[] {
+    const events: string[] = [];
+    const outputIndex = event.output_index ?? 0;
+    if (this.isClosedCall(outputIndex, event.call_id)) return events;
+    if (!this.activeToolCalls.has(outputIndex) && !event.name) return events;
+
+    const toolCall = this.trackToolCall(outputIndex);
+    this.fillFinalArgs(toolCall, event.arguments);
+    this.adoptIdentity(toolCall, event.call_id, event.name);
+    this.advanceToolCall(toolCall, events);
+    return events;
+  }
+
+  /**
    * Handle response.output_item.done — an output item has completed.
-   * Emits content_block_stop for the completed block.
+   * For a function call: fill arguments and name from the done item, start
+   * and flush if that completes the call, then emit its content_block_stop.
+   * A call never seen before but carrying a name starts, flushes and stops
+   * here. A call that never got a name emits nothing. A repeated done for an
+   * already closed output index or call id is ignored: it never reopens the call.
    */
   private handleOutputItemDone(event: ResponsesStreamEvent): string[] {
     const events: string[] = [];
@@ -521,37 +487,154 @@ export class ResponsesStreamTranslator {
     const item = event.item;
 
     if (item?.type === 'function_call') {
-      const toolCall = this.activeToolCalls.get(outputIndex);
-      if (toolCall?.started) {
-        events.push(
-          sseEvent('content_block_stop', {
-            type: 'content_block_stop',
-            index: toolCall.blockIndex,
-          }),
-        );
-        this.blockIndex = toolCall.blockIndex + 1;
+      if (this.isClosedCall(outputIndex, item.call_id)) return events;
+      const known = this.activeToolCalls.get(outputIndex);
+      const toolCall = known ?? (item.name ? this.trackToolCall(outputIndex) : undefined);
+      if (toolCall) {
+        this.fillFinalArgs(toolCall, item.arguments);
+        this.adoptIdentity(toolCall, item.call_id, item.name);
+        this.advanceToolCall(toolCall, events);
+        if (toolCall.blockIndex !== undefined) {
+          events.push(
+            sseEvent('content_block_stop', {
+              type: 'content_block_stop',
+              index: toolCall.blockIndex,
+            }),
+          );
+          this.closedEmittedArgs.set(outputIndex, toolCall.receivedArgs);
+        }
+        this.closedCallIds.add(toolCall.callId);
+        this.activeToolCalls.delete(outputIndex);
       }
-      // The done item carries the authoritative final arguments; fall back to
-      // what the deltas delivered. Kept for the incomplete-terminal check.
-      this.closedToolArgs.set(
-        outputIndex,
-        item.arguments !== undefined ? item.arguments : toolCall?.receivedArgs,
-      );
-      this.activeToolCalls.delete(outputIndex);
+      this.closedOutputIndexes.add(outputIndex);
+      if (item.call_id) this.closedCallIds.add(item.call_id);
+      this.recordClosedToolArgs(outputIndex, toolCall, item.arguments);
     } else if (item?.type === 'message') {
-      if (this.inTextBlock) {
-        events.push(
-          sseEvent('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.blockIndex,
-          }),
-        );
-        this.blockIndex++;
-        this.inTextBlock = false;
-      }
+      this.closeTextBlock(events);
     }
 
     return events;
+  }
+
+  /** Whether output_item.done already closed this output index or call id. */
+  private isClosedCall(outputIndex: number, callId: string | undefined): boolean {
+    return this.closedOutputIndexes.has(outputIndex) ||
+      (callId !== undefined && this.closedCallIds.has(callId));
+  }
+
+  /** Allocate the next dense block index; called only when a block starts. */
+  private allocateBlockIndex(): number {
+    return this.nextBlockIndex++;
+  }
+
+  /** Emit content_block_stop for the open text block, if any. */
+  private closeTextBlock(events: string[]): void {
+    if (this.textBlockIndex === undefined) return;
+    events.push(
+      sseEvent('content_block_stop', {
+        type: 'content_block_stop',
+        index: this.textBlockIndex,
+      }),
+    );
+    this.textBlockIndex = undefined;
+  }
+
+  /** The tracked call at `outputIndex`, created (unstarted, empty) if absent. */
+  private trackToolCall(outputIndex: number): ActiveToolCall {
+    let toolCall = this.activeToolCalls.get(outputIndex);
+    if (!toolCall) {
+      toolCall = {
+        callId: `call_${this.requestId}_${outputIndex}`,
+        name: '',
+        blockIndex: undefined,
+        receivedArgs: '',
+        emittedLength: 0,
+      };
+      this.activeToolCalls.set(outputIndex, toolCall);
+    }
+    return toolCall;
+  }
+
+  /**
+   * Take the call id and name an event supplies. Neither changes once the
+   * block has started: the SDK already holds the emitted `tool_use` id/name.
+   */
+  private adoptIdentity(
+    toolCall: ActiveToolCall,
+    callId: string | undefined,
+    name: string | undefined,
+  ): void {
+    if (toolCall.blockIndex !== undefined) return;
+    if (callId) toolCall.callId = callId;
+    if (name) toolCall.name = name;
+  }
+
+  /** A done payload's arguments count only when no delta was received. */
+  private fillFinalArgs(toolCall: ActiveToolCall, args: unknown): void {
+    if (toolCall.receivedArgs === '' && typeof args === 'string') {
+      toolCall.receivedArgs = args;
+    }
+  }
+
+  /**
+   * Start the call if it now has a name and has not started, then flush once:
+   * one `input_json_delta` of `receivedArgs.slice(emittedLength)`. This is the
+   * only place tool blocks start or argument text is emitted, so the emitted
+   * text is always a prefix of `receivedArgs` and each character goes out once.
+   */
+  private advanceToolCall(toolCall: ActiveToolCall, events: string[]): void {
+    if (toolCall.blockIndex === undefined) {
+      if (!toolCall.name) return;
+      this.hadToolCalls = true;
+      this.closeTextBlock(events);
+      toolCall.blockIndex = this.allocateBlockIndex();
+      events.push(
+        sseEvent('content_block_start', {
+          type: 'content_block_start',
+          index: toolCall.blockIndex,
+          content_block: {
+            type: 'tool_use',
+            id: toolCall.callId,
+            name: this.resolveToolName(toolCall.name),
+            input: {},
+          },
+        }),
+      );
+    }
+    if (toolCall.emittedLength < toolCall.receivedArgs.length) {
+      events.push(
+        sseEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index: toolCall.blockIndex,
+          delta: {
+            type: 'input_json_delta',
+            partial_json: toolCall.receivedArgs.slice(toolCall.emittedLength),
+          },
+        }),
+      );
+      toolCall.emittedLength = toolCall.receivedArgs.length;
+    }
+  }
+
+  /**
+   * Keep a closed call's final arguments for the incomplete-terminal check:
+   * what this stream received (and emitted) when non-empty, else the done
+   * item's raw value. A done item for an untracked, nameless call that carried
+   * no arguments is not recorded: it contributed no tool input, so it must not
+   * turn a later `response.incomplete` into `upstream_incomplete`.
+   */
+  private recordClosedToolArgs(
+    outputIndex: number,
+    toolCall: ActiveToolCall | undefined,
+    doneArgs: unknown,
+  ): void {
+    if (toolCall?.receivedArgs) {
+      this.closedToolArgs.set(outputIndex, toolCall.receivedArgs);
+    } else if (doneArgs !== undefined) {
+      this.closedToolArgs.set(outputIndex, doneArgs);
+    } else if (toolCall?.blockIndex !== undefined) {
+      this.closedToolArgs.set(outputIndex, '');
+    }
   }
 
   /**
@@ -599,17 +682,27 @@ export class ResponsesStreamTranslator {
   }
 
   /**
-   * Final argument value of every function call: the terminal snapshot's
-   * `output` when present, else what this stream received (open calls'
-   * accumulated deltas plus closed calls' final arguments).
+   * Argument values the incomplete check validates. With a terminal snapshot:
+   * the snapshot's `output` arguments PLUS the text already delivered to the
+   * client by every started call (closed or open), because a complete snapshot
+   * cannot repair a truncated or empty input the SDK already holds. Without a
+   * snapshot: what this stream received (open calls' accumulated deltas plus
+   * closed calls' final arguments).
    */
   private finalToolArgs(response: ResponsesCompletedData | undefined): unknown[] {
     const output: unknown = isRecord(response) ? response.output : undefined;
     if (Array.isArray(output)) {
-      return output
+      const snapshotArgs = output
         .filter((item): item is ResponsesOutputItem =>
           isRecord(item) && item['type'] === 'function_call')
         .map((item) => item.arguments);
+      const emittedArgs = [
+        ...this.closedEmittedArgs.values(),
+        ...[...this.activeToolCalls.values()]
+          .filter((call) => call.blockIndex !== undefined)
+          .map((call) => call.receivedArgs.slice(0, call.emittedLength)),
+      ];
+      return [...snapshotArgs, ...emittedArgs];
     }
     return [
       ...this.closedToolArgs.values(),
@@ -642,7 +735,7 @@ export class ResponsesStreamTranslator {
     this.onTranslationError();
     this.finalized = true;
     this.activeToolCalls.clear();
-    this.inTextBlock = false;
+    this.textBlockIndex = undefined;
     return [sseEvent('error', {
       type: 'error',
       error: { type: error.type, message: error.message },
@@ -661,17 +754,9 @@ export class ResponsesStreamTranslator {
     this.finalized = true;
 
     const events: string[] = [];
-    if (this.inTextBlock) {
-      events.push(
-        sseEvent('content_block_stop', {
-          type: 'content_block_stop',
-          index: this.blockIndex,
-        }),
-      );
-      this.inTextBlock = false;
-    }
+    this.closeTextBlock(events);
     for (const [, toolCall] of this.activeToolCalls) {
-      if (toolCall.started) {
+      if (toolCall.blockIndex !== undefined) {
         events.push(
           sseEvent('content_block_stop', {
             type: 'content_block_stop',

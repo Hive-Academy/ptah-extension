@@ -22,7 +22,7 @@ const VALID = /^[a-zA-Z0-9_-]{1,64}$/;
 const LONG_MCP = 'mcp__server.with.dots__tool' + 'x'.repeat(43);
 const hash10 = (name: string) =>
   jest.requireActual<typeof import('node:crypto')>('node:crypto')
-    .createHash('sha256').update(name, 'utf8').digest('hex').slice(0, 10);
+    .createHash('sha256').update(name, 'utf16le').digest('hex').slice(0, 10);
 const expectedAlias = (name: string) =>
   `${name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 53)}_${hash10(name)}`;
 
@@ -80,6 +80,62 @@ describe('guardResponsesToolNames', () => {
     const alias = guardResponsesToolNames(request([name])).request.tools?.[0]?.name;
     expect(alias).toBe(`${'a'.repeat(53)}_${hash10(name)}`);
     expect(alias).toHaveLength(64);
+  });
+
+  describe('length boundary and UTF-16 cases', () => {
+    const GRIN = '\u{1F600}'; // one code point, two UTF-16 code units
+    const GRIN_2 = '\u{1F601}';
+
+    it.each([
+      // label, original, expected upstream name, its length, sanitized prefix (null: kept)
+      ['exactly 64 valid characters is kept', 'k'.repeat(64), 'k'.repeat(64), 64, null],
+      ['exactly 65 valid characters is aliased to 64', 'v'.repeat(65),
+        `${'v'.repeat(53)}_${hash10('v'.repeat(65))}`, 64, 'v'.repeat(53)],
+      ['an emoji has each UTF-16 code unit replaced', `tool_${GRIN}_x`,
+        `tool____x_${hash10(`tool_${GRIN}_x`)}`, 20, 'tool____x'],
+      ['the 53-unit prefix slices by code units, between the two replacements', `${'a'.repeat(52)}${GRIN}z`,
+        `${'a'.repeat(52)}__${hash10(`${'a'.repeat(52)}${GRIN}z`)}`, 64, `${'a'.repeat(52)}_`],
+    ])('%s', (_label, original, expected, length, prefix) => {
+      const { request: out, toOriginalName } = guardResponsesToolNames(request([original]));
+      const upstream = toolName(out);
+      expect(upstream).toBe(expected);
+      expect(upstream).toHaveLength(length);
+      expect(upstream).toMatch(VALID);
+      if (prefix === null) {
+        expect(upstream).toBe(original);
+      } else {
+        expect(prefix).toHaveLength(Math.min(53, original.length));
+        expect(upstream.slice(0, prefix.length)).toBe(prefix);
+        expect(upstream.slice(prefix.length)).toBe(`_${hash10(original)}`);
+      }
+      expect(toOriginalName(upstream)).toBe(original);
+    });
+
+    it('distinct emoji that sanitize identically get distinct aliases via the hash', () => {
+      const a = `e${GRIN}`;
+      const b = `e${GRIN_2}`;
+      expect(a.replace(/[^a-zA-Z0-9_-]/g, '_')).toBe(b.replace(/[^a-zA-Z0-9_-]/g, '_'));
+      const { request: out, toOriginalName } = guardResponsesToolNames(request([a, b]));
+      const [aliasA, aliasB] = [toolName(out, 0), toolName(out, 1)];
+      expect(aliasA).not.toBe(aliasB);
+      expect([aliasA, aliasB]).toEqual([`e___${hash10(a)}`, `e___${hash10(b)}`]);
+      expect(toOriginalName(aliasA)).toBe(a);
+      expect(toOriginalName(aliasB)).toBe(b);
+    });
+
+    it('lone-surrogate originals that sanitize identically get distinct aliases', () => {
+      const high = 'x\uD83D';
+      const low = 'x\uDE00';
+      expect(high.replace(/[^a-zA-Z0-9_-]/g, '_')).toBe('x_');
+      expect(low.replace(/[^a-zA-Z0-9_-]/g, '_')).toBe('x_');
+      const { request: out, toOriginalName } = guardResponsesToolNames(request([high, low]));
+      const [aliasHigh, aliasLow] = [toolName(out, 0), toolName(out, 1)];
+      expect(aliasHigh).not.toBe(aliasLow);
+      expect([aliasHigh, aliasLow]).toEqual([`x__${hash10(high)}`, `x__${hash10(low)}`]);
+      for (const alias of [aliasHigh, aliasLow]) expect(alias).toMatch(VALID);
+      expect(toOriginalName(aliasHigh)).toBe(high);
+      expect(toOriginalName(aliasLow)).toBe(low);
+    });
   });
 
   it('returns a request deep-equal to the input when every name is valid, without hashing', () => {

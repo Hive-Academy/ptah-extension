@@ -26,6 +26,7 @@
 import 'reflect-metadata';
 
 import * as http from 'http';
+import { createHash } from 'node:crypto';
 import { APIError } from '@anthropic-ai/sdk';
 import { CodexTranslationProxy } from '../providers/codex/codex-translation-proxy';
 import { CopilotTranslationProxy } from '../providers/copilot/copilot-translation-proxy';
@@ -43,6 +44,8 @@ import {
   type ProxyPhaseTimingRecord,
   type ProxyTimingOptions,
 } from './translation-proxy-base';
+import { translateAnthropicToResponses } from './responses-request-translator';
+import type { AnthropicMessagesRequest } from './openai-translation.types';
 import {
   providerQuotaStore,
   PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
@@ -2312,4 +2315,160 @@ describe('TranslationProxyBase request-local dispatch', () => {
       }
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_408 Phase 2 — Responses tool-name guard over HTTP
+// ---------------------------------------------------------------------------
+
+describe('TranslationProxyBase Responses tool-name guard', () => {
+  // 70 characters, with dots that OpenAI rejects.
+  const LONG_MCP = 'mcp__server.with.dots__tool' + 'x'.repeat(43);
+  const VALID_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+  const aliasOf = (name: string) =>
+    `${name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 53)}_${createHash('sha256')
+      .update(name, 'utf16le').digest('hex').slice(0, 10)}`;
+
+  function guardBody(stream: boolean, toolNames: string[] = [LONG_MCP, 'Read']): string {
+    return JSON.stringify({
+      model: 'fake-model-a',
+      max_tokens: 16,
+      stream,
+      messages: [
+        { role: 'user', content: 'use the tool' },
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 'call_hist', name: toolNames[0], input: { value: '1' } },
+        ] },
+        { role: 'user', content: [
+          { type: 'tool_result', tool_use_id: 'call_hist', content: 'one' },
+        ] },
+      ],
+      tools: toolNames.map((name) => ({
+        name, description: 'a tool', input_schema: { type: 'object' },
+      })),
+    });
+  }
+
+  interface Recorded { raw: string; body: Record<string, unknown> }
+
+  /** Upstream that answers with a function_call named as tools[0] was sent. */
+  function toolCallingUpstream(path: ParityPath, recorded: Recorded[], statuses: number[] = []) {
+    return startUpstream((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        const body = JSON.parse(raw) as { tools: Array<{ name: string }> };
+        recorded.push({ raw, body });
+        const status = statuses.shift();
+        if (status !== undefined) {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'expired' } }));
+          return;
+        }
+        const item = {
+          type: 'function_call', call_id: 'call_new', name: body.tools[0].name, arguments: '{"value":"42"}',
+        };
+        const response = { status: 'completed', output: [item], usage: PARITY_USAGE };
+        if (path === 'json') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(response));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(
+          upstreamSse('response.output_item.added', { output_index: 0, item: { ...item, arguments: '' } }) +
+          upstreamSse('response.function_call_arguments.delta', { output_index: 0, delta: item.arguments }) +
+          upstreamSse('response.output_item.done', { output_index: 0, item }) +
+          upstreamSse('response.completed', { response }),
+        );
+      });
+    });
+  }
+
+  /** The tool_use block the client received, from SSE or JSON. */
+  function clientToolUse(path: ParityPath, body: string): Record<string, unknown> | undefined {
+    if (path !== 'stream') {
+      const content = (JSON.parse(body) as { content: Array<Record<string, unknown>> }).content;
+      return content.find((block) => block['type'] === 'tool_use');
+    }
+    const start = parseSseBody(body).find((frame) => frame.event === 'content_block_start');
+    return start?.data['content_block'] as Record<string, unknown> | undefined;
+  }
+
+  async function run(path: ParityPath, body: string, statuses: number[] = []) {
+    const recorded: Recorded[] = [];
+    const upstream = await toolCallingUpstream(path, recorded, statuses);
+    const h = await startProxy();
+    h.proxy.protocol = 'responses';
+    h.proxy.forceResponsesStream = path === 'forced-sse';
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    h.proxy.onAuthFailureMock.mockResolvedValue(true);
+    try {
+      const result = await request(`${h.url}/v1/messages`, { method: 'POST', body });
+      return { result, recorded, proxy: h.proxy };
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  }
+
+  it.each(PARITY_PATHS)('a 70-character MCP name round-trips via %s, including replayed history', async (path) => {
+    expect(LONG_MCP).toHaveLength(70);
+    const alias = aliasOf(LONG_MCP);
+    const { result, recorded } = await run(path, guardBody(path === 'stream'));
+
+    expect(recorded).toHaveLength(1);
+    const sent = recorded[0].body as {
+      tools: Array<{ name: string }>;
+      input: Array<{ type?: string; name?: string; call_id?: string }>;
+    };
+    expect(sent.tools.map((tool) => tool.name)).toEqual([alias, 'Read']);
+    expect(alias).toMatch(VALID_NAME);
+    const history = sent.input.find((item) => item.type === 'function_call');
+    expect(history).toMatchObject({ call_id: 'call_hist', name: alias });
+    expect(recorded[0].raw).not.toContain(LONG_MCP);
+
+    expect(result.status).toBe(200);
+    expect(clientToolUse(path, result.body)).toMatchObject({ id: 'call_new', name: LONG_MCP });
+    expect(result.body).not.toContain(alias);
+  });
+
+  it.each([false, true])('valid names give a byte-identical upstream request (stream=%s)', async (stream) => {
+    const body = guardBody(stream, ['Read', 'mcp__srv__tool']);
+    const { result, recorded } = await run(stream ? 'stream' : 'json', body);
+    expect(result.status).toBe(200);
+    expect(recorded[0].raw).toBe(JSON.stringify(
+      translateAnthropicToResponses(JSON.parse(body) as AnthropicMessagesRequest, { modelPrefix: '' })));
+  });
+
+  it.each([
+    ['alias equals another tool original name', [LONG_MCP, aliasOf(LONG_MCP)]],
+    ['history name equals an alias', [aliasOf(LONG_MCP), LONG_MCP]],
+  ])('a collision (%s) is a 400 sent before any upstream call', async (_case, names) => {
+    const { result, recorded, proxy } = await run('stream', guardBody(true, names));
+    expect(recorded).toHaveLength(0);
+    expect(proxy.getApiEndpointMock).not.toHaveBeenCalled();
+    expect(proxy.getHeadersMock).not.toHaveBeenCalled();
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.body)).toEqual({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: `Tool name collision after Responses name normalization: ${aliasOf(LONG_MCP)}`,
+      },
+    });
+  });
+
+  it.each(PARITY_PATHS)('the 401 retry keeps the alias and its reverse map via %s', async (path) => {
+    const alias = aliasOf(LONG_MCP);
+    const { result, recorded, proxy } = await run(path, guardBody(path === 'stream'), [401]);
+    expect(proxy.onAuthFailureMock).toHaveBeenCalledTimes(1);
+    expect(recorded).toHaveLength(2);
+    expect(recorded[1].raw).toBe(recorded[0].raw);
+    expect((recorded[1].body as { tools: Array<{ name: string }> }).tools[0].name).toBe(alias);
+    expect(result.status).toBe(200);
+    expect(clientToolUse(path, result.body)).toMatchObject({ name: LONG_MCP });
+    expect(result.body).not.toContain(alias);
+  });
 });
