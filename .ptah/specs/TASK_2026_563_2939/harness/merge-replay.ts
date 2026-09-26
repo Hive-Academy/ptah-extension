@@ -1140,6 +1140,17 @@ async function report8b(): Promise<void> {
       }
     >;
     const attemptedIds = perDraft.map((p) => p.id);
+    // A draft counts as attempted by a variant only when that variant's latest
+    // call record exists and succeeded ('NOT RUN' or an error does not count).
+    const notAttempted = perDraft.flatMap((p) =>
+      VARIANTS.filter((variant) => p.variants[variant].error !== null).map(
+        (variant) => ({
+          id: p.id,
+          variant,
+          error: p.variants[variant].error,
+        }),
+      ),
+    );
     writeJson('m3-replay.json', {
       measurement:
         'M3 replay 8(b) (implementation-plan.md measurement table, "M3 replay")',
@@ -1148,8 +1159,9 @@ async function report8b(): Promise<void> {
       rerankDuringCollection: cand.rerank,
       attemptedSet: {
         ids: attemptedIds,
-        identicalAcrossVariants: true,
-        note: 'every variant resolves exactly these drafts; each variant row above has one entry per id',
+        identicalAcrossVariants: notAttempted.length === 0,
+        notAttempted,
+        note: 'true only when every variant has a successful call record for every id; notAttempted lists each (id, variant) whose latest record errored or is NOT RUN',
       },
       summary,
       d4: {

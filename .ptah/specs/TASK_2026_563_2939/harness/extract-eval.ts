@@ -358,7 +358,7 @@ async function runAll(probeOnly: boolean): Promise<void> {
   const done = readDone();
   const doneKey = new Set(
     done
-      .filter((d) => d.status !== 'error')
+      .filter((d) => d.status !== 'error' && d.status !== 'stalled')
       .map((d) => `${d.sessionId}#${d.windowIndex}:${d.variant}`),
   );
   let consecutiveErrors = 0;

@@ -47,6 +47,8 @@ interface RawDb {
   inTransaction?: boolean;
   isTransaction?: boolean;
   loadExtension?(file: string): void;
+  /** better-sqlite3's native wrapper (handles nesting via savepoints). */
+  transaction?: <T extends (...args: unknown[]) => unknown>(fn: T) => T;
 }
 
 export interface HarnessConnection {
@@ -91,18 +93,31 @@ export function adaptSqliteDatabase(
     get inTransaction(): boolean {
       return Boolean(raw.inTransaction ?? raw.isTransaction);
     },
-    transaction: (<T extends (...args: unknown[]) => unknown>(fn: T): T =>
-      ((...args: unknown[]) => {
+    transaction: (<T extends (...args: unknown[]) => unknown>(fn: T): T => {
+      // better-sqlite3 ships a native wrapper (nested calls become savepoints);
+      // use it whenever the raw handle has one, bound to the raw handle.
+      if (typeof raw.transaction === 'function') {
+        return raw.transaction.call(raw, fn) as T;
+      }
+      // Fallback for handles without one (node:sqlite): plain BEGIN/COMMIT.
+      return ((...args: unknown[]) => {
         raw.exec('BEGIN');
         try {
           const out = fn(...args);
           raw.exec('COMMIT');
           return out;
         } catch (error: unknown) {
-          raw.exec('ROLLBACK');
+          try {
+            raw.exec('ROLLBACK');
+          } catch {
+            // Deliberately swallowed: a failed ROLLBACK (e.g. SQLite already
+            // rolled back) must not mask the error that aborted the body or
+            // the COMMIT.
+          }
           throw error;
         }
-      }) as T) as SqliteDatabase['transaction'],
+      }) as T;
+    }) as SqliteDatabase['transaction'],
   } as SqliteDatabase;
 }
 

@@ -542,7 +542,8 @@ Execution order: Task 3.3 first (Tasks 3.1, 3.4 and Batch 4 depend on the fixtur
 ### Batch 7 verification
 
 - Round-trip spec, harness files and test-report.md exist with real content; every measurement row in the plan's measurement plan has a number or an explicit, reasoned failure
-- `npx nx run-many -t test lint typecheck -p @ptah-extension/memory-curator` passes, and Task 7.3's 12-project run is green
+- `npx nx run-many -t test lint typecheck -p @ptah-extension/memory-curator` passes. Task 7.3's 12-project run: 3,355 of 3,360 tests passed, 4 skipped, and 1 failed on a pre-existing environment issue (`libs/backend/rpc-handlers/src/lib/harness/selection/harness-skill-selection-rpc.service.spec.ts` fails because `%TEMP%\.ptah` exists on the test machine; unrelated to this task). The Electron (`ELECTRON_RUN_AS_NODE=1`) round-trip rerun passed.
+- CI on PR #601: `apps/ptah-electron/src/integration/wizard-seed.integration.spec.ts` failed (`SqliteError: no such column: quarantined_at`, 4 tests). Its hand-written `memories` schema marks every migration as applied, so it lacked the 0048 columns. Fixed by adding `quarantined_at INTEGER` and `quarantine_reason TEXT` to that schema. ptah-electron was not in the 12-project scoped run, which is why the run did not catch this.
 - code-logic-reviewer and code-style-reviewer accept the spec and harness
 - After commit: push `fix/memory-quality-source`, open the PR (`## Summary` + `## Test plan`, citing test-report.md numbers), set `task.md` status to `in_review` (orchestrator), keep the worktree
 
@@ -563,4 +564,5 @@ Execution order: Task 3.3 first (Tasks 3.1, 3.4 and Batch 4 depend on the fixtur
   - M3-8(b) fails for the shipped variant B: After-B merged 7/23 vs Before 8/23. After-A, which is not shipped, merged 20/23. Plan :218 says a contradicted estimate returns the D4 choice to the user.
   - M4-8(a) passes on count (145 → 126) but fails on share (98.0% → 99.2%).
   - Relevance: branch 9/20 = main 9/20, so it passes "≥ main", but it fails the literal "≥ 16/20" gate.
+  - The task is NOT release-complete while these three gates fail (M3-8(b) under D4 = B, the M4-8(a) share, relevance ≥ 16/20). They await the project owner's decision (D4 = A or B, and any gate revisions). They are not waived.
 - Raw memory and transcript outputs are deliberately left untracked; the repo is public. They are `harness/output/*.json`, `*.jsonl`, `*.tsv` and `m4-draft-classifications.md`.

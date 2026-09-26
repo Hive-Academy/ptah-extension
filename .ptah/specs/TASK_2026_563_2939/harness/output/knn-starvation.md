@@ -75,9 +75,10 @@ m.workspace_root IS ?`.
 - **The final hit counts never drop.** BM25 always supplies 20 rows, so the fused list stays full
   (20) and the page stays full (5 or 20).
 - **What starvation costs is vector evidence.** For the 8(a) draft, the vector list shrinks from 20
-  to 11 rows. After 0049 its top 5 changes at ranks 3-5 (`ptah-commitlint-scopes` and one
-  `commitlint-scope-enum` row drop out; `commitlint` and two `ptah-extension` rows come in),
-  because the quarantined neighbours are no longer eligible. That change is the intended effect of
+  to 11 rows. After 0049 its top 5 changes at ranks 3-5: two rows leave (`ptah-commitlint-scopes`,
+  rank 3, and one `commitlint-scope-enum` row, rank 4), two rows enter (two `ptah-extension` rows, at
+  ranks 4 and 5), and `commitlint`, already in the top 5, moves up from rank 5 to rank 3. Ranks 1-2
+  are unchanged. This happens because the quarantined neighbours are no longer eligible. That change is the intended effect of
   0049 on this draft, not a loss.
 - **The page would under-fill only when BM25 is also short.** A query with fewer than about 20 BM25
   matches, whose vector neighbourhood is mostly quarantined or out of scope, would under-fill,

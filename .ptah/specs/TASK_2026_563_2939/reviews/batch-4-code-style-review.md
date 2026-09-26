@@ -1,5 +1,19 @@
 # Code Style Review — `TASK_2026_563_2939`, Batch 4
 
+> **Status note (post-review).** Added after this review, without changing the reviewer's verdict.
+> Two things changed in `memory-search.service.ts` during the Batch 4 logic recheck:
+>
+> - Both cache keys (`makeCacheKey`, `makeIndexCacheKey`) are now JSON tuples (`JSON.stringify([...])`).
+>   The `|`-delimiter collision risk has been resolved.
+> - `searchIndex` normalises `workspaceRoot: ''` to "omitted" before it builds the cache key or the SQL.
+>   `null` is outside the `searchIndex` API contract (`MemSearchIndexFilter.workspaceRoot` is
+>   `string | undefined`).
+>
+> Treat these statements below as historical: section 4 item 2 (the delimiter-separated `makeCacheKey`),
+> minor issue 2 (the `searchIndex` scope disparity, as far as `''` handling is concerned), and the
+> file-by-file bullet on `makeCacheKey` and its `\u0000null` sentinel. The line numbers are those at
+> review time.
+
 ## Summary
 
 | Metric          | Value                                                    |

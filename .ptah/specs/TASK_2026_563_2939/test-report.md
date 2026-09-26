@@ -49,28 +49,30 @@ created and removed cleanly (`harness/output/run-log.md` rows 2, 26).
 | M4-7                | Rubric classification + durable-loss list                                                                                                   | **PASS**                                                                | `harness/output/m4-draft-classifications.md` (283/283 classified), 33-entry loss list below                                                                                                                                                                                                                                                                            |
 | M4-8(a)             | Lower single-use count AND lower single-use share                                                                                           | **PASS (count) / FAIL (share)**                                         | count 145→126 (PASS); share 98.0%→99.2% (higher, **FAILS** the added share wording) — see explanation below                                                                                                                                                                                                                                                            |
 | M4-8(b)             | Durable count new ≥ old                                                                                                                     | **PASS**                                                                | 105 ≥ 100                                                                                                                                                                                                                                                                                                                                                              |
-| M4-8(c)             | Every durable-loss entry matched or accepted with reason                                                                                    | **PASS, with one flagged limitation**                                   | 33/33 reviewed; 1359b2b0 (5 entries) judged a real over-suppression, not sediment — see below                                                                                                                                                                                                                                                                          |
+| M4-8(c)             | Every durable-loss entry matched or accepted with reason                                                                                    | **FAIL**                                                                | 28 of 33 losses dispositioned (matched or accepted with reason); the 5 session-`1359b2b0` losses are real over-suppression, not accepted — see below                                                                                                                                                                                                                   |
 | M3-1..7             | Tier ordering, bounds, scoping, no extra network, BM25-only fallback, no usage/salience writes on tier 2, out-of-list/other-workspace guard | **PASS**                                                                | Pinned by `merge-candidate-collector.spec.ts` and `memory-curator.service.spec.ts` (Batch 5, committed, reviewed APPROVED); constants confirmed in code: `TIER2_PER_DRAFT_LIMIT=5`, `TIER2_TOTAL_LIMIT=25`, `TIER2_MAX_QUERIES=10`, `TIER2_QUERY_MAX_CHARS=512`, `TIER2_QUERY_TIMEOUT_MS=8000`, `TIER2_PASS_BUDGET_MS=20000`, `TIER2_COOLDOWN_AFTER_TIMEOUT_MS=300000` |
 | M3-8(a)             | Family reach, after > before                                                                                                                | **PASS**                                                                | 1 → 3 distinct commitlint-family subjects; locality proof: identical result with `HTTPS_PROXY`/`HTTP_PROXY=http://127.0.0.1:9`, 0 recorded outbound attempts either way                                                                                                                                                                                                |
-| M3-8(b)             | Attempted set identical; after merges/rate > before, for the shipped variant                                                                | **FAIL (After-B, shipped)** / informational PASS (After-A, not shipped) | Before 8/23 (34.78%); After-A 20/23 (86.96%); **After-B 7/23 (30.43%)** — recorded as measured, not hidden (plan explicitly anticipates this under D4 = B)                                                                                                                                                                                                             |
+| M3-8(b)             | Attempted set identical; after merges/rate > before, for the shipped variant                                                                | **FAIL (After-B, shipped)** / informational PASS (After-A, not shipped) | Before 8/23 (34.78%); After-A 20/23 (86.96%); **After-B 7/23 (30.43%)** — recorded as measured, not hidden (plan explicitly anticipates this under D4 = B). Pending owner decision; not waived.                                                                                                                                                                        |
 | M5-1..2             | Sampled classification, rule predicates, false-positive narrowing                                                                           | **PASS**                                                                | `quarantine-rules.md` r2, 72+ R4 rows read across all fields, 0 durable caught                                                                                                                                                                                                                                                                                         |
 | M5-3                | Migration 0048 conventions, no edit to existing migrations                                                                                  | **PASS**                                                                | Committed `f152a2793`; ratchet grep clean (`toBe(47)` gone from `migrations/`)                                                                                                                                                                                                                                                                                         |
 | M5-4                | Migration evidence: counts, integrity, hash, duration                                                                                       | **PASS**                                                                | See M5 migration table below — counts equal, integrity `ok`/`ok`, hashes equal, 28.4 ms                                                                                                                                                                                                                                                                                |
 | M5-5                | Every read path excludes quarantined rows, with a spec per path                                                                             | **PASS**                                                                | `quarantine.round-trip.spec.ts` (new, this batch) + per-path specs in Batches 3/4/6                                                                                                                                                                                                                                                                                    |
-| M5-6                | One round-trip spec: quarantine → exclude → restore → include                                                                               | **PASS**                                                                | `libs/backend/memory-curator/src/lib/quarantine.round-trip.spec.ts`, 1/1 passing on both drivers                                                                                                                                                                                                                                                                       |
+| M5-6                | One round-trip spec: quarantine → exclude → restore → include                                                                               | **PASS (better-sqlite3) / UNVERIFIED (node:sqlite)**                    | `libs/backend/memory-curator/src/lib/quarantine.round-trip.spec.ts`, 1/1 passing under default Jest and under `ELECTRON_RUN_AS_NODE=1` Electron; both runs resolved `better-sqlite3`. The spec was not run on `node:sqlite`                                                                                                                                            |
 | M5-7                | No deletion, idempotent                                                                                                                     | **PASS**                                                                | Restore-all re-run returns `{restored:0}`; migration re-application guarded by `quarantined_at IS NULL`                                                                                                                                                                                                                                                                |
 | M5-8                | Quarantined id never accepted as a merge target                                                                                             | **PASS**                                                                | `getMergeTarget` guard in `memory.store.ts:365-372`, exercised in round-trip spec and `memory-curator.service.spec.ts`                                                                                                                                                                                                                                                 |
 | M5-9(a)-(d)         | Lifecycle never touches quarantined rows; unedited specs still pass                                                                         | **PASS**                                                                | `memory-lifecycle.quarantine.spec.ts` (Batch 3, committed); every pre-existing 443 lifecycle/retention spec passes with no expectation edits (confirmed in the 12-project run)                                                                                                                                                                                         |
 | M5-10               | Quarantine → lifecycle pass → restore, controls unaffected                                                                                  | **PASS**                                                                | Same spec as M5-9                                                                                                                                                                                                                                                                                                                                                      |
 | M5-11               | Quarantine totals + restore-all retrieval equivalence                                                                                       | **PASS**                                                                | 89 rows, only `rule:commitlint-scope-facts`; restore-all gives identical Q1-Q4 ids to "main" (4/4)                                                                                                                                                                                                                                                                     |
-| Meas-1              | Relevance: branch ≥ main re-measured, AND branch ≥ 16/20                                                                                    | **PASS (≥ main) / FAIL (≥ 16/20)**                                      | main 9/20, branch 9/20 (Gate A PASS, equal); Gate B FAIL, both at 9 — see explanation below                                                                                                                                                                                                                                                                            |
+| Meas-1              | Relevance: branch ≥ main re-measured, AND branch ≥ 16/20                                                                                    | **PASS (≥ main) / FAIL (≥ 16/20)**                                      | main 9/20, branch 9/20 (Gate A PASS, equal); Gate B FAIL, both at 9 (pending owner decision; not waived) — see explanation below                                                                                                                                                                                                                                       |
 | Meas-2              | Copies never touch the live file; consistent snapshot; integrity `ok` before use                                                            | **PASS**                                                                | See live-database safety statement and copy table above                                                                                                                                                                                                                                                                                                                |
 | Meas (reach)        | Reachability: production caller file:line for every change                                                                                  | **PASS**                                                                | See reachability table below                                                                                                                                                                                                                                                                                                                                           |
 | Scoped verification | 12-project `test lint typecheck`, `degradation-audit:lint`, `di-lint:lint`, dual-driver SQLite                                              | **PASS, with one disclosed pre-existing environment failure**           | 3355/3360 tests passed, 1 known-environment failure (below); both lint gates clean                                                                                                                                                                                                                                                                                     |
 
-**Two gates fail honestly and are disclosed, not hidden:** M4-8(a)'s share sub-condition, and M3-8(b)
-for the shipped D4 = B variant. Both were anticipated in the plan's risk register and Gate 2 decision
-record. Neither blocks the other 30-odd criteria above, all of which pass.
+**Four gates fail and are disclosed, not hidden:** M4-8(a)'s share sub-condition, M4-8(c) (the 5
+session-`1359b2b0` losses are real and not accepted), M3-8(b) for the shipped D4 = B variant, and
+relevance Gate B (≥ 16/20). M5-6 is verified on better-sqlite3 only; `node:sqlite` was not run.
+M4-8(a), M3-8(b) and Gate B are pending the project owner's decision (D4 = A or B, and any gate
+revisions); they are not waived, and the task is not release-complete while they fail.
 
 ## M4 — extraction evaluation
 
@@ -115,7 +117,7 @@ workers. All 86 calls returned `success`/`extracted`; 0 errors, 0 stalls.
 
 Durable count 105 ≥ 100. **PASS.**
 
-### Criterion 8(c): every durable-loss entry reviewed — PASS, with one flagged limitation
+### Criterion 8(c): every durable-loss entry matched or accepted — FAIL (28 of 33)
 
 Full 33-row list with the harness's per-row equivalence notes: `harness/output/m4-extraction.md`
 §"Durable-loss list". Disposition of every entry:
@@ -140,13 +142,13 @@ is that the whole session reads as a single completed one-off task narrative, an
 "DO NOT EXTRACT task/worktree chatter" guidance, combined with its stricter reusability bar, appears
 to have suppressed the entire session rather than distilling the reusable procedure from the
 one-off framing. This is disclosed as a limitation to watch if the new prompt is observed suppressing
-whole sessions at scale; it does not fail criterion 8(b) (aggregate durable count still rose 100→105
-on this 10-session sample) and criterion 8(c) is satisfied because every entry has been reviewed and
-disposed of, with this one marked as a genuine, not-accepted loss for visibility rather than papered
-over.
+whole sessions at scale. It does not fail criterion 8(b) (aggregate durable count still rose 100→105
+on this 10-session sample), but it does fail criterion 8(c): 8(c) requires every loss to be matched
+or accepted with a reason, and these 5 are real losses that are not accepted. 28 of 33 entries are
+dispositioned; the 5 session-`1359b2b0` entries are not.
 
-**Overall M4 criterion 8 verdict: (a) count PASS / share FAIL, (b) PASS, (c) reviewed and disposed,
-with one flagged real loss.**
+**Overall M4 criterion 8 verdict: (a) count PASS / share FAIL, (b) PASS, (c) FAIL — 28 of 33 losses
+dispositioned, 5 real losses from session `1359b2b0` not accepted.**
 
 Cost: 87 LLM calls (86 extract + 1 probe), ≈2.18M input tokens (uncached + cache creation + cache
 read), ≈0.29M output tokens, SDK-reported `total_cost_usd` ≈ $5.00 (`harness/output/m4-extraction.md`
@@ -291,7 +293,7 @@ exactly: 89 rows, 89 chunks). Every durable/guard fixture id from `quarantine-ru
 and 6 that still exists on this newer copy (23 checked) stays `quarantined_at IS NULL`. **Gate: exact
 match with quarantine-rules.md r2 §6 — PASS.**
 
-### Round-trip spec — PASS (revised after code-logic-review NEEDS_REVISION 5/10)
+### Round-trip spec — PASS (better-sqlite3) / UNVERIFIED (node:sqlite) (revised after code-logic-review NEEDS_REVISION 5/10)
 
 `libs/backend/memory-curator/src/lib/quarantine.round-trip.spec.ts` (new, this batch). Real SQLite +
 sqlite-vec, production migrations 0048/0049, real `MemoryStore`, `MemorySearchService`, `CorpusStore`,
@@ -392,10 +394,10 @@ respectively, but all rank below 20).
 
 ### Gates — both stated honestly
 
-| Gate                                             | Requirement | Result   | Numbers     |
-| ------------------------------------------------ | ----------- | -------- | ----------- |
-| **A** (plan: branch ≥ main re-measured)          | ≥ 9/20      | **PASS** | 9/20 = 9/20 |
-| **B** (task-description §4 criterion 1, literal) | ≥ 16/20     | **FAIL** | 9/20        |
+| Gate                                             | Requirement | Result                                        | Numbers     |
+| ------------------------------------------------ | ----------- | --------------------------------------------- | ----------- |
+| **A** (plan: branch ≥ main re-measured)          | ≥ 9/20      | **PASS**                                      | 9/20 = 9/20 |
+| **B** (task-description §4 criterion 1, literal) | ≥ 16/20     | **FAIL** (pending owner decision; not waived) | 9/20        |
 
 **Why Gate B cannot be met on this corpus — existence counts, not a ranking defect:**
 
@@ -487,7 +489,8 @@ this task:
 ### Dual-driver SQLite reruns
 
 - Default Jest and `ELECTRON_RUN_AS_NODE=1` Electron reruns both pass for
-  `quarantine.round-trip.spec.ts` (see M5 section above).
+  `quarantine.round-trip.spec.ts` (see M5 section above). Both runs resolved `better-sqlite3`; the
+  `node:sqlite` driver was not run, so M5-6 is UNVERIFIED on `node:sqlite`.
 - Batches 2-6 each recorded their own dual-driver reruns at commit time (`batches.md` verification
   sections); not re-run here since those batches are unchanged since their own green dual-driver
   passes and are covered again by the 12-project run above.
@@ -514,31 +517,41 @@ this task:
 - **M3-8(b) fails for the shipped D4 = B variant** with real numbers (7/23, 30.43%, vs Before's
   8/23, 34.78%), exactly as the plan's risk register anticipated. The After-A (D4 = A) alternative
   passes both checks at a cost of +15 extra resolve calls per pass whose drafts all have empty tier 1.
-  This is a decision point for the user/orchestrator, not something this report resolves.
+  This is a decision point for the project owner, not something this report resolves. Pending owner
+  decision; not waived.
 - **Reranker (`embedder-worker.ts:277-295`) is pre-existing, inert (always scores 1) and was not
   fixed**, per instruction; recorded with file:line and independent reproduction evidence.
 - **`bm25SearchByMemory` fix** (Batch 4, already committed and disclosed in `batches.md`): a
   pre-existing crash under `GROUP BY` was fixed with a materialized CTE in the same function that
   needed the quarantine predicate; `searchIndex` ranking changes as a result. Pre-existing bug fix,
   not new scope.
-- **Session `1359b2b0`'s 5-entry durable loss** is flagged as a genuine over-suppression by the new
-  extract prompt, not accepted as correct filtering — see M4 §8(c) above.
+- **Session `1359b2b0`'s 5-entry durable loss** is a genuine over-suppression by the new extract
+  prompt, not accepted as correct filtering, so M4-8(c) FAILS (28 of 33 dispositioned) — see M4
+  §8(c) above.
+- **M5-6 on `node:sqlite` is UNVERIFIED**: the round-trip spec passed on `better-sqlite3` under both
+  runners; `node:sqlite` was not run.
 - One environment-only test failure (`%TEMP%\.ptah` exists) is disclosed above and confirmed identical
   on the base commit.
 
 ## Verdict
 
-**Criteria proven**: M4 1-7, M4-8(b), M4-8(c) (reviewed and disposed), M3 1-7, M3-8(a) (incl. locality
-proof), M5 1-11 in full (migration, rules, round-trip, lifecycle, restore equivalence), Measurement
-Gate A (branch ≥ main), Meas-2 (copy safety), reachability, scoped verification (with one disclosed
+**Criteria proven**: M4 1-7, M4-8(b), M3 1-7, M3-8(a) (incl. locality proof), M5 1-11 (migration,
+rules, round-trip, lifecycle, restore equivalence; M5-6 on better-sqlite3 only), Measurement Gate A
+(branch ≥ main), Meas-2 (copy safety), reachability, scoped verification (with one disclosed
 environment failure), degradation-audit, di-lint.
 
 **Criteria not proven, disclosed with numbers, not hidden**:
 
-- M4-8(a) share sub-condition (99.2% > 98.0%, sample-size effect).
-- M3-8(b) for the shipped D4 = B variant (7/23 vs 8/23 before; 30.43% vs 34.78%).
+- M4-8(a) share sub-condition (99.2% > 98.0%, sample-size effect). Pending owner decision; not waived.
+- M4-8(c): 28 of 33 losses dispositioned; the 5 session-`1359b2b0` losses are real and not accepted.
+- M3-8(b) for the shipped D4 = B variant (7/23 vs 8/23 before; 30.43% vs 34.78%). Pending owner
+  decision (D4 = A or B); not waived.
 - Measurement Gate B, branch ≥ 16/20 (9/20; corpus-availability ceiling from the pre-existing 443
-  lifecycle deletions, not a regression this task introduced or could fix within scope).
+  lifecycle deletions, not a regression this task introduced or could fix within scope). Pending
+  owner decision; not waived.
+- M5-6 on `node:sqlite`: UNVERIFIED (not run).
+
+The task is not release-complete while M3-8(b), the M4-8(a) share and Gate B fail.
 
 **Risks a reader should know about**:
 

@@ -72,3 +72,20 @@ Roster: task-description.md review → codex lane; implementation-plan.md review
 - 2026-09-26: USER: "approved lets do the findings and dont do another recheck round just go for implementation and don't stop until we have an opened PR". Gate 1 + Gate 2 APPROVED (task-description r2, implementation-plan r2, quarantine-rules r2). No choices given for D1-D4 → orchestrator applied the plan's documented defaults: D1 yes (0049 auto-applies R4), D2 yes (fix(rpc-handlers) scope), D3 yes, D4 = B (strict; plan default "until the user answers"; replay measures A and B; a failing 8(b) is reported in the PR, not hidden), R4 policy accepted. Findings 15-16 fixed by the architect without a further review round (user waived it). Do not stop for further gates until the PR is open; Gate 3 QA = code-logic + code-style reviewers + senior-tester, per the user's flow.
 - 2026-09-26: B1 87fd6c9fd, B2 f152a2793 committed (both reviews APPROVED). Glm lane dropped (Ollama weekly quota 429); reviews use codex (logic) + antigravity/codex (style). B3 logic NEEDS_REVISION (setPinned silent no-op on quarantined rows → store returns boolean; pin/unpin RPC handled in B6). B4 logic NEEDS_REVISION (unscoped cache generation not bumped by named writes → fixed in store (B3); cache key escaping; searchIndex '' scope; equivalence spec relabelled). B4 also fixes a pre-existing bm25SearchByMemory failure (MIN(bm25()) under GROUP BY) — kept in scope, disclose in PR.
 - NOTE FOR SENIOR-TESTER (B7): the Track A "main" relevance baseline must run the BASE-COMMIT code (ebfc73321, e.g. a throwaway detached worktree or harness bundled from base sources) on the same DB copy — not the branch with nothing quarantined (B4 review finding 3).
+
+## Follow-up tasks (created 2026-09-26, after PR #601 opened)
+
+| Task               | Type        | Title                                                                     |
+| ------------------ | ----------- | ------------------------------------------------------------------------- |
+| TASK_2026_565_e8e4 | BUGFIX      | Fix inert cross-encoder rerank in the embedder worker                     |
+| TASK_2026_566_9a50 | FEATURE     | Decide tier-2 merge candidates when tier 1 is empty (D4 option A vs B)    |
+| TASK_2026_567_90d4 | BUGFIX      | Reduce extract-prompt over-suppression of durable content                 |
+| TASK_2026_568_3933 | RESEARCH    | Classify and quarantine remaining event, task and worktree sediment       |
+| TASK_2026_569_adc1 | RESEARCH    | Refresh the Track A relevance query set for the current corpus            |
+| TASK_2026_570_fd05 | REFACTORING | Split memory.store.ts and memory-curator.service.ts under the facade rule |
+| TASK_2026_571_a3ad | REFACTORING | Clean up memory-curator review follow-ups from TASK_2026_563              |
+| TASK_2026_572_07c4 | FEATURE     | Add a UI and CLI surface to list and restore quarantined memories         |
+| TASK_2026_573_e2bf | BUGFIX      | Close quarantine test gaps on node:sqlite and pin restore                 |
+| TASK_2026_574_c230 | BUGFIX      | Isolate harness-skill-selection spec from the machine temp folder         |
+
+- 2026-09-26: PR #601 CI: `main` job failed — apps/ptah-electron wizard-seed.integration.spec.ts hand-written schema lacked the 0048 columns (ptah-electron had been excluded from scoped verification). CodeRabbit posted 14 actionable comments; fixes in progress. Gate failures (M3-8(b) under D4=B, M4-8(a) share, relevance >= 16/20) stay FAIL pending the owner's decision; not waived.
