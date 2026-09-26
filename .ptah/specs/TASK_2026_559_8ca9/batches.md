@@ -2163,7 +2163,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 11: ptah_search_files truncation notice + ptah_relevance_rank_files reason dedupe — COMPLETE
+## Batch 11: ptah_search_files truncation notice + ptah_relevance_rank_files reason dedupe — COMPLETE (commit fc54a7307)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2226,6 +2226,8 @@ states for lanes B/C/D stay as recorded below until their merge.
 - `nx run degradation-audit:lint --skip-nx-cache` → TOTAL 300, `libs/backend/vscode-lm-tools: 2 ok (baseline 2)`,
   `libs/backend/workspace-intelligence: 1 ok (baseline 1)`
 - Not staged: `code-logic-review.md`, `research/diagnostics-worktree-repro.ts`
+- Committed 6 code paths + 3 task-spec docs as **fc54a7307** with hooks active: pre-commit and commitlint passed
+  (also checked with `npx commitlint` beforehand)
 
 ### Batch 11b (scheduled, Lane A next) — r1 findings
 
