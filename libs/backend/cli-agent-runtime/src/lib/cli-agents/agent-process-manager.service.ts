@@ -60,6 +60,8 @@ import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import type { TrackedAgent } from './tracked-agent';
 
+const DEFAULT_AGENT_READ_TAIL_LINES = 200;
+
 export {
   MIN_CONCURRENT_AGENTS,
   MAX_CONCURRENT_AGENTS,
@@ -883,17 +885,18 @@ export class AgentProcessManager {
   /**
    * Read agent output (stdout + stderr).
    *
-   * `lineCount` describes the STRINGS THIS CALL RETURNS, not the buffers behind
-   * them. `tracked.stdoutLineCount` counts what is in the raw buffer, which is
-   * the same number only when no adapter rewrote the text and no `tail` was
-   * asked for. `readOutput(id, 20)` used to answer with the buffer's several
-   * thousand lines next to twenty lines of output, and the two callers that
-   * surface the number — `agent-tool.dispatcher` and the MCP response
-   * formatter's `**Lines:**` row — both present it as a description of the
-   * text on screen. There is no consumer of the buffered count, so none is
-   * returned.
+   * Defaults to the last 200 lines PER STREAM. An offset selects a forward
+   * window instead, with the same default size when tail is omitted.
+   * Finite tail/offset values are floored and clamped to zero; non-finite
+   * values become zero. A zero tail returns no output.
+   *
+   * Counts describe parsed text: lineCount is the returned lines (as displayed
+   * by agent-tool.dispatcher and the MCP formatter), totalLines is the lines
+   * before windowing, and omittedLines is their difference. A final partial
+   * line counts as one; a trailing newline does not create an extra line.
+   * The buffer-capacity flag truncated is independent of windowing.
    */
-  readOutput(agentId: string, tail?: number): AgentOutput {
+  readOutput(agentId: string, tail?: number, offset?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
@@ -907,16 +910,44 @@ export class AgentProcessManager {
       stdout = adapter.parseOutput(stdout);
       stderr = adapter.parseOutput(stderr);
     }
-    if (tail && tail > 0) {
-      stdout = tailLines(stdout, tail);
-      stderr = tailLines(stderr, tail);
-    }
+    const normalize = (value: number): number =>
+      Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+    const limit = normalize(tail ?? DEFAULT_AGENT_READ_TAIL_LINES);
+    const start = offset === undefined ? undefined : normalize(offset);
+    const windowStream = (text: string) => {
+      const trailingNewline = text.endsWith('\n');
+      const totalLines =
+        countNewlines(text) + Number(text.length > 0 && !trailingNewline);
+      const lineCount = Math.min(limit, Math.max(0, totalLines - (start ?? 0)));
+      if (lineCount === 0) return { text: '', lineCount, totalLines };
+      if (start === undefined) {
+        // tailLines uses split: exclude its trailing empty element from the budget.
+        return {
+          text: tailLines(text, lineCount + Number(trailingNewline)),
+          lineCount,
+          totalLines,
+        };
+      }
+      const end = start + lineCount;
+      const suffix = end < totalLines || trailingNewline ? '\n' : '';
+      return {
+        text: text.split('\n').slice(start, end).join('\n') + suffix,
+        lineCount,
+        totalLines,
+      };
+    };
+    const stdoutWindow = windowStream(stdout);
+    const stderrWindow = windowStream(stderr);
+    const lineCount = stdoutWindow.lineCount + stderrWindow.lineCount;
+    const totalLines = stdoutWindow.totalLines + stderrWindow.totalLines;
 
     return {
       agentId: AgentId.from(agentId),
-      stdout,
-      stderr,
-      lineCount: countNewlines(stdout) + countNewlines(stderr),
+      stdout: stdoutWindow.text,
+      stderr: stderrWindow.text,
+      lineCount,
+      totalLines,
+      omittedLines: totalLines - lineCount,
       truncated: tracked.truncated,
     };
   }

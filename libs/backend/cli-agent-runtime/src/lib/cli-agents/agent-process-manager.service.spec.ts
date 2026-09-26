@@ -795,6 +795,160 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
+  describe('readOutput bounded windows (TASK_2026_559)', () => {
+    const lines = (start: number, end: number): string =>
+      Array.from({ length: end - start }, (_, i) => `line ${start + i}\n`).join(
+        '',
+      );
+
+    const spawnOutput = async (stdout: string, stderr = '') => {
+      const { agentId } = await manager.spawn({
+        task: 'Read bounded output',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      // Use the adapter boundary to exercise both parsed streams on the SDK path.
+      sdkAdapter.parseOutput.mockImplementation((raw) =>
+        raw === 'stdout marker' ? stdout : stderr,
+      );
+      sdkControls.emitOutput('stdout marker');
+      return agentId;
+    };
+
+    // A bound callable lets these regressions run against the old two-argument API.
+    const readWindow = (agentId: string, tail?: number, offset?: number) => {
+      const read: (
+        id: string,
+        count?: number,
+        start?: number,
+      ) => ReturnType<AgentProcessManager['readOutput']> =
+        manager.readOutput.bind(manager);
+      return read(agentId, tail, offset);
+    };
+
+    it('returns the last 200 of 1000 lines by default without flagging buffer truncation', async () => {
+      const agentId = await spawnOutput(lines(0, 1000));
+      expect(readWindow(agentId)).toMatchObject({
+        stdout: lines(800, 1000),
+        stderr: '',
+        lineCount: 200,
+        totalLines: 1000,
+        omittedLines: 800,
+        truncated: false,
+      });
+    });
+
+    it('applies the default tail independently to stderr and stdout', async () => {
+      const agentId = await spawnOutput(lines(0, 1000), lines(0, 300));
+      expect(readWindow(agentId)).toMatchObject({
+        stdout: lines(800, 1000),
+        stderr: lines(100, 300),
+        lineCount: 400,
+        totalLines: 1300,
+        omittedLines: 900,
+      });
+    });
+
+    it('returns the first 100 lines at offset zero without mutating the buffers', async () => {
+      const agentId = await spawnOutput(lines(0, 1000));
+      expect(readWindow(agentId, 100, 0)).toMatchObject({
+        stdout: lines(0, 100),
+        lineCount: 100,
+        totalLines: 1000,
+        omittedLines: 900,
+      });
+      expect(readWindow(agentId).stdout).toBe(lines(800, 1000));
+    });
+
+    it('defaults an offset-only forward window to 200 lines per stream', async () => {
+      const agentId = await spawnOutput(lines(0, 1000), lines(0, 300));
+      expect(readWindow(agentId, undefined, 250)).toMatchObject({
+        stdout: lines(250, 450),
+        stderr: lines(250, 300),
+        lineCount: 250,
+        totalLines: 1300,
+        omittedLines: 1050,
+      });
+    });
+
+    it.each([3, 30])(
+      'returns an empty window at or beyond the end: %s',
+      async (offset) => {
+        const agentId = await spawnOutput(lines(0, 3));
+        expect(readWindow(agentId, 100, offset)).toMatchObject({
+          stdout: '',
+          lineCount: 0,
+          totalLines: 3,
+          omittedLines: 3,
+        });
+      },
+    );
+
+    it.each(['', 'one', 'one\ntwo\n', 'one\n\ntwo'])(
+      'returns all of a short buffer: %j',
+      async (stdout) => {
+        const agentId = await spawnOutput(stdout);
+        const count = stdout
+          ? stdout.split('\n').length - Number(stdout.endsWith('\n'))
+          : 0;
+        expect(readWindow(agentId)).toMatchObject({
+          stdout,
+          lineCount: count,
+          totalLines: count,
+          omittedLines: 0,
+        });
+      },
+    );
+
+    it.each([0, -2, 0.9, NaN, Infinity])(
+      'clamps an invalid or empty tail to zero: %s',
+      async (tail) => {
+        const agentId = await spawnOutput(lines(0, 10));
+        for (const offset of [undefined, 2]) {
+          expect(readWindow(agentId, tail, offset)).toMatchObject({
+            stdout: '',
+            lineCount: 0,
+            totalLines: 10,
+            omittedLines: 10,
+          });
+        }
+      },
+    );
+
+    it('floors fractional tail and offset values', async () => {
+      const agentId = await spawnOutput(lines(0, 10));
+      expect(readWindow(agentId, 2.9)).toMatchObject({
+        stdout: lines(8, 10),
+        omittedLines: 8,
+      });
+      expect(readWindow(agentId, 2.9, 3.9)).toMatchObject({
+        stdout: lines(3, 5),
+        omittedLines: 8,
+      });
+    });
+
+    it.each([-2, NaN, Infinity])(
+      'clamps invalid offsets to zero: %s',
+      async (offset) => {
+        const agentId = await spawnOutput(lines(0, 10));
+        expect(readWindow(agentId, 2, offset)).toMatchObject({
+          stdout: lines(0, 2),
+          omittedLines: 8,
+        });
+      },
+    );
+
+    it('keeps the final unterminated line in a tail', async () => {
+      const agentId = await spawnOutput(`${lines(0, 999)}final`);
+      expect(readWindow(agentId)).toMatchObject({
+        stdout: `${lines(800, 999)}final`,
+        lineCount: 200,
+        totalLines: 1000,
+        omittedLines: 800,
+      });
+    });
+  });
+
   describe('stop() on SDK agent', () => {
     it('should call AbortController.abort() when stopping an SDK agent', async () => {
       const result = await manager.spawn({
@@ -2113,7 +2267,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         sdkControls.emitOutput(LINE);
       }
 
-      const output = manager.readOutput(agentId);
+      const output = manager.readOutput(agentId, 2048);
 
       // This is the assertion the whole fix is about. The overflow-only trim
       // left ~1 MB here — still saturated, so the next chunk copied it again.
@@ -2132,7 +2286,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         sdkControls.emitOutput(LINE);
       }
 
-      const output = manager.readOutput(agentId);
+      const output = manager.readOutput(agentId, 2048);
 
       expect(output.stdout.length).toBeLessThanOrEqual(MAX_BUFFER_SIZE);
       // A trim cuts to the low-water mark and then forward to the next line
@@ -2186,9 +2340,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const tailed = manager.readOutput(agentId, 5);
 
-      // `tailLines` slices the trailing empty element `split('\n')` leaves
-      // behind, so a 5-line tail carries 4 newlines. The number reported has to
-      // agree with THAT, not with the 50 in the buffer.
+      // The tail budget excludes the trailing empty split element.
       expect(tailed.lineCount).toBe(countNewlines(tailed.stdout));
       expect(tailed.lineCount).toBeLessThan(6);
 

@@ -1274,6 +1274,8 @@ describe('mcp-response-formatter › agent namespace', () => {
       stdout: 'line1\nline2',
       stderr: 'oops',
       lineCount: 3,
+      totalLines: 3,
+      omittedLines: 0,
       truncated: false,
     };
     const withoutOutput: AgentOutput = {
@@ -1281,6 +1283,8 @@ describe('mcp-response-formatter › agent namespace', () => {
       stdout: '',
       stderr: '',
       lineCount: 0,
+      totalLines: 0,
+      omittedLines: 0,
       truncated: false,
     };
 
