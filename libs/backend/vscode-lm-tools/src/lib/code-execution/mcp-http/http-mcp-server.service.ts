@@ -37,6 +37,11 @@ import { PermissionPromptService } from '../../permission/permission-prompt.serv
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
 import {
+  TreeSitterCodeOutliner,
+  type OutlineQueryRunner,
+} from '../mcp-core/code-outliner.adapter';
+import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
+import {
   isFileLockTimeoutError,
   withMcpConfigLock,
   HARNESS_SYNC_TOKENS,
@@ -240,6 +245,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
 
   private readonly hasIDECapabilities: boolean;
   private readonly hasSqliteLayer: boolean;
+  private readonly codeOutliner: CodeOutliner | undefined;
 
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
@@ -275,7 +281,19 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
      */
     @inject(HARNESS_SYNC_TOKENS.CLI_DETECTOR, { isOptional: true })
     private readonly cliDetector: IHarnessCliDetector | undefined,
+
+    /**
+     * The host's shared tree-sitter parser (the one `PtahAPIBuilder` uses),
+     * wrapped as the tool-result budget's code outliner. Optional: without it
+     * over-budget code falls back to the log reducer and the cut.
+     */
+    @inject(TOKENS.TREE_SITTER_PARSER_SERVICE, { isOptional: true })
+    treeSitterParser?: OutlineQueryRunner,
   ) {
+    this.codeOutliner =
+      treeSitterParser === undefined
+        ? undefined
+        : new TreeSitterCodeOutliner(treeSitterParser);
     this.hasIDECapabilities = ideCapabilities !== undefined;
     this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
@@ -358,6 +376,8 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
           onToolResult: this.toolResultCallback,
           hasIDECapabilities: this.hasIDECapabilities,
           hasSqliteLayer: this.hasSqliteLayer,
+          codeOutliner: this.codeOutliner,
+          workspaceProvider: this.workspaceProvider,
           disabledMcpNamespaces:
             this.workspaceProvider.getConfiguration<string[]>(
               'ptah',

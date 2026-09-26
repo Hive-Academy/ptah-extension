@@ -8,11 +8,21 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
+import type {
+  IOutputChannel,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
+import {
+  countTokensPiecewise,
+  type CodeOutliner,
+  type TextBudget,
+} from '@ptah-extension/tool-output-reducers';
 // Value import: `AgentMessageError` is narrowed with `instanceof` below so the
 // three unroutable agent states stay distinguishable to the calling model.
 // `vscode-lm-tools` already depends on this barrel (`ptah-api-builder`).
@@ -102,8 +112,14 @@ import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import {
   getCallerSessionId,
+  getCallerWorkspaceRoot,
   runWithMcpRequestContext,
 } from './mcp-request-context';
+import {
+  applyToolResultBudget,
+  getToolResultBudget,
+  type ToolResultBudgetOutcome,
+} from './tool-result-budget';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -166,6 +182,19 @@ export interface ProtocolHandlerDependencies {
   hasIDECapabilities?: boolean;
   hasSqliteLayer?: boolean;
   disabledMcpNamespaces?: string[];
+  /**
+   * Tree-sitter outliner the tool-result budget uses to reduce over-budget
+   * source code (`TreeSitterCodeOutliner`). Absent → over-budget code falls
+   * back to the log reducer and the cut.
+   */
+  codeOutliner?: CodeOutliner;
+  /**
+   * The platform (host-owned, not session-aware) workspace provider — the
+   * only authority for the tool-result spool root. A caller-declared
+   * workspace root is used only when it IS one of these folders; otherwise
+   * the first folder, else the system temp directory.
+   */
+  workspaceProvider?: Pick<IWorkspaceProvider, 'getWorkspaceFolders'>;
 }
 
 /**
@@ -289,9 +318,28 @@ function handleToolsList(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
+  const tools = buildToolDefinitions(deps);
+
+  markEagerTools(tools, deps);
+  declareResultBudgets(tools);
+
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: { tools },
+  };
+}
+
+/** The tool definitions this host lists, after namespace and capability gating. */
+function buildToolDefinitions(
+  deps: Pick<
+    ProtocolHandlerDependencies,
+    'hasIDECapabilities' | 'disabledMcpNamespaces'
+  >,
+): MCPToolDefinition[] {
   const disabled = new Set(deps.disabledMcpNamespaces ?? []);
 
-  const tools = [
+  return [
     buildWorkspaceAnalyzeTool(),
     buildSearchFilesTool(),
     buildGetDiagnosticsTool(),
@@ -381,15 +429,33 @@ function handleToolsList(
         ]
       : []),
   ];
-
-  markEagerTools(tools, deps);
-
-  return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: { tools },
-  };
 }
+
+/**
+ * Every tool name the dispatcher serves (all namespaces and capabilities on).
+ * Built on first use; the telemetry line logs only these names.
+ */
+let registeredToolNames: ReadonlySet<string> | undefined;
+
+/** Label the telemetry uses for a requested name that is not a registered tool. */
+const UNKNOWN_TOOL_LABEL = '<unknown>';
+
+/**
+ * The tool identity the telemetry may log: a registered tool name, else
+ * {@link UNKNOWN_TOOL_LABEL}. A requested name is caller input — it can carry
+ * a path or a secret — so an unregistered one is never logged verbatim.
+ */
+function telemetryToolName(requestedName: string): string {
+  registeredToolNames ??= new Set(
+    buildToolDefinitions({ hasIDECapabilities: true }).map((tool) => tool.name),
+  );
+  return registeredToolNames.has(requestedName)
+    ? requestedName
+    : UNKNOWN_TOOL_LABEL;
+}
+
+/** The permission-prompt tool (`buildApprovalPromptTool`). */
+const APPROVAL_PROMPT_TOOL_NAME = 'approval_prompt';
 
 /**
  * Tools that should load eagerly on every runtime instead of being deferred
@@ -502,6 +568,31 @@ function markEagerTools(
   }
 }
 
+/**
+ * Stamp `_meta['anthropic/maxResultSizeChars']` onto every tool: the char
+ * ceiling {@link createToolSuccessResponse} holds that tool's text result to
+ * (`getToolResultBudget`, the same table the budget reads, so the declaration
+ * and the enforcement cannot drift). Existing `_meta` keys are kept; the value
+ * depends only on the tool name, so the list stays byte-stable across calls.
+ *
+ * The one exception is `approval_prompt`: its result is a machine-control
+ * response (`{ behavior, updatedInput }`) read by the permission machinery,
+ * not text for the model. Reducing it or appending a trailer would corrupt the
+ * `updatedInput` the approved tool then runs with, so it is returned whole and
+ * therefore declares no ceiling it does not keep.
+ */
+function declareResultBudgets(tools: MCPToolDefinition[]): void {
+  for (const tool of tools) {
+    if (tool.name === APPROVAL_PROMPT_TOOL_NAME) {
+      continue;
+    }
+    tool._meta = {
+      ...tool._meta,
+      'anthropic/maxResultSizeChars': getToolResultBudget(tool.name).chars,
+    };
+  }
+}
+
 export const MCP_SLOW_TOOL_WARN_MS_ENV = 'PTAH_MCP_SLOW_WARN_MS';
 
 /**
@@ -541,35 +632,103 @@ const mcpSlowToolWarnMs = ((): number => {
 })();
 
 /**
- * Time every `tools/call` and warn on the slow ones.
+ * Time every `tools/call`, log one `debug` telemetry line for it, and warn on
+ * the slow ones.
  *
  * A wrapper rather than inline timing because {@link dispatchToolsCall} has a
  * dozen return statements across three tool families; bracketing at the single
  * entry point is the only way to be sure no path escapes measurement, and
  * `finally` covers the throwing paths too.
+ *
+ * The telemetry line is `debug`, never `info`: it fires on every tool call,
+ * and an `info` line per MCP request was once the highest-volume writer in the
+ * log (see `handleMCPRequest`). It is derived from the RETURNED response, so
+ * tool errors, JSON-RPC errors and a throw (no response) are logged as well.
  */
 async function handleToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
-  const toolName =
-    typeof (request.params as { name?: unknown } | undefined)?.name === 'string'
-      ? (request.params as { name: string }).name
-      : 'unknown';
+  const toolName = telemetryToolName(toolNameOf(request));
   const startedAt = performance.now();
+  let response: MCPResponse | undefined;
   try {
-    return await dispatchToolsCall(request, deps);
+    response = await dispatchToolsCall(request, deps);
+    return response;
   } finally {
-    const elapsedMs = performance.now() - startedAt;
-    if (elapsedMs >= mcpSlowToolWarnMs) {
+    const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+    runObserver(() =>
+      deps.logger.debug(
+        '[MCP] tool result',
+        'CodeExecutionMCP',
+        toolResultTelemetry(toolName, durationMs, response),
+      ),
+    );
+    if (durationMs >= mcpSlowToolWarnMs) {
       runObserver(() =>
         deps.logger.warn('[MCP] slow tool', {
           tool: toolName,
-          durationMs: Math.round(elapsedMs * 10) / 10,
+          durationMs,
         }),
       );
     }
   }
+}
+
+/** The `tools/call` tool name, or `'unknown'` when the params carry none. */
+function toolNameOf(request: MCPRequest): string {
+  const name = (request.params as { name?: unknown } | null | undefined)?.name;
+  return typeof name === 'string' && name.length > 0 ? name : 'unknown';
+}
+
+/** One `tools/call` telemetry record (the `debug` line's metadata). */
+interface ToolResultTelemetry {
+  readonly tool: string;
+  readonly durationMs: number;
+  /** Total length of the text content blocks returned to the model. */
+  readonly resultChars: number;
+  /** Budget counts; `null` for a response that did not pass the budget (errors, approval). */
+  readonly rawTokens: number | null;
+  readonly returnedTokens: number | null;
+  readonly reducer: string;
+  readonly truncated: boolean;
+  readonly isError: boolean;
+}
+
+/**
+ * The telemetry of one returned response. Token counts are read from the
+ * budget outcome recorded by {@link createToolSuccessResponse}, never counted
+ * again here. `undefined` means the call threw before a response existed.
+ */
+function toolResultTelemetry(
+  tool: string,
+  durationMs: number,
+  response: MCPResponse | undefined,
+): ToolResultTelemetry {
+  const result = response?.result as
+    { content?: unknown; isError?: unknown } | undefined;
+  const content = Array.isArray(result?.content) ? result.content : [];
+  let resultChars = 0;
+  for (const block of content as Array<{ type?: unknown; text?: unknown }>) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      resultChars += block.text.length;
+    }
+  }
+  const budget =
+    response === undefined ? undefined : budgetOutcomes.get(response);
+  return {
+    tool,
+    durationMs,
+    resultChars,
+    rawTokens: budget?.rawTokens ?? null,
+    returnedTokens: budget?.returnedTokens ?? null,
+    reducer: budget?.reducer ?? 'none',
+    truncated: budget?.truncated ?? false,
+    isError:
+      response === undefined ||
+      response.error !== undefined ||
+      result?.isError === true,
+  };
 }
 
 /**
@@ -581,8 +740,7 @@ async function dispatchToolsCall(
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const params = request.params as
-    | { name: string; arguments?: Record<string, unknown> }
-    | undefined;
+    { name: string; arguments?: Record<string, unknown> } | undefined;
   if (params === null || params === undefined) {
     return createErrorResponse(
       request.id,
@@ -615,7 +773,8 @@ async function dispatchToolsCall(
     );
   }
 
-  if (name === 'approval_prompt') {
+  // Not budgeted: a machine-control response (see `declareResultBudgets`).
+  if (name === APPROVAL_PROMPT_TOOL_NAME) {
     if (!deps.webviewManager) {
       const approvalParams = args as unknown as ApprovalPromptParams;
       deps.logger.info(
@@ -672,7 +831,7 @@ async function handleIndividualTool(
     switch (name) {
       case 'ptah_workspace_analyze': {
         const result = await ptahAPI.workspace.analyze();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatWorkspaceAnalysis(result),
           deps,
@@ -682,7 +841,7 @@ async function handleIndividualTool(
       case 'ptah_search_files': {
         const { pattern, limit } = args as { pattern: string; limit?: number };
         const files = await ptahAPI.search.findFiles(pattern, limit ?? 50);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatSearchFiles(files),
           deps,
@@ -705,7 +864,7 @@ async function handleIndividualTool(
         // The payload carries the scope, resolved against the session root, as
         // `requestedFiles`: the formatter lists diagnostics in those files
         // first and in full, and caps the sibling files around them.
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatDiagnostics(result),
           deps,
@@ -719,7 +878,7 @@ async function handleIndividualTool(
           col: number;
         };
         const refs = await ptahAPI.ide.lsp.getReferences(file, line, col);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatLspReferences(refs),
           deps,
@@ -733,7 +892,7 @@ async function handleIndividualTool(
           col: number;
         };
         const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatLspDefinitions(defs),
           deps,
@@ -742,7 +901,7 @@ async function handleIndividualTool(
 
       case 'ptah_get_dirty_files': {
         const dirtyFiles = await ptahAPI.ide.editor.getDirtyFiles();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatDirtyFiles(dirtyFiles),
           deps,
@@ -754,7 +913,7 @@ async function handleIndividualTool(
         const readPath = await toWorkspaceReadPath(file.trim(), ptahAPI);
         const fileContent = await ptahAPI.files.read(readPath);
         const tokenCount = await ptahAPI.context.countTokens(fileContent);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatTokenCount({ file, tokens: tokenCount }),
           deps,
@@ -829,7 +988,7 @@ async function handleIndividualTool(
           role: result.role,
         });
 
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentSpawn(result, {
             modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined,
@@ -841,7 +1000,7 @@ async function handleIndividualTool(
       case 'ptah_agent_status': {
         const { agentId } = args as { agentId?: string };
         const result = await ptahAPI.agent.status(agentId);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentStatus(result),
           deps,
@@ -854,7 +1013,7 @@ async function handleIndividualTool(
           tail?: number;
         };
         const result = await ptahAPI.agent.read(agentId, tail);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentRead(result),
           deps,
@@ -878,7 +1037,7 @@ async function handleIndividualTool(
             parsed.data.agentId,
             parsed.data.message,
           );
-          return createToolSuccessResponse(
+          return await createToolSuccessResponse(
             request,
             formatAgentMessage({ agentId: parsed.data.agentId, ...outcome }),
             deps,
@@ -916,7 +1075,7 @@ async function handleIndividualTool(
         // guessing would deliver one agent's report into another's session.
         const callerAgentId = request._callerAgentId;
         if (callerAgentId === undefined || callerAgentId.length === 0) {
-          return createToolSuccessResponse(
+          return await createToolSuccessResponse(
             request,
             formatAgentReport({
               delivered: false,
@@ -930,7 +1089,7 @@ async function handleIndividualTool(
           message: parsed.data.message,
           summary: parsed.data.summary,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentReport(delivery),
           deps,
@@ -940,7 +1099,7 @@ async function handleIndividualTool(
       case 'ptah_agent_stop': {
         const { agentId } = args as { agentId: string };
         const result = await ptahAPI.agent.stop(agentId);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentStop(result),
           deps,
@@ -962,7 +1121,7 @@ async function handleIndividualTool(
             },
           );
         }
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatAgentList(agents, roles),
           deps,
@@ -1000,7 +1159,7 @@ async function handleIndividualTool(
           timeout,
           providers,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatWebSearch(result),
           deps,
@@ -1008,7 +1167,7 @@ async function handleIndividualTool(
       }
       case 'ptah_git_worktree_list': {
         const result = await ptahAPI.git.worktreeList();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatWorktreeList(result),
           deps,
@@ -1042,7 +1201,7 @@ async function handleIndividualTool(
           path: path && typeof path === 'string' ? path.trim() : undefined,
           createBranch,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatWorktreeAdd(addResult),
           deps,
@@ -1078,7 +1237,7 @@ async function handleIndividualTool(
           path: worktreePath.trim(),
           force,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatWorktreeRemove(removeResult),
           deps,
@@ -1109,7 +1268,7 @@ async function handleIndividualTool(
           file: file.trim(),
           schema,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatJsonValidate(jsonResult),
           deps,
@@ -1145,7 +1304,7 @@ async function handleIndividualTool(
           headless,
           viewport,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserNavigate(navResult),
           deps,
@@ -1196,13 +1355,21 @@ async function handleIndividualTool(
                 : 'image/png';
 
           const text = formatBrowserScreenshot(screenshotResult);
-          deps.onToolResult?.(request.id.toString(), text, false);
+          runObserver(() =>
+            deps.onToolResult?.(request.id.toString(), text, false),
+          );
 
           const savedNote = screenshotResult.filePath
             ? ` | Saved to: ${screenshotResult.filePath}`
             : '';
+          // Only the text block is budgeted; the image block goes out as is.
+          const caption = await budgetToolText(
+            request,
+            `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)${savedNote}`,
+            deps,
+          );
 
-          return {
+          const response: MCPResponse = {
             jsonrpc: '2.0',
             id: request.id,
             result: {
@@ -1214,13 +1381,15 @@ async function handleIndividualTool(
                 },
                 {
                   type: 'text',
-                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)${savedNote}`,
+                  text: caption.text,
                 },
               ],
             },
           };
+          budgetOutcomes.set(response, caption);
+          return response;
         }
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserScreenshot(screenshotResult),
           deps,
@@ -1249,7 +1418,7 @@ async function handleIndividualTool(
         const evalResult = await ptahAPI.browser.evaluate({
           expression,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserEvaluate(evalResult),
           deps,
@@ -1278,7 +1447,7 @@ async function handleIndividualTool(
         const clickResult = await ptahAPI.browser.click({
           selector: selector.trim(),
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserClick(clickResult),
           deps,
@@ -1326,7 +1495,7 @@ async function handleIndividualTool(
           selector: selector.trim(),
           text: String(text),
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserType(typeResult),
           deps,
@@ -1338,7 +1507,7 @@ async function handleIndividualTool(
         const contentResult = await ptahAPI.browser.getContent(
           selector ? { selector } : undefined,
         );
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserContent(contentResult),
           deps,
@@ -1350,7 +1519,7 @@ async function handleIndividualTool(
         const networkResult = await ptahAPI.browser.networkRequests({
           limit,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserNetwork(networkResult),
           deps,
@@ -1359,7 +1528,7 @@ async function handleIndividualTool(
 
       case 'ptah_browser_close': {
         const closeResult = await ptahAPI.browser.close();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserClose(closeResult),
           deps,
@@ -1368,7 +1537,7 @@ async function handleIndividualTool(
 
       case 'ptah_browser_status': {
         const statusResult = await ptahAPI.browser.status();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserStatus(statusResult),
           deps,
@@ -1383,7 +1552,7 @@ async function handleIndividualTool(
           maxFrames,
           frameDelay,
         });
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserRecordStart(recordStartResult),
           deps,
@@ -1392,7 +1561,7 @@ async function handleIndividualTool(
 
       case 'ptah_browser_record_stop': {
         const recordStopResult = await ptahAPI.browser.recordStop();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           formatBrowserRecordStop(recordStopResult),
           deps,
@@ -1421,7 +1590,7 @@ async function handleIndividualTool(
         // whole contract exists to prevent.
         return skillsResult.status === 'degraded'
           ? toolErrorResponse(request, JSON.stringify(skillsResult))
-          : createToolSuccessResponse(
+          : await createToolSuccessResponse(
               request,
               JSON.stringify(skillsResult),
               deps,
@@ -1479,7 +1648,7 @@ async function handleIndividualTool(
           allowedTools,
           skillScope,
         );
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify(createResult),
           deps,
@@ -1517,7 +1686,7 @@ async function handleIndividualTool(
         );
         return registryResult.status === 'degraded'
           ? toolErrorResponse(request, JSON.stringify(registryResult))
-          : createToolSuccessResponse(
+          : await createToolSuccessResponse(
               request,
               JSON.stringify(registryResult),
               deps,
@@ -1530,7 +1699,7 @@ async function handleIndividualTool(
         }
         const installedServers =
           await ptahAPI.harness.listInstalledMcpServers();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify({
             servers: installedServers,
@@ -1590,7 +1759,7 @@ async function handleIndividualTool(
           mcpServerKey,
           mcpTargets,
         );
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify(installOutcome),
           deps,
@@ -1625,7 +1794,7 @@ async function handleIndividualTool(
           >[0],
           isConfigComplete,
         );
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify({
             ok: true,
@@ -1674,7 +1843,7 @@ async function handleIndividualTool(
         // never parses it — it reads `dashboard:spec-proposed` instead
         // (`context.md`, "Transport contract"). A host with NO surface at all
         // reaches here too, and deliberately so.
-        return createToolSuccessResponse(request, outcome.text, deps);
+        return await createToolSuccessResponse(request, outcome.text, deps);
       }
 
       case SURFACE_UPDATE_TOOL_NAME:
@@ -1692,7 +1861,7 @@ async function handleIndividualTool(
         );
         return reply.isError
           ? toolErrorResponse(request, reply.text)
-          : createToolSuccessResponse(request, reply.text, deps);
+          : await createToolSuccessResponse(request, reply.text, deps);
       }
 
       case 'ptah_ast_analyze': {
@@ -1707,7 +1876,11 @@ async function handleIndividualTool(
           file.trim(),
           typeof workspaceRoot === 'string' ? workspaceRoot.trim() : undefined,
         );
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_context_enrich_file': {
@@ -1716,7 +1889,11 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'file');
         }
         const result = await ptahAPI.context.enrichFile(file.trim(), language);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_get_dependents': {
@@ -1731,7 +1908,7 @@ async function handleIndividualTool(
         );
         const dependents =
           await ptahAPI.dependencies.getDependents(resolvedFile);
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify({
             file: resolvedFile,
@@ -1756,7 +1933,7 @@ async function handleIndividualTool(
           resolvedFile,
           depth,
         );
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify({
             file: resolvedFile,
@@ -1769,7 +1946,7 @@ async function handleIndividualTool(
 
       case 'ptah_code_search_symbols': {
         if (!ptahAPI.code) {
-          return createToolSuccessResponse(
+          return await createToolSuccessResponse(
             request,
             JSON.stringify({
               hits: [],
@@ -1791,12 +1968,16 @@ async function handleIndividualTool(
           maxResults,
           filePath,
         });
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_memory_search': {
         if (!ptahAPI.memory) {
-          return createToolSuccessResponse(
+          return await createToolSuccessResponse(
             request,
             JSON.stringify({
               hits: [],
@@ -1823,7 +2004,11 @@ async function handleIndividualTool(
             ? { maxResults }
             : { workspace: true, maxResults },
         );
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_relevance_rank_files': {
@@ -1832,18 +2017,26 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'query');
         }
         const result = await ptahAPI.relevance.rankFiles(query.trim(), limit);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_project_detect_monorepo': {
         const result = await ptahAPI.project.detectMonorepo();
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_get_symbol_index': {
         await ensureDependencyGraphBuilt(ptahAPI);
         const index = await ptahAPI.dependencies.getSymbolIndex();
-        return createToolSuccessResponse(
+        return await createToolSuccessResponse(
           request,
           JSON.stringify({ files: index, count: index.length }),
           deps,
@@ -1858,27 +2051,47 @@ async function handleIndividualTool(
       // agent gets a machine-readable refusal rather than a thrown string.
       case 'ptah_task_create': {
         const result = await ptahAPI.tasks.create(args);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_task_update': {
         const result = await ptahAPI.tasks.update(args);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_task_get': {
         const result = await ptahAPI.tasks.get(args);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_task_list': {
         const result = await ptahAPI.tasks.list(args);
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       case 'ptah_task_check': {
         const result = await ptahAPI.tasks.check();
-        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+        return await createToolSuccessResponse(
+          request,
+          JSON.stringify(result),
+          deps,
+        );
       }
 
       default:
@@ -2016,21 +2229,214 @@ async function resolveDependencyQueryPath(
   return workspaceRoot ? path.join(workspaceRoot, file) : file;
 }
 
+/** The budget fields of a success response, read back by the telemetry line. */
+type BudgetTelemetry = Pick<
+  ToolResultBudgetOutcome,
+  'text' | 'rawTokens' | 'returnedTokens' | 'reducer' | 'truncated'
+>;
+
 /**
- * Create a successful tool response with callback notification
+ * Budget outcome of every response {@link createToolSuccessResponse} built,
+ * keyed by the response object so {@link handleToolsCall} reads the counts
+ * without the MCP wire shape carrying them. Weak: an entry lives exactly as
+ * long as its response.
  */
-function createToolSuccessResponse(
+const budgetOutcomes = new WeakMap<MCPResponse, BudgetTelemetry>();
+
+/**
+ * Create a successful tool response with callback notification.
+ *
+ * The text goes through the tool-result budget first (the tool name comes
+ * from `request.params.name`), and the transcript callback receives exactly
+ * the text the model gets. Never rejects: the budget never throws and the
+ * spool-root lookup is guarded.
+ */
+async function createToolSuccessResponse(
   request: MCPRequest,
   text: string,
   deps: ProtocolHandlerDependencies,
-): MCPResponse {
-  runObserver(() => deps.onToolResult?.(request.id.toString(), text, false));
-  return {
+): Promise<MCPResponse> {
+  const budgeted = await budgetToolText(request, text, deps);
+  runObserver(() =>
+    deps.onToolResult?.(request.id.toString(), budgeted.text, false),
+  );
+  const response: MCPResponse = {
     jsonrpc: '2.0',
     id: request.id,
     result: {
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: budgeted.text }],
     },
+  };
+  budgetOutcomes.set(response, budgeted);
+  return response;
+}
+
+/**
+ * `text` held to its tool's budget.
+ *
+ * Text within the budget is returned as is, measured the same way
+ * `applyToolResultBudget` measures it (char ceiling first, then the bounded
+ * piece-wise count), so the outcome is identical to the one it would return —
+ * but the spool root, which can cost a workspace lookup, is only resolved for
+ * text that actually has to be reduced or cut.
+ */
+async function budgetToolText(
+  request: MCPRequest,
+  text: string,
+  deps: ProtocolHandlerDependencies,
+): Promise<BudgetTelemetry> {
+  const toolName = toolNameOf(request);
+  const tokens = tokensWithinBudget(text, getToolResultBudget(toolName));
+  if (tokens !== null) {
+    return {
+      text,
+      rawTokens: tokens,
+      returnedTokens: tokens,
+      reducer: 'none',
+      truncated: false,
+    };
+  }
+  return applyToolResultBudget({
+    text,
+    toolName,
+    requestId: request.id,
+    spoolRoot: await resolveSpoolRoot(deps),
+    outliner: deps.codeOutliner,
+    output: budgetOutputChannel(deps.logger),
+  });
+}
+
+/** Token count of `text` when it fits both limits of `budget`, else `null` (also when counting throws). */
+function tokensWithinBudget(text: string, budget: TextBudget): number | null {
+  if (text.length > budget.chars) {
+    return null;
+  }
+  try {
+    const tokens = countTokensPiecewise(text, budget.tokens);
+    return tokens <= budget.tokens ? tokens : null;
+  } catch {
+    // Let the budget helper handle it: it never throws and falls back to a cut.
+    return null;
+  }
+}
+
+/**
+ * Where an over-budget result is spooled. The root always comes from a
+ * host-owned record: the platform workspace provider's open folders
+ * (`deps.workspaceProvider`, never the session-aware `ptahAPI.workspace`,
+ * which resolves the caller's declared root first and so cannot vouch for
+ * it). The caller-declared workspace root (a URL segment, so caller input) is
+ * used only when it canonicalizes to exactly one of those folders, and then
+ * the host's own record of that folder is returned. Otherwise the host's
+ * first open folder, else the system temp directory. No workspace analysis
+ * runs here, so nothing is looked up under an unvalidated declared root.
+ */
+async function resolveSpoolRoot(
+  deps: ProtocolHandlerDependencies,
+): Promise<string> {
+  const known = knownWorkspaceFolders(deps);
+  const declared = getCallerWorkspaceRoot();
+  if (declared !== undefined && declared.trim() !== '') {
+    const match = await findKnownWorkspaceFolder(declared, known);
+    if (match !== undefined) {
+      return match;
+    }
+  }
+  return known[0] ?? os.tmpdir();
+}
+
+/** The host's open workspace folders; none when the provider is absent or fails. */
+function knownWorkspaceFolders(deps: ProtocolHandlerDependencies): string[] {
+  try {
+    return (deps.workspaceProvider?.getWorkspaceFolders() ?? []).filter(
+      (folder) => typeof folder === 'string' && folder.trim() !== '',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The entry of `known` that `declared` names, compared canonically
+ * ({@link canonicalFolderKey}); `undefined` when it names none. Equality, not
+ * containment: the spool root must be a folder the host itself recorded.
+ */
+async function findKnownWorkspaceFolder(
+  declared: string,
+  known: readonly string[],
+): Promise<string | undefined> {
+  const plain = stripExtendedLengthPrefix(declared);
+  if (known.length === 0 || !path.isAbsolute(plain)) {
+    return undefined;
+  }
+  const target = await canonicalFolderKey(plain);
+  for (const folder of known) {
+    if ((await canonicalFolderKey(folder)) === target) {
+      return folder;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A comparison key for a folder path: the win32 extended-length prefix
+ * removed ({@link stripExtendedLengthPrefix}), `path.resolve` (collapses
+ * `..`), then `realpath` where the folder exists (follows links and
+ * junctions, so a link under a known folder keys as its target), trailing
+ * separators stripped, case folded on win32. A UNC path is never passed to
+ * `realpath`: touching a caller-named network share would itself be the
+ * side effect this check exists to prevent, so UNC paths compare lexically.
+ */
+async function canonicalFolderKey(folder: string): Promise<string> {
+  let resolved = path.resolve(stripExtendedLengthPrefix(folder));
+  if (!isUncPath(resolved)) {
+    try {
+      resolved = stripExtendedLengthPrefix(
+        await fs.promises.realpath(resolved),
+      );
+    } catch {
+      // Does not exist (yet): the lexical form is the key.
+    }
+  }
+  const trimmed = resolved.replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
+}
+
+/**
+ * `p` without a win32 extended-length / device prefix: `\\?\D:\x` (or
+ * `\\.\D:\x`) is the local path `D:\x`; `\\?\UNC\server\share` is the UNC
+ * path `\\server\share`. Any other path is returned unchanged.
+ */
+function stripExtendedLengthPrefix(p: string): string {
+  const unc = /^[\\/]{2}[?.][\\/]UNC[\\/]/i.exec(p);
+  if (unc !== null) {
+    return `\\\\${p.slice(unc[0].length)}`;
+  }
+  const local = /^[\\/]{2}[?.][\\/](?=[A-Za-z]:)/.exec(p);
+  return local === null ? p : p.slice(local[0].length);
+}
+
+/** Whether `p` is a UNC (`\\server\share`) or `//server/share` path. */
+function isUncPath(p: string): boolean {
+  return /^[\\/]{2}/.test(p);
+}
+
+/**
+ * The budget helper reports a throwing reducer or a failed budget step as one
+ * line on an output channel; here that line goes to the logger at `warn` (it
+ * is rare and means a reducer is broken, not a per-call event).
+ */
+function budgetOutputChannel(logger: Logger): IOutputChannel {
+  const write = (line: string): void => {
+    logger.warn(line, 'CodeExecutionMCP');
+  };
+  return {
+    name: 'CodeExecutionMCP',
+    appendLine: write,
+    append: write,
+    clear: () => undefined,
+    show: () => undefined,
+    dispose: () => undefined,
   };
 }
 
@@ -2065,31 +2471,21 @@ async function handleExecuteCodeCall(
   const { ptahAPI, logger } = deps;
   const actualTimeout = Math.min(timeout, 30000);
 
+  let textResult: string;
   try {
     const result = await executeCode(code, actualTimeout, { ptahAPI, logger });
-    const textResult = serializeResult(result);
-    deps.onToolResult?.(request.id.toString(), textResult, false);
-
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: textResult,
-          },
-        ],
-      },
-    };
+    textResult = serializeResult(result);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
     if (error instanceof Error && error.stack) {
-      logger.error('Code execution failed', error);
+      runObserver(() => logger.error('Code execution failed', error));
     }
     const agentMessage = buildAgentFriendlyError(errorMessage);
-    deps.onToolResult?.(request.id.toString(), agentMessage, true);
+    // Observers only: a throwing callback must not replace this actionable error.
+    runObserver(() =>
+      deps.onToolResult?.(request.id.toString(), agentMessage, true),
+    );
     return {
       jsonrpc: '2.0',
       id: request.id,
@@ -2104,6 +2500,10 @@ async function handleExecuteCodeCall(
       },
     };
   }
+  // Budgeted like every other text result: `serializeResult`'s own 50 KB cap
+  // is far above the default budget, so without this an `execute_code` result
+  // was the one text path that could still flood the context.
+  return await createToolSuccessResponse(request, textResult, deps);
 }
 
 /**
