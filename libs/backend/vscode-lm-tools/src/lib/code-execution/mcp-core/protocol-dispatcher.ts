@@ -2363,7 +2363,9 @@ function tokensWithinBudget(text: string, budget: TextBudget): number | null {
     const tokens = countTokensPiecewise(text, budget.tokens);
     return tokens <= budget.tokens ? tokens : null;
   } catch {
-    // Let the budget helper handle it: it never throws and falls back to a cut.
+    // degradation-audit: optional-capability — the fast path is optional:
+    // `null` routes the text to `applyToolResultBudget`, which never throws,
+    // falls back to a cut, and reports its own failures on the output channel.
     return null;
   }
 }
@@ -2393,13 +2395,23 @@ async function resolveSpoolRoot(
   return known[0] ?? os.tmpdir();
 }
 
-/** The host's open workspace folders; none when the provider is absent or fails. */
+/** The host's open workspace folders; none (logged) when the provider is absent or fails. */
 function knownWorkspaceFolders(deps: ProtocolHandlerDependencies): string[] {
   try {
     return (deps.workspaceProvider?.getWorkspaceFolders() ?? []).filter(
       (folder) => typeof folder === 'string' && folder.trim() !== '',
     );
-  } catch {
+  } catch (error: unknown) {
+    // degradation-audit: reported — the provider failure is logged at warn
+    // here; the result is still spooled, under the system temp directory.
+    // The message is fixed text: provider errors can carry paths.
+    void error;
+    runObserver(() =>
+      deps.logger.warn(
+        '[MCP] workspace provider failed; spooling under the system temp directory',
+        'CodeExecutionMCP',
+      ),
+    );
     return [];
   }
 }

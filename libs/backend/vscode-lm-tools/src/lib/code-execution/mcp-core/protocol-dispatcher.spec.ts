@@ -2660,6 +2660,90 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
       expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
     });
 
+    it('logs a throwing workspace provider at warn and still spools under the system temp directory', async () => {
+      const logger = createMockLogger();
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('provider down');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      expect(onlySpoolFile(outside)).toBe(JSON.stringify(payload));
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('workspace provider failed'),
+        'CodeExecutionMCP',
+      );
+    });
+
+    it('never logs the workspace provider error text', async () => {
+      const logger = createMockLogger();
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('D:/private/secret-token');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      const logged = JSON.stringify(
+        Object.values(logger).flatMap((fn) =>
+          jest.isMockFunction(fn) ? fn.mock.calls : [],
+        ),
+      );
+      expect(logged).not.toContain('secret-token');
+    });
+
+    it('still spools under the system temp directory when the warn log throws', async () => {
+      const logger = createMockLogger();
+      logger.warn.mockImplementation(() => {
+        throw new Error('logger down');
+      });
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('provider down');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      expect(onlySpoolFile(outside)).toBe(JSON.stringify(payload));
+    });
+
     it('uses a declared root that canonicalizes to a known folder, as the host recorded it', async () => {
       const deps = oversizedDeps({
         workspaceProvider: knownFolders(hostRoot, spoolRoot),

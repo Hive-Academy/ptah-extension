@@ -244,7 +244,10 @@ async function budgetText(
   }
 
   const location = spoolLocation(input.spoolRoot);
-  const samplePath = path.join(location.dir, spoolFileName(input.requestId, '0000'));
+  const samplePath = path.join(
+    location.dir,
+    spoolFileName(input.requestId, '0000'),
+  );
   const locator = chooseLocator(budget, samplePath, location);
   const window = trailerWindow(budget, samplePath, location, locator);
   const result = await reduceOutput(raw, {
@@ -259,14 +262,18 @@ async function budgetText(
 
   const spool = await spoolRaw(raw, location.dir, input.requestId);
   const where = describeSpool(spool, location, locator);
-  const { text, tokens, cut } = fitWithTrailer(result.text, window, budget, (body, cutKind) =>
-    renderTrailer({
-      reducer: result.reducer,
-      cut: cutKind,
-      shownTokens: countTokensPiecewise(body),
-      totalTokens: result.rawTokens,
-      where,
-    }),
+  const { text, tokens, cut } = fitWithTrailer(
+    result.text,
+    window,
+    budget,
+    (body, cutKind) =>
+      renderTrailer({
+        reducer: result.reducer,
+        cut: cutKind,
+        shownTokens: countTokensPiecewise(body),
+        totalTokens: result.rawTokens,
+        where,
+      }),
   );
   return {
     text,
@@ -340,11 +347,16 @@ function trailerWindow(
   location: SpoolLocation,
   locator: Locator,
 ): TextBudget {
-  const saved = widestTrailer(describeSpool({ path: samplePath }, location, locator));
-  const failed = widestTrailer(describeSpool({ failure: 'no free spool file name' }, location, locator));
+  const saved = widestTrailer(
+    describeSpool({ path: samplePath }, location, locator),
+  );
+  const failed = widestTrailer(
+    describeSpool({ failure: 'no free spool file name' }, location, locator),
+  );
   const chars = Math.max(saved.length, failed.length);
   const tokens =
-    Math.max(countTokensPiecewise(saved), countTokensPiecewise(failed)) + BOUNDARY_TOKEN_SLACK;
+    Math.max(countTokensPiecewise(saved), countTokensPiecewise(failed)) +
+    BOUNDARY_TOKEN_SLACK;
   return {
     tokens: Math.max(1, budget.tokens - tokens),
     chars: Math.max(1, budget.chars - chars),
@@ -369,8 +381,14 @@ function widestTrailer(where: string): string {
  * {@link MAX_TRAILER_SHARE} of the budget, else the path relative to the
  * spool root (bounded: the sanitised id is at most 64 chars).
  */
-function chooseLocator(budget: TextBudget, samplePath: string, location: SpoolLocation): Locator {
-  const trailer = widestTrailer(describeSpool({ path: samplePath }, location, 'absolute'));
+function chooseLocator(
+  budget: TextBudget,
+  samplePath: string,
+  location: SpoolLocation,
+): Locator {
+  const trailer = widestTrailer(
+    describeSpool({ path: samplePath }, location, 'absolute'),
+  );
   const fits = fitsBudget(trailer, {
     tokens: Math.floor(budget.tokens * MAX_TRAILER_SHARE),
     chars: Math.floor(budget.chars * MAX_TRAILER_SHARE),
@@ -378,7 +396,11 @@ function chooseLocator(budget: TextBudget, samplePath: string, location: SpoolLo
   return fits ? 'absolute' : 'relative';
 }
 
-function describeSpool(spool: SpoolOutcome, location: SpoolLocation, locator: Locator): string {
+function describeSpool(
+  spool: SpoolOutcome,
+  location: SpoolLocation,
+  locator: Locator,
+): string {
   if (!('path' in spool)) {
     return `full output could not be saved: ${spool.failure}`;
   }
@@ -396,14 +418,20 @@ function describeSpool(spool: SpoolOutcome, location: SpoolLocation, locator: Lo
  * measures within the window, else at the prefix end itself (never inside a
  * surrogate pair).
  */
-function fitWindow(text: string, window: TextBudget): { body: string; cut: CutKind } {
+function fitWindow(
+  text: string,
+  window: TextBudget,
+): { body: string; cut: CutKind } {
   if (fitsBudget(text, window)) {
     return { body: text, cut: 'none' };
   }
   const end = fittingPrefixLength(text, window);
   const lineBreak = end > 0 ? text.lastIndexOf('\n', end - 1) : -1;
   if (lineBreak >= 0 && lineBreak >= end * (1 - LINE_BREAK_WINDOW_SHARE)) {
-    const body = text[lineBreak - 1] === '\r' ? text.slice(0, lineBreak - 1) : text.slice(0, lineBreak);
+    const body =
+      text[lineBreak - 1] === '\r'
+        ? text.slice(0, lineBreak - 1)
+        : text.slice(0, lineBreak);
     if (fitsBudget(body, window)) {
       return { body, cut: 'line' };
     }
@@ -437,7 +465,9 @@ function renderTrailer(parts: {
  */
 function spoolLocation(spoolRoot: string): SpoolLocation {
   const usable =
-    typeof spoolRoot === 'string' && spoolRoot.trim() !== '' && path.isAbsolute(spoolRoot);
+    typeof spoolRoot === 'string' &&
+    spoolRoot.trim() !== '' &&
+    path.isAbsolute(spoolRoot);
   const tmp = path.resolve(os.tmpdir());
   const root = usable ? path.resolve(spoolRoot) : tmp;
   return {
@@ -482,6 +512,8 @@ async function spoolRaw(
         if (errorCode(error) === 'EEXIST') {
           continue;
         }
+        // degradation-audit: reported — best-effort removal of the partial
+        // file; the write failure itself is rethrown on the next line.
         await fs.rm(file, { force: true }).catch(() => undefined);
         throw error;
       }
@@ -538,7 +570,11 @@ async function pruneSpoolDirectory(dir: string): Promise<void> {
  * {@link WORST_TOKENS_PER_CHAR} tokens per char, and if even that result
  * cannot be verified, the trailer alone is returned. Never throws.
  */
-function plainCut(raw: string, budget: TextBudget, error: unknown): ToolResultBudgetOutcome {
+function plainCut(
+  raw: string,
+  budget: TextBudget,
+  error: unknown,
+): ToolResultBudgetOutcome {
   const trailer = `[reduced: none — partial, cut mid-line — full output could not be saved: ${errorName(error)}]`;
   const trailerOnly: ToolResultBudgetOutcome = {
     text: trailer,
@@ -550,7 +586,9 @@ function plainCut(raw: string, budget: TextBudget, error: unknown): ToolResultBu
     totalChars: raw.length,
   };
   try {
-    const reserve = Buffer.byteLength(trailer + TRAILER_SEPARATOR, 'utf8') + BOUNDARY_TOKEN_SLACK;
+    const reserve =
+      Buffer.byteLength(trailer + TRAILER_SEPARATOR, 'utf8') +
+      BOUNDARY_TOKEN_SLACK;
     const room: TextBudget = {
       tokens: Math.max(0, budget.tokens - reserve),
       chars: Math.max(0, budget.chars - reserve),
@@ -559,7 +597,11 @@ function plainCut(raw: string, budget: TextBudget, error: unknown): ToolResultBu
     try {
       end = fittingPrefixLength(raw, room);
     } catch {
-      end = Math.min(raw.length, room.chars, Math.floor(room.tokens / WORST_TOKENS_PER_CHAR));
+      end = Math.min(
+        raw.length,
+        room.chars,
+        Math.floor(room.tokens / WORST_TOKENS_PER_CHAR),
+      );
       const code = raw.charCodeAt(end - 1);
       if (end > 0 && end < raw.length && code >= 0xd800 && code <= 0xdbff) {
         end--;
@@ -602,8 +644,12 @@ function logLine(output: IOutputChannel | undefined, line: string): void {
 function errorCode(error: unknown): string | undefined {
   try {
     const code = (error as { code?: unknown } | null)?.code;
-    return typeof code === 'string' && /^E[A-Z0-9]{1,30}$/.test(code) ? code : undefined;
+    return typeof code === 'string' && /^E[A-Z0-9]{1,30}$/.test(code)
+      ? code
+      : undefined;
   } catch {
+    // degradation-audit: reported — a throwing `code` getter only loses the
+    // errno; the caller still reports the failure, by `errorName` instead.
     return undefined;
   }
 }
@@ -615,8 +661,12 @@ function errorName(error: unknown): string {
       return typeof error;
     }
     const name: unknown = error.name;
-    return typeof name === 'string' && REPORTED_ERROR_NAMES.has(name) ? name : 'Error';
+    return typeof name === 'string' && REPORTED_ERROR_NAMES.has(name)
+      ? name
+      : 'Error';
   } catch {
+    // degradation-audit: reported — a throwing `name` getter is classified
+    // as `Error`; the failure is still reported under that name.
     return 'Error';
   }
 }

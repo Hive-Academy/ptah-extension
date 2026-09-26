@@ -174,8 +174,10 @@ export class TreeSitterCodeOutliner implements CodeOutliner {
     try {
       result = await this.parser.queryMulti(source, grammar, entries);
     } catch {
-      // The parser service logs its own failures; `initialize()` can reject
-      // outright on a host without the WASM grammars. No outline, no throw.
+      // degradation-audit: optional-capability — the outline is optional:
+      // `null` makes the code reducer keep its plain cut. The parser service
+      // logs its own failures; `initialize()` can reject outright on a host
+      // without the WASM grammars. No outline, no throw.
       return null;
     }
     if (result.isErr() || result.value === undefined) {

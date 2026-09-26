@@ -211,7 +211,10 @@ function cappedLogInput(raw: string): { input: string; note: string } | null {
     return null;
   }
   const note = capNote(tailStart - headEnd);
-  return { input: [head, note, tail].filter((part) => part !== '').join('\n'), note };
+  return {
+    input: [head, note, tail].filter((part) => part !== '').join('\n'),
+    note,
+  };
 }
 
 function capNote(chars: number): string {
@@ -263,8 +266,12 @@ function errorName(error: unknown): string {
       return typeof error;
     }
     const name: unknown = error.name;
-    return typeof name === 'string' && LOGGED_ERROR_NAMES.has(name) ? name : 'Error';
+    return typeof name === 'string' && LOGGED_ERROR_NAMES.has(name)
+      ? name
+      : 'Error';
   } catch {
+    // degradation-audit: reported — a throwing `name` getter is classified
+    // as `Error`; the reducer failure is still logged under that name.
     return 'Error';
   }
 }

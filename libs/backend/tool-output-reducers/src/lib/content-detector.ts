@@ -116,7 +116,9 @@ function isJson(body: string): boolean {
     JSON.parse(body);
     return true;
   } catch {
-    // Not JSON: fall through to the other sniffers.
+    // degradation-audit: optional-capability — a parse failure is this
+    // predicate's "not JSON" answer, not an error: fall through to the other
+    // sniffers.
     return false;
   }
 }
