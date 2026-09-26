@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 20/29 (Batch 11b scheduled as a follow-up round of Batch 11)
+Total tasks: 56 | Batches: 29 | Complete: 22/29 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,12 +2151,12 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                           | State                 |
-| ---- | --------------------------------------- | --------------------------------- | --------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11 COMPLETE; 11b next |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | 12 merged; 14 next    |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | in review             |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3                        | in progress           |
+| Lane | Worktree                                | Batches                           | State                     |
+| ---- | --------------------------------------- | --------------------------------- | ------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11, 11b COMPLETE; 16 next |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | done (12, 14 merged)      |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                | done (19 merged)          |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                  | 20a in revision round 2   |
 
 Only the team-leader merges lanes B/C/D into this branch; lane executors never run git across worktrees. Batch
 states for lanes B/C/D stay as recorded below until their merge.
@@ -2229,7 +2229,18 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Committed 6 code paths + 3 task-spec docs as **fc54a7307** with hooks active: pre-commit and commitlint passed
   (also checked with `npx commitlint` beforehand)
 
-### Batch 11b (scheduled, Lane A next) — r1 findings
+### Batch 11b — COMPLETE (commit 9d2637d37)
+
+- Review history: r1 (`reviews/batch-11b-code-logic-review-r1.md`) APPROVE 8/10, no findings. Details:
+  `batch-11b-executor-report.md`
+- M1: `ptah_search_files` `limit` schema and handler validator agree (integer, bounded), with an agreement regression
+- M2: project-detector inspection-cap spec moved to an in-memory fs — runtime 5,146 → 41 ms
+- Minor: dispatcher-level specs pin the truncation notice through the result budget (reduction and plain cut)
+- Team-leader verification (2026-09-26): `nx run-many "-t=test,lint,typecheck"` vscode-lm-tools + workspace-intelligence
+  `--skip-nx-cache` → 6 tasks pass; `ptah-cli`/`ptah-electron` typecheck pass; `ptah-electron:validate-deps` pass;
+  `degradation-audit:lint` TOTAL 300. Hooks active, commitlint checked first
+
+#### Batch 11b r1 findings (source of the batch)
 
 - M1 (Moderate): `ptah_search_files` schema publishes `limit` as an unrestricted `number`
   (`mcp-core/tool-description.builder.ts:351-354`) while the handler requires a positive safe integer
@@ -2348,7 +2359,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 14: ptah_agent_spawn resume — stop resending the system/role prefix — PENDING
+## Batch 14: ptah_agent_spawn resume — stop resending the system/role prefix — COMPLETE (lane commit 93037daed, merged 6b7f9a255)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2357,7 +2368,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: none
 
-### Task 14.1: Resume-aware `buildTaskPrompt` — PENDING
+### Task 14.1: Resume-aware `buildTaskPrompt` — COMPLETE
 
 - Files: `<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts` (`buildTaskPrompt` :490-540), `<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.spec.ts`, plus at most two adapter files among codex/opencode/antigravity/cursor/pi/copilot if one must opt out (`<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/*.adapter.ts`)
 - Plan reference: research/agent-task-harness.md:28-59
@@ -2366,7 +2377,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Validation notes: RISK "adapter resume without history" is carried here. The report lists each adapter with its evidence (`file:line`) for whether its resume restores history
 - Implementation details: an explicit per-adapter flag or option (e.g. `resumeRestoresContext`), not a string check. Specs: resume excludes a 1,000-char system prompt but includes the policy and the completion contract; a fresh spawn is unchanged; a non-restoring adapter keeps the prefix
 
-### Task 14.2: Confirm the Codex deferral guard — PENDING
+### Task 14.2: Confirm the Codex deferral guard — COMPLETE
 
 - Files: `<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.spec.ts` (only if the existing assertion at :1277 would not fail on a flip)
 - Plan reference: research-report.md:191-196
@@ -2377,8 +2388,21 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ### Batch 14 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime 2>&1 | tail -40` passes
+- [x] The review lane approves (r1 APPROVE 8/10)
+
+### Batch 14 record (Lane B)
+
+- Tasks 14.1 and 14.2 COMPLETE. Executed in Lane B; details in `batch-14-executor-report.md`; review
+  `reviews/batch-14-code-logic-review-r1.md` APPROVE 8/10
+- Adapter table: Codex (`codex-cli.adapter.ts:666` `resumeThread`) and Cursor (`cursor-cli.adapter.ts:345`
+  `Agent.resume`) restore history and opt in with an explicit `resumeRestoresContext: true`; OpenCode, Antigravity,
+  Pi and Copilot are unverified and keep the full prefix (default `false`)
+- Moderate doc gap: `codex-cli.adapter.ts:669` — Codex still resends the role on its `developer_instructions`
+  channel on resume; not documented at the call site → TASK_2026_561 Track B
+- 14.2: the Codex deferral guard spec already fails on a flip; no spec change
+- Lane commit **93037daed**; merged `--no-ff` as **6b7f9a255** (no conflicts); integration verification below
+  (Batch 19 record)
 
 ---
 
@@ -2501,7 +2525,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 19: get_diagnostics — scoped runs no longer queue behind an abandoned unscoped run; second-checkout guard — PENDING
+## Batch 19: get_diagnostics — scoped runs no longer queue behind an abandoned unscoped run; second-checkout guard — COMPLETE (lane commit 43358c04d, merged c1edc68a6)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2510,7 +2534,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 2 | Depends on: Batch 1 (evidence), Batch 18 (ordering)
 
-### Task 19.1: Separate worker lane for scoped runs — PENDING
+### Task 19.1: Separate worker lane for scoped runs — COMPLETE
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/diagnostics/ts-diagnostics-worker.ts` (`run`/`ensureWorker`, the per-`tsModulePath` worker map), `<WT>/libs/backend/workspace-intelligence/src/diagnostics/ts-diagnostics-worker.spec.ts`, `<WT>/libs/backend/workspace-intelligence/src/diagnostics/type-script-diagnostics-provider.ts` (`compute` → `withBudget`, :236-284: pass the lane), `<WT>/libs/backend/workspace-intelligence/src/diagnostics/type-script-diagnostics-provider.spec.ts`
 - Plan reference: `.ptah/specs/TASK_2026_559_8ca9/research/diagnostics-worktree-repro.md` ("Results: head-of-line case", "Conclusion"); research/workspace-files.md:246-270
@@ -2520,7 +2544,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Validation notes: RISK — two lanes on one compiler can hold two typescript programs at once (memory). Bounded by the lane count (2 per compiler) and idle termination; the report states the bound. The worker-containment spec (`ts-diagnostics-worker-containment.spec.ts`) stays green unchanged. Cold single-lib compile cost (23-27 s) is out of scope — do not try to shrink it here
 - Implementation details: guard spec with an injected slow worker (or a fake worker source): an unscoped run that holds its lane for a long time, then a scoped run → the scoped run resolves first and within its own time; two scoped runs still serialise on one lane; `dispose()` leaves no thread. Re-run the Task 1.2 case e script locally and put the before/after ms in the report (not committed)
 
-### Task 19.2: Second-worktree case in the provider contract — PENDING
+### Task 19.2: Second-worktree case in the provider contract — COMPLETE
 
 - Files: `<WT>/libs/backend/platform-core/src/testing/contracts/run-diagnostics-provider-contract.ts`, `<WT>/libs/backend/platform-core/src/testing/contracts/run-diagnostics-provider-contract.self.spec.ts`
 - Plan reference: research/workspace-files.md:272-276
@@ -2531,8 +2555,22 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ### Batch 19 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/platform-core 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/platform-core 2>&1 | tail -40` passes
+- [x] The review lane approves (r3 APPROVE 8/10)
+
+### Batch 19 record (Lane C)
+
+- Tasks 19.1 and 19.2 COMPLETE. Executed in Lane C (base 685edbc24); details in `batch-19-executor-report.md`
+- Review history: r1 REVISE 6/10 → r2 REVISE 6/10 → r3 APPROVE 8/10 (`reviews/batch-19-code-logic-review-r{1,2,3}.md`)
+- Task 1.2 case e (scoped run behind an abandoned unscoped run): 178,904 → 29,077 ms
+- Memory bound: at most 2 typescript programs per compiler (one per lane), released by idle termination
+- Pre-existing slow specs noted (not introduced here): `platform-core` `file-settings-manager.bench.spec.ts:86`
+  30 s timeout under load → TASK_2026_561 Track B
+- Lane commit **43358c04d**; merged `--no-ff` as **c1edc68a6** (no conflicts)
+- Integration verification after both lane merges (2026-09-26): `nx run-many "-t=test,lint,typecheck"` for
+  vscode-lm-tools, workspace-intelligence, cli-agent-runtime, shared, platform-core `--skip-nx-cache` → "Successfully
+  ran targets test, lint, typecheck for 5 projects" (first run, no timeouts); `ptah-cli`/`ptah-electron` typecheck
+  pass; `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
 
 ---
 

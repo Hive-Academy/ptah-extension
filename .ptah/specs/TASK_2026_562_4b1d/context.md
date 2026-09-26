@@ -33,9 +33,11 @@ the audit's estimates, not measurements.
 3. Effort precedence: `agentOrchestration.<cli>ReasoningEffort` wins when set ('inherit' opts into the chat effort);
    optional `effort` on the ptah_agent_spawn schema, medium default for reviewers/testers; log the effective effort
 4. Responses translator: send the system prompt once (not as both `instructions` and a developer item); stable
-   `prompt_cache_key` = session id; log terminal input and cached tokens at INFO
-5. Usage accounting: `input_tokens` in message_start; dedupe subagent metrics by message.id; count cache tokens in
-   skill-budget.store; weighted cost per request in session-usage-ledger
+   `prompt_cache_key` = session id; log terminal input and cached tokens at INFO. Confirmed on main by TASK_2026_408
+   (2026-09-26): `responses-request-translator.ts` pushes `translateSystemToDeveloper()` AND sends `instructions`
+5. Usage accounting: dedupe subagent metrics by message.id; count cache tokens in skill-budget.store; weighted cost per
+   request in session-usage-ledger. ("input_tokens in message_start" is dropped: TASK_2026_408 scope 1, commit
+   `4f806f210`, sends full input/cache usage in the final message_delta; message_start sends zeros by design)
 6. Trim injected text: skill_listing, agent_listing_delta, duplicated Ptah-CLI project guidance, lane preambles
 
 ## Wave 4 — orchestration and background jobs (:303-324)

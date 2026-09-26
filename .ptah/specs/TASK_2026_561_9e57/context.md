@@ -46,7 +46,9 @@ threshold compaction + entry-time capping + session rotation; not `clear_tool_us
   prerequisite)
 - A1. Budget resolver, Claude (W3.1, :277-281): default `autoCompactWindow` when the user has not set one.
   **Open decision:** tokaudit says default 200000 after one live session; 406 says do not wire it until E2 passes. Gate
-  on E2. Also resolves why `ptah.compaction.*` is "dead configuration" (406) and the 88/88 `autoCompact {}` audit result
+  on E2. Also resolves why `ptah.compaction.*` is "dead configuration" (406) and the 88/88 `autoCompact {}` audit result.
+  Evidence from TASK_2026_408 (2026-09-26): commit `0e4ab524b` removed the context-window override, so for proxied GPT
+  ids the SDK uses its 200k default while the gauge shows the catalog window — include proxied Codex models in E2
 - A2. Budget resolver, Codex (W3.2, :283): `model_auto_compact_token_limit` in `codex-cli.adapter.ts` runSdk config,
   new setting `agentOrchestration.codexAutoCompactTokens`
 - A3. Entry-time capper, Claude (W3.3, :286-289): `PostToolUseHookHandler` returns `updatedToolOutput` for built-in
@@ -62,7 +64,9 @@ threshold compaction + entry-time capping + session rotation; not `clear_tool_us
 - A8. Coordinator (406 §4.1): CompactionCoordinator state machine (IDLE / ARMED / TRIGGERED / COMPACTING / COOLDOWN /
   BACKOFF / OBSERVE_ONLY); `/compact` path with no `endSession` first, rebinding to the new session id; bounded 180 s
   dwell in `no-activity-watchdog.ts arm()`; auto/manual dedup; `IContextUsagePort` with provenance; keep the curator
-  PreCompact reactor; telemetry. Fork/resume rollback only after E4
+  PreCompact reactor; telemetry. Fork/resume rollback only after E4. Dependency: TASK_2026_408 owns mapping
+  `response.failed` / `response.incomplete` in `responses-stream-translator.ts` (ignored today → truncated stream), a
+  possible cause of the 406 Codex-path compaction stall; check its state before designing the Codex path
 - A9. Wave 0 as settings (user request 2026-09-26: "make those settings the user can easily set from our UI and we
   write them down to those files"). New Ptah settings with a UI for the Codex budgets — auto-compact tokens (tokaudit
   0.1, default suggestion 120000) and tool-output token limit (0.2, suggestion 2500), optionally reasoning effort and
@@ -149,6 +153,10 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   pipeline; packaged-app startup after the externals change; live concurrent spool writes. Carried to 559 Batch 21 /
   release — move them here if 559 closes without them
 - `http-server.handler.spec.ts:220` real-port lifecycle spec fails in sandboxes that deny port binding
+- `platform-core` `file-settings-manager.bench.spec.ts:86` hits its 30 s timeout under load (pre-existing; seen
+  during 559 Batch 19)
+- Batch 14 (Moderate, doc gap): `codex-cli.adapter.ts:669` opts in to `resumeRestoresContext` without documenting
+  that a resumed Codex lane still resends the role on the `developer_instructions` config channel (`:630-636`)
 
 ### B8. ptah_workspace_analyze (Batch 10)
 
