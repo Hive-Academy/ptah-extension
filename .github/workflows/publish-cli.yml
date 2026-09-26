@@ -351,6 +351,12 @@ jobs:
       # S8543 — cwe:494, cwe:829). Do not reach into Nx package internals:
       # Nx 23 removed `nx/bin/nx.js`, while this install-generated shim follows
       # the package's current `bin` field.
+      - name: WASM packaging self-tests
+        run: |
+          node scripts/copy-wasm.js --self-test
+          node apps/ptah-electron/scripts/verify-packed-wasm.js --self-test
+          node apps/ptah-cli/scripts/verify-packed-wasm.cjs --self-test
+
       - name: Build (restore-cli-manifest — main.mjs, tui.mjs, embedder-worker.mjs, integrity-worker.mjs, workspace-watch-host.mjs, wasm, manifest)
         run: node_modules/.bin/nx run ptah-cli:restore-cli-manifest
 
@@ -358,14 +364,19 @@ jobs:
         run: |
           DIST=dist/apps/ptah-cli
           for f in main.mjs tui.mjs embedder-worker.mjs integrity-worker.mjs workspace-watch-host.mjs \
-                   package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md \
-                   wasm/web-tree-sitter.wasm wasm/tree-sitter-javascript.wasm wasm/tree-sitter-typescript.wasm \
-                   wasm/tree-sitter-python.wasm wasm/tree-sitter-go.wasm wasm/tree-sitter-c-sharp.wasm; do
+                   package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md; do
             if [[ ! -f "$DIST/$f" ]]; then
               echo "::error::Missing dist file: $DIST/$f"
               exit 1
             fi
           done
+          WASM_FILES=$(node scripts/copy-wasm.js --list)
+          while IFS= read -r f; do
+            if [[ ! -s "$DIST/$f" ]]; then
+              echo "::error::Missing or empty dist WASM file: $DIST/$f"
+              exit 1
+            fi
+          done <<< "$WASM_FILES"
           DIST_VERSION=$(node -p "require('./dist/apps/ptah-cli/package.json').version")
           if [[ "$DIST_VERSION" != "${{ steps.version.outputs.new_version }}" ]]; then
             echo "::error::Dist version ($DIST_VERSION) does not match resolved version (${{ steps.version.outputs.new_version }})"

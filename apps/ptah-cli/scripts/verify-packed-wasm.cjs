@@ -1,168 +1,168 @@
 #!/usr/bin/env node
 /**
- * verify-packed-wasm.js (ptah-cli)
- *
- * Post-restore-manifest gate. Runs a REAL `npm pack` against
- * `dist/apps/ptah-cli` and inspects the resulting `.tgz` to fail the build
- * unless the tree-sitter WASM runtime + grammars are present and non-empty
- * inside it.
- *
- * Why this exists: `TASK_2026_273`. `ptah-cli`/`ptah-tui` register the same
- * AST services as the VS Code extension and Electron, but `copy-wasm.js`
- * used to run only for those two targets, and `apps/ptah-cli/package.json`
- * `files` used to list only the `.mjs` bundles. The dist build could look
- * complete while the published npm tarball still shipped without `wasm/`,
- * silently aborting AST init for every CLI/TUI user. A dist-only check (like
- * "the file exists in dist/") cannot catch that class of bug — the `files`
- * allowlist is applied at `npm pack` time, not at build time. This is the
- * CLI-package sibling of `apps/ptah-electron/scripts/verify-packed-wasm.js`,
- * which guards the Electron asar the same way.
- *
- * Usage: node apps/ptah-cli/scripts/verify-packed-wasm.js
- * Preconditions: `dist/apps/ptah-cli` must already contain a built
- * `main.mjs` and the restored `package.json` (i.e. run after
- * `nx run ptah-cli:restore-cli-manifest`).
+ * Post-restore-manifest gate: inspect a real npm tarball, including npm's
+ * files allowlist, rather than trusting assets in the dist directory.
+ * Usage: node apps/ptah-cli/scripts/verify-packed-wasm.cjs [--self-test]
  */
-
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const assert = require('node:assert/strict');
 const { execFileSync } = require('child_process');
 
-const ROOT = path.resolve(__dirname, '..', '..', '..');
-const DIST_DIR = path.join(ROOT, 'dist', 'apps', 'ptah-cli');
-
-const REQUIRED_WASM = [
-  'wasm/web-tree-sitter.wasm',
-  'wasm/tree-sitter-javascript.wasm',
-  'wasm/tree-sitter-typescript.wasm',
-  'wasm/tree-sitter-python.wasm',
-  'wasm/tree-sitter-go.wasm',
-  // C# (TASK_2026_270 Batch 1b) — largest grammar by far (~4.9 MB raw); see
-  // `scripts/copy-wasm.js` and `workspace-intelligence/src/ast/tree-sitter.config.ts`.
-  'wasm/tree-sitter-c-sharp.wasm',
-];
-
-function fail(message) {
-  console.error(`\n❌ ${message}`);
-  process.exit(1);
-}
-
-if (!fs.existsSync(path.join(DIST_DIR, 'main.mjs'))) {
-  fail(
-    `No build output at ${path.join(DIST_DIR, 'main.mjs')} — run ` +
-      '`nx build ptah-cli` (or `nx run ptah-cli:restore-cli-manifest`) first.',
+const ROOT = path.resolve(__dirname, '../../..');
+const DIST_DIR = path.join(ROOT, 'dist/apps/ptah-cli');
+// Packaging metadata is a JSON file, not a cross-project source import.
+const manifestPath = fs.realpathSync(
+  path.join(ROOT, 'scripts/tree-sitter-grammars.json'),
+);
+const manifestRelative = path.relative(fs.realpathSync(ROOT), manifestPath);
+if (
+  manifestRelative.startsWith('..') ||
+  path.isAbsolute(manifestRelative) ||
+  fs.statSync(manifestPath).size > 128 * 1024
+) {
+  throw new Error(
+    'Grammar manifest must be bounded and contained in the repository',
   );
 }
-if (!fs.existsSync(path.join(DIST_DIR, 'package.json'))) {
-  fail(
-    `No package.json at ${DIST_DIR} — run ` +
-      '`nx run ptah-cli:restore-cli-manifest` first so `npm pack` reads the ' +
-      'real published manifest, not a stale/absent one.',
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+if (
+  manifest.schemaVersion !== 1 ||
+  !Array.isArray(manifest.assets) ||
+  !manifest.assets.every(
+    (row) =>
+      row &&
+      typeof row.active === 'boolean' &&
+      typeof row.filename === 'string' &&
+      /^[a-z0-9-]+\.wasm$/.test(row.filename),
+  ) ||
+  manifest.assets.filter((row) => row.kind === 'runtime' && row.active)
+    .length !== 1 ||
+  new Set(manifest.assets.map((row) => row.filename)).size !==
+    manifest.assets.length
+) {
+  throw new Error('Invalid grammar manifest');
+}
+const REQUIRED_WASM = manifest.assets
+  .filter((row) => row.active)
+  .map((row) => `wasm/${row.filename}`);
+
+function verifyTarball(tarballPath) {
+  // A bare filename avoids MSYS tar treating a Windows drive as a remote host.
+  const cwd = path.dirname(tarballPath);
+  const name = path.basename(tarballPath);
+  const listing = execFileSync('tar', ['-tzf', name], {
+    cwd,
+    encoding: 'utf8',
+    timeout: 60000,
+  });
+  const entries = new Set(
+    listing
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
   );
-}
-
-console.log(`[verify-packed-wasm] Packing ${DIST_DIR} with a real \`npm pack\`...`);
-
-// `shell: true` on both calls below: `npm` resolves to `npm.cmd` on Windows,
-// which `execFileSync` cannot exec directly without a shell in between.
-let tarballName;
-try {
-  const packOut = execFileSync('npm pack', { cwd: DIST_DIR, encoding: 'utf8', shell: true });
-  const lines = packOut.trim().split(/\r?\n/).filter(Boolean);
-  tarballName = lines[lines.length - 1].trim();
-} catch (err) {
-  fail(`\`npm pack\` failed: ${err instanceof Error ? err.message : String(err)}`);
-}
-
-const tarballPath = path.join(DIST_DIR, tarballName);
-if (!tarballName || !fs.existsSync(tarballPath)) {
-  fail(`\`npm pack\` did not produce a tarball at ${tarballPath} (got: "${tarballName}")`);
-}
-console.log(`[verify-packed-wasm] Tarball: ${tarballPath}`);
-
-function cleanup() {
-  try {
-    fs.unlinkSync(tarballPath);
-  } catch {
-    // best-effort cleanup only
+  const problems = [];
+  for (const wasm of REQUIRED_WASM) {
+    const entry = `package/${wasm}`;
+    if (!entries.has(entry)) {
+      problems.push(`${wasm} is missing from the npm tarball`);
+      continue;
+    }
+    let size;
+    try {
+      size = execFileSync('tar', ['-xzf', name, '-O', entry], {
+        cwd,
+        maxBuffer: 20 * 1024 * 1024,
+        timeout: 60000,
+      }).length;
+    } catch (error) {
+      // degradation-audit: reported — unreadable entries fail the packaging gate.
+      problems.push(
+        `${wasm} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      continue;
+    }
+    if (size === 0)
+      problems.push(`${wasm} is present in the tarball but empty (0 bytes)`);
+    else console.log(`[verify] OK  ${wasm} (${(size / 1024).toFixed(1)} KB)`);
   }
+  return problems;
 }
 
-// Run with `cwd: DIST_DIR` and a bare filename, never the absolute path:
-// GNU/MSYS `tar` parses a leading `D:\...` as `host:path` remote-shell
-// syntax (the drive-letter colon looks like a host separator), which fails
-// with "Cannot connect to D: resolve failed" even though the tarball is
-// perfectly valid.
-let listing;
-try {
-  listing = execFileSync('tar', ['-tzf', tarballName], {
+function main() {
+  for (const file of ['main.mjs', 'package.json']) {
+    if (!fs.existsSync(path.join(DIST_DIR, file))) {
+      throw new Error(
+        `Missing CLI build file: ${file}; run nx run ptah-cli:restore-cli-manifest first`,
+      );
+    }
+  }
+  // npm is a .cmd wrapper on Windows; only this fixed command uses a shell.
+  const packOut = execFileSync('npm pack', {
     cwd: DIST_DIR,
     encoding: 'utf8',
+    shell: true,
+    timeout: 120000,
   });
-} catch (err) {
-  cleanup();
-  fail(`Could not list tarball contents: ${err instanceof Error ? err.message : String(err)}`);
-}
-
-console.log('[verify-packed-wasm] Full tarball listing:');
-console.log(listing);
-
-const entries = new Set(
-  listing
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean),
-);
-
-const problems = [];
-for (const wasm of REQUIRED_WASM) {
-  const entry = `package/${wasm}`;
-  if (!entries.has(entry)) {
-    problems.push(`${wasm} is missing from the npm tarball (looked for "${entry}")`);
-    continue;
+  const name = packOut.trim().split(/\r?\n/).filter(Boolean).pop();
+  if (!name || path.basename(name) !== name || !name.endsWith('.tgz')) {
+    throw new Error('npm pack did not return a tarball filename');
   }
-  let size = 0;
+  const tarballPath = path.join(DIST_DIR, name);
+  let problems;
   try {
-    // The C# grammar alone is ~5 MB raw; the default 1 MB maxBuffer truncates
-    // the stdout capture with ENOBUFS before size can even be checked.
-    const buf = execFileSync('tar', ['-xzf', tarballName, '-O', entry], {
-      cwd: DIST_DIR,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-    size = buf.length;
-  } catch (err) {
-    problems.push(
-      `${wasm} could not be read from the tarball: ${err instanceof Error ? err.message : String(err)}`,
+    problems = verifyTarball(tarballPath);
+  } finally {
+    fs.rmSync(tarballPath, { force: true });
+  }
+  if (problems.length) {
+    throw new Error(
+      `Packed CLI WASM verification failed:\n${problems.join('\n')}\nEnsure copy-wasm ran and package.json includes wasm in files.`,
     );
-    continue;
   }
-  if (size === 0) {
-    problems.push(`${wasm} is present in the tarball but empty (0 bytes)`);
-  } else {
-    console.log(`[verify] OK  ${wasm} (${(size / 1024).toFixed(1)} KB)`);
-  }
+  console.log(
+    'Packed npm tarball contains the tree-sitter WASM runtime + active grammars.',
+  );
 }
 
-cleanup();
-
-if (problems.length > 0) {
-  console.error(
-    '\n❌ Packed npm tarball (@hive-academy/ptah-cli) is missing tree-sitter WASM ' +
-      'assets — shipping this makes AST init abort on every file for every CLI/TUI ' +
-      'user, silently:',
+function selfTest() {
+  const dir = fs.mkdtempSync(path.join(ROOT, '.wasm-tar-test-'));
+  try {
+    const fixture = path.join(dir, 'package');
+    fs.mkdirSync(path.join(fixture, 'wasm'), { recursive: true });
+    for (const wasm of REQUIRED_WASM)
+      fs.writeFileSync(path.join(fixture, wasm), 'fixture');
+    const archive = path.join(dir, 'fixture.tgz');
+    function pack() {
+      execFileSync('tar', ['-czf', 'fixture.tgz', 'package'], {
+        cwd: dir,
+        timeout: 60000,
+      });
+      return verifyTarball(archive);
+    }
+    assert.deepEqual(pack(), []);
+    for (const wasm of REQUIRED_WASM) {
+      const file = path.join(fixture, wasm);
+      fs.unlinkSync(file);
+      assert.deepEqual(pack(), [`${wasm} is missing from the npm tarball`]);
+      fs.writeFileSync(file, '');
+      assert.deepEqual(pack(), [
+        `${wasm} is present in the tarball but empty (0 bytes)`,
+      ]);
+      fs.writeFileSync(file, 'fixture');
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  console.log(
+    `CLI WASM self-test PASS: complete tarball; ${REQUIRED_WASM.length} missing and ${REQUIRED_WASM.length} empty asset negatives`,
   );
-  for (const problem of problems) console.error(`   - ${problem}`);
-  console.error(
-    '\n   Fix: ensure `node scripts/copy-wasm.js dist/apps/ptah-cli` ran (the ' +
-      '`copy-wasm` nx target, a dependency of `build`) and that `wasm` is listed in ' +
-      'apps/ptah-cli/package.json `files`.\n',
-  );
-  process.exit(1);
 }
 
-console.log(
-  '\n✅ Packed npm tarball (@hive-academy/ptah-cli) contains the tree-sitter WASM ' +
-    'runtime + grammars.',
-);
+if (require.main === module) {
+  if (process.argv[2] === '--self-test') selfTest();
+  else main();
+}
