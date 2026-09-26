@@ -43,14 +43,14 @@ the new code or the scheduled job is not registered. Unit specs alone do not clo
 
 ## Phases
 
-| # | Phase | Task | Status |
-| --- | --- | --- | --- |
-| 1 | Stop disk growth: daily retention job (processed observations after 7 days, stuck-row quarantine), pre-migration rotation 3 to 1, idle incremental vacuum, storage numbers in diagnostics | TASK_2026_440_834c | done (PR #513) |
-| 2 | Memory age lifecycle (recall to archival after N days unused, delete after M more), salience for ranking only, per-workspace cap | TASK_2026_443_40ec | done (PR #521) |
-| 3 | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted | [TASK_2026_461_639c](../TASK_2026_461_639c/task.md) | in_review |
-| 4 | Activity feed correctness: newest-first, real event ids, grouping, remove the overlapping summary, tiles refresh | not filed | backlog |
-| 5 | Skills evidence-first pipeline: archaeology before authoring, cross-session clustering, promotion from real `skill_invocation_events` | not filed | backlog |
-| 6 | Thoth Overview (Health / Needs attention / Recent outcomes) and a durable, bounded activity ledger | not filed | backlog |
+| #   | Phase                                                                                                                                                                                     | Task                                                | Status         |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------------- |
+| 1   | Stop disk growth: daily retention job (processed observations after 7 days, stuck-row quarantine), pre-migration rotation 3 to 1, idle incremental vacuum, storage numbers in diagnostics | TASK_2026_440_834c                                  | done (PR #513) |
+| 2   | Memory age lifecycle (recall to archival after N days unused, delete after M more), salience for ranking only, per-workspace cap                                                          | TASK_2026_443_40ec                                  | done (PR #521) |
+| 3   | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted                                                     | [TASK_2026_461_639c](../TASK_2026_461_639c/task.md) | in_review      |
+| 4   | Activity feed correctness: newest-first, real event ids, grouping, remove the overlapping summary, tiles refresh                                                                          | not filed                                           | backlog        |
+| 5   | Skills evidence-first pipeline: archaeology before authoring, cross-session clustering, promotion from real `skill_invocation_events`                                                     | not filed                                           | backlog        |
+| 6   | Thoth Overview (Health / Needs attention / Recent outcomes) and a durable, bounded activity ledger                                                                                        | not filed                                           | backlog        |
 
 ## Already done outside the phases (2026-09-14)
 
@@ -60,3 +60,21 @@ the new code or the scheduled job is not registered. Unit specs alone do not clo
 ## Related
 
 - TASK_2026_438_a942 — lane completion contract (found during this tribunal run).
+
+## Resume point (status audit 2026-09-26)
+
+Status: PARTIAL. Phases 1-3 are merged on main. Phases 4-6 have no task and no code.
+
+Shipped:
+
+- Phase 1 — TASK_2026_440_834c, PR #513 (`dbffc1938`)
+- Phase 2 — TASK_2026_443_40ec, PR #521 (`5ebebee76`)
+- Phase 3 — TASK_2026_461_639c, PR #526 (`06b08e6c5`)
+
+Remaining targets:
+
+- [ ] Phase 4 — activity feed correctness (newest-first, real event ids, grouping, tile refresh). File a child task.
+- [ ] Phase 5 — evidence-first skills pipeline (archaeology before authoring, cross-session clustering, promotion from real invocation events). File a child task.
+- [ ] Phase 6 — Thoth Overview (Health, Needs attention, Recent outcomes, bounded activity ledger). File a child task.
+
+Close the umbrella when phases 4-6 are merged, each with its reachability proof.

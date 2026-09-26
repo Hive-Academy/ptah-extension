@@ -80,3 +80,13 @@ repo layout, not Ptah's. Ptah has one plugin tree.
 3. `content-manifest.json` via `npm run manifest:generate`, verified by
    `npm run manifest:check`.
 4. `libs/shared/src/lib/constants/stack-profiles.ts` `PYTHON_PROFILE`.
+
+## Resume point (status audit 2026-09-26)
+
+Status: NOT STARTED. Research, plan and context are complete (`f1d8f2c2e`). No code exists.
+
+Remaining targets: every item in `implementation-plan.md`. First:
+
+- [ ] `apps/ptah-extension-vscode/assets/plugins/ptah-python/` does not exist.
+- [ ] `python-workspace-initializer` and `python-workspace-architect` are only named in `libs/shared/src/lib/constants/stack-profiles.ts`.
+- [ ] `PYTHON_PROFILE.requiredPlugins` is still empty.

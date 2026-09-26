@@ -1,13 +1,14 @@
 ---
 id: TASK_2026_534_lane_console
-status: in_progress
+status: done
 type: feature
 title: Resizable wire console and multi-lane agents panel
 description: >-
   Bring the compact session wire stream to parity with the variant-4 prototype,
   make its recap/stream split resizable and responsive, and give the agents
-  panel a side-by-side multi-CLI lane layout with resizable columns.
-  Follow-up to TASK_2026_512_feaa and TASK_2026_531_compact.
+  panel a side-by-side multi-CLI lane layout with resizable columns. Follow-up
+  to TASK_2026_512_feaa and TASK_2026_531_compact.
+updated: '2026-09-26T14:40:51.996Z'
 ---
 
 # TASK_2026_534 — Resizable wire console and multi-lane agents panel

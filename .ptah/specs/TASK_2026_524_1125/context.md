@@ -346,3 +346,22 @@ confirms no policy is enforced. VS Code logs `no-csp-found` and substitutes
 nothing. `TASK_2026_491_e0da` did the Electron half of this work and is `done`.
 This needs its own carrier. Repairing the match will make the nonce question
 real for the lazy chunks, so the two halves must be fixed together.
+
+## Resume point (status audit 2026-09-26)
+
+Status: PARTIAL. Batches 1-2 of 4 are merged on main. No open branch.
+
+Shipped:
+
+- Batch 1 — PR #564 (`96e3a01d0`): `memory-platform-location.ts`, the route table in `apps/ptah-extension-webview/src/app/app.routes.ts`, `surface-routes.ts`, `surface-router.service.ts`. `LazyViewService` removed.
+- Batch 2 — PR #574 (`11654e367`): `surface-active.ts` and `surface-active.directive.ts`. Canvas gating was taken back out in `f25e00228`.
+- Marketplace child routes arrived through TASK_2026_524_mkpl.
+
+Remaining targets:
+
+- [ ] Batch 3 — `RouteReuseStrategy` replaces the `[class.hidden]` keep-mounted pattern. `app.routes.ts` and `app.config.ts` still mark it "batch 3".
+- [ ] Batch 4 — Thoth sub-tab child routes (`thoth` is a flat route today).
+- [ ] Batch 4 — persist the logical URL through `vscode.setState`.
+- [ ] Batch 4 — `registerWebviewPanelSerializer`.
+- [ ] Acceptance 3 and 4 (reload and restart restore surface and tab), and a dedicated check for acceptance 7 (`CanvasStore` survives navigation).
+- [ ] Add `batches.md` and `test-report.md` for the remaining batches.

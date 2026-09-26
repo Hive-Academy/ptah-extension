@@ -15,7 +15,9 @@ description: >-
   restore the surface and the active chat tab. Consume the navigation sets that
   TASK_2026_492_0bcc defines. Do not route the chat and canvas surfaces, whose
   always-mounted pattern protects CanvasStore.
-updated: '2026-09-23T14:41:53.107Z'
+updated: '2026-09-26T14:40:56.205Z'
+labels:
+  - partial
 ---
 
 # Enable Angular Router in the shared webview behind an in-memory PlatformLocation
