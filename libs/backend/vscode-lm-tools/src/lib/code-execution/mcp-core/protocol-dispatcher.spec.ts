@@ -40,7 +40,10 @@ import {
   formatBrowserContent,
   formatSearchFiles,
 } from './mcp-response-formatter';
-import { buildSearchFilesTool } from './tool-description.builder';
+import {
+  buildBrowserScreenshotTool,
+  buildSearchFilesTool,
+} from './tool-description.builder';
 import { buildServerInstructions } from './server-instructions';
 import {
   getCallerAgentId,
@@ -54,6 +57,10 @@ import type {
   SymbolIndexEntry,
 } from '../types';
 import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import {
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
+} from '../namespace-builders/browser-namespace.builder';
 import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
   SYMBOL_INDEX_MAX_LIMIT,
@@ -3428,6 +3435,266 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     );
     expect(caption).toContain('full output: ');
     expect(onlySpoolFile()).toContain(filePath);
+  });
+
+  // TASK_2026_559 Batch 17 (User Decision 3): the transcript callback gets a
+  // one-line summary, not a second copy of the base64 image.
+  describe('ptah_browser_screenshot transcript summary and default format', () => {
+    function screenshotDeps(
+      screenshot: jest.Mock,
+      onToolResult: jest.Mock,
+    ): ProtocolHandlerDependencies {
+      return buildDeps({
+        onToolResult,
+        ptahAPI: buildPtahAPIStub({
+          browser: { screenshot } as unknown as PtahAPI['browser'],
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: spoolRoot }),
+          } as unknown as PtahAPI['workspace'],
+        }),
+      });
+    }
+
+    it('hands onToolResult a short summary with no base64 while the image stays inline', async () => {
+      const data = 'Q'.repeat(40_000);
+      const screenshot = jest.fn().mockResolvedValue({ data, format: 'jpeg' });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(onToolResult).toHaveBeenCalledTimes(1);
+      const [, text, isError] = onToolResult.mock.calls[0];
+      expect(isError).toBe(false);
+      expect(text).not.toContain('QQQQ');
+      expect(text.length).toBeLessThan(300);
+      expect(text).not.toContain('\n');
+      expect(text).toBe('Screenshot captured (jpeg, ~29KB)');
+      const content = (
+        res.result as { content: Array<{ type: string; data?: string }> }
+      ).content;
+      expect(content[0]).toEqual({
+        type: 'image',
+        data,
+        mimeType: 'image/jpeg',
+      });
+    });
+
+    it('takes the format of a saveTo extension when no format is given, and names the saved path', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'iVBORw0K', format: 'png' });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        { saveTo: 'home.png' },
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(screenshot).toHaveBeenCalledWith({
+        format: 'png',
+        quality: undefined,
+        fullPage: undefined,
+      });
+      const savedPath = path.join(
+        spoolRoot,
+        '.ptah',
+        'screenshots',
+        'home.png',
+      );
+      expect(fs.existsSync(savedPath)).toBe(true);
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text).toBe(
+        `Screenshot captured (png, ~0KB) | Saved to: ${savedPath}`,
+      );
+    });
+
+    // Batch 17 r1 S1: a png picked by the saveTo extension ignores quality.
+    it('captures a saveTo png even with a quality png cannot use', async () => {
+      const capture = jest
+        .fn()
+        .mockResolvedValue({ data: 'iVBORw0K', format: 'png' });
+      const capabilities: IBrowserCapabilities = {
+        configureSession: jest.fn(),
+        navigate: jest.fn(),
+        screenshot: capture,
+        evaluate: jest.fn(),
+        click: jest.fn(),
+        type: jest.fn(),
+        getContent: jest.fn(),
+        getNetworkRequests: jest.fn(),
+        close: jest.fn(),
+        status: jest.fn(),
+        isConnected: jest.fn(),
+        startRecording: jest.fn(),
+        stopRecording: jest.fn(),
+      };
+      const browser = buildBrowserNamespace({ capabilities });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        { saveTo: 'home.png', quality: 50.5 },
+        buildDeps({
+          onToolResult,
+          ptahAPI: buildPtahAPIStub({
+            browser,
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: spoolRoot }),
+            } as unknown as PtahAPI['workspace'],
+          }),
+        }),
+      );
+
+      expect(capture).toHaveBeenCalledWith({
+        format: 'png',
+        quality: undefined,
+        fullPage: undefined,
+      });
+      const content = (
+        res.result as { content: Array<{ type: string; mimeType?: string }> }
+      ).content;
+      expect(content[0].mimeType).toBe('image/png');
+    });
+
+    // Batch 17 r1 M1: the transcript summary stays one line under 300 chars
+    // whatever the saved path; the response caption keeps the full path.
+    it('bounds a long saved path in the transcript summary and keeps the file name', async () => {
+      const filePath = `/shots/${'nested/'.repeat(45)}shot.jpg`;
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'jpeg', filePath });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text.length).toBeLessThan(300);
+      expect(text).toMatch(
+        /^Screenshot captured \(jpeg, ~0KB\) \| Saved to: \/shots\/nested\/.*….*\/shot\.jpg$/,
+      );
+      const caption = (res.result as { content: Array<{ text?: string }> })
+        .content[1].text;
+      expect(caption).toContain(filePath);
+    });
+
+    it('keeps the transcript summary on one line when the saved path has line breaks', async () => {
+      const screenshot = jest.fn().mockResolvedValue({
+        data: 'AAAA',
+        format: 'jpeg',
+        filePath: '/shots/a\nb\r\tc.jpg',
+      });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(onToolResult.mock.calls[0][1]).toBe(
+        'Screenshot captured (jpeg, ~0KB) | Saved to: /shots/a?b??c.jpg',
+      );
+    });
+
+    it('bounds the transcript summary even when the file name alone is too long', async () => {
+      const filePath = `/shots/${'n'.repeat(400)}.jpg`;
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'jpeg', filePath });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text.length).toBeLessThan(300);
+      expect(text).toContain('…');
+      expect(text.endsWith('nnn.jpg')).toBe(true);
+    });
+
+    it.each([
+      ['shot.jpg', 'jpeg'],
+      ['shot.JPEG', 'jpeg'],
+      ['shot.webp', 'webp'],
+      ['shot', undefined],
+      ['shot.bmp', undefined],
+    ])(
+      'maps saveTo %p to format %p when no format is given',
+      async (saveTo, expected) => {
+        const screenshot = jest
+          .fn()
+          .mockResolvedValue({ data: 'AAAA', format: expected ?? 'jpeg' });
+
+        await callTool(
+          'ptah_browser_screenshot',
+          { saveTo },
+          screenshotDeps(screenshot, jest.fn()),
+        );
+
+        expect(screenshot.mock.calls[0][0].format).toBe(expected);
+      },
+    );
+
+    it('honours an explicit format over the saveTo extension', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'png' });
+
+      await callTool(
+        'ptah_browser_screenshot',
+        { format: 'png', saveTo: 'shot.jpg' },
+        screenshotDeps(screenshot, jest.fn()),
+      );
+
+      expect(screenshot.mock.calls[0][0].format).toBe('png');
+    });
+
+    it('leaves the error path unchanged', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: '', format: 'jpeg', error: 'no page' });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = textOf(res);
+      expect(text).toContain('Screenshot Failed');
+      expect(text).toContain('no page');
+      expect(onToolResult).toHaveBeenCalledWith(
+        'budget-ptah_browser_screenshot',
+        text,
+        false,
+      );
+    });
+
+    it('states the jpeg / quality 60 default in the tool description', () => {
+      const tool = buildBrowserScreenshotTool();
+      const props = tool.inputSchema.properties as Record<
+        string,
+        { description: string }
+      >;
+      expect(tool.description).toContain('jpeg at quality 60');
+      expect(props['format'].description).toBe(
+        'Image format (default: "jpeg")',
+      );
+      expect(props['quality'].description).toContain('(default: 60)');
+    });
   });
 
   // Review F3: a throwing observer never replaces the outcome it observes.

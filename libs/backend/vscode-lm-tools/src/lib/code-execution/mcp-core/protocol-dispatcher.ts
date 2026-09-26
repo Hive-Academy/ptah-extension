@@ -1402,8 +1402,10 @@ async function handleIndividualTool(
           fullPage?: boolean;
           saveTo?: string;
         };
+        // No format given: a saveTo extension names it, so the bytes match the
+        // file name; otherwise the namespace default (jpeg) applies.
         const screenshotResult = await ptahAPI.browser.screenshot({
-          format,
+          format: format ?? screenshotFormatForPath(saveTo),
           quality,
           fullPage,
         });
@@ -1438,9 +1440,15 @@ async function handleIndividualTool(
                 ? 'image/webp'
                 : 'image/png';
 
-          const text = formatBrowserScreenshot(screenshotResult);
+          const captured = `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)`;
+          // The transcript gets a bounded one-line summary, not a second copy
+          // of the image; the response caption keeps the full saved path.
           runObserver(() =>
-            deps.onToolResult?.(request.id.toString(), text, false),
+            deps.onToolResult?.(
+              request.id.toString(),
+              screenshotTranscriptSummary(captured, screenshotResult.filePath),
+              false,
+            ),
           );
 
           const savedNote = screenshotResult.filePath
@@ -1449,7 +1457,7 @@ async function handleIndividualTool(
           // Only the text block is budgeted; the image block goes out as is.
           const caption = await budgetToolText(
             request,
-            `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)${savedNote}`,
+            `${captured}${savedNote}`,
             deps,
           );
 
@@ -3306,6 +3314,63 @@ async function toWorkspaceReadPath(
   return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
     ? relative
     : file;
+}
+
+/** Longest transcript summary a screenshot hands to `onToolResult`. */
+const SCREENSHOT_SUMMARY_MAX_CHARS = 299;
+
+/**
+ * One-line screenshot summary for the transcript, at most
+ * {@link SCREENSHOT_SUMMARY_MAX_CHARS}. Control characters become `?`; a
+ * saved path that does not fit loses its middle to `…`, keeping its start and
+ * as much of its file name as fits.
+ */
+function screenshotTranscriptSummary(
+  captured: string,
+  filePath: string | undefined,
+): string {
+  const oneLine = (text: string): string => text.replace(/\p{Cc}/gu, '?');
+  if (!filePath) {
+    return oneLine(captured).slice(0, SCREENSHOT_SUMMARY_MAX_CHARS);
+  }
+  const prefix = oneLine(`${captured} | Saved to: `);
+  const shown = oneLine(filePath);
+  const room = SCREENSHOT_SUMMARY_MAX_CHARS - prefix.length;
+  if (shown.length <= room) {
+    return prefix + shown;
+  }
+  if (room < 2) {
+    return prefix.slice(0, SCREENSHOT_SUMMARY_MAX_CHARS);
+  }
+  const tail = Math.min(
+    room - 1,
+    Math.max(path.basename(shown).length, Math.ceil((room - 1) / 2)),
+  );
+  const head = room - 1 - tail;
+  return `${prefix}${shown.slice(0, head)}…${shown.slice(shown.length - tail)}`;
+}
+
+/**
+ * The screenshot format a `saveTo` file extension names, or `undefined` when
+ * there is no `saveTo` or its extension is not an image format we capture.
+ */
+function screenshotFormatForPath(
+  saveTo: unknown,
+): 'png' | 'jpeg' | 'webp' | undefined {
+  if (typeof saveTo !== 'string') {
+    return undefined;
+  }
+  switch (path.extname(saveTo.trim()).toLowerCase()) {
+    case '.png':
+      return 'png';
+    case '.jpg':
+    case '.jpeg':
+      return 'jpeg';
+    case '.webp':
+      return 'webp';
+    default:
+      return undefined;
+  }
 }
 
 /**

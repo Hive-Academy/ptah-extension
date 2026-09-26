@@ -164,6 +164,107 @@ describe('buildBrowserNamespace — capability-backed', () => {
     });
   });
 
+  // TASK_2026_559 Batch 17 (User Decision 3): jpeg at quality 60 is the
+  // default; an explicit format or quality is honoured.
+  describe('screenshot() format and quality', () => {
+    it('defaults to jpeg at quality 60 when neither is given', async () => {
+      const ns = buildBrowserNamespace(deps);
+      await ns.screenshot();
+      expect(capabilities.screenshot).toHaveBeenCalledWith({
+        format: 'jpeg',
+        quality: 60,
+      });
+    });
+
+    it('defaults to jpeg at quality 60 for an empty params object and keeps fullPage', async () => {
+      const ns = buildBrowserNamespace(deps);
+      await ns.screenshot({ fullPage: true });
+      expect(capabilities.screenshot).toHaveBeenCalledWith({
+        format: 'jpeg',
+        quality: 60,
+        fullPage: true,
+      });
+    });
+
+    it('honours an explicit webp and applies the default quality', async () => {
+      const ns = buildBrowserNamespace(deps);
+      await ns.screenshot({ format: 'webp' });
+      expect(capabilities.screenshot).toHaveBeenCalledWith({
+        format: 'webp',
+        quality: 60,
+      });
+    });
+
+    it('applies an explicit quality given without a format to the jpeg default', async () => {
+      const ns = buildBrowserNamespace(deps);
+      await ns.screenshot({ quality: 85 });
+      expect(capabilities.screenshot).toHaveBeenCalledWith({
+        format: 'jpeg',
+        quality: 85,
+      });
+    });
+
+    it('honours an explicit jpeg quality, including the 0 and 100 bounds', async () => {
+      const ns = buildBrowserNamespace(deps);
+      await ns.screenshot({ format: 'jpeg', quality: 0 });
+      await ns.screenshot({ format: 'jpeg', quality: 100 });
+      expect(capabilities.screenshot.mock.calls.map((c) => c[0])).toEqual([
+        { format: 'jpeg', quality: 0 },
+        { format: 'jpeg', quality: 100 },
+      ]);
+    });
+
+    it.each([[-1], [101], [50.5], [Number.NaN]])(
+      'rejects quality %p without invoking the capability',
+      async (quality) => {
+        const ns = buildBrowserNamespace(deps);
+        const out = await ns.screenshot({ quality });
+        expect(out).toEqual({
+          data: '',
+          format: 'jpeg',
+          error: 'Invalid quality. Must be an integer between 0 and 100.',
+        });
+        expect(capabilities.screenshot).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([['webp' as const], ['jpeg' as const]])(
+      'rejects an out-of-range quality for an explicit %s',
+      async (format) => {
+        const ns = buildBrowserNamespace(deps);
+        const out = await ns.screenshot({ format, quality: 101 });
+        expect(out.error).toBe(
+          'Invalid quality. Must be an integer between 0 and 100.',
+        );
+        expect(capabilities.screenshot).not.toHaveBeenCalled();
+      },
+    );
+
+    // Batch 17 r1 S1: png ignores quality, so no quality value blocks it.
+    it.each([[undefined], [-1], [101], [50.5], [Number.NaN], [80]])(
+      'captures an explicit png with quality %p and sends no quality',
+      async (quality) => {
+        const ns = buildBrowserNamespace(deps);
+        const out = await ns.screenshot({ format: 'png', quality });
+        expect(out.error).toBeUndefined();
+        expect(capabilities.screenshot).toHaveBeenCalledTimes(1);
+        const sent = capabilities.screenshot.mock.calls[0][0];
+        expect(sent?.format).toBe('png');
+        expect(sent?.quality).toBeUndefined();
+      },
+    );
+
+    it('reports the resolved default format when the capability throws', async () => {
+      capabilities.screenshot.mockRejectedValueOnce(new Error('no page'));
+      const ns = buildBrowserNamespace(deps);
+      await expect(ns.screenshot()).resolves.toEqual({
+        data: '',
+        format: 'jpeg',
+        error: 'no page',
+      });
+    });
+  });
+
   it('evaluate() rejects oversized expressions without invoking capability', async () => {
     const ns = buildBrowserNamespace(deps);
     const huge = 'x'.repeat(65 * 1024);
@@ -208,6 +309,34 @@ describe('buildBrowserNamespace — capability-backed', () => {
 // ---------------------------------------------------------------------------
 // Graceful degradation
 // ---------------------------------------------------------------------------
+
+// Batch 17 r1: the CLI registers a placeholder under the browser token that
+// has none of the IBrowserCapabilities methods (cli-engine container.ts).
+describe('buildBrowserNamespace — placeholder host without browser methods', () => {
+  const cliPlaceholder = {
+    launch: async () => {
+      throw new Error('Browser automation not available in CLI');
+    },
+    close: async () => undefined,
+    getStatus: () => ({ launched: false }),
+  } as unknown as IBrowserCapabilities;
+
+  it('answers screenshot() with the not-available error instead of a TypeError', async () => {
+    const ns = buildBrowserNamespace({ capabilities: cliPlaceholder });
+    const out = await ns.screenshot();
+    expect(out.data).toBe('');
+    expect(out.error).toMatch(
+      /^Browser capabilities not available on this platform\./,
+    );
+  });
+
+  it('answers navigate() and status() the same way', async () => {
+    const ns = buildBrowserNamespace({ capabilities: cliPlaceholder });
+    const nav = await ns.navigate({ url: 'https://example.com' });
+    expect(nav.error).toMatch(/not available on this platform/);
+    await expect(ns.status()).resolves.toEqual({ connected: false });
+  });
+});
 
 describe('buildBrowserNamespace — graceful degradation', () => {
   it('every method returns a fixed error payload indicating unavailability', async () => {

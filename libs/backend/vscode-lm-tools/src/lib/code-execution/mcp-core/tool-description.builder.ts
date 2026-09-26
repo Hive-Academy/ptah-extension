@@ -1050,6 +1050,7 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
     name: 'ptah_browser_screenshot',
     description:
       'Take a screenshot of the current browser page. Returns the image as base64-encoded data. ' +
+      'Defaults to jpeg at quality 60; pass format "png" for a lossless image. ' +
       'Optionally saves the screenshot to disk in the workspace. ' +
       'Use this for visual verification of UI changes, layout inspection, or capturing test evidence.',
     inputSchema: {
@@ -1058,12 +1059,12 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
         format: {
           type: 'string',
           enum: ['png', 'jpeg', 'webp'],
-          description: 'Image format (default: "png")',
+          description: 'Image format (default: "jpeg")',
         },
         quality: {
           type: 'number',
           description:
-            'Image quality 0-100 for jpeg/webp (default: 80). Ignored for png.',
+            'Image quality, an integer 0-100, for jpeg/webp (default: 60). Ignored for png.',
         },
         fullPage: {
           type: 'boolean',
