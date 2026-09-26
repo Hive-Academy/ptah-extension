@@ -134,6 +134,7 @@ import {
   WorkspaceRpcHandlers,
   AgentRpcHandlers,
   FilePickerRpcHandlers,
+  CapabilityRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -797,10 +798,16 @@ export class CliDIContainer {
       container.registerSingleton(ProviderRpcHandlers);
       container.registerSingleton(WebSearchRpcHandlers);
       container.registerSingleton(WorkspaceRpcHandlers);
+      // `capabilities:*` (TASK_2026_560, AC-3.1). It injects
+      // SDK_CAPABILITY_RESOLVER, which registerCliAgentRuntimeServices
+      // registered in Phase 2 above.
+      container.registerSingleton(CapabilityRpcHandlers);
       registerSharedRpcHandlers(container);
       activateSessionLifecycleNotifier(container);
 
-      logger.info('[CLI DI] Shared RPC handler classes registered (18)');
+      // 15 above + the 4 handler classes registerSharedRpcHandlers adds (its
+      // fifth registration, SessionLifecycleNotifier, is not a handler).
+      logger.info('[CLI DI] Shared RPC handler classes registered (19)');
 
       const enhancedPrompts = container.resolve<EnhancedPromptsService>(
         AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE,

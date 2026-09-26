@@ -28,7 +28,9 @@ import {
   NativeTabGroupComponent,
   type NativeTab,
 } from '@ptah-extension/ui';
+import type { CapabilityEntry, CapabilityScope } from '@ptah-extension/shared';
 
+import { CapabilityTogglesStore } from '../../data/capability-toggles.store';
 import { ConnectorLinksStore } from '../../data/connector-links.store';
 import { PTAH_SESSIONS_LABEL } from '../../data/coverage';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
@@ -40,6 +42,7 @@ import {
 } from '../../data/provider-row';
 import { decodeServerRef, encodeServerRef } from '../../data/server-ref';
 import { HarnessHealthStore } from '../../harness/harness-health.store';
+import { CapabilityToggleComponent } from '../../ui/capability-toggle.component';
 import { CopyCommandButtonComponent } from '../../ui/copy-command-button.component';
 import { DirectRemovalConfirmComponent } from '../../ui/direct-removal-confirm.component';
 import { providerRowKindLabel } from '../../ui/provider-table.component';
@@ -49,6 +52,13 @@ import {
   findGroupByRef,
   injectProviderRows,
 } from '../../data/installed-provider-rows';
+import {
+  capabilityScopeLabels,
+  declarationName,
+  declarationScopeLabel,
+  mcpNotEnforcedNote,
+  schemaSizeText,
+} from './installed-servers-page.component';
 
 type DetailTab = 'overview' | 'targets' | 'config';
 
@@ -121,6 +131,13 @@ export function formatDetailDate(value: string): string {
  *   command instead of a button.
  * - Reconnect (OAuth, Smithery) goes through `ConnectorLinksStore.reconnect`,
  *   the installed-row form of `authorize`.
+ * - Use in sessions (TASK_2026_560, plan C10): the capability row for the
+ *   server's name offers two switches, one per layer — "This workspace only"
+ *   writes the workspace, "All workspaces" writes global, and neither ever
+ *   writes the other (AC-2.3). The Overview lists the scope labels, every
+ *   declaration of the name (a list, whatever its length) and the schema size,
+ *   "size unknown" while no figure exists. A failed or missing capability read
+ *   leaves the rest of the detail as it was.
  */
 @Component({
   selector: 'ptah-server-detail',
@@ -130,6 +147,7 @@ export function formatDetailDate(value: string): string {
     LucideAngularModule,
     BrandMarkComponent,
     NativeTabGroupComponent,
+    CapabilityToggleComponent,
     CopyCommandButtonComponent,
     DirectRemovalConfirmComponent,
     StatusPillComponent,
@@ -143,6 +161,7 @@ export class ServerDetailComponent {
   private readonly inventory = inject(MarketplaceInventoryStore);
   private readonly links = inject(ConnectorLinksStore);
   private readonly harness = inject(HarnessHealthStore);
+  protected readonly capabilities = inject(CapabilityTogglesStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -338,11 +357,49 @@ export class ServerDetailComponent {
     });
   });
 
+  // ── Use in sessions ────────────────────────────────────────────────────────
+
+  protected readonly scopeLabels = capabilityScopeLabels;
+  protected readonly scopeLabel = declarationScopeLabel;
+  protected readonly declarationName = declarationName;
+  /** Printed once for both switches (same for every MCP item). */
+  protected readonly notEnforcedNote = mcpNotEnforcedNote();
+
+  /**
+   * The capability row for this server's name, or `null` while the read has
+   * not landed, failed, or knows no such name. Rows of every origin that share
+   * a name share it: a session loads one server per name.
+   */
+  protected readonly capability = computed((): CapabilityEntry | null => {
+    const row = this.row();
+    if (row === null) return null;
+    return (
+      this.capabilities.entryOf({ kind: 'mcp', id: row.serverKey }) ?? null
+    );
+  });
+
+  /** AC-5.1 / AC-5.2: a measured figure, else "size unknown". */
+  protected readonly sizeText = computed(() =>
+    schemaSizeText(this.capability()),
+  );
+
+  /**
+   * The layer the last toggle here wrote. The store keeps one error per item,
+   * so it is shown under the switch that caused it, not under both.
+   */
+  private readonly lastWriteScope = signal<CapabilityScope | null>(null);
+
+  protected readonly workspaceError = computed(() =>
+    this.errorFor('workspace'),
+  );
+  protected readonly globalError = computed(() => this.errorFor('global'));
+
   public constructor() {
-    // Both reads are part of the hosting page's own RPC set; `ensure` is a
+    // The reads are part of the hosting page's own RPC set; `ensure` is a
     // no-op once the page asked, and covers a detail opened by a deep link.
     void this.inventory.ensure('installed');
     void this.links.ensure();
+    void this.capabilities.ensure();
 
     // A new server resets the transient action state (the tab is kept, so
     // stepping through rows compares the same facet).
@@ -352,8 +409,33 @@ export class ServerDetailComponent {
         this.confirming.set(false);
         this.actionError.set(null);
         this.actionInfo.set(null);
+        this.lastWriteScope.set(null);
       });
     });
+  }
+
+  /**
+   * One switch's write, to exactly the layer that switch names: the
+   * workspace switch never writes global, the global one never the
+   * workspace (AC-2.3).
+   */
+  protected setEnabled(
+    entry: CapabilityEntry,
+    scope: CapabilityScope,
+    enabled: boolean,
+  ): void {
+    this.lastWriteScope.set(scope);
+    void this.capabilities.setEnabled(entry, scope, enabled);
+  }
+
+  protected reloadCapabilities(): void {
+    void this.capabilities.reload();
+  }
+
+  private errorFor(scope: CapabilityScope): string | null {
+    const entry = this.capability();
+    if (entry === null || this.lastWriteScope() !== scope) return null;
+    return this.capabilities.errorFor(entry);
   }
 
   protected selectTab(id: string): void {

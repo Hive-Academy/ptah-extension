@@ -17,7 +17,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import type { AgentRoleDefinition, AuthEnv } from '@ptah-extension/shared';
+import type {
+  AgentRoleDefinition,
+  AuthEnv,
+  EffectiveCapabilitySet,
+} from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -29,8 +33,12 @@ import {
   CompactionHookHandler,
   CompactionConfigProvider,
   assembleSystemPrompt,
+  capabilityFlagsFor,
+  capabilityIsolationOptions,
+  filterMcpServersByPolicy,
   getActiveProviderId,
   resolveAutoCompactControl,
+  unverifiedCapabilityPolicy,
   type AutoCompactSettings,
   type HookEvent,
   type HookCallbackMatcher,
@@ -70,6 +78,17 @@ export interface PtahSpawnAssembly {
    * already folded into `systemPromptContent` and never reaches here.
    */
   readonly outputStyleName: string | undefined;
+  /**
+   * Flag-tier capability lists (TASK_2026_560, C5), merged by the caller
+   * through `buildFlagSettingsArg`. They ride the flag tier, so a spawn on a
+   * custom-base-URL provider enforces exactly what a direct one does.
+   */
+  readonly capabilityFlags: ReturnType<typeof capabilityFlagsFor>;
+  /**
+   * `{strictMcpConfig: true, skills: []}` when the policy is unverified, `{}`
+   * when it is verified. Spread by the caller into the SDK options.
+   */
+  readonly capabilityIsolation: ReturnType<typeof capabilityIsolationOptions>;
 }
 
 /**
@@ -122,8 +141,7 @@ export class PtahCliSpawnOptions {
      */
     @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { isOptional: true })
     private readonly outputStyleActivation:
-      | OutputStyleSessionActivationService
-      | undefined,
+      OutputStyleSessionActivationService | undefined,
   ) {}
 
   /**
@@ -144,6 +162,10 @@ export class PtahCliSpawnOptions {
    *   rides the MCP URL as `/agent/{id}`, which is how the MCP server learns
    *   which spawned agent is calling `ptah_agent_report`. Absent yields the
    *   pre-existing workspace-only URL and an unattributed caller.
+   * @param capabilityPolicy - The capability policy `PtahCliRegistry`
+   *   resolved for `cwd` (TASK_2026_560). Absent is treated as unverified, so
+   *   a caller that supplies none can only narrow the spawn, never widen it
+   *   (R8).
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -154,6 +176,7 @@ export class PtahCliSpawnOptions {
     sessionContext?: PtahSpawnSessionContext,
     agentId?: string,
     role?: AgentRoleDefinition,
+    capabilityPolicy?: EffectiveCapabilitySet,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -181,17 +204,39 @@ export class PtahCliSpawnOptions {
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
-    const mcpServers: Record<string, McpHttpServerConfig> = mcpServerRunning
-      ? {
-          ptah: {
-            type: 'http' as const,
-            // Scoped to the spawn's cwd so the server attributes this agent's
-            // calls to the right workspace (TASK_2026_364), and to the agent
-            // id so it attributes them to the right agent (TASK_2026_402).
-            url: ptahMcpServerUrl(mcpPort, cwd, agentId),
-          },
-        }
-      : {};
+    const policy =
+      capabilityPolicy ??
+      unverifiedCapabilityPolicy(
+        cwd,
+        'no capability policy was supplied to the Ptah CLI spawn',
+      );
+    if (policy.status !== 'verified') {
+      this.logger.warn(
+        '[PtahCliSpawnOptions] Capability policy is unverified — strict MCP with Ptah only, no skills',
+        { cwd, reasons: policy.reasons },
+      );
+    }
+    // A spawn has no MCP back-off set of its own; the only lists are the
+    // policy's.
+    const capabilityFlags = capabilityFlagsFor(policy, []);
+    const builtMcpServers: Record<string, McpHttpServerConfig> =
+      mcpServerRunning
+        ? {
+            ptah: {
+              type: 'http' as const,
+              // Scoped to the spawn's cwd so the server attributes this agent's
+              // calls to the right workspace (TASK_2026_364), and to the agent
+              // id so it attributes them to the right agent (TASK_2026_402).
+              url: ptahMcpServerUrl(mcpPort, cwd, agentId),
+            },
+          }
+        : {};
+    // ptah is dropped only when the policy turned it OFF.
+    const mcpServers = filterMcpServersByPolicy(
+      builtMcpServers,
+      policy,
+      capabilityFlags.deniedMcpServers,
+    );
     const parentSessionId = blankToUndefined(sessionContext?.parentSessionId);
     const ownSessionId = blankToUndefined(sessionContext?.ownSessionId);
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
@@ -253,6 +298,7 @@ export class PtahCliSpawnOptions {
       parentSessionId: parentSessionId ?? null,
       ownSessionId: ownSessionId ?? null,
       role: role?.name ?? null,
+      capabilityPolicy: policy.status,
     });
 
     return {
@@ -262,6 +308,8 @@ export class PtahCliSpawnOptions {
       hooks,
       autoCompact,
       outputStyleName: outputStyle.outputStyleName,
+      capabilityFlags,
+      capabilityIsolation: capabilityIsolationOptions(policy),
     };
   }
 

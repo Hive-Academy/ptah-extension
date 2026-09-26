@@ -91,6 +91,7 @@ import {
 import { InternalQueryService } from '../internal-query';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { HarnessPolicySync } from '../harness/harness-policy-sync';
 import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
@@ -425,11 +426,38 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  container.register(
-    SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE,
-    { useClass: McpServerBackoffService },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // `instanceCachingFactory` rather than `useClass`, for the same reason as
+  // the compaction registry above: the untokened `options?:
+  // McpServerBackoffOptions` parameter (an interface) emits `Object` in
+  // `design:paramtypes`, so tsyringe's auto-wiring throws "TypeInfo not known
+  // for \"Object\"" through every consumer (`SdkQueryOptionsBuilder`,
+  // `CapabilityResolverService` in cli-agent-runtime). The optional callback
+  // registries keep their `isOptional` semantics: passed only when registered.
+  container.register(SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new McpServerBackoffService(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.isRegistered(
+            SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
+            true,
+          )
+            ? c.resolve<SessionMcpStatusCallbackRegistry>(
+                SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
+              )
+            : undefined,
+          undefined,
+          c.isRegistered(
+            SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+            true,
+          )
+            ? c.resolve<SessionIdResolvedCallbackRegistry>(
+                SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+              )
+            : undefined,
+        ),
+    ),
+  });
 
   container.registerSingleton(
     SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
@@ -543,6 +571,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Singleton: it remembers, per workspace root, the last policy fingerprint a
+  // harness pass acknowledged (TASK_2026_560, N4).
+  container.register(
+    SDK_TOKENS.SDK_HARNESS_POLICY_SYNC,
+    { useClass: HarnessPolicySync },
     { lifecycle: Lifecycle.Singleton },
   );
 

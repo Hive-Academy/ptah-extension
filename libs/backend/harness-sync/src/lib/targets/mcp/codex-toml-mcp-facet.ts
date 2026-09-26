@@ -29,6 +29,7 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import type {
   HarnessTargetId,
@@ -36,10 +37,18 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
-import { withWindowsRetrySync } from '../../fs/windows-retry';
+import {
+  describeError,
+  errorCode,
+  withWindowsRetrySync,
+} from '../../fs/windows-retry';
 import { codexHomeConfigFile, type CodexHomeOptions } from './codex-home';
 import { withMcpConfigLock } from './mcp-config-lock';
-import type { IHarnessMcpFacet } from './mcp-facet.port';
+import type {
+  IHarnessMcpFacet,
+  McpFacetInspection,
+  McpSourceStatus,
+} from './mcp-facet.port';
 
 const TABLE_PREFIX = 'mcp_servers.';
 
@@ -108,6 +117,46 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
 
   readAll(workspaceRoot = ''): Map<string, McpServerConfig> {
     return parseMcpServerTables(this.readFile(workspaceRoot));
+  }
+
+  /**
+   * The servers the file declares, and whether the file could be read at all.
+   *
+   * Goes through {@link readStatus}, never {@link readFile}: the legacy reader
+   * turns EACCES into an empty string, which would report an unreadable config
+   * as one that declares nothing (N9). The scanner itself never fails, so a
+   * readable file is always `ok`.
+   *
+   * **`ok` is "readable", not "fully understood".** {@link parseMcpServerTables}
+   * skips lines and table headers it cannot interpret (see the file header),
+   * so a present-but-exotic table can drop out of `servers` while the status
+   * stays `ok`. A caller that turns this inventory into a policy decision must
+   * not read "absent from `servers`" as "the user declared no such server".
+   * Quoted-key tables are the known case; parsing them is PR 2 (C4b).
+   *
+   * **No empty-file re-read, unlike `JsonMcpFacet.inspect`.** Batch 4 leaves
+   * this out on purpose:
+   * - The home scope is one global file, not a per-workspace one a project
+   *   tool rewrites on every save. Ptah's own writes to it are atomic
+   *   (temp+rename). A torn write by the user's editor or by Codex is possible
+   *   but rare, and it is accepted for PR 1.
+   * - TOML robustness as a whole (quoted keys, partial tables) is Batch 18's
+   *   job, and a torn-write rule belongs with it rather than half of it here.
+   * - PR 1 reports Codex lanes as "not enforced", so no policy decision rests
+   *   on an `ok`-and-empty answer from this facet yet.
+   *
+   * An empty file therefore reads as `ok` with no servers.
+   */
+  async inspect(workspaceRoot = ''): Promise<McpFacetInspection> {
+    const read = await this.readStatus(workspaceRoot);
+    if (read.status !== 'ok') {
+      return {
+        status: read.status,
+        ...(read.error === undefined ? {} : { error: read.error }),
+        servers: new Map(),
+      };
+    }
+    return { status: 'ok', servers: parseMcpServerTables(read.text) };
   }
 
   canonicalize(config: McpServerConfig): McpServerConfig {
@@ -191,6 +240,29 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
       return readFileSync(path, 'utf-8');
     } catch {
       return '';
+    }
+  }
+
+  /**
+   * Read the config file, keeping the reason a read failed.
+   *
+   * Only ENOENT is `missing` — a machine where Codex was never configured.
+   * Every other failure (EACCES, EISDIR, a sharing violation) is `error`: the
+   * file exists and its contents are unknown. A workspace-scoped facet with no
+   * workspace has no file to read, which is `missing` too.
+   */
+  private async readStatus(workspaceRoot = ''): Promise<{
+    status: McpSourceStatus;
+    text: string;
+    error?: string;
+  }> {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) return { status: 'missing', text: '' };
+    try {
+      return { status: 'ok', text: await readFile(path, 'utf-8') };
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return { status: 'missing', text: '' };
+      return { status: 'error', text: '', error: describeError(error) };
     }
   }
 

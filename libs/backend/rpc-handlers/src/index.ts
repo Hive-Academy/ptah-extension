@@ -33,6 +33,7 @@ export {
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
+  CapabilityRpcHandlers,
   OutputStyleRpcHandlers,
   SkillsShRpcHandlers,
   GitRpcHandlers,

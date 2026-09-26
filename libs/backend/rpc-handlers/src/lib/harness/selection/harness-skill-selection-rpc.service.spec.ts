@@ -99,7 +99,7 @@ afterEach(() => {
 
 describe('HarnessSkillSelectionRpcService', () => {
   describe('harness:get-skill-selection', () => {
-    it('never writes state.json — a derived decision is not a write', () => {
+    it('never writes state.json — a derived decision is not a write', async () => {
       const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
       const gate = new SkillSyncGate(new ManagedManifestStore());
       const service = new HarnessSkillSelectionRpcService(
@@ -112,7 +112,7 @@ describe('HarnessSkillSelectionRpcService', () => {
       const statePath = harnessStatePath(root);
       expect(existsSync(statePath)).toBe(false);
 
-      const result = service.getSelection();
+      const result = await service.getSelection();
 
       // The mode had to be DERIVED (no manifests exist for a fresh workspace,
       // so `SkillSyncGate.resolve` falls back to 'selected' with no slugs) —
@@ -123,7 +123,7 @@ describe('HarnessSkillSelectionRpcService', () => {
       expect(existsSync(statePath)).toBe(false);
     });
 
-    it('still reports nothing written when a prior selection already exists on disk', () => {
+    it('still reports nothing written when a prior selection already exists on disk', async () => {
       const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
       const gate = new SkillSyncGate(new ManagedManifestStore());
       gate.select(root, ['already-chosen']);
@@ -137,7 +137,7 @@ describe('HarnessSkillSelectionRpcService', () => {
         workspaceProviderFor(root),
       );
 
-      const result = service.getSelection();
+      const result = await service.getSelection();
 
       expect(result.mode).toBe('selected');
       expect(result.slugs).toEqual(['already-chosen']);
@@ -310,7 +310,7 @@ describe('HarnessSkillSelectionRpcService', () => {
   });
 
   describe('`available`', () => {
-    it('includes an overlay-only slug — dropping it would let the first `selected` save reap it silently', () => {
+    it('includes an overlay-only slug — dropping it would let the first `selected` save reap it silently', async () => {
       const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
       const skillsRoot = track(
         mkdtempSync(join(tmpdir(), 'ptah-skill-selection-user-')),
@@ -344,7 +344,7 @@ describe('HarnessSkillSelectionRpcService', () => {
         workspaceProviderFor(root),
       );
 
-      const result = service.getSelection();
+      const result = await service.getSelection();
 
       const candidate = result.available.find(
         (c) => c.slug === 'overlay-only-skill',
@@ -353,7 +353,7 @@ describe('HarnessSkillSelectionRpcService', () => {
       expect(candidate?.pluginId).toBe('ptah-harness-demo');
     });
 
-    it('reports a null pluginId for a user-authored (or synth) skill without treating it as an error', () => {
+    it('reports a null pluginId for a user-authored (or synth) skill without treating it as an error', async () => {
       const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
       const skillsRoot = track(
         mkdtempSync(join(tmpdir(), 'ptah-skill-selection-user-')),
@@ -383,13 +383,49 @@ describe('HarnessSkillSelectionRpcService', () => {
         workspaceProviderFor(root),
       );
 
-      const result = service.getSelection();
+      const result = await service.getSelection();
 
       const candidate = result.available.find(
         (c) => c.slug === 'hand-authored-skill',
       );
       expect(candidate).toBeDefined();
       expect(candidate?.pluginId).toBeNull();
+    });
+
+    it('reads the catalogue from a resolver that answers asynchronously (layered capability policy)', async () => {
+      const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
+      const skillsRoot = track(
+        mkdtempSync(join(tmpdir(), 'ptah-skill-selection-user-')),
+      );
+      writeSkillMd(
+        join(skillsRoot, 'async-skill'),
+        'Async Skill',
+        'Offered even when the source state arrives as a Promise.',
+      );
+      const service = new HarnessSkillSelectionRpcService(
+        fakeLogger(),
+        new SkillSyncGate(new ManagedManifestStore()),
+        {
+          resolve: (): Promise<HarnessSourceState> =>
+            Promise.resolve({
+              layout: {
+                skillsRoot,
+                commandsRoot: skillsRoot,
+                agentsRoot: skillsRoot,
+              },
+              overlayPluginPaths: [],
+              overlayPluginPathsKnown: true,
+              disabledSkillIds: [],
+              disabledPluginIds: [],
+            }),
+        },
+        { propagate: jest.fn() } as unknown as HarnessPropagationService,
+        workspaceProviderFor(root),
+      );
+
+      const result = await service.getSelection();
+
+      expect(result.available.map((c) => c.slug)).toEqual(['async-skill']);
     });
   });
 });

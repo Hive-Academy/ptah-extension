@@ -26,6 +26,9 @@ type AuthMethod = 'claudeCli' | 'apiKey' | 'thirdParty';
 /** The subset of the SDK query options these specs assert on. */
 interface CapturedQueryOptions {
   env: Record<string, string | undefined>;
+  strictMcpConfig?: boolean;
+  mcpServers?: Record<string, unknown>;
+  skills?: string[] | 'all';
   spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess;
 }
 
@@ -519,6 +522,26 @@ describe('SdkModelService', () => {
       spawner?.(spawnOptions);
 
       expect(h.offThreadSpawns).toEqual([spawnOptions]);
+    });
+  });
+
+  describe('capability isolation (TASK_2026_560, C5)', () => {
+    it('probes with strict MCP config, no MCP servers and no skills', async () => {
+      const h = makeHarness({
+        authMethod: 'claudeCli',
+        sdkModels: [
+          { value: 'sonnet', displayName: 'Sonnet', description: '' },
+        ],
+      });
+
+      await h.service.getSupportedModels();
+
+      expect(h.queryOptions).toHaveLength(1);
+      expect(h.queryOptions[0]).toMatchObject({
+        strictMcpConfig: true,
+        mcpServers: {},
+        skills: [],
+      });
     });
   });
 });

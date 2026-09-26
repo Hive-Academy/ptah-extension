@@ -95,6 +95,12 @@ import {
   type TaskSpecWriterLike,
   type TaskSpecIndexLike,
 } from './namespace-builders';
+// Imported from the builder file, not the barrel: the helper is this
+// service's own concern and is not part of the namespace-builder surface.
+import {
+  resolveEffectivePluginPaths,
+  type EffectivePluginPolicySource,
+} from './namespace-builders/harness-namespace.builder';
 import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
 import {
@@ -238,10 +244,13 @@ interface EnhancedPromptsServiceLike {
   getEnhancedPromptContent(workspacePath: string): Promise<string | null>;
 }
 
-interface PluginLoaderLike {
-  getWorkspacePluginConfig(): { enabledPluginIds: string[] };
-  resolvePluginPaths(pluginIds: string[]): string[];
-  resolveCurrentPluginPaths(): string[];
+/**
+ * Structural slice of agent-sdk's `PluginLoaderService`. Every policy read goes
+ * through `getEffectivePluginConfig` (workspace ?? global ?? default); the
+ * loader's synchronous workspace-only reads are deliberately absent.
+ */
+interface PluginLoaderLike extends EffectivePluginPolicySource {
+  resolvePluginPaths(pluginIds: string[], workspaceRoot?: string): string[];
   discoverSkillsForPlugins(pluginPaths: string[]): Array<{
     skillId: string;
     descriptorId: string;
@@ -252,7 +261,6 @@ interface PluginLoaderLike {
     sourceId: string;
     invocability: 'invocable' | 'not-invocable' | 'unknown';
   }>;
-  getDisabledSkillIds(): string[];
 }
 
 interface PtahCliRegistryLike {
@@ -373,13 +381,11 @@ export class PtahAPIBuilder {
 
     @inject(SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
     private readonly sdkSessionLifecycleManager:
-      | SdkSessionLifecycleManagerLike
-      | undefined,
+      SdkSessionLifecycleManagerLike | undefined,
 
     @inject(ENHANCED_PROMPTS_SERVICE_TOKEN, { isOptional: true })
     private readonly enhancedPromptsService:
-      | EnhancedPromptsServiceLike
-      | undefined,
+      EnhancedPromptsServiceLike | undefined,
 
     @inject(SDK_PLUGIN_LOADER, { isOptional: true })
     private readonly pluginLoader: PluginLoaderLike | undefined,
@@ -391,8 +397,7 @@ export class PtahAPIBuilder {
      */
     @inject(HARNESS_SYNC_RECONCILER, { isOptional: true })
     private readonly harnessReconciler:
-      | ConstructorParameters<typeof McpInstallService>[0]
-      | undefined,
+      ConstructorParameters<typeof McpInstallService>[0] | undefined,
 
     @inject(SDK_PTAH_CLI_REGISTRY, { isOptional: true })
     private readonly ptahCliRegistry: PtahCliRegistryLike | undefined,
@@ -667,24 +672,15 @@ export class PtahAPIBuilder {
           },
           getPluginPaths: async () => {
             if (!this.pluginLoader) return undefined;
-            try {
-              const config = this.pluginLoader.getWorkspacePluginConfig();
-              if (
-                !config.enabledPluginIds ||
-                config.enabledPluginIds.length === 0
-              ) {
-                return undefined;
-              }
-              return this.pluginLoader.resolvePluginPaths(
-                config.enabledPluginIds,
-              );
-            } catch {
-              // degradation-audit: optional-capability - plugin paths are an
-              // optional enrichment for the agent's context; a config read or
-              // resolution failure degrades to "no plugin paths" rather than
-              // blocking agent namespace construction.
-              return undefined;
-            }
+            // The layered policy, so a global ON opt-in plugin reaches the
+            // spawned agent; an unreadable policy yields no plugin paths
+            // (restrictive) and is logged by the helper. No workspace fallback
+            // to the home directory: `undefined` reads the active workspace.
+            return resolveEffectivePluginPaths(
+              this.pluginLoader,
+              this.resolveSessionWorkspaceRoot(),
+              this.logger,
+            );
           },
           getPtahCliRegistry: () => {
             return this.ptahCliRegistry;
@@ -835,6 +831,8 @@ export class PtahAPIBuilder {
           // through the same reconcile pass.
           mcpInstaller: new McpInstallService(this.harnessReconciler ?? null),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
+          // Same root source as `getPluginPaths`: never the home fallback.
+          getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {
               this.logger.debug(

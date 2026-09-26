@@ -5,7 +5,11 @@ import * as os from 'os';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  EffectiveCapabilitySet,
+  ICapabilityResolver,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   createFakeAsyncGenerator,
@@ -121,6 +125,7 @@ function makeRunner(
     }) => Query;
     authEnv?: AuthEnv;
     extensionPath?: string;
+    capabilityResolver?: ICapabilityResolver;
   } = {},
 ): RunnerHarness {
   const logger = createMockLogger();
@@ -178,6 +183,7 @@ function makeRunner(
     modelService,
     platformInfo as unknown as IPlatformInfo,
     processSpawner as unknown as OffThreadProcessSpawner,
+    opts.capabilityResolver ?? null,
   );
 
   return {
@@ -371,6 +377,118 @@ describe('SdkQueryRunner', () => {
       expect(url).toBe(
         `http://localhost:51820/workspace/${encodeURIComponent(os.homedir())}`,
       );
+    });
+  });
+
+  /**
+   * TASK_2026_560 (C5): one-shots carry the same capability flags as an
+   * interactive session, or run strict MCP with ptah only and no skills when
+   * the policy is unverified, the resolver is missing, or it throws (R8).
+   */
+  describe('runOneShot — capability policy', () => {
+    function policy(
+      overrides: Partial<EffectiveCapabilitySet> = {},
+    ): EffectiveCapabilitySet {
+      return {
+        physicalRoot: '/work/project',
+        policyKey: '/work/project',
+        status: 'verified',
+        reasons: [],
+        ptahEnabled: true,
+        deniedMcpServers: ['firecrawl'],
+        approvedProjectMcpServers: ['repo-server'],
+        deniedSkillNames: ['off-skill', 'plug:off-skill'],
+        disabledPluginIds: ['plug'],
+        harnessFingerprint: 'fp',
+        ...overrides,
+      };
+    }
+
+    async function oneShotOptions(
+      capabilityResolver?: ICapabilityResolver,
+    ): Promise<SdkQueryOptions> {
+      const h = makeRunner({ capabilityResolver });
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: true,
+        mcpPort: 51820,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options;
+    }
+
+    function resolverFor(set: EffectiveCapabilitySet): {
+      resolver: ICapabilityResolver;
+      resolve: jest.Mock;
+    } {
+      const resolve = jest.fn().mockResolvedValue(set);
+      return {
+        resolver: { resolve } as unknown as ICapabilityResolver,
+        resolve,
+      };
+    }
+
+    it('resolves the policy for the one-shot cwd and applies the flag-tier lists', async () => {
+      const { resolver, resolve } = resolverFor(policy());
+      const options = await oneShotOptions(resolver);
+
+      expect(resolve).toHaveBeenCalledWith('/work/project');
+      expect(options.settings).toMatchObject({
+        deniedMcpServers: [{ serverName: 'firecrawl' }],
+        disabledMcpjsonServers: ['firecrawl'],
+        enabledMcpjsonServers: ['repo-server'],
+        skillOverrides: { 'off-skill': 'off', 'plug:off-skill': 'off' },
+      });
+      expect(options.strictMcpConfig).toBeUndefined();
+      expect(options.skills).toBeUndefined();
+      expect(Object.keys(options.mcpServers ?? {})).toEqual(['ptah']);
+    });
+
+    it('drops ptah when the verified policy turned it OFF', async () => {
+      const { resolver } = resolverFor(policy({ ptahEnabled: false }));
+      const options = await oneShotOptions(resolver);
+
+      expect(options.mcpServers).toEqual({});
+    });
+
+    it('runs strict MCP with ptah only and no skills under an unverified policy', async () => {
+      const { resolver } = resolverFor(
+        policy({
+          status: 'unverified',
+          reasons: [{ path: '/x/imported.json', error: 'invalid JSON' }],
+        }),
+      );
+      const options = await oneShotOptions(resolver);
+
+      expect(options.strictMcpConfig).toBe(true);
+      expect(options.skills).toEqual([]);
+      expect(Object.keys(options.mcpServers ?? {})).toEqual(['ptah']);
+      // Nothing from an unreadable policy reaches the flag tier.
+      expect(options.settings).not.toHaveProperty('skillOverrides');
+      expect(options.settings).not.toHaveProperty('enabledMcpjsonServers');
+    });
+
+    it('fails closed when no resolver is registered', async () => {
+      const options = await oneShotOptions(undefined);
+
+      expect(options.strictMcpConfig).toBe(true);
+      expect(options.skills).toEqual([]);
+      expect(Object.keys(options.mcpServers ?? {})).toEqual(['ptah']);
+    });
+
+    it('fails closed when the resolver throws', async () => {
+      const resolver = {
+        resolve: jest.fn().mockRejectedValue(new Error('boom')),
+      } as unknown as ICapabilityResolver;
+      const options = await oneShotOptions(resolver);
+
+      expect(options.strictMcpConfig).toBe(true);
+      expect(options.skills).toEqual([]);
     });
   });
 

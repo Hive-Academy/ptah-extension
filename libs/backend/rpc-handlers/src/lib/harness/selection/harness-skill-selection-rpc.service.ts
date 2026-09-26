@@ -77,14 +77,16 @@ export class HarnessSkillSelectionRpcService {
    * narrower than everything, and returning the gated mode would render a
    * surface claiming this project propagates nothing.
    */
-  getSelection(): HarnessGetSkillSelectionResult {
+  async getSelection(): Promise<HarnessGetSkillSelectionResult> {
     const workspaceRoot = this.resolveWorkspaceRoot();
     // Scoped to the resolved root, like every other `resolve` call site since
     // TASK_2026_346. The catalogue a selection dialog offers is this project's
     // sources, not whichever folder the host has active — and passing
     // `undefined` when there is no folder open is the honest ambient ask.
+    // Awaited: a resolver over the layered capability policy answers
+    // asynchronously (TASK_2026_560).
     const available = readSkillCandidates(
-      this.sourceResolver.resolve(workspaceRoot ?? undefined),
+      await this.sourceResolver.resolve(workspaceRoot ?? undefined),
     );
 
     if (workspaceRoot === null) {

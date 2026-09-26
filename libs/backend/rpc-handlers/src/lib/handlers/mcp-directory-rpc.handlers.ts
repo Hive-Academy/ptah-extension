@@ -18,6 +18,24 @@
  * (VS Code, Electron, CLI) consume it via `registerAllRpcHandlers()`.
  * Replaced `vscode.workspace.workspaceFolders` with `IWorkspaceProvider`
  * (PLATFORM_TOKENS.WORKSPACE_PROVIDER) for platform parity.
+ *
+ * ## Install records an explicit workspace ON (TASK_2026_560, N6)
+ *
+ * After `mcpDirectory:install` writes at least one WORKSPACE-scope target
+ * (`.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json`, `opencode.json`), it
+ * calls `ICapabilityResolver.setExplicit(root, 'mcp', serverKey, true)`. That
+ * write is kept even when it equals the inherited value, so a server whose
+ * name is also declared in a user-scope file (Codex, Copilot, ...) is still
+ * approved for the workspace when Claude's native auto-approval is off.
+ *
+ * A GLOBAL-only install (Codex, Copilot, Antigravity targets) writes no
+ * capability entry at all: a user-scope declaration already defaults ON, and
+ * a workspace entry would pin only the active workspace while every other
+ * workspace inherits. The global layer is never written by install.
+ *
+ * A failed capability write never fails the install. The result carries a
+ * `capabilityWarning` naming the server; the resolver's own error text stays
+ * in the log.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -30,6 +48,8 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { classifyMcpScope } from '@ptah-extension/shared';
 import {
   HARNESS_SYNC_TOKENS,
   type HarnessReconcilerService,
@@ -108,6 +128,8 @@ import type {
   McpDirectoryGetOAuthRedirectUriParams,
   McpDirectoryGetOAuthRedirectUriResult,
   McpRegistrySourceKind,
+  McpInstallResult,
+  ICapabilityResolver,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
@@ -190,7 +212,7 @@ export class McpDirectoryRpcHandlers {
     @inject(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER)
     private readonly httpServerProvider: IHttpServerProvider,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    container: DependencyContainer,
+    private readonly container: DependencyContainer,
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
@@ -458,7 +480,14 @@ export class McpDirectoryRpcHandlers {
           });
         }
 
-        return { results };
+        const capabilityWarning = await this.recordInstalledCapability(
+          params.serverKey,
+          successes,
+          workspaceRoot,
+        );
+        return capabilityWarning === undefined
+          ? { results }
+          : { results, capabilityWarning };
       } catch (error) {
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
@@ -1293,6 +1322,60 @@ export class McpDirectoryRpcHandlers {
       namespace: string;
       connectionId: string;
     };
+  }
+
+  /**
+   * N6: record an explicit workspace ON for a server that was just written to
+   * a workspace-scope target. See the file header for the global-scope rule.
+   *
+   * Never throws: the install already happened, so a failed write becomes a
+   * warning naming the server. The resolver is looked up at call time rather
+   * than at construction, so this handler's boot order does not matter; a
+   * container without the capability policy has no policy to record into, so
+   * there is nothing to warn about.
+   *
+   * @returns the warning to attach to the result, or `undefined`.
+   */
+  private async recordInstalledCapability(
+    serverKey: string,
+    successes: readonly McpInstallResult[],
+    workspaceRoot: string | undefined,
+  ): Promise<string | undefined> {
+    if (workspaceRoot === undefined) return undefined;
+    const wroteWorkspaceTarget = successes.some(
+      (result) =>
+        classifyMcpScope({
+          origin: 'harness-config',
+          target: result.target,
+        }) === 'workspace',
+    );
+    if (!wroteWorkspaceTarget) return undefined;
+    if (
+      !this.container.isRegistered(SDK_TOKENS.SDK_CAPABILITY_RESOLVER, true)
+    ) {
+      return undefined;
+    }
+
+    try {
+      const resolver = this.container.resolve<ICapabilityResolver>(
+        SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+      );
+      await resolver.setExplicit(workspaceRoot, 'mcp', serverKey, true);
+      return undefined;
+    } catch (error: unknown) {
+      this.logger.warn(
+        'MCP server installed, but its workspace capability ON was not recorded',
+        {
+          serverKey,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return (
+        `"${serverKey}" was installed, but Ptah could not record it as ` +
+        'enabled for this workspace. Turn it on in the Marketplace if it ' +
+        'does not load.'
+      );
+    }
   }
 
   private getWorkspaceRoot(): string | undefined {

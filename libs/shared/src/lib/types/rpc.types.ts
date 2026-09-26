@@ -38,6 +38,17 @@ export * from './rpc/rpc-peer-session.types';
 
 export * from './rpc/rpc-surface.types';
 
+export * from './rpc/rpc-capability.types';
+
+import type {
+  CapabilitiesGetEffectiveParams,
+  CapabilitiesGetEffectiveResult,
+  CapabilitiesGetStateParams,
+  CapabilitiesGetStateResult,
+  CapabilitiesSetEnabledParams,
+  CapabilitiesSetEnabledResult,
+} from './rpc/rpc-capability.types';
+
 import type {
   ExternalInstallParams,
   ExternalInstallResponse,
@@ -1385,6 +1396,21 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getOAuthRedirectUri': {
     params: McpDirectoryGetOAuthRedirectUriParams;
     result: McpDirectoryGetOAuthRedirectUriResult;
+  };
+  /** Every MCP server, skill and plugin row for the active workspace. */
+  'capabilities:getState': {
+    params: CapabilitiesGetStateParams;
+    result: CapabilitiesGetStateResult;
+  };
+  /** The effective set a session in the active workspace would load. */
+  'capabilities:getEffective': {
+    params: CapabilitiesGetEffectiveParams;
+    result: CapabilitiesGetEffectiveResult;
+  };
+  /** One workspace or global toggle; returns the re-resolved row. */
+  'capabilities:setEnabled': {
+    params: CapabilitiesSetEnabledParams;
+    result: CapabilitiesSetEnabledResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -3602,6 +3628,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:disconnectOAuth': true,
   'mcpDirectory:listOAuthConnected': true,
   'mcpDirectory:getOAuthRedirectUri': true,
+  'capabilities:getState': true,
+  'capabilities:getEffective': true,
+  'capabilities:setEnabled': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

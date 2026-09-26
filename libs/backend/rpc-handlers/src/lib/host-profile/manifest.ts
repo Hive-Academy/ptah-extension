@@ -29,6 +29,7 @@ import {
   ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   BootRpcHandlers,
+  CapabilityRpcHandlers,
   PeerSessionRpcHandlers,
   SurfaceRpcHandlers,
   AutocompleteRpcHandlers,
@@ -197,6 +198,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: HarnessRpcHandlers.METHODS,
     requires: [],
     handler: HarnessRpcHandlers,
+  },
+  {
+    // `requires: []`: the resolver reads per-user and per-workspace policy
+    // files only, and every host surfaces the Marketplace toggles (NFR).
+    key: 'capabilities',
+    methods: CapabilityRpcHandlers.METHODS,
+    requires: [],
+    handler: CapabilityRpcHandlers,
   },
   {
     key: 'license',

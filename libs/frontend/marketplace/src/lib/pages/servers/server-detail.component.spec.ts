@@ -32,11 +32,18 @@ import {
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import type { HarnessHealth, InstalledMcpServer } from '@ptah-extension/shared';
+import type {
+  CapabilityEntry,
+  HarnessHealth,
+  InstalledMcpServer,
+} from '@ptah-extension/shared';
 
+import { CapabilityTogglesStore } from '../../data/capability-toggles.store';
 import { ConnectorLinksStore } from '../../data/connector-links.store';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import { HarnessHealthStore } from '../../harness/harness-health.store';
+import { notEnforcedProviders } from '../../ui/capability-toggle.component';
+import { SCHEMA_SIZE_UNKNOWN } from './installed-servers-page.component';
 import {
   ServerDetailComponent,
   formatDetailDate,
@@ -110,6 +117,37 @@ const OAUTH: InstalledMcpServer = {
 
 const ALL = [MANAGED, MANAGED_CODEX, REMOTE, BLOCKED, OAUTH];
 
+/** Declared twice, once per scope: the detail lists both (AC-2.1). */
+const FIRECRAWL_CAPABILITY: CapabilityEntry = {
+  kind: 'mcp',
+  id: 'firecrawl',
+  label: 'firecrawl',
+  sources: [
+    { scope: 'workspace', path: 'C:\\repo\\.mcp.json', label: '.mcp.json' },
+    {
+      scope: 'global',
+      path: 'C:\\Users\\me\\.codex\\config.toml',
+      label: '~/.codex/config.toml',
+    },
+  ],
+  effectiveEnabled: true,
+  inheritedFrom: 'global',
+  defaultReason: 'user-scope',
+};
+
+/** Measured: the only kind of entry that shows a figure (AC-5.1). */
+const LINEAR_CAPABILITY: CapabilityEntry = {
+  kind: 'mcp',
+  id: 'linear',
+  label: 'linear',
+  sources: [{ scope: 'global', path: 'C:\\Users\\me\\.cursor\\mcp.json' }],
+  effectiveEnabled: false,
+  inheritedFrom: 'workspace',
+  defaultReason: 'user-scope',
+  workspaceEnabled: false,
+  schemaTokens: 13_200,
+};
+
 function ok<T>(data: T) {
   return { success: true, data, error: undefined, isSuccess: () => true };
 }
@@ -178,6 +216,32 @@ describe('ServerDetailComponent', () => {
     responders.set('mcpDirectory:listSmitheryConnections', () =>
       ok({ connections: [], namespace: null }),
     );
+    responders.set('capabilities:getState', () =>
+      ok({
+        status: 'verified',
+        reasons: [],
+        entries: [FIRECRAWL_CAPABILITY, LINEAR_CAPABILITY],
+      }),
+    );
+    responders.set('capabilities:setEnabled', (params) => {
+      const { id, scope, enabled } = params as {
+        id: string;
+        scope: 'workspace' | 'global';
+        enabled: boolean;
+      };
+      const base = id === 'linear' ? LINEAR_CAPABILITY : FIRECRAWL_CAPABILITY;
+      return ok({
+        entry:
+          scope === 'workspace'
+            ? {
+                ...base,
+                workspaceEnabled: enabled,
+                effectiveEnabled: enabled,
+                inheritedFrom: 'workspace',
+              }
+            : { ...base, globalEnabled: enabled },
+      });
+    });
     health = signal<HarnessHealth | null>(null);
 
     TestBed.configureTestingModule({
@@ -186,6 +250,7 @@ describe('ServerDetailComponent', () => {
         provideLocationMocks(),
         MarketplaceInventoryStore,
         ConnectorLinksStore,
+        CapabilityTogglesStore,
         {
           provide: ClaudeRpcService,
           useValue: {
@@ -385,8 +450,8 @@ describe('ServerDetailComponent', () => {
 
   const leaks = (): boolean => {
     const html = root().innerHTML;
-    return [ENV_SECRET, 'header-value-must-not-render', ARG_SECRET].some((secret) =>
-      html.includes(secret),
+    return [ENV_SECRET, 'header-value-must-not-render', ARG_SECRET].some(
+      (secret) => html.includes(secret),
     );
   };
 
@@ -602,6 +667,242 @@ describe('ServerDetailComponent', () => {
   it('offers no Reconnect for a config-file server', async () => {
     await mount('harness-config:firecrawl');
     expect(byTestId('server-detail-reconnect')).toBeNull();
+  });
+
+  // ── Use in sessions (TASK_2026_560, Batch 14) ───────────────────────────
+
+  describe('use in sessions', () => {
+    const toggleIn = (testId: string): HTMLInputElement | null =>
+      root().querySelector<HTMLInputElement>(
+        `[data-testid="${testId}"] [data-testid="capability-toggle-input"]`,
+      );
+    const writes = (): { scope: string; id: string; enabled: boolean }[] =>
+      calls
+        .filter((call) => call.method === 'capabilities:setEnabled')
+        .map(
+          (call) =>
+            call.params as { scope: string; id: string; enabled: boolean },
+        );
+    const text = (el: Element | null | undefined): string =>
+      el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    it('offers a workspace and a global switch, each naming the scope it writes', async () => {
+      await mount('harness-config:firecrawl');
+
+      expect(
+        text(
+          root().querySelector(
+            '[data-testid="server-detail-toggle-workspace"] [data-testid="capability-toggle-scope"]',
+          ),
+        ),
+      ).toContain('This workspace only');
+      expect(
+        text(
+          root().querySelector(
+            '[data-testid="server-detail-toggle-global"] [data-testid="capability-toggle-scope"]',
+          ),
+        ),
+      ).toContain('All workspaces');
+      // AC-1.5: the accessible name carries the server name and its state.
+      expect(
+        toggleIn('server-detail-toggle-workspace')?.getAttribute('aria-label'),
+      ).toBe('firecrawl: on (This workspace only)');
+      // AC-1.3: a workspace that follows global says so.
+      expect(
+        root().querySelector(
+          '[data-testid="server-detail-toggle-workspace"] [data-testid="capability-badge-inheriting"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    // AC-2.3 template wiring (B13 reviewer acceptance item).
+    it('writes the workspace from the workspace switch and never global', async () => {
+      await mount('harness-config:firecrawl');
+      toggleIn('server-detail-toggle-workspace')?.click();
+      await settle();
+
+      expect(writes()).toEqual([
+        { scope: 'workspace', kind: 'mcp', id: 'firecrawl', enabled: false },
+      ]);
+      expect(writes().some((write) => write.scope === 'global')).toBe(false);
+      // AC-2.4: the saved row is a workspace override, and says so.
+      expect(
+        root().querySelector(
+          '[data-testid="server-detail-toggle-workspace"] [data-testid="capability-badge-override"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    it('writes global from the global switch and never the workspace', async () => {
+      await mount('harness-config:firecrawl');
+      toggleIn('server-detail-toggle-global')?.click();
+      await settle();
+
+      expect(writes()).toEqual([
+        { scope: 'global', kind: 'mcp', id: 'firecrawl', enabled: false },
+      ]);
+      expect(writes().some((write) => write.scope === 'workspace')).toBe(false);
+    });
+
+    it('shows a failed write under the switch that made it, naming the server', async () => {
+      responders.set('capabilities:setEnabled', () => fail('EACCES'));
+      await mount('harness-config:firecrawl');
+      toggleIn('server-detail-toggle-global')?.click();
+      await settle();
+
+      expect(
+        text(
+          root().querySelector(
+            '[data-testid="server-detail-toggle-global"] [data-testid="capability-toggle-error"]',
+          ),
+        ),
+      ).toContain('firecrawl');
+      expect(
+        root().querySelector(
+          '[data-testid="server-detail-toggle-workspace"] [data-testid="capability-toggle-error"]',
+        ),
+      ).toBeNull();
+      expect(toggleIn('server-detail-toggle-global')?.checked).toBe(true);
+    });
+
+    it('lists every declaration with its scope, and the scope labels (AC-2.1)', async () => {
+      await mount('harness-config:firecrawl');
+
+      expect(text(byTestId('server-detail-scope'))).toBe('Global · Workspace');
+      const declarations = allByTestId('server-detail-declaration');
+      expect(declarations.map((el) => el.getAttribute('data-scope'))).toEqual([
+        'workspace',
+        'global',
+      ]);
+      expect(text(declarations[0])).toContain('Workspace · .mcp.json');
+      expect(text(declarations[1])).toContain(
+        'C:\\Users\\me\\.codex\\config.toml',
+      );
+    });
+
+    it('shows "size unknown" without a measured figure (AC-5.2)', async () => {
+      await mount('harness-config:firecrawl');
+      expect(text(byTestId('server-detail-size'))).toBe(SCHEMA_SIZE_UNKNOWN);
+      expect(text(byTestId('server-detail-size'))).not.toMatch(/\b0\b/);
+    });
+
+    it('shows a measured figure as an estimate with its method (AC-5.1)', async () => {
+      await mount('harness-config:linear');
+      expect(text(byTestId('server-detail-size'))).toBe(
+        'about 13.2k tokens of tool schemas per request (estimated from its tool list)',
+      );
+    });
+
+    it('marks the providers that do not enforce MCP toggles once for both switches, from CAPABILITY_ENFORCEMENT', async () => {
+      await mount('harness-config:firecrawl');
+      const expected = notEnforcedProviders({ kind: 'mcp' });
+      const notes = allByTestId('capability-not-enforced');
+
+      expect(notes).toHaveLength(1);
+      expect(
+        notes[0].closest('[data-testid="server-detail-capability"]'),
+      ).not.toBeNull();
+      expect(text(notes[0])).toBe(`Not enforced for ${expected.join(', ')}`);
+      expect(expected).toContain('Ptah CLI proxy');
+    });
+
+    // Contract for the `serverKey` <-> `CapabilityEntry.id` join. The resolver
+    // keys MCP rows by `McpInstallService.listDeclarations`' raw `serverKey`
+    // (`capability-resolver.service.ts`), the same key the installed rows
+    // carry, with no normalisation on either side.
+    describe('name join with the capability rows', () => {
+      const declared = (
+        serverKey: string,
+        overrides: Partial<InstalledMcpServer> = {},
+      ): InstalledMcpServer => ({
+        ...MANAGED,
+        serverKey,
+        config: { type: 'stdio', command: 'npx', args: ['-y', serverKey] },
+        ...overrides,
+      });
+      const capabilityFor = (id: string): CapabilityEntry => ({
+        ...FIRECRAWL_CAPABILITY,
+        id,
+        label: id,
+        sources: [{ scope: 'workspace', path: 'C:\\repo\\.mcp.json' }],
+      });
+
+      beforeEach(() => {
+        responders.set('mcpDirectory:listInstalled', () =>
+          ok({
+            servers: [
+              declared('my.server'),
+              declared('my server'),
+              declared('Shared'),
+              declared('Shared', {
+                target: undefined,
+                configPath: 'C:\\Users\\me\\.claude.json',
+                origin: 'claude-user',
+                originLabel: 'Claude CLI',
+                managedByPtah: false,
+                removal: 'none',
+              }),
+            ],
+          }),
+        );
+        responders.set('capabilities:getState', () =>
+          ok({
+            status: 'verified',
+            reasons: [],
+            entries: [
+              capabilityFor('my.server'),
+              capabilityFor('my server'),
+              capabilityFor('Shared'),
+              // Case differs: a different name, never a match.
+              capabilityFor('shared'),
+            ],
+          }),
+        );
+      });
+
+      it.each([
+        ['a dotted name', 'harness-config:my.server', 'my.server'],
+        ['a name with a space', 'harness-config:my server', 'my server'],
+        ['a name in a project file', 'harness-config:Shared', 'Shared'],
+        ['the same name in ~/.claude.json', 'claude-user:Shared', 'Shared'],
+      ])('finds the row for %s', async (_case, ref, id) => {
+        await mount(ref);
+        toggleIn('server-detail-toggle-workspace')?.click();
+        await settle();
+
+        expect(writes()).toEqual([
+          { scope: 'workspace', kind: 'mcp', id, enabled: false },
+        ]);
+      });
+    });
+
+    it('keeps the rest of the detail when the capability read fails', async () => {
+      responders.set('capabilities:getState', () => fail('policy offline'));
+      await mount('harness-config:firecrawl');
+
+      expect(byTestId('server-detail-title')?.textContent?.trim()).toBe(
+        'firecrawl',
+      );
+      expect(byTestId('server-detail-capability-error')).not.toBeNull();
+      expect(toggleIn('server-detail-toggle-workspace')).toBeNull();
+      // No capability row: the installed config paths still show.
+      expect(allByTestId('server-detail-config-path').length).toBeGreaterThan(
+        0,
+      );
+      expect(text(byTestId('server-detail-size'))).toBe(SCHEMA_SIZE_UNKNOWN);
+
+      byTestId<HTMLButtonElement>('server-detail-capability-retry')?.click();
+      await settle();
+      expect(
+        calls.filter((call) => call.method === 'capabilities:getState'),
+      ).toHaveLength(2);
+    });
+
+    it('says so when the policy knows no row for the server name', async () => {
+      await mount('oauth:notion');
+      expect(byTestId('server-detail-capability-missing')).not.toBeNull();
+      expect(text(byTestId('server-detail-size'))).toBe(SCHEMA_SIZE_UNKNOWN);
+    });
   });
 
   // ── Pure helpers and source rules ───────────────────────────────────────

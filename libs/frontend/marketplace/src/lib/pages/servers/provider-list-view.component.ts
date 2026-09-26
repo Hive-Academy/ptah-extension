@@ -8,6 +8,7 @@ import {
   inject,
   input,
   signal,
+  type Signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -183,6 +184,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
  *   `direct` row (a config file Ptah did not write) is never removed without
  *   the inline confirmation naming its files. The bulk outcome (N removed,
  *   M failed with reasons) is computed here and handed to the bulk bar.
+ * - **Projected content.** Whatever the page places inside the element
+ *   renders in the list column under the rows, beside the docked detail at
+ *   wide and outside the row keyboard region. The Installed servers page puts
+ *   its "Use in sessions" toggles there, narrowed by {@link activeFilter}.
  *
  * It never calls `ensure()`: the page decides which slices load.
  */
@@ -235,6 +240,15 @@ export class ProviderListViewComponent {
   // ── View state ─────────────────────────────────────────────────────────────
 
   protected readonly filter = signal<ProviderFilter>(EMPTY_FILTER);
+
+  /**
+   * The filter the user set in the bar, for page content projected under the
+   * rows that must narrow with them (the Installed servers "Use in sessions"
+   * panel). Read-only: only the filter bar changes it.
+   */
+  public readonly activeFilter: Signal<ProviderFilter> =
+    this.filter.asReadonly();
+
   protected readonly sort = signal<ProviderSort>({
     key: 'name',
     direction: 'asc',

@@ -498,6 +498,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
       if (result.isSuccess()) {
         const successes = result.data.results.filter((r) => r.success);
         const failures = result.data.results.filter((r) => !r.success);
+        const warning = result.data.capabilityWarning;
 
         if (successes.length > 0) {
           this.serverInstalled.emit({
@@ -507,6 +508,13 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
           await this.loadInstalled();
           this.expandedServerName.set(null);
           this.suggestedConfig.set(null);
+          // After the reload, so it is not overwritten; a reload error is
+          // kept beside it. A failure message below leads, warning appended.
+          if (warning) {
+            this.error.update((prev) =>
+              prev ? `${prev} ${warning}` : warning,
+            );
+          }
         }
 
         if (failures.length > 0) {
@@ -516,7 +524,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
                 (r) =>
                   `${this.getTargetLabel(r.target)} (${r.error ?? 'unknown error'})`,
               )
-              .join(', ')}`,
+              .join(', ')}${warning ? ` ${warning}` : ''}`,
           );
         }
       } else {

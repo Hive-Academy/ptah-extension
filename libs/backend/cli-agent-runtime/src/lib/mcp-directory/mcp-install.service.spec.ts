@@ -344,6 +344,76 @@ describe('McpInstallService', () => {
     });
   });
 
+  describe('listDeclarations (the one inventory, TASK_2026_560 C4)', () => {
+    it('classifies every row by scope: repository files are workspace, user files global', async () => {
+      writeMcpJson({ repo: { command: 'node' } });
+      writeClaudeJson({
+        user: { mine: httpServer },
+        project: { local: httpServer },
+      });
+      fs.mkdirSync(path.join(tmp, '.codex'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, '.codex', 'config.toml'),
+        '[mcp_servers.cx]\ncommand = "node"\n',
+        'utf-8',
+      );
+
+      const { declarations, sourceStatus } =
+        await service().listDeclarations(tmp);
+
+      const scopeOf = (key: string, origin: string) =>
+        declarations.find((r) => r.serverKey === key && r.origin === origin)
+          ?.scope;
+      expect(scopeOf('repo', 'harness-config')).toBe('workspace');
+      expect(scopeOf('cx', 'harness-config')).toBe('global');
+      // Both `~/.claude.json` maps are per-user files (the existing
+      // `entry.scope` still drives the removal command).
+      expect(scopeOf('mine', 'claude-user')).toBe('global');
+      expect(scopeOf('local', 'claude-user')).toBe('global');
+      expect(sourceStatus.find((s) => s.target === 'claude')?.status).toBe(
+        'ok',
+      );
+    });
+
+    it('reports an unreadable config file as error instead of "declares nothing"', async () => {
+      fs.writeFileSync(path.join(tmp, '.mcp.json'), '{ not json', 'utf-8');
+      writeClaudeJson({ user: { mine: httpServer } });
+
+      const { declarations, sourceStatus } =
+        await service().listDeclarations(tmp);
+
+      const claude = sourceStatus.find((s) => s.target === 'claude');
+      expect(claude).toMatchObject({
+        status: 'error',
+        path: path.join(tmp, '.mcp.json'),
+      });
+      expect(claude?.error).toBeTruthy();
+      // The other sources still answer.
+      expect(declarations.map((r) => r.serverKey)).toContain('mine');
+    });
+
+    it('marks an absent file missing, and lists no file for an unresolvable scope', async () => {
+      const withRoot = await service().listDeclarations(tmp);
+      expect(
+        withRoot.sourceStatus.find((s) => s.target === 'claude')?.status,
+      ).toBe('missing');
+
+      const noRoot = await service().listDeclarations();
+      expect(noRoot.sourceStatus.some((s) => s.target === 'claude')).toBe(
+        false,
+      );
+    });
+
+    it('feeds listInstalled, which carries the scope on every row', async () => {
+      writeMcpJson({ repo: { command: 'node' } });
+      writeClaudeJson({ user: { mine: httpServer } });
+
+      const rows = await service().listInstalled(tmp);
+      expect(rows.find((r) => r.serverKey === 'repo')?.scope).toBe('workspace');
+      expect(rows.find((r) => r.serverKey === 'mine')?.scope).toBe('global');
+    });
+  });
+
   describe('uninstall', () => {
     it('reports a refusal, not a success, when the reconciler left a user key alone', async () => {
       writeMcpJson({ handwritten: { command: 'node' } });

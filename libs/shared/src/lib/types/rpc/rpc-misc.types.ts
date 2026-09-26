@@ -509,6 +509,17 @@ export interface PluginConfigState {
    * load unchanged and read as an empty denylist (no migration).
    */
   disabledAgentIds?: string[];
+  /**
+   * Skill directory names the user explicitly turned ON for this workspace
+   * while the global capability layer has them OFF (TASK_2026_560).
+   *
+   * Only an override of the global layer: with no global OFF a skill is
+   * already on, so listing it here changes nothing. `disabledSkillIds` wins
+   * when a name appears in both. Optional for the same reason
+   * {@link disabledPluginIds} is: configs persisted before this field existed
+   * load unchanged, and a writer that omits it preserves the stored list.
+   */
+  enabledSkillIds?: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
 }

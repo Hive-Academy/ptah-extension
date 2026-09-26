@@ -11,10 +11,16 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { signal, type WritableSignal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import type { MarketplaceTier } from '../../layout/marketplace-layout';
+import { ProviderListViewComponent } from './provider-list-view.component';
 import {
   ListViewPage,
   TEST_REF as REF,
@@ -22,6 +28,18 @@ import {
   createInventoryStub,
   type InventoryStub,
 } from './provider-list-view.testing';
+
+/** A page that puts its own content inside the list view. */
+@Component({
+  selector: 'ptah-test-projecting-page',
+  standalone: true,
+  imports: [ProviderListViewComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<ptah-provider-list-view>
+    <button type="button" data-testid="projected-control">Toggle</button>
+  </ptah-provider-list-view>`,
+})
+class ProjectingPageComponent {}
 
 describe('ProviderListViewComponent', () => {
   let tier: WritableSignal<MarketplaceTier>;
@@ -270,6 +288,57 @@ describe('ProviderListViewComponent', () => {
 
       await page.key(panel, 'Escape');
       expect(page.url()).toBe('/marketplace/servers');
+    });
+  });
+
+  describe('projected content', () => {
+    const mountProjecting = async (): Promise<HTMLElement> => {
+      const fixture = TestBed.createComponent(ProjectingPageComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    it.each(['regular', 'wide'] as const)(
+      'renders the page content in the list column under the rows, outside the row keyboard region (%s)',
+      async (at) => {
+        tier.set(at);
+        const root = await mountProjecting();
+        const projected = root.querySelector(
+          '[data-testid="projected-control"]',
+        );
+
+        expect(
+          projected?.closest('[data-testid="provider-list"]'),
+        ).not.toBeNull();
+        expect(projected?.closest('[data-list-rows]')).toBeNull();
+        const rows = root.querySelector('[data-testid="provider-list-rows"]');
+        expect(
+          rows !== null &&
+            projected !== null &&
+            (rows.compareDocumentPosition(projected) &
+              Node.DOCUMENT_POSITION_FOLLOWING) !==
+              0,
+        ).toBe(true);
+      },
+    );
+
+    it('does not treat arrows on projected content as row navigation', async () => {
+      const root = await mountProjecting();
+      const projected = root.querySelector<HTMLElement>(
+        '[data-testid="projected-control"]',
+      );
+      if (!projected) throw new Error('no projected control');
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+        cancelable: true,
+      });
+      projected.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(root.querySelector('[data-active="true"]')).toBeNull();
     });
   });
 

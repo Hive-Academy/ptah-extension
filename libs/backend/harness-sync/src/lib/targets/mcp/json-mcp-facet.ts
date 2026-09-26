@@ -21,6 +21,7 @@
  */
 
 import { copyFileSync, existsSync, readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import type {
@@ -29,9 +30,17 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
-import { withWindowsRetrySync } from '../../fs/windows-retry';
+import {
+  describeError,
+  errorCode,
+  withWindowsRetrySync,
+} from '../../fs/windows-retry';
 import { withMcpConfigLock } from './mcp-config-lock';
-import type { IHarnessMcpFacet } from './mcp-facet.port';
+import type {
+  IHarnessMcpFacet,
+  McpFacetInspection,
+  McpSourceStatus,
+} from './mcp-facet.port';
 import {
   configToJson,
   DEFAULT_URL_KEY,
@@ -66,7 +75,17 @@ export interface JsonMcpFacetOptions {
   dialect?: McpJsonDialect;
   /** Overridable so specs can point `home` at a temp directory. */
   homeDir?: string;
+  /**
+   * How {@link JsonMcpFacet.inspect} waits before re-reading an empty file
+   * (see {@link readJsonStatus}). Defaults to a timer for the given
+   * milliseconds, which never blocks the event loop. Overridable so specs can
+   * change the file between the two reads without a real delay.
+   */
+  waitBeforeEmptyReread?: (ms: number) => Promise<void>;
 }
+
+/** How long `inspect` waits before re-reading a config file that read empty. */
+export const EMPTY_CONFIG_REREAD_DELAY_MS = 50;
 
 export class JsonMcpFacet implements IHarnessMcpFacet {
   readonly target: HarnessTargetId;
@@ -102,16 +121,44 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
   }
 
   readAll(workspaceRoot: string): Map<string, McpServerConfig> {
-    const servers = new Map<string, McpServerConfig>();
     const path = this.configPath(workspaceRoot);
-    if (path === null) return servers;
+    if (path === null) return new Map();
+    return toServerMap(this.readServersObject(path));
+  }
 
-    const root = this.readServersObject(path);
-    for (const [key, value] of Object.entries(root)) {
-      if (typeof value !== 'object' || value === null) continue;
-      servers.set(key, jsonToConfig(value as Record<string, unknown>));
+  async inspect(workspaceRoot: string): Promise<McpFacetInspection> {
+    const path = this.configPath(workspaceRoot);
+    if (path === null) return { status: 'missing', servers: new Map() };
+
+    const read = await readJsonStatus(
+      path,
+      this.options.waitBeforeEmptyReread ?? delay,
+    );
+    if (read.status !== 'ok') {
+      return {
+        status: read.status,
+        ...(read.error === undefined ? {} : { error: read.error }),
+        servers: new Map(),
+      };
     }
-    return servers;
+
+    const declared = read.json[this.options.rootKey];
+    if (declared === undefined) return { status: 'ok', servers: new Map() };
+    if (
+      typeof declared !== 'object' ||
+      declared === null ||
+      Array.isArray(declared)
+    ) {
+      return {
+        status: 'error',
+        error: `"${this.options.rootKey}" in ${path} is not an object`,
+        servers: new Map(),
+      };
+    }
+    return {
+      status: 'ok',
+      servers: toServerMap(declared as Record<string, unknown>),
+    };
   }
 
   write(
@@ -185,6 +232,12 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
       : {};
   }
 
+  /**
+   * The legacy read: every failure — absent, unreadable, malformed — is `{}`.
+   * The reconciler and the write path depend on that; {@link inspect} is the
+   * caller that needs to tell them apart, and reads through
+   * {@link readJsonStatus} instead.
+   */
   private readJson(path: string): Record<string, unknown> {
     try {
       const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
@@ -215,4 +268,93 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
     }
     atomicWriteWithRetry(path, `${JSON.stringify(config, null, 2)}\n`);
   }
+}
+
+interface JsonConfigRead {
+  status: McpSourceStatus;
+  /** The parsed top-level object; `{}` unless `status` is `ok`. */
+  json: Record<string, unknown>;
+  error?: string;
+}
+
+/**
+ * Read and parse one JSON config file, keeping the reason a read failed.
+ *
+ * Only ENOENT on the first read is `missing`. Anything that does not parse to
+ * an object is `error`.
+ *
+ * **An empty file is read twice.** A non-atomic writer (an editor, a sync
+ * client, opencode itself) truncates before it writes, so an empty read may be
+ * a torn write rather than an empty config. The capability-toggle store calls
+ * any 0-byte item file `error` outright (implementation-plan.md C2), because
+ * Ptah writes those files itself, atomically, so an empty one can only be
+ * damage. These MCP files belong to third-party tools, and an empty one is also
+ * what a user's freshly created config looks like. Failing it closed forever
+ * would mark a legitimate "declares nothing" as unknown. So after
+ * {@link EMPTY_CONFIG_REREAD_DELAY_MS} the file is read again:
+ *
+ * - still empty → `ok` with no servers (a persistently empty file really does
+ *   declare nothing);
+ * - content now → that content is parsed like any first read;
+ * - the re-read fails, ENOENT included → `error` (the file changed under us,
+ *   so its contents are unknown).
+ *
+ * Whitespace-only counts as empty.
+ */
+async function readJsonStatus(
+  path: string,
+  wait: (ms: number) => Promise<void>,
+): Promise<JsonConfigRead> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf-8');
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return { status: 'missing', json: {} };
+    return { status: 'error', json: {}, error: describeError(error) };
+  }
+
+  if (text.trim() === '') {
+    await wait(EMPTY_CONFIG_REREAD_DELAY_MS);
+    try {
+      text = await readFile(path, 'utf-8');
+    } catch (error) {
+      return { status: 'error', json: {}, error: describeError(error) };
+    }
+    if (text.trim() === '') return { status: 'ok', json: {} };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return { status: 'error', json: {}, error: describeError(error) };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return {
+      status: 'error',
+      json: {},
+      error: `${path} does not contain a JSON object`,
+    };
+  }
+  return { status: 'ok', json: parsed as Record<string, unknown> };
+}
+
+/**
+ * Resolve after `ms`. `inspect` runs on the extension host and Electron main
+ * thread, so the re-read wait is a timer and never blocks the event loop.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Every entry of a server map that is an object, as a config. */
+function toServerMap(
+  declared: Record<string, unknown>,
+): Map<string, McpServerConfig> {
+  const servers = new Map<string, McpServerConfig>();
+  for (const [key, value] of Object.entries(declared)) {
+    if (typeof value !== 'object' || value === null) continue;
+    servers.set(key, jsonToConfig(value as Record<string, unknown>));
+  }
+  return servers;
 }

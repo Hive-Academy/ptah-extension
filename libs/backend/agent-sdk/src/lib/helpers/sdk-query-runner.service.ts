@@ -33,7 +33,11 @@
 import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  EffectiveCapabilitySet,
+  ICapabilityResolver,
+} from '@ptah-extension/shared';
 import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
@@ -49,8 +53,13 @@ import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import {
+  buildFlagSettings,
   buildModelIdentityPrompt,
+  capabilityFlagsFor,
+  capabilityIsolationOptions,
+  filterMcpServersByPolicy,
   getActiveProviderId,
+  resolveSessionCapabilityPolicy,
 } from './sdk-query-options-builder';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import {
@@ -64,7 +73,7 @@ import {
   QueryFunction,
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
-import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
+import { PTAH_MCP_PORT } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
@@ -184,6 +193,14 @@ export class SdkQueryRunner {
     private readonly platformInfo: IPlatformInfo,
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly processSpawner: OffThreadProcessSpawner,
+    /**
+     * The capability policy one-shots are built under (TASK_2026_560, C5).
+     * Registered by `cli-agent-runtime`. Optional so a container without it
+     * still constructs — and a one-shot there runs fail-closed: strict MCP with
+     * ptah only and no skills.
+     */
+    @inject(SDK_TOKENS.SDK_CAPABILITY_RESOLVER, { isOptional: true })
+    private readonly capabilityResolver: ICapabilityResolver | null = null,
   ) {}
 
   /**
@@ -266,7 +283,17 @@ export class SdkQueryRunner {
 
     const queryFn = await this.moduleLoader.getQueryFunction();
     const abortController = input.abortController ?? new AbortController();
-    const options = this.buildOneShotOptions(input, abortController, cliJsPath);
+    const policy = await resolveSessionCapabilityPolicy(
+      this.capabilityResolver,
+      input.cwd,
+      this.logger,
+    );
+    const options = this.buildOneShotOptions(
+      input,
+      abortController,
+      cliJsPath,
+      policy,
+    );
 
     const systemPromptObj =
       typeof options.systemPrompt === 'object' &&
@@ -370,6 +397,7 @@ export class SdkQueryRunner {
     input: OneShotRunInput,
     abortController: AbortController,
     cliJsPath: string | null,
+    policy: EffectiveCapabilitySet,
   ): SdkQueryOptions {
     const authEnv = input.auth?.env ?? this.authEnv;
     const effectiveBaseUrl =
@@ -391,10 +419,24 @@ export class SdkQueryRunner {
       resolvedModel,
     );
 
-    const mcpServers = this.buildOneShotMcpServers(
-      input.mcpServerRunning,
-      input.mcpPort,
-      input.cwd,
+    // The same capability flags an interactive session gets, or strict MCP
+    // with ptah only and `skills: []` when the policy is unverified. One-shots
+    // track no back-off, so the flag lists come from the policy alone.
+    const capabilityFlags = capabilityFlagsFor(policy, []);
+    if (policy.status !== 'verified') {
+      this.logger.warn(
+        `${SERVICE_TAG} Capability policy is unverified — one-shot runs with Ptah tools only and no skills`,
+        { cwd: input.cwd, reasons: policy.reasons },
+      );
+    }
+    const mcpServers = filterMcpServersByPolicy(
+      this.buildOneShotMcpServers(
+        input.mcpServerRunning,
+        input.mcpPort,
+        input.cwd,
+      ),
+      policy,
+      capabilityFlags.deniedMcpServers,
     );
 
     const hooks = this.buildOneShotHooks(input.cwd);
@@ -409,12 +451,14 @@ export class SdkQueryRunner {
       cwd: input.cwd,
       model: resolvedModel,
       systemPrompt,
-      settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+      // `PTAH_DISABLE_SDK_AUTO_MEMORY` by identity when the policy adds no key.
+      settings: buildFlagSettings(undefined, undefined, capabilityFlags),
       tools: {
         type: 'preset',
         preset: 'claude_code',
       },
       mcpServers,
+      ...capabilityIsolationOptions(policy),
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
