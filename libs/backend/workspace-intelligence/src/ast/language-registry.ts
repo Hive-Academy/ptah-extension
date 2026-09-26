@@ -281,6 +281,15 @@ const EXTENSION_TO_LANGUAGE: ReadonlyMap<
   ),
 ]);
 
+/**
+ * Every extension a registry or recognised language claims, lower-case with
+ * the leading dot: what a census must discover to count `unsupported` files
+ * as well as the ones it analyses (the code-symbol indexer's discovery).
+ */
+export function recognisedSourceExtensions(): readonly string[] {
+  return [...EXTENSION_TO_LANGUAGE.keys()];
+}
+
 /** Whether `language` holds `capability` on this host. */
 export function hasCapability(
   language: LanguageId,

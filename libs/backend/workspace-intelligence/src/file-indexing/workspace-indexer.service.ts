@@ -169,6 +169,13 @@ export interface WorkspaceIndexOptions {
    * quietly wrong workspace.
    */
   workspaceFolder?: string;
+  /**
+   * {@link WorkspaceIndexerService.indexWorkspaceStream} only: called with the
+   * absolute path of each discovered entry skipped because it could not be
+   * statted right now (a locked or permission-denied file), so a consumer
+   * that accounts for every file can count it instead of losing it.
+   */
+  onUnreadableEntry?: (filePath: string) => void;
 }
 
 /**
@@ -447,6 +454,7 @@ export class WorkspaceIndexerService {
         const stat = await this.statOrNull(filePath);
         if (!stat) {
           skippedEntries++;
+          options.onUnreadableEntry?.(filePath);
           continue;
         }
         if (stat.size > maxFileSize) {

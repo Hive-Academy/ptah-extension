@@ -8,7 +8,13 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  COVERAGE_COUNT_MAX,
+  type CoverageCensus,
+  type CoverageState,
+  type FailureReason,
   type IFileSystemProvider,
+  type LanguageCoverage,
+  withCoverageVerdict,
 } from '@ptah-extension/platform-core';
 import {
   MEMORY_CONTRACT_TOKENS,
@@ -19,13 +25,26 @@ import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import type { SupportedLanguage } from '../ast/ast.types';
 import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
+import { graphPathIdentity } from '../ast/dependency-graph.service';
+import {
+  limitLanguageCounts,
+  type UnsupportedLanguageKey,
+} from '../ast/graph-coverage';
+import {
+  classifyFileForCoverage,
+  languageForExtension,
+  recognisedSourceExtensions,
+  supportedLanguagesFor,
+} from '../ast/language-registry';
 
 export interface CodeSymbolIndexerOptions {
-  /** File extensions to index. Default: ['.ts', '.tsx', '.js', '.jsx'] */
-  extensions?: string[];
   /** Number of files to process per batch before yielding. Default: 20 */
   batchSize?: number;
-  /** Maximum total files to process per run. Default: 2000 */
+  /**
+   * Most indexable files one run processes, counted after the skip filter
+   * (config, test and generated files never use the budget). Past it the
+   * run's census is `truncated`. Default: 2000
+   */
   maxFilesPerRun?: number;
   /**
    * Optional AbortSignal for cooperative cancellation.
@@ -65,20 +84,29 @@ export interface IndexingStats {
   durationMs: number;
 }
 
-const DEFAULT_EXTENSIONS = [
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.py',
-  '.go',
-  '.cs',
-  '.csx',
-] as const;
+/**
+ * Discovery include globs: every extension a registry language claims, so a
+ * run counts the recognised files it cannot index (`unsupported`) as well as
+ * the ones whose language holds `codeIndex`. Which is which is decided per
+ * file by `classifyFileForCoverage(path, 'codeIndex')`.
+ */
+const DISCOVERY_PATTERNS: readonly string[] = recognisedSourceExtensions().map(
+  (extension) => `**/*${extension}`,
+);
 const DEFAULT_BATCH_SIZE = 20;
 /** `whenClear` lane name; it only labels the governor's ceiling log line. */
 const GOVERNOR_LANE = 'code-symbol-indexer';
 const DEFAULT_MAX_FILES = 2000;
+/**
+ * A run never reads a file larger than this (the discovery stream's old
+ * silent size limit, now counted as `failed` with reason `too-large`).
+ */
+const MAX_INDEXED_FILE_BYTES = 1024 * 1024;
+/**
+ * Distinct files a root's per-file record tracks between full runs. Past it
+ * the record stops growing and the root's census reads `truncated`.
+ */
+const PER_FILE_RECORD_LIMIT = 2000;
 
 const DEFAULT_SKIP_PATTERNS = [
   'jest.config.*',
@@ -147,16 +175,200 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/**
+ * How one file write ended, for coverage. `write` is a failure of the symbol
+ * sink itself (clear or insert): it counts as `failed`, but no
+ * `FailureReason` describes it, so `failedByReason` leaves it out.
+ */
+type FileOutcome =
+  | { readonly kind: 'analyzed' }
+  | { readonly kind: 'failed'; readonly reason: FailureReason | 'write' }
+  /**
+   * Written, but the parser could not say whether the tree is whole
+   * (`parseStatus: 'unknown'`): counted `unchecked`, never `analyzed`.
+   */
+  | { readonly kind: 'unchecked' }
+  /** The file's language has no `codeIndex`: nothing was written. */
+  | { readonly kind: 'unsupported' };
+
 interface FileStats {
   symbolsIndexed: number;
   errors: number;
   durationMs: number;
+  outcome: FileOutcome;
+}
+
+/** A completed write of one file; `seq` orders writes across runs and per-file calls. */
+interface RecordedWrite {
+  readonly outcome: FileOutcome;
+  readonly seq: number;
+}
+
+/** One full run's accounting. */
+interface IndexRun {
+  /**
+   * Set when discovery finished: `complete`, or `truncated` when the run
+   * stopped at `maxFilesPerRun` indexable files. `null` while discovering
+   * (or when discovery failed): nothing was enumerated.
+   */
+  census: CoverageCensus | null;
+  censusLimit?: number;
+  /** Path identities the run set out to index. */
+  selected: string[];
+  unsupported: number;
+  unsupportedByLanguage: Partial<Record<UnsupportedLanguageKey, number>>;
+  /** Writes this run made, by path identity. */
+  readonly writes: Map<string, RecordedWrite>;
+  /**
+   * Another writer changed this root's rows while the run was in progress
+   * (see {@link CodeSymbolIndexer.invalidateCoverage}): the run ends
+   * `incomplete` even when it succeeds.
+   */
+  invalidated: boolean;
+}
+
+/**
+ * What the indexer knows about one workspace root in this host session. No
+ * record at all is a new session: the SQLite rows may exist, but nothing
+ * here can say what they cover.
+ */
+interface RootRecord {
+  /** The run currently writing this root; a newer run supersedes it. */
+  active: IndexRun | null;
+  /** The last run that ended, and how. Dropped when a new run begins. */
+  settled: {
+    readonly run: IndexRun;
+    readonly state: 'current' | 'incomplete';
+  } | null;
+  /**
+   * Writes made outside the active run (a per-file reindex, a superseded
+   * run) since the last run began, by path identity. Bounded by
+   * {@link PER_FILE_RECORD_LIMIT}.
+   */
+  readonly perFile: Map<string, RecordedWrite>;
+  /** The per-file record hit its limit and stopped tracking new files. */
+  perFileTruncated: boolean;
+  /**
+   * Runs of this root still in progress, the superseded ones included: a
+   * superseded run keeps writing until it ends.
+   */
+  readonly runsInProgress: Set<IndexRun>;
+}
+
+const ANALYZED: FileOutcome = { kind: 'analyzed' };
+const UNSUPPORTED: FileOutcome = { kind: 'unsupported' };
+const UNCHECKED: FileOutcome = { kind: 'unchecked' };
+
+/**
+ * The Batch 24a parse-quality contract: only a clean parse counts as
+ * analysed. A recovered tree (ERROR/MISSING nodes) is a parse failure even
+ * though its partial symbols are still written; an unknown quality is
+ * unchecked.
+ */
+function outcomeOfParse(parseStatus: string | undefined): FileOutcome {
+  if (parseStatus === 'ok') return ANALYZED;
+  if (parseStatus === 'recovered') return failure('parse');
+  return UNCHECKED;
+}
+
+function failure(reason: FailureReason | 'write'): FileOutcome {
+  return { kind: 'failed', reason };
+}
+
+/**
+ * What a single-file reindex returns: its own one-file coverage (the same
+ * contract as a full run's, verdict first) and the write's stats. The
+ * coverage says what a bare `errors: 0` cannot: a recovered parse is
+ * `failed`, an unknown parse quality `unchecked`, a skip-pattern file
+ * `excluded`, a language without `codeIndex` `unsupported`.
+ */
+export interface SingleFileReindex {
+  readonly coverage: LanguageCoverage;
+  readonly symbolsIndexed: number;
+  readonly errors: number;
+  readonly durationMs: number;
+}
+
+/** The census of one explicitly named file: always complete. */
+function singleFileCoverage(
+  filePath: string,
+  outcome: FileOutcome | 'excluded',
+): LanguageCoverage {
+  const counts = {
+    analyzed: 0,
+    unchecked: 0,
+    failed: 0,
+    unsupported: 0,
+    excluded: 0,
+  };
+  if (outcome === 'excluded') counts.excluded = 1;
+  else counts[outcome.kind] = 1;
+  const language: UnsupportedLanguageKey =
+    languageForExtension(path.extname(filePath)) ?? 'other';
+  const reason =
+    outcome !== 'excluded' &&
+    outcome.kind === 'failed' &&
+    outcome.reason !== 'write'
+      ? outcome.reason
+      : undefined;
+  return withCoverageVerdict({
+    supportedLanguages: supportedLanguagesFor('codeIndex'),
+    census: 'complete',
+    ...counts,
+    unrecognised: 0,
+    nonSource: 0,
+    omittedByCap: 0,
+    ...(counts.unsupported > 0
+      ? { unsupportedByLanguage: { [language]: 1 } }
+      : {}),
+    ...(reason === undefined ? {} : { failedByReason: { [reason]: 1 } }),
+  });
+}
+
+/** Coverage when nothing enumerated the root's files: never clean. */
+function unknownCoverage(state?: CoverageState): LanguageCoverage {
+  return withCoverageVerdict({
+    supportedLanguages: supportedLanguagesFor('codeIndex'),
+    census: 'unknown',
+    ...(state === undefined ? {} : { state }),
+    analyzed: null,
+    unchecked: null,
+    failed: null,
+    unsupported: null,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    omittedByCap: null,
+  });
+}
+
+function saturate(count: number): number {
+  return Math.min(count, COVERAGE_COUNT_MAX);
 }
 
 @injectable()
 export class CodeSymbolIndexer {
   /** Latch: a defective governor is warned about once, not per batch. */
   private governorFailureWarned = false;
+  /**
+   * Coverage state per workspace root, keyed by its path identity. One entry
+   * per root indexed in this host session.
+   */
+  private readonly roots = new Map<string, RootRecord>();
+  /**
+   * Tail of the write chain per file identity (see {@link withFileLock}); an
+   * entry lives only while a write of that file is running or queued.
+   */
+  private readonly fileLocks = new Map<string, Promise<void>>();
+  /** Orders every recorded write, so the latest write of a file wins. */
+  private writeSeq = 0;
+  /**
+   * File writes running or queued behind the file lock, per root identity.
+   * Kept apart from the root records so a write that starts before a root
+   * has any record is still seen; an entry lives only while its count is
+   * above zero.
+   */
+  private readonly pendingWrites = new Map<string, number>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -187,6 +399,12 @@ export class CodeSymbolIndexer {
    * shutdown) or `options.signal` fires during it, the run stops with the
    * same `AbortError` the signal check below throws — callers already treat
    * that as a clean stop.
+   *
+   * Coverage (TASK_2026_559 Batch 24b): the run begins synchronously, before
+   * this method's first `await`, so a caller that starts it without awaiting
+   * (the lazy reindex) already reads `state: 'updating'`. A run that returns
+   * normally ends `current`; an abort, a failed discovery or a thrown error
+   * ends `incomplete`, which stays until a later run succeeds.
    */
   async indexWorkspace(
     workspaceRoot: string,
@@ -199,66 +417,382 @@ export class CodeSymbolIndexer {
       return { filesScanned: 0, symbolsIndexed: 0, errors: 0, durationMs: 0 };
     }
 
+    const run = this.beginRun(workspaceRoot);
+    let state: 'current' | 'incomplete' = 'incomplete';
+    try {
+      const { stats, complete } = await this.runIndex(
+        workspaceRoot,
+        run,
+        options,
+      );
+      if (complete) state = 'current';
+      return stats;
+    } finally {
+      this.settleRun(workspaceRoot, run, state);
+    }
+  }
+
+  /**
+   * The live coverage of the code index for `workspaceRoot` in this host
+   * session. It describes the last full run plus every file write since that
+   * run began; it never claims to be a snapshot of the SQLite rows.
+   *
+   * - No run in this session: `census: 'unknown'`, no `state`, counts `null`.
+   * - A run is writing: `state: 'updating'`, counts `null` (the previous
+   *   run's counts were dropped when it began).
+   * - The last run succeeded: `state: 'current'`; it failed or was aborted:
+   *   `state: 'incomplete'`, with its files not yet written in `unchecked`.
+   * - `unrecognised`, `nonSource` and `excluded` are `null`: discovery asks
+   *   only for recognised source extensions and drops ignored and default-
+   *   excluded paths itself, so those files are never observed.
+   */
+  getCoverage(workspaceRoot: string): LanguageCoverage {
+    const record = this.roots.get(graphPathIdentity(workspaceRoot));
+    if (record === undefined) return unknownCoverage();
+    if (record.active !== null) return unknownCoverage('updating');
+    if (record.settled === null) return unknownCoverage();
+    const { run } = record.settled;
+    // A per-file write or a superseded run still writing: the rows a search
+    // reads may be mid-change (cleared, not yet re-inserted).
+    const writing =
+      (this.pendingWrites.get(graphPathIdentity(workspaceRoot)) ?? 0) > 0 ||
+      record.runsInProgress.size > 0;
+    const state =
+      writing && record.settled.state === 'current'
+        ? 'updating'
+        : record.settled.state;
+    if (run.census === null) return unknownCoverage(state);
+
+    const latest = new Map(run.writes);
+    for (const [identity, write] of record.perFile) {
+      const previous = latest.get(identity);
+      if (previous === undefined || write.seq > previous.seq) {
+        latest.set(identity, write);
+      }
+    }
+    let analyzed = 0;
+    let uncheckedWrites = 0;
+    let failed = 0;
+    const failedByReason: Partial<Record<FailureReason, number>> = {};
+    for (const { outcome } of latest.values()) {
+      if (outcome.kind === 'analyzed') {
+        analyzed++;
+      } else if (outcome.kind === 'unchecked') {
+        uncheckedWrites++;
+      } else if (outcome.kind === 'failed') {
+        failed++;
+        if (outcome.reason !== 'write') {
+          failedByReason[outcome.reason] =
+            (failedByReason[outcome.reason] ?? 0) + 1;
+        }
+      }
+    }
+    const unchecked =
+      uncheckedWrites +
+      run.selected.filter((identity) => !latest.has(identity)).length;
+
+    return withCoverageVerdict({
+      supportedLanguages: supportedLanguagesFor('codeIndex'),
+      census: record.perFileTruncated ? 'truncated' : run.census,
+      ...(run.censusLimit === undefined
+        ? {}
+        : { censusLimit: run.censusLimit }),
+      state,
+      analyzed: saturate(analyzed),
+      unchecked: saturate(unchecked),
+      failed: saturate(failed),
+      unsupported: saturate(run.unsupported),
+      unrecognised: null,
+      nonSource: null,
+      excluded: null,
+      // Discovery stopped at the cap, so how many more were eligible is unknown.
+      omittedByCap: run.census === 'truncated' ? null : 0,
+      ...(run.unsupported > 0
+        ? {
+            unsupportedByLanguage: limitLanguageCounts(
+              run.unsupportedByLanguage,
+            ),
+          }
+        : {}),
+      ...(Object.keys(failedByReason).length > 0 ? { failedByReason } : {}),
+    });
+  }
+
+  /**
+   * Starts a run for `workspaceRoot`: synchronous, so it holds before any
+   * write. The run supersedes one still running for the root (that run's
+   * later writes count as per-file writes and its end changes nothing), and
+   * the previous run's counts and per-file record are dropped.
+   */
+  private beginRun(workspaceRoot: string): IndexRun {
+    const run: IndexRun = {
+      census: null,
+      selected: [],
+      unsupported: 0,
+      unsupportedByLanguage: {},
+      writes: new Map(),
+      invalidated: false,
+    };
+    const key = graphPathIdentity(workspaceRoot);
+    const record = this.roots.get(key);
+    if (record === undefined) {
+      this.roots.set(key, {
+        active: run,
+        settled: null,
+        perFile: new Map(),
+        perFileTruncated: false,
+        runsInProgress: new Set([run]),
+      });
+    } else {
+      record.active = run;
+      record.settled = null;
+      record.perFile.clear();
+      record.perFileTruncated = false;
+      record.runsInProgress.add(run);
+    }
+    return run;
+  }
+
+  /**
+   * Another writer is about to change (or has changed) `workspaceRoot`'s
+   * rows outside this indexer — the `memory:purgeJunk` RPC. Call it before
+   * the mutation: the last run's coverage turns `incomplete`, and a run in
+   * progress ends `incomplete` even if it succeeds, because it cannot know
+   * which of its counted files lost their rows. Only a full run that begins
+   * after the mutation reports `current` again. A root with no record (no
+   * run in this session) is already `unknown` and stays so.
+   */
+  invalidateCoverage(workspaceRoot: string): void {
+    const record = this.roots.get(graphPathIdentity(workspaceRoot));
+    if (record === undefined) return;
+    for (const run of record.runsInProgress) run.invalidated = true;
+    if (record.settled !== null) {
+      record.settled = { run: record.settled.run, state: 'incomplete' };
+    }
+  }
+
+  /** Ends `run` for its root, unless a newer run superseded it. */
+  private settleRun(
+    workspaceRoot: string,
+    run: IndexRun,
+    state: 'current' | 'incomplete',
+  ): void {
+    const record = this.roots.get(graphPathIdentity(workspaceRoot));
+    if (record === undefined) return;
+    record.runsInProgress.delete(run);
+    if (record.active !== run) return;
+    record.active = null;
+    record.settled = { run, state: run.invalidated ? 'incomplete' : state };
+  }
+
+  /**
+   * Records a completed write of one file for coverage. A write by the active
+   * run is that run's; any other write (a per-file reindex, a superseded run)
+   * goes to the per-file record, and the latest write of a file wins when
+   * coverage is read. A root with no record (no run in this session) gets
+   * none: a per-file write never creates a census.
+   */
+  private recordWrite(
+    workspaceRoot: string,
+    identity: string,
+    outcome: FileOutcome,
+    run: IndexRun | null,
+  ): void {
+    if (outcome.kind === 'unsupported') return;
+    const record = this.roots.get(graphPathIdentity(workspaceRoot));
+    if (record === undefined) return;
+    const write: RecordedWrite = { outcome, seq: ++this.writeSeq };
+    if (run !== null && record.active === run) {
+      run.writes.set(identity, write);
+      return;
+    }
+    if (
+      record.perFile.has(identity) ||
+      record.perFile.size < PER_FILE_RECORD_LIMIT
+    ) {
+      record.perFile.set(identity, write);
+      return;
+    }
+    record.perFileTruncated = true;
+  }
+
+  /**
+   * Runs `write` after every earlier write of the same file has finished, so
+   * a per-file reindex and a full run never interleave their clear and insert
+   * of one file, and the file's read happens after the previous write.
+   */
+  private async withFileLock<T>(
+    identity: string,
+    write: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.fileLocks.get(identity) ?? Promise.resolve();
+    let release!: () => void;
+    const done = new Promise<void>((resolve) => (release = resolve));
+    const tail = previous.then(() => done);
+    this.fileLocks.set(identity, tail);
+    await previous;
+    try {
+      return await write();
+    } finally {
+      release();
+      if (this.fileLocks.get(identity) === tail) {
+        this.fileLocks.delete(identity);
+      }
+    }
+  }
+
+  /** {@link _indexFile} under the file's write lock, with its outcome recorded. */
+  private async indexFileRecorded(
+    filePath: string,
+    workspaceRoot: string,
+    run: IndexRun | null,
+  ): Promise<FileStats> {
+    const identity = graphPathIdentity(filePath);
+    // Counted from before the lock wait (a queued write is already pending),
+    // and whether or not the root has a record yet: a write that starts
+    // before the first run must still hold that run's answer at `updating`.
+    const rootKey = graphPathIdentity(workspaceRoot);
+    this.pendingWrites.set(rootKey, (this.pendingWrites.get(rootKey) ?? 0) + 1);
+    try {
+      return await this.withFileLock(identity, async () => {
+        const stats = await this._indexFile(filePath, workspaceRoot);
+        this.recordWrite(workspaceRoot, identity, stats.outcome, run);
+        return stats;
+      });
+    } finally {
+      const left = (this.pendingWrites.get(rootKey) ?? 1) - 1;
+      if (left > 0) this.pendingWrites.set(rootKey, left);
+      else this.pendingWrites.delete(rootKey);
+    }
+  }
+
+  /** Counts an unsupported file of the run by its language. */
+  private countUnsupported(run: IndexRun, filePath: string): void {
+    const key: UnsupportedLanguageKey =
+      languageForExtension(path.extname(filePath)) ?? 'other';
+    run.unsupported++;
+    run.unsupportedByLanguage[key] = (run.unsupportedByLanguage[key] ?? 0) + 1;
+  }
+
+  /**
+   * Discovery and the batch loop of one run. `complete` is false when
+   * discovery failed; an abort or a total failure throws.
+   */
+  private async runIndex(
+    workspaceRoot: string,
+    run: IndexRun,
+    options: CodeSymbolIndexerOptions | undefined,
+  ): Promise<{ stats: IndexingStats; complete: boolean }> {
     const startMs = Date.now();
-    const extensions = options?.extensions ?? [...DEFAULT_EXTENSIONS];
     const batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
     const maxFilesPerRun = options?.maxFilesPerRun ?? DEFAULT_MAX_FILES;
-    const filePaths: string[] = [];
-    const includePatterns = extensions.map((ext) => `**/*${ext}`);
+    const files: Array<{
+      readonly path: string;
+      readonly size: number;
+      /** Discovery could not stat it (locked, permission denied). */
+      readonly unreadable: boolean;
+    }> = [];
+    let truncated = false;
+    /** Classify one discovered file; false once the eligible cap is passed. */
+    const consider = (
+      filePath: string,
+      size: number,
+      unreadable: boolean,
+    ): boolean => {
+      const fileClass = classifyFileForCoverage(filePath, 'codeIndex');
+      if (fileClass === 'unsupported') {
+        this.countUnsupported(run, filePath);
+        return true;
+      }
+      if (fileClass !== 'eligible' || shouldSkipFile(filePath)) return true;
+      if (files.length >= maxFilesPerRun) {
+        truncated = true;
+        return false;
+      }
+      files.push({ path: filePath, size, unreadable });
+      return true;
+    };
 
     try {
       const stream = this.indexer.indexWorkspaceStream({
-        includePatterns,
+        includePatterns: [...DISCOVERY_PATTERNS],
         respectIgnoreFiles: true,
         workspaceFolder: workspaceRoot,
+        // Every size: an over-size file is counted as `too-large` below
+        // instead of being dropped by the stream without a count.
+        maxFileSize: Number.MAX_SAFE_INTEGER,
+        // A locked file is counted as `failed` (`read`), not lost.
+        onUnreadableEntry: (filePath) => {
+          if (!truncated) consider(filePath, 0, true);
+        },
       });
 
+      // The skip filter runs before the cap, so config, test and generated
+      // files never use the eligible-only budget.
       for await (const file of stream) {
-        filePaths.push(file.path);
-        if (filePaths.length >= maxFilesPerRun) {
-          break;
-        }
+        if (!consider(file.path, file.size, false)) break;
       }
     } catch (error: unknown) {
+      // The root's coverage stays `incomplete` with an unknown census.
       this.logger.warn('[CodeSymbolIndexer] Error during file discovery', {
         error: error instanceof Error ? error.message : String(error),
       });
       return {
-        filesScanned: 0,
-        symbolsIndexed: 0,
-        errors: 1,
-        durationMs: Date.now() - startMs,
+        stats: {
+          filesScanned: 0,
+          symbolsIndexed: 0,
+          errors: 1,
+          durationMs: Date.now() - startMs,
+        },
+        complete: false,
       };
     }
 
-    const filteredPaths = filePaths.filter((p) => !shouldSkipFile(p));
+    run.census = truncated ? 'truncated' : 'complete';
+    if (truncated) run.censusLimit = maxFilesPerRun;
+    run.selected = files.map((file) => graphPathIdentity(file.path));
 
     let totalSymbols = 0;
     let totalErrors = 0;
+    let attempted = 0;
 
     const governed = options?.userInitiated !== true;
     let filesProcessed = 0;
-    for (let i = 0; i < filteredPaths.length; i += batchSize) {
+    for (let i = 0; i < files.length; i += batchSize) {
       if (governed) await this.yieldToForeground(options?.signal);
-      const batch = filteredPaths.slice(i, i + batchSize);
+      const batch = files.slice(i, i + batchSize);
 
-      for (const filePath of batch) {
-        const stats = await this._indexFile(filePath, workspaceRoot);
-        totalSymbols += stats.symbolsIndexed;
-        totalErrors += stats.errors;
+      for (const file of batch) {
+        if (file.unreadable || file.size > MAX_INDEXED_FILE_BYTES) {
+          this.recordWrite(
+            workspaceRoot,
+            graphPathIdentity(file.path),
+            failure(file.unreadable ? 'read' : 'too-large'),
+            run,
+          );
+        } else {
+          const stats = await this.indexFileRecorded(
+            file.path,
+            workspaceRoot,
+            run,
+          );
+          totalSymbols += stats.symbolsIndexed;
+          totalErrors += stats.errors;
+          attempted++;
+        }
         filesProcessed++;
       }
 
       if (options?.onProgress) {
         options.onProgress({
           filesScanned: filesProcessed,
-          totalFiles: filteredPaths.length,
+          totalFiles: files.length,
           symbolsIndexed: totalSymbols,
-          currentFile: batch[batch.length - 1] ?? '',
+          currentFile: batch[batch.length - 1]?.path ?? '',
         });
       }
 
-      if (i + batchSize < filteredPaths.length) {
+      if (i + batchSize < files.length) {
         await yieldToEventLoop();
         if (options?.signal?.aborted) {
           this.logger.debug?.(
@@ -271,11 +805,7 @@ export class CodeSymbolIndexer {
 
     const durationMs = Date.now() - startMs;
 
-    if (
-      filteredPaths.length > 0 &&
-      totalSymbols === 0 &&
-      totalErrors === filteredPaths.length
-    ) {
+    if (attempted > 0 && totalSymbols === 0 && totalErrors === attempted) {
       throw new Error(
         `Code symbol indexing failed: all ${totalErrors} files errored and 0 symbols were produced. ` +
           `This usually means the tree-sitter WASM runtime or the symbol sink failed to initialize — check the logs for the underlying error.`,
@@ -283,17 +813,20 @@ export class CodeSymbolIndexer {
     }
 
     this.logger.info('[CodeSymbolIndexer] Workspace indexing complete', {
-      filesScanned: filteredPaths.length,
+      filesScanned: files.length,
       symbolsIndexed: totalSymbols,
       errors: totalErrors,
       durationMs,
     });
 
     return {
-      filesScanned: filteredPaths.length,
-      symbolsIndexed: totalSymbols,
-      errors: totalErrors,
-      durationMs,
+      stats: {
+        filesScanned: files.length,
+        symbolsIndexed: totalSymbols,
+        errors: totalErrors,
+        durationMs,
+      },
+      complete: true,
     };
   }
 
@@ -339,28 +872,49 @@ export class CodeSymbolIndexer {
    * Re-index a single file (called on file save events).
    * Returns per-file stats including a durationMs measurement.
    * Non-fatal — errors are logged as warnings and reflected in returned stats.
+   *
+   * The write waits for any running write of the same file (a full run's
+   * included) and its outcome updates the root's coverage — folded into a
+   * running full run, or into the per-file record — but never turns an
+   * unknown or incomplete census complete; only a successful full run does.
    */
   async reindexFile(
     absoluteFilePath: string,
     workspaceRoot: string,
-  ): Promise<{ symbolsIndexed: number; errors: number; durationMs: number }> {
+  ): Promise<SingleFileReindex> {
     if (shouldSkipFile(absoluteFilePath)) {
       this.logger.debug?.(
         `[CodeSymbolIndexer] reindexFile skipped (matches skip pattern): ${path.basename(absoluteFilePath)}`,
       );
-      return { symbolsIndexed: 0, errors: 0, durationMs: 0 };
+      return {
+        coverage: singleFileCoverage(absoluteFilePath, 'excluded'),
+        symbolsIndexed: 0,
+        errors: 0,
+        durationMs: 0,
+      };
     }
     const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
     const startMs = Date.now();
     try {
-      const stats = await this._indexFile(normalizedFilePath, workspaceRoot);
-      return stats;
+      const { symbolsIndexed, errors, durationMs, outcome } =
+        await this.indexFileRecorded(normalizedFilePath, workspaceRoot, null);
+      return {
+        coverage: singleFileCoverage(normalizedFilePath, outcome),
+        symbolsIndexed,
+        errors,
+        durationMs,
+      };
     } catch (error: unknown) {
       this.logger.warn('[CodeSymbolIndexer] reindexFile failed (non-fatal)', {
         file: normalizedFilePath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
+      return {
+        coverage: singleFileCoverage(normalizedFilePath, failure('parse')),
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+      };
     }
   }
 
@@ -381,7 +935,12 @@ export class CodeSymbolIndexer {
     const ext = path.extname(normalizedFilePath);
     const language = extensionToLanguage(ext);
     if (!language) {
-      return { symbolsIndexed: 0, errors: 0, durationMs: Date.now() - startMs };
+      return {
+        symbolsIndexed: 0,
+        errors: 0,
+        durationMs: Date.now() - startMs,
+        outcome: UNSUPPORTED,
+      };
     }
 
     let content: string;
@@ -392,7 +951,12 @@ export class CodeSymbolIndexer {
         file: normalizedFilePath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+        outcome: failure('read'),
+      };
     }
 
     const result = await this.astAnalysis.analyzeSource(
@@ -404,11 +968,21 @@ export class CodeSymbolIndexer {
       this.logger.warn(
         `[CodeSymbolIndexer] AST parse failed for ${normalizedFilePath}: ${result.error?.message ?? 'Unknown error'}`,
       );
-      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+        outcome: failure('parse'),
+      };
     }
     const insights = result.value;
     if (insights === undefined) {
-      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+        outcome: failure('parse'),
+      };
     }
 
     const relPath = path.relative(workspaceRoot, normalizedFilePath);
@@ -431,6 +1005,7 @@ export class CodeSymbolIndexer {
         symbolsIndexed: 0,
         errors: 1,
         durationMs: Date.now() - startMs,
+        outcome: failure('write'),
       };
     }
 
@@ -492,14 +1067,17 @@ export class CodeSymbolIndexer {
           symbolsIndexed: 0,
           errors: 1,
           durationMs: Date.now() - startMs,
+          outcome: failure('write'),
         };
       }
     }
 
     return {
       symbolsIndexed: chunks.length,
-      errors: 0,
+      // A recovered parse is a failure even though its symbols are written.
+      errors: insights.parseStatus === 'recovered' ? 1 : 0,
       durationMs: Date.now() - startMs,
+      outcome: outcomeOfParse(insights.parseStatus),
     };
   }
 }
