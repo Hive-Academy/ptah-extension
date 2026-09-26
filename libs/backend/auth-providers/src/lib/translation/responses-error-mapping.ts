@@ -17,10 +17,12 @@ export interface AnthropicErrorMapping {
   readonly message: string;
 }
 
-export type ResponsesStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal';
+export type ResponsesStopReason =
+  'end_turn' | 'tool_use' | 'max_tokens' | 'refusal';
 
 /** Why a terminal became an error; lets callers keep their own error codes. */
-export type ResponsesTerminalErrorCause = 'incomplete_tool_input' | 'incomplete' | 'failed';
+export type ResponsesTerminalErrorCause =
+  'incomplete_tool_input' | 'incomplete' | 'failed';
 
 export type ResponsesTerminalOutcome =
   | { readonly kind: 'stop'; readonly stopReason: ResponsesStopReason }
@@ -31,12 +33,11 @@ export type ResponsesTerminalOutcome =
     };
 
 export type ResponsesTerminalEventName =
-  | 'response.completed'
-  | 'response.incomplete'
-  | 'response.failed';
+  'response.completed' | 'response.incomplete' | 'response.failed';
 
 /** Existing collector text for truncated tool input; kept byte-identical. */
-export const INCOMPLETE_TOOL_INPUT_MESSAGE = 'Upstream response ended with incomplete tool input';
+export const INCOMPLETE_TOOL_INPUT_MESSAGE =
+  'Upstream response ended with incomplete tool input';
 
 const INCOMPLETE_TOOL_INPUT_MAPPING: AnthropicErrorMapping = {
   status: 502,
@@ -73,7 +74,8 @@ const OVERFLOW_PATTERNS: readonly RegExp[] = [
 /** Anthropic-native: actual first, limit second. */
 const ANTHROPIC_NUMBERS = /prompt is too long: (\d+) tokens > (\d+)/i;
 /** Chat Completions phrasing: limit first, actual second. */
-const CHAT_NUMBERS = /maximum context length is (\d+) tokens[\s\S]*?resulted in (\d+) tokens/i;
+const CHAT_NUMBERS =
+  /maximum context length is (\d+) tokens[\s\S]*?resulted in (\d+) tokens/i;
 
 /** Error text is short; bound the regex work on hostile or huge bodies. */
 const MAX_SCANNED_TEXT = 16 * 1024;
@@ -109,7 +111,9 @@ function sanitizeCode(code: unknown): string | undefined {
 
 function scannable(texts: readonly unknown[]): string[] {
   return texts
-    .filter((text): text is string => typeof text === 'string' && text.length > 0)
+    .filter(
+      (text): text is string => typeof text === 'string' && text.length > 0,
+    )
     .map((text) => text.slice(0, MAX_SCANNED_TEXT));
 }
 
@@ -118,25 +122,42 @@ function parseTokenCount(value: string): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function extractTokenCounts(texts: readonly string[]): { actual?: number; limit?: number } {
+function extractTokenCounts(texts: readonly string[]): {
+  actual?: number;
+  limit?: number;
+} {
   for (const text of texts) {
     const anthropic = ANTHROPIC_NUMBERS.exec(text);
     if (anthropic) {
-      return { actual: parseTokenCount(anthropic[1]), limit: parseTokenCount(anthropic[2]) };
+      return {
+        actual: parseTokenCount(anthropic[1]),
+        limit: parseTokenCount(anthropic[2]),
+      };
     }
     const chat = CHAT_NUMBERS.exec(text);
-    if (chat) return { actual: parseTokenCount(chat[2]), limit: parseTokenCount(chat[1]) };
+    if (chat)
+      return {
+        actual: parseTokenCount(chat[2]),
+        limit: parseTokenCount(chat[1]),
+      };
   }
   return {};
 }
 
 function isOverflow(code: unknown, texts: readonly string[]): boolean {
-  return code === OVERFLOW_CODE || texts.some((text) => OVERFLOW_PATTERNS.some((p) => p.test(text)));
+  return (
+    code === OVERFLOW_CODE ||
+    texts.some((text) => OVERFLOW_PATTERNS.some((p) => p.test(text)))
+  );
 }
 
 function overflowMapping(texts: readonly string[]): AnthropicErrorMapping {
   const { actual, limit } = extractTokenCounts(texts);
-  return { status: 400, type: 'invalid_request_error', message: promptTooLongMessage(actual, limit) };
+  return {
+    status: 400,
+    type: 'invalid_request_error',
+    message: promptTooLongMessage(actual, limit),
+  };
 }
 
 /**
@@ -146,7 +167,8 @@ function overflowMapping(texts: readonly string[]): AnthropicErrorMapping {
 export function promptTooLongMessage(actual?: number, limit?: number): string {
   const known = (value: number | undefined): value is number =>
     value !== undefined && Number.isSafeInteger(value) && value > 0;
-  if (known(actual) && known(limit)) return `prompt is too long: ${actual} tokens > ${limit} maximum`;
+  if (known(actual) && known(limit))
+    return `prompt is too long: ${actual} tokens > ${limit} maximum`;
   return "prompt is too long: the request exceeds the model's context window";
 }
 
@@ -183,14 +205,19 @@ export function classifyUpstreamHttpError(
     body['message'],
     body['detail'],
   ]);
-  return isOverflow(nested?.['code'], texts) ? overflowMapping(texts) : undefined;
+  return isOverflow(nested?.['code'], texts)
+    ? overflowMapping(texts)
+    : undefined;
 }
 
 /**
  * Classifies a `response.failed` error or a standalone `error` event. Callers
  * read top-level `code`/`message` first, then nested `error.{code,message}`.
  */
-export function classifyResponsesError(code: unknown, message: unknown): AnthropicErrorMapping {
+export function classifyResponsesError(
+  code: unknown,
+  message: unknown,
+): AnthropicErrorMapping {
   const texts = scannable([message]);
   if (isOverflow(code, texts)) return overflowMapping(texts);
   const safeCode = sanitizeCode(code);
@@ -220,7 +247,10 @@ export function classifyResponsesError(code: unknown, message: unknown): Anthrop
 export function classifyResponsesTerminal(
   eventName: ResponsesTerminalEventName,
   response: unknown,
-  tools: { readonly hadToolUse: boolean; readonly toolArgs?: readonly unknown[] },
+  tools: {
+    readonly hadToolUse: boolean;
+    readonly toolArgs?: readonly unknown[];
+  },
 ): ResponsesTerminalOutcome {
   const snapshot = isRecord(response) ? response : undefined;
   if (eventName === 'response.failed') {
@@ -232,14 +262,29 @@ export function classifyResponsesTerminal(
     };
   }
   if (eventName === 'response.completed') {
-    return { kind: 'stop', stopReason: tools.hadToolUse ? 'tool_use' : 'end_turn' };
+    return {
+      kind: 'stop',
+      stopReason: tools.hadToolUse ? 'tool_use' : 'end_turn',
+    };
   }
   if (tools.toolArgs?.some((args) => !isCompleteToolArguments(args))) {
-    return { kind: 'error', cause: 'incomplete_tool_input', mapping: INCOMPLETE_TOOL_INPUT_MAPPING };
+    return {
+      kind: 'error',
+      cause: 'incomplete_tool_input',
+      mapping: INCOMPLETE_TOOL_INPUT_MAPPING,
+    };
   }
-  const details = isRecord(snapshot?.['incomplete_details']) ? snapshot['incomplete_details'] : undefined;
+  const details = isRecord(snapshot?.['incomplete_details'])
+    ? snapshot['incomplete_details']
+    : undefined;
   const reason = details?.['reason'];
-  if (reason === 'max_output_tokens') return { kind: 'stop', stopReason: 'max_tokens' };
-  if (reason === 'content_filter') return { kind: 'stop', stopReason: 'refusal' };
-  return { kind: 'error', cause: 'incomplete', mapping: INCOMPLETE_OTHER_MAPPING };
+  if (reason === 'max_output_tokens')
+    return { kind: 'stop', stopReason: 'max_tokens' };
+  if (reason === 'content_filter')
+    return { kind: 'stop', stopReason: 'refusal' };
+  return {
+    kind: 'error',
+    cause: 'incomplete',
+    mapping: INCOMPLETE_OTHER_MAPPING,
+  };
 }

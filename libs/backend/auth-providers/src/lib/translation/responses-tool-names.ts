@@ -51,7 +51,9 @@ function aliasFor(original: string): string {
  * @throws ResponsesToolNameCollisionError when two originals produce one alias,
  * or when an alias equals another tool's original name.
  */
-export function guardResponsesToolNames(request: OpenAIResponsesRequest): GuardedResponsesRequest {
+export function guardResponsesToolNames(
+  request: OpenAIResponsesRequest,
+): GuardedResponsesRequest {
   // original -> upstream name; also memoises so each distinct invalid name is hashed once.
   const upstreamByOriginal = new Map<string, string>();
   const originalByAlias = new Map<string, string>();
@@ -64,7 +66,8 @@ export function guardResponsesToolNames(request: OpenAIResponsesRequest): Guarde
       return original;
     }
     const alias = aliasFor(original);
-    if (originalByAlias.has(alias)) throw new ResponsesToolNameCollisionError(alias);
+    if (originalByAlias.has(alias))
+      throw new ResponsesToolNameCollisionError(alias);
     upstreamByOriginal.set(original, alias);
     originalByAlias.set(alias, original);
     return alias;
@@ -83,7 +86,8 @@ export function guardResponsesToolNames(request: OpenAIResponsesRequest): Guarde
   // An alias is always valid, so it can only clash with a valid original.
   // Checked after the pass because that original may appear after the alias.
   for (const alias of originalByAlias.keys()) {
-    if (upstreamByOriginal.has(alias)) throw new ResponsesToolNameCollisionError(alias);
+    if (upstreamByOriginal.has(alias))
+      throw new ResponsesToolNameCollisionError(alias);
   }
 
   return {
