@@ -86,6 +86,11 @@ describe('AgentRoleResolver', () => {
 
   beforeEach(() => {
     workspaceRoot = mkdtempSync(join(tmpdir(), 'ptah-role-resolver-'));
+    // Root resolution walks up for the nearest `.ptah/` BEFORE it tries
+    // `.git/`, so a `.ptah/` above the temp directory (e.g. %TEMP%/.ptah on a
+    // developer machine or a reused runner) would win over a `.git/`-only
+    // fixture. A local `.ptah/` marker keeps the fixture hermetic.
+    mkdirSync(join(workspaceRoot, '.ptah'));
     mkdirSync(join(workspaceRoot, '.git'));
     agentsDir = join(workspaceRoot, '.claude', 'agents');
   });
