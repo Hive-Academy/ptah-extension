@@ -1,6 +1,6 @@
 # Batches - TASK_2026_408
 
-Total tasks: 16 | Batches: 10 | Complete: 3/10
+Total tasks: 16 | Batches: 10 | Complete: 4/10
 
 Worktree: `D:\projects\ptah-extension-task-408`, branch `fix/task-408-codex-proxy-phase-1-2` (base origin/main `ebfc73321`). Never touch `D:\projects\ptah-extension`; never commit to main; never stage `node_modules` (junction, git-ignored).
 
@@ -115,7 +115,7 @@ Edge cases:
 - Edge cases for Tasks 1.1/1.2 above addressed
 - Carried into Batch 2 (Task 2.2, already in scope): the base collector catch (`translation-proxy-base.ts:762-773`) must honour `ResponsesStreamError.mapping`. Until then `upstream_failed` goes out as 502 `api_error` `upstream_failed: <mapped message>` (transient on this branch only). The three-path parity `it.each` table still lives in `translation-proxy-base.spec.ts` (Task 2.2); Batch 1's collector-only table does not satisfy it.
 
-## Batch 2: Phase 1b - stream translator terminals and proxy-base lifecycle — IN_PROGRESS
+## Batch 2: Phase 1b - stream translator terminals and proxy-base lifecycle — COMPLETE (commit 74e2358f3)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent with reviewer findings
@@ -125,7 +125,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-stream-translator.ts`, `responses-stream-translator.spec.ts`, `translation-proxy-base.ts`, `translation-proxy-base.spec.ts`
 - Commit: `fix(auth-providers): end Responses streams with one Anthropic terminal`
 
-### Task 2.1: Stream translator frame state, accumulator and terminal events — IMPLEMENTED
+### Task 2.1: Stream translator frame state, accumulator and terminal events — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-translator.spec.ts`
 - Plan reference: implementation-plan.md:169-199 (component 3), :495-496
@@ -134,7 +134,7 @@ Edge cases:
 - Validation notes: R6 (frame dispatch on blank line, pending frame at EOF not dispatched); R3 accepted; precedence rule uses `event.response.output` args first, else `receivedArgs` of active plus `closedToolArgs`; all new handlers respect and set `finalized`; failed/error emit no `content_block_stop`/`message_delta`
 - Implementation details: move pending event name and data lines to instance fields next to `lineBuffer`; add `receivedArgs` to `ActiveToolCall` and a `closedToolArgs` record; handle `response.incomplete`, `response.failed`, `error`; `emitFinalEvents` optional `stopReason`; public idempotent `terminateTruncated()`; spec every terminal row plus `MessageStream.fromReadableStream` resolve/reject
 
-### Task 2.2: Proxy-base overflow mapping, truncation terminal, non-stream parity, header comment — IMPLEMENTED
+### Task 2.2: Proxy-base overflow mapping, truncation terminal, non-stream parity, header comment — COMPLETE
 
 - Depends on: Task 2.1
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.spec.ts`
@@ -152,8 +152,9 @@ Edge cases:
 - Files contain the required work; `npx nx run-many -t test,lint,typecheck -p @ptah-extension/auth-providers` passes (tailed)
 - Reviewer: code-logic review via codex CLI lane (stream lifecycle, parity across three paths)
 - Phase 1 complete after this commit (TASK_2026_561 A8 unblocked)
+- Review history: `code-logic-review-b2.md` REJECTED 6/10 (post-header socket abort destroyed downstream before a terminal; CR-only terminal dropped at EOF); fixed in the same four files (`streamingOwnsUpstreamFailure` on the Responses streaming lane, guarded single `finish`, new idempotent `endOfStream()`); `code-logic-review-b2-r1.md` APPROVED 8/10. Final run 50 suites / 1164 tests.
 
-## Batch 3: Phase 2a - tool-name guard module and collector resolver — PENDING
+## Batch 3: Phase 2a - tool-name guard module and collector resolver — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: second backend-developer sub-agent
@@ -163,7 +164,7 @@ Edge cases:
 - Files (4, 1 lib): `responses-tool-names.ts` (C), `responses-tool-names.spec.ts` (C), `responses-stream-collector.ts`, `responses-stream-collector.spec.ts`
 - Commit: `fix(auth-providers): add deterministic Responses tool-name guard`
 
-### Task 3.1: Tool-name guard module — PENDING
+### Task 3.1: Tool-name guard module — IMPLEMENTED
 
 - Files: CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.ts`; CREATE `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-tool-names.spec.ts`
 - Plan reference: implementation-plan.md:229-252 (component 5), :498, :502
@@ -172,7 +173,7 @@ Edge cases:
 - Validation notes: alias `${sanitized.slice(0,53)}_${sha256(original).hex.slice(0,10)}` via `node:crypto`; rewrite `tools[].name` and every `input[]` `function_call`; collision throws `ResponsesToolNameCollisionError`; unknown upstream name passes through
 - Implementation details: export `guardResponsesToolNames(request)` returning `{ request, toOriginalName }` and the collision error; spec: 70-char `mcp__server.with.dots__tool`, determinism, valid names deep-equal, history rewrite, reverse lookup, collision, replay pairing (call ids, alias equality, order)
 
-### Task 3.2: Collector tool-name resolver — PENDING
+### Task 3.2: Collector tool-name resolver — IMPLEMENTED
 
 - Depends on: Task 3.1
 - Files: MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.ts`; MODIFY `D:\projects\ptah-extension-task-408\libs\backend\auth-providers\src\lib\translation\responses-stream-collector.spec.ts`
