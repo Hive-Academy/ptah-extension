@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 56 | Batches: 29 | Complete: 19/29 (Batch 11b scheduled as a follow-up round of Batch 11)
+Total tasks: 56 | Batches: 29 | Complete: 20/29 (Batch 11b scheduled as a follow-up round of Batch 11)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2154,7 +2154,7 @@ complete declaration summary or an honest full-file result with a `reason`.
 | Lane | Worktree                                | Batches                           | State                 |
 | ---- | --------------------------------------- | --------------------------------- | --------------------- |
 | A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 | 11 COMPLETE; 11b next |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12                                | in review             |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                           | 12 merged; 14 next    |
 | C    | `.claude-worktrees/task-559-lane-c`     | 19                                | in review             |
 | D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3                        | in progress           |
 
@@ -2247,7 +2247,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ---
 
-## Batch 12: ptah_agent_read — bounded default window in the service — PENDING
+## Batch 12: ptah_agent_read — bounded default window in the service — COMPLETE (commit 7bbf72ba4, merged 176aab381)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2256,7 +2256,7 @@ states for lanes B/C/D stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 1 | Depends on: none
 
-### Task 12.1: Default tail 200, `offset`, `totalLines`/`omittedLines` — PENDING
+### Task 12.1: Default tail 200, `offset`, `totalLines`/`omittedLines` — COMPLETE
 
 - Files: `<WT>/libs/shared/src/lib/types/agent-process.types.ts` (`AgentOutput` :215), `<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (`readOutput` :896-922), `<WT>/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.spec.ts`
 - Plan reference: research/agent-task-harness.md:103-147; context.md User Decision 2
@@ -2267,8 +2267,49 @@ states for lanes B/C/D stay as recorded below until their merge.
 
 ### Batch 12 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared 2>&1 | tail -40` passes
+- [x] The review lane approves (r2 APPROVE 8/10)
+
+### Batch 12 review history
+
+- Executed in Lane B (`fix/task-559-lane-b`, base 685edbc24) by a Codex CLI lane; reviewed cross-side by a Claude
+  code-logic-reviewer subagent. Details: `batch-12-executor-report.md` (initial + revision round 1)
+- r1 (`reviews/batch-12-code-logic-review-r1.md`): REVISE 6/10. B1 (Blocking): `AgentOutput` fixtures in
+  `mcp-response-formatter.spec.ts` lacked `totalLines`/`omittedLines`, breaking `vscode-lm-tools:test` compile →
+  fixed in revision 1. M2 (Moderate): callers do not surface the new counters → deferred to Batch 13
+- r2 (`reviews/batch-12-code-logic-review-r2.md`): APPROVE 8/10, 0 blocking, 0 serious
+
+### Batch 12 deviations (accepted)
+
+1. Tail/offset edge rules: finite values are floored and clamped to ≥ 0; NaN/±Infinity become 0. Offset without
+   tail returns a forward window of at most 200 lines per stream; offset at/after a stream's end → empty stream
+   (streams evaluated independently). Counts are summed across stdout + stderr after adapter parsing
+2. A zero or non-finite tail yields empty output (with or without offset) instead of the old `tail && tail > 0`
+   bypass that returned the whole buffer
+3. Trailing-newline fix: a final partial line counts as one line and a trailing newline no longer costs a line, so
+   an explicit tail N on newline-terminated output returns exactly N lines (was N−1). Fixed locally in `readOutput`;
+   the shared `tailLines` helper is unchanged
+4. Two legacy buffer-capacity specs now request an explicit 2048-line tail so the new default does not mask them;
+   `mcp-response-formatter.spec.ts` fixtures gained the two new fields (r1 B1)
+
+### Batch 12 team-leader verification (Mode 2, 2026-09-26)
+
+- Production diff read on disk (`agent-process-manager.service.ts` `readOutput`, `agent-process.types.ts`
+  `AgentOutput`); Prettier `--check` clean on all 4 changed code files
+- Lane B: `nx run-many "-t=test,lint,typecheck" -p @ptah-extension/cli-agent-runtime @ptah-extension/shared
+@ptah-extension/vscode-lm-tools --skip-nx-cache` → 9 tasks pass; `ptah-cli`/`ptah-electron` typecheck pass;
+  `ptah-electron:validate-deps` pass; `degradation-audit:lint` → TOTAL 300
+- Committed on the lane as **7bbf72ba4** (4 code files + executor report + r1/r2 reviews; `code-logic-review.md`
+  not staged; hooks active, commitlint checked first)
+- Merged into `fix/task-559-mcp-tool-contract` as **176aab381** (`--no-ff`, no conflicts). Post-merge:
+  `nx run-many "-t=test,lint,typecheck"` for cli-agent-runtime, shared, vscode-lm-tools, workspace-intelligence →
+  4 projects pass; `ptah-cli`/`ptah-electron` typecheck pass; validate-deps pass; degradation-audit TOTAL 300
+
+### Deferred to Batch 13
+
+- Callers show `totalLines`/`omittedLines` (r1 M2): `agent-tool.dispatcher.ts` structured response and the MCP
+  response formatter; offset plumbing through `agent-namespace.builder.ts` / `protocol-dispatcher.ts` and the
+  `ptah_agent_read` schema
 
 ---
 
