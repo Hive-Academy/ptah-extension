@@ -4,9 +4,16 @@ import {
   buildAgentReportTool,
   buildAgentSpawnTool,
   buildCodeReindexTool,
+  buildGetDependenciesTool,
+  buildGetDependentsTool,
+  buildGetSymbolIndexTool,
   buildLspDefinitionsTool,
   buildLspReferencesTool,
 } from './tool-description.builder';
+import {
+  SYMBOL_INDEX_DEFAULT_LIMIT,
+  SYMBOL_INDEX_MAX_LIMIT,
+} from '../namespace-builders/symbol-index-query';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
 /** The description budget the execute_code guard applies (the only size assertion). */
@@ -45,6 +52,62 @@ describe('buildExecuteCodeTool', () => {
     expect(tool.inputSchema.required ?? []).toEqual([]);
     expect(tool.description).toContain('background');
     expect(tool.description).toContain('ptah_code_search_symbols');
+  });
+});
+
+// TASK_2026_559 Batch 9: paging arguments, with the defaults stated.
+describe('buildGetSymbolIndexTool', () => {
+  const tool = buildGetSymbolIndexTool();
+
+  it('stays within the description budget and states the paging defaults', () => {
+    expect(tool.name).toBe('ptah_get_symbol_index');
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(tool.description).toContain(
+      `limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0`,
+    );
+    expect(tool.description).toContain('nextOffset');
+    expect(tool.description).toContain('ends early');
+  });
+
+  it('takes only optional pathPrefix, limit and offset, with the limits in the schema', () => {
+    const properties = tool.inputSchema.properties as Record<
+      string,
+      { type?: string; minimum?: number; maximum?: number }
+    >;
+    expect(Object.keys(properties)).toEqual(['pathPrefix', 'limit', 'offset']);
+    expect(tool.inputSchema.required ?? []).toEqual([]);
+    expect(properties['limit']).toMatchObject({
+      type: 'integer',
+      minimum: 1,
+      maximum: SYMBOL_INDEX_MAX_LIMIT,
+    });
+    expect(properties['offset']).toMatchObject({ type: 'integer', minimum: 0 });
+  });
+
+  // Batch 9 revision round 1 (review F1): the oversized-file form is documented.
+  it('states how a file too large on its own is returned and recovered', () => {
+    expect(tool.description).toContain('truncated: true');
+    expect(tool.description).toContain('symbolCount');
+    expect(tool.description).toContain('symbolsFile');
+    expect(tool.description).toContain('symbolsFileError');
+  });
+});
+
+// Batch 9 revision round 1 (review F3, User Decision 14): the graph file cap is disclosed.
+describe.each([
+  ['ptah_get_symbol_index', buildGetSymbolIndexTool],
+  ['ptah_get_dependents', buildGetDependentsTool],
+  ['ptah_get_dependencies', buildGetDependenciesTool],
+])('%s graph completeness', (name, buildTool) => {
+  const tool = buildTool();
+
+  it('says results can be incomplete and how that is shown, within the budget', () => {
+    expect(tool.name).toBe(name);
+    expect(tool.description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(tool.description).toContain('very large workspaces');
+    expect(tool.description).toContain(
+      'incomplete: true with graphedFiles and discoveredFiles',
+    );
   });
 });
 

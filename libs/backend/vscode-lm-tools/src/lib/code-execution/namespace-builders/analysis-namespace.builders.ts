@@ -30,7 +30,11 @@ import {
   MonorepoResult,
   DependencyResult,
   FileRelevanceResult,
+  SymbolIndexEntry,
+  SymbolIndexPage,
+  SymbolIndexQuery,
 } from '../types';
+import { pageSymbolIndex, parseSymbolIndexQuery } from './symbol-index-query';
 
 /**
  * Dependencies required for analysis namespaces
@@ -57,11 +61,7 @@ function resolveWorkspaceFilePath(
   filePath: string,
   workspaceProvider: IWorkspaceProvider,
 ): string {
-  if (
-    filePath.startsWith('/') ||
-    /^[A-Za-z]:/.test(filePath) ||
-    filePath.startsWith('\\\\')
-  ) {
+  if (isAbsoluteFileArg(filePath)) {
     return filePath;
   }
   const workspaceRoot = workspaceProvider.getWorkspaceRoot();
@@ -69,6 +69,15 @@ function resolveWorkspaceFilePath(
     throw new Error('No workspace folder open');
   }
   return path.join(workspaceRoot, filePath);
+}
+
+/** An absolute path (POSIX, Windows drive, or UNC), which resolves to itself. */
+function isAbsoluteFileArg(filePath: string): boolean {
+  return (
+    filePath.startsWith('/') ||
+    /^[A-Za-z]:/.test(filePath) ||
+    filePath.startsWith('\\\\')
+  );
 }
 
 /** Languages `ContextEnrichmentService` renders as a .d.ts-style summary. */
@@ -376,8 +385,59 @@ export function buildDependencyNamespace(
 ): DependenciesNamespace {
   const { dependencyGraph, workspaceProvider } = deps;
 
+  const readSymbolEntries = (workspaceRoot?: string): SymbolIndexEntry[] => {
+    try {
+      const index = dependencyGraph.getSymbolIndex(workspaceRoot);
+      const result: SymbolIndexEntry[] = [];
+      for (const [file, exports] of index) {
+        result.push({
+          file,
+          symbols: exports.map((e) => e.name),
+        });
+      }
+      return result;
+    } catch {
+      // degradation-audit: optional-capability - this delegate only walks its
+      // own Maps (dependencyGraph.getSymbolIndex) and cannot throw; the
+      // empty-array fallback matches "no symbols" and guards a call this
+      // wrapper cannot make fail.
+      return [];
+    }
+  };
+
+  function getSymbolIndex(workspaceRoot?: string): Promise<SymbolIndexEntry[]>;
+  function getSymbolIndex(
+    workspaceRoot: string | undefined,
+    query: SymbolIndexQuery,
+  ): Promise<SymbolIndexPage>;
+  async function getSymbolIndex(
+    workspaceRoot?: string,
+    query?: SymbolIndexQuery,
+  ): Promise<SymbolIndexEntry[] | SymbolIndexPage> {
+    if (query === undefined) {
+      // execute_code callers that pass only the root keep the unpaged array.
+      return readSymbolEntries(workspaceRoot);
+    }
+    if (typeof query !== 'object' || query === null) {
+      throw new RangeError('"query" must be an object.');
+    }
+    const parsed = parseSymbolIndexQuery(query);
+    if (!parsed.ok) {
+      throw new RangeError(parsed.error);
+    }
+    return pageSymbolIndex(
+      readSymbolEntries(workspaceRoot),
+      parsed.query,
+      workspaceRoot ?? workspaceProvider.getWorkspaceRoot(),
+    );
+  }
+
   return {
-    buildGraph: async (filePaths: string[], workspaceRoot: string) => {
+    buildGraph: async (
+      filePaths: string[],
+      workspaceRoot: string,
+      discoveredFiles?: number,
+    ) => {
       try {
         const graph = await dependencyGraph.buildGraph(
           // The graph reads real files and keys its nodes by ABSOLUTE path, but
@@ -389,6 +449,8 @@ export function buildDependencyNamespace(
           // of an error. Resolve against the root the caller already passed.
           filePaths.map((file) => toAbsoluteWorkspacePath(workspaceRoot, file)),
           workspaceRoot,
+          undefined,
+          discoveredFiles,
         );
         let edgeCount = 0;
         for (const edgeSet of graph.edges.values()) {
@@ -439,25 +501,7 @@ export function buildDependencyNamespace(
       }
     },
 
-    getSymbolIndex: async (workspaceRoot?: string) => {
-      try {
-        const index = dependencyGraph.getSymbolIndex(workspaceRoot);
-        const result: Array<{ file: string; symbols: string[] }> = [];
-        for (const [file, exports] of index) {
-          result.push({
-            file,
-            symbols: exports.map((e) => e.name),
-          });
-        }
-        return result;
-      } catch {
-        // degradation-audit: optional-capability - this delegate only walks its
-        // own Maps (dependencyGraph.getSymbolIndex) and cannot throw; the
-        // empty-array fallback matches "no symbols" and guards a call this
-        // wrapper cannot make fail.
-        return [];
-      }
-    },
+    getSymbolIndex,
 
     isBuilt: async (workspaceRoot?: string) => {
       try {
@@ -469,6 +513,26 @@ export function buildDependencyNamespace(
         // fail.
         return false;
       }
+    },
+
+    getGraphCoverage: async (workspaceRoot?: string) =>
+      dependencyGraph.getCoverage(workspaceRoot),
+
+    // Resolved exactly as getDependencies/getDependents resolve their path, so
+    // the service routes it to the graph that answers those calls.
+    getGraphCoverageForFile: async (filePath: string) => {
+      const trimmed = filePath.trim();
+      // A relative path with no open workspace cannot be resolved; the
+      // dependency calls answer [] for it, from no graph, so neither has coverage.
+      if (
+        !isAbsoluteFileArg(trimmed) &&
+        !workspaceProvider.getWorkspaceRoot()
+      ) {
+        return undefined;
+      }
+      return dependencyGraph.getCoverageForFile(
+        resolveWorkspaceFilePath(trimmed, workspaceProvider),
+      );
     },
   };
 }

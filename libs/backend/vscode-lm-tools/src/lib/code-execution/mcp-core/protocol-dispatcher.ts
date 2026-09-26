@@ -18,8 +18,10 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
+import type { GraphCoverage } from '@ptah-extension/workspace-intelligence';
 import {
   countTokensPiecewise,
+  fitsBudget,
   type CodeOutliner,
   type TextBudget,
 } from '@ptah-extension/tool-output-reducers';
@@ -41,7 +43,9 @@ import type {
   MCPToolDefinition,
   ExecuteCodeParams,
   ApprovalPromptParams,
+  SymbolIndexPage,
 } from '../types';
+import { parseSymbolIndexQuery } from '../namespace-builders/symbol-index-query';
 import {
   buildExecuteCodeTool,
   buildApprovalPromptTool,
@@ -126,6 +130,8 @@ import {
 import {
   applyToolResultBudget,
   getToolResultBudget,
+  spoolToolText,
+  type SpoolOutcome,
   type ToolResultBudgetOutcome,
 } from './tool-result-budget';
 import {
@@ -1959,14 +1965,22 @@ async function handleIndividualTool(
           ptahAPI,
           file.trim(),
         );
-        const dependents =
-          await ptahAPI.dependencies.getDependents(resolvedFile);
+        // Both read the graph service when invoked, in the same turn, so the
+        // coverage is that of the graph which answered (not the session's).
+        const [dependents, coverage] = await Promise.all([
+          ptahAPI.dependencies.getDependents(resolvedFile),
+          ptahAPI.dependencies.getGraphCoverageForFile(resolvedFile),
+        ]);
+        // The list goes last: a budget cut keeps the completeness fields.
         return await createToolSuccessResponse(
           request,
+          // Status fields before the unbounded path and list, so a budget
+          // cut keeps them.
           JSON.stringify({
+            count: dependents.length,
+            ...graphCompleteness(coverage),
             file: resolvedFile,
             dependents,
-            count: dependents.length,
           }),
           deps,
         );
@@ -1982,16 +1996,21 @@ async function handleIndividualTool(
           ptahAPI,
           file.trim(),
         );
-        const dependencies = await ptahAPI.dependencies.getDependencies(
-          resolvedFile,
-          depth,
-        );
+        // Same graph for answer and coverage, as in ptah_get_dependents.
+        const [dependencies, coverage] = await Promise.all([
+          ptahAPI.dependencies.getDependencies(resolvedFile, depth),
+          ptahAPI.dependencies.getGraphCoverageForFile(resolvedFile),
+        ]);
+        // The list goes last: a budget cut keeps the completeness fields.
         return await createToolSuccessResponse(
           request,
+          // Status fields before the unbounded path and list, so a budget
+          // cut keeps them.
           JSON.stringify({
+            count: dependencies.length,
+            ...graphCompleteness(coverage),
             file: resolvedFile,
             dependencies,
-            count: dependencies.length,
           }),
           deps,
         );
@@ -2123,11 +2142,28 @@ async function handleIndividualTool(
       }
 
       case 'ptah_get_symbol_index': {
+        // Validate before the graph build: a cold build can take minutes.
+        const parsed = parseSymbolIndexQuery(args);
+        if (!parsed.ok) {
+          return toolErrorResponse(request, `Error: ${parsed.error}`);
+        }
         await ensureDependencyGraphBuilt(ptahAPI);
-        const index = await ptahAPI.dependencies.getSymbolIndex();
+        const page = await ptahAPI.dependencies.getSymbolIndex(
+          undefined,
+          parsed.query,
+        );
         return await createToolSuccessResponse(
           request,
-          JSON.stringify({ files: index, count: index.length }),
+          await renderSymbolIndexPage(
+            page,
+            getToolResultBudget(name),
+            // The index has no root (the merged index), so neither has its coverage.
+            graphCompleteness(
+              await ptahAPI.dependencies.getGraphCoverage(undefined),
+            ),
+            async (text) =>
+              spoolToolText(text, await resolveSpoolRoot(deps), request.id),
+          ),
           deps,
         );
       }
@@ -2278,6 +2314,12 @@ function missingStringArgResponse(
 }
 
 /**
+ * Most source files the workspace import graph is built from. Discovery lists
+ * every matching file, so the graph can report how many the cap dropped.
+ */
+const DEPENDENCY_GRAPH_FILE_CAP = 5000;
+
+/**
  * Build the workspace import graph on first dependency query; reuse thereafter.
  */
 async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
@@ -2287,20 +2329,171 @@ async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
   // Guard on THIS workspace's graph so a second open workspace still builds its
   // own graph rather than reusing the first workspace's cached result.
   if (await ptahAPI.dependencies.isBuilt(workspaceRoot)) return;
-  const files = await ptahAPI.search.findFiles('**/*.{ts,tsx,js,jsx}', 5000);
-  if (files.length === 0) return;
+  const discovered = await ptahAPI.search.findFiles(
+    '**/*.{ts,tsx,js,jsx}',
+    Number.MAX_SAFE_INTEGER,
+  );
+  if (discovered.length === 0) return;
   // findFiles yields workspace-relative paths; the graph must be keyed by
   // ABSOLUTE paths so its nodes match absolute-path queries (and so the graph
   // reads real files rather than resolving relative paths against process.cwd).
-  const absoluteFiles = files.map((f) =>
-    toAbsoluteWorkspacePath(workspaceRoot, f),
+  const absoluteFiles = discovered
+    .slice(0, DEPENDENCY_GRAPH_FILE_CAP)
+    .map((f) => toAbsoluteWorkspacePath(workspaceRoot, f));
+  await ptahAPI.dependencies.buildGraph(
+    absoluteFiles,
+    workspaceRoot,
+    discovered.length,
   );
-  await ptahAPI.dependencies.buildGraph(absoluteFiles, workspaceRoot);
+}
+
+/**
+ * The fields a dependency-tool result adds when its graph was built from
+ * fewer files than were discovered (the file cap dropped some): an empty
+ * answer may then be a file the graph never saw. Nothing when complete.
+ */
+function graphCompleteness(
+  coverage: GraphCoverage | undefined,
+):
+  | { incomplete: true; graphedFiles: number; discoveredFiles: number }
+  | Record<string, never> {
+  if (!coverage || coverage.discoveredFiles <= coverage.graphedFiles) {
+    return {};
+  }
+  return {
+    incomplete: true,
+    graphedFiles: coverage.graphedFiles,
+    discoveredFiles: coverage.discoveredFiles,
+  };
 }
 
 /** Join a workspace-relative path to its root; pass absolute paths through. */
 function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
   return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+}
+
+/**
+ * A symbol-index file whose entry alone is over the result budget: its first
+ * symbols, how many it has, and where the whole entry was saved (or why it
+ * could not be).
+ */
+interface OversizedSymbolIndexEntry {
+  file: string;
+  symbols: string[];
+  symbolCount: number;
+  truncated: true;
+  symbolsFile?: string;
+  symbolsFileError?: string;
+}
+
+/**
+ * The JSON text of a symbol-index page, always within the tool's result
+ * budget (by the same test the budget step applies, so it is returned
+ * unchanged) and always valid JSON:
+ *
+ * - the whole page when it fits;
+ * - else the longest leading run of entries that fits, with `count` and
+ *   `nextOffset` recomputed, so the next call continues where this one stopped;
+ * - else (the first entry alone is over the budget) that entry by itself, as
+ *   an {@link OversizedSymbolIndexEntry}: the whole entry is saved with
+ *   `spool` and named in `symbolsFile` (`symbolsFileError` when the save
+ *   failed), and `symbols` keeps as many leading names as fit. `nextOffset`
+ *   moves past it, so the paging always advances;
+ * - else (that entry's metadata alone is over the budget) no files, an
+ *   `error` saying the entry was skipped, the saved file when it still fits,
+ *   and `nextOffset` past the entry.
+ *
+ * `completeness` (the graph-cap fields) goes between the paging fields and
+ * `files`. No page reaches the budget's cut.
+ */
+async function renderSymbolIndexPage(
+  page: SymbolIndexPage,
+  budget: TextBudget,
+  completeness: object,
+  spool: (text: string) => Promise<SpoolOutcome>,
+): Promise<string> {
+  const render = (files: readonly object[]): string => {
+    const end = page.offset + files.length;
+    return JSON.stringify({
+      count: files.length,
+      total: page.total,
+      offset: page.offset,
+      ...(end < page.total ? { nextOffset: end } : {}),
+      ...completeness,
+      files,
+    });
+  };
+  const whole = render(page.files);
+  if (page.files.length === 0 || fitsBudget(whole, budget)) {
+    return whole;
+  }
+  const kept = largestFitting(page.files.length - 1, (count) =>
+    fitsBudget(render(page.files.slice(0, count)), budget),
+  );
+  if (kept > 0) {
+    return render(page.files.slice(0, kept));
+  }
+
+  const [entry] = page.files;
+  const saved = await spool(JSON.stringify(entry));
+  const savedTo =
+    'path' in saved
+      ? { symbolsFile: saved.path }
+      : { symbolsFileError: saved.failure };
+  const oversized = (shown: number): string =>
+    render([
+      {
+        file: entry.file,
+        symbolCount: entry.symbols.length,
+        truncated: true,
+        ...savedTo,
+        symbols: entry.symbols.slice(0, shown),
+      } satisfies OversizedSymbolIndexEntry,
+    ]);
+  if (fitsBudget(oversized(0), budget)) {
+    return oversized(
+      largestFitting(entry.symbols.length, (shown) =>
+        fitsBudget(oversized(shown), budget),
+      ),
+    );
+  }
+
+  // Even the entry's metadata is over the budget (a path of thousands of
+  // chars, or of many tokens): skip it with a fixed-size error. The saved
+  // file is named when it still fits; `nextOffset` moves past the entry.
+  const end = page.offset + 1;
+  const skipped = (recovery: object): string =>
+    JSON.stringify({
+      count: 0,
+      total: page.total,
+      offset: page.offset,
+      ...(end < page.total ? { nextOffset: end } : {}),
+      ...completeness,
+      files: [],
+      error: SYMBOL_INDEX_ENTRY_TOO_LONG,
+      ...recovery,
+    });
+  const withLocator = skipped(savedTo);
+  return fitsBudget(withLocator, budget) ? withLocator : skipped({});
+}
+
+/** The error of a symbol-index page whose single entry cannot be shown at all. */
+const SYMBOL_INDEX_ENTRY_TOO_LONG =
+  'The file at "offset" was skipped: its path alone is over the result budget. Continue at "nextOffset".';
+
+/** Largest `n` in `[0, max]` for which `fits(n)` holds, else 0 (`fits` monotone; `fits(0)` is not tested). */
+function largestFitting(max: number, fits: (n: number) => boolean): number {
+  let low = 0;
+  let high = max;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low;
 }
 
 /**

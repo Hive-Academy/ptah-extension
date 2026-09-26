@@ -95,6 +95,7 @@ export {
   DependencyGraphService,
   type DependencyGraph,
   type FileNode,
+  type GraphCoverage,
   type SymbolIndex,
 } from './ast/dependency-graph.service';
 export * from './ast/ast.types';

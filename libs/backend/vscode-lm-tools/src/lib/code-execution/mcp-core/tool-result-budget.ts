@@ -196,7 +196,9 @@ const REPORTED_ERROR_NAMES: ReadonlySet<string> = new Set([
 const lastPruneByDir = new Map<string, number>();
 
 type CutKind = 'none' | 'line' | 'mid-line';
-type SpoolOutcome = { readonly path: string } | { readonly failure: string };
+/** Where {@link spoolToolText} saved the text, or why it could not (an errno code or error name). */
+export type SpoolOutcome =
+  { readonly path: string } | { readonly failure: string };
 
 /** Where spool files go, and how a relative locator names the root. */
 interface SpoolLocation {
@@ -489,6 +491,20 @@ function spoolFileName(
       .replace(/[^A-Za-z0-9_-]/g, '_')
       .slice(0, MAX_ID_CHARS) || 'call';
   return `${id}-${Date.now()}-${hex}.txt`;
+}
+
+/**
+ * Saves `text` to a fresh spool file, in the same directory, with the same
+ * naming and pruning as the full output of an over-budget result. For a
+ * formatter that keeps its result within the budget itself and names the
+ * saved text inside that result. Never throws.
+ */
+export function spoolToolText(
+  text: string,
+  spoolRoot: string,
+  requestId: ApplyToolResultBudgetInput['requestId'],
+): Promise<SpoolOutcome> {
+  return spoolRaw(text, spoolLocation(spoolRoot).dir, requestId);
 }
 
 /**

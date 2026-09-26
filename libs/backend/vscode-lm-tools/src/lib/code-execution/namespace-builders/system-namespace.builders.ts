@@ -322,11 +322,14 @@ Prefer ptah.ast over reading full files when you only need structural informatio
 
   dependencies: `ptah.dependencies - Import-Based Dependency Graph
 
-- buildGraph(filePaths, workspaceRoot) - Build dependency graph from file list
+- buildGraph(filePaths, workspaceRoot, discoveredFiles?) - Build dependency graph from file list (discoveredFiles: count before you capped the list)
 - getDependencies(file) - Get what a file imports (outgoing edges)
 - getDependents(file) - Get what imports this file (incoming edges)
-- getSymbolIndex() - Get exported symbols per file
+- getSymbolIndex(workspaceRoot?) - Get exported symbols per file, all at once
+- getSymbolIndex(workspaceRoot, { pathPrefix?, limit?, offset? }) - One page of it: { files, count, total, offset, nextOffset? }
 - isBuilt() - Check if the dependency graph has been built
+- getGraphCoverage(workspaceRoot?) - { graphedFiles, discoveredFiles } of the built graph (graphedFiles < discoveredFiles: the graph is partial)
+- getGraphCoverageForFile(file) - The same, for the graph that answers getDependencies/getDependents for that file
 
 Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
 

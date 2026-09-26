@@ -45,6 +45,7 @@ import type {
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { SymbolIndexPage } from '../types';
 
 import {
   buildContextNamespace,
@@ -53,6 +54,10 @@ import {
   buildDependencyNamespace,
   type AnalysisNamespaceDependencies,
 } from './analysis-namespace.builders';
+import {
+  SYMBOL_INDEX_DEFAULT_LIMIT,
+  SYMBOL_INDEX_MAX_LIMIT,
+} from './symbol-index-query';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,6 +82,8 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependents: jest.Mock;
     getSymbolIndex: jest.Mock;
     isBuilt: jest.Mock;
+    getCoverage: jest.Mock;
+    getCoverageForFile: jest.Mock;
   };
   _workspaceProvider: { getWorkspaceRoot: jest.Mock };
 } {
@@ -98,6 +105,8 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependents: jest.fn(),
     getSymbolIndex: jest.fn(),
     isBuilt: jest.fn(),
+    getCoverage: jest.fn(),
+    getCoverageForFile: jest.fn(),
   };
   const _workspaceProvider = {
     getWorkspaceRoot: jest.fn().mockReturnValue('D:/ws'),
@@ -579,6 +588,60 @@ describe('buildDependencyNamespace', () => {
     ]);
   });
 
+  it('buildGraph forwards the discovered-file count; getGraphCoverage reads it back', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.buildGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: new Map(),
+      unresolvedCount: 0,
+      builtAt: 1,
+    });
+    deps._dependencyGraph.getCoverage.mockReturnValue({
+      graphedFiles: 1,
+      discoveredFiles: 9,
+    });
+    const ns = buildDependencyNamespace(deps);
+
+    await ns.buildGraph(['a.ts'], 'D:/ws', 9);
+    await ns.buildGraph(['a.ts'], 'D:/ws');
+
+    const calls = deps._dependencyGraph.buildGraph.mock.calls;
+    expect(calls[0].slice(2)).toEqual([undefined, 9]);
+    expect(calls[1].slice(2)).toEqual([undefined, undefined]);
+    await expect(ns.getGraphCoverage('D:/ws')).resolves.toEqual({
+      graphedFiles: 1,
+      discoveredFiles: 9,
+    });
+    expect(deps._dependencyGraph.getCoverage).toHaveBeenCalledWith('D:/ws');
+  });
+
+  // Round 2 review R2-B1.
+  it('getGraphCoverageForFile routes the path resolved as getDependents resolves it', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.getCoverageForFile.mockReturnValue({
+      graphedFiles: 1,
+      discoveredFiles: 5_001,
+    });
+    const ns = buildDependencyNamespace(deps);
+
+    await expect(ns.getGraphCoverageForFile(' C:/b/b.ts ')).resolves.toEqual({
+      graphedFiles: 1,
+      discoveredFiles: 5_001,
+    });
+    expect(deps._dependencyGraph.getCoverageForFile).toHaveBeenCalledWith(
+      'C:/b/b.ts',
+    );
+    await ns.getGraphCoverageForFile('src/a.ts');
+    expect(deps._dependencyGraph.getCoverageForFile).toHaveBeenLastCalledWith(
+      path.join('D:/ws', 'src/a.ts'),
+    );
+
+    deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
+    await expect(ns.getGraphCoverageForFile('src/a.ts')).resolves.toBe(
+      undefined,
+    );
+  });
+
   it('buildGraph returns a zeroed envelope with error on failure', async () => {
     const deps = makeMocks();
     deps._dependencyGraph.buildGraph.mockRejectedValue(new Error('bad graph'));
@@ -637,6 +700,184 @@ describe('buildDependencyNamespace', () => {
 
     const out = await buildDependencyNamespace(deps).getSymbolIndex();
     expect(out).toEqual([{ file: 'a.ts', symbols: ['foo', 'bar'] }]);
+  });
+
+  describe('getSymbolIndex paging (TASK_2026_559 Batch 9)', () => {
+    const LIBS = 10;
+    const ENTRIES = 3_000;
+
+    /** File i of the synthetic index: `D:/ws/libs/lib-<i % 10>/src/file-<i>.ts`. */
+    function fileOf(i: number): string {
+      return `D:/ws/libs/lib-${i % LIBS}/src/file-${String(i).padStart(4, '0')}.ts`;
+    }
+
+    /** A 3,000-entry index, inserted in reverse path order. */
+    function syntheticIndex(): Map<string, Array<{ name: string }>> {
+      const index = new Map<string, Array<{ name: string }>>();
+      for (let i = ENTRIES - 1; i >= 0; i--) {
+        index.set(fileOf(i), [{ name: `Export${i}` }]);
+      }
+      return index;
+    }
+
+    function namespaceOver(
+      index: Map<string, Array<{ name: string }>> = syntheticIndex(),
+      /** `null`: the provider knows no workspace root. */
+      root: string | null = 'D:/ws',
+    ) {
+      const deps = makeMocks();
+      deps._dependencyGraph.getSymbolIndex.mockReturnValue(index);
+      deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(
+        root ?? undefined,
+      );
+      return { ns: buildDependencyNamespace(deps), deps };
+    }
+
+    const sortedFiles = Array.from({ length: ENTRIES }, (_, i) =>
+      fileOf(i),
+    ).sort();
+
+    it('keeps the unpaged array, in index order, for callers passing only workspaceRoot', async () => {
+      const { ns, deps } = namespaceOver();
+      const out = await ns.getSymbolIndex('D:/ws');
+      expect(Array.isArray(out)).toBe(true);
+      expect(out).toHaveLength(ENTRIES);
+      expect(out[0]).toEqual({
+        file: fileOf(ENTRIES - 1),
+        symbols: ['Export2999'],
+      });
+      expect(deps._dependencyGraph.getSymbolIndex).toHaveBeenCalledWith(
+        'D:/ws',
+      );
+    });
+
+    it('returns the default page, ordered by path, with nextOffset', async () => {
+      const { ns } = namespaceOver();
+      const page = await ns.getSymbolIndex(undefined, {});
+      expect(page.count).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+      expect(page.total).toBe(ENTRIES);
+      expect(page.offset).toBe(0);
+      expect(page.nextOffset).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+      expect(page.files.map((f) => f.file)).toEqual(
+        sortedFiles.slice(0, SYMBOL_INDEX_DEFAULT_LIMIT),
+      );
+    });
+
+    it('filters by a workspace-relative prefix and counts total after the filter', async () => {
+      const { ns } = namespaceOver();
+      const page = await ns.getSymbolIndex(undefined, {
+        pathPrefix: 'libs/lib-3/',
+        limit: 1000,
+      });
+      expect(page.total).toBe(ENTRIES / LIBS);
+      expect(page.count).toBe(ENTRIES / LIBS);
+      expect(page.nextOffset).toBeUndefined();
+      expect(
+        page.files.every((f) => f.file.startsWith('D:/ws/libs/lib-3/')),
+      ).toBe(true);
+    });
+
+    it('treats Windows separators, case and an absolute prefix as the same filter', async () => {
+      const { ns } = namespaceOver();
+      const relative = await ns.getSymbolIndex(undefined, {
+        pathPrefix: 'libs/lib-3/',
+      });
+      for (const pathPrefix of [
+        'LIBS\\Lib-3\\',
+        '.\\libs\\lib-3\\',
+        'd:\\WS\\libs\\lib-3\\',
+        'D:/ws/libs//lib-3/',
+      ]) {
+        await expect(
+          ns.getSymbolIndex(undefined, { pathPrefix }),
+        ).resolves.toEqual(relative);
+      }
+    });
+
+    it('matches a POSIX prefix case-sensitively and a UNC prefix case-insensitively', async () => {
+      const { ns } = namespaceOver(
+        new Map([
+          ['/repo/src/Alpha.ts', [{ name: 'Alpha' }]],
+          ['//srv/share/src/beta.ts', [{ name: 'beta' }]],
+        ]),
+        '/repo',
+      );
+      expect(
+        (await ns.getSymbolIndex(undefined, { pathPrefix: '/repo/src/alpha' }))
+          .total,
+      ).toBe(0);
+      expect(
+        (await ns.getSymbolIndex(undefined, { pathPrefix: 'src/Alpha' })).total,
+      ).toBe(1);
+      expect(
+        (await ns.getSymbolIndex(undefined, { pathPrefix: '\\\\SRV\\Share\\' }))
+          .files,
+      ).toEqual([{ file: '//srv/share/src/beta.ts', symbols: ['beta'] }]);
+    });
+
+    it('answers a prefix that matches nothing with an empty page and no nextOffset', async () => {
+      const { ns } = namespaceOver();
+      await expect(
+        ns.getSymbolIndex(undefined, { pathPrefix: 'apps/' }),
+      ).resolves.toEqual({ files: [], count: 0, total: 0, offset: 0 });
+    });
+
+    it('matches nothing with a relative prefix when no workspace root is known', async () => {
+      const { ns } = namespaceOver(syntheticIndex(), null);
+      await expect(
+        ns.getSymbolIndex(undefined, { pathPrefix: 'libs/' }),
+      ).resolves.toEqual({ files: [], count: 0, total: 0, offset: 0 });
+    });
+
+    it('continues with nextOffset until the last page, which has no nextOffset', async () => {
+      const { ns } = namespaceOver();
+      const seen: string[] = [];
+      let offset: number | undefined = 0;
+      let pages = 0;
+      while (offset !== undefined) {
+        const page: SymbolIndexPage = await ns.getSymbolIndex(undefined, {
+          limit: 700,
+          offset,
+        });
+        expect(page.offset).toBe(offset);
+        seen.push(...page.files.map((f) => f.file));
+        offset = page.nextOffset;
+        pages++;
+      }
+      expect(pages).toBe(5);
+      expect(seen).toEqual(sortedFiles);
+    });
+
+    it('returns a short last page without nextOffset, and an empty page past the end', async () => {
+      const { ns } = namespaceOver();
+      const last = await ns.getSymbolIndex(undefined, { offset: ENTRIES - 10 });
+      expect(last.count).toBe(10);
+      expect(last.nextOffset).toBeUndefined();
+      expect(last.files.map((f) => f.file)).toEqual(sortedFiles.slice(-10));
+
+      await expect(
+        ns.getSymbolIndex(undefined, { offset: ENTRIES + 5 }),
+      ).resolves.toEqual({
+        files: [],
+        count: 0,
+        total: ENTRIES,
+        offset: ENTRIES + 5,
+      });
+    });
+
+    it.each([
+      [{ limit: 0 }],
+      [{ limit: SYMBOL_INDEX_MAX_LIMIT + 1 }],
+      [{ limit: 1.5 }],
+      [{ offset: -1 }],
+      [{ pathPrefix: '../elsewhere' }],
+      [{ pathPrefix: 'C:libs' }],
+    ])('throws a RangeError for the invalid query %j', async (query) => {
+      const { ns } = namespaceOver();
+      await expect(ns.getSymbolIndex(undefined, query)).rejects.toBeInstanceOf(
+        RangeError,
+      );
+    });
   });
 
   it('isBuilt swallows errors by returning false', async () => {

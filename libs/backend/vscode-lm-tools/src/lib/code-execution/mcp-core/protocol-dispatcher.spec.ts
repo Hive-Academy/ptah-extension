@@ -43,10 +43,31 @@ import {
   getCallerSessionId,
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
-import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
+import type {
+  MCPRequest,
+  MCPResponse,
+  PtahAPI,
+  SymbolIndexEntry,
+} from '../types';
 import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import {
+  SYMBOL_INDEX_DEFAULT_LIMIT,
+  SYMBOL_INDEX_MAX_LIMIT,
+  pageSymbolIndex,
+  type ParsedSymbolIndexQuery,
+} from '../namespace-builders/symbol-index-query';
+import {
+  buildDependencyNamespace,
+  type AnalysisNamespaceDependencies,
+} from '../namespace-builders/analysis-namespace.builders';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
-import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import { Result } from '@ptah-extension/shared';
+import {
+  DependencyGraphService,
+  type AstAnalysisService,
+  type CodeSymbolIndexer,
+  type FileSystemService,
+} from '@ptah-extension/workspace-intelligence';
 import {
   AgentRoleError,
   CliCommandLineTooLongError,
@@ -858,6 +879,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
           isBuilt,
           buildGraph,
           getDependents,
+          getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
         } as unknown as PtahAPI['dependencies'],
       }),
     });
@@ -878,6 +900,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(buildGraph).toHaveBeenCalledWith(
       [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
       root,
+      2,
     );
     // Relative query arg resolved to absolute before querying.
     expect(getDependents).toHaveBeenCalledWith(path.join(root, 'src/a.ts'));
@@ -897,6 +920,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         dependencies: {
           isBuilt: jest.fn().mockResolvedValue(true),
           getDependencies,
+          getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
         } as unknown as PtahAPI['dependencies'],
       }),
     });
@@ -914,6 +938,353 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     );
 
     expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
+  });
+
+  // Batch 9 revision round 1 (review F3, User Decision 14): the 5,000-file
+  // graph cap is disclosed instead of looking like a complete answer.
+  it('discovers every source file, graphs the first 5,000 and passes the discovered count', async () => {
+    const root = path.resolve('/ws');
+    const discovered = Array.from(
+      { length: 5_354 },
+      (_, i) => `src/file-${String(i).padStart(4, '0')}.ts`,
+    );
+    const findFiles = jest.fn().mockResolvedValue(discovered);
+    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 5_000 });
+    await handleMCPRequest(
+      makeRequest({
+        id: 'b9-cap',
+        method: 'tools/call',
+        params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: root }),
+          } as unknown as PtahAPI['workspace'],
+          search: { findFiles } as unknown as PtahAPI['search'],
+          dependencies: {
+            isBuilt: jest.fn().mockResolvedValue(false),
+            buildGraph,
+            getDependents: jest.fn().mockResolvedValue([]),
+            getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
+          } as unknown as PtahAPI['dependencies'],
+        }),
+      }),
+    );
+
+    // Discovery is not capped (the cap bounds parsing, not listing).
+    expect(findFiles.mock.calls[0][1]).toBeGreaterThan(5_354);
+    const [files, graphRoot, discoveredCount] = buildGraph.mock.calls[0];
+    expect(files).toHaveLength(5_000);
+    expect(files[4_999]).toBe(path.join(root, 'src/file-4999.ts'));
+    expect(graphRoot).toBe(root);
+    expect(discoveredCount).toBe(5_354);
+  });
+
+  describe.each([
+    ['ptah_get_dependents', 'getDependents', 'dependents'],
+    ['ptah_get_dependencies', 'getDependencies', 'dependencies'],
+  ])('%s graph completeness', (toolName, method, listField) => {
+    const root = path.resolve('/ws');
+
+    async function call(
+      coverage: { graphedFiles: number; discoveredFiles: number } | undefined,
+    ): Promise<{
+      body: Record<string, unknown>;
+      getGraphCoverageForFile: jest.Mock;
+    }> {
+      const getGraphCoverageForFile = jest.fn().mockResolvedValue(coverage);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b9-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: 'src/a.ts' } },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest.fn().mockResolvedValue([]),
+              getGraphCoverageForFile,
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const result = res.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      expect(result.isError).not.toBe(true);
+      return {
+        body: JSON.parse(result.content[0].text) as Record<string, unknown>,
+        getGraphCoverageForFile,
+      };
+    }
+
+    it('adds no completeness fields when the graph covers every discovered file', async () => {
+      const { body, getGraphCoverageForFile } = await call({
+        graphedFiles: 120,
+        discoveredFiles: 120,
+      });
+      expect(getGraphCoverageForFile).toHaveBeenCalledWith(
+        path.join(root, 'src/a.ts'),
+      );
+      expect(body).toEqual({
+        file: path.join(root, 'src/a.ts'),
+        [listField]: [],
+        count: 0,
+      });
+    });
+
+    it('adds no completeness fields when no graph coverage is known', async () => {
+      const { body } = await call(undefined);
+      expect(body).not.toHaveProperty('incomplete');
+      expect(body).not.toHaveProperty('graphedFiles');
+    });
+
+    it('says incomplete, with both counts, when the cap dropped files', async () => {
+      const { body } = await call({
+        graphedFiles: 5_000,
+        discoveredFiles: 5_354,
+      });
+      expect(body).toMatchObject({
+        [listField]: [],
+        count: 0,
+        incomplete: true,
+        graphedFiles: 5_000,
+        discoveredFiles: 5_354,
+      });
+    });
+  });
+
+  // Round 2 review R2-B1: the coverage reported is that of the graph which
+  // answered the query, not the session root's. Real graph service and
+  // namespace; only the parser and file reads are stubbed.
+  describe.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s coverage of the answering graph',
+    (toolName) => {
+      const rootA = path.resolve('/ws-a');
+      const rootB = path.resolve('/ws-b');
+      const nested = path.join(rootA, 'pkg');
+
+      function realGraph(): DependencyGraphService {
+        return new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () =>
+              Result.ok({
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+              }),
+            ),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => 'source'),
+          } as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+      }
+
+      async function query(
+        graph: DependencyGraphService,
+        file: string,
+      ): Promise<Record<string, unknown>> {
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => rootA },
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b9-r2-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              // The session root is A throughout.
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: rootA }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const result = res.result as {
+          content: Array<{ text: string }>;
+          isError?: boolean;
+        };
+        expect(result.isError).not.toBe(true);
+        return JSON.parse(result.content[0].text) as Record<string, unknown>;
+      }
+
+      it("reports root B's cap for a file under B while the session root A is complete", async () => {
+        const graph = realGraph();
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
+        await graph.buildGraph(
+          [path.join(rootB, 'b.ts')],
+          rootB,
+          undefined,
+          5_001,
+        );
+        const body = await query(graph, path.join(rootB, 'b.ts'));
+        expect(body).toMatchObject({
+          incomplete: true,
+          graphedFiles: 1,
+          discoveredFiles: 5_001,
+        });
+      });
+
+      it('reports no cap for a complete root B while the session root A is capped', async () => {
+        const graph = realGraph();
+        await graph.buildGraph(
+          [path.join(rootA, 'a.ts')],
+          rootA,
+          undefined,
+          7_000,
+        );
+        await graph.buildGraph([path.join(rootB, 'b.ts')], rootB);
+        const body = await query(graph, path.join(rootB, 'b.ts'));
+        expect(body).not.toHaveProperty('incomplete');
+        expect(body).not.toHaveProperty('graphedFiles');
+        expect(body).not.toHaveProperty('discoveredFiles');
+      });
+
+      it('reports the nested root for a file under it, and the outer root elsewhere', async () => {
+        const graph = realGraph();
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
+        await graph.buildGraph(
+          [path.join(nested, 'x.ts')],
+          nested,
+          undefined,
+          9,
+        );
+        expect(await query(graph, path.join(nested, 'x.ts'))).toMatchObject({
+          incomplete: true,
+          graphedFiles: 1,
+          discoveredFiles: 9,
+        });
+        expect(await query(graph, path.join(rootA, 'a.ts'))).not.toHaveProperty(
+          'incomplete',
+        );
+      });
+    },
+  );
+
+  // Round 2 review R2-S1: a list over the result budget is cut, but the
+  // completeness fields come before it and survive the cut.
+  describe.each([
+    ['ptah_get_dependents', 'getDependents'],
+    ['ptah_get_dependencies', 'getDependencies'],
+  ])('%s completeness through the result budget', (toolName, method) => {
+    let spoolRoot: string;
+
+    beforeEach(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b9-r2-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    it.each([
+      ['the full output is saved', false],
+      ['the full output cannot be saved', true],
+    ])(
+      'keeps incomplete and both counts when %s',
+      async (_label, failSpool) => {
+        if (failSpool) {
+          // A file where the spool directory's parent must be: the save fails.
+          fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+        }
+        const list = Array.from(
+          { length: 1_500 },
+          (_, i) => `C:/ws/lib/module-${i}.ts`,
+        );
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b9-r2-budget-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file: 'C:/ws/lib/hub.ts' } },
+            _callerWorkspaceRoot: spoolRoot,
+          }),
+          buildDeps({
+            workspaceProvider: knownFolders(spoolRoot),
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies: {
+                isBuilt: jest.fn().mockResolvedValue(true),
+                [method]: jest.fn().mockResolvedValue(list),
+                getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                  graphedFiles: 5_000,
+                  discoveredFiles: 6_000,
+                }),
+              } as unknown as PtahAPI['dependencies'],
+            }),
+          }),
+        );
+        const text = (res.result as { content: Array<{ text: string }> })
+          .content[0].text;
+
+        // The list was cut to the budget...
+        expect(text.length).toBeLessThanOrEqual(
+          getToolResultBudget(toolName).chars,
+        );
+        expect(text).not.toContain('module-1499.ts');
+        // ...and the completeness fields were not.
+        expect(text).toMatch(/"count":\s*1500/);
+        expect(text).toMatch(/"incomplete":\s*true/);
+        expect(text).toMatch(/"graphedFiles":\s*5000/);
+        expect(text).toMatch(/"discoveredFiles":\s*6000/);
+      },
+    );
+
+    // Round 3 review: a query path long enough to use the token budget on its
+    // own must not push the completeness fields out of the cut.
+    it('keeps incomplete and both counts ahead of a very long query path', async () => {
+      const longFile = `C:/ws/${'deepabc/'.repeat(810)}hub.ts`;
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b9-r3-long-path-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: longFile } },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          workspaceProvider: knownFolders(spoolRoot),
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest
+                .fn()
+                .mockResolvedValue(['C:/ws/lib/a.ts', 'C:/ws/lib/b.ts']),
+              getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                graphedFiles: 5_000,
+                discoveredFiles: 6_000,
+              }),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+
+      expect(text.length).toBeLessThanOrEqual(
+        getToolResultBudget(toolName).chars,
+      );
+      expect(text).toMatch(/"count":\s*2/);
+      expect(text).toMatch(/"incomplete":\s*true/);
+      expect(text).toMatch(/"graphedFiles":\s*5000/);
+      expect(text).toMatch(/"discoveredFiles":\s*6000/);
+    });
   });
 
   it('ptah_count_tokens reads a relative path as-is through the sandbox', async () => {
@@ -3365,5 +3736,449 @@ describe('protocol-handlers › ptah_code_reindex and index freshness (TASK_2026
       reindexStarted: true,
       reindexInFlight: true,
     });
+  });
+});
+
+describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batch 9)', () => {
+  /** A worktree-length root, so entry paths are as long as on this repo (135 chars on average). */
+  const ROOT =
+    'D:/projects/ptah-extension/.claude-worktrees/task-559-mcp-tool-contract';
+  /** Symbols per file, cycled: median 1, 90th percentile 8, as on this repo's own index. */
+  const SYMBOL_COUNTS = [1, 1, 1, 2, 1, 3, 1, 8, 1, 2];
+
+  let spoolRoot: string;
+
+  beforeEach(() => {
+    spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b9-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  });
+
+  /** A 2,655-file index (the audited size), inserted out of path order. */
+  function auditSizedIndex(): SymbolIndexEntry[] {
+    return Array.from({ length: 2_655 }, (_, i) => {
+      const n = 2_654 - i;
+      const id = String(n).padStart(4, '0');
+      return {
+        file: `${ROOT}/libs/backend/library-${n % 23}/src/lib/feature-${n % 7}/component-${id}.service.ts`,
+        symbols: Array.from(
+          { length: SYMBOL_COUNTS[n % SYMBOL_COUNTS.length] },
+          (_, s) => `ComponentService${id}Export${s}`,
+        ),
+      };
+    });
+  }
+
+  type SymbolIndexDependencies = PtahAPI['dependencies'] & {
+    getSymbolIndex: jest.Mock;
+    getGraphCoverage: jest.Mock;
+  };
+
+  function dependenciesOver(
+    entries: SymbolIndexEntry[],
+    coverage?: { graphedFiles: number; discoveredFiles: number },
+  ): SymbolIndexDependencies {
+    return {
+      isBuilt: jest.fn().mockResolvedValue(true),
+      getSymbolIndex: jest.fn(
+        async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
+          pageSymbolIndex(entries, query, ROOT),
+      ),
+      getGraphCoverage: jest.fn().mockResolvedValue(coverage),
+    } as unknown as SymbolIndexDependencies;
+  }
+
+  function callTool(
+    args: Record<string, unknown>,
+    dependencies: PtahAPI['dependencies'],
+    getInfo: jest.Mock = jest.fn().mockResolvedValue({ path: ROOT }),
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: 'b9-symbol-index',
+        method: 'tools/call',
+        params: { name: 'ptah_get_symbol_index', arguments: args },
+        _callerWorkspaceRoot: spoolRoot,
+      }),
+      buildDeps({
+        workspaceProvider: knownFolders(spoolRoot),
+        ptahAPI: buildPtahAPIStub({
+          workspace: { getInfo } as unknown as PtahAPI['workspace'],
+          dependencies,
+        }),
+      }),
+    );
+  }
+
+  function resultOf(res: MCPResponse): { text: string; isError: boolean } {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError === true };
+  }
+
+  interface PageBody {
+    count: number;
+    total: number;
+    offset: number;
+    nextOffset?: number;
+    files: SymbolIndexEntry[];
+  }
+
+  it('keeps a default call on a 2,655-file index within both budget limits, whole and unreduced', async () => {
+    const { text, isError } = resultOf(
+      await callTool({}, dependenciesOver(auditSizedIndex())),
+    );
+
+    expect(isError).toBe(false);
+    expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    expect(text).not.toContain('[reduced:');
+    const body = JSON.parse(text) as PageBody;
+    expect(body.count).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+    expect(body.total).toBe(2_655);
+    expect(body.offset).toBe(0);
+    expect(body.nextOffset).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+    const files = body.files.map((entry) => entry.file);
+    expect(files).toEqual([...files].sort());
+  });
+
+  it('passes the defaults to the namespace when the tool gets no arguments', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex());
+    await callTool({}, dependencies);
+    expect(dependencies.getSymbolIndex).toHaveBeenCalledWith(undefined, {
+      limit: SYMBOL_INDEX_DEFAULT_LIMIT,
+      offset: 0,
+    });
+  });
+
+  it('passes a normalised prefix, the limit and the offset to the namespace', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex());
+    await callTool(
+      { pathPrefix: '.\\libs\\backend\\\\library-1\\', limit: 5, offset: 10 },
+      dependencies,
+    );
+    expect(dependencies.getSymbolIndex).toHaveBeenCalledWith(undefined, {
+      pathPrefix: 'libs/backend/library-1/',
+      limit: 5,
+      offset: 10,
+    });
+  });
+
+  it('ends a page early at the budget, with count and nextOffset recomputed, so paging continues where it stopped', async () => {
+    const heavy = Array.from({ length: 100 }, (_, i) => ({
+      file: `${ROOT}/libs/heavy/file-${String(i).padStart(3, '0')}.ts`,
+      symbols: Array.from({ length: 40 }, (_, s) => `HeavyExport${i}x${s}`),
+    }));
+    const dependencies = dependenciesOver(heavy);
+
+    const firstText = resultOf(
+      await callTool({ limit: 50 }, dependencies),
+    ).text;
+    expect(firstText).not.toContain('[reduced:');
+    const first = JSON.parse(firstText) as PageBody;
+    expect(first.count).toBeGreaterThanOrEqual(1);
+    expect(first.count).toBeLessThan(50);
+    expect(first.files).toHaveLength(first.count);
+    expect(first.nextOffset).toBe(first.count);
+    expect(first.total).toBe(100);
+
+    const secondText = resultOf(
+      await callTool({ limit: 50, offset: first.nextOffset }, dependencies),
+    ).text;
+    expect(secondText.length).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+    );
+    const second = JSON.parse(secondText) as PageBody;
+    expect(second.offset).toBe(first.nextOffset);
+    expect(second.files[0].file).toBe(heavy[first.count].file);
+  });
+
+  // Batch 9 revision round 1 (review F1): a file whose entry alone is over the
+  // budget no longer reaches the budget's cut, which made the page invalid JSON.
+  interface OversizedBody {
+    file: string;
+    symbolCount: number;
+    truncated: true;
+    symbolsFile?: string;
+    symbolsFileError?: string;
+    symbols: string[];
+  }
+
+  const hugeEntry = (name: string): SymbolIndexEntry => ({
+    file: `${ROOT}/libs/huge/${name}.ts`,
+    symbols: Array.from({ length: 1_500 }, (_, s) => `HugeExport${s}`),
+  });
+
+  /** A page's text, asserted to be one unreduced, in-budget JSON value. */
+  function parsedPage(text: string): PageBody {
+    expect(text).not.toContain('[reduced:');
+    expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    return JSON.parse(text) as PageBody;
+  }
+
+  /** Every page from offset 0 until nextOffset is absent. */
+  async function allPages(
+    dependencies: PtahAPI['dependencies'],
+  ): Promise<PageBody[]> {
+    const pages: PageBody[] = [];
+    let offset: number | undefined = 0;
+    while (offset !== undefined && pages.length < 50) {
+      const page = parsedPage(
+        resultOf(await callTool({ offset }, dependencies)).text,
+      );
+      pages.push(page);
+      offset = page.nextOffset;
+    }
+    return pages;
+  }
+
+  it('returns an oversized entry in the middle as valid JSON, and paging continues past it with its symbols recoverable', async () => {
+    const entries = [
+      { file: `${ROOT}/libs/huge/a-before.ts`, symbols: ['Before'] },
+      hugeEntry('m-middle'),
+      { file: `${ROOT}/libs/huge/z-after.ts`, symbols: ['After'] },
+    ];
+    const pages = await allPages(dependenciesOver(entries));
+
+    // Every file is visited once, in order.
+    expect(pages.flatMap((page) => page.files.map((f) => f.file))).toEqual(
+      entries.map((entry) => entry.file),
+    );
+    const withHuge = pages.find((page) =>
+      page.files.some((f) => f.file === entries[1].file),
+    ) as PageBody;
+    expect(withHuge.count).toBe(1);
+    expect(withHuge.files).toHaveLength(1);
+    expect(withHuge.nextOffset).toBe(withHuge.offset + 1);
+    const huge = withHuge.files[0] as unknown as OversizedBody;
+    expect(huge.truncated).toBe(true);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(huge.symbols.length).toBeGreaterThan(0);
+    expect(huge.symbols.length).toBeLessThan(1_500);
+    expect(huge.symbols).toEqual(
+      entries[1].symbols.slice(0, huge.symbols.length),
+    );
+    expect(huge.symbolsFileError).toBeUndefined();
+
+    // The whole entry is recoverable from the named file, under the spool root.
+    const symbolsFile = huge.symbolsFile as string;
+    expect(path.resolve(symbolsFile).startsWith(path.resolve(spoolRoot))).toBe(
+      true,
+    );
+    expect(JSON.parse(fs.readFileSync(symbolsFile, 'utf8'))).toEqual(
+      entries[1],
+    );
+  });
+
+  it('returns an oversized final entry as valid JSON with no nextOffset, its symbols recoverable', async () => {
+    const entries = [
+      { file: `${ROOT}/libs/huge/a-first.ts`, symbols: ['First'] },
+      hugeEntry('z-last'),
+    ];
+    const dependencies = dependenciesOver(entries);
+
+    const first = parsedPage(resultOf(await callTool({}, dependencies)).text);
+    expect(first.files.map((f) => f.file)).toEqual([entries[0].file]);
+    expect(first.nextOffset).toBe(1);
+
+    const last = parsedPage(
+      resultOf(await callTool({ offset: first.nextOffset }, dependencies)).text,
+    );
+    expect(last).toMatchObject({ count: 1, total: 2, offset: 1 });
+    expect(last).not.toHaveProperty('nextOffset');
+    const huge = last.files[0] as unknown as OversizedBody;
+    expect(huge.file).toBe(entries[1].file);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(
+      JSON.parse(fs.readFileSync(huge.symbolsFile as string, 'utf8')),
+    ).toEqual(entries[1]);
+  });
+
+  it('returns a lone oversized entry as valid JSON', async () => {
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([hugeEntry('only')]))).text,
+    );
+    expect(page).toMatchObject({ count: 1, total: 1, offset: 0 });
+    expect(page).not.toHaveProperty('nextOffset');
+    expect((page.files[0] as unknown as OversizedBody).truncated).toBe(true);
+  });
+
+  it('names the spool failure inside a valid page when the symbols cannot be saved', async () => {
+    // A file where the spool directory's parent must be: the save fails.
+    fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([hugeEntry('only')]))).text,
+    );
+    const huge = page.files[0] as unknown as OversizedBody;
+    expect(huge.truncated).toBe(true);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(huge.symbolsFile).toBeUndefined();
+    expect(huge.symbolsFileError).toMatch(/^[A-Za-z]+$/);
+    expect(huge.symbols.length).toBeGreaterThan(0);
+  });
+
+  // Round 2 review R2-M1: the reviewer's token-heavy path (6,485 chars, under
+  // the char ceiling but over the token ceiling even with no symbols).
+  const tokenHeavyEntry = (): SymbolIndexEntry => ({
+    file: 'C:/' + Array(810).fill('deepabc').join('/') + '.ts',
+    symbols: ['S'],
+  });
+
+  interface SkippedBody extends PageBody {
+    error?: string;
+    symbolsFile?: string;
+    symbolsFileError?: string;
+  }
+
+  it('skips an entry whose metadata alone is over the budget with a valid JSON error, and paging advances (spool fails)', async () => {
+    fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+    const heavy = tokenHeavyEntry();
+    expect(heavy.file.length).toBeLessThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    const entries = [heavy, { file: 'C:/z-after.ts', symbols: ['After'] }];
+    const dependencies = dependenciesOver(entries, {
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+
+    const first = parsedPage(
+      resultOf(await callTool({}, dependencies)).text,
+    ) as SkippedBody;
+    expect(first).toMatchObject({
+      count: 0,
+      total: 2,
+      offset: 0,
+      nextOffset: 1,
+      files: [],
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+    expect(first.error).toMatch(/skipped/);
+    expect(first.symbolsFile).toBeUndefined();
+    expect(first.symbolsFileError).toMatch(/^[A-Za-z]+$/);
+
+    const second = parsedPage(
+      resultOf(await callTool({ offset: first.nextOffset }, dependencies)).text,
+    );
+    expect(second.files).toEqual([entries[1]]);
+    expect(second).not.toHaveProperty('nextOffset');
+  });
+
+  it('names the saved entry when a metadata-only-oversized entry was spooled', async () => {
+    const heavy = tokenHeavyEntry();
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([heavy]))).text,
+    ) as SkippedBody;
+    expect(page).toMatchObject({ count: 0, total: 1, offset: 0, files: [] });
+    expect(page).not.toHaveProperty('nextOffset');
+    expect(page.error).toMatch(/skipped/);
+    expect(
+      JSON.parse(fs.readFileSync(page.symbolsFile as string, 'utf8')),
+    ).toEqual(heavy);
+  });
+
+  // Batch 9 revision round 1 (review F3, User Decision 14).
+  it('adds no completeness fields when the graph covers every discovered file', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex(), {
+      graphedFiles: 2_655,
+      discoveredFiles: 2_655,
+    });
+    const page = parsedPage(resultOf(await callTool({}, dependencies)).text);
+    expect(dependencies.getGraphCoverage).toHaveBeenCalledWith(undefined);
+    expect(page).not.toHaveProperty('incomplete');
+    expect(page).not.toHaveProperty('graphedFiles');
+    expect(page).not.toHaveProperty('discoveredFiles');
+  });
+
+  it('says incomplete, with both counts, when the graph cap dropped files', async () => {
+    const page = parsedPage(
+      resultOf(
+        await callTool(
+          {},
+          dependenciesOver(auditSizedIndex(), {
+            graphedFiles: 5_000,
+            discoveredFiles: 5_354,
+          }),
+        ),
+      ).text,
+    );
+    expect(page).toMatchObject({
+      count: SYMBOL_INDEX_DEFAULT_LIMIT,
+      nextOffset: SYMBOL_INDEX_DEFAULT_LIMIT,
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+  });
+
+  it('keeps the completeness fields on an empty page', async () => {
+    const page = parsedPage(
+      resultOf(
+        await callTool(
+          { pathPrefix: 'apps/' },
+          dependenciesOver(auditSizedIndex(), {
+            graphedFiles: 5_000,
+            discoveredFiles: 5_354,
+          }),
+        ),
+      ).text,
+    );
+    expect(page).toEqual({
+      count: 0,
+      total: 0,
+      offset: 0,
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+      files: [],
+    });
+  });
+
+  it('answers a prefix that matches nothing with an empty page and no nextOffset', async () => {
+    const { text, isError } = resultOf(
+      await callTool(
+        { pathPrefix: 'apps/' },
+        dependenciesOver(auditSizedIndex()),
+      ),
+    );
+    expect(isError).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      count: 0,
+      total: 0,
+      offset: 0,
+      files: [],
+    });
+  });
+
+  it.each([
+    ['limit 0', { limit: 0 }, '"limit"'],
+    ['a limit over the max', { limit: SYMBOL_INDEX_MAX_LIMIT + 1 }, '"limit"'],
+    ['a fractional limit', { limit: 2.5 }, '"limit"'],
+    ['a string limit', { limit: '10' }, '"limit"'],
+    ['a negative offset', { offset: -1 }, '"offset"'],
+    ['a fractional offset', { offset: 1.5 }, '"offset"'],
+    ['a non-string prefix', { pathPrefix: 5 }, '"pathPrefix"'],
+    ['a .. prefix', { pathPrefix: '../outside' }, '".."'],
+    ['.. inside a Windows prefix', { pathPrefix: 'libs\\..\\..\\x' }, '".."'],
+    ['a drive-relative prefix', { pathPrefix: 'C:libs' }, 'drive-relative'],
+  ])('rejects %s before building the graph', async (_label, args, expected) => {
+    const getInfo = jest.fn();
+    const dependencies = dependenciesOver(auditSizedIndex());
+    const { text, isError } = resultOf(
+      await callTool(args, dependencies, getInfo),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain(expected);
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(dependencies.getSymbolIndex).not.toHaveBeenCalled();
   });
 });

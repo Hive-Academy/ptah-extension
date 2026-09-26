@@ -19,6 +19,7 @@ import type {
   ProjectInfo,
   WorkspaceStructureAnalysis,
   StructuralSummaryResult,
+  GraphCoverage,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
 import type { DashboardNamespace } from './namespace-builders/dashboard-namespace.builder';
@@ -782,11 +783,15 @@ export interface DependenciesNamespace {
    * Build an import-based dependency graph for the given files
    * @param filePaths - Absolute paths of files to include
    * @param workspaceRoot - Workspace root for relative path resolution
+   * @param discoveredFiles - Files found before `filePaths` was capped, so
+   *   {@link getGraphCoverage} can report the graph as incomplete; defaults
+   *   to `filePaths.length`
    * @returns The built dependency graph summary
    */
   buildGraph: (
     filePaths: string[],
     workspaceRoot: string,
+    discoveredFiles?: number,
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -811,15 +816,23 @@ export interface DependenciesNamespace {
   getDependents: (filePath: string) => Promise<string[]>;
 
   /**
-   * Get exported symbols per file from the dependency graph
+   * Get exported symbols per file from the dependency graph.
+   *
+   * Without `query`: every entry, unpaged, as before. With `query`: one page
+   * of the entries under `pathPrefix`, ordered by path (see
+   * {@link SymbolIndexQuery}). An invalid `query` throws a `RangeError`.
    * @param workspaceRoot - Optional workspace root to scope the index to a
    *   single workspace's graph; omit to use the sole graph (or a merged union
-   *   when several workspaces are open).
-   * @returns Map entries of [filePath, exportedSymbolNames[]]
+   *   when several workspaces are open). A relative `pathPrefix` resolves
+   *   against it, else against the session's workspace root.
    */
-  getSymbolIndex: (
-    workspaceRoot?: string,
-  ) => Promise<Array<{ file: string; symbols: string[] }>>;
+  getSymbolIndex: {
+    (workspaceRoot?: string): Promise<SymbolIndexEntry[]>;
+    (
+      workspaceRoot: string | undefined,
+      query: SymbolIndexQuery,
+    ): Promise<SymbolIndexPage>;
+  };
 
   /**
    * Check if the dependency graph has been built
@@ -828,6 +841,58 @@ export interface DependenciesNamespace {
    * @returns true if buildGraph() has been called
    */
   isBuilt: (workspaceRoot?: string) => Promise<boolean>;
+
+  /**
+   * How many files the graph was built from, against how many were
+   * discovered; `graphedFiles < discoveredFiles` means a cap dropped files.
+   * @param workspaceRoot - That workspace's graph; omit for the sum over every
+   *   graph (the scope of the merged symbol index).
+   * @returns `undefined` when no graph is built
+   */
+  getGraphCoverage: (
+    workspaceRoot?: string,
+  ) => Promise<GraphCoverage | undefined>;
+
+  /**
+   * Coverage of the graph that answers {@link getDependencies} and
+   * {@link getDependents} for `filePath` (resolved and routed the same way).
+   * @returns `undefined` when no graph answers that file
+   */
+  getGraphCoverageForFile: (
+    filePath: string,
+  ) => Promise<GraphCoverage | undefined>;
+}
+
+/** One file of the symbol index and the names it exports. */
+export interface SymbolIndexEntry {
+  file: string;
+  symbols: string[];
+}
+
+/** Paging and filtering of {@link DependenciesNamespace.getSymbolIndex}. */
+export interface SymbolIndexQuery {
+  /**
+   * Keep only files whose absolute path starts with this prefix: absolute, or
+   * relative to the workspace root. `\` and `/` are equivalent; Windows paths
+   * compare case-insensitively. `..` segments are rejected.
+   */
+  pathPrefix?: string;
+  /** Maximum entries in the page (integer, 1-1000, default 30). */
+  limit?: number;
+  /** Entries to skip, after the prefix filter (integer ≥ 0, default 0). */
+  offset?: number;
+}
+
+/** A page of the symbol index, ordered by path. */
+export interface SymbolIndexPage {
+  files: SymbolIndexEntry[];
+  /** Entries in `files`. */
+  count: number;
+  /** Entries matching `pathPrefix`, across all pages. */
+  total: number;
+  offset: number;
+  /** Offset of the next page; absent on the last page. */
+  nextOffset?: number;
 }
 
 /**
@@ -1566,21 +1631,14 @@ export interface CoverageInfo {
  * Represents the current stage of an orchestration workflow
  */
 export type OrchestrationPhase =
-  | 'planning'
-  | 'design'
-  | 'implementation'
-  | 'qa'
-  | 'complete';
+  'planning' | 'design' | 'implementation' | 'qa' | 'complete';
 
 /**
  * Checkpoint type for orchestration workflow
  * Identifies the type of user approval checkpoint
  */
 export type CheckpointType =
-  | 'requirements'
-  | 'architecture'
-  | 'batch-complete'
-  | null;
+  'requirements' | 'architecture' | 'batch-complete' | null;
 
 /**
  * Checkpoint status for orchestration workflow
@@ -1636,9 +1694,7 @@ export interface OrchestrationState {
  * Determines what the orchestrator should do next
  */
 export type OrchestrationActionType =
-  | 'invoke-agent'
-  | 'present-checkpoint'
-  | 'complete';
+  'invoke-agent' | 'present-checkpoint' | 'complete';
 
 /**
  * Next action recommendation for orchestration workflow

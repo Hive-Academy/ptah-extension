@@ -73,8 +73,8 @@ Search persistent cross-session memory (facts, preferences, prior decisions). Ca
 ### ptah_relevance_rank_files { query, limit? }
 Rank workspace files by relevance to a query, each with a 0-100 score and reasons. Use to triage which files to open first instead of guessing. Works on all runtimes.
 
-### ptah_get_symbol_index (no parameters)
-Map of file → exported symbol names across the workspace import graph. Use to find where a symbol is exported from. Builds the import graph on first use. Works on all runtimes.
+### ptah_get_symbol_index { pathPrefix?, limit?, offset? }
+Map of file → exported symbol names across the workspace import graph, one page at a time; pass nextOffset as offset for the next page. Use to find where a symbol is exported from. Builds the import graph on first use; on very large workspaces the graph is partial and the result says incomplete: true. Works on all runtimes.
 
 ### ptah_project_detect_monorepo (no parameters)
 Detect monorepo tooling (nx/lerna/turbo/pnpm/yarn workspaces) and package count. Use to understand workspace layout before navigating a multi-package repo. Works on all runtimes.

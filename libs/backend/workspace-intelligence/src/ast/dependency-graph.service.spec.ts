@@ -246,3 +246,104 @@ describe('DependencyGraphService — eviction', () => {
     expect(svc.isBuilt()).toBe(false);
   });
 });
+
+describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
+  it('reports no coverage before a graph is built', () => {
+    const svc = makeService();
+    expect(svc.getCoverage()).toBeUndefined();
+    expect(svc.getCoverage(WS_A)).toBeUndefined();
+  });
+
+  it('reports a complete graph when no discovered count is passed', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A);
+    expect(svc.getCoverage(WS_A)).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+  });
+
+  it('keeps the uncapped discovered count a capping caller passes', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, 'D:\\ws-a\\', undefined, 7);
+    expect(svc.getCoverage('D:/ws-a')).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 7,
+    });
+  });
+
+  it.each([
+    ['below the graphed count', 1],
+    ['fractional', 2.5],
+    ['NaN', Number.NaN],
+  ])(
+    'never reports fewer discovered than graphed files (%s)',
+    async (_label, discovered) => {
+      const svc = makeService();
+      await svc.buildGraph(A_FILES, WS_A, undefined, discovered);
+      expect(svc.getCoverage(WS_A)).toEqual({
+        graphedFiles: 2,
+        discoveredFiles: 2,
+      });
+    },
+  );
+
+  it('sums every graph when no root is given, and drops coverage on eviction', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A, undefined, 10);
+    await svc.buildGraph(B_FILES, WS_B);
+    expect(svc.getCoverage()).toEqual({ graphedFiles: 3, discoveredFiles: 11 });
+
+    svc.evict(WS_A);
+    expect(svc.getCoverage(WS_A)).toBeUndefined();
+    expect(svc.getCoverage()).toEqual({ graphedFiles: 1, discoveredFiles: 1 });
+
+    svc.retainOnly([]);
+    expect(svc.getCoverage()).toBeUndefined();
+
+    await svc.buildGraph(A_FILES, WS_A, undefined, 5);
+    svc.clear();
+    expect(svc.getCoverage(WS_A)).toBeUndefined();
+  });
+
+  // Round 2 review R2-B1: coverage follows the graph that answers the file.
+  it('reports the coverage of the graph a file query is routed to, in both directions', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A);
+    await svc.buildGraph(B_FILES, WS_B, undefined, 5_001);
+
+    expect(svc.getCoverageForFile('D:/ws-b/c.ts')).toEqual({
+      graphedFiles: 1,
+      discoveredFiles: 5_001,
+    });
+    expect(svc.getCoverageForFile('D:\\ws-a\\a.ts')).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+    expect(svc.getCoverageForFile('E:/elsewhere/x.ts')).toBeUndefined();
+  });
+
+  it('reports the nested graph coverage for a file under a nested root', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A);
+    await svc.buildGraph(['D:/ws-a/pkg/x.ts'], 'D:/ws-a/pkg', undefined, 9);
+
+    expect(svc.getCoverageForFile('D:/ws-a/pkg/x.ts')).toEqual({
+      graphedFiles: 1,
+      discoveredFiles: 9,
+    });
+    expect(svc.getCoverageForFile('D:/ws-a/a.ts')).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+    expect(svc.getCoverageForFile('D:/ws-a/pkgx/y.ts')).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+    svc.evict('D:/ws-a/pkg');
+    expect(svc.getCoverageForFile('D:/ws-a/pkg/x.ts')).toEqual({
+      graphedFiles: 2,
+      discoveredFiles: 2,
+    });
+  });
+});

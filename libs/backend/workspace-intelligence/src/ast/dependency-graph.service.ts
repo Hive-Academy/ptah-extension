@@ -43,6 +43,18 @@ export interface DependencyGraph {
 /** Map of file path to its exported symbols, used by relevance scorer */
 export type SymbolIndex = Map<string, ExportInfo[]>;
 
+/**
+ * How much of the discovered workspace a graph was built from. A caller that
+ * caps the file list before {@link DependencyGraphService.buildGraph} passes
+ * the uncapped count, so the graph can say it is incomplete.
+ */
+export interface GraphCoverage {
+  /** Files the graph was built from (the list given to `buildGraph`). */
+  graphedFiles: number;
+  /** Files the caller discovered before any cap; never below `graphedFiles`. */
+  discoveredFiles: number;
+}
+
 /** Extensions to try when resolving relative imports (in order) */
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 
@@ -76,6 +88,9 @@ export class DependencyGraphService {
   /** Symbol index per workspace root, derived lazily from that graph's nodes. */
   private readonly symbolIndexes = new Map<string, SymbolIndex>();
 
+  /** Coverage of each cached graph, keyed and evicted with {@link graphs}. */
+  private readonly coverages = new Map<string, GraphCoverage>();
+
   constructor(
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
@@ -91,12 +106,16 @@ export class DependencyGraphService {
    * @param filePaths - Absolute paths of files to include
    * @param workspaceRoot - Workspace root for relative path resolution
    * @param tsconfigPaths - Optional tsconfig compilerOptions.paths for alias resolution
+   * @param discoveredFiles - Files the caller discovered before capping
+   *   `filePaths`; defaults to `filePaths.length` (nothing was dropped). Read
+   *   back through {@link getCoverage}.
    * @returns The built dependency graph
    */
   async buildGraph(
     filePaths: string[],
     workspaceRoot: string,
     tsconfigPaths?: Record<string, string[]>,
+    discoveredFiles?: number,
   ): Promise<DependencyGraph> {
     const startTime = Date.now();
     this.logger.info(
@@ -206,6 +225,14 @@ export class DependencyGraphService {
     const key = this.normalizeRoot(workspaceRoot);
     this.graphs.set(key, graph);
     this.symbolIndexes.delete(key); // Invalidate cached symbol index for this root
+    this.coverages.set(key, {
+      graphedFiles: filePaths.length,
+      discoveredFiles:
+        Number.isSafeInteger(discoveredFiles) &&
+        (discoveredFiles as number) > filePaths.length
+          ? (discoveredFiles as number)
+          : filePaths.length,
+    });
 
     const elapsed = Date.now() - startTime;
     this.logger.info(
@@ -376,6 +403,40 @@ export class DependencyGraphService {
   }
 
   /**
+   * Coverage of a built graph, or `undefined` when none is built.
+   * @param workspaceRoot - When provided, that workspace's graph; otherwise
+   *   the sum over every cached graph (the scope of the merged
+   *   {@link getSymbolIndex}).
+   */
+  getCoverage(workspaceRoot?: string): GraphCoverage | undefined {
+    if (workspaceRoot) {
+      const coverage = this.coverages.get(this.normalizeRoot(workspaceRoot));
+      return coverage ? { ...coverage } : undefined;
+    }
+    if (this.coverages.size === 0) {
+      return undefined;
+    }
+    const total: GraphCoverage = { graphedFiles: 0, discoveredFiles: 0 };
+    for (const coverage of this.coverages.values()) {
+      total.graphedFiles += coverage.graphedFiles;
+      total.discoveredFiles += coverage.discoveredFiles;
+    }
+    return total;
+  }
+
+  /**
+   * Coverage of the graph that answers {@link getDependencies} and
+   * {@link getDependents} for `filePath` (the same selection: the sole graph,
+   * else the one whose root is the longest prefix of the path), or
+   * `undefined` when no graph answers it.
+   */
+  getCoverageForFile(filePath: string): GraphCoverage | undefined {
+    const entry = this.findGraphEntryForFile(filePath.replace(/\\/g, '/'));
+    const coverage = entry ? this.coverages.get(entry[0]) : undefined;
+    return coverage ? { ...coverage } : undefined;
+  }
+
+  /**
    * Evict a single workspace's cached graph and symbol index. Call when a
    * workspace folder is closed so its graph does not linger in memory.
    */
@@ -383,6 +444,7 @@ export class DependencyGraphService {
     const key = this.normalizeRoot(workspaceRoot);
     if (this.graphs.delete(key)) {
       this.symbolIndexes.delete(key);
+      this.coverages.delete(key);
       this.logger.debug(
         `DependencyGraphService.evict() - Evicted graph for ${key}`,
       );
@@ -401,6 +463,7 @@ export class DependencyGraphService {
       if (!keep.has(key)) {
         this.graphs.delete(key);
         this.symbolIndexes.delete(key);
+        this.coverages.delete(key);
         this.logger.debug(
           `DependencyGraphService.retainOnly() - Evicted graph for ${key}`,
         );
@@ -412,6 +475,7 @@ export class DependencyGraphService {
   clear(): void {
     this.graphs.clear();
     this.symbolIndexes.clear();
+    this.coverages.clear();
   }
 
   /** Normalize a workspace root to the map-key form (forward slashes, no trailing slash). */

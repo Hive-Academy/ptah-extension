@@ -7,6 +7,10 @@
 
 import { MCPToolDefinition } from '../types';
 import {
+  SYMBOL_INDEX_DEFAULT_LIMIT,
+  SYMBOL_INDEX_MAX_LIMIT,
+} from '../namespace-builders/symbol-index-query';
+import {
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
@@ -1655,6 +1659,13 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
 }
 
 /**
+ * How the three import-graph tools say their graph is partial (a file cap
+ * dropped files on a very large workspace).
+ */
+const INCOMPLETE_GRAPH_NOTE =
+  'On very large workspaces the graph covers only part of the source files: the result then has incomplete: true with graphedFiles and discoveredFiles, and a missing file or empty list is not conclusive.';
+
+/**
  * Build the ptah_get_dependents tool definition
  * Reverse import edges — what imports this file (refactor blast radius)
  */
@@ -1662,7 +1673,8 @@ export function buildGetDependentsTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_dependents',
     description:
-      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. Builds the workspace import graph on first use, then answers from cache.',
+      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. Builds the workspace import graph on first use, then answers from cache. ' +
+      INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1685,7 +1697,8 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_dependencies',
     description:
-      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. Builds the workspace import graph on first use, then answers from cache.',
+      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. Builds the workspace import graph on first use, then answers from cache. ' +
+      INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1844,10 +1857,31 @@ export function buildGetSymbolIndexTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_symbol_index',
     description:
-      'List the exported symbols for every file in the workspace import graph (a map of file path to exported symbol names). Use to discover where a symbol is exported from, or to get an at-a-glance map of the public surface. Builds the workspace import graph on first use, then answers from cache.',
+      'List the exported symbols per file in the workspace import graph, one page at a time, ordered by path. Use to find where a symbol is exported from, or to map the public surface of a directory: narrow with pathPrefix. Returns { count, total, offset, nextOffset?, files }; pass nextOffset as offset for the next page (absent on the last page). ' +
+      `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file holding all its symbols) or symbolsFileError. ` +
+      INCOMPLETE_GRAPH_NOTE +
+      ' Builds the graph on first use (can take minutes on a large workspace), then answers from cache.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        pathPrefix: {
+          type: 'string',
+          description:
+            'Only files whose path starts with this prefix: workspace-relative (e.g. "libs/backend/") or absolute. "\\" and "/" are equivalent; Windows paths match case-insensitively; ".." is rejected.',
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: SYMBOL_INDEX_MAX_LIMIT,
+          description: `Maximum files in the page (default: ${SYMBOL_INDEX_DEFAULT_LIMIT}, max: ${SYMBOL_INDEX_MAX_LIMIT}).`,
+        },
+        offset: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'Files to skip after the prefix filter (default: 0). Use the previous page nextOffset.',
+        },
+      },
     },
     annotations: { readOnlyHint: true },
   };
