@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 111 | Batches: 60 | Complete: 23/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 0 complete)
+Total tasks: 111 | Batches: 60 | Complete: 25/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 1 complete — 28a)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,24 +2151,25 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                                                                                    | State                                               |
-| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13                                                          | 11, 11b, 16 COMPLETE; next 17 → 18 → 15 → 13        |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                    |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                         |
-| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 IN_PROGRESS (to create; base = integration tip)  |
-| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | 28a IN_PROGRESS (to create; base = integration tip) |
-| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                 |
-| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                  |
-| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                    |
-| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3             |
-| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                              |
+| Lane | Worktree                                | Batches                                                                                    | State                                      |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13                                                          | 11, 11b, 16, 17, 18 COMPLETE; next 15 → 13 |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                       |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                           |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22 IN_PROGRESS, revision round 1           |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | 28a COMPLETE (merged); next 28b            |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                        |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge         |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21           |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3    |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                     |
 
 Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
 section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
-decomposition notes D1-D10. Lane A still finishes 17 → 18 → 15 → 13, then 20.2 and 21, in this worktree. Next
-runnable now: **22 (H)** and **28a (P)**, in parallel with Lane A (file-disjoint). Hub batches 24b, 23b, 25b, 26a wait
+decomposition notes D1-D10. Lane A still finishes 15 → 13, then 20.2 and 21, in this worktree (17 and 18
+COMPLETE). **22 (H)** is in revision round 1; **28a (P)** is merged, and P's next is **28b**. Batch 37b will split
+three ways per `o2-go-vet-consent-surface.md`; it is decomposed when reached. Hub batches 24b, 23b, 25b, 26a wait
 for Lane A 13; 24c and 27 wait for Lane A 21 (D1, D2). At most 3 CLI lanes at once, reviews included.
 
 Only the team-leader merges lanes into this branch; lane executors never run git across worktrees. Batch
@@ -2552,7 +2553,7 @@ states for lanes stay as recorded below until their merge.
 
 ---
 
-## Batch 18: ptah_browser_evaluate — cap the stringified result — PENDING
+## Batch 18: ptah_browser_evaluate — cap the stringified result — COMPLETE (commit 31760e716)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh invocation
@@ -2561,7 +2562,7 @@ states for lanes stay as recorded below until their merge.
 - Review: Codex CLI lane (logic + structure)
 - Tasks: 1 | Depends on: Batch 17
 
-### Task 18.1: Budgeted `formatBrowserEvaluate` — PENDING
+### Task 18.1: Budgeted `formatBrowserEvaluate` — COMPLETE
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts` (`formatBrowserEvaluate` :1058-1087), `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter-extra.spec.ts` (:417-424 and a new over-cap case)
 - Plan reference: research/browser.md:196-208
@@ -2572,8 +2573,31 @@ states for lanes stay as recorded below until their merge.
 
 ### Batch 18 verification
 
-- `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
-- The Codex review lane approves
+- [x] `node_modules/.bin/nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools 2>&1 | tail -40` passes
+- [x] The Codex review lane approves (r1 APPROVE 8/10)
+
+### Batch 18 record (Lane A)
+
+- Task 18.1 COMPLETE; details in `batch-18-executor-report.md` (initial + "Orchestrator correction (Decision 7 spool
+  - visible trailer)")
+- Deviation (orchestrator correction, supersedes the fixed 8,000-char cap above): `formatBrowserEvaluate` takes the
+  tool's `TextBudget` and a spool callback (the Batch 9 `renderSymbolIndexPage` pattern). An answer that fits is
+  rendered byte-for-byte as before and nothing is spooled. Otherwise the **full** stringified value is spooled per
+  Decision 7 and the value is cut to the longest surrogate-safe prefix that keeps header + prefix + trailer within
+  both limits; the trailer names the dropped char count and the spool path (or the save failure's errno). The
+  correction also touched `protocol-dispatcher.ts` (evaluate case passes `getToolResultBudget(name)` and the
+  host-owned spool root, same rules as `ptah_get_symbol_index`) and `protocol-dispatcher.spec.ts`, beyond the batch
+  file list, as the correction allowed
+- Fails-before: `-t formatBrowserEvaluate` 7 failed / 7 passed before → 14 passed after
+- Review: r1 Codex APPROVE 8/10 (`reviews/batch-18-code-logic-review-r1.md`); 0 Blocking, 0 Serious, 1 Moderate
+- Known issue **KI-18-1** (Moderate, carried forward): with an unusually long host spool root (~1,329 chars, e.g. a
+  deeply nested Unicode workspace) the trailer alone exceeds the 2,000-token budget, so the shared budget step cuts
+  again and spools a second time; the evaluate-specific inline hint is lost, though the generic reduction notice
+  remains and the raw value is still recoverable from the first spool. Fix direction: a bounded/relative locator
+  (the budget layer's `tool-result-budget.ts:386` strategy). Recorded in TASK_2026_561_9e57 Track B (B6)
+- Pre-commit verification (2026-09-26): vscode-lm-tools test/lint/typecheck `--skip-nx-cache` pass; `ptah-cli` /
+  `ptah-electron` typecheck pass; `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
+- Commit **31760e716**
 
 ---
 
@@ -3294,7 +3318,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 28a: Grammar manifest — IN_PROGRESS
+## Batch 28a: Grammar manifest — COMPLETE (lane commit cf6ec11af, merged e3578b2ca)
 
 - Recommended executor: Codex CLI lane, Lane P (`task-559-lane-p`)
 - Fallback executor: devops-engineer (sub-agent)
@@ -3303,7 +3327,7 @@ Edge cases (carried by the named task):
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: none
 
-### Task 28a.1: Manifest and `copy-wasm.js` — IN_PROGRESS
+### Task 28a.1: Manifest and `copy-wasm.js` — COMPLETE
 
 - Files: `<WT>/scripts/tree-sitter-grammars.json` (new), `<WT>/scripts/copy-wasm.js`
 - Plan reference: codebase evidence "Packaging lists"; "Security notes"; "Grammar sources"
@@ -3312,7 +3336,7 @@ Edge cases (carried by the named task):
 - Validation notes: output of `copy-wasm.js` for Electron and VSIX unchanged for active rows (compare the copied file list before/after)
 - Implementation details: no new dependency
 
-### Task 28a.2: Packed verifiers and CI self-test — IN_PROGRESS
+### Task 28a.2: Packed verifiers and CI self-test — COMPLETE
 
 - Depends on: Task 28a.1
 - Files: `<WT>/apps/ptah-electron/scripts/verify-packed-wasm.js`, `<WT>/apps/ptah-cli/scripts/verify-packed-wasm.cjs`, `<WT>/.github/workflows/publish-cli.yml`
@@ -3326,8 +3350,29 @@ Edge cases (carried by the named task):
 
 - `node scripts/copy-wasm.js --self-test`, `node apps/ptah-electron/scripts/verify-packed-wasm.js --self-test`, `node apps/ptah-cli/scripts/verify-packed-wasm.cjs --self-test` pass (tail only)
 - `node_modules/.bin/nx run-many -t=lint,typecheck -p ptah-electron ptah-cli --skip-nx-cache 2>&1 | tail -40` passes
-- validate-deps passes; degradation audit TOTAL 300; other common checks
-- FB evidence; the Claude reviewer approves
+- [x] validate-deps passes; degradation audit TOTAL 300; other common checks
+- [x] FB evidence; the Claude reviewer approves
+
+### Batch 28a record (Lane P)
+
+- Tasks 28a.1 and 28a.2 COMPLETE; details in `batch-28a-executor-report.md`. Author: Codex CLI lane; reviewer:
+  Claude `code-logic-reviewer`, r1 APPROVE 8/10 (`reviews/batch-28a-code-logic-review-r1.md`); 0 Blocking,
+  0 Serious, 1 Moderate, 1 Minor
+- `scripts/tree-sitter-grammars.json` is the single source of which WASM assets ship; `copy-wasm.js`, both
+  `verify-packed-wasm` scripts and `publish-cli.yml` derive from its active rows (CI now checks each file is
+  non-empty, `-s`, instead of only present). Nothing is activated
+- Parity evidence: the reviewer's independent probe copied with the new `copy-wasm.js` and with HEAD's copier into
+  separate temp dirs — sha256 of all 6 output files byte-identical, for all 3 hosts; the active set is unchanged
+  (runtime + 5 grammars)
+- Known issues (Moderate, never a false pass — a bad manifest still fails packaging, with a less precise message):
+  **KI-28a-1** `apps/ptah-electron/scripts/verify-packed-wasm.js:46-62` and **KI-28a-2**
+  `apps/ptah-cli/scripts/verify-packed-wasm.cjs:31-47` each duplicate a weaker inline manifest check instead of
+  reusing `copy-wasm.js` `validateManifest`. Recorded in TASK_2026_561_9e57 Track B (B7). Minor, not carried: the
+  copy loop does not roll back on a post-copy size mismatch (filesystem race only)
+- Integration verification after merge (2026-09-26): vscode-lm-tools test/lint/typecheck, `ptah-electron`/`ptah-cli`
+  lint+typecheck `--skip-nx-cache` pass; the three `--self-test` runs PASS; `ptah-electron:validate-deps` pass;
+  `degradation-audit:lint` TOTAL 300
+- Lane commit **cf6ec11af**, merge **e3578b2ca** (no conflicts)
 
 ---
 

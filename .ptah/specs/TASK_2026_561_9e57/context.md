@@ -140,6 +140,10 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   spool, telemetry, graph readiness, per-tool handlers)
 - Batch 17 R2-MIN-1: browser capability check is all-or-nothing (a host with a partial method set loses every browser
   tool); per-method honesty preferred when such a host appears
+- Batch 18 KI-18-1 (Moderate): `ptah_browser_evaluate` trailer carries the absolute spool path unbounded; with a
+  ~1,329-char host spool root the trailer alone exceeds the 2,000-token budget, so the shared budget step cuts and
+  spools a second time and the evaluate hint is lost (raw value still in the first spool). Use a bounded/relative
+  locator (`tool-result-budget.ts:386` strategy)
 - Batch 2f: an error thrown inside `execute_code` reaches the agent as "Code execution failed: Unknown error" (sandbox
   errors are not host-realm `instanceof Error`)
 - Batch 2f / 2e: `ptah_browser_content` HTML section is cut or omitted by the 32 KiB + 1 KiB override
@@ -159,6 +163,9 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   during 559 Batch 19)
 - Batch 14 (Moderate, doc gap): `codex-cli.adapter.ts:669` opts in to `resumeRestoresContext` without documenting
   that a resumed Codex lane still resends the role on the `developer_instructions` config channel (`:630-636`)
+- Batch 28a KI-28a-1 / KI-28a-2 (Moderate): `apps/ptah-electron/scripts/verify-packed-wasm.js:46-62` and
+  `apps/ptah-cli/scripts/verify-packed-wasm.cjs:31-47` duplicate a weaker inline manifest check instead of reusing
+  `scripts/copy-wasm.js` `validateManifest`; never a false pass (packaging still fails, with a less precise message)
 
 ### B8. ptah_workspace_analyze (Batch 10)
 
