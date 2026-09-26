@@ -173,7 +173,7 @@ export interface MemoryRestoreQuarantinedParams {
   readonly workspaceRoot: string | null;
   readonly ids?: readonly string[];
   readonly reason?: string;
-  readonly all?: boolean;
+  readonly all?: true;
 }
 export interface MemoryRestoreQuarantinedResult {
   readonly restored: number;
