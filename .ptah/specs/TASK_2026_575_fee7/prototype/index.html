@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ptah — EN/AR switcher &amp; RTL prototype</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
+  rel="stylesheet"
+/>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  html, body { font-family: 'Inter', system-ui, sans-serif; }
+  html[lang="ar"] body, html[lang="ar"] { font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Inter', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace; }
+  .proto-frame { border: 1px dashed rgba(255,255,255,0.15); }
+  .amber-focus:focus-visible { outline: 2px solid var(--amber-500); outline-offset: 2px; }
+  /* Belt-and-suspenders icon sizing: guarantees correct render even if the
+     Tailwind CDN JIT stylesheet is slow/unavailable in a sandboxed browser. */
+  svg { flex-shrink: 0; }
+  svg.w-4.h-4 { width: 1rem; height: 1rem; }
+  svg.w-5.h-5 { width: 1.25rem; height: 1.25rem; }
+  svg.w-6.h-6 { width: 1.5rem; height: 1.5rem; }
+</style>
+</head>
+<body class="bg-[#0b0c0f] text-white">
+
+<!-- ============================================================= -->
+<!-- PROTOTYPE CONTROL BAR (not part of the deliverable UI itself) -->
+<!-- ============================================================= -->
+<div id="controls" class="sticky top-0 z-[100] flex flex-wrap items-center gap-3 border-b border-white/10 bg-black/90 backdrop-blur px-4 py-3 text-xs">
+  <span class="font-semibold text-amber-400 uppercase tracking-wide">Prototype controls</span>
+
+  <div class="flex items-center gap-1 rounded-md border border-white/20 p-0.5">
+    <button type="button" data-lang="en" class="lang-ctl px-2 py-1 rounded text-white/70">EN</button>
+    <button type="button" data-lang="ar" class="lang-ctl px-2 py-1 rounded text-white/70">AR</button>
+  </div>
+
+  <div class="flex items-center gap-1 rounded-md border border-white/20 p-0.5">
+    <button type="button" data-mode="dark" class="mode-ctl px-2 py-1 rounded text-white/70">Dark</button>
+    <button type="button" data-mode="light" class="mode-ctl px-2 py-1 rounded text-white/70">Light (member)</button>
+  </div>
+
+  <span class="text-white/40">Screenshots are captured programmatically at 375px and 1440px; this bar is cropped out.</span>
+</div>
+
+<main id="app-root">
+
+  <!-- ============================================================= -->
+  <!-- SECTION A — Public marketing header (operator theme)          -->
+  <!-- ============================================================= -->
+  <section id="sec-header" data-theme="operator" class="bg-base-100">
+    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A · Public header — desktop" data-ar="أ · رأس الصفحة العامة — سطح المكتب"></p>
+
+    <nav class="relative mt-3 h-16 px-4 sm:px-6 lg:px-16 flex items-center justify-between bg-ink-900/90 backdrop-blur-md border-b" style="background:#0e1015e6; border-color:var(--border-hairline)">
+      <a href="#" class="flex items-center gap-3 rounded-md amber-focus" aria-label="Ptah home">
+        <span class="w-11 h-11 rounded-full bg-amber-500 flex items-center justify-center font-bold text-ink-950">P</span>
+      </a>
+
+      <div class="hidden md:flex items-center gap-6">
+        <button type="button" class="flex items-center gap-1 text-sm font-medium text-white/80 hover:text-amber-500 rounded-md px-2 py-1 amber-focus">
+          <span data-en="Product" data-ar="المنتج"></span>
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+
+        <a href="#" class="text-sm font-medium text-white/80 hover:text-amber-500 rounded-md px-2 py-1 amber-focus" data-en="Pricing" data-ar="الأسعار"></a>
+        <a href="#" class="text-sm font-medium text-white/80 hover:text-amber-500 rounded-md px-2 py-1 amber-focus" data-en="Docs" data-ar="الوثائق"></a>
+        <button type="button" class="flex items-center gap-1 text-sm font-medium text-white/80 hover:text-amber-500 rounded-md px-2 py-1 amber-focus">
+          <span data-en="Community" data-ar="المجتمع"></span>
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+
+        <!-- ===== Language switcher — header skin (disclosure menu) ===== -->
+        <div class="relative" id="lang-switch-header">
+          <button type="button" id="lang-menu-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="lang-menu"
+            class="flex items-center gap-1.5 text-sm font-medium rounded-md px-2 py-1 text-white/80 hover:text-amber-500 amber-focus"
+            data-aria-en="Language: English" data-aria-ar="اللغة: العربية">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
+            <span id="lang-code">EN</span>
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div id="lang-menu" role="menu" aria-labelledby="lang-menu-trigger" class="hidden absolute rtl:right-0 ltr:left-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50">
+            <button type="button" role="menuitemradio" lang="en" dir="ltr" data-set-lang="en"
+              class="lang-option flex w-full items-center justify-between px-4 py-2 text-sm font-medium text-white/70 hover:text-white hover:bg-white/5">
+              English
+              <svg class="w-4 h-4 check-en" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+            <button type="button" role="menuitemradio" lang="ar" dir="rtl" data-set-lang="ar"
+              class="lang-option flex w-full items-center justify-between px-4 py-2 text-sm font-medium text-white/70 hover:text-white hover:bg-white/5">
+              العربية
+              <svg class="w-4 h-4 check-ar hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <a href="#" class="text-sm font-medium text-white/80 hover:text-amber-500 rounded-md px-2 py-1 amber-focus" data-en="Login" data-ar="تسجيل الدخول"></a>
+        <a href="#" class="text-amber-500 border border-ink-600 px-4 py-1.5 rounded-lg text-sm font-medium amber-focus" data-en="Sign Up" data-ar="إنشاء حساب"></a>
+
+        <a href="#" class="inline-flex items-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm amber-focus">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>
+          <span data-en="Download Ptah" data-ar="تنزيل Ptah"></span>
+        </a>
+      </div>
+    </nav>
+
+    <p class="section-label px-4 pt-8 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A2 · Mobile menu — language row" data-ar="أ٢ · القائمة على الجوال — صف اللغة"></p>
+    <div class="mx-4 mb-6 mt-3 max-w-sm rounded-xl border" style="border-color:var(--border-hairline); background:#171a2199">
+      <div class="flex flex-col py-4 px-4 space-y-1 text-base-content">
+        <a href="#" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Features" data-ar="المزايا"></a>
+        <a href="#" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Pricing" data-ar="الأسعار"></a>
+        <div role="radiogroup" aria-label="Language" class="mx-0 mt-1 mb-2 flex rounded-lg border border-ink-700 bg-ink-950/60 p-1">
+          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang" class="mobile-lang-en flex-1 rounded-md px-3 py-2 text-sm font-medium">English</button>
+          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang" class="mobile-lang-ar flex-1 rounded-md px-3 py-2 text-sm font-medium">العربية</button>
+        </div>
+        <a href="#" class="px-4 py-3 text-amber-500 rounded-lg text-base font-medium" data-en="Sign Up" data-ar="إنشاء حساب"></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION B — Member shell topbar (panel-layout shared header)  -->
+  <!-- ============================================================= -->
+  <section id="sec-member" class="mode-surface bg-base-100 border-t" style="border-color:var(--border-hairline)">
+    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="B · Member/admin shell — shared panel-layout header" data-ar="ب · واجهة الأعضاء/الإدارة — الترويسة المشتركة"></p>
+
+    <header class="mt-3 flex items-center justify-between gap-3 border-b px-4 py-3 lg:px-6 bg-base-200" style="border-color:var(--border-hairline)">
+      <div class="flex items-center gap-3">
+        <button type="button" class="lg:hidden p-2 rounded" aria-label="Open menu">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1 class="text-xl font-bold" data-en="Ptah Builders" data-ar="Ptah Builders"></h1>
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full text-primary-content bg-primary" data-en="Cohort 4" data-ar="الدفعة ٤"></span>
+      </div>
+
+      <div class="flex items-center gap-2 text-sm text-base-content-muted">
+        <!-- ===== Language switcher — panel skin (segmented, shared) ===== -->
+        <div role="radiogroup" aria-label="Language" class="panel-lang inline-flex rounded-lg border p-0.5" style="border-color:var(--border-hairline); background:var(--base-200)">
+          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang" class="panel-lang-en px-2.5 py-1 rounded-md text-xs font-medium">EN</button>
+          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang" class="panel-lang-ar px-2.5 py-1 rounded-md text-xs font-medium">AR</button>
+        </div>
+
+        <!-- ===== Existing MemberThemeToggle (dark/light), unchanged ===== -->
+        <button type="button" id="theme-toggle-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-medium" style="border-color:var(--border-hairline); background:var(--base-200); color:var(--bcm)">
+          <svg id="theme-icon-moon" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          <svg id="theme-icon-sun" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <span class="hidden sm:inline" id="theme-toggle-label" data-en="Switch to light theme" data-ar="التبديل إلى المظهر الفاتح"></span>
+        </button>
+
+        <span class="hidden sm:inline" data-en="Signed in as" data-ar="تم تسجيل الدخول باسم"></span>
+        <span class="font-mono text-xs ltr-island">abdallah@miramarstaffing.com</span>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-[16rem_1fr]">
+      <aside class="hidden md:flex flex-col gap-1 border-r p-3" style="border-color:var(--border-hairline); background:var(--base-200)">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content-muted px-2.5 py-1" data-en="Community" data-ar="المجتمع"></div>
+        <a href="#" class="px-2.5 py-1.5 rounded text-sm" style="background:var(--surface-high)" data-en="Dashboard" data-ar="لوحة التحكم"></a>
+        <a href="#" class="px-2.5 py-1.5 rounded text-sm text-base-content-muted" data-en="Discussions" data-ar="النقاشات"></a>
+        <a href="#" class="px-2.5 py-1.5 rounded text-sm text-base-content-muted" data-en="Courses" data-ar="الدورات"></a>
+      </aside>
+      <main class="p-4 lg:p-6">
+        <p class="text-base-content-muted text-sm" data-en="Member content area." data-ar="منطقة محتوى الأعضاء."></p>
+      </main>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION C — Landing hero (representative)                     -->
+  <!-- ============================================================= -->
+  <section id="sec-hero" data-theme="operator" class="relative overflow-hidden bg-base-100 py-20 px-4 sm:px-6 lg:px-16">
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="C · Landing hero" data-ar="ج · قسم البطل الرئيسي"></p>
+    <div class="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-amber-500/[0.06] rounded-full blur-[150px]"></div>
+    <div class="relative max-w-3xl">
+      <h2 class="text-4xl sm:text-6xl font-extrabold leading-tight" data-en="It Knows Your Architecture. It Ships the SaaS." data-ar="يعرف بنية نظامك. وينشر تطبيق SaaS الخاص بك."></h2>
+      <p class="mt-6 text-lg text-base-content-muted max-w-xl" data-en="The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed." data-ar="فريق التطوير بالذكاء الاصطناعي الذي ينشر تطبيقات SaaS جاهزة للإنتاج — متعددة المستأجرين، متكاملة مع الفوترة، ومُراجَعة أمنيًا."></p>
+      <div class="mt-8 flex items-center gap-4">
+        <a href="#" class="inline-flex items-center gap-2 bg-amber-500 text-ink-950 px-6 py-3 rounded-lg font-semibold">
+          <span data-en="Get started" data-ar="ابدأ الآن"></span>
+          <svg class="w-4 h-4 dir-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a href="#" class="inline-flex items-center gap-2 text-white/80 font-medium">
+          <span data-en="Read the docs" data-ar="اقرأ الوثائق"></span>
+          <svg class="w-4 h-4 dir-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION D — Pricing card                                      -->
+  <!-- ============================================================= -->
+  <section id="sec-pricing" data-theme="operator" class="bg-base-100 py-16 px-4 sm:px-6 lg:px-16">
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="D · Pricing card (USD stays Western numerals, both languages)" data-ar="د · بطاقة الأسعار (تبقى الأرقام غربية بالدولار في اللغتين)"></p>
+    <div class="max-w-sm rounded-xl border p-6" style="border-color:var(--border-hairline); background:var(--base-200)">
+      <h3 class="text-lg font-semibold" data-en="Builders" data-ar="Builders"></h3>
+      <p class="mt-2 flex items-baseline gap-1">
+        <span class="text-4xl font-extrabold ltr-island">$29</span>
+        <span class="text-base-content-muted" data-en="/mo" data-ar="‏/شهريًا"></span>
+      </p>
+      <p class="mt-1 text-xs text-base-content-muted">
+        <span class="ltr-island">$290</span>
+        <span data-en="/yr billed annually" data-ar="‏/سنويًا تُفوتر سنويًا"></span>
+      </p>
+      <ul class="mt-4 space-y-2 text-sm text-base-content-muted">
+        <li data-en="Live training + PRD-to-production curriculum" data-ar="تدريب مباشر + منهج من PRD إلى الإنتاج"></li>
+        <li data-en="Member skill packs" data-ar="حزم مهارات الأعضاء"></li>
+      </ul>
+      <a href="#" class="mt-5 block text-center bg-amber-500 text-ink-950 px-5 py-2.5 rounded-lg font-semibold text-sm" data-en="Join Builders" data-ar="انضم إلى Builders"></a>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION E — Code / CLI block (LTR island)                     -->
+  <!-- ============================================================= -->
+  <section id="sec-code" data-theme="operator" class="bg-base-100 py-16 px-4 sm:px-6 lg:px-16">
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="E · CLI block — LTR island inside RTL page" data-ar="هـ · كتلة سطر الأوامر — جزيرة LTR داخل صفحة RTL"></p>
+    <p class="max-w-2xl text-base-content-muted mb-4" data-en="Install the Ptah CLI, then run your first session from any repository." data-ar="ثبّت واجهة سطر الأوامر Ptah، ثم شغّل أول جلسة من أي مستودع."></p>
+    <pre class="ltr-island max-w-xl rounded-lg border p-4 font-mono text-sm overflow-x-auto" style="border-color:var(--border-hairline); background:var(--base-200)"><code>$ npm install -g @ptah/cli
+$ ptah session start --repo .
+&gt; Ptah v2.4.0 — session_01PnRXJnJhg...</code></pre>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  var html = document.documentElement;
+  var state = { lang: 'en', mode: 'dark' };
+
+  function applyLang(lang) {
+    state.lang = lang;
+    html.lang = lang;
+    html.dir = lang === 'ar' ? 'rtl' : 'ltr';
+
+    document.querySelectorAll('[data-en]').forEach(function (el) {
+      el.textContent = lang === 'ar' ? (el.getAttribute('data-ar') || '') : (el.getAttribute('data-en') || '');
+    });
+
+    var trigger = document.getElementById('lang-menu-trigger');
+    document.getElementById('lang-code').textContent = lang === 'ar' ? 'AR' : 'EN';
+    trigger.setAttribute('aria-label', trigger.getAttribute(lang === 'ar' ? 'data-aria-ar' : 'data-aria-en'));
+
+    document.querySelectorAll('.lang-option').forEach(function (btn) {
+      var isCurrent = btn.getAttribute('lang') === lang;
+      btn.setAttribute('aria-checked', String(isCurrent));
+      btn.classList.toggle('text-amber-500', isCurrent);
+      btn.classList.toggle('text-white/70', !isCurrent);
+    });
+    document.querySelector('.check-en').classList.toggle('hidden', lang !== 'en');
+    document.querySelector('.check-ar').classList.toggle('hidden', lang !== 'ar');
+
+    document.querySelectorAll('[data-checked="lang"]').forEach(function (btn) {
+      var isCurrent = btn.getAttribute('lang') === lang;
+      btn.setAttribute('aria-checked', String(isCurrent));
+      var isMobile = btn.classList.contains('mobile-lang-en') || btn.classList.contains('mobile-lang-ar');
+      if (isMobile) {
+        btn.classList.toggle('bg-amber-500', isCurrent);
+        btn.classList.toggle('text-ink-950', isCurrent);
+        btn.classList.toggle('text-white/70', !isCurrent);
+      } else {
+        btn.style.background = isCurrent ? 'var(--primary)' : 'transparent';
+        btn.style.color = isCurrent ? 'var(--primary-content)' : 'var(--bcm)';
+      }
+    });
+
+    document.querySelectorAll('.dir-arrow').forEach(function (svg) {
+      svg.style.transform = lang === 'ar' ? 'scaleX(-1)' : 'none';
+    });
+
+    document.getElementById('lang-menu').classList.add('hidden');
+    document.getElementById('lang-menu-trigger').setAttribute('aria-expanded', 'false');
+
+    document.querySelectorAll('.lang-ctl').forEach(function (b) {
+      var on = b.getAttribute('data-lang') === lang;
+      b.classList.toggle('bg-amber-500', on);
+      b.classList.toggle('text-ink-950', on);
+      b.classList.toggle('text-white/70', !on);
+    });
+  }
+
+  function applyMode(mode) {
+    state.mode = mode;
+    var memberTheme = mode === 'light' ? 'operator-member-light' : 'operator-member';
+    document.getElementById('sec-member').setAttribute('data-theme', memberTheme);
+    var isDark = mode !== 'light';
+    document.getElementById('theme-icon-moon').classList.toggle('hidden', !isDark);
+    document.getElementById('theme-icon-sun').classList.toggle('hidden', isDark);
+    var label = document.getElementById('theme-toggle-label');
+    label.setAttribute('data-en', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+    label.setAttribute('data-ar', isDark ? 'التبديل إلى المظهر الفاتح' : 'التبديل إلى المظهر الداكن');
+    label.textContent = state.lang === 'ar' ? label.getAttribute('data-ar') : label.getAttribute('data-en');
+
+    document.querySelectorAll('.mode-ctl').forEach(function (b) {
+      var on = b.getAttribute('data-mode') === mode;
+      b.classList.toggle('bg-amber-500', on);
+      b.classList.toggle('text-ink-950', on);
+      b.classList.toggle('text-white/70', !on);
+    });
+  }
+
+  document.getElementById('lang-menu-trigger').addEventListener('click', function () {
+    var menu = document.getElementById('lang-menu');
+    var open = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', !open);
+    this.setAttribute('aria-expanded', String(open));
+  });
+
+  document.querySelectorAll('[data-set-lang]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      applyLang(this.getAttribute('data-set-lang'));
+    });
+  });
+
+  document.getElementById('theme-toggle-btn').addEventListener('click', function () {
+    applyMode(state.mode === 'light' ? 'dark' : 'light');
+  });
+
+  document.querySelectorAll('.lang-ctl').forEach(function (b) {
+    b.addEventListener('click', function () { applyLang(this.getAttribute('data-lang')); });
+  });
+  document.querySelectorAll('.mode-ctl').forEach(function (b) {
+    b.addEventListener('click', function () { applyMode(this.getAttribute('data-mode')); });
+  });
+
+  // Expose for Playwright screenshot script
+  window.__proto = { applyLang: applyLang, applyMode: applyMode };
+
+  applyLang('en');
+  applyMode('dark');
+})();
+</script>
+</body>
+</html>

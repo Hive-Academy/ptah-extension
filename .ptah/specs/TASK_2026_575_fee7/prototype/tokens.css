@@ -1,0 +1,100 @@
+/* Tokens copied 1:1 from apps/ptah-landing-page/tailwind.config.js daisyui.themes
+   (values only — not a build dependency). Static prototype, CDN Tailwind for utilities;
+   these CSS custom properties supply the exact project colors. */
+
+:root {
+  --ink-950: #08090c;
+  --ink-900: #0e1015;
+  --ink-850: #12141a;
+  --ink-800: #171a21;
+  --ink-700: #262a33;
+  --ink-600: #3a3f4b;
+  --ink-500: #5b616f;
+  --ink-400: #8b92a1;
+  --ink-300: #b7bdc9;
+  --ink-100: #e9ebef;
+  --amber-400: #ffbb4d;
+  --amber-500: #f5a524;
+  --amber-600: #c97e0e;
+}
+
+/* operator (public marketing shell, dark only) */
+[data-theme='operator'] {
+  --primary: #f5a524;
+  --primary-content: #08090c;
+  --base-100: #08090c;
+  --base-200: #0e1015;
+  --base-300: #171a21;
+  --base-content: #e9ebef;
+  --bcm: #9aa0ac; /* ~5.46:1 on base-100, per base-content-muted.spec.ts */
+  --surface-high: #262a33;
+  --border-hairline: #262a33;
+}
+
+/* operator-admin */
+[data-theme='operator-admin'] {
+  --primary: #f5a524;
+  --primary-content: #08090c;
+  --base-100: #0c141f;
+  --base-200: #151c27;
+  --base-300: #19202c;
+  --base-content: #dce2f3;
+  --bcm: #9aa2b8;
+  --surface-high: #232936;
+  --border-hairline: #303849;
+}
+
+/* operator-member (dark) */
+[data-theme='operator-member'] {
+  --primary: #f5a524;
+  --primary-content: #08090c;
+  --base-100: #0c141f;
+  --base-200: #151c27;
+  --base-300: #19202c;
+  --base-content: #dce2f3;
+  --bcm: #9aa2b8;
+  --surface-high: #232936;
+  --border-hairline: #303849;
+}
+
+/* operator-member-light */
+[data-theme='operator-member-light'] {
+  --primary: #f5a524;
+  --primary-content: #08090c;
+  --base-100: #faf9f7;
+  --base-200: #ffffff;
+  --base-300: #f2f0ec;
+  --base-content: #1a1c22;
+  --bcm: #6b6b78;
+  --surface-high: #e2e2ea;
+  --border-hairline: #dcd6cb;
+}
+
+body {
+  background: var(--base-100);
+  color: var(--base-content);
+}
+.bg-base-100 { background-color: var(--base-100); }
+.bg-base-200 { background-color: var(--base-200); }
+.bg-base-300 { background-color: var(--base-300); }
+.text-base-content { color: var(--base-content); }
+.text-base-content-muted { color: var(--bcm); }
+.bg-surface-high { background-color: var(--surface-high); }
+.border-hairline { border-color: var(--border-hairline); }
+.bg-primary { background-color: var(--primary); }
+.text-primary { color: var(--primary); }
+.text-primary-content { color: var(--primary-content); }
+
+/* Fonts */
+.font-sans-ar { font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Inter', sans-serif; }
+[lang='ar'] { letter-spacing: normal !important; }
+[lang='ar'].uppercase, [lang='ar'] .uppercase { text-transform: none; letter-spacing: normal; }
+[lang='ar'] body, [lang='ar'] { line-height: 1.75; }
+
+/* LTR islands inside RTL pages */
+.ltr-island {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+  display: inline-block;
+}
