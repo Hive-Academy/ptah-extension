@@ -6,5 +6,28 @@
       "ogTitle": "نزّل Ptah — Windows و macOS و Linux",
       "ogDescription": "وكيل البرمجة بالذكاء الاصطناعي لسطح المكتب الذي يتذكّر قاعدة شيفرتك ويعمل أثناء غيابك. مجاني ومفتوح المصدر، دون بطاقة ائتمان."
     }
+  },
+  "download": {
+    "hero": {
+      "title": "التنزيلات",
+      "subtitle": "نزّل تطبيق Ptah Desktop لأنظمة Windows أو macOS أو Linux. تُبقيك التحديثات التلقائية على أحدث إصدار."
+    },
+    "loading": "جارٍ تحميل الإصدارات...",
+    "retry": "حاول مرة أخرى",
+    "release": {
+      "version": "الإصدار",
+      "latest": "الأحدث",
+      "notes": "عرض ملاحظات الإصدار"
+    },
+    "platforms": {
+      "macosEmpty": "لا توجد إصدارات لنظام macOS",
+      "windowsEmpty": "لا توجد إصدارات لنظام Windows",
+      "linuxEmpty": "لا توجد إصدارات لنظام Linux"
+    },
+    "vsCode": {
+      "title": "هل تبحث عن إضافة VS Code؟",
+      "body": "ثبّتها مباشرةً من متجر VS Code لتكامل سلس مع بيئة التطوير (IDE) وتحديثات تلقائية.",
+      "cta": "متجر VS Code"
+    }
   }
 }

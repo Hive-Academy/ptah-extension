@@ -71,6 +71,7 @@ html.lenis body {
 .ltr-island {
   direction: ltr;
   unicode-bidi: isolate;
+  /* rtl-exempt: an LTR island is left-aligned in both directions by definition (design-spec §3.3) */
   text-align: left;
 }
 

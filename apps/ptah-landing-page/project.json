@@ -94,6 +94,20 @@
         "cwd": "{workspaceRoot}"
       }
     },
+    "i18n-check": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/glossary.json",
+        "{workspaceRoot}/libs/web/ui/src/lib/i18n/**/*",
+        "{workspaceRoot}/libs/web/core/src/lib/i18n/**/*"
+      ],
+      "options": {
+        "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/main.ts --project-root apps/ptah-landing-page --scope app --allow-scope ui,core --glossary tools/i18n-check/glossary.json",
+        "cwd": "{workspaceRoot}"
+      }
+    },
     "lint": {
       "executor": "@nx/eslint:lint"
     },

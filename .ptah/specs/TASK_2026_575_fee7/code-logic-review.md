@@ -3336,3 +3336,313 @@ None (round 2's finding is resolved — see above).
   `collapsedGroups` if `panel-ui` ever needs to support a nav reshape beyond "append one flat group at the
   end"; (2) a copy-review pass confirming the `selectionToolbar` Arabic `one`/`other` identity is
   deliberate.
+
+## Batch 13
+
+Files reviewed in full: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts`,
+`apps/ptah-landing-page/src/app/pages/download/download-page.component.spec.ts` (new),
+`apps/ptah-landing-page/src/app/i18n/{en,ar}.json`, `apps/ptah-landing-page/project.json`,
+`apps/ptah-landing-page/src/styles.css`, `copy-review/app.md`. Also read for context (unmodified this
+batch, to check what the diff plugs into): `libs/frontend/i18n/src/lib/{i18n.service.ts,lang.config.ts}`,
+`libs/web/core/src/lib/services/github-release.service.ts`, `libs/web/core/src/lib/i18n/en.json`,
+`apps/ptah-landing-page/prerender-baseline/download.json`.
+
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall score       | 7/10           |
+| Assessment          | NEEDS_REVISION |
+| Blocking issues     | 0              |
+| Serious issues      | 1              |
+| Moderate issues     | 2              |
+| Failure modes found | 1              |
+
+### Five logic questions
+
+**1. How does this fail silently?** It does not fail silently — the one defect found (Serious-1 below)
+fails _loudly_ (an uncaught `RangeError`) rather than silently, which is itself the problem: the
+pre-existing code degraded a bad date to visible "Invalid Date" text, the new code throws. No other
+silent-failure path was found: the loading/error/success branches are exhaustive (`@if/@else if/@else`),
+`retry()` re-invokes `fetchReleases()` which resets `error` and `loading` before the request
+(`github-release.service.ts:49-50`), and the `I18nMessage` path for the release error
+(`download-page.component.ts:87-88`) is untouched by this batch and still renders the real GitHub error key.
+
+**2. What user action produces unexpected behaviour?** Switching language while the download route is
+open: `formatDate()` (`download-page.component.ts:479-481`) is a plain method called from the template, not
+a direct signal read, so its output only refreshes when _something else_ forces change detection. In this
+zone.js app that happens in practice (Transloco's `setActiveLang`/HTTP loads run through zone-patched
+async), and the same `computed(() => ... this.i18n.intlLocale())` pattern is used and _explicitly tested
+across a live switch_ in `libs/web/ui/src/lib/session-calendar/session-calendar.spec.ts:109-139` and
+`libs/web/panel-ui/src/lib/stat-tile/stat-tile.spec.ts:52`. This batch's own spec never exercises that path
+(see Moderate-1) — it renders two separate `TestBed` instances in `'en'` and `'ar'` rather than calling
+`i18n.setLanguage()` on one, so a regression here would not be caught by this batch's tests.
+
+**3. What input data produces a wrong answer?** `release.publishedAt` reaching `formatDate()` as anything
+`new Date()` cannot parse (empty string, `null` coerced to a string by a schema drift, a non-ISO format)
+now throws instead of rendering "Invalid Date" (Serious-1). Separately, Arabic asset labels/sizes and the
+version string are correctly kept in `.ltr-island` spans (confirmed by the spec's
+`islands` assertion at `download-page.component.spec.ts:177-180`), so no digit- or symbol-reversal wrong
+answer was found there.
+
+**4. What happens when a dependency fails?** `GitHubReleaseService.fetchReleases` (unchanged this batch)
+already turns a 403 into `core.releases.rateLimited` and anything else into `core.releases.loadFailed`
+(`github-release.service.ts:61-67`), and the component renders that via the `I18nMessage` pipe with the
+`i18n-keys: core.releases.*` marker intact (`download-page.component.ts:87-88`) — this path was verified
+unchanged and still correct. What was _not_ covered before and is now more exposed: the GitHub API
+response shape is consumed with no runtime validation (`parseRelease` at `github-release.service.ts:73-84`
+trusts `release.published_at` is a valid ISO string) — see Serious-1, which is the concrete symptom of this
+unvalidated boundary.
+
+**5. What is missing that the requirements never mentioned?** A test asserting the date format actually
+recomputes when `i18n.setLanguage()` is called on a live component instance, matching how the two other
+consumers of this exact pattern (`session-calendar`, `stat-tile`) are tested (Moderate-1). Also missing:
+this review did not independently run `prerender-check` (it rebuilds `dist/`, which the task brief reserves
+for the parallel visual reviewer), so the claim in the new code comment at
+`download-page.component.ts:76-78` — that the inner `<span>` around the loading text is needed to keep the
+prerendered output byte-identical — rests on reading the baseline JSON and Angular's default
+whitespace-collapsing behaviour, not a fresh build (Moderate-2).
+
+### Failure modes
+
+#### Uncaught `RangeError` on a malformed release date
+
+- Trigger: `release.publishedAt` is a string `new Date()` cannot parse into a valid timestamp (empty
+  string, `null`/`undefined` surfacing as `"null"` through a JSON/typing drift, a GitHub API field rename,
+  or a stubbed/test double that doesn't match the real shape).
+- Symptom: `Intl.DateTimeFormat.prototype.format()` throws `RangeError: Invalid time value` from inside the
+  template's interpolation of `formatDate(release.publishedAt)`. This surfaces as an uncaught exception
+  during change detection for that release row — worse than the previous behaviour, which rendered the
+  literal string `"Invalid Date"` and kept the rest of the page working.
+- Evidence: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:479-481`
+  (`return this.dateFormat().format(new Date(isoDate));`); confirmed by direct execution —
+  `new Intl.DateTimeFormat('en-US').format(new Date('not-a-date'))` throws `RangeError: Invalid time value`,
+  while `new Date('not-a-date').toLocaleDateString('en-US')` (the old code, git-diff above) returns the
+  string `"Invalid Date"` without throwing. Upstream, `publishedAt` is assigned straight from the untyped
+  HTTP response with no validation: `libs/web/core/src/lib/services/github-release.service.ts:82`
+  (`publishedAt: release.published_at`) inside `parseRelease` (`:73-84`), which is called directly on the
+  raw `HttpClient.get<GitHubRelease[]>` payload (`:52-59`) with no runtime shape check.
+- Current handling: none. No try/catch around `formatDate()`, no validation in `parseRelease`, and no spec
+  in `download-page.component.spec.ts` exercises a release with a malformed `publishedAt` (`RELEASE` at
+  `:55-71` uses a valid ISO string).
+- Recommendation: either validate/guard in `formatDate()` (fall back to the raw string or a fixed message
+  when `Number.isNaN(new Date(isoDate).getTime())`, matching the old degrade-gracefully behaviour) or
+  validate `published_at` at the `GitHubReleaseService` boundary and route a shape mismatch through the
+  existing `I18nMessage` error path instead of the success path. This is scoped to `GitHubReleaseService`,
+  a file this batch did not touch, so the minimal in-scope fix is the guard inside `formatDate()`.
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+#### 1. `formatDate()` throws instead of degrading on invalid dates
+
+- File: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:479-481`
+- Scenario: any `release.publishedAt` that is not a value `new Date()` can parse (see Failure modes above);
+  in production this depends entirely on GitHub always returning well-formed `published_at`, which is
+  external, unvalidated input.
+- Impact: a single malformed release entry can throw during that row's change detection instead of showing
+  degraded text, a regression from the pre-existing `toLocaleDateString('en-US', …)` call this batch
+  replaced, which never threw. On a prerendered/hydrated route this risks a broken hydration or a console
+  error surfaced to every visitor for that release, not just a cosmetic date.
+- Fix: guard `formatDate()` against an invalid parsed date (see Failure-mode recommendation above) before
+  handing it to `Intl.DateTimeFormat.prototype.format`.
+
+### Moderate and minor issues
+
+1. **Moderate — reactive-switch path untested.** `download-page.component.spec.ts` never calls
+   `TestBed.inject(I18nService).setLanguage(...)` on a live instance to assert the rendered date actually
+   re-renders after a switch, unlike the two other consumers of the identical `intlLocale()`-inside-`computed`
+   pattern (`libs/web/ui/src/lib/session-calendar/session-calendar.spec.ts:109-139`,
+   `libs/web/panel-ui/src/lib/stat-tile/stat-tile.spec.ts:52`). By code inspection the implementation
+   (`download-page.component.ts:470-477`) matches that pattern and should behave the same way, but this
+   batch's tests would not catch a regression in it (e.g. an accidental non-reactive cache).
+2. **Moderate — prerender parity not independently rebuilt.** The claim in
+   `download-page.component.ts:76-78` that the inner `<span>` is needed to keep the prerendered loading text
+   byte-identical to `apps/ptah-landing-page/prerender-baseline/download.json` was checked by reading the
+   baseline (`"...Loading releases...Ptah..."`, no separator, matching the pre-existing text verbatim) and
+   by reasoning about Angular's default insignificant-whitespace collapsing, not by running
+   `nx run ptah-landing-page:prerender-check` (deliberately skipped per this review's scope, to avoid
+   rebuilding `dist/` while the visual reviewer runs in parallel). This should be confirmed once the visual
+   reviewer's build (or a dedicated `prerender-check` run) is available.
+3. Minor — `macOS`/`Windows`/`Linux` column headings
+   (`download-page.component.ts:175-176,220-221,267-268`) remain hardcoded English literals, not translated
+   keys. This is consistent with treating OS names as proper nouns (same treatment as "Ptah"/"VS Code"
+   elsewhere) and is not in this batch's task list, so it is not a defect — noted only for completeness.
+
+### Data flow
+
+1. `constructor()` sets SEO keys, injects `DestroyRef`, and calls `afterNextRender(...)` — OK, standard
+   Angular lifecycle hook usage; `destroyRef.onDestroy(() => clearInterval(checkExpand))` is registered
+   inside the callback and closes over the correct `checkExpand` handle
+   (`download-page.component.ts:421-436`).
+2. `afterNextRender` callback calls `fetchReleases(3)` then starts a 100ms poll for the first release to
+   auto-expand — OK for the new cleanup requirement: the interval is now cleared on (a) auto-expand applied,
+   (b) `loading()` false, or (c) component destroy. Pre-existing gap, not introduced or fixed by this
+   batch: if `loading()` never becomes `false` and no release ever arrives (a hung request with no
+   `next`/`error` emission), the interval polls every 100ms for the component's lifetime — bounded by (c)
+   but not by (a)/(b). Out of scope for this batch (the task asked only to add `DestroyRef` cleanup, which
+   is present and correct).
+3. `GitHubReleaseService.fetchReleases` → HTTP GET → `parseRelease` maps each raw release to `ParsedRelease`
+   — OK for existing keys, but `publishedAt` is passed through unvalidated (see Serious-1); this batch
+   newly exposes that gap because the new formatter is intolerant of it.
+4. `dateFormat` computed reads `this.i18n.intlLocale()` and builds `new Intl.DateTimeFormat(...)` — OK,
+   `INTL_LOCALE.ar === 'ar-u-nu-latn'` (`lang.config.ts:38-41`) confirmed to keep Western digits, and
+   `INTL_LOCALE.en === 'en-US'` matches the exact locale the old `toLocaleDateString('en-US', …)` call
+   used, so the formatted _output_ is unchanged for valid dates — verified by the spec's exact-string
+   assertion (`download-page.component.spec.ts:148-159`, `'Version v1.4.0 Latest Mar 5, 2026'`).
+5. `formatDate()` calls `.format(new Date(isoDate))` — gap: throws on invalid input (Serious-1).
+6. Template renders `formatDate(release.publishedAt)` inside a plain-text span, not `.ltr-island` — OK,
+   correct: a localized date (Arabic month name, Western digits) should follow document direction, unlike
+   the version/asset-label/size spans, which are correctly `.ltr-island` (verified by the spec's `islands`
+   assertion, `download-page.component.spec.ts:177-180`).
+7. `error()` truthy branch renders `{{ msg.key | transloco: msg.params }}` with the `i18n-keys: core.releases.*`
+   marker — OK, unchanged this batch, verified by the spec's Arabic-agnostic English-error test
+   (`download-page.component.spec.ts:134-146`) and by reading `github-release.service.ts:61-67` and
+   `libs/web/core/src/lib/i18n/en.json:18-21` directly.
+8. `i18n-check` (`apps/ptah-landing-page/project.json`) and `review-tables --check` both run clean against
+   the new `app` scope — verified by running
+   `node_modules/.bin/nx run-many -t test,i18n-check -p ptah-landing-page --skip-nx-cache` (both green,
+   92/92 tests across 8 suites) and
+   `ts-node .../review-tables.ts --project-root apps/ptah-landing-page --scope app --glossary tools/i18n-check/glossary.json --out .ptah/specs/TASK_2026_575_fee7/copy-review --check` (`review-tables [app]: OK`).
+
+### Requirements fulfilment
+
+| Requirement                                                                      | Status   | Gap                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| English verbatim in `en.json` for every literal this batch replaced              | COMPLETE | `git diff` shows every removed literal (`Downloads`, `Loading releases...`, `Try Again`, `Version`, `Latest`, `No {macOS,Windows,Linux} builds`, `View release notes`, `Looking for the VS Code Extension?`, body, `VS Code Marketplace`) reproduced byte-for-byte as the matching `en.json` value. |
+| Release date via `intlLocale()` inside a computed, SSG output unchanged for `en` | PARTIAL  | Output is unchanged for valid dates (verified); throws instead of degrading for an invalid/unparsable date (Serious-1).                                                                                                                                                                             |
+| Reactive on language switch                                                      | PARTIAL  | Implementation matches the codebase's proven pattern by inspection, but this batch adds no test that exercises a live switch (Moderate-1).                                                                                                                                                          |
+| Western digits in Arabic                                                         | COMPLETE | `INTL_LOCALE.ar = 'ar-u-nu-latn'`; asserted directly in the spec (`.not.toMatch(/[٠-٩]/)`).                                                                                                                                                                                                         |
+| SSR-safe                                                                         | COMPLETE | `Intl.DateTimeFormat`/`Date` are standard, available on the server; no browser-only API introduced.                                                                                                                                                                                                 |
+| `sm:text-left` → logical                                                         | COMPLETE | `sm:text-start` at `download-page.component.ts:342`.                                                                                                                                                                                                                                                |
+| Release error via `I18nMessage`, `i18n-keys: core.*` marker intact               | COMPLETE | Unchanged, marker present at `:87`.                                                                                                                                                                                                                                                                 |
+| `.ltr-island` placements for versions/labels/sizes                               | COMPLETE | Version, asset label, asset size all islanded; date correctly left un-islanded (see Data flow #6).                                                                                                                                                                                                  |
+| `md:rtl:divide-x-reverse` / `rtl:bg-gradient-to-l` pairing                       | COMPLETE | Both paired with their physical base class and directly asserted in the spec.                                                                                                                                                                                                                       |
+| App `i18n-check` target, `--allow-scope ui,core`, inputs                         | COMPLETE | Matches the `web-core` target's inputs shape one-for-one; exits 0 (verified).                                                                                                                                                                                                                       |
+| `VS Code Marketplace` keyed                                                      | COMPLETE | `app.download.vsCode.cta`, glossary-flagged for "VS Code" in `copy-review/app.md`.                                                                                                                                                                                                                  |
+
+Implicit requirements not addressed: graceful handling of a malformed `publishedAt` from the GitHub API
+(Serious-1) — never stated as an acceptance criterion, but the pre-existing code already handled it and this
+batch silently drops that handling.
+
+### Edge cases
+
+| Case                                                   | Handled                                | How                                                                                                                            | Concern                                                                                                       |
+| ------------------------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Empty `releases()` with `loading()` false, no error    | Partial                                | `@for (...) { } @empty {}` blocks exist per-platform, but the top-level list itself has no empty state if the API returns `[]` | Pre-existing, unchanged this batch — out of scope.                                                            |
+| Malformed `publishedAt`                                | NO                                     | Throws (Serious-1)                                                                                                             | See above.                                                                                                    |
+| Rapid `retry()` clicks                                 | Handled                                | `fetchReleases` resets `error`/`loading` synchronously each call, service overwrites signals; no visible race in the component | Not newly introduced or changed this batch.                                                                   |
+| Language switch mid-render (loading spinner showing)   | Handled                                | `'app.download.loading'                                                                                                        | transloco`re-renders through Transloco's normal mechanism, inner`<span>` does not block it                    | None. |
+| Language switch after releases loaded (date re-render) | Likely handled, untested by this batch | `computed()` over `intlLocale()`, same proven pattern as sibling components                                                    | Moderate-1.                                                                                                   |
+| Component destroyed mid-poll                           | Handled                                | `destroyRef.onDestroy(() => clearInterval(checkExpand))`                                                                       | This is exactly what Task 13.1 asked for; verified present and correctly scoped to the right interval handle. |
+| RTL asset labels/sizes/version staying LTR             | Handled                                | `.ltr-island`, asserted in spec                                                                                                | None.                                                                                                         |
+
+### Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Top risk: `formatDate()` now throws a `RangeError` on any release whose `publishedAt` `new Date()` cannot
+  parse, where the old code degraded to visible "Invalid Date" text — a regression introduced by this
+  batch, not a pre-existing gap, on data sourced from an external, unvalidated API response.
+- What a robust implementation would add: (1) a guard in `formatDate()` (or validation in
+  `GitHubReleaseService.parseRelease`) so an unparsable date degrades instead of throwing; (2) a spec that
+  calls `i18n.setLanguage('ar')` on a live `DownloadPageComponent` instance and asserts the rendered date
+  changes, matching `session-calendar`/`stat-tile`; (3) once the visual reviewer's build is available, a
+  `prerender-check` confirmation that the new inner `<span>` around the loading text is in fact necessary
+  (or provably harmless) for byte-identical SSG output.
+
+## Batch 13 — round 2
+
+Narrow recheck of round 1's findings. `git diff` confirms this round touches exactly
+`apps/ptah-landing-page/src/app/pages/download/download-page.component.ts` and its `.spec.ts` — every
+other file in the working tree (`project.json`, `en.json`, `ar.json`, `styles.css`) is byte-identical to
+what round 1 already reviewed and approved on those points.
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 9/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 0        |
+| Failure modes found | 0 new    |
+
+### Serious-1 — RESOLVED
+
+`formatDate()` (`download-page.component.ts:479-484`) now parses `isoDate` once into a `Date`, checks
+`Number.isNaN(date.getTime())`, and returns `''` instead of calling `.format()` on an invalid date — exactly
+the guard round 1 recommended, and it keeps the fast path (`this.dateFormat().format(date)`) unchanged for
+every valid date, so the "SSG output unchanged for `en`" requirement still holds. Verified by direct
+execution: `Number.isNaN(new Date('not-a-date').getTime())` is `true`, so the throwing `Intl.DateTimeFormat`
+call is never reached for that input. New spec `'renders a release with an unparsable publishedAt without
+throwing'` (`download-page.component.spec.ts:224-234`) sets `publishedAt: 'not-a-date'`, asserts `render('en')`
+does not throw, asserts the header reads `'Version v1.4.0 Latest'` (no date text, no crash), and separately
+asserts `formatDate('')` returns `''` directly — this is not vacuous: reverting the guard (removing the
+`Number.isNaN` check) makes `new Date('not-a-date')` reach `Intl.DateTimeFormat.prototype.format`, which I
+confirmed by direct execution throws `RangeError: Invalid time value`, which `render('en')` would propagate
+and fail the `not.toThrow()` assertion. The one open half of round 1's Serious-1 — that
+`GitHubReleaseService.parseRelease` still assigns `publishedAt: release.published_at` with no runtime
+validation (`github-release.service.ts:82`) — is unchanged and correctly left alone: that file is outside
+this batch's file list, and the new code comment at `download-page.component.ts:465-468` documents the
+upstream trust boundary explicitly for whoever touches that service next. This is sound scoping, not a
+new gap.
+
+### Moderate-1 (reactive switch untested) — RESOLVED
+
+New spec `'re-formats the release date on a live language switch'` (`download-page.component.spec.ts:203-222`)
+renders once in `'en'`, asserts `'Mar 5, 2026'`, then calls `await TestBed.inject(I18nService).setLanguage('ar')`
+on the **same** fixture, calls `fixture.detectChanges()`, and asserts the header no longer contains `'Mar'`,
+still contains `'2026'`, contains the Arabic `download.release.version` label, and contains no Arabic-Indic
+digit (`٠-٩`) — matching exactly how `session-calendar.spec.ts:109-139` and `stat-tile.spec.ts:52`
+test the identical `intlLocale()`-inside-`computed` pattern elsewhere in this codebase. The `try/finally`
+resetting `document.documentElement.lang`/`dir` to `'en'`/`'ltr'` after the switch is good spec hygiene
+(`I18nService.apply` mutates the real `<html>` element even under `provideI18nTesting`; see
+`i18n.service.ts:244-249`), preventing this test's language switch from leaking into later tests in the same
+Jest environment. This closes round 1's Moderate-1 with direct evidence rather than by-inspection inference.
+
+### Moderate-2 (prerender parity not independently rebuilt) — addressed with evidence, informational residue only
+
+The coordinator reports the executor demonstrated the inner `<span>` (`download-page.component.ts:76-78`)
+is load-bearing: removing it made `prerender-check` fail at character 193 of the extracted text, where
+`"Loading releases..."` and the following `"Ptah"` (from unrelated footer/navigation content elsewhere on
+the page) concatenated without the separating boundary the baseline expects — i.e. without the wrapping
+element, Angular's compiled output merges the loading text's node with an adjacent one in a way that changes
+the no-separator-joined extraction, whereas the `<span>` boundary keeps them distinct exactly as the
+committed baseline (`apps/ptah-landing-page/prerender-baseline/download.json`) requires. I did not rebuild
+`dist/` myself in this round either (per this round's scope, to avoid conflicting with the parallel visual
+reviewer's build), so this is accepted as reported rather than independently reproduced by this review; the
+coordinator's message states `prerender-check` passed for all 6 routes. This does not block approval — the
+claim is now evidenced (a concrete failure point, not just a comment) — but it remains formally unverified by
+this reviewer's own tool run, so I record it as residue rather than closing it outright.
+
+### Verification run
+
+`node_modules/.bin/nx run-many -t test -p ptah-landing-page --skip-nx-cache` (scoped rerun with
+`--testPathPattern=download` for isolation): `Tests: 94 passed, 94 total` (up from round 1's 92 — the two new
+specs), all suites green. `git diff` confirms no files outside the stated two were touched this round.
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+None (round 1's finding is resolved — see above).
+
+### Moderate and minor issues
+
+None new. Moderate-2 stands as documented, non-blocking residue (evidenced by the coordinator's report, not
+independently rebuilt by this review).
+
+## Verdict (Batch 13, round 2, final)
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: none blocking. The only residue is Moderate-2 (prerender-check's pass was reported, not rebuilt
+  by this reviewer) — an evidentiary gap in this review's own process, not a known or suspected defect in
+  the shipped code.
+- What a robust implementation would add (non-blocking, for a future batch): validate `published_at` at the
+  `GitHubReleaseService` boundary (round 1's still-open observation, correctly out of this batch's scope)
+  so a malformed date routes through the existing `I18nMessage` error path instead of silently rendering no
+  date at all.

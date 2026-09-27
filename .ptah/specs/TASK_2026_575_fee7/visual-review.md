@@ -381,3 +381,138 @@ Same-DOM-node, same-page, before/after `dir` toggle test (the exact method that 
 - Recommendation: **APPROVE**
 - Confidence: HIGH
 - Key concern: none blocking or serious remains from round 1. Both findings are fixed and independently re-verified with the same reproduction method that originally caught them (a realistic long email at the exact viewports that broke, and a same-DOM-node before/after `dir` toggle for the icon mirrors). One pre-existing Moderate carries forward unchanged and out of scope (`needs-attention-queue.html`, `libs/web/admin`, not part of Batch 12's file list). One new Minor observation: the email span's font size is now `text-xs` at all widths (was `text-xs sm:text-sm`) — this matches design-spec.md's own literal snippet exactly, so it's a spec-conformant outcome, not a regression, but worth a design-spec author's sign-off if the smaller desktop size wasn't intentional. The executor's reported Arabic font-shaping problem did not reproduce in this session under either font-allowed or font-blocked conditions.
+
+## Batch 13
+
+### Summary
+
+| Metric            | Value                                                                                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Overall score     | 6/10                                                                                                                                                                                                                     |
+| Assessment        | NEEDS_REVISION                                                                                                                                                                                                           |
+| Visual breaking   | 0                                                                                                                                                                                                                        |
+| Serious           | 2                                                                                                                                                                                                                        |
+| Moderate          | 0                                                                                                                                                                                                                        |
+| Minor             | 0                                                                                                                                                                                                                        |
+| Viewports tested  | 6 (320, 375, 768, 1024, 1366, 1920) × 2 languages = 12 sweeps                                                                                                                                                            |
+| Screenshots taken | 26 (in `screenshots/visual-batch-13/`) + 3 debug captures (`/tmp`, not deliverable)                                                                                                                                      |
+| Components tested | Hero header, release-version toggle rows (2 releases), platform grid (macOS/Windows/Linux), download links, empty-platform states, "View release notes" link, VS Code callout/CTA, error state, focus ring, hover states |
+
+### Environment
+
+- Build verified: fresh `node_modules/.bin/nx build ptah-landing-page` run this session (completed 2026-09-27T19:37:47Z, "Prerendered 6 static routes", no build errors — only a pre-existing initial-bundle-size budget warning, unrelated to this batch), output at `dist/ptah-landing-page/browser`.
+- Served with the global `serve -s -l 4173` (SPA fallback) from that fresh output — not a stale bundle.
+- Base URL: `http://localhost:4173/download`.
+- GitHub releases API (`api.github.com/repos/Hive-Academy/ptah-extension/releases`) mocked via Playwright `context.route`, per the executor's fixture: `electron-v1.4.0` (4 assets: dmg/exe/AppImage/deb) and `electron-v1.3.2` (2 assets: dmg/exe, no Linux build, to exercise the `@empty` platform state).
+- Arabic forced via `localStorage['ptah.lang']='ar'` in an `addInitScript` init script, confirmed applied each run via `document.documentElement.{lang,dir}` (`en`/`ltr` and `ar`/`rtl` respectively — correct in every run).
+- Browser: Chromium 1194 (`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`), driven with the globally installed Playwright 1.56.1 (`npm root -g`) directly via Node scripts (no `ptah_browser_*` tools were present in this session's tool list — none were probed).
+- Public pages are dark-only (operator theme, per `[dir]`/`--gradient-cta` etc. in `apps/ptah-landing-page/src/styles.css`); no light variant exists or was expected. Not treated as a gap.
+- Design reference: `.ptah/specs/TASK_2026_575_fee7/design-spec.md` §3.1–3.3 (RTL mirroring rules, icon-mirroring table, LTR islands).
+
+### Findings by severity
+
+#### Visual breaking
+
+None found.
+
+#### Serious
+
+##### 1. `text-neutral-content/40` fails WCAG 2.2 AA contrast (4.5:1) for normal text — asset sizes, empty-platform copy, and the release-notes link
+
+- File: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:194`, `:200`, `:239`, `:245`, `:286`, `:292`, `:307`
+- Viewports affected: all six (320–1920), both languages — this is a persistent utility class, not viewport- or locale-dependent.
+- Screenshot: `download-en-1366-expanded-both.png`, `download-ar-1366-expanded-both.png` (the "94 MB" / "83 MB" / "98 MB" size lines under each platform, and the "View release notes" link, all visibly dim next to the filename/heading text above them).
+- Problem: measured via `canvas.fillStyle` sRGB-conversion + WCAG relative-luminance math on the live page (script composited the 40%-alpha text color over its actual card background, `rgb(10,11,14)`): asset-size text and "View release notes" render at **≈2.6:1** contrast against their background — text color `rgb(182,190,200)` at 40% opacity over `rgb(10,11,14)` composites to `rgb(≈79,83,88)`, well short of the 4.5:1 AA minimum for normal-size text (WCAG 2.2 SC 1.4.3; both are 12px regular — the size label is `text-xs`, the "no builds" empty-state copy at `:200/:245/:292` is `text-sm text-neutral-content/40 italic`, also under threshold). By contrast, the same base color at full/60% opacity elsewhere on the page (e.g. filenames, hero subtitle) measured 6.4–10.5:1 and passed comfortably.
+- Impact: a user with low vision reading the download page cannot reliably read which file size they are about to download, whether a platform has no build available, or find the "View release notes" outbound link — the exact information this page exists to convey.
+- Fix: raise the opacity modifier on these seven usages (e.g. `/40` → `/70` or higher) until the composited ratio clears 4.5:1 against the card background, or switch to a token with a guaranteed-AA value; re-measure after the change rather than eyeballing it, since opacity-based dimming against a near-black background degrades non-linearly.
+
+##### 2. "View release notes" link's touch target is 16px tall — below the 24×24 CSS px WCAG 2.2 AA minimum
+
+- File: `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:303-317` (the `<a>` wraps the `app.download.release.notes` key plus an `ExternalLink` icon; no vertical padding is applied to the anchor itself — only its containing `div` at line 301 carries `py-3`, which does not enlarge the link's own hit area)
+- Viewports affected: all six — the link's rendered height does not change with viewport width (measured 16×131 CSS px at 375px width via `boundingBox()`; same 16px height at 1366px).
+- Screenshot: `download-en-1366-expanded-both.png` (bottom-right of each expanded release card) — the link is the outbound "View release notes" affordance at the base of every release card, present twice per page (once per mocked release).
+- Problem: WCAG 2.2 SC 2.5.8 (Target Size, Minimum, AA) requires interactive targets to be at least 24×24 CSS px unless an exception applies (inline text-flow link, essential, or an equivalent same-size alternative exists nearby). This link is not inline within a sentence of surrounding body text — it sits alone in its own row as the sole affordance in that row — so the inline exception does not plausibly apply, and no larger equivalent link exists elsewhere on the card.
+- Impact: on a touch device the link is hard to hit precisely, especially adjacent to the empty vertical space directly above and below it in the same row, increasing mis-taps or missed taps for the one way to reach the full GitHub release notes.
+- Fix: add vertical padding to the `<a>` itself (e.g. `py-1.5` or an increased line-height) so its own box, not just its container, reaches ≥24px tall; re-measure with `boundingBox()` after the change.
+
+#### Moderate and minor
+
+None found and evidenced beyond the two Serious items above. Spacing, alignment, hover states, and component treatments were consistent with the rest of the page and with `apps/ptah-landing-page/src/styles.css`'s tokens in every viewport captured.
+
+### Prototype fidelity
+
+- Approved prototype: `.ptah/specs/TASK_2026_575_fee7/prototype/index.html` does not include a dedicated `/download` screen capture in `prototype/screenshots/` (the prototype set at Gate 1.7 covered the marketing/legal/auth flows named in `context.md`'s scope, not this page's specific layout). Fidelity assessed instead against `design-spec.md` §3.1–3.3 (the RTL/LTR-island rules this batch's checklist calls out), which do apply to every page including this one.
+- Fidelity assessment: MATCHES (against §3.1–3.3; not applicable as a prototype-screenshot diff, since no download-page screenshot exists in the approved set).
+- Deviations observed: none. Specifically checked and confirmed against the spec's own tables:
+  - §3.1 mirrored gradient: `bg-gradient-to-r rtl:bg-gradient-to-l` on the VS Code CTA (`download-page.component.ts:354`) — pixel-cropped both language variants (`cta-en`/`cta-ar`, not saved to the deliverable folder, inspected inline) and confirmed the 135° amber→teal gradient visually reverses to teal→amber under `dir="rtl"`, matching the "mirrors" rule for `bg-gradient-to-l/r`.
+  - §3.1 mirrored divider: `md:divide-x md:rtl:divide-x-reverse` on the platform grid (`:159`) — confirmed visually (`download-ar-1366-expanded-both.png`): column order flips (Linux, Windows, macOS left-to-right in RTL vs. macOS, Windows, Linux in LTR) and the divider renders on the correct side of each mirrored column.
+  - §3.2 icon-mirroring table: this page uses only `Download`, `ChevronDown`/`ChevronUp` (general use), and `ExternalLink` — all three are listed as **"No — do not mirror"** in the spec's table (non-directional pictograms). Confirmed no `rtl:scale-x-[-1]` or similar mirror class is applied to any `<lucide-angular>` instance in this file — correct per spec, and consistent with the executor's stated claim that this page's icons are non-directional.
+  - §3.3 LTR islands: version numbers (`release.version`, e.g. "1.4.0"), asset labels ("macOS Apple Silicon (.dmg)"), and asset sizes ("94 MB") all carry `.ltr-island` (`:127`, `:194`-adjacent, `:239`-adjacent, `:286`-adjacent) and rendered left-aligned/LTR inside the RTL row in every AR screenshot — confirmed visually in `download-ar-1366-expanded-both.png` and `download-ar-320.png`. Dates (`formatDate()`, using `Intl.DateTimeFormat(this.i18n.intlLocale(), …)`) rendered in Arabic month names with Western digits ("15 سبتمبر 2026") — consistent with the Gate 1.7 "Western 0-9 everywhere" decision recorded in `context.md`.
+- Before/after comparison: not applicable — a prototype (or its absence, addressed above) is the comparison basis per the task's own instructions; no separate base-commit capture was supplied or requested for this batch.
+
+### Viewport results
+
+| Width | Screen state captured               | EN  | AR  | Status                                                                                                                                          | Screenshots                                                                |
+| ----- | ----------------------------------- | --- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 320   | Default (1st release auto-expanded) | ✓   | ✓   | Pass — no horizontal scroll, no clipping                                                                                                        | `download-en-320.png`, `download-ar-320.png`                               |
+| 375   | Default                             | ✓   | ✓   | Pass                                                                                                                                            | `download-en-375.png`, `download-ar-375.png`                               |
+| 375   | Both releases expanded              | ✓   | ✓   | Pass — verified fixed-nav "duplicate" artifact at mid-scroll is a Playwright full-page-stitch artifact, not a real bug (see Visual performance) | `download-en-375-expanded.png`, `download-ar-375-expanded.png`             |
+| 768   | Default                             | ✓   | ✓   | Pass                                                                                                                                            | `download-en-768.png`, `download-ar-768.png`                               |
+| 1024  | Default                             | ✓   | ✓   | Pass                                                                                                                                            | `download-en-1024.png`, `download-ar-1024.png`                             |
+| 1366  | Default                             | ✓   | ✓   | Pass                                                                                                                                            | `download-en-1366.png`, `download-ar-1366.png`                             |
+| 1366  | Both releases expanded              | ✓   | ✓   | Pass — platform grid/divider mirroring, LTR islands confirmed                                                                                   | `download-en-1366-expanded-both.png`, `download-ar-1366-expanded-both.png` |
+| 1920  | Default                             | ✓   | ✓   | Pass                                                                                                                                            | `download-en-1920.png`, `download-ar-1920.png`                             |
+
+Horizontal-scroll check (`document.documentElement.scrollWidth > clientWidth`) ran programmatically at every width/language combination above; none flagged an overflow.
+
+This is an audit selection (the repository documents no explicit supported-viewport list for the landing app), chosen at common device breakpoints plus the values the checklist named; every size opened is listed above, none skipped.
+
+### Component and interaction results
+
+| Component                                                      | States tested                                                       | Status                                                                                                                                                                         | Screenshot(s)                                                                                                                              |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Release toggle button (chevron)                                | default, expanded (both releases), focus                            | Pass — chevron flips up/down per state (no RTL mirror, correct per §3.2)                                                                                                       | `download-en-1366-expanded-both.png`, `download-en-1366-focus-toggle.png`                                                                  |
+| Download link (per asset)                                      | default, hover, focus                                               | Pass — hover background + amber text color change confirmed in both languages; focus ring visible (see Accessibility audit)                                                    | `download-en-1366-hover-link.png`, `download-ar-1366-hover-link.png`, `download-en-1366-focus-downloadlink.png`                            |
+| Empty-platform state ("No Linux builds" / "No Windows builds") | rendered (v1.3.2 has no Linux assets; synthetic no-Windows check)   | Pass visually, contrast issue flagged above (Serious #1)                                                                                                                       | `download-en-1366-expanded-both.png`                                                                                                       |
+| VS Code callout + CTA                                          | scrolled into view (fade-in), default, hover                        | Pass — callout fades in correctly once scrolled into view (per component's `viewportAnimation`); CTA gradient mirrors (Prototype fidelity); hover state renders (scale/shadow) | `download-en-1366-callout.png`, `download-ar-1366-callout.png`, `download-en-1366-callout-hover.png`, `download-ar-1366-callout-hover.png` |
+| Error state (GitHub API 403)                                   | rendered                                                            | Pass — "GitHub API rate limited" message and retry button render correctly in both languages, Arabic RTL sentence flows correctly around the LTR-island "GitHub API" term      | `download-en-1366-error-state.png`, `download-ar-1366-error-state.png`                                                                     |
+| Focus (Tab order)                                              | nav "Sign Up"/"إنشاء حساب" (7th stop), toggle button, download link | Pass — visible ring on all three (see Accessibility audit for why computed-style color reading was misleading)                                                                 | `download-en-1366-focus.png`, `download-ar-1366-focus.png`, `download-en-1366-focus-toggle.png`, `download-en-1366-focus-downloadlink.png` |
+| "View release notes" link                                      | default                                                             | Fails touch-target minimum (Serious #2); contrast fails (Serious #1)                                                                                                           | `download-en-1366-expanded-both.png`                                                                                                       |
+
+### Design system compliance
+
+| Token/rule                                                    | Expected                                                                                                                     | Observed                                                                                                                                           | Status            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `--gradient-cta` (`styles.css:12`)                            | `linear-gradient(135deg, #f5a524, #ffbb4d)`, mirrored under RTL per `rtl:bg-gradient-to-l`                                   | Confirmed both stops present, direction reversed correctly under `dir="rtl"`                                                                       | Pass              |
+| `.ltr-island` (`styles.css:71-78`)                            | `direction: ltr; unicode-bidi: isolate; text-align: left`                                                                    | Applied to version numbers, asset labels, asset sizes; rendered LTR/left-aligned inside RTL rows                                                   | Pass              |
+| `text-neutral-content/40`                                     | (no explicit token minimum documented in `styles.css`, but must clear WCAG AA per this repo's stated accessibility standard) | ≈2.6:1 measured, below 4.5:1                                                                                                                       | Fail — Serious #1 |
+| `[lang='ar']` line-height/tracking rules (`styles.css:82-99`) | 1.75 line-height, no tracking, no uppercase-transform on Arabic text                                                         | Not directly exercised by this page (no `tracking-*`/`uppercase` utility classes present on Arabic-rendered text here) — not applicable, not a gap | N/A               |
+
+### Accessibility audit
+
+- Standard applied: repository declares no explicit accessibility standard in `context.md`/`design-spec.md`'s reviewed sections for this task, so WCAG 2.2 AA was applied per this review's own default, citing SC 1.4.3 (contrast, 4.5:1 normal text) and SC 2.5.8 (target size, 24×24 CSS px minimum).
+- Contrast pairs measured (via `canvas.fillStyle` sRGB conversion + relative-luminance compositing, run against the live page, not against static token values):
+  - `text-neutral-content` (filename lines, hero subtitle, callout body): 6.4–10.5:1 — Pass.
+  - `text-neutral-content/40` (asset size, empty-platform text, release-notes link): ≈2.6:1 — **Fail**, Serious #1.
+  - VS Code CTA text (`rgb(8,9,12)`) against its gradient background (`#f5a524`/`#ffbb4d` from `styles.css:12`, computed analytically since `getComputedStyle().backgroundColor` cannot read a `background-image` gradient): ≈9.6:1 at the amber stop, ≈11.5:1 at the lighter stop — Pass, both comfortably above 4.5:1 (and 3:1 for UI components).
+  - "LATEST" badge (`bg-secondary/15` + green text): composited badge background ≈`rgb(20,45,41)` against text `rgb(52,211,153)` ≈7.7:1 — Pass.
+- Touch targets measured via `boundingBox()` at 375px width:
+  - Release toggle button: 327×70 — Pass (well above 24×24).
+  - Download link row: ~293×60 (1366px), scales with content — Pass.
+  - VS Code CTA: ~135-199×48 depending on language — Pass.
+  - "View release notes" link: 131×16 — **Fail**, Serious #2 (height only, width is fine).
+- Focus order: Tab sweep confirmed a visible focus ring on nav, release-toggle, and download-link elements. Note: `getComputedStyle().outlineColor` read back as `rgb(16,16,16)` (near-black) for `outline: auto`, which would suggest an invisible ring against the dark theme — but the actual rendered screenshots (`download-en-1366-focus-toggle.png`, `download-en-1366-focus-downloadlink.png`) show a clearly visible light outline. This is `outline-color: auto`'s browser-native invert-against-background behavior, which `getComputedStyle` does not serialize accurately — the screenshot, not the computed-style read, is the reliable signal here, and it shows the ring works. No finding.
+- Semantic structure: single `<h1>` ("Downloads"/"التنزيلات"), release rows are `<button aria-expanded="...">`, download rows are real `<a href>` elements — all reachable via Tab, none found keyboard-inaccessible.
+- Hydration: no `NG05xx`-prefixed console messages, no console errors beyond outbound Google Fonts requests failing at the network layer (`ERR_TUNNEL_CONNECTION_FAILED`/`ERR_CERT_AUTHORITY_INVALID`) — an artifact of this sandboxed environment's outbound proxy blocking `fonts.googleapis.com`/`fonts.gstatic.com` (confirmed by tracing the URLs against `apps/ptah-landing-page/src/index.html:23`/`:108-111`), not an application defect; text still rendered fully and legibly via the system-font fallback in every screenshot. Checked in both languages.
+
+### Visual performance
+
+- The VS Code callout and the release-card `viewportAnimation` directive both fade/slide in only once scrolled into view — confirmed by capturing the page before scroll (elements present but at reduced opacity in the full-page screenshot, e.g. faint in `download-en-1366-focus.png`) versus after `scrollIntoViewIfNeeded()` + a settle delay (fully opaque in `download-en-1366-callout.png`). This is the component's intended behavior (`ViewportAnimationConfig`), not a defect, and the checklist's instruction to "scroll into view before capturing" was followed for the callout-specific captures.
+- One capture artifact worth recording so it isn't mistaken for a bug: `download-en-375-expanded.png` and `download-ar-375-expanded.png` (full-page screenshots) show the `position: fixed` top nav bar appearing a second time partway down the image. Verified this is a Playwright full-page-screenshot stitching artifact — the nav (`nav.fixed.top-0.inset-x-0.z-50`, `libs/web/ui`) is genuinely `position: fixed`, and a direct scroll-and-capture at the same scroll offset (`debug-scrolled-850.png`, not saved to the deliverable folder) shows it correctly pinned to the viewport top with page content flowing normally beneath — no real duplicate element, no real overlap. No finding.
+- No layout-shift sources beyond the above intentional scroll-triggered animation were observed across the 12 viewport/language sweeps.
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Key concern: two AA accessibility failures — asset-size/empty-state/release-notes text failing contrast (≈2.6:1 vs. the 4.5:1 minimum) and the "View release notes" link's touch target (16px vs. 24px minimum) — both isolated to the `text-neutral-content/40` utility and the un-padded release-notes anchor, both mechanical, low-risk fixes; no visual-breaking, RTL-mirroring, or prototype-fidelity issues were found anywhere in the 12-viewport/language sweep.
