@@ -8,11 +8,18 @@
  *
  * Sub-namespaces: LSP, Editor, Actions, Testing.
  * Decoupled from `vscode` import via the IIDECapabilities interface.
+ *
+ * The LSP definition and reference lookups also come as reports that name
+ * their mechanism, so the no-host answer (`mechanism: 'none'`) cannot read
+ * as "no definitions".
  */
 
+import * as path from 'path';
+import { languageForExtension } from '@ptah-extension/workspace-intelligence';
 import type {
   IDENamespace,
   LSPNamespace,
+  LspLocationReport,
   EditorNamespace,
   ActionsNamespace,
   TestingNamespace,
@@ -53,6 +60,24 @@ export interface IIDECapabilities {
      * @replaces vscode.commands.executeCommand('vscode.executeReferenceProvider', ...)
      */
     getReferences(file: string, line: number, col: number): Promise<Location[]>;
+
+    /**
+     * Definition lookup that names its mechanism, language support,
+     * approximations and caps. Optional: without it the namespace wraps
+     * `getDefinition` as a `provider-defined` report.
+     */
+    getDefinitionReport?(
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<LspLocationReport>;
+
+    /** Reference lookup report; optional, as `getDefinitionReport`. */
+    getReferencesReport?(
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<LspLocationReport>;
 
     /**
      * Get hover information (types, documentation) at position.
@@ -237,6 +262,39 @@ function buildLSPNamespaceFromCapabilities(
       return lsp.getReferences(file, line, col);
     },
 
+    getDefinitionReport: async (
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<LspLocationReport> => {
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      onDefinitionLookup?.();
+      if (lsp.getDefinitionReport) {
+        return lsp.getDefinitionReport(file, line, col);
+      }
+      return providerDefinedReport(
+        file,
+        await lsp.getDefinition(file, line, col),
+      );
+    },
+
+    getReferencesReport: async (
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<LspLocationReport> => {
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      if (lsp.getReferencesReport) {
+        return lsp.getReferencesReport(file, line, col);
+      }
+      return providerDefinedReport(
+        file,
+        await lsp.getReferences(file, line, col),
+      );
+    },
+
     getHover: async (
       file: string,
       line: number,
@@ -352,6 +410,12 @@ function buildGracefulLSPNamespace(): LSPNamespace {
       return [];
     },
 
+    getDefinitionReport: async (file: string): Promise<LspLocationReport> =>
+      noHostReport(file),
+
+    getReferencesReport: async (file: string): Promise<LspLocationReport> =>
+      noHostReport(file),
+
     getHover: async (): Promise<HoverInfo | null> => {
       return null;
     },
@@ -363,6 +427,40 @@ function buildGracefulLSPNamespace(): LSPNamespace {
     getSignatureHelp: async (): Promise<SignatureHelp | null> => {
       return null;
     },
+  };
+}
+
+/** Registry language of `file` by extension, or `null` when none claims it. */
+function languageOfFile(file: unknown): string | null {
+  if (typeof file !== 'string') return null;
+  return languageForExtension(path.extname(file));
+}
+
+/**
+ * Wrap a host's plain location list: the host answered with its own
+ * providers and did not say whether they support the file's language.
+ */
+function providerDefinedReport(
+  file: string,
+  locations: Location[],
+): LspLocationReport {
+  return {
+    locations,
+    mechanism: 'provider-defined',
+    language: languageOfFile(file),
+    languageSupported: null,
+    approximations: [],
+  };
+}
+
+/** No IDE capabilities on this host: nothing was searched. */
+function noHostReport(file: unknown): LspLocationReport {
+  return {
+    locations: [],
+    mechanism: 'none',
+    language: languageOfFile(file),
+    languageSupported: false,
+    approximations: [],
   };
 }
 

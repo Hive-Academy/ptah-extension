@@ -976,7 +976,13 @@ async function handleIndividualTool(
           line: number;
           col: number;
         };
-        const refs = await ptahAPI.ide.lsp.getReferences(file, line, col);
+        // The report names its mechanism, so a host without a lookup answers
+        // "not available on this host" instead of "Found: 0".
+        const refs = await ptahAPI.ide.lsp.getReferencesReport(
+          file,
+          line,
+          col,
+        );
         return await createToolSuccessResponse(
           request,
           formatLspReferences(refs),
@@ -990,9 +996,13 @@ async function handleIndividualTool(
           line: number;
           col: number;
         };
-        // `getDefinition` starts the index freshness check itself (wired in
-        // the API builder), so `execute_code` callers get it too.
-        const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
+        // `getDefinitionReport` starts the index freshness check itself (wired
+        // in the API builder), as `getDefinition` does for `execute_code`.
+        const defs = await ptahAPI.ide.lsp.getDefinitionReport(
+          file,
+          line,
+          col,
+        );
         return await createToolSuccessResponse(
           request,
           formatLspDefinitions(defs),

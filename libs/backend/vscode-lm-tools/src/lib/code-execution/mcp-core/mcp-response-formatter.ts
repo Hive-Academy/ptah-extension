@@ -30,6 +30,7 @@ import type {
   BrowserStatusResult,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
+  LspLocationReport,
 } from '../types';
 import {
   compactCoverage,
@@ -1254,64 +1255,145 @@ function extractRangeLine(range: unknown): number | string | undefined {
 }
 
 /**
- * Format ptah_lsp_references result
+ * Format ptah_lsp_references result: an `LspLocationReport` (what the
+ * dispatcher passes) or a plain location array.
  */
 export function formatLspReferences(refs: unknown): string {
-  try {
-    if (!Array.isArray(refs)) return fallbackJson(refs);
-    if (refs.length === 0)
-      return json2md([{ h2: 'LSP References' }, { p: 'Found: 0 references' }]);
-
-    const items = refs.map((ref: Record<string, unknown>) => {
-      const file = ref['file'] ?? ref['uri'] ?? ref['path'] ?? '';
-      const line = ref['line'] ?? '';
-      const col = ref['col'] ?? ref['column'] ?? '';
-      return line
-        ? `\`${file}:${line}${col ? ':' + col : ''}\``
-        : `\`${file}\``;
-    });
-
-    return json2md([
-      { h2: 'LSP References' },
-      { p: `Found: ${refs.length} reference${refs.length !== 1 ? 's' : ''}` },
-      { ol: items },
-    ]);
-  } catch {
-    return fallbackJson(refs);
-  }
+  return formatLspLocations(refs, 'LSP References', 'reference');
 }
 
 /**
- * Format ptah_lsp_definitions result
+ * Format ptah_lsp_definitions result: an `LspLocationReport` (what the
+ * dispatcher passes) or a plain location array.
  */
 export function formatLspDefinitions(defs: unknown): string {
+  return formatLspLocations(defs, 'LSP Definitions', 'definition');
+}
+
+function formatLspLocations(
+  value: unknown,
+  title: string,
+  noun: string,
+): string {
   try {
-    if (!Array.isArray(defs)) return fallbackJson(defs);
-    if (defs.length === 0)
-      return json2md([
-        { h2: 'LSP Definitions' },
-        { p: 'Found: 0 definitions' },
-      ]);
-
-    const items = defs.map((def: Record<string, unknown>) => {
-      const file = def['file'] ?? def['uri'] ?? def['path'] ?? '';
-      const line = def['line'] ?? '';
-      const col = def['col'] ?? def['column'] ?? '';
-      return line
-        ? `\`${file}:${line}${col ? ':' + col : ''}\``
-        : `\`${file}\``;
-    });
-
-    return json2md([
-      { h2: 'LSP Definitions' },
+    if (isLspLocationReport(value)) {
+      return formatLspReport(value, title, noun);
+    }
+    if (!Array.isArray(value)) return fallbackJson(value);
+    // A bare location list says nothing about how it was produced: render it
+    // as a host answer whose language support is unknown.
+    return formatLspReport(
       {
-        p: `Found: ${defs.length} definition${defs.length !== 1 ? 's' : ''}`,
+        locations: value,
+        mechanism: 'provider-defined',
+        language: null,
+        languageSupported: null,
+        approximations: [],
       },
-      { ol: items },
-    ]);
+      title,
+      noun,
+    );
   } catch {
-    return fallbackJson(defs);
+    return fallbackJson(value);
   }
+}
+
+function isLspLocationReport(value: unknown): value is LspLocationReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Array.isArray(record['locations']) &&
+    typeof record['mechanism'] === 'string' &&
+    Array.isArray(record['approximations'])
+  );
+}
+
+/** A report whose locations are rendered leniently (legacy arrays too). */
+type RenderableLspReport = Omit<LspLocationReport, 'locations'> & {
+  readonly locations: readonly unknown[];
+};
+
+/**
+ * The mechanism, language support, approximations and caps come before the
+ * locations, so a cut result still says how it was produced. `none` never
+ * prints a count: nothing was searched.
+ */
+function formatLspReport(
+  report: RenderableLspReport,
+  title: string,
+  noun: string,
+): string {
+  const language = report.language ?? 'unrecognised';
+  if (report.mechanism === 'none') {
+    return json2md([
+      { h2: title },
+      {
+        p:
+          `Not available on this host (mechanism: none; language: ${language}). ` +
+          `No ${noun} lookup ran, so this is not an empty result; ` +
+          `search the workspace text instead.`,
+      },
+    ]);
+  }
+
+  const support =
+    report.languageSupported === true
+      ? ''
+      : report.languageSupported === false
+        ? ' (not supported by this mechanism)'
+        : ' (support unknown: not reported by the host)';
+  const blocks: json2md.DataObject[] = [
+    { h2: title },
+    { p: `Mechanism: ${report.mechanism}; language: ${language}${support}` },
+  ];
+  if (report.approximations.length > 0) {
+    blocks.push({ p: `Approximations: ${report.approximations.join(', ')}` });
+  }
+  if (report.truncated === true) {
+    blocks.push({
+      p: `Truncated: a scan or result cap was hit; more ${noun}s may exist.`,
+    });
+  }
+
+  const count = report.locations.length;
+  // Only an explicitly supported language makes an empty list meaningful.
+  const qualified =
+    report.languageSupported !== true ||
+    report.approximations.length > 0 ||
+    report.truncated === true;
+  const found = `Found: ${count} ${noun}${count !== 1 ? 's' : ''}`;
+  blocks.push({
+    p:
+      count === 0 && qualified
+        ? `${found} (qualified as above; not proof that none exist)`
+        : found,
+  });
+  if (count > 0) {
+    blocks.push({ ol: report.locations.map(formatLspLocationItem) });
+  }
+  return json2md(blocks);
+}
+
+function formatLspLocationItem(location: unknown): string {
+  const loc = (location ?? {}) as Record<string, unknown>;
+  const file = loc['file'] ?? loc['uri'] ?? loc['path'] ?? '';
+  const line = loc['line'];
+  const col = loc['col'] ?? loc['column'];
+  // Coordinates are zero-based, as the tools take them: 0 is a real position,
+  // so test presence, not truthiness.
+  if (!isCoordinate(line)) return `\`${file}\``;
+  return isCoordinate(col)
+    ? `\`${file}:${line}:${col}\``
+    : `\`${file}:${line}\``;
+}
+
+function isCoordinate(value: unknown): value is number | string {
+  return (
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'string' && value !== '')
+  );
 }
 
 /**

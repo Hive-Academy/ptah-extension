@@ -15,6 +15,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
+  Approximation,
   LanguageCoverage,
   NotCheckedFiles,
   UnsupportedLanguageAnswer,
@@ -1380,6 +1381,24 @@ export interface LSPNamespace {
   ) => Promise<Location[]>;
 
   /**
+   * Definition lookup with how it was answered. Prefer this over
+   * `getDefinition`: an empty `locations` means "none found" only when
+   * `mechanism` is not `'none'` and nothing in the report qualifies it.
+   */
+  getDefinitionReport: (
+    file: string,
+    line: number,
+    col: number,
+  ) => Promise<LspLocationReport>;
+
+  /** Reference lookup with how it was answered (see `getDefinitionReport`). */
+  getReferencesReport: (
+    file: string,
+    line: number,
+    col: number,
+  ) => Promise<LspLocationReport>;
+
+  /**
    * Get hover information for symbol at position (types, documentation)
    * @param file - Absolute or relative file path
    * @param line - Line number (0-indexed)
@@ -1539,6 +1558,46 @@ export interface TestingNamespace {
    * @returns Coverage info or null if not available
    */
   getCoverage: (file: string) => Promise<CoverageInfo | null>;
+}
+
+/**
+ * How a definition or reference lookup was answered.
+ * - `provider-defined`: the host's own providers (VS Code language services);
+ *   the host did not describe its mechanism further.
+ * - `symbol-index`: the workspace code-symbol index.
+ * - `declaration-scan`: an index-free tree-sitter declaration scan, following
+ *   the file's imports.
+ * - `graph-scoped-scan`: a word scan narrowed to files the dependency graph
+ *   links to the declaration.
+ * - `text-scan`: a bounded word scan of workspace files.
+ * - `none`: no lookup mechanism exists on this host; nothing was searched.
+ */
+export type LspMechanism =
+  | 'provider-defined'
+  | 'symbol-index'
+  | 'declaration-scan'
+  | 'graph-scoped-scan'
+  | 'text-scan'
+  | 'none';
+
+/**
+ * A definition or reference answer that says how it was produced, so an empty
+ * list is never mistaken for "the symbol has none".
+ */
+export interface LspLocationReport {
+  locations: Location[];
+  mechanism: LspMechanism;
+  /** Registry language of the queried file, or `null` when none claims it. */
+  language: string | null;
+  /**
+   * Whether `mechanism` supports `language`; `null` when the host did not
+   * say (`provider-defined`).
+   */
+  languageSupported: boolean | null;
+  /** Approximations the answer rests on (e.g. `text-scan`). */
+  approximations: readonly Approximation[];
+  /** A scan or result cap was hit; more locations may exist. */
+  truncated?: boolean;
 }
 
 /**

@@ -41,6 +41,8 @@ import {
 } from './tool-result-budget';
 import {
   formatBrowserContent,
+  formatLspDefinitions,
+  formatLspReferences,
   formatSearchFiles,
 } from './mcp-response-formatter';
 import {
@@ -54,6 +56,7 @@ import {
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
 import type {
+  LspLocationReport,
   MCPRequest,
   MCPResponse,
   PtahAPI,
@@ -74,6 +77,10 @@ import {
   buildDependencyNamespace,
   type AnalysisNamespaceDependencies,
 } from '../namespace-builders/analysis-namespace.builders';
+import {
+  buildIDENamespace,
+  type IIDECapabilities,
+} from '../namespace-builders/ide-namespace.builder';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import {
   IncompleteFileSearchError,
@@ -6947,5 +6954,200 @@ describe('protocol-handlers › agent status throttle and read window (TASK_2026
       expect(tail).toContain('[O300] ok');
       expect(tail).toContain('[E250] ok');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LSP reports (TASK_2026_559 Batch 26a)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › LSP reports (TASK_2026_559 Batch 26a)', () => {
+  function lspCapabilities(
+    lsp: Partial<IIDECapabilities['lsp']>,
+  ): IIDECapabilities {
+    return {
+      lsp: {
+        getDefinition: jest.fn().mockResolvedValue([]),
+        getReferences: jest.fn().mockResolvedValue([]),
+        getHover: jest.fn().mockResolvedValue(null),
+        getTypeDefinition: jest.fn().mockResolvedValue([]),
+        getSignatureHelp: jest.fn().mockResolvedValue(null),
+        ...lsp,
+      },
+      editor: {} as IIDECapabilities['editor'],
+      actions: {} as IIDECapabilities['actions'],
+    };
+  }
+
+  async function callLspTool(
+    name: 'ptah_lsp_definitions' | 'ptah_lsp_references',
+    capabilities: IIDECapabilities | undefined,
+    file = '/w/src/a.py',
+  ): Promise<string> {
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({ ide: buildIDENamespace(capabilities) }),
+    });
+    const res = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: { name, arguments: { file, line: 3, col: 4 } },
+      }),
+      deps,
+    );
+    expect(res.error).toBeUndefined();
+    return (res.result as { content: Array<{ text: string }> }).content[0]
+      .text;
+  }
+
+  // FB: on the batch base the no-host lookup returned `[]`, rendered as
+  // "Found: 0 definitions" — an empty answer that read as complete.
+  it.each([['ptah_lsp_definitions'], ['ptah_lsp_references']] as const)(
+    '%s: no-host definitions are not Found: 0',
+    async (name) => {
+      const text = await callLspTool(name, undefined);
+
+      expect(text).toContain('Not available on this host');
+      expect(text).toContain('mechanism: none');
+      expect(text).toContain('language: python');
+      expect(text).not.toMatch(/Found:/);
+    },
+  );
+
+  it('shows the mechanism, approximations and cap before the locations', async () => {
+    const report: LspLocationReport = {
+      locations: [
+        { file: '/w/src/zz-first.py', line: 11, column: 2 },
+        { file: '/w/src/zz-second.py', line: 12, column: 3 },
+      ],
+      mechanism: 'text-scan',
+      language: 'python',
+      languageSupported: true,
+      approximations: ['text-scan'],
+      truncated: true,
+    };
+    const getReferencesReport = jest.fn().mockResolvedValue(report);
+    const getReferences = jest.fn();
+
+    const text = await callLspTool(
+      'ptah_lsp_references',
+      lspCapabilities({ getReferencesReport, getReferences }),
+    );
+
+    expect(getReferencesReport).toHaveBeenCalledWith('/w/src/a.py', 3, 4);
+    expect(getReferences).not.toHaveBeenCalled();
+    const order = [
+      'Mechanism: text-scan; language: python',
+      'Approximations: text-scan',
+      'Truncated:',
+      'Found: 2 references',
+      'zz-first.py:11:2',
+      'zz-second.py:12:3',
+    ].map((needle) => text.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('an empty answer for a language the mechanism does not support is qualified', async () => {
+    const getDefinitionReport = jest.fn().mockResolvedValue({
+      locations: [],
+      mechanism: 'symbol-index',
+      language: 'kotlin',
+      languageSupported: false,
+      approximations: [],
+    } satisfies LspLocationReport);
+
+    const text = await callLspTool(
+      'ptah_lsp_definitions',
+      lspCapabilities({ getDefinitionReport }),
+      '/w/src/Main.kt',
+    );
+
+    expect(text).toContain(
+      'Mechanism: symbol-index; language: kotlin (not supported by this mechanism)',
+    );
+    expect(text).toContain(
+      'Found: 0 definitions (qualified as above; not proof that none exist)',
+    );
+  });
+
+  it('a host with only the array API answers provider-defined, the count unqualified', async () => {
+    const getDefinition = jest
+      .fn()
+      .mockResolvedValue([{ file: '/w/src/b.ts', line: 7, column: 1 }]);
+
+    const text = await callLspTool(
+      'ptah_lsp_definitions',
+      lspCapabilities({ getDefinition }),
+      '/w/src/a.ts',
+    );
+
+    expect(getDefinition).toHaveBeenCalledWith('/w/src/a.ts', 3, 4);
+    expect(text).toContain(
+      'Mechanism: provider-defined; language: typescript (support unknown: not reported by the host)',
+    );
+    expect(text).toMatch(/Found: 1 definition\b(?! \()/);
+    expect(text).toContain('b.ts:7:1');
+  });
+
+  // R26A-M1: an array-only host returns [] both for "no match" and for "no
+  // provider for this language"; with support unknown the count is qualified.
+  it.each([
+    ['ptah_lsp_definitions', 'definitions'],
+    ['ptah_lsp_references', 'references'],
+  ] as const)(
+    '%s: an empty answer from an array-only host is qualified',
+    async (name, noun) => {
+      const text = await callLspTool(name, lspCapabilities({}), '/w/src/a.py');
+
+      expect(text).toContain(
+        'language: python (support unknown: not reported by the host)',
+      );
+      expect(text).toContain(
+        `Found: 0 ${noun} (qualified as above; not proof that none exist)`,
+      );
+    },
+  );
+
+  // R26A-M2: zero-based coordinates; line 0 / column 0 are real positions.
+  it.each([
+    ['ptah_lsp_definitions', 'getDefinitionReport'],
+    ['ptah_lsp_references', 'getReferencesReport'],
+  ] as const)(
+    '%s: renders line 0 and column 0',
+    async (name, method) => {
+      const report: LspLocationReport = {
+        locations: [
+          { file: '/w/src/a.ts', line: 0, column: 4 },
+          { file: '/w/src/b.ts', line: 3, column: 0 },
+        ],
+        mechanism: 'symbol-index',
+        language: 'typescript',
+        languageSupported: true,
+        approximations: [],
+      };
+      const text = await callLspTool(
+        name,
+        lspCapabilities({ [method]: jest.fn().mockResolvedValue(report) }),
+        '/w/src/a.ts',
+      );
+
+      expect(text).toContain('`/w/src/a.ts:0:4`');
+      expect(text).toContain('`/w/src/b.ts:3:0`');
+    },
+  );
+
+  it('legacy location arrays keep zero coordinates and omit only missing ones', () => {
+    const text = formatLspDefinitions([
+      { file: 'a.ts', line: 0, col: 0 },
+      { file: 'b.ts', line: 5 },
+      { file: 'c.ts' },
+    ]);
+
+    expect(text).toContain('`a.ts:0:0`');
+    expect(text).toContain('`b.ts:5`');
+    expect(text).toContain('`c.ts`');
+    expect(formatLspReferences([])).toContain(
+      'Found: 0 references (qualified as above; not proof that none exist)',
+    );
   });
 });
