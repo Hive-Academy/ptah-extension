@@ -19,7 +19,11 @@
   <ng-container panelTopBar>
     @if (currentEmail(); as email) {
       <span class="hidden sm:inline">Signed in as</span>
-      <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
+      <span
+        class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none"
+        [title]="email"
+        >{{ email }}</span
+      >
     }
   </ng-container>
 </ptah-panel-layout>

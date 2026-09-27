@@ -2,6 +2,9 @@ import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { SelectionToolbar } from './selection-toolbar';
+import { provideI18nTesting } from '@ptah-extension/i18n/testing';
+
+import panelUi from '../i18n/en.json';
 
 /**
  * `SelectionToolbar`'s FIRST spec.
@@ -46,6 +49,7 @@ describe('SelectionToolbar', () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       imports: [Host],
+      providers: [provideI18nTesting({ translations: { en: { panelUi } } })],
     }).compileComponents();
 
     fixture = TestBed.createComponent(Host);

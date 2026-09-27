@@ -531,11 +531,17 @@ type NavMenu = 'product' | 'community' | 'lang' | 'user';
                   role="menuitem"
                   (click)="handleLogout(); closeMenu()"
                 >
-                  <lucide-angular
-                    [img]="LogOutIcon"
-                    class="w-4 h-4 rtl:scale-x-[-1]"
+                  <!-- Mirror on the wrapper, never on lucide-angular (it copies host classes to its svg, so a host flip cancels). -->
+                  <span
+                    class="inline-flex shrink-0 rtl:scale-x-[-1]"
                     aria-hidden="true"
-                  />
+                  >
+                    <lucide-angular
+                      [img]="LogOutIcon"
+                      class="w-4 h-4"
+                      aria-hidden="true"
+                    />
+                  </span>
                   {{ 'ui.nav.logout' | transloco }}
                 </button>
               </div>
@@ -682,11 +688,17 @@ type NavMenu = 'product' | 'community' | 'lang' | 'user';
               role="menuitem"
               (click)="handleLogout(); closeMobileMenu()"
             >
-              <lucide-angular
-                [img]="LogOutIcon"
-                class="w-5 h-5 rtl:scale-x-[-1]"
+              <!-- Mirror on the wrapper, never on lucide-angular (it copies host classes to its svg, so a host flip cancels). -->
+              <span
+                class="inline-flex shrink-0 rtl:scale-x-[-1]"
                 aria-hidden="true"
-              />
+              >
+                <lucide-angular
+                  [img]="LogOutIcon"
+                  class="w-5 h-5"
+                  aria-hidden="true"
+                />
+              </span>
               {{ 'ui.nav.logout' | transloco }}
             </button>
           } @else {

@@ -1,1 +1,34 @@
-{}
+{
+  "layout": {
+    "openMenu": "Open {{ title }} menu",
+    "openMenuUntitled": "Open panel menu",
+    "closeMenu": "Close menu",
+    "readOnly": "Read-only",
+    "readOnlyBadge": "ro"
+  },
+  "emptyState": {
+    "message": "Nothing here yet."
+  },
+  "detailDrawer": {
+    "title": "Details",
+    "close": "Close panel"
+  },
+  "selectionToolbar": {
+    "region": "Bulk actions",
+    "item": "item",
+    "countOne": "{{ count }} {{ noun }} selected",
+    "countOther": "{{ count }} {{ noun }}s selected",
+    "clear": "Clear"
+  },
+  "threadRow": {
+    "pinned": "Pinned",
+    "locked": "Locked",
+    "accepted": "Has an accepted answer",
+    "unknownAuthor": "Unknown",
+    "replyOne": "{{ count }} reply",
+    "replyOther": "{{ count }} replies",
+    "unreadOne": "{{ count }} unread reply",
+    "unreadOther": "{{ count }} unread replies",
+    "newBadge": "{{ count }} new"
+  }
+}

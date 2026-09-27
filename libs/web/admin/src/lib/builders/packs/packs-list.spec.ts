@@ -8,6 +8,28 @@ import {
 } from '../../services/admin-builders-api.service';
 import { PacksList } from './packs-list';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 function pack(overrides: Partial<Pack> = {}): Pack {
   return {
     id: 'pack-1',
@@ -53,6 +75,7 @@ describe('PacksList', () => {
     TestBed.configureTestingModule({
       imports: [PacksList],
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         { provide: AdminBuildersApiService, useValue: buildersApi },
         { provide: AdminApiService, useValue: adminApi },
       ],

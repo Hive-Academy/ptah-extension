@@ -13,9 +13,31 @@ import { MEMBER_NAV_GROUPS } from '../member-nav.config';
 import { MemberNotificationsStore } from '../state/member-notifications.store';
 import { MemberLayout } from './member-layout';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const NOTIFICATIONS = '/api/v1/members/notifications';
 const UNREAD_COUNT = `${NOTIFICATIONS}/unread-count`;
-const CURRENT_USER = /users\/me|auth\/me|\/me$/;
+const CURRENT_USER = /(?:users\/me|auth\/me|\/me$)/;
 
 /** `libs/web/members/src` — the root of the sweep below. */
 const LIB_SRC = join(__dirname, '..', '..');
@@ -36,6 +58,7 @@ describe('the member nav unread badge (R9.3, R10.4, RISK-AN)', () => {
       await TestBed.configureTestingModule({
         imports: [MemberLayout],
         providers: [
+          provideI18nTesting({ translations: panelI18n }),
           provideHttpClient(withXhr()),
           provideHttpClientTesting(),
           provideRouter([]),
@@ -122,9 +145,9 @@ describe('the member nav unread badge (R9.3, R10.4, RISK-AN)', () => {
       setCount(2);
 
       const link = notificationsLink();
-      // The secondary branch indents with `pl-8` and uses the 13px type scale;
+      // The secondary branch indents with `ps-8` (logical, so it mirrors in RTL) and uses the 13px type scale;
       // the primary branch does neither.
-      expect(link?.className).toContain('pl-8');
+      expect(link?.className).toContain('ps-8');
       expect(link?.querySelector('.badge')).not.toBeNull();
     });
 
@@ -265,9 +288,11 @@ describe('the member nav unread badge (R9.3, R10.4, RISK-AN)', () => {
       const readers = notificationFiles()
         .filter((file) => /unreadCount/.test(stripComments(file.code)))
         .map((file) => file.label)
-        .sort();
+        .sort((a, b) => a.localeCompare(b));
 
-      expect(readers).toEqual([LAYOUT, API, STORE].sort());
+      expect(readers).toEqual(
+        [LAYOUT, API, STORE].sort((a, b) => a.localeCompare(b)),
+      );
     });
 
     it('each of the three plays only its own role', () => {

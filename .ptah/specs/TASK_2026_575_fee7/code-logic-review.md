@@ -2652,3 +2652,687 @@ None found. Both round-1 Moderate findings are resolved:
   flash window further; (3) a note in the component's own doc comment that the `locales: []` window is
   a deliberate, bounded trade-off, for the benefit of a future maintainer who might otherwise "fix" it
   by re-introducing a static import.
+
+## Batch 12
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 7/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 4        |
+| Failure modes found | 3        |
+
+### Scope examined
+
+Read in full: `libs/web/panel-ui/src/lib/language-switch/{language-switch.ts,language-switch.spec.ts}`
+(new, not exported from `src/index.ts` — confirmed by grep); `panel-layout.{html,ts}` and the new
+`panel-layout.spec.ts`; `empty-state.{html,ts,spec.ts}`; `detail-drawer.{html,ts,spec.ts}`;
+`selection-toolbar.{html,ts,spec.ts}`; `thread-row.{html,ts,spec.ts}`; `stat-tile.{html,ts}` and the new
+`stat-tile.spec.ts`; `libs/web/panel-ui/src/lib/i18n/{en,ar}.json`; `libs/web/panel-ui/project.json`
+(new `i18n-check` target); `copy-review/panelUi.md`. Cross-checked against `libs/frontend/i18n/src/lib/
+i18n.service.ts` (`setLanguage`/`loadRegistered`/`latestRequest` race guard) for the "failed setLanguage
+keeps aria-checked honest" claim in the doc comments. Traced every consumer of `ADMIN_NAV_GROUPS`/
+`MEMBER_NAV_GROUPS` — `admin-layout.ts`, `admin-nav.config.ts`, `member-layout.ts`,
+`member-nav.config.ts` — to evaluate the nav-group index-keying risk, even though those files are out of
+this batch's file list (only their specs were touched, and only for the `provideI18nTesting`
+boilerplate). Diffed all 24 out-of-batch consumer spec changes in `libs/web/{admin,members}` (all
+`beforeAll`-loaded `provideI18nTesting` additions plus the one `pl-8`→`ps-8` assertion update in
+`member-nav-badge.spec.ts`), `libs/web/members/jest.config.cts`, and the two pre-existing-SonarJS-fix
+diffs (`localeCompare` sort comparators, one regex non-capturing-group change) — all cosmetic/harness,
+none touch behaviour under review.
+
+Verification run and evidence: `nx run-many -t test,i18n-check -p web-panel-ui --skip-nx-cache` → both
+green (`i18n-check [panelUi]: OK`; Jest: 9 suites / 64 tests passed); `nx run-many -t lint,typecheck -p
+web-panel-ui --skip-nx-cache` → both green; `nx run-many -t test -p web-members web-admin
+--skip-nx-cache` → both green (confirms none of the 24 out-of-batch spec edits broke anything). I did not
+rebuild `dist` (a visual reviewer runs in parallel against it per the task's own instruction).
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+
+- `LanguageSwitch.select()` (`language-switch.ts:112-114`) is `void this.i18n.setLanguage(lang)` —
+  fire-and-forget. `I18nService.setLanguage` (`i18n.service.ts:103-115`) never rejects; on a failed scope
+  load it logs once via `console.error` and resolves `false`, leaving `current` (and therefore
+  `i18n.lang()`, `aria-checked`, `tabIndex`) unchanged. So the UI degrades correctly — the radio the user
+  pressed simply never becomes checked — but nothing in `LanguageSwitch` itself observes the `false`
+  return to, for example, show a toast or retry. This matches the documented contract (the class doc
+  comment at `language-switch.ts:108-111` states it explicitly) and is consistent with how `I18nService`
+  is used everywhere else in this codebase (Batch 2/9), so it is not a new defect — but it means a
+  transient network failure during a language switch is invisible to the user beyond "nothing happened",
+  and **no spec in this batch exercises a rejected `setLanguage`** to prove the claim holds (see Failure
+  modes).
+- `onGroupKeydown` (`language-switch.ts:117-127`) calls `this.select(next)` (fire-and-forget) and then
+  immediately, synchronously, `this.focusRadio(next)` — it does not wait for the promise the click path
+  implicitly waits for via change detection. On the ordinary success path this is harmless (the signal
+  updates before or around the same microtask), but on a **failed** switch, DOM focus lands on a button
+  whose `tabIndex` will re-render back to `-1` and `aria-checked="false"` once `i18n.lang()` re-resolves —
+  the group is left in a state where the browser's focused element is not the one the roving-tabindex
+  pattern intends to be focusable. Not a data-loss bug (Tab still moves on from that element positionally,
+  and Shift+Tab/click still recover the correct state), but it is an unverified a11y edge case.
+
+#### 2. What user action produces unexpected behaviour?
+
+- Pressing an arrow key twice in rapid succession (before the first `setLanguage` scope-load promise
+  settles) is protected: `I18nService`'s `latestRequest` counter (`i18n.service.ts:66,104,111`) makes the
+  second call the only one that can `apply()`, so the "last press wins" — no torn state, no two languages
+  racing to apply. Confirmed by reading the guard, not by a dedicated spec in this batch (the existing
+  `language-switch.spec.ts` presses keys one at a time with `await settle()` between them).
+- Clicking (not arrow-keying) the currently-_unchecked_ radio while a group toggle re-render is in flight:
+  no issue found — `select()`/click do not touch `collapsedGroups` or any `panel-layout` state, and
+  `PanelLayout`'s own `toggleGroup`/`isCollapsed` (`panel-layout.ts:105-110`) are independent, synchronous,
+  and unaffected by a language switch beyond the labels re-rendering.
+- Collapsing a group, then having the shell append a NEW nav group to the end of `navGroups()` at runtime
+  (`admin-layout.ts:50-53`: `this.session.entitled() ? [...ADMIN_NAV_GROUPS, ADMIN_MEMBER_NAV_GROUP] :
+ADMIN_NAV_GROUPS`; `member-layout.ts:123-136`: the equivalent `isAdmin()` branch) does not corrupt any
+  existing group's collapse state, because in both of today's call sites the appended group is `flat:
+true` (`admin-nav.config.ts:227`, `member-nav.config.ts:172`) and appended strictly at the END — flat
+  groups never call `toggleGroup`/`isCollapsed` at all (`panel-layout.html:90-99` only renders the
+  toggle button in the `@else` / non-flat branch), so the index space `collapsedGroups` cares about never
+  shifts. This holds today, verified by reading both config files, but nothing in `panel-ui` enforces it
+  (see Failure modes / Moderate-1).
+
+#### 3. What input data produces a wrong answer?
+
+- `StatTile.valueText` (`stat-tile.ts:80-88`): `new Intl.NumberFormat(this.i18n.intlLocale()).format(raw)`
+  for any `typeof raw === 'number'`, including `NaN`, `Infinity`, and negative values — none of which the
+  input type (`string | number | null`) rules out. `Intl.NumberFormat` renders `NaN` as the locale's own
+  "NaN" string and `Infinity` as "∞", neither of which is caught or guarded; the previous `String(raw)`
+  behaviour showed the same values equally uninterpreted (`"NaN"`, `"Infinity"`), so this is not a
+  regression, but the new formatting call is one more thing that would silently show `∞` in a metric tile
+  if an upstream stat computation ever divides by zero — worth a one-line note, not a fix, since no caller
+  currently can produce those values (grepped all 4 call sites: `overview.html`, `marketing-hub.html`,
+  `marketing-compose.html`, `campaign-detail.html` — all bind counts derived from array lengths or summed
+  integers).
+- `SelectionToolbar`/`ThreadRow` plural selection is a literal `=== 1` ternary duplicated at two template
+  sites each (`selection-toolbar.html:10-13`, `thread-row.html:38-42` for replies, `:29-33` for unread) —
+  I confirmed by hand for count 0, 1, 2 and an arbitrary `n` that the English output is byte-identical to
+  the pre-batch hardcoded strings (`0 items selected` / `1 item selected` / `2 items selected`; `0
+replies` / `1 reply` / `2 replies`; `0 new` / `1 new` / `n new`), because both the old JS ternary and the
+  new `count === 1 ? One : Other` key selection use the same boundary. A future edit to only one of the
+  two near-identical ternary sites (say, adding a `count === 0` special case to `thread-row`'s reply count
+  but not its unread count, or vice versa) would silently drift English behaviour with no shared helper to
+  catch it — the exact "requirements drift" pattern the reviewer brief calls out, now with two more sites
+  than before this batch since pluralisation logic used to live once per component in a `computed()` and
+  now lives once per template usage.
+
+#### 4. What happens when a dependency fails?
+
+- `I18nService.setLanguage` failing (network drop fetching the `ar` scope chunk, or a malformed JSON
+  payload) is handled correctly at the service layer (returns `false`, logs once, leaves state
+  unchanged — `i18n.service.ts:103-115`) and `LanguageSwitch`'s `aria-checked`/`tabIndex` bindings, being
+  pure functions of `i18n.lang()`, stay honest by construction. But see Q1: the _focus_ side-effect of a
+  keyboard-driven attempt is not equally protected, and no test in this batch proves either half of the
+  claim under an actual failure (only the always-succeeds path is exercised in
+  `language-switch.spec.ts`).
+- `PANEL_UI_I18N_SCOPE` failing to load for a consuming shell (e.g. `admin`/`members`) is outside this
+  batch's code (it is `I18nService`'s/the resolver's problem, covered in earlier batches) — `panel-ui`'s
+  own components correctly degrade to their key-shaped fallback only in the sense that Transloco's
+  documented missing-key behaviour (return `''`, Batch 2) would apply; I did not find a new failure mode
+  introduced here beyond what Batch 2/9/10 already reviewed.
+
+#### 5. What is missing that the requirements never mentioned?
+
+- No spec anywhere in this batch exercises a **failed** `setLanguage` for `LanguageSwitch` (the task's own
+  review-focus text names this explicitly: "failed setLanguage keeps aria-checked honest"). I verified the
+  claim by reading `I18nService`, not by running a test that proves it, because no such test exists (see
+  Failure modes).
+- No spec asserts on `detail-drawer`'s new RTL close-offset pairing
+  (`[class.translate-x-full]`/`[class.rtl:-translate-x-full]`, `detail-drawer.html:47-49`), unlike
+  `panel-layout.spec.ts:168-177`, which explicitly asserts both `-rotate-90` and `rtl:rotate-90` are
+  present on the chevron. The drawer's pairing follows the same N22-verified Tailwind precedent
+  (`:where([dir="rtl"], [dir="rtl"] *)`, zero added specificity, last-rule-wins), so it is very likely
+  correct, but nothing in this batch's own test surface proves it; it relies entirely on the parallel
+  visual reviewer.
+- The plan's Component 13 (`implementation-plan.md:648`) and Batch 12's own Task 12.3 both name "the 1
+  formatting site" as in-scope, and the validation note "`stat-tile.ts:45` type union must not be
+  flagged" (`batches.md:926`) is satisfied (`i18n-check` passed, confirming the AST formatting-detector
+  does not false-positive on the `string | number | null` union). What is not addressed anywhere is that
+  this is **new** formatting, not a pre-existing site converted to be locale-aware: the prior code was
+  `String(raw)` (no formatting at all), so task-description.md:148's framing of requirement 5 — "dates and
+  numbers **the app already formats**" — is stretched, not met literally, by this site. The change is
+  well-tested (`stat-tile.spec.ts:45-48,50-57`) and internally consistent with 5.2 ("the numbering system
+  ... applied consistently across the app"), and I found no consumer spec that breaks from the new
+  thousands-separator in English (`overview.spec.ts` asserts nothing about displayed count text). I judge
+  this in-scope and correctly implemented, not a defect — but it is a visible English change (e.g. an
+  admin dashboard member count of 1234 now reads "1,234") introduced without the same evidentiary trail
+  (a Preserve-list entry, a prerender diff, an explicit "before/after" callout) that Batch 10 gave the SEO
+  service's byte-identical guarantee, and no code-style or product reviewer has yet signed off on that
+  specific visual delta.
+- No requirement or plan text addresses what happens to `collapsedGroups` state if a future group is
+  inserted or removed from the _middle_ of `navGroups()` (rather than appended at the end) — see Failure
+  modes / Moderate-1. Today's two call sites never do this, so it is a latent risk, not a live bug.
+
+### Failure modes
+
+#### Nav-group collapse state misattributed by a mid-array reshape
+
+- Trigger: a future change to `admin-nav.config.ts`/`member-nav.config.ts` or their owning
+  `computed(navGroups)` that inserts, removes, or reorders a **non-flat** group anywhere other than
+  appending one at the very end (today's only conditional reshape, and always `flat: true`).
+- Symptom: a group the user had expanded/collapsed silently shows the wrong disclosure state after the
+  reshape — no error, no console log, the wrong secondary items simply appear or disappear for a group the
+  user never touched.
+- Evidence: `panel-layout.ts:88-94` (`collapsedGroups: Signal<ReadonlySet<number>>`, "Keyed by POSITION...
+  The nav config is static per shell, so a group's index is stable" — an assumption, not an invariant
+  enforced anywhere in `panel-ui`); `panel-layout.html:87` (`track $index`, so Angular's own DOM reuse is
+  keyed the same fragile way); contrast with `member-layout.ts:23-30`'s explicit doc comment rejecting
+  index-based keying for the unread badge for the identical reason ("both fail SILENTLY... an index breaks
+  the moment a group gains an item").
+- Current handling: none — the invariant holds today only because both real call sites
+  (`admin-layout.ts:50-53`, `member-layout.ts:123-136`) happen to append a `flat: true` group at the end,
+  which never touches `collapsedGroups`' index space.
+- Recommendation: either key `collapsedGroups` by a stable per-group id (the group's first item's `route`,
+  mirroring the badge's own "by route, not index" precedent one file away) or add a one-line assertion/doc
+  comment in `panel-layout.ts` stating the append-only, flat-only contract so a future violation is a
+  visible code-review question rather than a silent UI bug.
+
+#### Unverified failed-switch focus/aria state in `LanguageSwitch`
+
+- Trigger: `setLanguage` rejects internally (scope chunk fetch fails, JSON parse fails) while the user is
+  mid-arrow-key navigation of the radiogroup.
+- Symptom: `aria-checked` and `tabIndex` correctly stay on the previous language (verified by inspection of
+  `I18nService`), but DOM focus has already moved (synchronously, before the promise settles) to the radio
+  that did NOT get checked, per `onGroupKeydown`'s `select(next); focusRadio(next);` sequence
+  (`language-switch.ts:125-126`). A screen reader user hears/reads the focused (unchecked) option while
+  the visually-checked one is still the old language — a brief but real mismatch between focus and
+  selection state that the APG radiogroup pattern is designed to avoid.
+- Evidence: `language-switch.ts:112-127`; `i18n.service.ts:103-115`.
+- Current handling: none; no spec covers this path (`language-switch.spec.ts` only exercises successful
+  switches).
+- Recommendation: await `select`'s promise before calling `focusRadio`, or call `focusRadio` unconditionally
+  on `next` regardless of outcome but re-run it (or accept the current, still-correct `aria-checked`) once
+  the promise resolves — and add a spec that stubs a rejecting `setLanguage` to prove `aria-checked` never
+  lies, which is the exact scenario the task's own review focus asked to see checked.
+
+#### Duplicated plural-selection ternaries with no shared source of truth
+
+- Trigger: a future edit to one of the four `count === 1 ? X : Y` sites (`selection-toolbar.html:10-13`,
+  `thread-row.html:29-33` unread, `thread-row.html:38-42` replies, plus the mirrored logic that would be
+  needed if a fifth pluralised label is ever added to either component) without updating its siblings.
+- Symptom: English (or Arabic) pluralisation silently diverges between, for example, the reply count and
+  the unread count on the same row, with no compiler or lint signal — both are valid Angular template
+  expressions.
+- Evidence: `selection-toolbar.html:10-13`; `thread-row.html:29-33,38-42`; the pre-batch code instead
+  centralised this in one `computed()` per label (removed by this batch, per the diff against
+  `thread-row.ts`/`selection-toolbar.ts`).
+- Current handling: none; correctness today is established by manual review (see Q3), not by a shared
+  helper or a snapshot test covering all four count-boundary cases together.
+- Recommendation: not blocking — Transloco's `en`/`ar` values are already the single source of truth for
+  the _wording_; the risk is narrow (a code edit to the _selection_ ternary, not the translation). Worth a
+  short comment at each site cross-referencing the others, or (lower priority) a tiny shared
+  `pluralKey(count, base)` helper in `panel-ui` if a fifth site appears.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+1. **Moderate** — `collapsedGroups` index-keying has no enforced invariant against a future mid-array nav
+   reshape; see Failure modes. `panel-layout.ts:88-94`, `panel-layout.html:87`.
+2. **Moderate** — `LanguageSwitch`'s failed-`setLanguage` path (aria-checked honesty, focus timing) is
+   asserted only by code inspection, not by a spec — the task's own review-focus item is unverified.
+   `language-switch.ts:112-127`; `language-switch.spec.ts` (no failure-path test present).
+3. **Moderate** — `stat-tile.ts:80-88`'s `Intl.NumberFormat` call is new formatting (prior code never
+   formatted numbers), a visible English change shipped without the Preserve-list-style evidentiary trail
+   other formatting/verbatim-English guarantees get elsewhere in this task. Well-tested and plan-sanctioned
+   (`implementation-plan.md:648`, `batches.md:926`), not a defect, but flagged for product/copy sign-off
+   awareness. `stat-tile.ts:80-88`; `stat-tile.spec.ts:45-48`.
+4. **Moderate** — Plural-selection ternaries duplicated across `selection-toolbar.html` and two sites in
+   `thread-row.html` with no shared helper; see Failure modes. `selection-toolbar.html:10-13`;
+   `thread-row.html:29-33,38-42`.
+5. **Minor** — `detail-drawer`'s new RTL close-offset class pairing has no dedicated spec assertion, unlike
+   the chevron's in `panel-layout.spec.ts:168-177`. `detail-drawer.html:47-49`.
+6. **Minor** — `LanguageSwitch.onGroupKeydown` moves DOM focus before its fire-and-forget `select()` promise
+   settles; harmless on the success path (the overwhelmingly common case) but unverified on failure (see
+   Failure modes #2). `language-switch.ts:125-126`.
+
+## Data flow
+
+1. User presses an arrow key inside the `radiogroup` → `onGroupKeydown` computes the next language via
+   `arrowDelta` (reads `i18n.direction()` live) → OK, direction-aware and re-read per keystroke, not cached.
+2. `select(next)` fires `I18nService.setLanguage` (fire-and-forget) → `focusRadio(next)` runs synchronously
+   → OK on success; unverified/DOM-focus-ahead-of-state on failure (see Failure modes #2).
+3. `setLanguage` increments `latestRequest`, awaits `loadRegistered`, and only applies if it is still the
+   latest request → OK, races are structurally prevented.
+4. On success, `current` signal updates → `lang()`/`direction()`/`intlLocale()` computeds recompute → every
+   template reading them (`LanguageSwitch`'s `aria-checked`/`tabIndex`/`dir`, `StatTile.valueText`,
+   `panelUi.*` transloco pipes) re-renders → OK, verified by both the unit specs and the `i18n-check` pass.
+5. `PanelLayout`'s `navGroups()` input is supplied by the owning shell's `computed()`, already translated →
+   `panel-layout.html`'s `@for` renders labels verbatim, never re-translating them → OK, matches the stated
+   rule 4 contract; verified by grep (no `transloco` pipe touches `group.label`/`item.label` anywhere in
+   `panel-layout.html`).
+6. `toggleGroup(i)`/`isCollapsed(i)` read/write `collapsedGroups` keyed by the `@for` loop's `$index` → OK
+   for every reshape this batch's real callers perform (append-only, flat-only) — gap flagged in Failure
+   modes #1 for any future reshape that violates that unstated contract.
+7. `StatTile.value()` (a number) flows into `valueText` → `Intl.NumberFormat(i18n.intlLocale())` → OK for
+   every value the four current call sites can produce (see Q3); no defensive check for `NaN`/`Infinity`
+   but nothing upstream currently produces them.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                | Status                         | Gap                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LanguageSwitch` radiogroup semantics (role, roving tabIndex, arrows, wrap, label-in-name)                 | COMPLETE                       | None found; fully spec-covered for the success path.                                                                                                                                      |
+| Left/Right direction-aware, Up/Down direction-independent                                                  | COMPLETE                       | Verified in both `en` and `ar` describe blocks of `language-switch.spec.ts`.                                                                                                              |
+| Failed `setLanguage` keeps `aria-checked` honest                                                           | PARTIAL                        | True by inspection of `I18nService`; not proven by a test in this batch.                                                                                                                  |
+| Per-option `lang`/`dir`                                                                                    | COMPLETE                       | `language-switch.spec.ts:99-102`.                                                                                                                                                         |
+| `collapsedGroups` re-keyed by index, survives a language switch                                            | COMPLETE (for today's callers) | Index-keying is fragile against a future mid-array reshape; see Failure modes #1.                                                                                                         |
+| Chevron `rtl:rotate-90` alongside `-rotate-90` (N22)                                                       | COMPLETE                       | `panel-layout.spec.ts:168-177` asserts both classes.                                                                                                                                      |
+| panel-ui never translates incoming `title`/nav labels                                                      | COMPLETE                       | Verified by grep; only `panelUi.*` chrome keys are translated.                                                                                                                            |
+| Selection-toolbar / thread-row plural English output unchanged                                             | COMPLETE                       | Verified byte-for-byte for counts 0/1/2/n by hand; see Q3 for the drift risk this creates going forward.                                                                                  |
+| `stat-tile` formatting follows active locale                                                               | COMPLETE, but see note         | This is a NEW formatting site, not a converted pre-existing one — task-description 5's "already formats" framing does not literally cover it; plan-sanctioned and well-tested regardless. |
+| `itemNoun`/empty-state `message`/`detailDrawer` `title` input type changes (`string \| null`) and defaults | COMPLETE                       | Defaults match the exact prior hardcoded English strings (`'item'`, `'Nothing here yet.'`, `'Details'`) — verified against `en.json`.                                                     |
+| `i18n-check` exits 0 for `panelUi`                                                                         | COMPLETE                       | Confirmed by direct run; 22 keys, full `en`/`ar` parity, placeholder parity.                                                                                                              |
+
+Implicit requirements not addressed: none beyond what is captured above as gaps.
+
+## Edge cases
+
+| Case                                                             | Handled                                      | How                                                                                        | Concern                                                           |
+| ---------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| Failed `setLanguage` during an arrow-key switch                  | PARTIAL                                      | State (`aria-checked`) stays honest by construction                                        | Focus timing and the whole path are untested (Failure modes #2)   |
+| Rapid double arrow-press before the first switch settles         | YES                                          | `latestRequest` counter in `I18nService`                                                   | None; verified by code inspection, not a dedicated race spec here |
+| `StatTile.value` = `NaN`/`Infinity`                              | YES (inherits prior behaviour)               | `Intl.NumberFormat` renders locale "NaN"/"∞", same uninterpreted-ness as old `String(raw)` | No caller currently can produce these values                      |
+| `selectionToolbar`/`threadRow` count = 0                         | YES                                          | Verified byte-identical English to pre-batch ("0 items selected", toolbar hidden at 0)     | None                                                              |
+| Nav group appended at runtime (`entitled()`/`isAdmin()` toggles) | YES (today)                                  | Always `flat: true`, always appended last, never touches `collapsedGroups`'s index space   | Not enforced — see Failure modes #1                               |
+| `detail-drawer` open/close in RTL                                | LIKELY YES, unverified in this batch's specs | Same Tailwind `:where()`-zero-specificity technique already N22-verified for the chevron   | No dedicated spec assertion (Minor-5)                             |
+| Consumer components that never pass `message`/`itemNoun`/`title` | YES                                          | New `null` defaults resolve to the exact prior hardcoded English via `?? transloco`        | None; verified against `en.json` literal values                   |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: the `collapsedGroups` index-keying scheme (Failure modes #1) is correct only because of an
+  unenforced, unwritten contract shared across three files (`panel-layout.ts`, `admin-nav.config.ts`,
+  `member-nav.config.ts`) that any conditionally-appended nav group must be `flat: true` and appended
+  strictly last — a future change to any one of those three files, made without knowledge of the other
+  two, would silently misattribute a user's collapse state to the wrong group.
+- What a robust implementation would add: (1) a spec that stubs a rejecting `I18nService.setLanguage` and
+  asserts `LanguageSwitch`'s `aria-checked`/focus state, closing the one review-focus item this batch left
+  unverified; (2) either a stable-id key for `collapsedGroups` or an explicit runtime/dev-mode assertion of
+  the append-only-flat-only nav-group contract; (3) a dedicated `detail-drawer` spec asserting the RTL
+  close-offset class pairing, matching the coverage `panel-layout.spec.ts` already gives the chevron; (4) a
+  one-line note (in the copy-review doc or a code comment) flagging `stat-tile`'s new thousands-separator
+  as a deliberate, reviewed English-visible change, so it is not mistaken for scope creep by a later
+  reviewer who diffs against `task-description.md`'s literal "already formats" wording.
+
+## Batch 12 — round 2
+
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall score       | 8/10           |
+| Assessment          | NEEDS_REVISION |
+| Blocking issues     | 0              |
+| Serious issues      | 1              |
+| Moderate issues     | 2              |
+| Failure modes found | 2              |
+
+### Scope examined
+
+Rework of round 1's findings. Read in full against the current diff: `panel-layout.ts` (new `navGroups`
+JSDoc contract) and `panel-layout.spec.ts` (new "trailing flat group toggled across en→ar→en" test);
+`language-switch.ts` (`apply()` rewritten to `await`/try-catch, `restoreFocus()`) and
+`language-switch.spec.ts`'s three new failure-path tests; the new `libs/web/panel-ui/src/lib/i18n/
+plural.ts` + `plural.spec.ts`; `selection-toolbar.ts`/`.html` and `thread-row.ts`/`.html`'s move to
+`pluralCategory`/`*_I18N_KEYS` constants; `detail-drawer.spec.ts`'s new RTL-anchoring test; `stat-tile.html`
+and `navigation.component.ts`/`.spec.ts`'s icon-wrapper fix (moving `rtl:scale-x-[-1]` off `lucide-angular`
+onto a plain `<span>`); `admin-layout.html` and `member-layout.html`'s topbar email span. Cross-checked
+`node_modules/lucide-angular/esm2020/lib/lucide-angular.component.mjs` directly to verify the "host classes
+copied onto the inner `<svg>`" claim behind the icon-wrapper fix, and `tools/i18n-check/src/lib/ts-keys.ts`
+to verify `*_I18N_KEYS`-suffixed constants (and aliases of them) are a first-class, pre-existing key source
+for the AST scanner — not something this batch invented an exception for.
+
+Verification run and evidence: `nx run-many -t test,i18n-check -p web-panel-ui web-ui --skip-nx-cache` →
+all 4 tasks green (`web-panel-ui` Jest: 9 suites / **80** tests, up from 64 in round 1; `web-ui` Jest: 5
+suites / 41 tests; both `i18n-check` OK); `nx run-many -t test -p web-members web-admin --skip-nx-cache` →
+both green. Did not rebuild `dist` (visual reviewer owns that in parallel, per this round's own
+instruction).
+
+### Round-1 findings: disposition
+
+- **Moderate-1** (`collapsedGroups` index-keying, no enforced invariant) — **RESOLVED.**
+  `panel-layout.ts:88-103`'s new JSDoc states the exact contract (order stable while mounted; a conditional
+  group must be appended at the end and be `flat`) and, correctly, does NOT claim "every flat group is
+  last" (`MEMBER_NAV_GROUPS` has flat groups at index 0 and mid-array) — it only constrains where a
+  _conditionally appended_ group may go. `panel-layout.spec.ts:52-66,196-223` adds a dedicated test that
+  toggles the trailing flat group off and back on across an `en`→`ar`→`en` switch and asserts the other
+  groups' collapse state is untouched throughout. The mechanism is still index-based (a future violation of
+  the documented contract would still misattribute state silently), but the contract is now written down
+  and defended by a test, which is what round 1 asked for.
+- **Moderate-2** (`LanguageSwitch` failed-`setLanguage` path unverified) — **RESOLVED.**
+  `apply()` (`language-switch.ts:117-127`) now `await`s `setLanguage` inside `try`/`catch`, logs once with
+  the repo's `// degradation-audit: reported` marker, and calls `restoreFocus()` — which, correctly, only
+  moves focus if it is still inside the group (`language-switch.ts:164-170`: `host.contains(activeElement)`
+  guard), so a user who has already tabbed away is left alone. Three new specs
+  (`language-switch.spec.ts:164-204`) cover a rejected `setLanguage` via arrow key, a `false`-resolving
+  `setLanguage`, and a rejected `setLanguage` via click — each asserting `aria-checked`, `tabIndex`, and
+  `document.activeElement` all stay on `en`, `console.error` fires exactly once, and nothing reaches
+  `process`'s `unhandledRejection` listener. I traced the "catch removed → 2/3 fail" mutation claim by
+  reasoning through the code rather than re-running a mutated build (read-only on source per this round's
+  instruction): removing the `try`/`catch` would make `apply()`'s own promise reject on
+  `mockRejectedValue`, which both `console.error`-asserting tests use, so they would fail (no log call, and
+  the rejection would reach the process listener the test explicitly watches for) — the third test
+  (`mockResolvedValue(false)`) does not reject and would still pass. That is exactly 2 of 3, matching the
+  claim.
+- **Moderate-4** (duplicated plural ternaries) — **RESOLVED.** New `plural.ts` centralises the split:
+  `pluralCategory(count) => count === 1 ? 'one' : 'other'` is byte-identical to the old `count === 1 ? X :
+Y` ternary for every boundary the round-2 spec (`plural.spec.ts:4-10`) exercises, **including the two the
+  coordinator specifically asked about**: `1.5 === 1` is `false` in both the old and new code (→ "other" /
+  the old plural branch), and `-1 === 1` is likewise `false` in both (→ "other"). No behavioural difference
+  for either value; both were already treated as "not exactly one" before this batch. `selection-toolbar.ts`
+  and `thread-row.ts` now consume it via `{ one, other } as const satisfies PluralI18nKeys` constants named
+  `*_I18N_KEYS`, which I confirmed against `tools/i18n-check/src/lib/ts-keys.ts:24` (`KEY_CONST_NAME =
+/(I18N_KEYS|I18nKeys)$/`) is an existing, general key-source the AST scanner already recognises (and
+  recognises aliases of, e.g. `protected readonly countI18nKeys = SELECTION_COUNT_I18N_KEYS`) — this is not
+  a new carve-out invented for this batch, so a typo'd key inside one of these constants fails `i18n-check`
+  as an ordinary unknown-key violation, exactly as the coordinator's message states. The `<!-- i18n-keys:
+... -->` marker comments the round-1 diff needed are correctly removed now that the constants themselves
+  are the source of truth.
+- **Minor-5** (`detail-drawer` RTL pairing untested) — **RESOLVED.** New test
+  `detail-drawer.spec.ts:129-150` asserts `end-0`/`border-s` are present and `right-0`/`border-l` are
+  absent, that `translate-x-full` + `rtl:-translate-x-full` are both present while closed and both absent
+  while open, and that `translate-x-0` appears only when open.
+- **Minor-6** (focus-timing on a failed switch, unverified) — **RESOLVED** as part of Moderate-2 above;
+  `restoreFocus()`'s "only if focus is still in the group" guard directly answers the "race if the user
+  moved focus away" question the coordinator raised, and I traced the "stale apply after a newer apply"
+  case (two rapid presses, the earlier one resolving `false` after `I18nService`'s own `latestRequest`
+  guard supersedes it) by hand: `restoreFocus()` reads `this.i18n.lang()` live at the moment it runs, never
+  a value captured at call time, so even a stale `apply()`'s late-resolving `restoreFocus()` call re-focuses
+  whatever language is _actually_ current at that moment — which, with exactly two supported languages, is
+  always either already correct or a harmless redundant `.focus()` on the element that already has focus.
+  I did not find a scenario (with the current 2-language `SUPPORTED_LANGS`) where this produces a wrong
+  focus target; not independently re-tested by a dedicated race spec, but the existing three failure specs
+  plus the `latestRequest` guard (verified again this round in `i18n.service.ts:103-115`) together cover
+  it.
+- **Moderate-3** (`stat-tile`'s new `Intl.NumberFormat` formatting, no Preserve-list-style callout) —
+  **NOT ADDRESSED**, carried forward. Round 2 did not touch this; it remains a deliberate, well-tested,
+  plan-sanctioned (`implementation-plan.md:648`) change with no dedicated sign-off trail. Restated below,
+  downgraded to informational since round 1 already judged it correctly implemented and not a defect.
+
+### New findings this round
+
+#### Serious: `[title]="email"` dropped from both panel topbar spans
+
+The plan is explicit and cites an exact precedent: `implementation-plan.md:664` (Component 14) specifies
+`member-layout.html:24` and `admin-layout.html:22` as `<span class="font-mono text-xs ltr-island truncate
+max-w-[7rem] sm:max-w-none" [title]="email">{{ email }}</span>` — "N23: `[title]` added, matching the
+sidebar precedent at `member-layout.html:48`". The implementation applied every class listed
+(`ltr-island truncate max-w-[7rem] sm:max-w-none`) but the `[title]="email"` binding is missing from both
+sites:
+
+- `libs/web/admin/src/lib/admin-layout/admin-layout.html:21-24`
+- `libs/web/members/src/lib/member-layout/member-layout.html:23-26`
+
+The in-file precedent the plan cites is present and correct one file over —
+`member-layout.html:51` (`<p class="mt-1 truncate font-mono text-xs text-base-content-muted"
+[title]="email">`) — which makes the topbar span's omission look like a copy-paste that dropped one
+attribute, not a considered decision. `truncate max-w-[7rem]` is unconditional below the `sm:` breakpoint
+(`sm:max-w-none` only lifts it at `sm` and up), so this is not a rare edge case: on any admin or member
+session viewed at less than `sm` width, the signed-in email is truncated with **no way to recover the full
+address** (no tooltip, and nothing else on the topbar shows it in full). I grepped both layouts' specs
+(`admin-layout.spec.ts`, `member-layout.spec.ts` and the notifications-badge sweep spec) for any assertion
+on this span's `title` attribute — none exists, so `nx run-many -t test -p web-members web-admin` passing
+does not, and cannot, catch this gap.
+
+- Trigger: any admin or member session at a viewport narrower than Tailwind's `sm` breakpoint (or any
+  email long enough to overflow `7rem` even above it, since `max-w-[7rem]` only lifts at `sm`).
+- Symptom: the topbar shows a truncated, ellipsised email with no way to read the rest — no tooltip, no
+  expansion affordance — unlike the functionally identical sidebar-footer email one file away.
+- Evidence: `admin-layout.html:21-24`; `member-layout.html:23-26`; contrast `member-layout.html:51`;
+  requirement source `implementation-plan.md:664`.
+- Current handling: none; not a defect in behaviour that crashes or corrupts anything, but a named,
+  specific, cited accessibility/UX requirement silently unmet on the common (not edge-case) narrow-viewport
+  path, with zero test coverage to catch it.
+- Recommendation: add `[title]="email"` to both spans, exactly as the plan specifies, and add one assertion
+  per shell spec so a future edit cannot drop it again silently.
+
+### Judgement on the items the coordinator specifically asked about
+
+- **English plural output, all counts including 1.5 and −1**: byte-identical to before. The old code's
+  `===1` ternary and the new `pluralCategory`'s `===1` check are the same test; I confirmed this holds for
+  every count the round-2 spec added (`0, 1, 2, 3, 11, 100, 1.5, -1`) by direct comparison, not only by
+  reading the implementation.
+- **`pluralCategory`'s semantics vs. English**: matches exactly — English has only two grammatical number
+  categories (singular at exactly 1, plural otherwise, including 0, fractions, and negatives), and the
+  function implements precisely that split, nothing broader (it does not attempt CLDR's `zero`/`two`/`few`/
+  `many`, which English does not use).
+- **Arabic with only `one`/`other` given Arabic has 6 CLDR plural categories**: architecturally acceptable
+  as designed. `plural.ts:11-14`'s own doc comment states the deliberate trade-off — the Arabic drafts word
+  the count numerically without grammatical number agreement (e.g. `"الردود: {{ count }}"`, literally "the
+  replies: {count}", a construction that doesn't inflect the noun for the count) specifically so the
+  2-category `one`/`other` split suffices instead of needing Arabic's `zero`/`two`/`few`/`many`. This is a
+  legitimate, common real-world i18n pattern (many production Arabic UIs use "count + generic plural noun"
+  rather than full CLDR agreement) and is consistently applied across all three thread-row/selection-toolbar
+  pairs. One inconsistency worth a copy-review flag rather than a logic one:
+  `selectionToolbar.countOne`/`countOther` in `ar.json` are **byte-identical strings**
+  (`"تم تحديد {{ count }} ({{ noun }})"` for both), whereas `threadRow.replyOne`/`replyOther` and
+  `unreadOne`/`unreadOther` each use a different Arabic phrasing between the two branches. Both are valid
+  under the architecture (the mechanism does not require the two branches to differ), and `i18n-check`
+  correctly does not flag it (it checks key existence and placeholder parity, not textual distinctness), so
+  this is not a logic defect — but it is an inconsistency in how the "one/other" split was drafted across
+  the three key pairs, worth a copy-reviewer's eye rather than mine.
+- **M2 focus-timing race (focus moved away; stale apply after a newer apply)**: see "Minor-6 RESOLVED"
+  above — both scenarios are handled correctly, the first by the `host.contains(activeElement)` guard, the
+  second because `restoreFocus()` always reads the live signal rather than a value closed over at call
+  time.
+- **`rtl-exempt` marker on `stat-tile.html`'s inner `<lucide-angular>`**: justification verified as
+  technically correct, not merely asserted. I worked through the CSS transform composition by hand: with no
+  parent flip (LTR), the child's `group-hover:translate-x-0.5` moves it toward reading-end (right) as
+  intended. With the parent's `rtl:scale-x-[-1]` active (RTL), the child's own local `+x` translation is
+  rendered through the parent's mirrored coordinate frame and manifests on screen as `-x` (leftward) — which
+  **is** reading-end in RTL, so the same unmodified `translate-x-0.5` on the child already points the right
+  way once composed with the parent flip; adding an `rtl:-translate-x-0.5` variant on the child as well
+  would double-apply the mirroring and send the nudge back toward reading-start, which is exactly what the
+  comment says and exactly why the exemption (rather than a fix) is correct.
+- **Icon-mirroring wrapper fix (`stat-tile.html`, `navigation.component.ts`)**: I read
+  `node_modules/lucide-angular/esm2020/lib/lucide-angular.component.mjs` directly.
+  `LucideAngularComponent` declares `@Input() class?: string` and its `replaceElement()`
+  (`icoElement.classList.add(...this.class.split(...))`) copies that input's value onto the **newly
+  created inner `<svg>`** it renders via `ng-content` replacement. Angular assigns a static `class="..."`
+  template attribute to a matching `@Input('class')` in addition to leaving it as a literal host-element
+  attribute, so a class list on `<lucide-angular class="... rtl:scale-x-[-1]">` lands on both the host
+  element and the generated inner `<svg>` — two nested elements each applying `scaleX(-1)`, which compose to
+  no net mirroring at all. Moving `rtl:scale-x-[-1]` onto a separate, non-`lucide-angular` wrapper `<span>`
+  and leaving the icon's own `class` free of it is the correct fix; confirmed for `navigation.component.ts`
+  by `navigation.component.spec.ts:173-201`'s new test, which asserts the wrapper (not `lucide-angular` or
+  its inner `<svg>`) carries the class.
+
+### Failure modes
+
+#### Truncated topbar email with no recovery affordance
+
+- Trigger: any admin/member session at less-than-`sm` viewport width, or an unusually long email even
+  above it.
+- Symptom: the email reads as an ellipsis-truncated fragment with nothing to reveal the rest.
+- Evidence: `admin-layout.html:21-24`; `member-layout.html:23-26`.
+- Current handling: none.
+- Recommendation: see Serious finding above.
+
+#### `collapsedGroups`' index contract remains enforceable only by convention
+
+- Trigger: a future change to either nav config or its owning `computed()` that inserts/removes/reorders a
+  non-flat group anywhere but appending one flat group at the end.
+- Symptom: silent collapse-state misattribution (unchanged from round 1's analysis).
+- Evidence: `panel-layout.ts:88-103` (contract now documented); no runtime/dev-mode assertion enforces it.
+- Current handling: a JSDoc contract and one regression spec
+  (`panel-layout.spec.ts:196-223`) that would catch a violation IF it reshapes the array the same way the
+  test does (trailing flat group toggling), but would not catch a violation that inserts a non-flat group
+  mid-array, since no test constructs that scenario.
+- Recommendation: unchanged from round 1 — a stable-id key would remove the risk entirely; the documented
+  contract plus one spec is a reasonable, proportionate mitigation for what round 1 flagged, not a full
+  closure of the underlying fragility.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+### `[title]="email"` missing from both panel topbar email spans
+
+- File: `libs/web/admin/src/lib/admin-layout/admin-layout.html:21-24`;
+  `libs/web/members/src/lib/member-layout/member-layout.html:23-26`
+- Scenario: any session viewed narrower than Tailwind's `sm` breakpoint (the truncation's unconditional
+  range), or with an email that overflows `7rem` even above it.
+- Impact: the user (an admin or member) cannot recover their own truncated email address anywhere in the
+  topbar; the functionally identical sidebar-footer instance one file away does not have this problem
+  because it kept its `[title]`.
+- Fix: add `[title]="email"` to both spans, exactly as `implementation-plan.md:664` specifies, and add one
+  spec assertion per shell so a regression is caught.
+
+## Moderate and minor issues
+
+1. **Moderate** (carried forward, unaddressed) — `stat-tile.ts`'s `Intl.NumberFormat` is new formatting
+   introduced without the Preserve-list-style evidentiary trail other verbatim-English guarantees get; not
+   a defect, informational. `stat-tile.ts:80-88`.
+2. **Moderate** (partially mitigated) — `collapsedGroups` index-keying's correctness still depends on an
+   unenforced (though now documented and partially spec-tested) convention across three files; see Failure
+   modes. `panel-layout.ts:88-103`.
+3. **Minor** — Arabic `selectionToolbar.countOne`/`countOther` are byte-identical strings while the
+   equivalent `threadRow` pairs are drafted distinctly; a copy-consistency question, not a logic defect.
+   `libs/web/panel-ui/src/lib/i18n/ar.json` (`selectionToolbar.countOne`/`countOther`).
+
+## Data flow
+
+Unchanged from round 1 except where noted:
+
+1-4. Arrow-key / click → `apply()` → `I18nService.setLanguage` (now correctly awaited, try/caught) → OK,
+now verified for both the success and failure paths. 5. `PanelLayout`'s translated-label rule → OK, unchanged, re-verified. 6. `collapsedGroups` keyed by `$index` → OK for the append-only-flat-only reshape, now with a regression
+spec; still fragile against an undocumented-in-code (documented-in-JSDoc) contract violation. 7. `StatTile.value()` → `Intl.NumberFormat` → OK, unchanged from round 1's analysis. 8. **New**: `count`/`unreadCount`/`replyCount` → `pluralCategory(n)` → `{one,other}I18nKeys[category]` →
+`transloco` → OK, byte-identical English to both the pre-batch code and round 1's inline ternaries,
+verified for the full boundary set including `1.5` and `-1`. 9. **New**: `currentEmail()` → topbar `<span>` → OK for display, GAP for full-value recovery when
+truncated (no `[title]`) — see Serious issue.
+
+## Requirements fulfilment
+
+| Requirement                                                                            | Status   | Gap                                                                                                     |
+| -------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `navGroups` collapse-state contract documented and spec-defended                       | COMPLETE | Documented and tested for the one reshape pattern both real shells use; still index-based underneath.   |
+| Failed `setLanguage` keeps `aria-checked`/focus honest                                 | COMPLETE | Three specs plus a traced mutation-testing claim; round 1's gap fully closed.                           |
+| Plural English output byte-identical, including 1.5 and −1                             | COMPLETE | Verified directly.                                                                                      |
+| `i18n-keys` validated via `*_I18N_KEYS` constants instead of comments                  | COMPLETE | Verified against the scanner's own recognised pattern (`ts-keys.ts:24`), not a new exception.           |
+| Detail-drawer RTL anchoring/offset pairing tested                                      | COMPLETE | `detail-drawer.spec.ts:129-150`.                                                                        |
+| Icon mirroring wrapper (stat-tile, navigation) correctly avoids the double-flip cancel | COMPLETE | Verified against `lucide-angular`'s own source; spec-covered for `navigation.component.ts`.             |
+| B7 email truncation + N23 `[title]` (implementation-plan.md:664)                       | PARTIAL  | Truncation classes present; `[title]="email"` missing on both shells' topbar spans — see Serious issue. |
+
+Implicit requirements not addressed: none beyond what is captured above.
+
+## Edge cases
+
+| Case                                                             | Handled | How                                                                          | Concern                                                                |
+| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Failed `setLanguage` via arrow key / click / `false` resolution  | YES     | `apply()`'s try/catch + `restoreFocus()`'s in-group guard                    | None; fully spec-covered this round                                    |
+| Rapid double switch, stale `apply()` resolving after a newer one | YES     | `restoreFocus()` reads the live `i18n.lang()` signal, never a captured value | None, given exactly 2 supported languages                              |
+| Plural count 0, 1, 2, 11, 1.5, −1                                | YES     | `pluralCategory`, verified byte-identical to pre-batch English for all       | None                                                                   |
+| Nav group appended/removed at runtime (trailing, flat)           | YES     | New dedicated spec across a language switch                                  | Only this exact reshape pattern is covered; a mid-array reshape is not |
+| Topbar email longer than `7rem` on a narrow viewport             | NO      | Truncated with no recovery                                                   | Serious issue above                                                    |
+| Icon RTL mirror + hover nudge composing correctly                | YES     | Verified by hand (CSS transform composition) and by the navigation spec      | None                                                                   |
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Top risk: the missing `[title]="email"` on both panel topbar spans is a small, mechanical, one-line-per-file
+  fix, but it is a plan-cited, explicitly named requirement that shipped silently unmet with no test to
+  catch it — exactly the kind of small drift that compounds if it goes uncorrected.
+- What a robust implementation would add: (1) `[title]="email"` on both spans, plus one spec assertion per
+  shell; (2) optionally, a stable-id key for `collapsedGroups` rather than index+documented-convention,
+  though the current mitigation is proportionate to round 1's finding; (3) a copy-review note on the
+  `selectionToolbar` Arabic `one`/`other` byte-identity versus `threadRow`'s distinct phrasing, so it is a
+  deliberate choice rather than an oversight.
+
+## Batch 12 — round 3 (final)
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 9/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Failure modes found | 0 new    |
+
+### Scope examined
+
+A narrow recheck of round 2's one Serious finding. Confirmed via `git diff` that this round touches
+exactly four files and nothing else: `libs/web/admin/src/lib/admin-layout/admin-layout.html`,
+`libs/web/members/src/lib/member-layout/member-layout.html`, and one new test each in
+`admin-nav-member-link.spec.ts` / `member-nav-admin-link.spec.ts`. Every other file in the working tree is
+byte-identical to what round 2 reviewed (`git status` lists the same file set as round 2, with these two
+`.html` files and two `.spec.ts` files as the only entries whose content changed).
+
+### Fix verified
+
+Both spans now read exactly as `implementation-plan.md:664` specifies:
+
+```html
+<span class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none" [title]="email">{{ email }}</span>
+```
+
+— `admin-layout.html:21-25`, `member-layout.html:23-27`. This closes round 2's Serious finding exactly as
+recommended: the class list is unchanged from round 2 (already correct), and only the missing `[title]`
+binding was added.
+
+Each shell gained one new spec (`admin-nav-member-link.spec.ts`, `member-nav-admin-link.spec.ts`, both
+titled `'gives the truncated top-bar email its full address as a title (N23)'`) that: sets a long email
+directly on the component's private `currentEmail` signal via a typed unknown-cast (bypassing the
+`AuthService` subscription the component normally populates it from — a reasonable, minimal way to drive a
+signal the spec doesn't otherwise control), re-renders, and asserts against
+`header .font-mono.truncate` — a selector scoped to `<header>`, which correctly excludes the pre-existing,
+already-`[title]`'d sidebar-footer email `<p>` one file away (`member-layout.html:51`, outside `<header>`)
+so the two cannot be confused — that both `textContent.trim()` and the `title` attribute equal the full
+email. I traced the "mutation check fails without the binding" claim: removing `[title]="email"` makes
+`getAttribute('title')` return `null`, which fails the `toBe(email)` assertion in both new tests; the fix
+is exactly the minimum needed to make them pass, so the tests are not vacuously true.
+
+Verification run and evidence: `nx run-many -t test -p web-members web-admin --skip-nx-cache` → both green
+(`web-admin`: 25 suites / 305 tests; `web-members`: 46 suites / 937 tests — all passing, including the two
+new N23 tests). `nx run-many -t lint,typecheck -p web-members web-admin --skip-nx-cache` → all four green,
+corroborating the executor's "lint/typecheck pass, SonarJS 0" claim for the touched projects.
+
+### Batch 12 final disposition
+
+All three rounds' findings are now resolved or stand as documented, non-blocking residue:
+
+- Round 1: Moderate-1/2/4 and Minor-5/6 — RESOLVED in round 2 (contract + spec for nav-group collapse;
+  awaited/try-caught `setLanguage` with three failure-path specs; shared `pluralCategory` helper; RTL
+  anchoring spec; focus-race tracing). Moderate-3 (`stat-tile`'s new `Intl.NumberFormat`, no Preserve-list
+  callout) stands as informational — correctly implemented, plan-sanctioned, well-tested, just without the
+  same evidentiary trail other verbatim-English guarantees in this task got elsewhere.
+- Round 2: the one Serious finding (`[title]="email"` missing on both topbar spans) — RESOLVED this round,
+  verified by direct inspection of the diff and by two new, non-vacuous specs. The two Moderate items
+  carried into round 2 (nav-index-keying's convention-only enforcement; the Arabic
+  `selectionToolbar.countOne`/`countOther` byte-identity, a copy-consistency question) remain as
+  documented, non-blocking residue — neither is a logic defect, both were already downgraded to
+  informational/copy-review scope in round 2's verdict.
+- Round 3: no new findings. The fix is minimal, correctly scoped (touches only the four files it needed
+  to), matches the plan's exact cited markup, and is defended by tests that would fail without it.
+
+## Blocking issues
+
+None found (final).
+
+## Serious issues
+
+None (round 2's finding is resolved — see above).
+
+## Verdict (Batch 12, final)
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: none blocking. The only residue is the two informational Moderate items carried from round
+  2 — `stat-tile`'s new (rather than converted) formatting site, and the nav-group collapse contract's
+  reliance on a documented convention rather than a structurally-enforced stable-id key — neither of which
+  is a defect in what this batch shipped.
+- What a robust implementation would add (non-blocking, for a future batch): (1) a stable-id key for
+  `collapsedGroups` if `panel-ui` ever needs to support a nav reshape beyond "append one flat group at the
+  end"; (2) a copy-review pass confirming the `selectionToolbar` Arabic `one`/`other` identity is
+  deliberate.

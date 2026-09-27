@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { ThreadRow } from './thread-row';
+import { provideI18nTesting } from '@ptah-extension/i18n/testing';
+
+import panelUi from '../i18n/en.json';
 
 /**
  * `ThreadRow` is promoted into `@ptah-web/panel-ui` by TASK_2026_177 Batch 7
@@ -47,7 +50,10 @@ function render(setup: (host: HostComponent) => void = () => undefined) {
 describe('ThreadRow', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [HostComponent] });
+    TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [provideI18nTesting({ translations: { en: { panelUi } } })],
+    });
   });
 
   it('renders the title, the author and a pluralised reply count', () => {

@@ -32,9 +32,12 @@ module.exports = {
   //
   // `@jsverse/*` (Transloco, behind `@ptah-extension/i18n`) and
   // `@angular/common/locales/*` (registered by the i18n runtime) ship plain
-  // `.js` ESM for the same reason as `marked`.
+  // `.js` ESM for the same reason as `marked`. FullCalendar v7 and its
+  // preact/temporal deps do too: specs that render the panel shell load the
+  // `ui` scope through `@ptah-web/ui`, whose barrel re-exports SessionCalendar
+  // (same list as libs/web/admin and libs/web/panel-ui).
   transformIgnorePatterns: [
-    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown|@jsverse|@angular/common/locales))',
+    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown|@fullcalendar|fullcalendar|@full-ui|preact|temporal-polyfill|temporal-spec|temporal-utils|@jsverse|@angular/common/locales))',
   ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',

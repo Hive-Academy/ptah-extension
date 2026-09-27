@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import {
   Inbox,
   LucideAngularModule,
@@ -24,15 +25,18 @@ import {
   selector: 'ptah-empty-state',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TranslocoPipe],
   templateUrl: './empty-state.html',
 })
 export class EmptyState {
   /** Leading icon (lucide). Defaults to a neutral inbox glyph. */
   public readonly icon = input<LucideIconData>(Inbox);
 
-  /** Primary one-line message. */
-  public readonly message = input<string>('Nothing here yet.');
+  /**
+   * Primary one-line message, already translated by the caller. `null` shows
+   * the shared default (`panelUi.emptyState.message`).
+   */
+  public readonly message = input<string | null>(null);
 
   /** Optional secondary/help line rendered under the message. */
   public readonly hint = input<string | null>(null);

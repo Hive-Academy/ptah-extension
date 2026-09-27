@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
 import { DetailDrawer } from './detail-drawer';
+import { provideI18nTesting } from '@ptah-extension/i18n/testing';
+
+import panelUi from '../i18n/en.json';
 
 /**
  * DetailDrawer's keyboard-reachability regression guard.
@@ -50,7 +53,10 @@ describe('DetailDrawer', () => {
 
   beforeEach(() => {
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [HostComponent] });
+    TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [provideI18nTesting({ translations: { en: { panelUi } } })],
+    });
     fixture = TestBed.createComponent(HostComponent);
     fixture.detectChanges();
   });
@@ -118,6 +124,29 @@ describe('DetailDrawer', () => {
     // content in the DOM while closed.
     expect(shell().querySelector('[role="dialog"]')).not.toBeNull();
     expect(shell().querySelector('.translate-x-full')).not.toBeNull();
+  });
+
+  it('anchors to the inline-END edge and pairs its closed offset for RTL', () => {
+    const dialog = shell().querySelector<HTMLElement>('[role="dialog"]');
+    if (dialog === null) throw new Error('dialog not found');
+
+    // Logical anchoring: right edge in LTR, left edge in RTL.
+    expect(dialog.classList).toContain('end-0');
+    expect(dialog.classList).toContain('border-s');
+    expect(dialog.classList).not.toContain('right-0');
+    expect(dialog.classList).not.toContain('border-l');
+
+    // Closed: pushed off its own edge in both directions (`rtl:` flips the
+    // sign), never only one of the pair.
+    expect(dialog.classList).toContain('translate-x-full');
+    expect(dialog.classList).toContain('rtl:-translate-x-full');
+    expect(dialog.classList).not.toContain('translate-x-0');
+
+    // Open: both offsets are gone together.
+    setOpen(true);
+    expect(dialog.classList).toContain('translate-x-0');
+    expect(dialog.classList).not.toContain('translate-x-full');
+    expect(dialog.classList).not.toContain('rtl:-translate-x-full');
   });
 
   it('is labelled as a modal dialog with the supplied title', () => {

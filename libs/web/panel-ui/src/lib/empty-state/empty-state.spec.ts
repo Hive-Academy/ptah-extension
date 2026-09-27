@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { EmptyState } from './empty-state';
+import { provideI18nTesting } from '@ptah-extension/i18n/testing';
+
+import panelUi from '../i18n/en.json';
 
 /**
  * The `/40` opacity B13's axe pass measured at 3.2:1 on real text.
@@ -65,7 +68,10 @@ function render(setup: (host: HostComponent) => void = () => undefined) {
 describe('EmptyState', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [HostComponent] });
+    TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [provideI18nTesting({ translations: { en: { panelUi } } })],
+    });
   });
 
   it('renders the message', () => {

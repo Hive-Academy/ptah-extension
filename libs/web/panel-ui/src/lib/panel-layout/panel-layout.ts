@@ -2,13 +2,14 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
   input,
   signal,
 } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import { ChevronDown, LucideAngularModule } from 'lucide-angular';
 
+import { LanguageSwitch } from '../language-switch/language-switch';
 import type { PanelNavGroup } from '../panel-nav.types';
 
 /**
@@ -25,8 +26,13 @@ import type { PanelNavGroup } from '../panel-nav.types';
  * enforced server-side; a shell must never imply otherwise.
  *
  * Projection slots:
- *   `[panelTopBar]`       — right side of the header (identity, actions)
+ *   `[panelTopBar]`       — end side of the header (identity, actions)
  *   `[panelSidebarFooter]`— pinned below the nav (user card, membership badge)
+ *
+ * i18n: `title`, `badgeLabel` and every nav label arrive ALREADY TRANSLATED by
+ * the owning shell (`members`, `admin`); this component never translates them
+ * (plan Component 5, rule 4). It translates only its own chrome (`panelUi.*`)
+ * and renders the shared {@link LanguageSwitch} at the end of the top bar.
  */
 @Component({
   selector: 'ptah-panel-layout',
@@ -38,18 +44,34 @@ import type { PanelNavGroup } from '../panel-nav.types';
     RouterLinkActive,
     LucideAngularModule,
     NgTemplateOutlet,
+    TranslocoPipe,
+    LanguageSwitch,
   ],
   templateUrl: './panel-layout.html',
   styleUrls: ['./panel-layout.css'],
 })
 export class PanelLayout {
-  /** Task-oriented nav groups — array order drives visual order. */
+  /**
+   * Task-oriented nav groups, labels already translated. Array order drives
+   * visual order.
+   *
+   * ⚠️ CONTRACT: collapse state is keyed by GROUP INDEX, not by label,
+   * because labels are translated and change with the language (a label key
+   * would silently expand every group on a switch). So the owning shell must:
+   * - keep the group ORDER stable while the shell is mounted: translate
+   *   labels in place, never reorder, insert or remove a group mid-array;
+   * - add any conditional group only at the END, and make it `flat` (flat
+   *   groups have no collapse state). Appending or dropping a trailing flat
+   *   group leaves every other group's index, and so its collapse state,
+   *   untouched. Both shells do exactly this: `MemberLayout` appends
+   *   `MEMBER_ADMIN_NAV_GROUP`, `AdminLayout` appends `ADMIN_MEMBER_NAV_GROUP`.
+   */
   public readonly navGroups = input.required<readonly PanelNavGroup[]>();
 
   /** daisyUI theme applied to the shell root via `data-theme`. */
   public readonly theme = input<string>('operator-admin');
 
-  /** Header title. */
+  /** Header title, already translated by the owning shell. */
   public readonly title = input<string>('');
 
   /** Optional chip beside the title (e.g. "Restricted", "Founding"). */
@@ -69,33 +91,35 @@ export class PanelLayout {
   /**
    * Active-state class strings, kept as full literals so Tailwind's content
    * scanner preserves every modifier rather than tree-shaking a name it
-   * cannot see built at runtime.
+   * cannot see built at runtime. The rail is logical (`border-s`, `-ms`, `ps`)
+   * so it sits on the reading-start edge in both directions.
    */
   protected readonly primaryActiveClass =
-    'bg-primary/10 text-primary font-semibold border-l-2 border-primary -ml-0.5 pl-3';
+    'bg-primary/10 text-primary font-semibold border-s-2 border-primary -ms-0.5 ps-3';
   protected readonly secondaryActiveClass =
     'bg-surface-high text-primary font-medium';
 
-  /** Group labels whose secondary-item disclosure is currently collapsed. */
-  private readonly collapsedGroups = signal<ReadonlySet<string>>(new Set());
-
-  protected readonly menuLabel = computed(
-    () => `Open ${this.title() || 'panel'} menu`,
-  );
+  /**
+   * Indexes (into `navGroups`) of the groups whose secondary-item disclosure
+   * is collapsed. Keyed by POSITION, not by label: labels arrive translated,
+   * so a label key would silently expand every group on a language switch.
+   * The nav config is static per shell, so a group's index is stable.
+   */
+  private readonly collapsedGroups = signal<ReadonlySet<number>>(new Set());
 
   /** Whether a group has any secondary (collapsible) items. */
   protected hasSecondary(group: PanelNavGroup): boolean {
     return !group.flat && group.items.some((i) => !i.primary);
   }
 
-  protected isCollapsed(label: string): boolean {
-    return this.collapsedGroups().has(label);
+  protected isCollapsed(index: number): boolean {
+    return this.collapsedGroups().has(index);
   }
 
-  protected toggleGroup(label: string): void {
+  protected toggleGroup(index: number): void {
     const next = new Set(this.collapsedGroups());
-    if (next.has(label)) next.delete(label);
-    else next.add(label);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
     this.collapsedGroups.set(next);
   }
 }

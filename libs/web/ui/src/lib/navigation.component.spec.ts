@@ -170,4 +170,32 @@ describe('NavigationComponent — language switcher', () => {
       query('#mobile-menu [role="group"]')?.getAttribute('aria-label'),
     ).toBe('اللغة');
   });
+
+  it('mirrors both LogOut icons through a wrapper, never on lucide-angular itself', () => {
+    // lucide-angular copies its host's static classes onto the inner <svg>, so
+    // a flip on the host is applied twice and cancels (batches.md, "Icon
+    // mirroring mechanism"). The flip must sit on a plain wrapper.
+    fixture.componentInstance.isAuthenticated.set(true);
+    fixture.detectChanges();
+    query<HTMLButtonElement>('#user-menu-trigger')?.click();
+    query<HTMLButtonElement>('[aria-controls="mobile-menu"]')?.click();
+    fixture.detectChanges();
+
+    const logoutButtons = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+    ).filter((button) => button.textContent?.trim() === 'Logout');
+    expect(logoutButtons.length).toBe(2);
+
+    for (const button of logoutButtons) {
+      const icon = button.querySelector('lucide-angular');
+      const wrapper = icon?.parentElement;
+      expect(wrapper?.tagName).toBe('SPAN');
+      expect(wrapper?.classList).toContain('rtl:scale-x-[-1]');
+      expect(wrapper?.getAttribute('aria-hidden')).toBe('true');
+      expect(icon?.classList).not.toContain('rtl:scale-x-[-1]');
+      expect(icon?.querySelector('svg')?.classList).not.toContain(
+        'rtl:scale-x-[-1]',
+      );
+    }
+  });
 });

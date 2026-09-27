@@ -184,3 +184,200 @@
 - Recommendation: **APPROVE**
 - Confidence: HIGH
 - Key concern: none blocking. All three round-1 findings (1 visual-breaking, 1 serious, 1 moderate) are resolved and verified with fresh evidence — a fine-grained 16px-step sweep across the entire previously-failing 768–1100px range in both languages, not just spot checks at the original failure points. No new regressions were found in the switcher, mobile menu, or narrow-viewport header states.
+
+---
+
+## Batch 12
+
+Scope: `libs/web/panel-ui/src/lib/{language-switch,panel-layout,empty-state,detail-drawer,selection-toolbar,thread-row,stat-tile}` (uncommitted). Design source: `design-spec.md` §2.4–§2.6, §3.1–§3.2; prototype `prototype/index.html` sections B/B2 and `prototype/screenshots/admin-header-375-{en,ar}.png`, `full-*-{375,1440}.png`.
+
+### Summary
+
+| Metric            | Value                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| Overall score     | 6/10                                                                                         |
+| Assessment        | NEEDS_REVISION                                                                               |
+| Visual breaking   | 1                                                                                            |
+| Serious           | 1                                                                                            |
+| Moderate          | 1                                                                                            |
+| Viewports tested  | 320, 375, 768, 1024, 1440, 1920 (member + admin shells)                                      |
+| Screenshots taken | 68 (in `screenshots/batch-12/`)                                                              |
+| Components tested | LanguageSwitch, PanelLayout header + sidebar nav, StatTile (rendered live via AdminOverview) |
+
+### Environment
+
+- Build verified: `node_modules/.bin/nx build ptah-landing-page` run fresh at the start of this review (22.3s, "Application bundle generation complete", 6 prerendered routes); `dist/ptah-landing-page/browser` timestamps confirmed newer than every edited source file before any screenshot was taken.
+- Serving: no live dev server. Reused/adapted the executor's Playwright harness (`shots.js`) that serves `dist/ptah-landing-page/browser/index.csr.html` via `page.route`, with `/api/*` mocked (`auth/me`, `members/entitlement`, `admin/records/users`) and the `ptah_auth_hint` localStorage flag set, plus `localStorage['ptah.lang']`/`ptah.members.theme` for language/theme. Extended the harness myself (own scratch scripts, same route-mocking pattern) to also mock `GET /api/v1/admin/stats` so `AdminOverview` — the one route in this app that actually renders `StatTile` live — could render instead of its mocked-404 error card, and to test a realistic long-email content-stress case.
+- Chromium: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`, global `playwright`, no `playwright install` run.
+- Base URL: `http://panel.test` (mocked origin), routes `/members`, `/admin`, `/admin/overview`.
+- Viewports covered: 320, 375, 768, 1024, 1440, 1920 (this is an audit selection around the design-spec's own named gate width, 375px, and the surrounding breakpoints observed in `panel-layout.html`'s `lg:`/`sm:` classes — the repo names no formal viewport support matrix for the panel shells).
+- Themes covered: `operator-member` (dark), `operator-member-light` (light), `operator-admin` (dark). Languages: `en`, `ar` (`dir="rtl"`).
+- Note per brief: page bodies show red mocked-error cards on most routes because unrelated APIs 404 — not a finding. Member/admin `title()` and nav labels are still English text even in `ar` — not a finding (later batches translate these).
+
+### Findings by severity
+
+#### Visual breaking
+
+##### 1. Email span in `member-layout.html` / `admin-layout.html` has no bounded/truncating width, so a realistic email overflows the header horizontally at 320–375px — the exact regression design-spec §2.4 (B7) named these two files to prevent
+
+- File: `libs/web/members/src/lib/member-layout/member-layout.html:22`, `libs/web/admin/src/lib/admin-layout/admin-layout.html:21` — both currently `<span class="font-mono text-xs sm:text-sm">{{ email }}</span>`, missing the exact normative fix design-spec.md:326-333 (§2.4) requires: `class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none"`.
+- Viewports affected: 320px, 375px (any width below the `sm` breakpoint, 640px).
+- Screenshot: `longemail-admin-header-en-375.png` (also `longemail-admin-header-en-320.png`) — reproduced with a realistic long work email (`abdallah.longername.staffing@miramarstaffingcompany.com`, 57 chars) in place of the mocked `member@example.com` (19 chars).
+- Problem: measured `document.documentElement.scrollWidth (413px) > window.innerWidth (375px or 320px)` — `docOverflowX: true` at both widths. The email span itself measures 397px wide, uncapped, forcing the header's right-hand control cluster wider than the viewport. The screenshot shows the email text running off the right edge and the `EN`/`AR` language switch pushed off-screen/clipped.
+- Impact: any user whose email is longer than the ~19-character mock (a large share of real work emails, including subdomained or longer personal-name addresses) gets a horizontally-scrolling panel shell on a phone, and the language switcher — the control this whole batch exists to ship — becomes unreachable without scrolling sideways in the affected direction. This is the identical failure mode (badge/email overflow) design-spec §2.4's B7 fix was written to close for the _title_ and _badge_; the _email_ half of that same fix was never applied to its two named files.
+- Fix: add `truncate max-w-[7rem] sm:max-w-none` (and `ltr-island` per the spec's exact class list) to the email `<span>` in both `member-layout.html:22` and `admin-layout.html:21`, matching design-spec.md's literal snippet.
+- Scope note: neither file is in Batch 12's own file list (`libs/web/panel-ui/**` only — confirmed via `git diff --stat`, both files are untouched). `panel-layout.html`'s own half of the B7 fix (outer `flex-wrap`, `min-w-0`/`truncate` on the title, `shrink-0 whitespace-nowrap` on the badge) _is_ correctly implemented and verified working (finding below). This is a cross-batch gap: the design-spec ties both halves together as one fix for one regression, but only the panel-ui half shipped. It should be fixed before either shell is exposed to users with real (non-mock) email lengths, whichever batch owns `member-layout.html`/`admin-layout.html`.
+
+#### Serious
+
+##### 2. `StatTile`'s RTL chevron mirror (`rtl:scale-x-[-1]`) has no visible effect — `lucide-angular` copies the host's class list onto its internal `<svg>`, so the flip is applied twice and cancels out
+
+- File: `libs/web/panel-ui/src/lib/stat-tile/stat-tile.html:23` (`class="... rtl:scale-x-[-1] rtl:group-hover:-translate-x-0.5"` on `<lucide-angular [img]="ChevronRightIcon">`).
+- Viewports affected: all (this is a rendering-logic bug, not a layout-width bug); reproduced at 1440px on `/admin/overview` (own extended mock of `GET /api/v1/admin/stats`, since the mocked-404 error card hides `StatTile` on every route the executor's harness reaches).
+- Screenshots: `chevron-solo-en-big.png` vs. `chevron-solo-ar-big.png` (8× nearest-neighbor zoom of the same live-rendered icon element via `locator.screenshot()`) — both show the chevron pointing right (`>`); `chevron-toggle-before-big.png`/`chevron-toggle-after-big.png` is the stronger proof — the _same DOM node_, in the _same page_, screenshotted before and after `document.documentElement.setAttribute('dir','rtl')`, renders pixel-identical in both states.
+- Problem: `getComputedStyle` on the `<lucide-angular>` host reports `transform: matrix(-1, 0, 0, 1, 0, 0)` in `dir="rtl"` (correct, scaleX(-1)) — but so does the internal `<svg>` it renders (`svgClass` was read directly: `"lucide h-4 w-4 shrink-0 text-base-content-muted transition-transform group-hover:translate-x-0.5 rtl:scale-x-[-1] rtl:group-hover:-translate-x-0.5"`, identical to the host's own class list). `lucide-angular` forwards the host's static `class` attribute onto its child `<svg>` as well, so the `rtl:scale-x-[-1]` utility fires on _both_ elements independently. Two nested `scaleX(-1)` transforms compose to `scaleX(1)` (identity) — the icon renders unmirrored despite every individual computed-style check reporting the "correct" value. (Cross-checked: `panel-layout.html`'s collapsed-group chevron does _not_ hit this bug, because its rotation classes are Angular `[class.x]` host bindings rather than part of the static `class="..."` string — `svgClass` there is `"lucide h-3.5 w-3.5 shrink-0 text-base-content-muted transition-transform"`, without the rotation classes, so only the host rotates and the single 90° mirror renders correctly, confirmed visually in `crop-growth-chevron.png`.)
+- Impact: in Arabic, the affordance chevron on every linked `StatTile` (Builders count, Cohort tiles on `/admin/overview` — confirmed live) still points toward LTR "forward" (right) instead of RTL "forward" (left), the opposite of what design-spec §3.2 requires ("Yes — swap meaning... Implement as `rtl:scale-x-[-1]` on the rendered `<lucide-angular>`"). This is a small but real and systemic directional-affordance defect: the _same_ `rtl:scale-x-[-1]`-on-`<lucide-angular>` pattern is design-spec's prescribed fix for all 38 `ArrowRight`/`ArrowLeft`/`ChevronRight`/`ChevronLeft` instances across `libs/web` (§3.2), so any other component using this exact pattern (static class, not a `[class.x]` binding) is at risk of the same silent cancellation — worth a project-wide grep-and-fix, not just a `stat-tile.html` patch.
+- Fix: apply the mirror to only one of the two elements. Either (a) wrap the icon in a plain `<span class="rtl:scale-x-[-1] ...">` and drop the mirror classes from `<lucide-angular>` itself, or (b) if `lucide-angular` exposes a way to stop it from forwarding host classes to the inner `<svg>`, use that; verify with the same before/after `dir` toggle test used here (a single DOM-node, same-page screenshot compare) rather than trusting `getComputedStyle` on the host alone, since that individually-correct-looking check is exactly what missed this bug in review.
+
+#### Moderate
+
+- **`needs-attention-queue.html:55,120`** (`libs/web/admin`, not in Batch 12's file list): `ChevronRightIcon` here has no `rtl:` mirror class at all, and is visibly still pointing right in `ar` (`overview-ar-1440.png`). Design-spec §3.2 lists this same icon-mirroring mechanical pass as required across `libs/web`; this file is simply a later, not-yet-converted instance and is flagged for awareness only — out of scope for a Batch 12 pass/fail since it is a different library.
+- **`overview.html`'s "Needs Attention" row**, `ar` (`overview-ar-1440.png`): the numeric count column (`42`, `3`, `1`, `5`) sits at the far right of the reversed row while the icon+label sits center-left and the chevron is leftmost — readable and correctly mirrored as a block (confirmed via the RTL layout-order rule, §3.1), but the visual rhythm is slightly less scannable than the LTR version, where label-then-count-then-chevron reads left-to-right in one direction; a minor polish item for whichever batch owns this file, not a panel-ui defect.
+
+### Prototype fidelity
+
+- Approved prototype: `.ptah/specs/TASK_2026_575_fee7/prototype/index.html`, sections B/B2; `prototype/screenshots/admin-header-375-{en,ar}.png`.
+- Fidelity assessment: **MATCHES** for the panel-ui component work under review (`LanguageSwitch`, `PanelLayout` header/nav), with the one cross-batch email-truncation gap noted above as Visual Breaking.
+- Deviations observed:
+  - Segmented switcher markup, states, `EN`/`AR` caption + native-language `aria-label`, check-icon-on-selected, `btn-sm` sizing: matches the prototype's `full-{en,ar}-{dark,light}-375.png` and `admin-header-375-{en,ar}.png` exactly — visible caption, focus-ring color, amber fill, badge placement all consistent (`header-member-operator-member-{en,ar}-375.png`, `header-admin-operator-admin-{en,ar}-375.png`).
+  - Header wrap-at-375px behavior (title truncates to ellipsis, badge never breaks, two-row layout) matches the prototype's own `admin-header-375-{en,ar}.png` two-row structure. The prototype's "Admin Dashboard" happens to render on one line without ellipsis while the real build's Chromium renders it with a 5px-short ellipsis truncation (`Admin Dashbo…`) — verified this is **not** a font-loading artifact of the test harness (re-tested with real Inter font loaded over the network instead of the harness's offline 204 stub; truncation reproduced identically, `fontcheck-admin-header-en-375.png`) and is in fact the exact behavior design-spec.md:296-299 explicitly names as intended ("a long title (e.g. admin's 'Admin Dashboard,' longer than member's 'Ptah Builders') shrinks to an ellipsis on one line instead of wrapping") — not a deviation, a by-design near-miss that the spec anticipated by name.
+  - Collapsed-group sidebar chevron in `ar`: confirmed via keyboard-driven language switch (EN→AR while a group is collapsed) that the chevron rotates from `-90deg` (LTR, points right-ish toward content) to a net `+90deg` (RTL, points left, `matrix(0,1,-1,0,0,0)`) and back, matching the prototype's intent and design-spec §3.2's explicit rule; screenshot `admin-collapsed-group-after-switch-ar-1440.png` / crop `crop-growth-chevron.png` confirms a clean left-pointing chevron with no stray rotation artifacts on re-expand.
+- Before/after comparison (no prototype): N/A — a prototype exists and was used.
+
+### Viewport results
+
+| Screen                                           | Widths checked                  | Elements checked                                                        | Status                                                                                                        | Screenshot(s)                                                                                                                                    |
+| ------------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Member shell header, `operator-member` (dark)    | 375, 1440                       | title, badge, email, theme toggle, language switch                      | Pass                                                                                                          | `header-member-operator-member-{en,ar}-{375,1440}.png`                                                                                           |
+| Member shell header, `operator-member-light`     | 375, 1440                       | same                                                                    | Pass                                                                                                          | `header-member-operator-member-light-{en,ar}-{375,1440}.png`                                                                                     |
+| Admin shell header, `operator-admin`             | 320, 375, 768, 1024, 1440, 1920 | title (truncates by design), badge, email, language switch              | **Fail at 320/375 with realistic email length** (finding 1); pass at all widths with the mocked 19-char email | `header-admin-operator-admin-{en,ar}-{375,1440}.png`, `sweep-header-admin-en-{320,768,1024,1920}.png`, `longemail-admin-header-en-{320,375}.png` |
+| Admin overview (`StatTile` live)                 | 375, 1440                       | stat tiles, chevron mirror, needs-attention rows                        | **Fail** — chevron mirror inert (finding 2)                                                                   | `overview-{en,ar}-{375,1440}.png`, `chevron-solo-*`, `chevron-toggle-*`                                                                          |
+| Admin sidebar nav, collapsed group + RTL chevron | 1440                            | collapse/expand, chevron rotation, focus after keyboard language switch | Pass                                                                                                          | `admin-collapsed-group-after-switch-ar-1440.png`, `crop-growth-chevron.png`                                                                      |
+
+### Component and interaction results
+
+| Component                                                  | States tested                                                                                                                                                                                                                     | Status                                                                    | Screenshot(s)                                                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LanguageSwitch` (segmented radiogroup)                    | default, selected (amber + check), inactive (ghost), focus-visible (Tab lands on checked option), hover, touch-target size, `aria-checked`/`aria-label`/roving `tabIndex`                                                         | Pass                                                                      | `switch-focus-*.png`, `switch-hover-member-en-1440.png`; measured targets 59×32 / 43×32 (both ≥ WCAG 2.5.8's 24×24 floor)                    |
+| `LanguageSwitch` keyboard                                  | `ArrowRight`/`ArrowLeft` direction-aware inversion (verified both ways: AR-active `ArrowRight`→EN, then EN-active `ArrowLeft`→AR), `ArrowUp`/`ArrowDown` direction-independent (`Down` always moves forward regardless of `dir`)  | Pass                                                                      | console-logged DOM state transitions (see contrast/keyboard scratch scripts); matches design-spec.md:513-524's `onGroupKeydown` spec exactly |
+| `PanelLayout` header (B7 wrap fix)                         | title truncation + ellipsis, badge never breaks, outer `flex-wrap` giving each cluster its own row at 375px, collapse-survives-language-switch                                                                                    | Pass (with mocked/short email); **Fail with realistic email** (finding 1) | see viewport table above                                                                                                                     |
+| `PanelLayout` sidebar chevron (collapsed-group RTL mirror) | LTR `-rotate-90`, RTL net `+90deg`, round-trip back to LTR                                                                                                                                                                        | Pass                                                                      | `admin-collapsed-group-after-switch-ar-1440.png`                                                                                             |
+| `StatTile` (link chevron)                                  | rendered live via `/admin/overview`; EN unmirrored (correct), AR "mirrored" (class computed correctly, renders unmirrored)                                                                                                        | **Fail** (finding 2)                                                      | `chevron-solo-*.png`, `chevron-toggle-*.png`                                                                                                 |
+| `DetailDrawer`                                             | markup only — `end-0`/`border-s` anchoring + paired `translate-x-full`/`rtl:-translate-x-full` transform read directly from source; no live route reachable through the mocked harness to trigger it open in this session         | Not rendered live (source-verified only)                                  | —                                                                                                                                            |
+| `SelectionToolbar`, `ThreadRow`, `EmptyState`              | i18n key wiring read directly from `git diff` (pluralization keys, `i18n-keys:` markers, `aria-label`s all correctly switched to `transloco`); no live route reachable through the mocked harness with real selection/thread data | Not rendered live (source-verified only)                                  | —                                                                                                                                            |
+
+### Design system compliance
+
+| Token / rule                                                       | Expected (design-spec)                | Observed                                                                                            | Status               |
+| ------------------------------------------------------------------ | ------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------- |
+| Focus ring, `operator-member`/`operator-admin`                     | `base-content` on `base-200`, 13.21:1 | Measured (canvas-based sRGB extraction from live `getComputedStyle`, WCAG 2.x formula): **13.21:1** | Pass — exact match   |
+| Focus ring, `operator-member-light`                                | 17.03:1                               | Measured: **17.03:1**                                                                               | Pass — exact match   |
+| Inactive option text on `base-200` (dark)                          | 4.7:1                                 | Measured: **4.75:1**                                                                                | Pass                 |
+| Inactive option text on white (light)                              | 5.3:1                                 | Measured: **5.31:1**                                                                                | Pass                 |
+| `btn-sm` sizing (not `btn-xs`, N11 fix)                            | `btn-sm`                              | Confirmed in `language-switch.ts:73` and rendered target sizes (59×32/43×32)                        | Pass                 |
+| `ChevronRightIcon` RTL mirror, `stat-tile.html`                    | Visually mirrors under `dir=rtl`      | Computed style says yes; rendered pixels say no (finding 2)                                         | **Fail**             |
+| Email span bounded width, `member-layout.html`/`admin-layout.html` | `truncate max-w-[7rem] sm:max-w-none` | Absent in both files                                                                                | **Fail** (finding 1) |
+
+### Accessibility audit
+
+- Standard applied: WCAG 2.2 AA (repository's own `base-content-muted.spec.ts` and this task's design-spec both gate at AA; no stricter policy documented in the repo for this surface).
+- Contrast pairs measured live (not estimated): see Design system compliance table above — focus ring and default-state text both pass 3:1 (non-text) / 4.5:1 (text) with wide margins in all three panel themes.
+- Touch targets: `LanguageSwitch` options measured 59×32 (`EN`) and 43×32 (`AR`) — both exceed the 24×24 CSS px WCAG 2.5.8 floor.
+- Semantic structure: `role="radiogroup"` with `aria-label` (`common.language`/`اللغة`, confirmed switching correctly), two `role="radio"` children with `aria-checked`, roving `tabIndex` (`0` on checked, `-1` on other) confirmed via direct DOM read at every one of the 12 header screenshot cases.
+- Focus order: `Tab` into the group lands on the checked option in every one of the 12 cases tested (`switch-focus-*.png`, cross-checked against the `ring` metric in each case).
+- State-not-color-only: confirmed — the selected option carries a `CheckIcon` in addition to the `btn-primary` fill, visible in every header screenshot.
+
+### Visual performance
+
+- No animated/GSAP surface in this batch's scope; `PanelLayout`'s header/sidebar transitions are simple CSS `transition-transform`/`transition-colors`, not observed to jank in any capture.
+- Layout shift: none observed from the language-switch or theme toggle interactions themselves (both are synchronous DOM/class changes, no async content reflow); the one horizontal-overflow case (finding 1) is a static layout defect, not a shift.
+- Loading state: not applicable to this batch's components (no async-loading UI in `language-switch`, `panel-layout`, `stat-tile`, etc. themselves).
+
+## Verdict
+
+- Recommendation: **REVISE**
+- Confidence: HIGH
+- Key concern: finding 1 (missing email-truncation fix in `member-layout.html`/`admin-layout.html`) reproduces a real, user-facing horizontal-overflow bug with any realistically-long email at 320–375px, directly contradicting the exact fix design-spec §2.4 (B7) specifies for those two files by name and line number — even though the files themselves sit outside Batch 12's own file list, this is the same regression class the batch's own panel-layout.html changes were written to prevent, and it ships broken in the other half of the same fix. Finding 2 (StatTile's RTL chevron mirror silently canceling itself via a lucide-angular host/svg class-duplication quirk) is a smaller but systemic defect worth a project-wide check before the §3.2 icon-mirroring pass is declared done elsewhere in the app.
+
+---
+
+## Batch 12 — round 2
+
+Re-verification of the two round-1 findings (visual-breaking: missing email truncation; serious: `stat-tile` RTL chevron mirror canceling itself), plus the executor's own reported font-shaping concern, against the executor's claimed fixes.
+
+### Summary
+
+| Metric            | Value                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Overall score     | 9/10                                                                                                                                     |
+| Assessment        | APPROVED                                                                                                                                 |
+| Visual breaking   | 0 (was 1 — resolved)                                                                                                                     |
+| Serious           | 0 (was 1 — resolved)                                                                                                                     |
+| Moderate          | 1 (carried over, out of Batch 12 scope)                                                                                                  |
+| Viewports tested  | 320, 375, 768, 1440 (targeted re-test of prior findings), plus the round-1 320/768/1024/1920 sweep already on file                       |
+| Screenshots taken | 27 (in `screenshots/visual-batch-12-r2/`)                                                                                                |
+| Components tested | `PanelLayout` header email span, `StatTile` chevron, `NavigationComponent` desktop + mobile `LogOut` icon, `LanguageSwitch` (spot-check) |
+
+### Environment
+
+- Build verified: `node_modules/.bin/nx build ptah-landing-page` run fresh at the start of this re-review (22.4s, "Application bundle generation complete"); confirmed `dist/ptah-landing-page/browser/index.csr.html` (19:17:23) is newer than every edited source file (`stat-tile.html`, `navigation.component.ts`, `member-layout.html`, `admin-layout.html`, all ≤19:12:34).
+- Serving: same pattern as round 1 — no live dev server; own scratch Playwright harness (`scratchpad/b12/r2/harness.js`, adapted from round 1's own pattern, not the executor's `scratchpad/b12/r2.js`, which I did not read — built independently to avoid trusting the executor's own test as the verification) serves `dist/ptah-landing-page/browser` via `page.route`, mocks `/api/v1/auth/me`, `/api/v1/members/entitlement`, `/api/v1/admin/records/users`, `/api/v1/admin/stats`, and sets `ptah_auth_hint`/`ptah.lang`/`ptah.members.theme` in `localStorage`.
+- Chromium: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`, global `playwright`, no `playwright install` run.
+- Base URL: `http://panel.test`, routes `/members`, `/admin`, `/admin/overview`, `/` (public header, for the `LogOut` icons).
+- Long-email fixture used for V1: `abdallah.longername.staffing@miramarstaffingcompany.com` (57 chars) — same fixture as round 1's finding, so the fix is checked against the exact string that broke it.
+
+### V1 re-check — email truncation (was Visual breaking)
+
+- Files changed: `libs/web/members/src/lib/member-layout/member-layout.html:22`, `libs/web/admin/src/lib/admin-layout/admin-layout.html:21`, both now `class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none"` — confirmed by reading the files directly (not just the executor's claim).
+- Tested 18 combinations: {320, 375, 768} × {en, ar} × {member dark, member light, admin} — all with the 57-char long email, not the original 19-char mock.
+- Result: **RESOLVED**, no exceptions.
+  - `docOverflowX: false` in all 18 cases (`v1-metrics.json`).
+  - Email `clientWidth` capped at 112px at 320/375 (`emailScrollW: 397` vs `emailClientW: 112` — truncated, ellipsis applied), uncapped to the full 397px at 768 (`sm:max-w-none` correctly lifts the cap once there's room) — and even at 768 the wider header still absorbs it with `docOverflowX: false`.
+  - `emailDir: "ltr"` in every case, including all `dir="rtl"` (Arabic) cases — the `ltr-island` class holds the email's own text direction fixed regardless of page direction, so the truncating ellipsis lands on the correct (right) side of the email and it never re-shapes as RTL content.
+  - `switcherInViewport: true` in all 18 cases — the language switch (the control this whole batch exists to ship) is never pushed off-screen, unlike the round-1 reproduction.
+  - Visual confirmation: `v1-header-admin-operator-admin-ar-375.png`, `v1-header-member-operator-member-en-320.png`, `v1-header-member-operator-member-light-ar-375.png` all show a clean `abdallah.longe…` truncation with the switcher fully visible and no overflow.
+- New observation, not a defect: the fix drops the old `sm:text-sm`, so at ≥640px the email now renders at 12px (`text-xs`) instead of the previous 14px (`text-sm`) it had at that breakpoint. Design-spec §2.4's snippet (`design-spec.md:333`) literally specifies `class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none"` — i.e., the spec's own prescribed fix is `text-xs` at every width, not `text-xs sm:text-sm`. The executor implemented the spec exactly as written; the 12px-at-desktop change is the spec's own choice, not a deviation from it. 12px is below the 16px-minimum-body-text _guidance_ some platform style guides use, but that figure is AAA/platform guidance, not a WCAG AA requirement (no WCAG success criterion sets a minimum font size), and this is metadata text ("signed in as," a mono email), not primary content — noted as a **Minor** style observation for whoever owns `design-spec.md`, not a finding against this fix, since the executor correctly matched the approved spec text.
+
+### V2 re-check — RTL icon mirror (was Serious)
+
+Same-DOM-node, same-page, before/after `dir` toggle test (the exact method that caught the round-1 bug), on all three affected icons:
+
+| Icon                        | File                                                       | Before (`dir=ltr`)                               | After (`dir=rtl`)                              | Host/svg transform (after)                             | Status   |
+| --------------------------- | ---------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------ | -------- |
+| `StatTile` link chevron     | `libs/web/panel-ui/src/lib/stat-tile/stat-tile.html:31-38` | `v2-stattile-chevron-before-big.png` (`>`)       | `v2-stattile-chevron-after-big.png` (`<`)      | wrapper `matrix(-1,0,0,1,0,0)`; host + svg both `none` | **Pass** |
+| `LogOut`, desktop user menu | `libs/web/ui/src/lib/navigation.component.ts:534-544`      | `v2-desktop-logout-before-big.png` (arrow right) | `v2-desktop-logout-after-big.png` (arrow left) | wrapper `matrix(-1,0,0,1,0,0)`; host + svg both `none` | **Pass** |
+| `LogOut`, mobile menu       | `libs/web/ui/src/lib/navigation.component.ts:692-701`      | `v2-mobile-logout-before-big.png` (arrow right)  | `v2-mobile-logout-after-big.png` (arrow left)  | wrapper `matrix(-1,0,0,1,0,0)`; host + svg both `none` | **Pass** |
+
+- Root-cause confirmation: for all three icons, `svg.getAttribute('class')` no longer includes `rtl:scale-x-[-1]` (it now reads e.g. `"lucide w-4 h-4"` / `"lucide h-4 w-4 shrink-0 text-base-content-muted transition-transform group-hover:translate-x-0.5"`, with no `rtl:` token) — the mirror class lives only on the new wrapper `<span>`, so `lucide-angular`'s host→svg class-forwarding no longer duplicates it. This is the fix the round-1 finding recommended and it eliminates the cancellation at its source rather than working around the symptom.
+- `stat-tile.html`'s dropped `rtl:group-hover:-translate-x-0.5` (replaced with an `rtl-exempt:` code comment reasoning that the wrapper's `scaleX(-1)` already re-points the existing `group-hover:translate-x-0.5` toward reading-end under RTL): verified by reasoning through the transform math — a positive-X hover nudge, once the icon's own coordinate space is mirrored by the parent wrapper, renders as a nudge toward the icon's _visual_ left in RTL, which is reading-end there (RTL reads right-to-left, so "forward"/end is left) — consistent with the "nudge toward affordance direction" intent in both directions. Not re-verified with a live hover capture in this round (the round-1 hover screenshot predates this change) — a direct `:hover` pseudo-class screenshot of the mirrored+nudged state was not retaken; flagged as a residual gap, not a defect — the CSS logic checks out but wasn't pixel-confirmed live.
+- No other `rtl:scale-x-[-1]`-on-`<lucide-angular>` instances were found still failing within `libs/web/panel-ui` or the two retrofitted `navigation.component.ts` spots (the round-1 finding's stated scope). `needs-attention-queue.html`'s unmirrored `ChevronRight` (round-1 Moderate, `libs/web/admin`, out of Batch 12's file list) was not touched by this fix and still doesn't mirror — carried forward below, unchanged, still out of scope.
+
+### Arabic font-shaping check (executor's reported concern)
+
+- Executor's claim: "Logout" (`تسجيل الخروج`) render reversed/unjoined, attributed to the harness blocking the Arabic web font.
+- Re-tested with two conditions, same page, same viewport, same route (`/`, desktop user menu open, `ar`):
+  1. **Fonts allowed** (`fonts.googleapis.com`/`fonts.gstatic.com` requests passed through via `route.continue()` instead of stubbed): `document.fonts.status: "loaded"`, `#ptah-font-ar` link element present (confirms the app's own dynamic Arabic-font-loading code, `index.csr.html:17-23`, ran), text renders as `تسجيل الخروج`. Screenshot: `v2-fontcheck-user-menu-ar.png`.
+  2. **Fonts blocked** (matching the executor's harness pattern — non-origin requests, including the font hosts, fulfilled with an empty 204): text still renders as `تسجيل الخروج`, correctly joined and right-to-left, computed `font-family` still lists `Inter, "IBM Plex Sans Arabic", "Noto Sans Arabic", system-ui, -apple-system, sans-serif` (the `sans-serif`/`system-ui` fallback chain resolving to a system font that evidently does carry Arabic glyphs and correct shaping in this container). Screenshot: `v2-fontcheck-user-menu-ar-blocked.png`.
+  - The two screenshots are visually indistinguishable — no reversed or unjoined glyphs in either.
+- Conclusion: **could not reproduce** the reversed/unjoined rendering in this environment, in either font condition. `fonts.googleapis.com`/`fonts.gstatic.com` are reachable from this session (confirmed live via `route.continue()` succeeding and the stylesheet-injected `@font-face` link element appearing), so this environment is not blocking the font host as the executor's harness apparently was; but even with fonts fully blocked to reproduce the executor's harness conditions, Chromium's own text-shaping engine (not the specific font family) correctly joins Arabic glyphs using the `system-ui`/`sans-serif` fallback. If the executor's own container lacks any system font with Arabic glyph coverage (rather than merely blocking the two named hosts), that is a difference in that specific container's installed fonts, not a defect in the app's CSS/markup — nothing in `navigation.component.ts` or `index.csr.html`'s font-loading code is doing anything that would itself cause glyph reversal (that class of bug is normally caused by CSS forcing `unicode-bidi`/`direction` overrides on a run of Arabic text, or by a font subset stripped of Arabic presentation forms — neither reproduces here). Recommend the executor re-run their own harness's font check once more before relying on the "font-blocked" explanation, since this independent run contradicts it.
+
+### Spot-check — no regressions
+
+- `LanguageSwitch`, member shell, light theme, `en`, 768px: `Tab` still lands on the checked radio (`{"lang":"en","ariaChecked":"true","tabIndex":0,"outline":"solid 2px"}`), focus ring still renders. Screenshots: `spotcheck-switch-focus-member-light-en-768.png`, `spotcheck-panel-header-member-light-en-768.png`. No changes to `language-switch.ts`/`.html` were made in this round, and none were found.
+- Panel header layout (title truncation, badge, wrap behavior) unchanged and still correct across all 18 V1 re-check screenshots — the email-span fix did not disturb the title/badge half of the B7 fix verified in round 1.
+
+### Verdict
+
+- Recommendation: **APPROVE**
+- Confidence: HIGH
+- Key concern: none blocking or serious remains from round 1. Both findings are fixed and independently re-verified with the same reproduction method that originally caught them (a realistic long email at the exact viewports that broke, and a same-DOM-node before/after `dir` toggle for the icon mirrors). One pre-existing Moderate carries forward unchanged and out of scope (`needs-attention-queue.html`, `libs/web/admin`, not part of Batch 12's file list). One new Minor observation: the email span's font size is now `text-xs` at all widths (was `text-xs sm:text-sm`) — this matches design-spec.md's own literal snippet exactly, so it's a spec-conformant outcome, not a regression, but worth a design-spec author's sign-off if the smaller desktop size wasn't intentional. The executor's reported Arabic font-shaping problem did not reproduce in this session under either font-allowed or font-blocked conditions.

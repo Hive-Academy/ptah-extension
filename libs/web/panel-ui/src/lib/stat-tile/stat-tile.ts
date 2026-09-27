@@ -3,9 +3,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  inject,
   input,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { I18nService } from '@ptah-extension/i18n';
 import { ChevronRight, LucideAngularModule } from 'lucide-angular';
 
 /** Visual weight of a tile — `hero` gets the largest number on the page. */
@@ -13,11 +15,7 @@ export type StatTileSize = 'default' | 'hero';
 
 /** Semantic tone of the optional delta chip. */
 export type StatTileDeltaTone =
-  | 'info'
-  | 'success'
-  | 'warning'
-  | 'error'
-  | 'neutral';
+  'info' | 'success' | 'warning' | 'error' | 'neutral';
 
 /**
  * StatTile — shared metric tile for the admin dashboard.
@@ -41,7 +39,11 @@ export class StatTile {
   /** Uppercase section label above the value. */
   public readonly label = input<string>('');
 
-  /** The metric itself — rendered big and `tabular-nums`. */
+  /**
+   * The metric itself — rendered big and `tabular-nums`. A number is
+   * formatted for the active language (Western digits in Arabic); a string is
+   * shown as given, so a caller that pre-formats (`'98.2%'`) keeps control.
+   */
   public readonly value = input<string | number | null>(null);
 
   /** `hero` = `text-4xl md:text-5xl`, `default` = `text-2xl md:text-3xl`. */
@@ -69,11 +71,16 @@ export class StatTile {
 
   protected readonly ChevronRightIcon = ChevronRight;
 
+  private readonly i18n = inject(I18nService);
+
   /** Displayed value, with an em-dash fallback for null/empty. */
   protected readonly valueText = computed<string>(() => {
     const raw = this.value();
     if (raw == null || raw === '') return '—';
-    return String(raw);
+    if (typeof raw === 'number') {
+      return new Intl.NumberFormat(this.i18n.intlLocale()).format(raw);
+    }
+    return raw;
   });
 
   protected readonly valueClass = computed<string>(() => {
