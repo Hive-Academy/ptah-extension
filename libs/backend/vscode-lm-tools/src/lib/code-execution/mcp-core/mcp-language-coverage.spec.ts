@@ -49,6 +49,8 @@
 
 import 'reflect-metadata';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 
 import {
   formatDiagnostics,
@@ -292,11 +294,19 @@ describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's three 
 });
 
 // ---------------------------------------------------------------------------
-// R27-04: real dispatcher/budget/spool — building/failed/partial shapes stay
-// ordered, and the response text is the raw JSON spool (byte-equal to
-// `JSON.stringify(body)`), not a paraphrased/reduced body. Trimmed from the
-// full Batch 9b harness (protocol-dispatcher.spec.ts, "dependency graph
-// background build") to one representative tool.
+// R27-04: real dispatcher — building/failed/warm shapes stay ordered. Trimmed
+// from the full Batch 9b harness (protocol-dispatcher.spec.ts, "dependency
+// graph background build") to one representative tool.
+//
+// r1 R29a1-02: the three tests below check that a SMALL response's text is
+// exactly `JSON.stringify(body)` — that is JSON-serialization-form equality,
+// not spool-recovery equality (renamed accordingly; the review found the
+// previous "raw-JSON-equal" name overclaimed spool recovery for a response
+// too small to ever be spooled). The actual raw-spool-byte-equality proof —
+// an over-budget response, the dispatcher's real reduce+spool path, the
+// RETURNED locator parsed from the tool text, and the spooled file's bytes
+// read back and compared to the independently captured raw payload — is the
+// separate "real spool recovery" describe block further below.
 // ---------------------------------------------------------------------------
 
 describe('real dispatcher/budget/spool — ptah_get_dependents building/failed/warm shapes stay ordered and raw (R27-04)', () => {
@@ -438,19 +448,19 @@ describe('real dispatcher/budget/spool — ptah_get_dependents building/failed/w
   });
   afterEach(() => jest.useRealTimers());
 
-  it('a warm graph answers at once, with no "status" field, raw-JSON-equal to its text', async () => {
+  it('a warm graph answers at once, with no "status" field; its small text is exactly JSON.stringify(body)', async () => {
     const h = harness({ built: true });
     const res = await handleMCPRequest(makeRequest('warm'), h.deps);
     const { body, text } = toResult(res);
 
     expect(body).not.toHaveProperty('status');
     expect(body).toHaveProperty('dependents');
-    // Raw spool equality: the response text IS the JSON of the body, not a
-    // formatted/paraphrased rendering (this tool is not preformatted markdown).
+    // JSON-serialization-form equality (not spool recovery: this response is
+    // far under budget, so nothing is reduced or spooled).
     expect(text).toBe(JSON.stringify(body));
   });
 
-  it('a cold call reports "building" first (status is the first key), raw-JSON-equal to its text', async () => {
+  it('a cold call reports "building" first (status is the first key); its small text is exactly JSON.stringify(body)', async () => {
     const h = harness();
     const pending = handleMCPRequest(makeRequest('cold'), h.deps);
     await flush();
@@ -463,7 +473,7 @@ describe('real dispatcher/budget/spool — ptah_get_dependents building/failed/w
     expect(text).toBe(JSON.stringify(body));
   });
 
-  it('a failed build reports "failed" first (status is the first key), raw-JSON-equal to its text', async () => {
+  it('a failed build reports "failed" first (status is the first key); its small text is exactly JSON.stringify(body)', async () => {
     const h = harness();
     const pending = handleMCPRequest(makeRequest('fails'), h.deps);
     await flush();
@@ -477,5 +487,104 @@ describe('real dispatcher/budget/spool — ptah_get_dependents building/failed/w
     expect(text).not.toContain('EACCES');
     expect(text).not.toContain('secret');
     expect(text).toBe(JSON.stringify(body));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// r1 R29a1-02: the actual raw-spool-byte-equality proof. Drives an
+// over-budget `ptah_context_enrich_file` response — whose success text is
+// exactly `JSON.stringify(result)` (`protocol-dispatcher.ts`, the
+// `ptah_context_enrich_file` case), so the pre-dispatch raw payload is fully
+// known and controlled by this test, not reconstructed from an internal
+// formatter — through the REAL dispatcher and REAL `applyToolResultBudget`
+// spool path, with a real (TEMP-only) host-owned spool root. Parses the
+// RETURNED recovery locator out of the tool's own response text (never reads
+// a private outcome/telemetry object), reads that file from disk, and
+// compares its bytes to the independently captured raw payload.
+// ---------------------------------------------------------------------------
+
+describe('real spool recovery — ptah_context_enrich_file over-budget response is spooled byte-equal (R29a1-02)', () => {
+  const SPOOL_LOCATOR = /full output: (.+)\]\s*$/;
+
+  function silentLogger(): Logger {
+    return {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    } as unknown as Logger;
+  }
+
+  function makeRequest(id: string): MCPRequest {
+    return {
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: {
+        name: 'ptah_context_enrich_file',
+        arguments: { file: 'src/big.ts' },
+      },
+    };
+  }
+
+  /** Resolves a spool locator (relative to the spool root, or absolute) to a real path. */
+  function resolveLocator(locator: string, spoolRoot: string): string {
+    const trimmed = locator.trim();
+    return path.isAbsolute(trimmed) ? trimmed : path.join(spoolRoot, trimmed);
+  }
+
+  it('spools the over-budget raw JSON byte-for-byte and the returned locator reads back exactly', async () => {
+    const spoolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-spool-honesty-'),
+    );
+    try {
+      // Fully controlled by this test: the dispatcher's `ptah_context_enrich_file`
+      // case does nothing but `JSON.stringify(result)` to this object, so the
+      // pre-dispatch raw payload IS `expectedRaw` below, captured before dispatch.
+      const bigResult = {
+        content: 'A'.repeat(20_000),
+        reason: 'unsupported-language',
+        tokensSaved: 0,
+      };
+      const expectedRaw = JSON.stringify(bigResult);
+
+      const ptahAPI = {
+        context: { enrichFile: jest.fn(async () => bigResult) },
+      } as unknown as PtahAPI;
+      const deps: ProtocolHandlerDependencies = {
+        ptahAPI,
+        permissionPromptService:
+          {} as ProtocolHandlerDependencies['permissionPromptService'],
+        logger: silentLogger(),
+        workspaceProvider: {
+          getWorkspaceFolders: () => [spoolRoot],
+        } as unknown as ProtocolHandlerDependencies['workspaceProvider'],
+      };
+
+      const res = await handleMCPRequest(makeRequest('spool-1'), deps);
+      const result = res.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      const text = result.content[0].text;
+
+      // Sanity: the response was actually reduced (never equals the 20k-char raw).
+      expect(text).not.toBe(expectedRaw);
+      expect(text.length).toBeLessThan(expectedRaw.length);
+
+      const match = SPOOL_LOCATOR.exec(text);
+      if (!match) {
+        throw new Error(
+          `no spool locator found in the over-budget response: ${text.slice(-300)}`,
+        );
+      }
+      const spoolFile = resolveLocator(match[1], spoolRoot);
+      const spooledBytes = fs.readFileSync(spoolFile, 'utf8');
+
+      // The actual byte-equality proof: not a JSON round-trip, a real file read.
+      expect(spooledBytes).toBe(expectedRaw);
+    } finally {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    }
   });
 });

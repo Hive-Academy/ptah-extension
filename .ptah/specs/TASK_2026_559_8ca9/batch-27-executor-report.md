@@ -254,3 +254,13 @@ None new. R27-05's help-text inaccuracy was the only real product-facing defect 
 
 - Cross-project "every activated key has a check" enforcement is per-project (WIT's `HONESTY_CHECKS`/`CHECKED_ELSEWHERE`, MCP's `MCP_HONESTY_CHECKS`), pinned by two independent literal 3-key lists rather than one shared import — `workspace-intelligence` has no public `/testing` subpath to import from `vscode-lm-tools`, and adding one was judged out of scope for a review-fix round (layering stays one-directional; flagged here for a future batch if tighter cross-project enforcement is wanted).
 - The real dispatcher/spool test covers one representative tool (`ptah_get_dependents`); `ptah_get_dependencies`/`ptah_get_symbol_index` share the same dispatcher code path (Batch 9b's own harness already covers all three in full).
+
+## Follow-up (29a1 review)
+
+Fixed the two OPEN Serious gaps from `reviews/batch-29a1-code-logic-review-r1.md` Part 1 (test files only; no production code changed).
+
+**R29a1-01** (`WIT/language-honesty.contract.spec.ts`, symbol-indexer honesty check): added exact `coverage.unsupported === 1` / `unsupportedByLanguage.elixir === 1` assertion on the mixed run, plus the `unsupported === 0` / no-`elixir`-key contrast on the all-supported run. Sabotage: removed `this.countUnsupported(run, filePath)` from `code-symbol-indexer.service.ts`'s unsupported branch (~line 737) — 2 tests failed (`ptah_code_search_symbols`, `ptah_code_reindex`); restored, `git diff --stat` clean.
+
+**R29a1-02** (`MCP/mcp-core/mcp-language-coverage.spec.ts`): added a new "real spool recovery" test driving an over-budget `ptah_context_enrich_file` response (fully test-controlled payload, since that tool's success text is exactly `JSON.stringify(result)`) through real `handleMCPRequest` + real `applyToolResultBudget`, with a TEMP host-owned spool root; parses the returned locator from the response text, reads that file, and compares bytes to the independently captured raw payload. Renamed the three prior tests to "...its small text is exactly JSON.stringify(body)" (JSON-serialization-form equality — they never spool, since their responses are far under budget) so they no longer overclaim spool-recovery coverage. Sabotage: `tool-result-budget.ts`'s `spoolRaw` write changed to literal `'CORRUPTED'` — only the new test failed (15/16 others green, including the 3 renamed ones); restored, `git diff --stat` clean.
+
+Verification: `test,lint,typecheck` for `@ptah-extension/workspace-intelligence` + `@ptah-extension/vscode-lm-tools` — all 6 tasks green (2m4s); `degradation-audit:lint` → TOTAL 300 unsuppressed. No new product defects found.

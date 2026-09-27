@@ -608,6 +608,20 @@ async function symbolIndexerHonesty(): Promise<void> {
         `expected a non-clean run while a no-grammar file was present: ${JSON.stringify(coverage)}`,
       );
     }
+    // r1 R29a1-01: `clean: false` alone does not prove the elixir file was
+    // COUNTED as unsupported — a mixed run can go non-clean from an
+    // independently unknown census bucket while `countUnsupported` silently
+    // never ran. Assert the exact unsupported count and language bucket
+    // (real production fields written by `CodeSymbolIndexer.countUnsupported`,
+    // `code-symbol-indexer.service.ts:704-710`).
+    if (
+      coverage.unsupported !== 1 ||
+      coverage.unsupportedByLanguage?.['elixir'] !== 1
+    ) {
+      throw new Error(
+        `expected exactly 1 unsupported file counted as elixir: ${JSON.stringify(coverage)}`,
+      );
+    }
     // The same validator, run over an ALL-supported set, must read clean —
     // proving the non-clean result above is a real disclosure, not a
     // validator that always fails (R27-01's "same validator" requirement).
@@ -639,6 +653,18 @@ async function symbolIndexerHonesty(): Promise<void> {
     ) {
       throw new Error(
         `expected both supported files fully analysed with no failures: ${JSON.stringify(cleanCoverage)}`,
+      );
+    }
+    // r1 R29a1-01 contrast: with no elixir file in the run, the unsupported
+    // count and its language bucket must be the corresponding zero/absent —
+    // proving the mixed run's count of 1 above is a real disclosure, not a
+    // validator that always reports 1.
+    if (
+      cleanCoverage.unsupported !== 0 ||
+      cleanCoverage.unsupportedByLanguage?.['elixir'] !== undefined
+    ) {
+      throw new Error(
+        `expected zero unsupported files and no elixir bucket in the all-supported run: ${JSON.stringify(cleanCoverage)}`,
       );
     }
   } finally {
