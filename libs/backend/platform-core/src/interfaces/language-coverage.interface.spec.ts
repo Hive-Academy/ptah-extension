@@ -253,7 +253,37 @@ describe('compactCoverage', () => {
     'omittedByCap',
   ] as const;
 
-  it('writes a clean answer as {clean: true, analyzed} and nothing else', () => {
+  // Batch 31 r1 R31-01: a clean answer never hides its approximations.
+  it('keeps approximations (and a non-zero omitted count) in a clean answer, which stays clean', () => {
+    expect(
+      compactCoverage({ ...CLEAN, approximations: ['c:parsed-as-cpp'] }),
+    ).toEqual({
+      clean: true,
+      analyzed: 12,
+      approximations: ['c:parsed-as-cpp'],
+    });
+    expect(
+      compactCoverage({
+        ...CLEAN,
+        approximations: ['text-scan', 'case-folded', 'c:parsed-as-cpp'],
+        approximationsOmitted: 2,
+      }),
+    ).toEqual({
+      clean: true,
+      analyzed: 12,
+      approximations: ['text-scan', 'case-folded', 'c:parsed-as-cpp'],
+      approximationsOmitted: 2,
+    });
+    expect(
+      compactCoverage({
+        ...CLEAN,
+        approximations: [],
+        approximationsOmitted: 0,
+      }),
+    ).toEqual({ clean: true, analyzed: 12 });
+  });
+
+  it('writes a clean answer as {clean: true, analyzed} and nothing else but its approximations', () => {
     expect(compactCoverage(CLEAN)).toEqual({ clean: true, analyzed: 12 });
     expect(Object.keys(compactCoverage(CLEAN))).toEqual(['clean', 'analyzed']);
     const busyButClean: CoverageFields = {
@@ -271,9 +301,12 @@ describe('compactCoverage', () => {
       approximations: ['text-scan'],
       checks: 'type-check',
     };
+    // Only the approximation survives: it qualifies how, not whether, the
+    // answer is complete (Batch 31 r1 R31-01; was dropped before).
     expect(compactCoverage(busyButClean)).toEqual({
       clean: true,
       analyzed: 12,
+      approximations: ['text-scan'],
     });
     expect(compactCoverage({ ...CLEAN, analyzed: null })).toEqual({
       clean: true,

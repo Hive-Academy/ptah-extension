@@ -30,4 +30,7 @@ export type SupportedLanguage =
   | 'go'
   | 'csharp'
   | 'java'
-  | 'rust';
+  | 'rust'
+  | 'php'
+  | 'ruby'
+  | 'cpp';

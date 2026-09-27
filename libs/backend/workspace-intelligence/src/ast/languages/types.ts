@@ -27,8 +27,8 @@ export interface LanguageQueries {
  * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;
  *   C# since Batch 26b, proven against the shipped grammar by the Electron
  *   capability spec).
- * - syntaxDiagnostics: py/go/cs (plan initial value), java/rust (Batch 30);
- *   the TS compiler already covers TS/JS. Consumed by the language-aware
+ * - syntaxDiagnostics: py/go/cs (plan initial value), java/rust (Batch 30),
+ *   php/ruby/cpp (Batch 31); the TS compiler already covers TS/JS. Consumed by the language-aware
  *   diagnostics provider (25a), which parses with the language's grammar.
  */
 export type DeclaredLanguageCapabilities = Omit<

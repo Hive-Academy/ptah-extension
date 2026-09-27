@@ -145,7 +145,7 @@
     {
       "id": "php",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-php.wasm",
       "licence": "MIT",
       "bytes": 1058041,
@@ -160,7 +160,7 @@
     {
       "id": "ruby",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-ruby.wasm",
       "licence": "MIT",
       "bytes": 2106352,
@@ -175,7 +175,7 @@
     {
       "id": "cpp",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-cpp.wasm",
       "licence": "MIT",
       "bytes": 5394393,

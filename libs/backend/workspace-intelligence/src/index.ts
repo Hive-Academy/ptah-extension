@@ -120,6 +120,7 @@ export {
   classifyFileForCoverage,
   extensionHasCapability,
   hasCapability,
+  isCParsedAsCpp,
   languageForExtension,
   recognisedSourceExtensions,
   supportedLanguagesFor,
@@ -129,6 +130,7 @@ export {
   type LanguageCapability,
   type LanguageRegistryEntry,
 } from './ast/language-registry';
+export { cDeclaratorName, type DeclaredName } from './ast/c-declarator';
 export {
   CodeSymbolIndexer,
   type CodeSymbolIndexerOptions,

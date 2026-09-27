@@ -35,6 +35,7 @@ import {
 } from '../ast/graph-coverage';
 import {
   classifyFileForCoverage,
+  isCParsedAsCpp,
   languageForExtension,
   recognisedSourceExtensions,
   supportedLanguagesFor,
@@ -269,11 +270,13 @@ const UNCHECKED: FileOutcome = { kind: 'unchecked' };
  * unchecked. A clean parse with export forms the extractor could not read
  * (`exports[key] = v`) is a failure too (`unsupported-syntax`, the reason
  * ptah_ast_analyze and the graph give): its known symbols are written, but
- * the file's rows may miss an export.
+ * the file's rows may miss an export. So is a definition whose declarator
+ * names nothing readable (`unextractedDeclarations`, Batch 31 r1 R31-02).
  */
 function outcomeOfParse(insights: CodeInsights): FileOutcome {
   if (insights.parseStatus === 'ok') {
-    return (insights.unextractedExports ?? []).length > 0
+    return (insights.unextractedExports ?? []).length > 0 ||
+      (insights.unextractedDeclarations ?? []).length > 0
       ? failure('unsupported-syntax')
       : ANALYZED;
   }
@@ -309,6 +312,18 @@ function isIndexableExportName(info: ExportInfo): boolean {
 
 function failure(reason: FailureReason | 'write'): FileOutcome {
   return { kind: 'failed', reason };
+}
+
+/**
+ * The approximation of an answer that wrote C sources parsed with the C++
+ * grammar (User Decision 19): `c:parsed-as-cpp`, whatever each file's
+ * outcome, since a C file the C++ grammar cannot parse is why some of them
+ * may have failed.
+ */
+function parsedAsCppFields(
+  writtenCSource: boolean,
+): Pick<LanguageCoverage, 'approximations'> {
+  return writtenCSource ? { approximations: ['c:parsed-as-cpp'] } : {};
 }
 
 /**
@@ -358,6 +373,11 @@ function singleFileCoverage(
       ? { unsupportedByLanguage: { [language]: 1 } }
       : {}),
     ...(reason === undefined ? {} : { failedByReason: { [reason]: 1 } }),
+    ...parsedAsCppFields(
+      outcome !== 'excluded' &&
+        outcome.kind !== 'unsupported' &&
+        isCParsedAsCpp(filePath),
+    ),
   });
 }
 
@@ -509,8 +529,12 @@ export class CodeSymbolIndexer {
     let analyzed = 0;
     let uncheckedWrites = 0;
     let failed = 0;
+    let writtenCSource = false;
     const failedByReason: Partial<Record<FailureReason, number>> = {};
-    for (const { outcome } of latest.values()) {
+    for (const [identity, { outcome }] of latest) {
+      if (outcome.kind !== 'unsupported' && isCParsedAsCpp(identity)) {
+        writtenCSource = true;
+      }
       if (outcome.kind === 'analyzed') {
         analyzed++;
       } else if (outcome.kind === 'unchecked') {
@@ -551,6 +575,7 @@ export class CodeSymbolIndexer {
           }
         : {}),
       ...(Object.keys(failedByReason).length > 0 ? { failedByReason } : {}),
+      ...parsedAsCppFields(writtenCSource),
     });
   }
 

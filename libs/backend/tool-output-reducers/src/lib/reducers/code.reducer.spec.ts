@@ -105,6 +105,27 @@ describe('createCodeReducer', () => {
     expectReconstructs(result.text, SOURCE);
   });
 
+  // Batch 31 r1 R31-01: an approximation the outline rests on is served.
+  it("renders the outline's approximations as its first line, and only safe codes", async () => {
+    const outliner = fakeOutliner({
+      omittable: BODIES,
+      focus: [],
+      approximations: ['c:parsed-as-cpp', 'Bad Code\n', 'x'.repeat(41)],
+    });
+
+    const result = await createCodeReducer(outliner)(SOURCE, CTX);
+
+    expect(result.reducer).toBe('code-outline');
+    expect(result.text.split('\n')[0]).toBe(
+      '… approximations: c:parsed-as-cpp …',
+    );
+    expect(result.notes).toContain('approximations: c:parsed-as-cpp');
+    const plain = await createCodeReducer(
+      fakeOutliner({ omittable: BODIES, focus: [] }),
+    )(SOURCE, CTX);
+    expect(result.text.split('\n').slice(1).join('\n')).toBe(plain.text);
+  });
+
   it('passes the exact source, the language hint and the trimmed focus symbol to the outliner', async () => {
     const outliner = fakeOutliner({ omittable: BODIES, focus: [] });
 
@@ -168,7 +189,8 @@ describe('createCodeReducer', () => {
   });
 
   it('keeps a run verbatim when its note would not be shorter', async () => {
-    const source = 'function f() {\n  a;\n  b;\n}\nfunction g() {\n' +
+    const source =
+      'function f() {\n  a;\n  b;\n}\nfunction g() {\n' +
       '  const long = "a line long enough to be worth omitting";\n' +
       '  const more = "another line long enough to be worth omitting";\n}\n';
     const outliner = fakeOutliner({
@@ -191,7 +213,9 @@ describe('createCodeReducer', () => {
     const result = await createCodeReducer(outliner)(source, CTX);
 
     expect(result.reducer).toBe('code-outline');
-    expect(result.text).toContain('export function alpha(a: number): number {\r');
+    expect(result.text).toContain(
+      'export function alpha(a: number): number {\r',
+    );
     expectReconstructs(result.text, source);
   });
 
@@ -236,7 +260,9 @@ describe('createCodeReducer', () => {
       };
 
       await expect(createCodeReducer(outliner)(SOURCE, CTX)).resolves.toEqual(
-        expect.objectContaining({ reducer: expect.stringMatching(/^code-fallback:/) }),
+        expect.objectContaining({
+          reducer: expect.stringMatching(/^code-fallback:/),
+        }),
       );
       const result = await createCodeReducer(outliner)(SOURCE, CTX);
       expectLogFallback(result, SOURCE, 'outliner failed: RangeError');
@@ -265,7 +291,11 @@ describe('createCodeReducer', () => {
 
       const result = await createCodeReducer(outliner)(input, CTX);
 
-      expectLogFallback(result, input, 'input larger than 256 KiB; not outlined');
+      expectLogFallback(
+        result,
+        input,
+        'input larger than 256 KiB; not outlined',
+      );
       expect(outliner.calls).toHaveLength(0);
     });
 
@@ -285,7 +315,10 @@ describe('createCodeReducer', () => {
         { omittable: {} as unknown as CodeLineSpan[], focus: [] },
       ],
     ])('falls back on %s', async (_name, outline) => {
-      const result = await createCodeReducer(fakeOutliner(outline))(SOURCE, CTX);
+      const result = await createCodeReducer(fakeOutliner(outline))(
+        SOURCE,
+        CTX,
+      );
 
       expectLogFallback(result, SOURCE, 'outline line spans out of range');
     });
@@ -335,7 +368,8 @@ describe('createCodeReducer', () => {
   });
 
   it('never returns empty text when every line is omittable', async () => {
-    const source = 'a line that is long enough\nanother line that is long enough';
+    const source =
+      'a line that is long enough\nanother line that is long enough';
     const result = await createCodeReducer(
       fakeOutliner({ omittable: [span(0, 1)], focus: [] }),
     )(source, CTX);
@@ -355,7 +389,9 @@ describe('createCodeReducer', () => {
   it('handles 16,000 nested spans in linear time', async () => {
     const LOAD_FACTOR = 8;
     const HARD_CEILING_MS = 10_000;
-    const nested = (depth: number): { source: string; outline: CodeOutline } => {
+    const nested = (
+      depth: number,
+    ): { source: string; outline: CodeOutline } => {
       const lines = [
         ...Array.from({ length: depth }, () => 'f(() => {'),
         ...Array.from({ length: depth }, () => '});'),
@@ -378,7 +414,9 @@ describe('createCodeReducer', () => {
         const start = performance.now();
         const result = await reduce(source, CTX);
         elapsed = Math.min(elapsed, performance.now() - start);
-        expect(result.text).toBe(`f(() => {\n… ${2 * depth - 2} lines omitted …\n});`);
+        expect(result.text).toBe(
+          `f(() => {\n… ${2 * depth - 2} lines omitted …\n});`,
+        );
       }
       return elapsed;
     };

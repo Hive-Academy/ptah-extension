@@ -272,7 +272,7 @@ describe('ptah_get_diagnostics coverage, provider to text (TASK_2026_559 Batch 2
   });
 
   it('getErrors: the severity filter drops warnings and keeps the coverage', async () => {
-    const root = fixture({ ...MIXED, 'lib/tool.rb': 'puts 1\n' });
+    const root = fixture({ ...MIXED, 'lib/tool.ex': 'puts 1\n' });
     const inner = fakeTypeScript((scope) =>
       (scope?.files ?? []).map((file) => ({
         file,
@@ -284,15 +284,15 @@ describe('ptah_get_diagnostics coverage, provider to text (TASK_2026_559 Batch 2
 
     const text = await callTool(root, inner, {
       severity: 'error',
-      files: ['src/app.ts', 'lib/tool.rb'],
+      files: ['src/app.ts', 'lib/tool.ex'],
     });
 
     expect(text).not.toContain('only a warning');
     expect(text).not.toMatch(/No issues found/);
     expect(text).toContain(
-      '1 file unsupported (no diagnostics for ruby 1 on this host)',
+      '1 file unsupported (no diagnostics for elixir 1 on this host)',
     );
-    expect(text).toContain(`\`${abs(root, 'lib/tool.rb')}\``);
+    expect(text).toContain(`\`${abs(root, 'lib/tool.ex')}\``);
   });
 
   it('a long result is cut by the budget and still carries its coverage verdict and requested files first', async () => {

@@ -14,6 +14,7 @@ import {
   classifyFileForCoverage,
   extractExportsFromMatches,
   hasCapability,
+  isCParsedAsCpp,
   languageForExtension,
   supportedLanguagesFor,
   type SupportedLanguage,
@@ -100,7 +101,14 @@ export function buildAstNamespace(
       };
       const unextractedExports = result.value?.unextractedExports ?? [];
       return {
-        ...parseHonesty(absolutePath, insights, unextractedExports.length > 0),
+        // A definition whose declarator names nothing readable also makes
+        // the result partial (Batch 31 r1 R31-02).
+        ...parseHonesty(
+          absolutePath,
+          insights,
+          unextractedExports.length > 0 ||
+            (result.value?.unextractedDeclarations ?? []).length > 0,
+        ),
         ...(unextractedExports.length > 0 ? { unextractedExports } : {}),
         file: filePath,
         language,
@@ -350,6 +358,10 @@ function fileCoverage(
       : {}),
     ...(unsupportedSyntax
       ? { failedByReason: { 'unsupported-syntax': 1 } }
+      : {}),
+    // C parsed with the C++ grammar (User Decision 19).
+    ...(eligible && isCParsedAsCpp(filePath)
+      ? { approximations: ['c:parsed-as-cpp' as const] }
       : {}),
   });
 }

@@ -353,10 +353,17 @@ async function tsxOutlineHonesty(): Promise<void> {
   }
 }
 
-/** One Batch 30 language's outline honesty subject. */
+/** One grammar language's outline honesty subject (Batches 30 and 31). */
 interface GrammarOutlineSubject {
-  readonly language: 'java' | 'rust';
+  readonly language: 'java' | 'rust' | 'php' | 'ruby' | 'cpp';
   readonly hint: string;
+  /**
+   * A file of the same language the outliner must refuse; defaults to the
+   * source with a stray `(` after its first `{`.
+   */
+  readonly broken?: string;
+  /** The served path's `resultLanguage`; defaults to `language`. */
+  readonly resultLanguage?: string;
   /** Small file: one method body, focus on its type. */
   readonly source: string;
   readonly focusSymbol: string;
@@ -440,10 +447,177 @@ const RUST_OUTLINE: GrammarOutlineSubject = {
   ),
 };
 
+/** Batch 31: PHP inside HTML. */
+const PHP_OUTLINE: GrammarOutlineSubject = {
+  language: 'php',
+  hint: '.php',
+  source: [
+    '<h1>Counter</h1>',
+    '<?php',
+    'class Counter',
+    '{',
+    '    public function next(int $step): int',
+    '    {',
+    '        $value = $step + 1;',
+    '        return $value;',
+    '    }',
+    '}',
+    '?>',
+    '<p>end</p>',
+    '',
+  ].join('\n'),
+  focusSymbol: 'Counter',
+  omittable: [{ startLine: 6, endLine: 7 }],
+  focus: [{ startLine: 2, endLine: 9 }],
+  broken: '<p>x</p>\n<?php\nfunction broken( { $x = ; }\n',
+  large: () => {
+    const out = ['<?php'];
+    for (const name of LARGE_MODULE_NAMES) {
+      out.push(`function ${name}(array $rows) {`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `    $row${i} = $rows[${i}] ?? ${JSON.stringify(`${name}-${i}`)};`,
+        );
+      }
+      out.push('    return count($rows);', '}');
+    }
+    out.push('');
+    return out.join('\n');
+  },
+  keptSignatures: LARGE_MODULE_NAMES.map(
+    (name) => `function ${name}(array $rows) {`,
+  ),
+};
+
+/** Batch 31: Ruby, whose method bodies close with `end`. */
+const RUBY_OUTLINE: GrammarOutlineSubject = {
+  language: 'ruby',
+  hint: '.rb',
+  source: [
+    'class Counter',
+    '  def next_value(step)',
+    '    value = step + 1',
+    '    value',
+    '  end',
+    'end',
+    '',
+  ].join('\n'),
+  focusSymbol: 'Counter',
+  omittable: [{ startLine: 2, endLine: 3 }],
+  focus: [{ startLine: 0, endLine: 5 }],
+  broken: 'class Counter\n  def next_value(step\n    1 +\n  end\nend\n',
+  large: () => {
+    const out: string[] = [];
+    for (const name of LARGE_MODULE_NAMES) {
+      out.push(`def ${name}(rows)`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `  row${i} = rows.fetch(${i}, ${JSON.stringify(`${name}-${i}`)})`,
+        );
+      }
+      out.push('  rows.size', 'end', '');
+    }
+    return out.join('\n');
+  },
+  keptSignatures: LARGE_MODULE_NAMES.map((name) => `def ${name}(rows)`),
+};
+
+/** A C-and-C++ over-budget module (valid in both). */
+function largeCModule(): string {
+  const out: string[] = [];
+  for (const name of LARGE_MODULE_NAMES) {
+    out.push(`int ${name}(const int *rows, int size) {`);
+    for (let i = 0; i < 80; i++) {
+      out.push(`    int row${i} = size > ${i} ? rows[${i}] : ${i};`);
+    }
+    out.push('    return size;', '}', '');
+  }
+  return out.join('\n');
+}
+
+const C_KEPT_SIGNATURES = LARGE_MODULE_NAMES.map(
+  (name) => `int ${name}(const int *rows, int size) {`,
+);
+
+/** Valid C, but `new` is a C++ keyword: the C++ grammar rejects it. */
+const C_WITH_CPP_KEYWORD =
+  'int make(void) {\n    int *new = 0;\n    return new == 0;\n}\n';
+
 /**
- * `outline:java|rust` (Batch 30): the real outliner over the real grammar
- * outlines the file instead of refusing (exact spans), a syntax error is
- * still refused (contrast), and an over-budget `execute_code` result
+ * Batch 31: `outline:cpp` on a real `.cpp`, `.c` and `.h` file (C parses with
+ * the C++ grammar, Decision 19); the C ones are served by extension.
+ */
+const CPP_OUTLINES: readonly GrammarOutlineSubject[] = [
+  {
+    language: 'cpp',
+    hint: '.cpp',
+    source: [
+      'class Counter {',
+      ' public:',
+      '  int next(int step) {',
+      '    int value = step + 1;',
+      '    return value;',
+      '  }',
+      '};',
+      '',
+    ].join('\n'),
+    focusSymbol: 'Counter',
+    omittable: [{ startLine: 3, endLine: 4 }],
+    focus: [{ startLine: 0, endLine: 6 }],
+    large: largeCModule,
+    keptSignatures: C_KEPT_SIGNATURES,
+  },
+  {
+    language: 'cpp',
+    hint: '.c',
+    resultLanguage: '.c',
+    source: [
+      'struct counter {',
+      '    int total;',
+      '};',
+      'int counter_next(struct counter *c, int step) {',
+      '    c->total += step;',
+      '    return c->total;',
+      '}',
+      '',
+    ].join('\n'),
+    focusSymbol: 'counter_next',
+    omittable: [{ startLine: 4, endLine: 5 }],
+    focus: [{ startLine: 3, endLine: 6 }],
+    broken: C_WITH_CPP_KEYWORD,
+    large: largeCModule,
+    keptSignatures: C_KEPT_SIGNATURES,
+  },
+  {
+    language: 'cpp',
+    hint: '.h',
+    resultLanguage: 'include/counter.h',
+    source: [
+      '#ifndef COUNTER_H',
+      '#define COUNTER_H',
+      'int counter_next(int step);',
+      'static inline int counter_twice(int v) {',
+      '    int doubled = v * 2;',
+      '    return doubled;',
+      '}',
+      '#endif',
+      '',
+    ].join('\n'),
+    focusSymbol: 'counter_next',
+    omittable: [{ startLine: 4, endLine: 5 }],
+    focus: [{ startLine: 2, endLine: 2 }],
+    broken: C_WITH_CPP_KEYWORD,
+    large: largeCModule,
+    keptSignatures: C_KEPT_SIGNATURES,
+  },
+];
+
+/**
+ * `outline:java|rust` (Batch 30), `outline:php|ruby|cpp` (Batch 31; cpp on
+ * a `.cpp`, a `.c` and a `.h` file): the real outliner over the real grammar
+ * outlines the file instead of refusing (exact spans), a syntax error (for C:
+ * valid C the C++ grammar rejects) is still refused (contrast), and an
+ * over-budget `execute_code` result
  * declared as that language reaches the outliner through the real
  * dispatcher and keeps every signature, the middle one included.
  */
@@ -478,8 +652,8 @@ async function grammarOutlineHonesty(
         `unexpected ${subject.hint} outline: ${JSON.stringify(outline)}`,
       );
     }
-    const broken = subject.source.replace('{', '{ (');
-    if ((await outliner.outline(broken, subject.language)) !== null) {
+    const broken = subject.broken ?? subject.source.replace('{', '{ (');
+    if ((await outliner.outline(broken, subject.hint)) !== null) {
       throw new Error(
         `a ${subject.language} file with a syntax error was outlined (contrast failed)`,
       );
@@ -487,7 +661,7 @@ async function grammarOutlineHonesty(
     const served = await executeThroughDispatcher(
       parser,
       subject.large(),
-      subject.language,
+      subject.resultLanguage ?? subject.language,
     );
     if (served.reducer !== 'code-outline') {
       throw new Error(
@@ -501,6 +675,24 @@ async function grammarOutlineHonesty(
     }
     if (served.spooled !== served.raw) {
       throw new Error(`the ${subject.language} spool is not the raw text`);
+    }
+    // Batch 31 r1 R31-01: C outlined with the C++ grammar says so in the
+    // served text; C++ and every other language do not.
+    const cSubject = subject.hint === '.c' || subject.hint === '.h';
+    if (
+      served.text.includes('… approximations: c:parsed-as-cpp …') !== cSubject
+    ) {
+      throw new Error(
+        `the served ${subject.hint} outline ${cSubject ? 'hides' : 'claims'} c:parsed-as-cpp`,
+      );
+    }
+    if (
+      JSON.stringify(outline.approximations ?? []) !==
+      JSON.stringify(cSubject ? ['c:parsed-as-cpp'] : [])
+    ) {
+      throw new Error(
+        `unexpected ${subject.hint} outline approximations: ${JSON.stringify(outline.approximations)}`,
+      );
     }
   } finally {
     parser.dispose();
@@ -705,6 +897,9 @@ const CHECKED_ELSEWHERE_KEYS = [
   'outline:tsx',
   'outline:java',
   'outline:rust',
+  'outline:php',
+  'outline:ruby',
+  'outline:cpp',
 ] as const;
 
 const MCP_HONESTY_CHECKS: Readonly<
@@ -716,6 +911,11 @@ const MCP_HONESTY_CHECKS: Readonly<
   'outline:tsx': tsxOutlineHonesty,
   'outline:java': async () => grammarOutlineHonesty(JAVA_OUTLINE),
   'outline:rust': async () => grammarOutlineHonesty(RUST_OUTLINE),
+  'outline:php': async () => grammarOutlineHonesty(PHP_OUTLINE),
+  'outline:ruby': async () => grammarOutlineHonesty(RUBY_OUTLINE),
+  'outline:cpp': async () => {
+    for (const subject of CPP_OUTLINES) await grammarOutlineHonesty(subject);
+  },
 };
 
 describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)", () => {
@@ -735,7 +935,10 @@ describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)"
       'honesty:ptah_get_diagnostics',
       'honesty:ptah_lsp_definitions',
       'honesty:ptah_lsp_references',
+      'outline:cpp',
       'outline:java',
+      'outline:php',
+      'outline:ruby',
       'outline:rust',
       'outline:tsx',
     ]);

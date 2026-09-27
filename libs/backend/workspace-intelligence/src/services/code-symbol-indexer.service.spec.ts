@@ -483,6 +483,9 @@ describe('CodeSymbolIndexer', () => {
       'csharp',
       'java',
       'rust',
+      'php',
+      'ruby',
+      'cpp',
     ];
 
     interface Entry {

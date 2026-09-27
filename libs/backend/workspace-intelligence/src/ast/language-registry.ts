@@ -25,8 +25,8 @@
  *   the Electron definition fallback), so each language module declares them
  *   (`capabilities`); `languages/types.ts` cites where each is implemented.
  * - Languages with no grammar yet keep an entry with their extensions and no
- *   capability, so a `.php` file counts as `unsupported` under `php` instead
- *   of disappearing. Grammar batches (29b-31, 30k) turn them on.
+ *   capability, so a `.kt` file counts as `unsupported` under `kotlin`
+ *   instead of disappearing. Grammar batches (29b-31, 30k) turn them on.
  */
 import {
   LANGUAGE_IDS,
@@ -36,6 +36,7 @@ import {
 } from '@ptah-extension/platform-core';
 import type { SupportedLanguage } from './ast.types';
 import { LANGUAGE_MODULES } from './languages';
+import { C_EXTENSIONS_PARSED_AS_CPP } from './languages/cpp.language';
 
 /** How a language's dependency edges are drawn. */
 export interface GraphEdgesCapability {
@@ -82,17 +83,11 @@ export interface LanguageRegistryEntry {
   readonly capabilities: LanguageCapabilities;
 }
 
-/**
- * Extensions of languages with no grammar yet. `.c`/`.h` belong to `cpp`
- * (Decision 19).
- */
+/** Extensions of languages with no grammar yet. */
 const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
   Record<Exclude<LanguageId, SupportedLanguage>, readonly string[]>
 > = {
   kotlin: ['.kt', '.kts'],
-  php: ['.php', '.phtml'],
-  ruby: ['.rb', '.rake'],
-  cpp: ['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.c', '.h'],
 };
 
 /** Source languages recognised for `unsupportedByLanguage`, never analysed. */
@@ -414,6 +409,15 @@ function baseNameOf(filePath: string): string {
 function extensionOf(baseName: string): string {
   const dot = baseName.lastIndexOf('.');
   return dot > 0 ? baseName.slice(dot) : '';
+}
+
+/**
+ * Whether the file is C source parsed with the C++ grammar (User Decision
+ * 19): an answer that parsed one discloses the `c:parsed-as-cpp`
+ * approximation.
+ */
+export function isCParsedAsCpp(filePath: string): boolean {
+  return C_EXTENSIONS_PARSED_AS_CPP.includes(extensionOf(baseNameOf(filePath)));
 }
 
 /**

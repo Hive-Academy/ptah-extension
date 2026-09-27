@@ -35,6 +35,7 @@
 
 import 'reflect-metadata';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
@@ -61,7 +62,17 @@ import type { FileSystemService } from '../../services/file-system.service';
 import { CodeSymbolIndexer } from '../../services/code-symbol-indexer.service';
 import type { WorkspaceIndexerService } from '../../file-indexing/workspace-indexer.service';
 import { LanguageAwareDiagnosticsProvider } from '../../diagnostics/language-aware-diagnostics-provider';
-import type { IDiagnosticsProvider } from '@ptah-extension/platform-core';
+import type {
+  DiagnosticsResult,
+  IDiagnosticsProvider,
+  IProcessSpawner,
+  IStateStorage,
+  IWorkspaceScopedStateStorage,
+} from '@ptah-extension/platform-core';
+import { GoVetChecker } from '../../diagnostics/external-checkers/go-vet-checker';
+import type { CheckerRunResult } from '../../diagnostics/external-checkers/checker-runner';
+import { GoVetConsentStore } from '../../diagnostics/external-checkers/go-vet-consent-store';
+import type { SupportedLanguage } from '../../ast/ast.types';
 
 import {
   createNoGrammarFixture,
@@ -334,6 +345,10 @@ const CHECKED_ELSEWHERE: ReadonlySet<string> = new Set([
   // Batch 30: same outliner.
   'outline:java',
   'outline:rust',
+  // Batch 31: same outliner (cpp on real .c, .h and .cpp files).
+  'outline:php',
+  'outline:ruby',
+  'outline:cpp',
 ]);
 
 function realFileSystem(): FileSystemService {
@@ -431,11 +446,48 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
   'codeIndex:rust': async () =>
     codeIndexHonesty({ root: '/ws-30-rust-index', ...RUST_HONESTY }),
   'syntaxDiagnostics:rust': async () => syntaxDiagnosticsHonesty('rust'),
+
+  // Batch 31. C has no grammar of its own (User Decision 19): every cpp key
+  // is proved on a real .cpp, .c and .h file, and only the C ones name
+  // `c:parsed-as-cpp`.
+  'parse:php': async () => grammarParseHonesty(PHP_HONESTY),
+  'codeIndex:php': async () =>
+    codeIndexHonesty({ root: '/ws-31-php-index', ...PHP_HONESTY }),
+  'syntaxDiagnostics:php': async () => syntaxDiagnosticsHonesty('php'),
+  'parse:ruby': async () => grammarParseHonesty(RUBY_HONESTY),
+  'codeIndex:ruby': async () =>
+    codeIndexHonesty({ root: '/ws-31-ruby-index', ...RUBY_HONESTY }),
+  'syntaxDiagnostics:ruby': async () => syntaxDiagnosticsHonesty('ruby'),
+  'parse:cpp': async () => {
+    for (const subject of CPP_HONESTY) await grammarParseHonesty(subject);
+  },
+  'codeIndex:cpp': async () => {
+    for (const subject of CPP_HONESTY) {
+      await codeIndexHonesty({
+        root: `/ws-31-cpp-index-${path.extname(subject.relativePath).slice(1)}`,
+        ...subject,
+        approximations: subject.relativePath.endsWith('.cpp')
+          ? []
+          : ['c:parsed-as-cpp'],
+      });
+    }
+  },
+  'syntaxDiagnostics:cpp': async () => {
+    await syntaxDiagnosticsHonesty('cpp');
+    // Valid C the C++ grammar rejects: reported, and named as C parsed as C++.
+    await syntaxDiagnosticsHonesty('cpp', {
+      rel: 'src/legacy.c',
+      content: C_WITH_CPP_KEYWORD,
+    });
+  },
+
+  // Batch 37b (Task 37b3.2): go vet is never a type-check claim.
+  'typeCheck:go': async () => goVetTypeCheckHonesty(),
 };
 
-/** One Batch 30 language's honesty source: clean, and a broken contrast. */
+/** One grammar language's honesty source: clean, and a broken contrast. */
 interface GrammarHonestySource {
-  readonly language: 'java' | 'rust';
+  readonly language: SupportedLanguage;
   readonly relativePath: string;
   readonly source: string;
   readonly names: readonly string[];
@@ -492,6 +544,125 @@ const RUST_HONESTY: GrammarHonestySource = {
   names: ['Widget', 'render'],
   broken: 'fn broken( {\n    let x = ;\n}\n',
 };
+
+/** Batch 31: PHP inside HTML, with a function whose body is HTML. */
+const PHP_HONESTY: GrammarHonestySource = {
+  language: 'php',
+  relativePath: 'app/Widget.php',
+  source: [
+    '<ul>',
+    '<?php',
+    'namespace App;',
+    '',
+    'class Widget',
+    '{',
+    '    public function render($label)',
+    '    {',
+    '        return "<li>$label</li>";',
+    '    }',
+    '}',
+    '',
+    'class Other',
+    '{',
+    // The same method name in another class: its own row (R30-02).
+    '    public function render() { return 1; }',
+    '}',
+    '?>',
+    '</ul>',
+    '<?php function footer() { ?><footer></footer><?php } ?>',
+    '',
+  ].join('\n'),
+  names: ['Widget', 'render', 'footer'],
+  broken: '<?php\nfunction broken( { $x = ; }\n',
+};
+
+/** Batch 31: Ruby with interpolation, a reopened class and a scoped one. */
+const RUBY_HONESTY: GrammarHonestySource = {
+  language: 'ruby',
+  relativePath: 'lib/widget.rb',
+  source: [
+    'class Widget',
+    '  def render(label)',
+    '    "<#{label}>"',
+    '  end',
+    'end',
+    '',
+    // A reopened class and a second `render`: their own rows (R30-02).
+    'class Widget',
+    '  def render; end',
+    'end',
+    '',
+    'class Admin::Panel',
+    'end',
+    '',
+  ].join('\n'),
+  names: ['Widget', 'render', 'Panel'],
+  broken: 'def broken(a\n  1 +\nend\n',
+};
+
+/** Valid C the C++ grammar rejects: `new` is a C++ keyword. */
+const C_WITH_CPP_KEYWORD =
+  'int make(void) {\n    int *new = 0;\n    return new == 0;\n}\n';
+
+/** Batch 31: C++, and C through the C++ grammar (`.c`, `.h`). */
+const CPP_HONESTY: readonly GrammarHonestySource[] = [
+  {
+    language: 'cpp',
+    relativePath: 'native/widget.cpp',
+    source: [
+      '#include "widget.h"',
+      'namespace ui {',
+      'class Widget {',
+      ' public:',
+      '  int render(int width) const;',
+      '};',
+      'int Widget::render(int width) const { return width; }',
+      // An overload: its own row (R30-02).
+      'int render(double scale) { return 1; }',
+      '}',
+      '',
+    ].join('\n'),
+    names: ['Widget', 'render'],
+    broken: 'int broken( { int x = ; }\n',
+  },
+  {
+    language: 'cpp',
+    relativePath: 'native/widget.c',
+    source: [
+      '#include "widget.h"',
+      'typedef struct { int width; } Widget;',
+      'int render(const Widget *w) { return w->width; }',
+      '',
+    ].join('\n'),
+    names: ['Widget', 'render'],
+    broken: C_WITH_CPP_KEYWORD,
+  },
+  {
+    language: 'cpp',
+    relativePath: 'native/widget.h',
+    source: [
+      '#ifndef WIDGET_H',
+      '#define WIDGET_H',
+      'struct Widget { int width; };',
+      'int render(const struct Widget *w);',
+      'static inline int render_twice(int v) { return v * 2; }',
+      '#endif',
+      '',
+    ].join('\n'),
+    names: ['Widget', 'render_twice'],
+    // Valid C, but an `extern "C"` block split across `#ifdef`s.
+    broken: [
+      '#ifdef __cplusplus',
+      'extern "C" {',
+      '#endif',
+      'int render(void);',
+      '#ifdef __cplusplus',
+      '}',
+      '#endif',
+      '',
+    ].join('\n'),
+  },
+];
 
 /**
  * `parse:<lang>` (Batch 30): the real parser analyses the file cleanly and
@@ -592,15 +763,17 @@ async function tsxParseHonesty(): Promise<void> {
 }
 
 /**
- * `codeIndex:<lang>` (tsx since 29b, java/rust since 30): the real indexer
- * stores the file's declarations and counts the file analysed, not
- * unsupported or failed.
+ * `codeIndex:<lang>` (tsx since 29b, java/rust since 30, php/ruby/cpp since
+ * 31): the real indexer stores the file's declarations and counts the file
+ * analysed, not unsupported or failed. When `approximations` is given, the
+ * coverage names exactly those (Batch 31: `c:parsed-as-cpp` for C only).
  */
 async function codeIndexHonesty(subject: {
   readonly root: string;
   readonly relativePath: string;
   readonly source: string;
   readonly names: readonly string[];
+  readonly approximations?: readonly string[];
 }): Promise<void> {
   const { root, relativePath, source } = subject;
   const file = `${root}/${relativePath}`;
@@ -667,6 +840,15 @@ async function codeIndexHonesty(subject: {
   ) {
     throw new Error(
       `expected ${relativePath} analysed, not unsupported or failed: ${JSON.stringify(coverage)}`,
+    );
+  }
+  if (
+    subject.approximations !== undefined &&
+    JSON.stringify(coverage.approximations ?? []) !==
+      JSON.stringify(subject.approximations)
+  ) {
+    throw new Error(
+      `${relativePath}: expected approximations ${JSON.stringify(subject.approximations)}, got ${JSON.stringify(coverage.approximations)}`,
     );
   }
 }
@@ -985,7 +1167,9 @@ async function symbolIndexerHonesty(): Promise<void> {
  * an executable syntax-only check, not a declaration.
  */
 async function syntaxDiagnosticsHonesty(
-  language: 'python' | 'go' | 'csharp' | 'java' | 'rust',
+  language:
+    'python' | 'go' | 'csharp' | 'java' | 'rust' | 'php' | 'ruby' | 'cpp',
+  override?: { readonly rel: string; readonly content: string },
 ): Promise<void> {
   const BROKEN: Record<typeof language, { rel: string; content: string }> = {
     python: { rel: 'app/bad.py', content: 'def f(:\n    return 1\n' },
@@ -1005,8 +1189,22 @@ async function syntaxDiagnosticsHonesty(
       rel: 'src/lib.rs',
       content: 'fn f() {\n    let x = ;\n}\n',
     },
+    php: {
+      rel: 'app/bad.php',
+      content: '<p>page</p>\n<?php function f( { $x = ; } ?>\n',
+    },
+    ruby: {
+      rel: 'lib/bad.rb',
+      content: 'def f(a\n  1 +\nend\n',
+    },
+    cpp: {
+      rel: 'src/bad.cpp',
+      content: 'int f( { int x = ; }\n',
+    },
   };
-  const { rel, content } = BROKEN[language];
+  const { rel, content } = override ?? BROKEN[language];
+  // A C file is judged by the C++ grammar and must say so (Batch 31).
+  const cSource = /\.[ch]$/.test(rel);
 
   const root = fs.mkdtempSync(
     path.join(require('os').tmpdir(), 'ptah-honesty-diag-'),
@@ -1059,7 +1257,8 @@ async function syntaxDiagnosticsHonesty(
     for (const d of entry.diagnostics) {
       if (
         d.severity !== 'error' ||
-        !d.message.includes('syntax-only check, not type-checked')
+        !d.message.includes('syntax-only check, not type-checked') ||
+        d.message.includes('c:parsed-as-cpp') !== cSource
       ) {
         throw new Error(
           `diagnostic did not disclose its syntax-only approximation: ${JSON.stringify(d)}`,
@@ -1073,8 +1272,236 @@ async function syntaxDiagnosticsHonesty(
         `coverage did not disclose ${language}:syntax-only: ${JSON.stringify(coverage)}`,
       );
     }
+    if (coverage.approximations.includes('c:parsed-as-cpp') !== cSource) {
+      throw new Error(
+        `c:parsed-as-cpp must be named exactly for C files (${rel}): ${JSON.stringify(coverage)}`,
+      );
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 37b (Task 37b3.2): `typeCheck:go`. Go is not installed where the
+// specs run, so the binary resolution and the process runner are injected;
+// the checker, its consent store and the diagnostics provider are real.
+// ---------------------------------------------------------------------------
+
+/** In-memory host storage for the consent store (one per registered root). */
+class MemoryStateStorage implements IStateStorage {
+  private readonly values = new Map<string, unknown>();
+  get<T>(key: string, defaultValue?: T): T | undefined {
+    return this.values.has(key) ? (this.values.get(key) as T) : defaultValue;
+  }
+  async update(key: string, value: unknown): Promise<void> {
+    if (value === undefined) this.values.delete(key);
+    else this.values.set(key, value);
+  }
+  keys(): readonly string[] {
+    return [...this.values.keys()];
+  }
+}
+
+class WorkspaceStateStorage
+  extends MemoryStateStorage
+  implements IWorkspaceScopedStateStorage
+{
+  private readonly byRoot = new Map<string, MemoryStateStorage>();
+  register(root: string): void {
+    this.byRoot.set(path.resolve(root), new MemoryStateStorage());
+  }
+  getStorageForWorkspace(workspacePath: string): IStateStorage | undefined {
+    return this.byRoot.get(workspacePath);
+  }
+  getAllWorkspacePaths(): string[] {
+    return [...this.byRoot.keys()];
+  }
+}
+
+/** Nothing to show, nothing named unchecked, nothing unmapped. */
+function readsAsClean(result: DiagnosticsResult): boolean {
+  return (
+    result.status === 'available' &&
+    result.diagnostics.length === 0 &&
+    (result.notChecked ?? []).length === 0 &&
+    (result.unmappedFindings ?? 0) === 0
+  );
+}
+
+/** Go answers are syntax-level: never `type-check`, always `go:syntax-only`. */
+function assertNoTypeCheckClaim(result: DiagnosticsResult, when: string): void {
+  const coverage = result.coverage as
+    { checks?: string; approximations?: readonly string[] } | undefined;
+  if (coverage?.checks !== 'syntax-only') {
+    throw new Error(
+      `${when}: a Go-only answer must be checks 'syntax-only': ${JSON.stringify(coverage)}`,
+    );
+  }
+  if (!coverage.approximations?.includes('go:syntax-only')) {
+    throw new Error(
+      `${when}: go:syntax-only was not disclosed: ${JSON.stringify(coverage)}`,
+    );
+  }
+}
+
+async function goVetTypeCheckHonesty(): Promise<void> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-honesty-govet-'));
+  const userData = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'ptah-honesty-govet-user-'),
+  );
+  try {
+    fs.writeFileSync(
+      path.join(root, 'go.mod'),
+      'module example.com/m\n\ngo 1.22\n',
+    );
+    fs.mkdirSync(path.join(root, 'a'));
+    fs.writeFileSync(
+      path.join(root, 'a', 'a.go'),
+      'package a\n\nfunc A() {}\n',
+    );
+    const file = path.join(root, 'a', 'a.go').replace(/\\/g, '/');
+
+    const storage = new WorkspaceStateStorage();
+    storage.register(root);
+    const store = new GoVetConsentStore(storage, { userDataPath: userData });
+    const binary = {
+      path: path.resolve('/opt/go/bin/go'),
+      size: 123,
+      mtimeMs: 456,
+      pathDirs: [path.resolve('/opt/go/bin')],
+    };
+    let vetOutput = '# example.com/m/a\n{}\n';
+    let runs = 0;
+    const runCount = (): number => runs;
+    const run = async (): Promise<CheckerRunResult> => {
+      runs += 1;
+      return {
+        kind: 'exited',
+        code: 0,
+        signal: null,
+        stdout: '',
+        stderr: vetOutput,
+        durationMs: 1,
+      };
+    };
+    const checker = new GoVetChecker({
+      consentStore: store,
+      getSpawner: () =>
+        ({
+          spawnProcess: () => {
+            throw new Error('spawned outside the injected runner');
+          },
+        }) as unknown as IProcessSpawner,
+      userDataPath: userData,
+      logger: { info: () => undefined },
+      env: () => ({ PATH: path.resolve('/opt/go/bin') }),
+      resolveGo: () => binary,
+      run,
+    });
+    const provider = new LanguageAwareDiagnosticsProvider(
+      {
+        getDiagnostics: async () => ({
+          status: 'available',
+          source: 'typescript-compiler',
+          diagnostics: [],
+        }),
+        invalidate: () => undefined,
+      },
+      createMockFileSystemProvider({
+        findFiles: async () => [],
+        stat: async (p: string) => {
+          const stat = fs.statSync(p);
+          return {
+            type: stat.isFile() ? FileType.File : FileType.Directory,
+            ctime: stat.ctimeMs,
+            mtime: stat.mtimeMs,
+            size: stat.size,
+          };
+        },
+        readFile: async (p: string) => fs.readFileSync(p, 'utf-8'),
+      }),
+      parser,
+      process.platform,
+      checker,
+    );
+    const ask = () => provider.getDiagnostics(root, { files: [file] });
+    const namesGoFile = (result: DiagnosticsResult, text: string): boolean =>
+      (result.notChecked ?? []).some(
+        (group) =>
+          group.language === 'go' &&
+          (group.files ?? []).some((f) => f.replace(/\\/g, '/') === file) &&
+          group.reason.includes(text),
+      );
+
+    // Consent off: nothing runs, Go is unchecked with its reason, not clean.
+    const off = await ask();
+    if (
+      runCount() !== 0 ||
+      off.goVet?.status !== 'unchecked' ||
+      off.goVet.reason !== 'no-consent' ||
+      !namesGoFile(off, 'go vet is off') ||
+      readsAsClean(off)
+    ) {
+      throw new Error(
+        `consent off was not an honest unchecked answer: ${JSON.stringify(off)}`,
+      );
+    }
+    assertNoTypeCheckClaim(off, 'consent off');
+
+    // Stale consent (the Go binary changed): same, with the stale reason.
+    await store.grant(root, { ...binary, size: 1 });
+    const stale = await ask();
+    if (
+      runCount() !== 0 ||
+      stale.goVet?.status !== 'unchecked' ||
+      stale.goVet.reason !== 'consent-stale' ||
+      !namesGoFile(stale, 'out of date') ||
+      readsAsClean(stale)
+    ) {
+      throw new Error(
+        `stale consent was not an honest unchecked answer: ${JSON.stringify(stale)}`,
+      );
+    }
+    assertNoTypeCheckClaim(stale, 'stale consent');
+
+    // Current consent, clean vet run: checked, and still no type-check claim.
+    await store.grant(root, binary);
+    const checked = await ask();
+    if (
+      runCount() !== 1 ||
+      checked.goVet?.status !== 'checked' ||
+      checked.goVet.checkedFiles !== 1
+    ) {
+      throw new Error(
+        `a consented clean vet run was not reported as checked: ${JSON.stringify(checked)}`,
+      );
+    }
+    assertNoTypeCheckClaim(checked, 'vet ran');
+
+    // Findings vet places outside the workspace: counted, file named, not clean.
+    vetOutput = JSON.stringify({
+      'example.com/m/a': {
+        printf: [
+          { posn: path.resolve('/elsewhere/generated.go:42:1'), message: 'x' },
+        ],
+      },
+    });
+    const unmapped = await ask();
+    if (
+      unmapped.goVet?.reason !== 'unmapped-findings' ||
+      (unmapped.unmappedFindings ?? 0) < 1 ||
+      !namesGoFile(unmapped, 'outside the workspace') ||
+      readsAsClean(unmapped)
+    ) {
+      throw new Error(
+        `unmapped findings read as clean: ${JSON.stringify(unmapped)}`,
+      );
+    }
+    assertNoTypeCheckClaim(unmapped, 'unmapped findings');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(userData, { recursive: true, force: true });
   }
 }
 

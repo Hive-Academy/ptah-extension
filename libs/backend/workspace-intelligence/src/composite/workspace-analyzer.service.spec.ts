@@ -157,8 +157,14 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       ['D:\\test\\App.java', 'java'],
       ['D:\\test\\lib.rs', 'rust'],
       ['D:\\test\\model.py', 'python'],
+      // Batch 31: C sources are parsed with the C++ grammar (Decision 19).
+      ['D:\\test\\Widget.php', 'php'],
+      ['D:\\test\\widget.rb', 'ruby'],
+      ['D:\\test\\widget.c', 'cpp'],
+      ['D:\\test\\widget.h', 'cpp'],
+      ['D:\\test\\app.cpp', 'cpp'],
     ])(
-      'selects the grammar the shared extension map names for %s (Batch 30)',
+      'selects the grammar the shared extension map names for %s (Batch 30, 31)',
       async (filePath, language) => {
         mockFileSystem.readFile.mockResolvedValue('x');
         mockAstAnalyzer.analyzeSource.mockResolvedValue(

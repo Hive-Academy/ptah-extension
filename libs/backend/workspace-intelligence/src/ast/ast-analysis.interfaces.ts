@@ -156,4 +156,10 @@ export interface CodeInsights extends Partial<ParseQuality> {
    * e.g. `exports[key] = v`. Present means `exports` may be incomplete.
    */
   unextractedExports?: string[];
+  /**
+   * Definitions seen but not represented in `functions` (`line N: <text>`):
+   * a C/C++ declarator that names nothing the walker can read. Present means
+   * `functions` may be incomplete (Batch 31 r1 R31-02).
+   */
+  unextractedDeclarations?: string[];
 }

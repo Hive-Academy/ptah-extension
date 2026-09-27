@@ -246,6 +246,34 @@ describe('ptah_ast_analyze result text (real parser)', () => {
     );
   });
 
+  // Batch 31 r1 R31-01: a clean C answer, in the compact form the
+  // dispatcher serves (`withCompactCoverage`), still names its approximation;
+  // a C++ one does not.
+  it.each([
+    ['widget.c', ['c:parsed-as-cpp']],
+    ['widget.h', ['c:parsed-as-cpp']],
+    ['widget.cpp', undefined],
+  ])(
+    'serves the clean %s answer with approximations %j',
+    async (name, approximations) => {
+      files.set(`${ROOT}/native/${name}`, 'int needle(int x) { return x; }\n');
+      const result = await ast.analyze(`${ROOT}/native/${name}`);
+      const served = JSON.parse(
+        formatAstAnalysisResult({
+          ...result,
+          coverage: compactCoverage(result.coverage),
+        }),
+      ) as { parseStatus: string; coverage: Record<string, unknown> };
+
+      expect(served.parseStatus).toBe('ok');
+      expect(served.coverage).toEqual({
+        clean: true,
+        analyzed: 1,
+        ...(approximations === undefined ? {} : { approximations }),
+      });
+    },
+  );
+
   it('still reports a recovered parse, with coverage, for a file with syntax errors', async () => {
     const result = await ast.analyze(`${ROOT}/src/broken.ts`);
     const text = formatAstAnalysisResult(result);

@@ -63,6 +63,21 @@ export interface QueryCapture {
   endPosition: { row: number; column: number };
 }
 
+/** How deep a capture's node is converted: 3 levels, except a declarator. */
+const CAPTURE_DEPTH = 3;
+/**
+ * A C/C++ declarator capture (`@….declarator`) keeps its whole chain, since
+ * its declared name can sit any number of pointer, parenthesis, function and
+ * scope levels down (`int (*needle())(int)`); `cDeclaratorName` walks it.
+ */
+const DECLARATOR_CAPTURE_DEPTH = 64;
+
+function captureDepth(captureName: string): number {
+  return captureName === 'declarator' || captureName.endsWith('.declarator')
+    ? DECLARATOR_CAPTURE_DEPTH
+    : CAPTURE_DEPTH;
+}
+
 /**
  * Represents a single match from a tree-sitter query.
  */
@@ -443,7 +458,11 @@ export class TreeSitterParserService {
         pattern: match.patternIndex,
         captures: match.captures.map((capture: TsQueryCapture) => ({
           name: capture.name,
-          node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+          node: this._convertNodeToGenericAst(
+            capture.node,
+            0,
+            captureDepth(capture.name),
+          ),
           text: capture.node.text,
           startPosition: {
             row: capture.node.startPosition.row,
@@ -608,7 +627,11 @@ export class TreeSitterParserService {
             pattern: match.patternIndex,
             captures: match.captures.map((capture: TsQueryCapture) => ({
               name: capture.name,
-              node: this._convertNodeToGenericAst(capture.node, 0, 3),
+              node: this._convertNodeToGenericAst(
+                capture.node,
+                0,
+                captureDepth(capture.name),
+              ),
               text: capture.node.text,
               startPosition: {
                 row: capture.node.startPosition.row,

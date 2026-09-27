@@ -616,8 +616,8 @@ describe('LanguageAwareDiagnosticsProvider', () => {
 
     it('answers unavailable, never an empty available, when no requested file has a check', async () => {
       const root = fixture({
-        'A.php': '<?php class A {}\n',
-        'm.rb': 'puts 1\n',
+        'A.swift': 'class A {}\n',
+        'm.ex': 'IO.puts 1\n',
         'run.sh': 'ls\n',
       });
       const inner = fakeTypeScript(TS_CLEAN);
@@ -628,19 +628,19 @@ describe('LanguageAwareDiagnosticsProvider', () => {
       );
 
       const result = await provider.getDiagnostics(root, {
-        files: ['A.php', 'm.rb', 'run.sh'].map((rel) => abs(root, rel)),
+        files: ['A.swift', 'm.ex', 'run.sh'].map((rel) => abs(root, rel)),
       });
 
       expect(inner.getDiagnostics).not.toHaveBeenCalled();
       expect(result.status).toBe('unavailable');
       if (result.status !== 'unavailable') return;
       expect(result.reason).toMatch(/^No requested file could be checked\./);
-      expect(result.reason).toContain('No diagnostics for php on this host');
+      expect(result.reason).toContain('No diagnostics for swift on this host');
       expect(result.coverage).toMatchObject({
         clean: false,
         unsupported: 2,
         unrecognised: 1,
-        unsupportedByLanguage: { php: 1, ruby: 1 },
+        unsupportedByLanguage: { swift: 1, elixir: 1 },
       });
     });
 
@@ -732,7 +732,7 @@ describe('LanguageAwareDiagnosticsProvider', () => {
         diskFs([
           abs(root, 'web/a.ts'),
           abs(root, 'api/main.py'),
-          abs(root, 'svc/Widget.php'),
+          abs(root, 'svc/Widget.swift'),
         ]).fsProvider,
         scriptedParser(),
       );
@@ -750,12 +750,12 @@ describe('LanguageAwareDiagnosticsProvider', () => {
         analyzed: null,
         unchecked: 1,
         unsupported: 1,
-        unsupportedByLanguage: { php: 1 },
+        unsupportedByLanguage: { swift: 1 },
         checks: 'type-check',
       });
       expect(result.notChecked?.map((group) => group.language)).toEqual([
         'python',
-        'php',
+        'swift',
       ]);
     });
 

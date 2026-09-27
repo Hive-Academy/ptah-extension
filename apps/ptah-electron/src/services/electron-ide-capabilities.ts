@@ -77,6 +77,7 @@ import {
   EXTENSION_LANGUAGE_MAP,
   LANGUAGE_REGISTRY,
   extensionHasCapability,
+  isCParsedAsCpp,
   languageForExtension,
   recognisedSourceExtensions,
   type DependencyGraphService,
@@ -85,6 +86,10 @@ import {
   type TreeSitterParserService,
   type SupportedLanguage,
 } from '@ptah-extension/workspace-intelligence';
+import {
+  rustFormatReferences,
+  type SourcePosition,
+} from './rust-format-references';
 import type {
   IIDECapabilities,
   Location,
@@ -115,7 +120,7 @@ const MAX_SCAN_FILE_BYTES = 1024 * 1024;
  * Extensions the reference text scan reads: every source extension the
  * language registry recognises (capability-bearing, recognition-only and
  * recognised-only languages alike), so a reference from a language without a
- * grammar (Kotlin, PHP, Ruby, ...) is still found by name.
+ * grammar (Kotlin, Swift, ...) is still found by name.
  */
 const SCAN_EXTENSIONS: readonly string[] = recognisedSourceExtensions();
 
@@ -259,17 +264,24 @@ type RealpathFn = (filePath: string) => Promise<string>;
 
 /**
  * Identifier characters for symbol-at-position extraction and the reference
- * matcher's boundaries. `$` is an identifier character in TS/JS/Java/C# but
- * not in Rust, where `{0:name$}` is a format argument followed by a width
- * marker (Batch 30 r1 R30-03).
+ * matcher's boundaries. `$` is an identifier character in TS/JS/Java/C# (and
+ * a GCC extension in C/C++) but not in Rust, where `{0:name$}` is a format
+ * argument followed by a width marker (Batch 30 r1 R30-03), nor in PHP and
+ * Ruby, where it is a sigil: `$name` is a use of `name` (Batch 31).
  */
 const IDENTIFIER_CHARS = 'A-Za-z0-9_$';
-const RUST_IDENTIFIER_CHARS = 'A-Za-z0-9_';
+const WORD_IDENTIFIER_CHARS = 'A-Za-z0-9_';
+const DOLLAR_IS_NOT_IDENTIFIER: ReadonlySet<SupportedLanguage> = new Set([
+  'rust',
+  'php',
+  'ruby',
+]);
 
 /** Identifier character class for a file, by the grammar its extension selects. */
 function identifierCharsFor(filePath: string): string {
-  return extToLanguage(filePath) === 'rust'
-    ? RUST_IDENTIFIER_CHARS
+  const language = extToLanguage(filePath);
+  return language !== null && DOLLAR_IS_NOT_IDENTIFIER.has(language)
+    ? WORD_IDENTIFIER_CHARS
     : IDENTIFIER_CHARS;
 }
 
@@ -283,7 +295,10 @@ function identifierCharsFor(filePath: string): string {
  * text: an expression inside `${...}` / `{...}` / `\{...}` is a real
  * reference (Batch 26b r1 B6). A Rust format string is an ordinary string
  * literal to the grammar, so a Rust string containing a brace is not excluded
- * at all (Batch 30). Node names proven against the shipped grammars.
+ * at all (Batch 30). A PHP interpolated string (`"$x {$x}"`, heredoc) and a
+ * Ruby one (`"#{x}"`, heredoc, regex, backticks) exclude only their literal
+ * `string_content`, so the interpolated names stay (Batch 31). Node names
+ * proven against the shipped grammars.
  */
 const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
   typescript:
@@ -304,20 +319,25 @@ const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
   java:
     '[(line_comment) @x (block_comment) @x (character_literal) @x ' +
     '(string_fragment) @x (multiline_string_fragment) @x]',
-  // Rust (Batch 30 r1 R30-03): a format string's `{name}` / `{0:name$}`
-  // captures a variable, and the grammar does not parse it. A `str` literal
-  // is therefore excluded only when it holds no brace and no escape (an
-  // escape such as `\x7b` can spell one); a raw string only when it holds no
-  // brace. Byte strings (`b"…"`, `br"…"`) can never be format strings, so
-  // they are always excluded. A kept non-format string with a brace may add
-  // a false reference: the text-scan approximation, never a lost one.
-  rust: [
-    '[(line_comment) @x (block_comment) @x (char_literal) @x]',
-    '((string_literal) @x (#match? @x "^b"))',
-    String.raw`((string_literal) @x (#not-match? @x "^b") (#not-match? @x "[{}\\\\]"))`,
-    '((raw_string_literal) @x (#match? @x "^b"))',
-    '((raw_string_literal) @x (#not-match? @x "^b") (#not-match? @x "[{}]"))',
-  ].join('\n'),
+  // Rust (Batch 30 r1 R30-03, Batch 31 r1 R31-04): a format string's
+  // `{name}` / `{0:name$}` captures a variable, and the grammar does not parse
+  // it. Every string (`@s`) is excluded from the raw word scan and read
+  // instead by `rustFormatReferences`, which decodes its escapes and applies
+  // the `{{`/`}}` rules, so `"\x7bneedle\x7d"` and `"{{{needle}"` are uses
+  // and `"{{needle}}"` is not. Byte strings name no argument.
+  rust:
+    '[(line_comment) @x (block_comment) @x (char_literal) @x] ' +
+    '[(string_literal) @s (raw_string_literal) @s]',
+  // PHP: HTML outside `<?php … ?>` is `text`, never PHP code; a nowdoc and a
+  // single-quoted string never interpolate.
+  php:
+    '[(comment) @x (text) @x (string) @x (string_content) @x ' +
+    '(nowdoc_string) @x]',
+  ruby: '[(comment) @x (string_content) @x (heredoc_content) @x]',
+  // C/C++ strings never interpolate; an `#include <…>` path is not code.
+  cpp:
+    '[(comment) @x (string_literal) @x (raw_string_literal) @x ' +
+    '(char_literal) @x (system_lib_string) @x]',
 };
 
 /** Excluded node range (0-based rows/columns), end-exclusive on column. */
@@ -1094,6 +1114,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
         const scan = await this.collectMatchesInFile(
           files[i],
           matcherFor(files[i]),
+          identifier,
           locations,
         );
         if (scan.status !== 'scanned' || scan.capped) truncated = true;
@@ -1124,6 +1145,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   private async collectMatchesInFile(
     filePath: string,
     matcher: RegExp,
+    identifier: string,
     out: Location[],
   ): Promise<{ status: FileScanStatus; capped: boolean }> {
     let size: number;
@@ -1143,19 +1165,39 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     if (content === null) return { status: 'unreadable', capped: false };
 
     matcher.lastIndex = 0;
-    if (!matcher.test(content)) return { status: 'scanned', capped: false };
+    // A Rust format use can be glued to an escape (`\x7bneedle`), which no
+    // word boundary finds: any occurrence of the name is worth a parse.
+    const rust = extToLanguage(filePath) === 'rust';
+    if (!matcher.test(content) && !(rust && content.includes(identifier))) {
+      return { status: 'scanned', capped: false };
+    }
 
-    const excluded = await this.findExcludedRanges(content, filePath);
+    const { excluded, extra } = await this.findFilteredSpans(
+      content,
+      filePath,
+      identifier,
+    );
+    const extraByLine = new Map<number, number[]>();
+    for (const position of extra) {
+      const columns = extraByLine.get(position.line) ?? [];
+      columns.push(position.column);
+      extraByLine.set(position.line, columns);
+    }
     const lines = content.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       matcher.lastIndex = 0;
+      const columns = new Set<number>(extraByLine.get(i) ?? []);
       let match: RegExpExecArray | null;
       while ((match = matcher.exec(lines[i])) !== null) {
-        if (isInExcludedRange(i, match.index, excluded)) continue;
+        if (!isInExcludedRange(i, match.index, excluded)) {
+          columns.add(match.index);
+        }
+      }
+      for (const column of [...columns].sort((a, b) => a - b)) {
         if (out.length >= MAX_REFERENCE_MATCHES) {
           return { status: 'scanned', capped: true };
         }
-        out.push({ file: filePath, line: i, column: match.index });
+        out.push({ file: filePath, line: i, column });
       }
     }
     return { status: 'scanned', capped: false };
@@ -1170,34 +1212,48 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   }
 
   /**
-   * Tree-sitter ranges of comment/string nodes to exclude. Returns [] when the
-   * language is unsupported or parsing fails (so matches are kept rather than
-   * silently dropped).
+   * Tree-sitter ranges of comment/string nodes to exclude, and the uses of
+   * `identifier` read out of Rust format strings (`@s` captures, which are
+   * excluded from the word scan and read by `rustFormatReferences` instead).
+   * Nothing is excluded when the language is unsupported or parsing fails
+   * (so matches are kept rather than silently dropped).
    */
-  private async findExcludedRanges(
+  private async findFilteredSpans(
     content: string,
     filePath: string,
-  ): Promise<ExcludedRange[]> {
+    identifier: string,
+  ): Promise<{ excluded: ExcludedRange[]; extra: SourcePosition[] }> {
+    const none = { excluded: [], extra: [] };
     const language = extToLanguage(filePath);
-    if (!language) return [];
+    if (!language) return none;
     const query = COMMENT_STRING_QUERIES[language];
-    if (!query) return [];
+    if (!query) return none;
     try {
       const result = await this.treeSitter.query(content, language, query);
-      if (!result.isOk() || !result.value) return [];
-      return result.value.flatMap((m) =>
-        m.captures.map((c) => ({
+      if (!result.isOk() || !result.value) return none;
+      const captures = result.value.flatMap((m) => m.captures);
+      return {
+        excluded: captures.map((c) => ({
           startRow: c.startPosition.row,
           startColumn: c.startPosition.column,
           endRow: c.endPosition.row,
           endColumn: c.endPosition.column,
         })),
-      );
+        extra: captures
+          .filter((c) => c.name === 's')
+          .flatMap((c) =>
+            rustFormatReferences(
+              c.text,
+              { line: c.startPosition.row, column: c.startPosition.column },
+              identifier,
+            ),
+          ),
+      };
     } catch {
       // degradation-audit: optional-capability - excluding comment and string
       // ranges is an optional filter; an empty list KEEPS every match rather
       // than dropping one, which is the documented safe direction above.
-      return [];
+      return none;
     }
   }
 
@@ -1367,7 +1423,15 @@ function lspReport(
     mechanism,
     language: languageForExtension(extensionOfPath(cursorPath)),
     languageSupported: mechanismCoversFile(mechanism, cursorPath),
-    approximations: mechanism === 'text-scan' ? ['text-scan'] : [],
+    approximations: [
+      ...(mechanism === 'text-scan' ? (['text-scan'] as const) : []),
+      // A C file, queried or answering, was read with the C++ grammar
+      // (User Decision 19; Batch 31 r1 R31-01).
+      ...(isCParsedAsCpp(cursorPath) ||
+      locations.some((location) => isCParsedAsCpp(location.file))
+        ? (['c:parsed-as-cpp'] as const)
+        : []),
+    ],
     ...(truncated ? { truncated: true } : {}),
   };
 }

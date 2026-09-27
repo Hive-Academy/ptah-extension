@@ -10,8 +10,9 @@
  *
  * - **Scoped call.** Requested TS/JS files are type-checked by the inner
  *   provider. Requested files of a language with a `syntaxDiagnostics`
- *   capability (Python, Go, C# today) get a syntax-only check with the
- *   bundled tree-sitter grammar: at most {@link SYNTAX_FILE_CAP} files per
+ *   capability (Python, Go, C#, Java, Rust, PHP, Ruby, C/C++ today; C files
+ *   with the C++ grammar, disclosed as `c:parsed-as-cpp`) get a syntax-only
+ *   check with the bundled tree-sitter grammar: at most {@link SYNTAX_FILE_CAP} files per
  *   call (the rest `omittedByCap`), at most {@link SYNTAX_MAX_BYTES} per
  *   file, at most {@link SYNTAX_MAX_ERRORS} errors listed per file. Every
  *   other requested file is `unsupported` (or `unrecognised`) and named in
@@ -80,6 +81,7 @@ import {
   LANGUAGE_REGISTRY,
   classifyFileForCoverage,
   hasCapability,
+  isCParsedAsCpp,
   languageForExtension,
   recognisedSourceExtensions,
 } from '../ast/language-registry';
@@ -730,6 +732,13 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     }
     const syntaxAnalyzed = sumOf(syntax.analyzed);
     const syntaxSide = syntaxAnalyzed + vetChecked;
+    // A C file parsed with the C++ grammar (User Decision 19) qualifies the
+    // answer, whether it parsed or not: valid C the C++ grammar rejects is a
+    // syntax error here.
+    const failedFiles = new Set(syntax.failures.map((entry) => entry.file));
+    const parsedCSource = checked.some(
+      (entry) => isCParsedAsCpp(entry.file) && !failedFiles.has(entry.file),
+    );
     const coverage = withCoverageVerdict({
       supportedLanguages: DIAGNOSTICS_LANGUAGES,
       census: 'complete',
@@ -754,10 +763,10 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
           }
         : {}),
       ...(syntax.failures.length > 0 ? { failedByReason } : {}),
-      ...syntaxApproximations(
-        syntax.analyzed.keys(),
-        vetChecked > 0 ? GO_VET_COVERAGE.approximations : [],
-      ),
+      ...syntaxApproximations(syntax.analyzed.keys(), [
+        ...(vetChecked > 0 ? GO_VET_COVERAGE.approximations : []),
+        ...(parsedCSource ? (['c:parsed-as-cpp'] as const) : []),
+      ]),
       // `go vet` counts on the syntax side: GO_VET_COVERAGE.checks.
       ...optionalChecks(checksOf(typeCheckRan, syntaxSide > 0)),
     });
@@ -1028,19 +1037,24 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     // A grammar that failed to load is `grammar-unavailable` for its language only.
     if (!results) return { reason: parserFailureReason(parsed.error) };
 
+    // A C file names the grammar that judged it: valid C the C++ grammar
+    // rejects (a variable named `new`) is reported here too.
+    const checkedAs = isCParsedAsCpp(file)
+      ? `${language}, c:parsed-as-cpp`
+      : language;
     const found = [
       ...(results.get('error') ?? []).flatMap((match) =>
         match.captures.map((capture) => ({
           row: capture.startPosition.row,
           column: capture.startPosition.column,
-          message: `Syntax error (${language}; syntax-only check, not type-checked).`,
+          message: `Syntax error (${checkedAs}; syntax-only check, not type-checked).`,
         })),
       ),
       ...(results.get('missing') ?? []).flatMap((match) =>
         match.captures.map((capture) => ({
           row: capture.startPosition.row,
           column: capture.startPosition.column,
-          message: `Syntax error: missing ${JSON.stringify(capture.node.type)} (${language}; syntax-only check, not type-checked).`,
+          message: `Syntax error: missing ${JSON.stringify(capture.node.type)} (${checkedAs}; syntax-only check, not type-checked).`,
         })),
       ),
     ].sort((a, b) => a.row - b.row || a.column - b.column);

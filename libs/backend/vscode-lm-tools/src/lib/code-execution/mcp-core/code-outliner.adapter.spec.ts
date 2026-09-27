@@ -543,6 +543,228 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ]);
     });
 
+    it('php outline not refused, HTML around <?php included: method, function and closure bodies; focus on a class and a property (Batch 31)', async () => {
+      const source = lines(
+        '<h1><?= $title ?></h1>', // 0
+        '<?php', // 1
+        'class Store', // 2
+        '{', // 3
+        '    private $items = [];', // 4
+        '', // 5
+        '    public function add($item)', // 6
+        '    {', // 7
+        '        $this->items[] = $item;', // 8
+        '        return $this;', // 9
+        '    }', // 10
+        '', // 11
+        '    public function total(): int {', // 12
+        '        return array_sum(array_map(fn($i) => $i->price, $this->items));', // 13
+        '    }', // 14
+        '}', // 15
+        '', // 16
+        'function report(Store $store)', // 17
+        '{', // 18
+        '    $format = function ($n) {', // 19
+        '        return number_format($n);', // 20
+        '    };', // 21
+        '    return $format($store->total());', // 22
+        '}', // 23
+        '?>', // 24
+        '<p>done</p>', // 25
+      );
+      for (const hint of ['.php', 'php', '.phtml', 'views/store.phtml']) {
+        const outline = await outliner.outline(source, hint, 'Store');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 8, endLine: 9 },
+          { startLine: 13, endLine: 13 },
+          { startLine: 19, endLine: 22 },
+          { startLine: 20, endLine: 20 },
+        ]);
+        expect(outline?.focus).toEqual([{ startLine: 2, endLine: 15 }]);
+      }
+      const items = await outliner.outline(source, 'php', 'items');
+      expect(items?.focus).toEqual([{ startLine: 4, endLine: 4 }]);
+    });
+
+    it('ruby outline not refused: a method body stops before its `end` (also when a block `end` shares it); top-level blocks and one-line methods stay (Batch 31)', async () => {
+      const source = lines(
+        'module Shop', // 0
+        '  class Store', // 1
+        '    def initialize(items)', // 2
+        '      @items = items', // 3
+        '      @count = items.size', // 4
+        '    end', // 5
+        '', // 6
+        '    def self.build(*args,', // 7
+        '                   **opts)', // 8
+        '      new(args)', // 9
+        '    end', // 10
+        '', // 11
+        '    def total; @items.sum; end', // 12
+        '', // 13
+        '    def names', // 14
+        '      @items.map do |i|', // 15
+        '        i.name', // 16
+        '      end end', // 17
+        '  end', // 18
+        '', // 19
+        '  class Admin::Store', // 20
+        '  end', // 21
+        'end', // 22
+        'Tally = Struct.new(:n) do', // 23
+        '  def up', // 24
+        '    n + 1', // 25
+        '  end', // 26
+        'end', // 27
+      );
+      for (const hint of ['.rb', 'rb', 'ruby', '.rake', 'lib/store.rb']) {
+        const outline = await outliner.outline(source, hint, 'Store');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 3, endLine: 4 },
+          { startLine: 9, endLine: 9 },
+          { startLine: 15, endLine: 16 },
+          { startLine: 25, endLine: 25 },
+        ]);
+        expect(sorted(outline?.focus ?? [])).toEqual([
+          { startLine: 1, endLine: 18 },
+          { startLine: 20, endLine: 21 },
+        ]);
+      }
+      const tally = await outliner.outline(source, 'ruby', 'Tally');
+      expect(tally?.focus).toEqual([{ startLine: 23, endLine: 27 }]);
+      const build = await outliner.outline(source, 'ruby', 'build');
+      expect(build?.focus).toEqual([{ startLine: 7, endLine: 10 }]);
+    });
+
+    it('cpp outline not refused on .cpp: member, out-of-line qualified and lambda bodies; focus finds a prototype with its definition, a class, a namespace and a macro (Batch 31)', async () => {
+      const source = lines(
+        '#include "store.h"', // 0
+        '#define TWICE(x) ((x) * 2)', // 1
+        'namespace shop {', // 2
+        'class Store {', // 3
+        ' public:', // 4
+        '  int total() const {', // 5
+        '    int sum = 0;', // 6
+        '    return sum;', // 7
+        '  }', // 8
+        '  int count() const;', // 9
+        '};', // 10
+        'int Store::count() const {', // 11
+        '  auto add = [](int a, int b) {', // 12
+        '    return a + b;', // 13
+        '  };', // 14
+        '  return add(1, 2);', // 15
+        '}', // 16
+        '}  // namespace shop', // 17
+      );
+      for (const hint of ['.cpp', 'cpp', '.cc', '.hpp', 'src/store.cxx']) {
+        const outline = await outliner.outline(source, hint, 'count');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 6, endLine: 7 },
+          { startLine: 12, endLine: 15 },
+          { startLine: 13, endLine: 13 },
+        ]);
+        expect(sorted(outline?.focus ?? [])).toEqual([
+          { startLine: 9, endLine: 9 },
+          { startLine: 11, endLine: 16 },
+        ]);
+      }
+      const store = await outliner.outline(source, 'cpp', 'Store');
+      expect(store?.focus).toEqual([{ startLine: 3, endLine: 10 }]);
+      // Batch 31 r1 R31-02: declarators no fixed query shape reads.
+      const shapes = lines(
+        'int (needle)(int x) {', // 0
+        '  return x;', // 1
+        '}', // 2
+        'int ***needle() {', // 3
+        '  return nullptr;', // 4
+        '}', // 5
+        'int (*needle(long v))(int) {', // 6
+        '  return nullptr;', // 7
+        '}', // 8
+        'int a::b::c::d::e::needle(long v) {', // 9
+        '  return 0;', // 10
+        '}', // 11
+      );
+      const needle = await outliner.outline(shapes, 'cpp', 'needle');
+      expect(sorted(needle?.focus ?? [])).toEqual([
+        { startLine: 0, endLine: 2 },
+        { startLine: 3, endLine: 5 },
+        { startLine: 6, endLine: 8 },
+        { startLine: 9, endLine: 11 },
+      ]);
+      const shop = await outliner.outline(source, 'cpp', 'shop');
+      expect(shop?.focus).toEqual([{ startLine: 2, endLine: 17 }]);
+      const twice = await outliner.outline(source, 'cpp', 'TWICE');
+      expect(twice?.focus).toEqual([{ startLine: 1, endLine: 1 }]);
+    });
+
+    it('cpp outline on real .c and .h files (C parsed with the C++ grammar); C the grammar rejects is refused (Batch 31)', async () => {
+      const c = lines(
+        '#include <stdio.h>', // 0
+        'typedef struct {', // 1
+        '    int total;', // 2
+        '} Counter;', // 3
+        'static int counter_next(Counter *c,', // 4
+        '                        int step) {', // 5
+        '    c->total += step;', // 6
+        '    return c->total;', // 7
+        '}', // 8
+      );
+      const cOutline = await outliner.outline(c, '.c', 'counter_next');
+      expect(cOutline?.omittable).toEqual([{ startLine: 6, endLine: 7 }]);
+      // Batch 31 r1 R31-01: a C outline names the grammar it was read with.
+      expect(cOutline?.approximations).toEqual(['c:parsed-as-cpp']);
+      for (const hint of ['c', '.H', 'src/counter.c']) {
+        expect((await outliner.outline(c, hint))?.approximations).toEqual([
+          'c:parsed-as-cpp',
+        ]);
+      }
+      for (const hint of ['cpp', '.hpp', 'src/counter.cc']) {
+        expect(
+          (await outliner.outline(c, hint))?.approximations,
+        ).toBeUndefined();
+      }
+      expect(cOutline?.focus).toEqual([{ startLine: 4, endLine: 8 }]);
+      const counter = await outliner.outline(c, 'src/counter.c', 'Counter');
+      expect(counter?.focus).toEqual([{ startLine: 1, endLine: 3 }]);
+
+      const h = lines(
+        '#ifndef COUNTER_H', // 0
+        '#define COUNTER_H', // 1
+        'int counter_next(int step);', // 2
+        'static inline int counter_twice(int v) {', // 3
+        '    int doubled = v * 2;', // 4
+        '    return doubled;', // 5
+        '}', // 6
+        '#endif', // 7
+      );
+      const hOutline = await outliner.outline(h, '.h', 'counter_next');
+      expect(hOutline?.omittable).toEqual([{ startLine: 4, endLine: 5 }]);
+      expect(hOutline?.focus).toEqual([{ startLine: 2, endLine: 2 }]);
+
+      // Valid C, but `new` is a C++ keyword: refused, never guessed.
+      const notCpp = lines(
+        'int make(void) {',
+        '    int *new = 0;',
+        '    return new == 0;',
+        '}',
+      );
+      await expect(outliner.outline(notCpp, '.c')).resolves.toBeNull();
+    });
+
     it('reports no focus spans when no focus symbol is requested', async () => {
       const outline = await outliner.outline(TS_SOURCE, 'typescript');
       expect(outline?.focus).toEqual([]);
@@ -740,6 +962,17 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ['rust', 'rust'],
       ['rs', 'rust'],
       ['src/lib.rs', 'rust'],
+      ['php', 'php'],
+      ['.PHTML', 'php'],
+      ['app/Http/Kernel.php', 'php'],
+      ['ruby', 'ruby'],
+      ['rb', 'ruby'],
+      ['lib/tasks/db.rake', 'ruby'],
+      ['cpp', 'cpp'],
+      ['.C', 'cpp'],
+      ['h', 'cpp'],
+      ['include/widget.h', 'cpp'],
+      ['src/app.c++', 'cpp'],
     ])(
       'resolves the language hint %j to the %s grammar',
       async (hint, grammar) => {

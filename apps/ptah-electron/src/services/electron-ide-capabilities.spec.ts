@@ -2557,7 +2557,7 @@ describe('ElectronIDECapabilities', () => {
           ]);
         });
 
-        it('pins the string decisions: byte strings and brace-free, escape-free str/raw strings are excluded', async () => {
+        it('pins the string decisions: byte strings and strings with no format argument are excluded (Batch 31 r1 R31-04: read by the format rules)', async () => {
           const file = 'C:/repo/src/strings.rs';
           const lines = [
             'fn needle() {}',
@@ -2580,15 +2580,213 @@ describe('ElectronIDECapabilities', () => {
 
           const report = await refsReport(cap, file, 0, 4);
 
-          // Kept on purpose (may be format strings): the escaped `e` and the
-          // braced raw `f`. Excluded: plain `a`, raw `b`, byte `c` and `d`.
+          // Every string is read by the format rules: none of them names
+          // `needle` as an argument (`e` is an escape without a brace, `f`
+          // names `raw brace`), so only the declaration and the call stay.
           expect(report.locations).toEqual([
             { file, line: 0, column: 3 },
-            { file, line: 6, column: lines[6].indexOf('needle') },
-            { file, line: 7, column: lines[7].indexOf('needle') },
             { file, line: 8, column: lines[8].indexOf('needle') },
           ]);
         });
+
+        // Batch 31 r1 R31-04: a capture glued to an escaped brace, or after
+        // escaped `{{`, is a use; `{{needle}}` is literal text.
+        it.each([
+          ['an escaped brace glued to the name', '"\\x7bneedle\\x7d"', true],
+          ['a unicode-escaped brace', '"\\u{7b}needle\\u{7d}"', true],
+          ['escaped `{{` followed by a capture', '"{{{needle}"', true],
+          ['a capture followed by escaped `}}`', '"{needle}}}"', true],
+          ['a width argument after an escape', '"\\x7b0:needle$}"', true],
+          ['a precision argument', '"{:.needle$}"', true],
+          ['a raw string capture', 'r#"{needle}"#', true],
+          ['literal braces `{{needle}}`', '"{{needle}}"', false],
+          ['a byte string', 'b"{needle}"', false],
+        ])(
+          'Rust format string with %s: %s is a use: %s',
+          async (_label, literal, isUse) => {
+            const file = 'C:/repo/src/escaped.rs';
+            const lines = [
+              'const needle: i32 = 1;',
+              `fn main() { println!(${literal}); }`,
+              '',
+            ];
+            const { cap } = build({
+              fs: memoryFs({ [file]: lines.join('\n') }),
+              indexer: streamingIndexer([file]),
+              treeSitter: parser as unknown as TreeSitter,
+            });
+
+            const report = await refsReport(cap, file, 0, 8);
+
+            expect(report.truncated).toBeUndefined();
+            expect(report.locations).toEqual([
+              { file, line: 0, column: 6 },
+              ...(isUse
+                ? [
+                    {
+                      file,
+                      line: 1,
+                      column: lines[1].indexOf('needle'),
+                    },
+                  ]
+                : []),
+            ]);
+          },
+        );
+      });
+
+      // Batch 31: `.php`, `.rb` and `.c/.h/.cpp` select their own grammars
+      // (C through the C++ one). Interpolated names stay references.
+      describe('Batch 31: PHP, Ruby and C/C++ references are filtered with their own grammars', () => {
+        function positions(
+          file: string,
+          lines: readonly string[],
+          rows: readonly number[],
+        ): Array<{ file: string; line: number; column: number }> {
+          return rows.map((line) => ({
+            file,
+            line,
+            column: lines[line].indexOf('needle'),
+          }));
+        }
+
+        it('PHP: drops HTML text, comments, single-quoted strings and nowdocs; keeps `$needle` interpolations and heredoc variables', async () => {
+          const file = 'C:/repo/app/page.php';
+          const lines = [
+            '<p>needle in the page</p>', // 0 HTML text
+            '<?php', // 1
+            'function needle() { return 1; }', // 2
+            '// needle comment', // 3
+            '# needle hash comment', // 4
+            "$a = 'needle single';", // 5
+            '$b = "value $needle";', // 6 interpolated variable
+            '$c = "value {$needle}";', // 7
+            '$d = <<<EOT', // 8
+            'heredoc $needle', // 9 heredoc variable
+            'EOT;', // 10
+            "$e = <<<'EOT'", // 11
+            'nowdoc needle', // 12
+            'EOT;', // 13
+            'needle();', // 14
+            '?>', // 15
+            '<div><?= needle() ?></div>', // 16 PHP inside HTML
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 2, 10);
+
+          expect(report.language).toBe('php');
+          expect(report.locations).toEqual(
+            positions(file, lines, [2, 6, 7, 9, 14, 16]),
+          );
+        });
+
+        it('PHP: the cursor on `$needle` resolves to `needle` (`$` is a sigil, not part of the name)', async () => {
+          const file = 'C:/repo/app/vars.php';
+          const lines = [
+            '<?php',
+            '$needle = 1;',
+            'echo $needle + needle();',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          // The cursor sits on the `n` of `$needle`.
+          const report = await refsReport(cap, file, 1, 1);
+
+          expect(report.locations).toEqual([
+            { file, line: 1, column: 1 },
+            { file, line: 2, column: 6 },
+            { file, line: 2, column: lines[2].lastIndexOf('needle') },
+          ]);
+        });
+
+        it('Ruby: drops comments and literal string text (heredoc, regex, %w included); keeps `#{needle}` interpolations and symbols', async () => {
+          const file = 'C:/repo/lib/widget.rb';
+          const lines = [
+            'def needle; 1; end', // 0
+            '# needle comment', // 1
+            "a = 'needle single'", // 2
+            'b = "value #{needle}"', // 3 interpolation
+            'c = <<~EOT', // 4
+            '  heredoc #{needle}', // 5 heredoc interpolation
+            '  heredoc needle text', // 6
+            'EOT', // 7
+            'd = /needle #{needle}/', // 8 regex: text dropped, interpolation kept
+            'e = %w[needle words]', // 9
+            'f = :needle', // 10 a symbol can name the method (send, respond_to?)
+            'needle', // 11
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 0, 5);
+
+          expect(report.language).toBe('ruby');
+          expect(report.locations).toEqual([
+            { file, line: 0, column: 4 },
+            { file, line: 3, column: lines[3].indexOf('needle') },
+            { file, line: 5, column: lines[5].indexOf('needle') },
+            { file, line: 8, column: lines[8].lastIndexOf('needle') },
+            { file, line: 10, column: lines[10].indexOf('needle') },
+            { file, line: 11, column: 0 },
+          ]);
+        });
+
+        it.each([
+          ['C', 'C:/repo/native/widget.c'],
+          ['a C header', 'C:/repo/native/widget.h'],
+          ['C++', 'C:/repo/native/widget.cpp'],
+        ])(
+          '%s: drops comments, strings, chars and system include paths; keeps macro bodies',
+          async (_label, file) => {
+            const lines = [
+              'int needle(void) { return 1; }', // 0
+              '// needle comment', // 1
+              '/* needle block */', // 2
+              'const char *s = "needle string";', // 3
+              "char c = 'n';", // 4
+              '#include <needle.h>', // 5
+              '#define CALL_NEEDLE needle()', // 6 a real use
+              'int use(void) { return needle(); }', // 7
+              '',
+            ];
+            const { cap } = build({
+              fs: memoryFs({ [file]: lines.join('\n') }),
+              indexer: streamingIndexer([file]),
+              treeSitter: parser as unknown as TreeSitter,
+            });
+
+            const report = await refsReport(cap, file, 0, 5);
+
+            expect(report.language).toBe('cpp');
+            // Batch 31 r1 R31-01: C read with the C++ grammar says so, clean
+            // answer or not; C++ does not.
+            expect(report.approximations).toEqual(
+              file.endsWith('.cpp')
+                ? ['text-scan']
+                : ['text-scan', 'c:parsed-as-cpp'],
+            );
+            expect(report.locations).toEqual([
+              { file, line: 0, column: 4 },
+              { file, line: 6, column: lines[6].lastIndexOf('needle') },
+              { file, line: 7, column: lines[7].indexOf('needle') },
+            ]);
+          },
+        );
       });
 
       describe('M1: a full symbol-index page', () => {

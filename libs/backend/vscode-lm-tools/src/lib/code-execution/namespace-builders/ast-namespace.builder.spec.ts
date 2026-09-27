@@ -241,7 +241,7 @@ describe('buildAstNamespace — analyze', () => {
   // `supportedLanguages` only when the file's language is unsupported; an
   // unrecognised file still gets the supported list in the message itself.
   it.each([
-    ['sample.php', 'unsupported'],
+    ['sample.swift', 'unsupported'],
     ['sample.xyz', 'unrecognised'],
     ['sample.mjs', 'unsupported'],
   ])(

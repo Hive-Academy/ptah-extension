@@ -586,6 +586,9 @@ const CODE_INDEX_LANGUAGES = [
   'csharp',
   'java',
   'rust',
+  'php',
+  'ruby',
+  'cpp',
 ];
 
 function coverageOf(over: Partial<CoverageFields> = {}): LanguageCoverage {

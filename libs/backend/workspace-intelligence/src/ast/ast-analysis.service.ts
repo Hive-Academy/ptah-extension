@@ -15,6 +15,7 @@ import {
 } from './tree-sitter-parser.service';
 import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 import { extractExportsFromMatches } from './export-extraction';
+import { cDeclaratorName } from './c-declarator';
 
 /**
  * Node types for JavaScript/TypeScript AST analysis.
@@ -114,9 +115,8 @@ export class AstAnalysisService {
           new Error('queryMulti returned null value unexpectedly'),
         );
       }
-      const functions: FunctionInfo[] = this.extractFunctionsFromMatches(
-        map.get('functions') ?? [],
-      );
+      const { functions, unextractedDeclarations } =
+        this.extractFunctionsFromMatches(map.get('functions') ?? []);
       const classes: ClassInfo[] = this.extractClassesFromMatches(
         map.get('classes') ?? [],
       );
@@ -136,6 +136,9 @@ export class AstAnalysisService {
         imports,
         exports: exports.length > 0 ? exports : undefined,
         ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
+        ...(unextractedDeclarations.length > 0
+          ? { unextractedDeclarations }
+          : {}),
       };
 
       this.logger.debug(
@@ -218,10 +221,23 @@ export class AstAnalysisService {
 
   /**
    * Extracts FunctionInfo from query matches.
+   *
+   * Two patterns can capture the same declaration; they are one declaration
+   * when they name it at the same source position (row and column of its
+   * name). Two declarations that share a name and a line (`fn a(){} fn
+   * a(){}`, one-line overloads) are two (Batch 31 r1 R31-03).
+   *
+   * A C/C++ definition captures its whole declarator (`@function.declarator`)
+   * and is named by walking it (`cDeclaratorName`); a declarator that names
+   * nothing is listed in `unextractedDeclarations`, never dropped silently.
    */
-  private extractFunctionsFromMatches(matches: QueryMatch[]): FunctionInfo[] {
+  private extractFunctionsFromMatches(matches: QueryMatch[]): {
+    functions: FunctionInfo[];
+    unextractedDeclarations: string[];
+  } {
     const functions: FunctionInfo[] = [];
-    const seen = new Set<string>(); // Track by name+line to avoid duplicates
+    const unextractedDeclarations: string[] = [];
+    const seen = new Set<string>();
 
     for (const match of matches) {
       const captures = new Map<string, QueryCapture>();
@@ -253,6 +269,7 @@ export class AstAnalysisService {
         captures.get('arrow_var.declaration') ||
         captures.get('method.declaration');
 
+      let namePosition = nameCapture?.startPosition;
       if (nameCapture) {
         name = nameCapture.text;
       }
@@ -261,13 +278,31 @@ export class AstAnalysisService {
         params = this.extractParamsFromText(paramsCapture.text);
       }
 
+      const declaratorCapture = captures.get('function.declarator');
+      if (!nameCapture && declaratorCapture) {
+        const declared = cDeclaratorName(declaratorCapture.node);
+        if (declared === undefined) {
+          unextractedDeclarations.push(
+            `line ${declaratorCapture.startPosition.row + 1}: ${declaratorCapture.text.split('\n')[0].trim()}`,
+          );
+        } else {
+          name = declared.name;
+          params =
+            declared.parameters === undefined
+              ? []
+              : this.extractParamsFromText(declared.parameters.text);
+          namePosition = declaratorCapture.startPosition;
+        }
+      }
+
       if (declCapture) {
         startLine = declCapture.startPosition.row;
         endLine = declCapture.endPosition.row;
       }
 
       if (name) {
-        const key = `${name}:${startLine}`;
+        const at = namePosition ?? declCapture?.startPosition;
+        const key = `${name}:${at?.row ?? startLine}:${at?.column ?? 0}`;
         if (!seen.has(key)) {
           seen.add(key);
           functions.push({
@@ -280,11 +315,12 @@ export class AstAnalysisService {
       }
     }
 
-    return functions;
+    return { functions, unextractedDeclarations };
   }
 
   /**
-   * Extracts ClassInfo from query matches.
+   * Extracts ClassInfo from query matches. As for functions, one declaration
+   * is one name position (Batch 31 r1 R31-03).
    */
   private extractClassesFromMatches(matches: QueryMatch[]): ClassInfo[] {
     const classes: ClassInfo[] = [];
@@ -307,7 +343,7 @@ export class AstAnalysisService {
         const startLine = declCapture?.startPosition.row ?? 0;
         const endLine = declCapture?.endPosition.row ?? 0;
 
-        const key = `${name}:${startLine}`;
+        const key = `${name}:${nameCapture.startPosition.row}:${nameCapture.startPosition.column}`;
         if (!seen.has(key)) {
           seen.add(key);
           classes.push({
@@ -385,7 +421,12 @@ export class AstAnalysisService {
    * E.g., "(a, b, c)" -> ["a", "b", "c"]
    */
   private extractParamsFromText(paramsText: string): string[] {
-    const inner = paramsText.slice(1, -1).trim();
+    // Delimiters are stripped only when present: Ruby may omit them
+    // (`def needle alpha, beta`; Batch 31 r1 R31-05).
+    const text = paramsText.trim();
+    const inner = (
+      text.startsWith('(') && text.endsWith(')') ? text.slice(1, -1) : text
+    ).trim();
     if (!inner) return [];
     return inner
       .split(',')

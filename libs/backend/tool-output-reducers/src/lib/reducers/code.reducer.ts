@@ -14,7 +14,9 @@
  * by construction, whatever an adapter does:
  * - every emitted line is an input line, verbatim (the input is split on
  *   `\n` only, the row separator tree-sitter uses, so a `\r` stays part of its
- *   line); the only additions are `… N lines omitted …` notes;
+ *   line); the only additions are `… N lines omitted …` notes and, when the
+ *   outliner reports one, a first `… approximations: … …` line (a C file
+ *   outlined with the C++ grammar says so in the served text);
  * - lines keep their input order, and two lines are never merged or edited;
  * - focus-symbol lines are never omitted, so the focus declaration is kept in
  *   full even inside an omitted enclosing body;
@@ -69,6 +71,31 @@ export interface CodeOutline {
    * Empty when no focus symbol was requested or none was found.
    */
   readonly focus: readonly CodeLineSpan[];
+  /**
+   * Approximations the outline rests on (`c:parsed-as-cpp` for C outlined
+   * with the C++ grammar). Rendered as the first line of the outline, so a
+   * served answer never hides them. Only short `[a-z0-9:.-]` codes are kept.
+   */
+  readonly approximations?: readonly string[];
+}
+
+/** Longest approximation code rendered, and how many at most. */
+const MAX_APPROXIMATION_CHARS = 40;
+const MAX_APPROXIMATIONS = 4;
+
+/** The adapter's approximation codes that are safe to echo (checked, not trusted). */
+function approximationCodes(outline: CodeOutline): string[] {
+  const codes = Array.isArray(outline.approximations)
+    ? outline.approximations
+    : [];
+  return codes
+    .filter(
+      (code): code is string =>
+        typeof code === 'string' &&
+        code.length <= MAX_APPROXIMATION_CHARS &&
+        /^[a-z0-9][a-z0-9:.-]*$/.test(code),
+    )
+    .slice(0, MAX_APPROXIMATIONS);
 }
 
 /**
@@ -143,6 +170,10 @@ async function reduceCode(
   const notes = [
     `omitted ${rendered.omittedLines} of ${lines.length} lines of declaration bodies in ${rendered.runs} run(s)`,
   ];
+  const approximations = approximationCodes(outline);
+  if (approximations.length > 0) {
+    notes.push(`approximations: ${approximations.join(', ')}`);
+  }
   if (focusSymbol !== undefined) {
     notes.push(
       outline.focus.length > 0
@@ -150,7 +181,11 @@ async function reduceCode(
         : `focus symbol ${quoted(focusSymbol)} not found`,
     );
   }
-  return { text: rendered.text, reducer: 'code-outline', notes };
+  const text =
+    approximations.length > 0
+      ? `… approximations: ${approximations.join(', ')} …\n${rendered.text}`
+      : rendered.text;
+  return { text, reducer: 'code-outline', notes };
 }
 
 function fallback(

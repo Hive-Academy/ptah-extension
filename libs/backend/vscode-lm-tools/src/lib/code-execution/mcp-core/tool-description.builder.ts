@@ -5,6 +5,7 @@
  * These descriptions help Claude understand all available capabilities.
  */
 
+import type { LanguageId } from '@ptah-extension/platform-core';
 import {
   supportedLanguagesFor,
   type LanguageCapability,
@@ -30,15 +31,43 @@ import {
 } from '@ptah-extension/shared';
 
 /**
+ * How a description names each registry language: its usual file extension
+ * (Batch 31). The compact form keeps every per-tool description pin with all
+ * twelve languages listed: the full ids cost 83 characters per list, these
+ * 40. `cpp` also covers `.c`/`.h` (User Decision 19); every answer over a C
+ * file names `c:parsed-as-cpp` itself, clean ones included (r1 R31-01).
+ * Exhaustive over `LanguageId`, so a new language cannot be listed without a
+ * name here.
+ */
+export const DESCRIPTION_LANGUAGE_NAMES: Readonly<Record<LanguageId, string>> =
+  {
+    typescript: 'ts',
+    javascript: 'js',
+    tsx: 'tsx',
+    python: 'py',
+    go: 'go',
+    csharp: 'cs',
+    java: 'java',
+    kotlin: 'kt',
+    rust: 'rs',
+    php: 'php',
+    ruby: 'rb',
+    cpp: 'cpp',
+  };
+
+/**
  * The languages a language-bound tool covers, read from the language registry
- * (TASK_2026_559 Batch 24c), in registry order: `typescript, javascript, …`.
- * Descriptions never hand-list languages, so a grammar batch that grants a
- * capability updates every description that depends on it, and a description
- * can never claim more than the tool's own `coverage.supportedLanguages`.
+ * (TASK_2026_559 Batch 24c), in registry order, compact: `ts,js,tsx,…`
+ * ({@link DESCRIPTION_LANGUAGE_NAMES}). Descriptions never hand-list
+ * languages, so a grammar batch that grants a capability updates every
+ * description that depends on it, and a description can never claim more
+ * than the tool's own `coverage.supportedLanguages`.
  */
 export function languagesNote(capability: LanguageCapability): string {
   const languages = supportedLanguagesFor(capability);
-  return languages.length > 0 ? languages.join(', ') : 'none';
+  return languages.length > 0
+    ? languages.map((id) => DESCRIPTION_LANGUAGE_NAMES[id]).join(',')
+    : 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,7 +1857,7 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
  * the registry adds to their language lists within their pinned budgets.
  */
 const COVERAGE_LEGEND =
-  '`coverage` first: `clean`; if clean, only `analyzed`; up to 3 `reasons`, omitted counts=0, null=unknown. `?`=unknown; `truncated`=census cut; `stale`=last run partial; `updating`=writing; 999999=at least';
+  '`coverage` first: `clean`; clean→`analyzed`+approximations; up to 3 `reasons`, omitted counts=0, null=unknown. `?`=unknown; `truncated`=census cut; `stale`=last run partial; `updating`=writing; 999999=at least';
 
 /**
  * Build the ptah_code_search_symbols tool definition

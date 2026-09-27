@@ -327,6 +327,9 @@ describe('language registry', () => {
         'csharp',
         'java',
         'rust',
+        'php',
+        'ruby',
+        'cpp',
       ],
     ],
     [
@@ -340,6 +343,9 @@ describe('language registry', () => {
         'csharp',
         'java',
         'rust',
+        'php',
+        'ruby',
+        'cpp',
       ],
     ],
     ['enrichSummary', ['typescript', 'javascript', 'tsx']],
@@ -354,6 +360,9 @@ describe('language registry', () => {
         'csharp',
         'java',
         'rust',
+        'php',
+        'ruby',
+        'cpp',
       ],
     ],
     ['publicSymbols', ['typescript', 'javascript', 'tsx']],
@@ -362,7 +371,10 @@ describe('language registry', () => {
       'definitionFallback',
       ['typescript', 'javascript', 'python', 'go', 'csharp'],
     ],
-    ['syntaxDiagnostics', ['python', 'go', 'csharp', 'java', 'rust']],
+    [
+      'syntaxDiagnostics',
+      ['python', 'go', 'csharp', 'java', 'rust', 'php', 'ruby', 'cpp'],
+    ],
   ])('initial %s languages', (capability, expected) => {
     expect(supportedLanguagesFor(capability)).toEqual(expected);
   });
@@ -428,7 +440,7 @@ describe('language registry', () => {
 
   it('recognises unsupported source languages', () => {
     expect(languageForExtension('.kt')).toBe('kotlin');
-    expect(languageForExtension('.php')).toBe('php');
+    expect(languageForExtension('.ex')).toBe('elixir');
     expect(languageForExtension('.swift')).toBe('swift');
     expect(languageForExtension('.R')).toBe('r');
     expect(languageForExtension('.exs')).toBe('elixir');
@@ -534,7 +546,7 @@ describe('recognition never loses a source file (r1 S1)', () => {
     expect(extensionHasCapability('.mjs', 'codeIndex')).toBe(false);
     expect(extensionHasCapability('.js', 'codeIndex')).toBe(true);
     expect(extensionHasCapability('.JS', 'codeIndex')).toBe(true);
-    expect(extensionHasCapability('.php', 'parse')).toBe(false);
+    expect(extensionHasCapability('.swift', 'parse')).toBe(false);
     expect(extensionHasCapability('.xyz', 'parse')).toBe(false);
   });
 
@@ -600,7 +612,7 @@ describe('non-source classification (orchestrator ruling)', () => {
     ['src/APP.TS', 'eligible'],
     ['src/esm.mjs', 'unsupported'],
     ['lib/mix.ex', 'unsupported'],
-    ['src/Widget.php', 'unsupported'],
+    ['src/Widget.swift', 'unsupported'],
     ['src/main.zig', 'unrecognised'],
     ['web/index.html', 'unrecognised'],
     ['web/site.css', 'unrecognised'],

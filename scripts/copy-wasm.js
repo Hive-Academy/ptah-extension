@@ -297,13 +297,19 @@ function selfTest() {
         .map((asset) => asset.filename)
         .sort(),
     );
-    const activated = mutate((m) => {
-      m.assets.find((asset) => asset.id === 'php').active = true;
-    });
-    copyWasm(path.join(dir, 'activated'), activated);
+    // Every package grammar row is active since Batch 31, so the toggle is
+    // proved from the other side: an active row is copied, and the same row
+    // deactivated is not.
     assert.ok(
-      fs.statSync(path.join(dir, 'activated/wasm/tree-sitter-php.wasm')).size >
-        0,
+      fs.statSync(path.join(dir, 'active/wasm/tree-sitter-php.wasm')).size > 0,
+    );
+    const deactivated = mutate((m) => {
+      m.assets.find((asset) => asset.id === 'php').active = false;
+    });
+    copyWasm(path.join(dir, 'deactivated'), deactivated);
+    assert.equal(
+      fs.existsSync(path.join(dir, 'deactivated/wasm/tree-sitter-php.wasm')),
+      false,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

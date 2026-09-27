@@ -22,7 +22,8 @@
  * (TypeScript plus JSX, Batch 29b) and `.jsx` parses with the JavaScript
  * grammar, which has JSX; JSX forced onto the TypeScript grammar still parses
  * with errors and is refused. Java and Rust have their own grammars since
- * Batch 30.
+ * Batch 30; PHP (HTML around `<?php` included), Ruby and C/C++ since Batch 31
+ * (`.c`/`.h` parse with the C++ grammar, and C it cannot parse is refused).
  *
  * Omittable spans hold only body content, so an omitted line never carries a
  * signature or other code:
@@ -31,12 +32,18 @@
  *   inside the body node, so the signature row with `{` and the row with `}`
  *   (with anything sharing them) stay;
  * - a Python block has no closing delimiter: it gives its rows from the first
- *   row after the header's `:` to its own last row.
+ *   row after the header's `:` to its own last row;
+ * - a Ruby method body ends before its `end`: it gives its rows from the
+ *   first row after the header (the parameters, or the name when there are
+ *   none) to its own last row, and never the row of the method's `end` (a
+ *   body sharing that row, `x; end`, keeps it).
  */
 import * as path from 'node:path';
 import type { Result } from '@ptah-extension/shared';
 import {
   EXTENSION_LANGUAGE_MAP,
+  cDeclaratorName,
+  isCParsedAsCpp,
   type QueryCapture,
   type QueryMatch,
   type SupportedLanguage,
@@ -52,7 +59,10 @@ import type {
 const SYNTAX_ERROR_QUERY = '(ERROR) @error (MISSING) @missing';
 
 interface OutlineQueries {
-  /** Captures `@body` for every function-like body (Python adds `@colon`). */
+  /**
+   * Captures `@body` for every function-like body (Python adds `@colon`;
+   * Ruby adds `@colon` and the `@owner` whose `end` closes the body).
+   */
   readonly bodies: string;
   /** Captures `@name` and `@decl` for every named declaration. */
   readonly declarations: string;
@@ -84,6 +94,38 @@ const TS_OUTLINE_QUERIES: OutlineQueries = {
 (abstract_method_signature name: (_) @name) @decl
 (public_field_definition name: (_) @name) @decl
 (variable_declarator name: (identifier) @name) @decl
+`,
+};
+
+const CPP_TYPE_NAME = `[
+    (type_identifier) @name
+    (qualified_identifier name: (type_identifier) @name)
+    (template_type name: (type_identifier) @name)
+  ]`;
+
+const CPP_OUTLINE_QUERIES: OutlineQueries = {
+  bodies: `
+(function_definition body: (compound_statement) @body)
+(lambda_expression body: (compound_statement) @body)
+`,
+  // Definitions, prototypes and other declarations (a header declares, a
+  // source file defines), types with a body, typedef names, namespaces and
+  // macros. A declarator is captured whole and named by walking it
+  // (`cDeclaratorName`), so no pointer, parenthesis or scope depth hides a
+  // name (Batch 31 r1 R31-02).
+  declarations: `
+(function_definition declarator: (_) @declarator) @decl
+(declaration declarator: (_) @declarator) @decl
+(field_declaration declarator: (_) @declarator) @decl
+(class_specifier name: ${CPP_TYPE_NAME} body: (_)) @decl
+(struct_specifier name: ${CPP_TYPE_NAME} body: (_)) @decl
+(union_specifier name: ${CPP_TYPE_NAME} body: (_)) @decl
+(enum_specifier name: ${CPP_TYPE_NAME} body: (_)) @decl
+(type_definition declarator: (type_identifier) @name) @decl
+(alias_declaration name: (type_identifier) @name) @decl
+(namespace_definition name: (namespace_identifier) @name) @decl
+(preproc_def name: (identifier) @name) @decl
+(preproc_function_def name: (identifier) @name) @decl
 `,
 };
 
@@ -216,6 +258,49 @@ const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
 (macro_definition name: (identifier) @name) @decl
 `,
   },
+  // Batch 31. Bodies are brace-delimited; a body holding HTML between
+  // `?>` and `<?php` is still body content. A property is found by its
+  // name without the `$`.
+  php: {
+    bodies: `
+(function_definition body: (compound_statement) @body)
+(method_declaration body: (compound_statement) @body)
+(anonymous_function body: (compound_statement) @body)
+(arrow_function body: (_) @body)
+`,
+    declarations: `
+(function_definition name: (name) @name) @decl
+(method_declaration name: (name) @name) @decl
+(class_declaration name: (name) @name) @decl
+(interface_declaration name: (name) @name) @decl
+(trait_declaration name: (name) @name) @decl
+(enum_declaration name: (name) @name) @decl
+(property_declaration (property_element name: (variable_name (name) @name))) @decl
+(const_declaration (const_element (name) @name)) @decl
+`,
+  },
+  // Batch 31. Ruby bodies have no opening delimiter and close with the
+  // owner's `end` (see the file header). Only method bodies are omitted: a
+  // block outside a method is often structure (`describe … do`,
+  // `Struct.new … do` holding `def`s), and one inside a method is already in
+  // its body. A class or module is found by the last segment of its name, as
+  // in the code index.
+  ruby: {
+    bodies: `
+(method name: (_) @colon !parameters body: (body_statement) @body) @owner
+(method parameters: (method_parameters) @colon body: (body_statement) @body) @owner
+(singleton_method name: (_) @colon !parameters body: (body_statement) @body) @owner
+(singleton_method parameters: (method_parameters) @colon body: (body_statement) @body) @owner
+`,
+    declarations: `
+(method name: (_) @name) @decl
+(singleton_method name: (_) @name) @decl
+(class name: [(constant) @name (scope_resolution name: (constant) @name)]) @decl
+(module name: [(constant) @name (scope_resolution name: (constant) @name)]) @decl
+(assignment left: (constant) @name) @decl
+`,
+  },
+  cpp: CPP_OUTLINE_QUERIES,
 };
 
 /** The one parser-service method this adapter needs. */
@@ -260,6 +345,7 @@ export class TreeSitterCodeOutliner implements CodeOutliner {
       return null;
     }
     return {
+      ...(isCHint(language) ? { approximations: ['c:parsed-as-cpp'] } : {}),
       omittable: (matches.get('bodies') ?? []).flatMap((match) =>
         bodySpan(match),
       ),
@@ -271,6 +357,22 @@ export class TreeSitterCodeOutliner implements CodeOutliner {
             ),
     };
   }
+}
+
+/**
+ * Whether the hint names C (`c`, `.h`, `src/a.c`): C is outlined with the
+ * C++ grammar, and the outline says so (User Decision 19; Batch 31 r1
+ * R31-01). A C++ hint (`cpp`, `.hpp`) does not.
+ */
+function isCHint(hint: string): boolean {
+  const key = hint.trim().toLowerCase();
+  // A bare extension (`.c`) or id (`c`) is given a base name first.
+  const file = key.startsWith('.')
+    ? `x${key}`
+    : key.includes('.')
+      ? key
+      : `x.${key}`;
+  return isCParsedAsCpp(file);
 }
 
 /**
@@ -310,13 +412,27 @@ function bodySpan(match: QueryMatch): CodeLineSpan[] {
     return [];
   }
   const colon = capture(match, 'colon');
+  const owner = capture(match, 'owner');
   const startLine =
     colon === undefined
       ? body.startPosition.row + 1
       : Math.max(body.startPosition.row, colon.endPosition.row + 1);
-  const endLine =
+  const bodyEnd =
     colon === undefined ? body.endPosition.row - 1 : lastRow(body);
+  // The owner's closing `end` stays, with anything sharing its row.
+  const endLine =
+    owner === undefined ? bodyEnd : Math.min(bodyEnd, lastRow(owner) - 1);
   return startLine <= endLine ? [{ startLine, endLine }] : [];
+}
+
+/** A match's declared name: its `@name`, or its walked C/C++ `@declarator`. */
+function declaredName(match: QueryMatch): string | undefined {
+  const name = capture(match, 'name');
+  if (name !== undefined) return name.text;
+  const declarator = capture(match, 'declarator');
+  return declarator === undefined
+    ? undefined
+    : cDeclaratorName(declarator.node)?.name;
 }
 
 /** The full row span of a declaration named `focusSymbol`, if this match is one. */
@@ -324,9 +440,8 @@ function declarationSpan(
   match: QueryMatch,
   focusSymbol: string,
 ): CodeLineSpan[] {
-  const name = capture(match, 'name');
   const declaration = capture(match, 'decl');
-  if (name?.text !== focusSymbol || declaration === undefined) {
+  if (declaredName(match) !== focusSymbol || declaration === undefined) {
     return [];
   }
   return [

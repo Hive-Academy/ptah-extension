@@ -370,10 +370,16 @@ export type CompactFailedByReason = Readonly<
   Partial<Record<FailureReason | 'other', number>>
 >;
 
-/** A clean coverage as a tool writes it: only how many files were analysed. */
+/**
+ * A clean coverage as a tool writes it: how many files were analysed, and
+ * the approximations the answer rests on when there are any (a clean answer
+ * never hides one; Batch 31 r1 R31-01).
+ */
 export interface CompactCleanCoverage {
   readonly clean: true;
   readonly analyzed: Count;
+  readonly approximations?: readonly Approximation[];
+  readonly approximationsOmitted?: number;
 }
 
 /**
@@ -468,9 +474,12 @@ function compactResolution(
  * every language-bound tool writes into its answer. The verdict is recomputed
  * first, so the block can never disagree with {@link isCleanAnswer}.
  *
- * - Clean: `{clean: true, analyzed}` and nothing else. Every qualifier is 0
- *   by definition; `nonSource`, `excluded: null` and approximations never
- *   qualify an answer and are not repeated.
+ * - Clean: `{clean: true, analyzed}`, plus `approximations` (and a non-zero
+ *   `approximationsOmitted`) when the answer rests on any. Every qualifier
+ *   is 0 by definition; `nonSource` and `excluded: null` never qualify an
+ *   answer and are not repeated. An approximation does not make an answer
+ *   unclean, but it is never dropped from one (Batch 31 r1 R31-01: a clean
+ *   C answer names `c:parsed-as-cpp`).
  * - Qualified: `clean: false`, `reasons`, then, in field order, only what is
  *   not at its clean value: a count that is not 0 (`null` is always kept, so
  *   unknown stays visible), `census` unless `'complete'`, `censusLimit`,
@@ -488,7 +497,18 @@ export function compactCoverage(
 ): CompactCoverage {
   const { clean, reasons, ...fields } = withCoverageVerdict(coverage);
   if (clean) {
-    return { clean: true, analyzed: fields.analyzed };
+    return {
+      clean: true,
+      analyzed: fields.analyzed,
+      ...(fields.approximations !== undefined &&
+      fields.approximations.length > 0
+        ? { approximations: fields.approximations }
+        : {}),
+      ...(fields.approximationsOmitted !== undefined &&
+      fields.approximationsOmitted !== 0
+        ? { approximationsOmitted: fields.approximationsOmitted }
+        : {}),
+    };
   }
   const kept: Mutable<Omit<CompactQualifiedCoverage, 'clean' | 'reasons'>> = {};
   if (fields.unsupported !== 0) {

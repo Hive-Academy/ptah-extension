@@ -19,12 +19,14 @@ import {
   buildLspReferencesTool,
   buildTaskCheckTool,
   buildTaskListTool,
+  DESCRIPTION_LANGUAGE_NAMES,
 } from './tool-description.builder';
 import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { LANGUAGE_IDS } from '@ptah-extension/platform-core';
 import {
   supportedLanguagesFor,
   type LanguageCapability,
@@ -33,6 +35,32 @@ import type { MCPToolDefinition } from '../types';
 
 /** The description budget the execute_code guard applies (the only size assertion). */
 const DESCRIPTION_CHAR_BUDGET = 1_000;
+
+/**
+ * Batch 31: descriptions name languages by their usual extension. Typed here
+ * by hand (not read from the builder), so a changed name fails.
+ */
+const EXPECTED_LANGUAGE_NAMES: Readonly<Record<string, string>> = {
+  typescript: 'ts',
+  javascript: 'js',
+  tsx: 'tsx',
+  python: 'py',
+  go: 'go',
+  csharp: 'cs',
+  java: 'java',
+  kotlin: 'kt',
+  rust: 'rs',
+  php: 'php',
+  ruby: 'rb',
+  cpp: 'cpp',
+};
+
+/** The registry list for `capability`, as a description writes it. */
+function describedLanguages(capability: LanguageCapability): string {
+  return supportedLanguagesFor(capability)
+    .map((id) => EXPECTED_LANGUAGE_NAMES[id])
+    .join(',');
+}
 
 describe('buildExecuteCodeTool', () => {
   it('guides agents to direct tools and native file editing', () => {
@@ -408,7 +436,7 @@ describe('code index tools — coverage legend', () => {
     ['ptah_code_reindex', buildCodeReindexTool],
   ])('%s states the compact reading rule', (_name, build) => {
     const { description } = build();
-    expect(description).toContain('if clean, only `analyzed`');
+    expect(description).toContain('clean→`analyzed`+approximations');
     expect(description).toContain('omitted counts=0, null=unknown');
   });
 
@@ -432,73 +460,73 @@ describe('Batch 24c — description language list equals registry', () => {
     [
       'ptah_ast_analyze',
       buildAstAnalyzeTool,
-      /Languages: ([a-z, ]+);/,
+      /Languages: ([a-z/,]+);/,
       'parse',
     ],
     [
       'ptah_ast_analyze',
       buildAstAnalyzeTool,
-      /exports only for ([a-z, ]+)\./,
+      /exports only for ([a-z/,]+)\./,
       'publicSymbols',
     ],
     [
       'ptah_context_enrich_file',
       buildContextEnrichFileTool,
-      /declaration-only ([a-z, ]+) file/,
+      /declaration-only ([a-z/,]+) file/,
       'enrichSummary',
     ],
     [
       'ptah_code_search_symbols',
       buildCodeSearchSymbolsTool,
-      /Functions\/classes\/methods: ([a-z, ]+);/,
+      /Functions\/classes\/methods: ([a-z/,]+);/,
       'codeIndex',
     ],
     [
       'ptah_code_search_symbols',
       buildCodeSearchSymbolsTool,
-      /export-clause names \(`export`\): ([a-z, ]+)\./,
+      /export-clause names \(`export`\): ([a-z/,]+)\./,
       'publicSymbols',
     ],
     [
       'ptah_code_reindex',
       buildCodeReindexTool,
-      /unsupported-language outside ([a-z, ]+)\./,
+      /unsupported-language outside ([a-z/,]+)\./,
       'codeIndex',
     ],
     [
       'ptah_get_dependents',
       buildGetDependentsTool,
-      /Graph languages: ([a-z, ]+);/,
+      /Graph languages: ([a-z/,]+);/,
       'graphEdges',
     ],
     [
       'ptah_get_dependencies',
       buildGetDependenciesTool,
-      /Graph languages: ([a-z, ]+);/,
+      /Graph languages: ([a-z/,]+);/,
       'graphEdges',
     ],
     [
       'ptah_get_symbol_index',
       buildGetSymbolIndexTool,
-      /graph export index \(([a-z, ]+) files/,
+      /graph export index \(([a-z/,]+) files/,
       'graphEdges',
     ],
     [
       'ptah_lsp_definitions',
       buildLspDefinitionsTool,
-      /relative imports \(([a-z, ]+)\)/,
+      /relative imports \(([a-z/,]+)\)/,
       'definitionFallback',
     ],
     [
       'ptah_lsp_references',
       buildLspReferencesTool,
-      /once the ([a-z, ]+) dependency graph is built/,
+      /once the ([a-z/,]+) dependency graph is built/,
       'graphEdges',
     ],
     [
       'ptah_get_diagnostics',
       buildGetDiagnosticsTool,
-      /syntax-only check of scoped ([a-z, ]+) files/,
+      /syntax-only check of scoped ([a-z/,]+) files/,
       'syntaxDiagnostics',
     ],
   ];
@@ -507,9 +535,11 @@ describe('Batch 24c — description language list equals registry', () => {
     '%s: the list at its marker equals the registry list',
     (_name, build, marker, capability) => {
       const match = marker.exec(build().description);
-      expect(match?.[1]?.split(', ')).toEqual([
-        ...supportedLanguagesFor(capability),
-      ]);
+      expect(match?.[1]?.split(',')).toEqual(
+        supportedLanguagesFor(capability).map(
+          (id) => EXPECTED_LANGUAGE_NAMES[id],
+        ),
+      );
     },
   );
 
@@ -565,10 +595,10 @@ describe('Batch 24c — description language list equals registry', () => {
         typeof import('./tool-description.builder')
       >('./tool-description.builder');
       expect(isolated.buildCodeSearchSymbolsTool().description).toContain(
-        'Functions/classes/methods: typescript, kotlin;',
+        'Functions/classes/methods: ts,kt;',
       );
       expect(isolated.buildCodeReindexTool().description).toContain(
-        'unsupported-language outside typescript, kotlin.',
+        'unsupported-language outside ts,kt.',
       );
     });
     jest.dontMock('@ptah-extension/workspace-intelligence');
@@ -637,7 +667,7 @@ describe('Batch 24c fix round — shortened code index descriptions keep their r
   const LEGEND_ITEMS = [
     '`coverage` first', // coverage leads the result
     '`clean`',
-    'if clean, only `analyzed`', // compact clean form (22c)
+    'clean→`analyzed`+approximations', // compact clean form (22c; Batch 31 r1 R31-01)
     'up to 3 `reasons`',
     'omitted counts=0, null=unknown', // compact reading rule (22c)
     '`?`=unknown',
@@ -653,10 +683,10 @@ describe('Batch 24c fix round — shortened code index descriptions keep their r
       'SQLite code index', // which store it searches
       'BM25+vector', // how it ranks
       'beats Grep', // when to prefer it
-      `Functions/classes/methods: ${supportedLanguagesFor('codeIndex').join(', ')};`,
+      `Functions/classes/methods: ${describedLanguages('codeIndex')};`,
       // Batch 24d kinds, with the languages whose exports are extracted.
       'exported interfaces/types/enums/variables/namespaces/export-clause names (`export`): ' +
-        `${supportedLanguagesFor('publicSymbols').join(', ')}.`,
+        `${describedLanguages('publicSymbols')}.`,
       'ptah_get_symbol_index (graph export index)', // the other store
       'Hits: path/kind/name/score',
       'index: symbolCount/indexAgeMs/reindexStarted/reindexInFlight',
@@ -678,11 +708,64 @@ describe('Batch 24c fix round — shortened code index descriptions keep their r
       'returns {started,symbolCount,indexAgeMs,reindexInFlight}',
       'search when done',
       'filePath: own coverage/stats', // single-file result
-      `unsupported-language outside ${supportedLanguagesFor('codeIndex').join(', ')}.`,
+      `unsupported-language outside ${describedLanguages('codeIndex')}.`,
       'No index: error.', // runtimes without SQLite
       ...LEGEND_ITEMS,
     ];
     expect(required.filter((item) => !description.includes(item))).toEqual([]);
     expect(description.length).toBeLessThanOrEqual(536);
+  });
+});
+
+/**
+ * Batch 31: the per-tool pins were full with eight languages listed by full
+ * id (search 702/702). Lists are compact now, so every current and planned
+ * language fits without raising a pin.
+ */
+describe('Batch 31 — compact language lists keep every pin', () => {
+  it('names every registry language, each by its own distinct name', () => {
+    expect({ ...DESCRIPTION_LANGUAGE_NAMES }).toEqual(EXPECTED_LANGUAGE_NAMES);
+    expect(Object.keys(DESCRIPTION_LANGUAGE_NAMES).sort()).toEqual(
+      [...LANGUAGE_IDS].sort(),
+    );
+    const names = Object.values(DESCRIPTION_LANGUAGE_NAMES);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('lists php, ruby and cpp as code-index languages now', () => {
+    expect(buildCodeSearchSymbolsTool().description).toContain(
+      'Functions/classes/methods: ts,js,tsx,py,go,cs,java,rs,php,rb,cpp;',
+    );
+  });
+
+  // The planned end state (required keys, Decisions 18/19): every language
+  // in the code index, every language but Kotlin with public symbols (no
+  // `publicSymbols:kotlin` key).
+  it('with every planned language listed, search and reindex stay within 702 and 536', () => {
+    jest.isolateModules(() => {
+      jest.doMock('@ptah-extension/workspace-intelligence', () => ({
+        ...jest.requireActual<
+          typeof import('@ptah-extension/workspace-intelligence')
+        >('@ptah-extension/workspace-intelligence'),
+        supportedLanguagesFor: (capability: LanguageCapability) =>
+          capability === 'publicSymbols'
+            ? LANGUAGE_IDS.filter((id) => id !== 'kotlin')
+            : [...LANGUAGE_IDS],
+      }));
+      const isolated = jest.requireActual<
+        typeof import('./tool-description.builder')
+      >('./tool-description.builder');
+      const search = isolated.buildCodeSearchSymbolsTool().description;
+      const reindex = isolated.buildCodeReindexTool().description;
+      const all = 'ts,js,tsx,py,go,cs,java,kt,rs,php,rb,cpp';
+      expect(search).toContain(`Functions/classes/methods: ${all};`);
+      expect(search).toContain(
+        '(`export`): ts,js,tsx,py,go,cs,java,rs,php,rb,cpp.',
+      );
+      expect(search.length).toBeLessThanOrEqual(702);
+      expect(reindex).toContain(`unsupported-language outside ${all}.`);
+      expect(reindex.length).toBeLessThanOrEqual(536);
+    });
+    jest.dontMock('@ptah-extension/workspace-intelligence');
   });
 });
