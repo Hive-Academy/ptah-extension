@@ -53,7 +53,7 @@ WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
 JSON: ptah.json.* (validate/repair JSON files)
 GIT: ptah.git.* (worktree operations)
-IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
+IDE: ptah.ide.* (lsp, editor, actions, testing) — host-dependent: full in VS Code; the desktop app has an LSP fallback for definitions/references; the CLI has no IDE host at all
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
@@ -238,13 +238,22 @@ HANDING BACK TO THE USER:
 - installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
     config to the target files. Defaults to ['claude','vscode'].`,
 
-  ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
+  ide: `ptah.ide - IDE capabilities (host-dependent, richest in VS Code)
 
 Sub-namespaces:
-- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info)
-- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range)
-- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring)
-- ptah.ide.testing - Test execution (discover, run, coverage)
+- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info).
+    VS Code uses its language server. The desktop (Electron) app registers a
+    real fallback for getDefinition(Report)/getReferences(Report): a
+    name-based/graph-scoped scan (see ptah.help('ide.lsp') for the mechanism
+    field). The CLI registers no IDE host at all: every ptah.ide.lsp method
+    returns an empty/null "not available" answer (mechanism: 'none'), same as
+    getHover/getTypeDefinition/getSignatureHelp on every non-VS-Code host.
+- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range).
+    Requires VS Code; returns graceful defaults (null/[]) elsewhere.
+- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring).
+    Requires VS Code; returns false/unavailable elsewhere.
+- ptah.ide.testing - Test execution (discover, run, coverage).
+    Requires VS Code with a TestController; returns graceful defaults elsewhere.
 
 Use ptah.help('ide.lsp'), ptah.help('ide.editor'), etc. for method details.`,
 

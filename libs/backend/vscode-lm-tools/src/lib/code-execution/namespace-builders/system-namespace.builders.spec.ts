@@ -335,6 +335,34 @@ describe('buildHelpMethod', () => {
     expect(await help('ide.lsp')).toBe(HELP_DOCS['ide.lsp']);
   });
 
+  it('never claims the ide namespace is exclusive to VS Code (Batch 27 honesty: 24c review finding 3)', async () => {
+    const help = buildHelpMethod();
+
+    // ptah.ide.lsp has a real Electron fallback (Batch 26a/26b); the parent
+    // topic must not tell a desktop agent the whole namespace is unavailable.
+    await expect(help('ide')).resolves.not.toMatch(/exclusive to VS Code/i);
+    await expect(help('overview')).resolves.not.toMatch(
+      /ide\.\*.*VS Code exclusive/i,
+    );
+  });
+
+  // r1 review R27-05: the previous wording claimed the CLI also gets a
+  // name-based/graph-scoped scan fallback. Only the Electron (desktop) host
+  // registers IIDECapabilities (apps/ptah-electron/src/di/phase-3-storage.ts);
+  // the CLI registers none, so buildIDENamespace(undefined) — see
+  // `ide-namespace.builder.ts:212-233` — sends every ptah.ide.lsp call through
+  // the graceful `mechanism: 'none'` stub there, same as VS Code editor/actions/
+  // testing off-host. The help text must name the CLI's actual behaviour, not
+  // a fallback that only Electron has.
+  it('names the desktop app (not the CLI) as the LSP fallback host, and the CLI as having no IDE host at all (R27-05)', async () => {
+    const help = buildHelpMethod();
+    const ideDoc = await help('ide');
+
+    expect(ideDoc).toMatch(/desktop.*fallback|fallback.*desktop/is);
+    expect(ideDoc).toMatch(/CLI registers no IDE host|CLI has no IDE host/i);
+    expect(ideDoc).not.toMatch(/CLI.*fall back to name-based/i);
+  });
+
   it('rewrites legacy "ai.ide.*" topics to "ide.*"', async () => {
     const help = buildHelpMethod();
 

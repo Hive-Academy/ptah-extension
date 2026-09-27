@@ -143,14 +143,30 @@ const MANDATE_MAP: Readonly<Record<string, Mapping>> = {
       '200 diagnostics across 3 files, 1 requested: every requested entry, exact totals and summary, <= 8,000 chars',
     ),
   ],
-  ptah_lsp_references: guard(
-    'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
-    'returns word-boundary matches across scanned files',
-  ),
-  ptah_lsp_definitions: guard(
-    'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
-    'finds an imported class through the import when the index returns no hits',
-  ),
+  ptah_lsp_references: [
+    guard(
+      'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
+      'returns word-boundary matches across scanned files',
+    ),
+    // r1 R27-04: the recall guard above proves real matches are found; it
+    // does not touch the honesty contract (never a confident zero). This
+    // second guard is the actual truncation/unsupported disclosure test.
+    guard(
+      'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
+      'reports the match cap as truncated',
+    ),
+  ],
+  ptah_lsp_definitions: [
+    guard(
+      'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
+      'finds an imported class through the import when the index returns no hits',
+    ),
+    // r1 R27-04: the actual truncation/confident-zero disclosure test.
+    guard(
+      'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
+      'qualifies the definition answer as truncated',
+    ),
+  ],
   ptah_get_dirty_files: guard(
     'apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts',
     'getDirtyFiles returns [] (not tracked in main process)',
@@ -808,6 +824,53 @@ describe('MCP mandate manifest (TASK_2026_559 Batch 21, Task 21.2)', () => {
       (name) => MANDATE_MAP[name] === undefined,
     );
     expect(uncovered).toEqual([]);
+  });
+
+  // TASK_2026_559 Batch 27, Task 27.3 ("H reconciles 21.1/21.2"): once
+  // Batch 26b's Electron report methods existed, `ptah_lsp_references` and
+  // `ptah_lsp_definitions` no longer need — and must never regress to — an
+  // `exempt()` entry: each has a real, host-level guard proving the honest
+  // "never a confident zero when truncated/unsupported" contract. A future
+  // edit that swaps either back to `exempt(...)` (e.g. "host-only, no test
+  // can reach it") must fail here, not silently pass the generic loop above.
+  it('ptah_lsp_references and ptah_lsp_definitions are host GUARDS, never an exemption (Batch 26b/27)', () => {
+    for (const tool of ['ptah_lsp_references', 'ptah_lsp_definitions']) {
+      const mapping = MANDATE_MAP[tool];
+      expect(mapping).toBeDefined();
+      expect(mapping && isExempt(mapping)).toBe(false);
+      const guards = guardsOf(mapping!);
+      expect(guards.length).toBeGreaterThan(0);
+      for (const g of guards) {
+        expect(g.file).toContain('electron-ide-capabilities.spec.ts');
+      }
+    }
+  });
+
+  // r1 R27-04: the mapping above must include the ACTUAL truncation/
+  // confident-zero disclosure guard, not merely any Electron spec test (the
+  // r1 review found the previous mapping pointed at recall tests unrelated
+  // to the honesty contract this batch claims to pin).
+  it('ptah_lsp_references / ptah_lsp_definitions map to the REAL truncation/confident-zero guard titles (R27-04)', () => {
+    const referencesGuards = guardsOf(MANDATE_MAP['ptah_lsp_references']!).map(
+      (g) => g.title,
+    );
+    const definitionsGuards = guardsOf(
+      MANDATE_MAP['ptah_lsp_definitions']!,
+    ).map((g) => g.title);
+
+    expect(referencesGuards).toContain('reports the match cap as truncated');
+    expect(definitionsGuards).toContain(
+      'qualifies the definition answer as truncated',
+    );
+
+    // Both titles must be ACTIVE, real tests in the guard file (AST-checked,
+    // same rule the generic loop above applies) — not just strings here.
+    for (const g of [
+      ...guardsOf(MANDATE_MAP['ptah_lsp_references']!),
+      ...guardsOf(MANDATE_MAP['ptah_lsp_definitions']!),
+    ]) {
+      expect(checkGuard(g)).toEqual([]);
+    }
   });
 
   // -- AST-lite matcher self-tests (guards against the matcher itself regressing) --
