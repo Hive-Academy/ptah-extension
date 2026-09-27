@@ -3413,9 +3413,9 @@ async function handleExecuteCodeCall(
       },
     };
   }
-  // Budgeted like every other text result: `serializeResult`'s own 50 KB cap
-  // is far above the default budget, so without this an `execute_code` result
-  // was the one text path that could still flood the context. A string result
+  // Budgeted like every other text result: `serializeResult` returns the
+  // whole value (Batch 30 r1 R30-01), so this budget is what bounds the
+  // answer and the spool holds the complete output. A string result
   // the caller declared as source (`resultLanguage`) is reduced as code with
   // that language, so an over-budget file reaches the outliner (Batch 29b r1
   // R29b-02); the language is the caller's declaration about the returned

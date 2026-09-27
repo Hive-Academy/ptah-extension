@@ -326,7 +326,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         resultLanguage: {
           type: 'string',
           description:
-            'Language of a returned source string (e.g. "tsx", ".py"): an over-budget result is outlined, not cut',
+            'Language of a returned source string (e.g. "tsx", ".py"): an over-budget result is outlined if it parses, else cut; the full text is spooled',
         },
       },
       required: ['code'],
@@ -1823,10 +1823,12 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
  * How to read a `coverage` block (Batch 24b r2): the reason codes are short
  * so the worst-case coverage stays within 1,000 chars, and this legend is the
  * agent-facing key to them. Batch 22c: it also states the compact form's
- * reading rule (omitted = 0, null = unknown).
+ * reading rule (omitted = 0, null = unknown). Batch 30 trimmed "else " and the
+ * final period so both code-index descriptions absorb the java/rust entries
+ * the registry adds to their language lists within their pinned budgets.
  */
 const COVERAGE_LEGEND =
-  '`coverage` first: `clean`; if clean, only `analyzed`; else up to 3 `reasons`, omitted counts=0, null=unknown. `?`=unknown; `truncated`=census cut; `stale`=last run partial; `updating`=writing; 999999=at least.';
+  '`coverage` first: `clean`; if clean, only `analyzed`; up to 3 `reasons`, omitted counts=0, null=unknown. `?`=unknown; `truncated`=census cut; `stale`=last run partial; `updating`=writing; 999999=at least';
 
 /**
  * Build the ptah_code_search_symbols tool definition
@@ -1837,11 +1839,11 @@ export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_search_symbols',
     description:
-      'SQLite code index (BM25+vector); beats Grep. Functions/classes/methods: ' +
+      'SQLite code index (BM25+vector) beats Grep. Functions/classes/methods: ' +
       languagesNote('codeIndex') +
       '; exported interfaces/types/enums/variables/namespaces/export-clause names (`export`): ' +
       languagesNote('publicSymbols') +
-      '. Export lists: ptah_get_symbol_index (graph export index). Hits: path/kind/name/score; index: symbolCount/indexAgeMs/reindexStarted/reindexInFlight. Empty/>24h index: background reindex; stale 0 hits inconclusive. "index unavailable": ptah_search_files/Grep. ' +
+      '. Exports: ptah_get_symbol_index (graph export index). Hits: path/kind/name/score; index: symbolCount/indexAgeMs/reindexStarted/reindexInFlight. Empty/>24h index: background reindex; stale 0 hits inconclusive. "index unavailable": ptah_search_files/Grep. ' +
       COVERAGE_LEGEND,
     inputSchema: {
       type: 'object',

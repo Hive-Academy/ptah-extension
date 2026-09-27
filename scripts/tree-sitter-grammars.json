@@ -115,7 +115,7 @@
     {
       "id": "java",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-java.wasm",
       "licence": "MIT",
       "bytes": 414641,
@@ -130,7 +130,7 @@
     {
       "id": "rust",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-rust.wasm",
       "licence": "MIT",
       "bytes": 1113644,

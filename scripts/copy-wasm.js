@@ -298,11 +298,11 @@ function selfTest() {
         .sort(),
     );
     const activated = mutate((m) => {
-      m.assets.find((asset) => asset.id === 'java').active = true;
+      m.assets.find((asset) => asset.id === 'php').active = true;
     });
     copyWasm(path.join(dir, 'activated'), activated);
     assert.ok(
-      fs.statSync(path.join(dir, 'activated/wasm/tree-sitter-java.wasm')).size >
+      fs.statSync(path.join(dir, 'activated/wasm/tree-sitter-php.wasm')).size >
         0,
     );
   } finally {

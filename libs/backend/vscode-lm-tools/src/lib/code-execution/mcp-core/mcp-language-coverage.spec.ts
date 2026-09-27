@@ -353,6 +353,160 @@ async function tsxOutlineHonesty(): Promise<void> {
   }
 }
 
+/** One Batch 30 language's outline honesty subject. */
+interface GrammarOutlineSubject {
+  readonly language: 'java' | 'rust';
+  readonly hint: string;
+  /** Small file: one method body, focus on its type. */
+  readonly source: string;
+  readonly focusSymbol: string;
+  readonly omittable: readonly { startLine: number; endLine: number }[];
+  readonly focus: readonly { startLine: number; endLine: number }[];
+  /** Over-budget module for the served path, and the lines it must keep. */
+  readonly large: () => string;
+  readonly keptSignatures: readonly string[];
+}
+
+const LARGE_MODULE_NAMES = ['first', 'middle', 'last'] as const;
+
+const JAVA_OUTLINE: GrammarOutlineSubject = {
+  language: 'java',
+  hint: '.java',
+  source: [
+    'public class Counter {',
+    '  public int next(int step) {',
+    '    int value = step + 1;',
+    '    return value;',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
+  focusSymbol: 'Counter',
+  omittable: [{ startLine: 2, endLine: 3 }],
+  focus: [{ startLine: 0, endLine: 5 }],
+  large: () => {
+    const out = ['public class Report {'];
+    for (const name of LARGE_MODULE_NAMES) {
+      out.push(`  public String ${name}(String[] rows) {`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `    String row${i} = rows.length > ${i} ? rows[${i}] : ${JSON.stringify(`${name}-${i}`)};`,
+        );
+      }
+      out.push('    return rows[0];', '  }');
+    }
+    out.push('}', '');
+    return out.join('\n');
+  },
+  keptSignatures: LARGE_MODULE_NAMES.map(
+    (name) => `  public String ${name}(String[] rows) {`,
+  ),
+};
+
+const RUST_OUTLINE: GrammarOutlineSubject = {
+  language: 'rust',
+  hint: '.rs',
+  source: [
+    'pub struct Counter;',
+    'impl Counter {',
+    '    pub fn next(&self, step: u32) -> u32 {',
+    '        let value = step + 1;',
+    '        value',
+    '    }',
+    '}',
+    '',
+  ].join('\n'),
+  focusSymbol: 'Counter',
+  omittable: [{ startLine: 3, endLine: 4 }],
+  focus: [
+    { startLine: 0, endLine: 0 },
+    { startLine: 1, endLine: 6 },
+  ],
+  large: () => {
+    const out: string[] = [];
+    for (const name of LARGE_MODULE_NAMES) {
+      out.push(`pub fn ${name}(rows: &[String]) -> usize {`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `    let row${i} = rows.get(${i}).map_or(${JSON.stringify(`${name}-${i}`)}.len(), |r| r.len());`,
+        );
+      }
+      out.push('    rows.len()', '}', '');
+    }
+    return out.join('\n');
+  },
+  keptSignatures: LARGE_MODULE_NAMES.map(
+    (name) => `pub fn ${name}(rows: &[String]) -> usize {`,
+  ),
+};
+
+/**
+ * `outline:java|rust` (Batch 30): the real outliner over the real grammar
+ * outlines the file instead of refusing (exact spans), a syntax error is
+ * still refused (contrast), and an over-budget `execute_code` result
+ * declared as that language reaches the outliner through the real
+ * dispatcher and keeps every signature, the middle one included.
+ */
+async function grammarOutlineHonesty(
+  subject: GrammarOutlineSubject,
+): Promise<void> {
+  const parser = new TreeSitterParserService({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  } as unknown as Logger);
+  try {
+    const outliner = new TreeSitterCodeOutliner(parser);
+    const outline = await outliner.outline(
+      subject.source,
+      subject.hint,
+      subject.focusSymbol,
+    );
+    if (outline === null) {
+      throw new Error(`the ${subject.hint} outline was refused`);
+    }
+    const byRow = (a: { startLine: number }, b: { startLine: number }) =>
+      a.startLine - b.startLine;
+    if (
+      JSON.stringify([...outline.omittable].sort(byRow)) !==
+        JSON.stringify(subject.omittable) ||
+      JSON.stringify([...outline.focus].sort(byRow)) !==
+        JSON.stringify(subject.focus)
+    ) {
+      throw new Error(
+        `unexpected ${subject.hint} outline: ${JSON.stringify(outline)}`,
+      );
+    }
+    const broken = subject.source.replace('{', '{ (');
+    if ((await outliner.outline(broken, subject.language)) !== null) {
+      throw new Error(
+        `a ${subject.language} file with a syntax error was outlined (contrast failed)`,
+      );
+    }
+    const served = await executeThroughDispatcher(
+      parser,
+      subject.large(),
+      subject.language,
+    );
+    if (served.reducer !== 'code-outline') {
+      throw new Error(
+        `the dispatcher did not outline the ${subject.language} result: reducer ${served.reducer}`,
+      );
+    }
+    for (const signature of subject.keptSignatures) {
+      if (!served.text.includes(signature)) {
+        throw new Error(`the served outline lost ${JSON.stringify(signature)}`);
+      }
+    }
+    if (served.spooled !== served.raw) {
+      throw new Error(`the ${subject.language} spool is not the raw text`);
+    }
+  } finally {
+    parser.dispose();
+  }
+}
+
 /** Three JSX components whose bodies together are well over the 2,000-token budget. */
 const TSX_COMPONENT_NAMES = [
   'FirstDeclaration',
@@ -378,7 +532,7 @@ function largeTsxModule(): string {
   return out.join('\n');
 }
 
-interface ServedTsx {
+interface ServedResult {
   readonly text: string;
   readonly reducer: string | undefined;
   readonly spooled: string | undefined;
@@ -393,8 +547,19 @@ interface ServedTsx {
 async function executeTsxThroughDispatcher(
   parser: TreeSitterParserService,
   resultLanguage: string | undefined,
-): Promise<ServedTsx> {
-  const raw = largeTsxModule();
+): Promise<ServedResult> {
+  return executeThroughDispatcher(parser, largeTsxModule(), resultLanguage);
+}
+
+/**
+ * `execute_code` returning `raw` through the REAL `handleMCPRequest` (the
+ * TSX helper above; Batch 30 reuses it for Java and Rust).
+ */
+async function executeThroughDispatcher(
+  parser: TreeSitterParserService,
+  raw: string,
+  resultLanguage: string | undefined,
+): Promise<ServedResult> {
   const spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-29b-outline-'));
   try {
     const deps: ProtocolHandlerDependencies = {
@@ -467,6 +632,37 @@ describe('outline:tsx through the real dispatcher (Batch 29b r1 R29b-02)', () =>
     expect(served.spooled).toBe(served.raw);
   }, 60_000);
 
+  it('a result far above the old 51,200-char serializer cut is outlined whole and spooled byte-equal (Batch 30 r1 R30-01)', async () => {
+    const names = Array.from({ length: 36 }, (_, i) => `Component${i}`);
+    const out: string[] = [];
+    for (const name of names) {
+      out.push(`export function ${name}(props: { rows: string[] }) {`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `  const row${i} = props.rows[${i}] ?? ${JSON.stringify(`${name}-${i}`)}.padEnd(${i + 20});`,
+        );
+      }
+      out.push(
+        '  return <ul>{props.rows.map((r) => <li key={r}>{r}</li>)}</ul>;',
+        '}',
+        '',
+      );
+    }
+    const raw = out.join('\n');
+    expect(raw.length).toBeGreaterThan(150_000);
+
+    const served = await executeThroughDispatcher(parser, raw, 'tsx');
+
+    expect(served.reducer).toBe('code-outline');
+    // The late declarations were past the old cut: they are only here if the
+    // outliner saw the whole text.
+    for (const name of names) {
+      expect(served.text).toContain(`export function ${name}(`);
+    }
+    expect(served.text).not.toContain('[TRUNCATED:');
+    expect(served.spooled).toBe(raw);
+  }, 60_000);
+
   it('without a declared language the same result is not outlined (contrast: the hint is what reaches the outliner)', async () => {
     const served = await executeTsxThroughDispatcher(parser, undefined);
 
@@ -507,6 +703,8 @@ const CHECKED_ELSEWHERE_KEYS = [
   'honesty:ptah_lsp_definitions',
   'honesty:ptah_lsp_references',
   'outline:tsx',
+  'outline:java',
+  'outline:rust',
 ] as const;
 
 const MCP_HONESTY_CHECKS: Readonly<
@@ -516,6 +714,8 @@ const MCP_HONESTY_CHECKS: Readonly<
   'honesty:ptah_lsp_definitions': lspHonesty(formatLspDefinitions),
   'honesty:ptah_lsp_references': lspHonesty(formatLspReferences),
   'outline:tsx': tsxOutlineHonesty,
+  'outline:java': async () => grammarOutlineHonesty(JAVA_OUTLINE),
+  'outline:rust': async () => grammarOutlineHonesty(RUST_OUTLINE),
 };
 
 describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)", () => {
@@ -535,6 +735,8 @@ describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)"
       'honesty:ptah_get_diagnostics',
       'honesty:ptah_lsp_definitions',
       'honesty:ptah_lsp_references',
+      'outline:java',
+      'outline:rust',
       'outline:tsx',
     ]);
   });

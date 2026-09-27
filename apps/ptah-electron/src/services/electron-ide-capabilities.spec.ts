@@ -2429,6 +2429,168 @@ describe('ElectronIDECapabilities', () => {
         });
       });
 
+      // Batch 30: `.java` and `.rs` now select their own grammars through the
+      // shared map, so the comment/string filter runs for them instead of
+      // keeping every name-shaped match.
+      describe('Batch 30: .java and .rs references are filtered with their own grammars', () => {
+        it('drops Java comment and string matches and keeps a string-template expression', async () => {
+          const file = 'C:/repo/src/App.java';
+          const lines = [
+            'class App {',
+            '  static int needle = 1;',
+            '  // needle in a comment',
+            '  /* needle */ /** needle */',
+            '  String s = "needle in a string";',
+            '  String block = """',
+            '    needle in a text block',
+            '    """;',
+            "  char c = 'n';",
+            '  String t = STR."value \\{needle}";',
+            '  int use() { return needle; }',
+            '}',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 1, 14);
+
+          expect(report.language).toBe('java');
+          expect(report.locations).toEqual([
+            { file, line: 1, column: 13 },
+            { file, line: 9, column: lines[9].indexOf('needle') },
+            { file, line: 10, column: lines[10].indexOf('needle') },
+          ]);
+        });
+
+        it('drops Rust comment and plain string matches and keeps a braced string (possible format argument)', async () => {
+          const file = 'C:/repo/src/main.rs';
+          const lines = [
+            'fn needle() -> u32 { 1 }',
+            '// needle in a comment',
+            '/* needle */',
+            'fn main() {',
+            '    let s = "needle in a string";',
+            '    let r = r#"needle raw"#;',
+            '    println!("{needle:?}");',
+            '    let v = needle();',
+            '}',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 0, 4);
+
+          expect(report.language).toBe('rust');
+          expect(report.locations).toEqual([
+            { file, line: 0, column: 3 },
+            { file, line: 6, column: lines[6].indexOf('needle') },
+            { file, line: 7, column: lines[7].indexOf('needle') },
+          ]);
+        });
+
+        // Batch 30 r1 R30-03: the reviewer's triggers, plus the pinned
+        // decisions for byte strings and brace-free strings.
+        it('keeps Rust format uses: dynamic width `{0:needle$}`, escaped braces, and a line-continued escaped format string', async () => {
+          const file = 'C:/repo/src/fmt.rs';
+          const lines = [
+            'const needle: usize = 5;',
+            'fn main() {',
+            '    println!("{0:needle$}", 1);',
+            // Cooked value `{needle}`; the raw text holds no brace. (A name
+            // glued to an escape, `\x7bneedle`, has no identifier boundary in
+            // the raw text and stays a known text-scan miss.)
+            '    println!("\\x7b\\',
+            '        needle\\x7d");',
+            '    let w = format!("{needle:?}");',
+            '}',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 0, 8);
+
+          expect(report.language).toBe('rust');
+          expect(report.truncated).toBeUndefined();
+          expect(report.locations).toEqual([
+            { file, line: 0, column: 6 },
+            { file, line: 2, column: lines[2].indexOf('needle') },
+            { file, line: 4, column: lines[4].indexOf('needle') },
+            { file, line: 5, column: lines[5].indexOf('needle') },
+          ]);
+        });
+
+        it('the cursor on `needle$` in a Rust format string resolves to `needle` (no `$` in Rust identifiers)', async () => {
+          const file = 'C:/repo/src/width.rs';
+          const lines = [
+            'const needle: usize = 5;',
+            'fn main() { println!("{0:needle$}", 1); }',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(
+            cap,
+            file,
+            1,
+            lines[1].indexOf('needle') + 2,
+          );
+
+          expect(report.locations).toEqual([
+            { file, line: 0, column: 6 },
+            { file, line: 1, column: lines[1].indexOf('needle') },
+          ]);
+        });
+
+        it('pins the string decisions: byte strings and brace-free, escape-free str/raw strings are excluded', async () => {
+          const file = 'C:/repo/src/strings.rs';
+          const lines = [
+            'fn needle() {}',
+            'fn main() {',
+            '    let a = "needle plain";',
+            '    let b = r#"needle raw"#;',
+            '    let c = b"needle bytes {x}";',
+            '    let d = br"needle rawbytes {x}";',
+            '    let e = "needle \\n with an escape";',
+            '    let f = r"needle {raw brace}";',
+            '    needle();',
+            '}',
+            '',
+          ];
+          const { cap } = build({
+            fs: memoryFs({ [file]: lines.join('\n') }),
+            indexer: streamingIndexer([file]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, file, 0, 4);
+
+          // Kept on purpose (may be format strings): the escaped `e` and the
+          // braced raw `f`. Excluded: plain `a`, raw `b`, byte `c` and `d`.
+          expect(report.locations).toEqual([
+            { file, line: 0, column: 3 },
+            { file, line: 6, column: lines[6].indexOf('needle') },
+            { file, line: 7, column: lines[7].indexOf('needle') },
+            { file, line: 8, column: lines[8].indexOf('needle') },
+          ]);
+        });
+      });
+
       describe('M1: a full symbol-index page', () => {
         const fullPage = Array.from({ length: 25 }, (_, i) =>
           indexHit(`C:/repo/src/m${i}.ts`, 'doThing', 0),

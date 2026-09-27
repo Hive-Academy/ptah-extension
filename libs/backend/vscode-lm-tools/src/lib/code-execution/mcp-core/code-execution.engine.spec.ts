@@ -133,11 +133,15 @@ describe('serializeResult', () => {
     expect(typeof result).toBe('string');
   });
 
-  it('truncates large results with explicit marker', () => {
-    const big = 'x'.repeat(60 * 1024);
-    const out = serializeResult(big);
-    expect(out.length).toBeLessThan(big.length + 1024);
-    expect(out).toContain('[TRUNCATED:');
+  it('never cuts a large result: the dispatcher budget bounds and spools it (Batch 30 r1 R30-01)', () => {
+    const big = 'x'.repeat(200 * 1024);
+    expect(serializeResult(big)).toBe(big);
+    const bigObject = { rows: Array.from({ length: 5000 }, (_, i) => i) };
+    expect(serializeResult(bigObject)).toBe(JSON.stringify(bigObject, null, 2));
+  });
+
+  it('answers a value with no JSON form by its String() form', () => {
+    expect(serializeResult(Symbol('s'))).toBe('Symbol(s)');
   });
 
   it('does not truncate results under the limit', () => {

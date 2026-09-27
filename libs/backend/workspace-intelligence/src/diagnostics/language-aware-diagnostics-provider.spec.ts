@@ -609,8 +609,8 @@ describe('LanguageAwareDiagnosticsProvider', () => {
 
     it('answers unavailable, never an empty available, when no requested file has a check', async () => {
       const root = fixture({
-        'A.java': 'class A {}\n',
-        'm.rs': 'fn main() {}\n',
+        'A.php': '<?php class A {}\n',
+        'm.rb': 'puts 1\n',
         'run.sh': 'ls\n',
       });
       const inner = fakeTypeScript(TS_CLEAN);
@@ -621,19 +621,19 @@ describe('LanguageAwareDiagnosticsProvider', () => {
       );
 
       const result = await provider.getDiagnostics(root, {
-        files: ['A.java', 'm.rs', 'run.sh'].map((rel) => abs(root, rel)),
+        files: ['A.php', 'm.rb', 'run.sh'].map((rel) => abs(root, rel)),
       });
 
       expect(inner.getDiagnostics).not.toHaveBeenCalled();
       expect(result.status).toBe('unavailable');
       if (result.status !== 'unavailable') return;
       expect(result.reason).toMatch(/^No requested file could be checked\./);
-      expect(result.reason).toContain('No diagnostics for java on this host');
+      expect(result.reason).toContain('No diagnostics for php on this host');
       expect(result.coverage).toMatchObject({
         clean: false,
         unsupported: 2,
         unrecognised: 1,
-        unsupportedByLanguage: { java: 1, rust: 1 },
+        unsupportedByLanguage: { php: 1, ruby: 1 },
       });
     });
 
@@ -725,7 +725,7 @@ describe('LanguageAwareDiagnosticsProvider', () => {
         diskFs([
           abs(root, 'web/a.ts'),
           abs(root, 'api/main.py'),
-          abs(root, 'svc/Main.java'),
+          abs(root, 'svc/Widget.php'),
         ]).fsProvider,
         scriptedParser(),
       );
@@ -743,12 +743,12 @@ describe('LanguageAwareDiagnosticsProvider', () => {
         analyzed: null,
         unchecked: 1,
         unsupported: 1,
-        unsupportedByLanguage: { java: 1 },
+        unsupportedByLanguage: { php: 1 },
         checks: 'type-check',
       });
       expect(result.notChecked?.map((group) => group.language)).toEqual([
         'python',
-        'java',
+        'php',
       ]);
     });
 

@@ -15,6 +15,7 @@
  * @packageDocumentation
  */
 
+import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -43,6 +44,7 @@ import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { CodeInsights } from '../ast/ast-analysis.interfaces';
 import { SupportedLanguage } from '../ast/ast.types';
+import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 
 /**
@@ -590,13 +592,16 @@ export class WorkspaceAnalyzerService implements IDisposable {
   async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
     try {
       const content = await this.fileSystemService.readFile(filePath);
-      // `.tsx` has its own grammar (Batch 29b): the TypeScript grammar
-      // misreads JSX.
-      const language: SupportedLanguage = filePath.endsWith('.tsx')
-        ? 'tsx'
-        : filePath.endsWith('.ts')
-          ? 'typescript'
-          : 'javascript';
+      // The shared extension map picks each parsed language's own grammar
+      // (`.tsx` since 29b, `.java`/`.rs` since 30); anything else keeps the
+      // JavaScript grammar this method has always fallen back to.
+      const extension = path.extname(filePath).toLowerCase();
+      const language: SupportedLanguage = Object.hasOwn(
+        EXTENSION_LANGUAGE_MAP,
+        extension,
+      )
+        ? EXTENSION_LANGUAGE_MAP[extension]
+        : 'javascript';
 
       this.logger.debug(
         `Extracting code insights from ${filePath} (language: ${language})`,

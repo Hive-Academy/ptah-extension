@@ -1046,13 +1046,35 @@ export class CodeSymbolIndexer {
     }
 
     const chunks: SymbolChunkInsert[] = [];
+    // The store keys a row by (workspace root, subject) and overwrites on
+    // conflict, so two declarations sharing a kind and name in one file (Java
+    // overloads, one Rust type's several `impl` blocks, TS overload
+    // signatures) must not share a subject. The first keeps the plain
+    // subject; each later one adds its 1-based start line (Batch 30 r1
+    // R30-02). Declarations are visited in source order, so the subjects are
+    // stable across re-indexes of an unchanged file.
+    const subjects = new Set<string>();
+    const uniqueSubject = (base: string, startLine: number): string => {
+      let subject = base;
+      if (subjects.has(subject)) {
+        subject = `${base}@${startLine + 1}`;
+        for (let n = 2; subjects.has(subject); n++) {
+          subject = `${base}@${startLine + 1}.${n}`;
+        }
+      }
+      subjects.add(subject);
+      return subject;
+    };
     for (const fn of insights.functions) {
       const name = fn.name;
       const startLine = fn.startLine ?? 0;
       const endLine = fn.endLine ?? startLine;
       const text = `function ${name} in ${relPath}:${startLine}-${endLine}`;
       chunks.push({
-        subject: `code:function:${normalizedFilePath}:${name}`,
+        subject: uniqueSubject(
+          `code:function:${normalizedFilePath}:${name}`,
+          startLine,
+        ),
         kind: 'function',
         symbolName: name,
         text,
@@ -1067,7 +1089,10 @@ export class CodeSymbolIndexer {
       const classEndLine = cls.endLine ?? classStartLine;
       const classText = `class ${className} in ${relPath}:${classStartLine}-${classEndLine}`;
       chunks.push({
-        subject: `code:class:${normalizedFilePath}:${className}`,
+        subject: uniqueSubject(
+          `code:class:${normalizedFilePath}:${className}`,
+          classStartLine,
+        ),
         kind: 'class',
         symbolName: className,
         text: classText,
@@ -1082,7 +1107,10 @@ export class CodeSymbolIndexer {
           const methodEndLine = method.endLine ?? methodStartLine;
           const methodText = `method ${className}.${methodName} in ${relPath}:${methodStartLine}-${methodEndLine}`;
           chunks.push({
-            subject: `code:method:${normalizedFilePath}:${className}.${methodName}`,
+            subject: uniqueSubject(
+              `code:method:${normalizedFilePath}:${className}.${methodName}`,
+              methodStartLine,
+            ),
             kind: 'method',
             symbolName: `${className}.${methodName}`,
             text: methodText,
@@ -1099,7 +1127,6 @@ export class CodeSymbolIndexer {
     // skipped only when the same kind and name already has one (an exported
     // function or class declaration): a same-named symbol of another kind or
     // scope is a different symbol, so both keep their rows.
-    const subjects = new Set(chunks.map((chunk) => chunk.subject));
     for (const info of insights.exports ?? []) {
       if (!isIndexableExportName(info)) continue;
       const rows = exportRowRange(info);

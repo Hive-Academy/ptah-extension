@@ -481,6 +481,8 @@ describe('CodeSymbolIndexer', () => {
       'python',
       'go',
       'csharp',
+      'java',
+      'rust',
     ];
 
     interface Entry {

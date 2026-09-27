@@ -23,4 +23,11 @@ export interface GenericAstNode {
  * Supported languages for AST parsing.
  */
 export type SupportedLanguage =
-  'javascript' | 'typescript' | 'tsx' | 'python' | 'go' | 'csharp';
+  | 'javascript'
+  | 'typescript'
+  | 'tsx'
+  | 'python'
+  | 'go'
+  | 'csharp'
+  | 'java'
+  | 'rust';

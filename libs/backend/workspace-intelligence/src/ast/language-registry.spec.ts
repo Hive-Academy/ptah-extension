@@ -316,12 +316,45 @@ describe('language registry', () => {
   });
 
   it.each<[LanguageCapability, string[]]>([
-    ['parse', ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp']],
-    ['outline', ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp']],
+    [
+      'parse',
+      [
+        'typescript',
+        'javascript',
+        'tsx',
+        'python',
+        'go',
+        'csharp',
+        'java',
+        'rust',
+      ],
+    ],
+    [
+      'outline',
+      [
+        'typescript',
+        'javascript',
+        'tsx',
+        'python',
+        'go',
+        'csharp',
+        'java',
+        'rust',
+      ],
+    ],
     ['enrichSummary', ['typescript', 'javascript', 'tsx']],
     [
       'codeIndex',
-      ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp'],
+      [
+        'typescript',
+        'javascript',
+        'tsx',
+        'python',
+        'go',
+        'csharp',
+        'java',
+        'rust',
+      ],
     ],
     ['publicSymbols', ['typescript', 'javascript', 'tsx']],
     ['graphEdges', ['typescript', 'javascript', 'tsx']],
@@ -329,7 +362,7 @@ describe('language registry', () => {
       'definitionFallback',
       ['typescript', 'javascript', 'python', 'go', 'csharp'],
     ],
-    ['syntaxDiagnostics', ['python', 'go', 'csharp']],
+    ['syntaxDiagnostics', ['python', 'go', 'csharp', 'java', 'rust']],
   ])('initial %s languages', (capability, expected) => {
     expect(supportedLanguagesFor(capability)).toEqual(expected);
   });
@@ -395,7 +428,7 @@ describe('language registry', () => {
 
   it('recognises unsupported source languages', () => {
     expect(languageForExtension('.kt')).toBe('kotlin');
-    expect(languageForExtension('.java')).toBe('java');
+    expect(languageForExtension('.php')).toBe('php');
     expect(languageForExtension('.swift')).toBe('swift');
     expect(languageForExtension('.R')).toBe('r');
     expect(languageForExtension('.exs')).toBe('elixir');
@@ -501,7 +534,7 @@ describe('recognition never loses a source file (r1 S1)', () => {
     expect(extensionHasCapability('.mjs', 'codeIndex')).toBe(false);
     expect(extensionHasCapability('.js', 'codeIndex')).toBe(true);
     expect(extensionHasCapability('.JS', 'codeIndex')).toBe(true);
-    expect(extensionHasCapability('.java', 'parse')).toBe(false);
+    expect(extensionHasCapability('.php', 'parse')).toBe(false);
     expect(extensionHasCapability('.xyz', 'parse')).toBe(false);
   });
 
@@ -567,7 +600,7 @@ describe('non-source classification (orchestrator ruling)', () => {
     ['src/APP.TS', 'eligible'],
     ['src/esm.mjs', 'unsupported'],
     ['lib/mix.ex', 'unsupported'],
-    ['src/Main.java', 'unsupported'],
+    ['src/Widget.php', 'unsupported'],
     ['src/main.zig', 'unrecognised'],
     ['web/index.html', 'unrecognised'],
     ['web/site.css', 'unrecognised'],

@@ -153,6 +153,28 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       );
     });
 
+    it.each([
+      ['D:\\test\\App.java', 'java'],
+      ['D:\\test\\lib.rs', 'rust'],
+      ['D:\\test\\model.py', 'python'],
+    ])(
+      'selects the grammar the shared extension map names for %s (Batch 30)',
+      async (filePath, language) => {
+        mockFileSystem.readFile.mockResolvedValue('x');
+        mockAstAnalyzer.analyzeSource.mockResolvedValue(
+          Result.ok({ functions: [], classes: [], imports: [] }),
+        );
+
+        await service.extractCodeInsights(filePath);
+
+        expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
+          'x',
+          language,
+          filePath,
+        );
+      },
+    );
+
     it('should detect language from file extension (JavaScript)', async () => {
       // Arrange
       const filePath = 'D:\\test\\script.js';

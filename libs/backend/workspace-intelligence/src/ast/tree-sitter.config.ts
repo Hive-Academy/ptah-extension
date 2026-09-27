@@ -37,7 +37,8 @@ export const GRAMMAR_FILE_MAP: Readonly<Record<SupportedLanguage, string>> =
  * because tree-sitter-typescript wraps the base class in an extends_clause node
  * that does not exist in tree-sitter-javascript; TypeScript's export query adds
  * the TS-only declaration suffix for the same reason. Python, Go and C# have no
- * export statements, so their exportQuery is empty (skipped by analyzeSource).
+ * export statements, and Java/Rust public-declaration extraction belongs to
+ * Batches 34/35, so their exportQuery is empty (skipped by analyzeSource).
  */
 export const LANGUAGE_QUERIES_MAP: Readonly<
   Record<SupportedLanguage, LanguageQueries>

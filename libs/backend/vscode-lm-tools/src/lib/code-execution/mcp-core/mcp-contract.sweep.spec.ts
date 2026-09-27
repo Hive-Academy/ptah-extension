@@ -885,8 +885,8 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
   execute_code: {
     // Executed in every matrix pass under that pass's caller identity (r3
     // R3-03: it was previously only run once, standalone, anonymously). The
-    // sandbox needs no API stub for a plain return value; 40,000 chars stays
-    // under `serializeResult`'s own 50 KiB cap so the raw is the value itself.
+    // sandbox needs no API stub for a plain return value; `serializeResult`
+    // never cuts (Batch 30 r1 R30-01), so the raw is the value itself.
     args: (marker) => ({
       code: `return '${marker}-' + 'x'.repeat(40000);`,
     }),
@@ -2577,8 +2577,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
 describe('execute_code result also goes through the budget layer (defect 1)', () => {
   it('an oversized sandboxed return value is cut, trailed, and its WHOLE value — tail included — is in the file the printed locator names', async () => {
     // The raw tail is what the reviewer (r3 R3-02) found unguarded: a bounded
-    // prefix holding the head marker passed even with the tail lost. The
-    // value stays under `serializeResult`'s own 50 KiB cap, so the raw text
+    // prefix holding the head marker passed even with the tail lost.
+    // `serializeResult` never cuts (Batch 30 r1 R30-01), so the raw text
     // production budgets is exactly this value.
     const head = 'MARK-execute_code-HEAD';
     const tail = 'MARK-execute_code-TAIL';

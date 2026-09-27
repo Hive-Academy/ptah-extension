@@ -581,7 +581,7 @@ describe('Batch 24c — index and host mechanisms are named', () => {
     const search = buildCodeSearchSymbolsTool().description;
     expect(search).toContain('SQLite code index');
     expect(search).toContain(
-      'Export lists: ptah_get_symbol_index (graph export index)',
+      'Exports: ptah_get_symbol_index (graph export index)',
     );
     expect(buildCodeReindexTool().description).toContain(
       'Refresh the SQLite code index (ptah_code_search_symbols)',

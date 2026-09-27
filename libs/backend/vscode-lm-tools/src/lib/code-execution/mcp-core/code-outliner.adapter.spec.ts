@@ -235,6 +235,52 @@ const TSX_SOURCE = lines(
   '}', // 22
 );
 
+const JAVA_SOURCE = lines(
+  'package com.example;', // 0
+  '', // 1
+  'public class Store {', // 2
+  '  private int count;', // 3
+  '  public Store(int count) {', // 4
+  '    this.count = count;', // 5
+  '  }', // 6
+  '  public int next() {', // 7
+  '    Runnable r = () -> {', // 8
+  '      count++;', // 9
+  '    };', // 10
+  '    return count;', // 11
+  '  }', // 12
+  '  record Point(int x) {', // 13
+  '    Point {', // 14
+  '      check(x);', // 15
+  '    }', // 16
+  '  }', // 17
+  '  enum Mode { ON, OFF }', // 18
+  '  void empty() { }', // 19
+  '}', // 20
+);
+
+const RUST_SOURCE = lines(
+  'mod parser;', // 0
+  '', // 1
+  'pub struct Store {', // 2
+  '    count: u32,', // 3
+  '}', // 4
+  '', // 5
+  'impl Store {', // 6
+  '    pub fn next(&mut self) -> u32 {', // 7
+  '        let bump = |n: u32| {', // 8
+  '            n + 1', // 9
+  '        };', // 10
+  '        bump(self.count)', // 11
+  '    }', // 12
+  '}', // 13
+  '', // 14
+  'pub trait Named {', // 15
+  '    fn name(&self) -> String;', // 16
+  '}', // 17
+  'fn empty() {}', // 18
+);
+
 /**
  * A 300+-line TypeScript module: an interface, a type, twelve exported metric
  * functions, an exported service class and an exported arrow formatter.
@@ -411,6 +457,92 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       expect(props?.focus).toEqual([{ startLine: 0, endLine: 3 }]);
     });
 
+    it('java outline not refused: method, constructor, lambda and compact-constructor bodies; focus on types and members (Batch 30)', async () => {
+      for (const hint of ['.java', 'java', 'src/com/example/Store.java']) {
+        const outline = await outliner.outline(JAVA_SOURCE, hint, 'Store');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 5, endLine: 5 },
+          { startLine: 8, endLine: 11 },
+          { startLine: 9, endLine: 9 },
+          { startLine: 15, endLine: 15 },
+        ]);
+        // The class and its constructor share the name.
+        expect(sorted(outline?.focus ?? [])).toEqual([
+          { startLine: 2, endLine: 20 },
+          { startLine: 4, endLine: 6 },
+        ]);
+      }
+      const point = await outliner.outline(JAVA_SOURCE, 'java', 'Point');
+      expect(sorted(point?.focus ?? [])).toEqual([
+        { startLine: 13, endLine: 17 },
+        { startLine: 14, endLine: 16 },
+      ]);
+      const count = await outliner.outline(JAVA_SOURCE, 'java', 'count');
+      expect(count?.focus).toEqual([{ startLine: 3, endLine: 3 }]);
+      const mode = await outliner.outline(JAVA_SOURCE, 'java', 'Mode');
+      expect(mode?.focus).toEqual([{ startLine: 18, endLine: 18 }]);
+    });
+
+    it('rust outline not refused: fn and closure bodies; focus finds a struct and its impl block (Batch 30)', async () => {
+      for (const hint of ['.rs', 'rs', 'rust', 'src/store.rs']) {
+        const outline = await outliner.outline(RUST_SOURCE, hint, 'Store');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 8, endLine: 11 },
+          { startLine: 9, endLine: 9 },
+        ]);
+        expect(sorted(outline?.focus ?? [])).toEqual([
+          { startLine: 2, endLine: 4 },
+          { startLine: 6, endLine: 13 },
+        ]);
+      }
+      const name = await outliner.outline(RUST_SOURCE, 'rust', 'name');
+      expect(name?.focus).toEqual([{ startLine: 16, endLine: 16 }]);
+      const parserModule = await outliner.outline(
+        RUST_SOURCE,
+        'rust',
+        'parser',
+      );
+      expect(parserModule?.focus).toEqual([{ startLine: 0, endLine: 0 }]);
+    });
+
+    it('rust focus keeps qualified, generic-qualified and referenced impl blocks of the type (Batch 30 r1 R30-04)', async () => {
+      const source = lines(
+        'mod nested {', // 0
+        '    pub struct Foo;', // 1
+        '}', // 2
+        'impl nested::Foo {', // 3
+        '    fn method(&self) {', // 4
+        '        let x = 1;', // 5
+        '    }', // 6
+        '}', // 7
+        'impl fmt::Display for Foo {', // 8
+        '    fn fmt(&self) {}', // 9
+        '}', // 10
+        'impl<T> Tr for path::Foo<T> {', // 11
+        '    fn a(&self) {}', // 12
+        '}', // 13
+        'impl Bar for &Foo {', // 14
+        '    fn b(&self) {}', // 15
+        '}', // 16
+      );
+      const outline = await outliner.outline(source, 'rust', 'Foo');
+      expect(sorted(outline?.focus ?? [])).toEqual([
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 7 },
+        { startLine: 8, endLine: 10 },
+        { startLine: 11, endLine: 13 },
+        { startLine: 14, endLine: 16 },
+      ]);
+    });
+
     it('reports no focus spans when no focus symbol is requested', async () => {
       const outline = await outliner.outline(TS_SOURCE, 'typescript');
       expect(outline?.focus).toEqual([]);
@@ -572,7 +704,8 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
 
     it.each([
       'typescriptreact',
-      'rust',
+      'kotlin',
+      '.kt',
       'constructor',
       '.toString',
       '',
@@ -601,6 +734,12 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ['py', 'python'],
       ['.cs', 'csharp'],
       ['go', 'go'],
+      ['java', 'java'],
+      ['.JAVA', 'java'],
+      ['src/main/java/App.java', 'java'],
+      ['rust', 'rust'],
+      ['rs', 'rust'],
+      ['src/lib.rs', 'rust'],
     ])(
       'resolves the language hint %j to the %s grammar',
       async (hint, grammar) => {

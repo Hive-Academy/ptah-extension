@@ -115,7 +115,7 @@ const MAX_SCAN_FILE_BYTES = 1024 * 1024;
  * Extensions the reference text scan reads: every source extension the
  * language registry recognises (capability-bearing, recognition-only and
  * recognised-only languages alike), so a reference from a language without a
- * grammar (Java, Kotlin, Rust, ...) is still found by name.
+ * grammar (Kotlin, PHP, Ruby, ...) is still found by name.
  */
 const SCAN_EXTENSIONS: readonly string[] = recognisedSourceExtensions();
 
@@ -257,8 +257,21 @@ interface ModuleFile {
 /** Canonicalises a filesystem path, following every link (fs.realpath). */
 type RealpathFn = (filePath: string) => Promise<string>;
 
-/** Identifier characters for symbol-at-position extraction. */
-const IDENTIFIER_RE = /[A-Za-z0-9_$]/;
+/**
+ * Identifier characters for symbol-at-position extraction and the reference
+ * matcher's boundaries. `$` is an identifier character in TS/JS/Java/C# but
+ * not in Rust, where `{0:name$}` is a format argument followed by a width
+ * marker (Batch 30 r1 R30-03).
+ */
+const IDENTIFIER_CHARS = 'A-Za-z0-9_$';
+const RUST_IDENTIFIER_CHARS = 'A-Za-z0-9_';
+
+/** Identifier character class for a file, by the grammar its extension selects. */
+function identifierCharsFor(filePath: string): string {
+  return extToLanguage(filePath) === 'rust'
+    ? RUST_IDENTIFIER_CHARS
+    : IDENTIFIER_CHARS;
+}
 
 /**
  * Per-language Tree-sitter queries capturing comment + string-literal nodes,
@@ -266,9 +279,11 @@ const IDENTIFIER_RE = /[A-Za-z0-9_$]/;
  * Languages absent here skip filtering (matches are kept as-is).
  *
  * A string that can hold code (a TS/JS template, a Python f-string, a C#
- * interpolated string) excludes only its literal text: an expression inside
- * `${...}` / `{...}` is a real reference (Batch 26b r1 B6). Node names proven
- * against the shipped grammars.
+ * interpolated string, a Java string template) excludes only its literal
+ * text: an expression inside `${...}` / `{...}` / `\{...}` is a real
+ * reference (Batch 26b r1 B6). A Rust format string is an ordinary string
+ * literal to the grammar, so a Rust string containing a brace is not excluded
+ * at all (Batch 30). Node names proven against the shipped grammars.
  */
 const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
   typescript:
@@ -284,6 +299,25 @@ const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
     '[(comment) @x (string_literal) @x (verbatim_string_literal) @x ' +
     '(raw_string_literal) @x (character_literal) @x ' +
     '(interpolated_string_expression (string_content) @x)]',
+  // Only a string's fragments: the `\{expr}` of a Java string template is a
+  // real reference.
+  java:
+    '[(line_comment) @x (block_comment) @x (character_literal) @x ' +
+    '(string_fragment) @x (multiline_string_fragment) @x]',
+  // Rust (Batch 30 r1 R30-03): a format string's `{name}` / `{0:name$}`
+  // captures a variable, and the grammar does not parse it. A `str` literal
+  // is therefore excluded only when it holds no brace and no escape (an
+  // escape such as `\x7b` can spell one); a raw string only when it holds no
+  // brace. Byte strings (`b"…"`, `br"…"`) can never be format strings, so
+  // they are always excluded. A kept non-format string with a brace may add
+  // a false reference: the text-scan approximation, never a lost one.
+  rust: [
+    '[(line_comment) @x (block_comment) @x (char_literal) @x]',
+    '((string_literal) @x (#match? @x "^b"))',
+    String.raw`((string_literal) @x (#not-match? @x "^b") (#not-match? @x "[{}\\\\]"))`,
+    '((raw_string_literal) @x (#match? @x "^b"))',
+    '((raw_string_literal) @x (#not-match? @x "^b") (#not-match? @x "[{}]"))',
+  ].join('\n'),
 };
 
 /** Excluded node range (0-based rows/columns), end-exclusive on column. */
@@ -464,7 +498,12 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     if (content === null) {
       return { unavailable: `could not read ${cursorPath}` };
     }
-    const identifier = extractIdentifier(content, line, col);
+    const identifier = extractIdentifier(
+      content,
+      line,
+      col,
+      identifierCharsFor(cursorPath),
+    );
     if (!identifier) {
       return {
         unavailable: `no identifier at ${cursorPath}:${line}:${col} (zero-based)`,
@@ -1034,7 +1073,17 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     identifier: string,
   ): Promise<{ locations: Location[]; truncated: boolean }> {
     const locations: Location[] = [];
-    const matcher = identifierMatcher(identifier);
+    // One matcher per identifier character set (Rust excludes `$`).
+    const matchers = new Map<string, RegExp>();
+    const matcherFor = (file: string): RegExp => {
+      const chars = identifierCharsFor(file);
+      let matcher = matchers.get(chars);
+      if (matcher === undefined) {
+        matcher = identifierMatcher(identifier, chars);
+        matchers.set(chars, matcher);
+      }
+      return matcher;
+    };
     let truncated = false;
     for (let i = 0; i < files.length; i++) {
       if (locations.length >= MAX_REFERENCE_MATCHES) {
@@ -1044,7 +1093,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       try {
         const scan = await this.collectMatchesInFile(
           files[i],
-          matcher,
+          matcherFor(files[i]),
           locations,
         );
         if (scan.status !== 'scanned' || scan.capped) truncated = true;
@@ -1165,7 +1214,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     if (!filePath) return null;
     const content = await this.safeReadFile(filePath);
     if (content === null) return null;
-    return extractIdentifier(content, line, col);
+    return extractIdentifier(content, line, col, identifierCharsFor(filePath));
   }
 
   private async safeReadFile(filePath: string): Promise<string | null> {
@@ -1208,16 +1257,18 @@ function extractIdentifier(
   content: string,
   line: number,
   col: number,
+  identifierChars: string,
 ): string | null {
+  const identifierChar = new RegExp(`[${identifierChars}]`);
   const lines = content.split(/\r?\n/);
   if (line < 0 || line >= lines.length) return null;
   const text = lines[line];
   if (col < 0 || col > text.length) return null;
 
   let start = col;
-  while (start > 0 && IDENTIFIER_RE.test(text[start - 1])) start--;
+  while (start > 0 && identifierChar.test(text[start - 1])) start--;
   let end = col;
-  while (end < text.length && IDENTIFIER_RE.test(text[end])) end++;
+  while (end < text.length && identifierChar.test(text[end])) end++;
 
   const identifier = text.slice(start, end);
   return identifier.length > 0 && /[A-Za-z_$]/.test(identifier[0])
@@ -1450,12 +1501,16 @@ function fileMatchesModule(candidateFile: string, modulePath: string): boolean {
 
 /**
  * Global matcher for an identifier as a whole token. Boundaries use the same
- * identifier character set as extraction (`$` included), not `\b`, which
- * treats `$` as a non-word character (r1 M2: `$Foo` never matched).
+ * identifier character set as extraction (`$` included outside Rust), not
+ * `\b`, which treats `$` as a non-word character (r1 M2: `$Foo` never
+ * matched).
  */
-function identifierMatcher(identifier: string): RegExp {
+function identifierMatcher(
+  identifier: string,
+  identifierChars: string,
+): RegExp {
   return new RegExp(
-    `(?<![A-Za-z0-9_$])${escapeRegExp(identifier)}(?![A-Za-z0-9_$])`,
+    `(?<![${identifierChars}])${escapeRegExp(identifier)}(?![${identifierChars}])`,
     'g',
   );
 }

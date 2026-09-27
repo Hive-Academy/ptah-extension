@@ -331,6 +331,9 @@ const CHECKED_ELSEWHERE: ReadonlySet<string> = new Set([
   'honesty:ptah_lsp_references',
   // Batch 29b: the outliner (`code-outliner.adapter.ts`) lives in vscode-lm-tools.
   'outline:tsx',
+  // Batch 30: same outliner.
+  'outline:java',
+  'outline:rust',
 ]);
 
 function realFileSystem(): FileSystemService {
@@ -411,9 +414,129 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
   'syntaxDiagnostics:csharp': async () => syntaxDiagnosticsHonesty('csharp'),
 
   'parse:tsx': async () => tsxParseHonesty(),
-  'codeIndex:tsx': async () => tsxCodeIndexHonesty(),
+  'codeIndex:tsx': async () =>
+    codeIndexHonesty({
+      root: '/ws-29b-index',
+      relativePath: 'src/Badge.tsx',
+      source: TSX_COMPONENT,
+      names: ['Badge', 'Card'],
+    }),
   'enrichSummary:tsx': async () => tsxEnrichHonesty(),
+
+  'parse:java': async () => grammarParseHonesty(JAVA_HONESTY),
+  'codeIndex:java': async () =>
+    codeIndexHonesty({ root: '/ws-30-java-index', ...JAVA_HONESTY }),
+  'syntaxDiagnostics:java': async () => syntaxDiagnosticsHonesty('java'),
+  'parse:rust': async () => grammarParseHonesty(RUST_HONESTY),
+  'codeIndex:rust': async () =>
+    codeIndexHonesty({ root: '/ws-30-rust-index', ...RUST_HONESTY }),
+  'syntaxDiagnostics:rust': async () => syntaxDiagnosticsHonesty('rust'),
 };
+
+/** One Batch 30 language's honesty source: clean, and a broken contrast. */
+interface GrammarHonestySource {
+  readonly language: 'java' | 'rust';
+  readonly relativePath: string;
+  readonly source: string;
+  readonly names: readonly string[];
+  readonly broken: string;
+}
+
+const JAVA_HONESTY: GrammarHonestySource = {
+  language: 'java',
+  relativePath: 'src/com/example/Widget.java',
+  source: [
+    'package com.example;',
+    '',
+    'public class Widget {',
+    '  private final String label;',
+    '  public Widget(String label) {',
+    '    this.label = label;',
+    '  }',
+    '  public String render() {',
+    '    return "<" + label + ">";',
+    '  }',
+    // An overload: its own row, never overwriting the first (R30-02).
+    '  public String render(String prefix) {',
+    '    return prefix + render();',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
+  names: ['Widget', 'render'],
+  broken: 'class Broken { void m( { int x = 1 } }\n',
+};
+
+const RUST_HONESTY: GrammarHonestySource = {
+  language: 'rust',
+  relativePath: 'src/widget.rs',
+  source: [
+    'pub struct Widget {',
+    '    label: String,',
+    '}',
+    '',
+    'impl Widget {',
+    '    pub fn render(&self) -> String {',
+    '        format!("<{}>", self.label)',
+    '    }',
+    '}',
+    '',
+    // A second impl block of the same type: its own row (R30-02).
+    'impl Widget {',
+    '    pub fn width(&self) -> usize {',
+    '        self.label.len()',
+    '    }',
+    '}',
+    '',
+  ].join('\n'),
+  names: ['Widget', 'render'],
+  broken: 'fn broken( {\n    let x = ;\n}\n',
+};
+
+/**
+ * `parse:<lang>` (Batch 30): the real parser analyses the file cleanly and
+ * finds its declarations; a broken file of the same language is not `ok`.
+ */
+async function grammarParseHonesty(
+  subject: GrammarHonestySource,
+): Promise<void> {
+  const clean = await analysis.analyzeSource(
+    subject.source,
+    subject.language,
+    `/ws/${subject.relativePath}`,
+  );
+  if (clean.isErr()) {
+    throw clean.error ?? new Error(`${subject.language} parse failed`);
+  }
+  const insights = clean.unwrap();
+  if (insights.parseStatus !== 'ok') {
+    throw new Error(
+      `${subject.language} did not parse cleanly: ${insights.parseStatus}`,
+    );
+  }
+  const found = [
+    ...insights.functions.map((f) => f.name),
+    ...insights.classes.map((c) => c.name),
+  ];
+  const missing = subject.names.filter((name) => !found.includes(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${subject.language} declarations not found: ${JSON.stringify(missing)}`,
+    );
+  }
+  // Contrast: a broken file is not a clean parse, so the ok above is the
+  // grammar's verdict, not a status that is always ok.
+  const broken = await analysis.analyzeSource(
+    subject.broken,
+    subject.language,
+    `/ws/broken-${subject.relativePath}`,
+  );
+  if (broken.isErr() || broken.unwrap().parseStatus === 'ok') {
+    throw new Error(
+      `a broken ${subject.language} file was a clean parse (contrast failed)`,
+    );
+  }
+}
 
 /**
  * Batch 29b: TSX with JSX — valid TSX the TypeScript grammar can only recover
@@ -468,15 +591,31 @@ async function tsxParseHonesty(): Promise<void> {
   }
 }
 
-/** `codeIndex:tsx`: the real indexer stores the components and counts the file analysed. */
-async function tsxCodeIndexHonesty(): Promise<void> {
-  const root = '/ws-29b-index';
-  const file = `${root}/src/Badge.tsx`;
+/**
+ * `codeIndex:<lang>` (tsx since 29b, java/rust since 30): the real indexer
+ * stores the file's declarations and counts the file analysed, not
+ * unsupported or failed.
+ */
+async function codeIndexHonesty(subject: {
+  readonly root: string;
+  readonly relativePath: string;
+  readonly source: string;
+  readonly names: readonly string[];
+}): Promise<void> {
+  const { root, relativePath, source } = subject;
+  const file = `${root}/${relativePath}`;
   const names: string[] = [];
+  // The store keys rows by subject and overwrites on conflict
+  // (`code-symbol.store.ts`, `ON CONFLICT(workspace_root, subject)`), so a
+  // repeated subject is a lost row (Batch 30 r1 R30-02).
+  const subjects = new Set<string>();
+  const overwritten: string[] = [];
   const sink: ISymbolSink = {
     deleteSymbolsForFile: () => 0,
     insertSymbols: async (chunks: readonly SymbolChunkInsert[]) => {
       for (const c of chunks) {
+        if (subjects.has(c.subject)) overwritten.push(c.subject);
+        subjects.add(c.subject);
         if (c.symbolName !== undefined) names.push(c.symbolName);
       }
     },
@@ -486,7 +625,7 @@ async function tsxCodeIndexHonesty(): Promise<void> {
       (async function* () {
         yield {
           path: file,
-          relativePath: 'src/Badge.tsx',
+          relativePath,
           type: 'source',
           size: 100,
         };
@@ -495,7 +634,7 @@ async function tsxCodeIndexHonesty(): Promise<void> {
   const fileSystem = {
     readFile: async (p: string) => {
       if (p !== file) throw new Error(`no such file: ${p}`);
-      return TSX_COMPONENT;
+      return source;
     },
   } as unknown as IFileSystemProvider;
 
@@ -508,9 +647,15 @@ async function tsxCodeIndexHonesty(): Promise<void> {
   );
   await indexer.indexWorkspace(root, { userInitiated: true });
 
-  if (!names.includes('Badge') || !names.includes('Card')) {
+  if (overwritten.length > 0) {
     throw new Error(
-      `TSX components were not indexed: ${JSON.stringify(names)}`,
+      `${relativePath}: rows would overwrite each other in the store: ${JSON.stringify(overwritten)}`,
+    );
+  }
+  const missing = subject.names.filter((name) => !names.includes(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${relativePath} declarations were not indexed: ${JSON.stringify(missing)} (indexed ${JSON.stringify(names)})`,
     );
   }
   const coverage = indexer.getCoverage(root);
@@ -521,7 +666,7 @@ async function tsxCodeIndexHonesty(): Promise<void> {
     coverage.failed !== 0
   ) {
     throw new Error(
-      `expected the .tsx file analysed, not unsupported or failed: ${JSON.stringify(coverage)}`,
+      `expected ${relativePath} analysed, not unsupported or failed: ${JSON.stringify(coverage)}`,
     );
   }
 }
@@ -840,7 +985,7 @@ async function symbolIndexerHonesty(): Promise<void> {
  * an executable syntax-only check, not a declaration.
  */
 async function syntaxDiagnosticsHonesty(
-  language: 'python' | 'go' | 'csharp',
+  language: 'python' | 'go' | 'csharp' | 'java' | 'rust',
 ): Promise<void> {
   const BROKEN: Record<typeof language, { rel: string; content: string }> = {
     python: { rel: 'app/bad.py', content: 'def f(:\n    return 1\n' },
@@ -851,6 +996,14 @@ async function syntaxDiagnosticsHonesty(
     csharp: {
       rel: 'src/A.cs',
       content: 'class A { void M() { int x = 1 } }\n',
+    },
+    java: {
+      rel: 'src/com/example/A.java',
+      content: 'class A { void m() { int x = 1 } }\n',
+    },
+    rust: {
+      rel: 'src/lib.rs',
+      content: 'fn f() {\n    let x = ;\n}\n',
     },
   };
   const { rel, content } = BROKEN[language];

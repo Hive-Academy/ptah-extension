@@ -21,7 +21,8 @@
  * real declarations is worse than no outline. `.tsx` has its own grammar
  * (TypeScript plus JSX, Batch 29b) and `.jsx` parses with the JavaScript
  * grammar, which has JSX; JSX forced onto the TypeScript grammar still parses
- * with errors and is refused.
+ * with errors and is refused. Java and Rust have their own grammars since
+ * Batch 30.
  *
  * Omittable spans hold only body content, so an omitted line never carries a
  * signature or other code:
@@ -91,7 +92,8 @@ const TS_OUTLINE_QUERIES: OutlineQueries = {
  * the grammars `TreeSitterParserService` loads (@vscode/tree-sitter-wasm); a
  * name the grammar lacks makes `queryMulti` fail, and the spec compiles each
  * set against its real grammar. The TSX grammar is the TypeScript grammar
- * plus JSX, so it takes the TypeScript set unchanged.
+ * plus JSX, so it takes the TypeScript set unchanged. Java and Rust bodies
+ * are all brace-delimited, so they take the brace rule.
  */
 const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
   typescript: TS_OUTLINE_QUERIES,
@@ -147,6 +149,71 @@ const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
 (constructor_declaration name: (identifier) @name) @decl
 (property_declaration name: (identifier) @name) @decl
 (local_function_statement name: (identifier) @name) @decl
+`,
+  },
+  // Batch 30. A constructor body is a `constructor_body`, a compact record
+  // constructor's a `block`; every one is brace-delimited.
+  java: {
+    bodies: `
+(method_declaration body: (block) @body)
+(constructor_declaration body: (constructor_body) @body)
+(compact_constructor_declaration body: (block) @body)
+(lambda_expression body: (block) @body)
+(static_initializer (block) @body)
+`,
+    declarations: `
+(class_declaration name: (identifier) @name) @decl
+(interface_declaration name: (identifier) @name) @decl
+(enum_declaration name: (identifier) @name) @decl
+(record_declaration name: (identifier) @name) @decl
+(annotation_type_declaration name: (identifier) @name) @decl
+(method_declaration name: (identifier) @name) @decl
+(constructor_declaration name: (identifier) @name) @decl
+(compact_constructor_declaration name: (identifier) @name) @decl
+(field_declaration declarator: (variable_declarator name: (identifier) @name)) @decl
+`,
+  },
+  // Batch 30. An `impl` block is found under the last path segment of the
+  // type it implements (generics and one reference stripped, as in the code
+  // index's Rust query), so a focus on a struct also keeps its impl blocks,
+  // qualified ones included (r1 R30-04).
+  rust: {
+    bodies: `
+(function_item body: (block) @body)
+(closure_expression body: (block) @body)
+`,
+    declarations: `
+(function_item name: (identifier) @name) @decl
+(function_signature_item name: (identifier) @name) @decl
+(struct_item name: (type_identifier) @name) @decl
+(enum_item name: (type_identifier) @name) @decl
+(union_item name: (type_identifier) @name) @decl
+(trait_item name: (type_identifier) @name) @decl
+(type_item name: (type_identifier) @name) @decl
+(impl_item
+  type: [
+    (type_identifier) @name
+    (scoped_type_identifier name: (type_identifier) @name)
+    (generic_type
+      type: [
+        (type_identifier) @name
+        (scoped_type_identifier name: (type_identifier) @name)
+      ])
+    (reference_type
+      type: [
+        (type_identifier) @name
+        (scoped_type_identifier name: (type_identifier) @name)
+        (generic_type
+          type: [
+            (type_identifier) @name
+            (scoped_type_identifier name: (type_identifier) @name)
+          ])
+      ])
+  ]) @decl
+(mod_item name: (identifier) @name) @decl
+(const_item name: (identifier) @name) @decl
+(static_item name: (identifier) @name) @decl
+(macro_definition name: (identifier) @name) @decl
 `,
   },
 };

@@ -25,7 +25,7 @@
  *   the Electron definition fallback), so each language module declares them
  *   (`capabilities`); `languages/types.ts` cites where each is implemented.
  * - Languages with no grammar yet keep an entry with their extensions and no
- *   capability, so a `.java` file counts as `unsupported` under `java` instead
+ *   capability, so a `.php` file counts as `unsupported` under `php` instead
  *   of disappearing. Grammar batches (29b-31, 30k) turn them on.
  */
 import {
@@ -89,9 +89,7 @@ export interface LanguageRegistryEntry {
 const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
   Record<Exclude<LanguageId, SupportedLanguage>, readonly string[]>
 > = {
-  java: ['.java'],
   kotlin: ['.kt', '.kts'],
-  rust: ['.rs'],
   php: ['.php', '.phtml'],
   ruby: ['.rb', '.rake'],
   cpp: ['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.c', '.h'],

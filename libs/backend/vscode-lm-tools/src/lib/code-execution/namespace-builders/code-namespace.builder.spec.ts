@@ -584,6 +584,8 @@ const CODE_INDEX_LANGUAGES = [
   'python',
   'go',
   'csharp',
+  'java',
+  'rust',
 ];
 
 function coverageOf(over: Partial<CoverageFields> = {}): LanguageCoverage {

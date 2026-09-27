@@ -1,8 +1,10 @@
 import type { SupportedLanguage } from '../ast.types';
 import { CSHARP_LANGUAGE } from './csharp.language';
 import { GO_LANGUAGE } from './go.language';
+import { JAVA_LANGUAGE } from './java.language';
 import { JAVASCRIPT_LANGUAGE } from './javascript.language';
 import { PYTHON_LANGUAGE } from './python.language';
+import { RUST_LANGUAGE } from './rust.language';
 import { TSX_LANGUAGE } from './tsx.language';
 import { TYPESCRIPT_LANGUAGE } from './typescript.language';
 import type { LanguageModule } from './types';
@@ -21,4 +23,6 @@ export const LANGUAGE_MODULES: Readonly<
   python: PYTHON_LANGUAGE,
   go: GO_LANGUAGE,
   csharp: CSHARP_LANGUAGE,
+  java: JAVA_LANGUAGE,
+  rust: RUST_LANGUAGE,
 };
