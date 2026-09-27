@@ -2155,6 +2155,66 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
+## RESUME POINT 2 (2026-09-27 evening, session handoff) — START HERE
+
+Supersedes the earlier RESUME POINT below (kept for history).
+
+**Branch state (verified at handoff).** Task branch `fix/task-559-mcp-tool-contract` HEAD e6c155260, worktree
+`D:/projects/ptah-extension/.claude-worktrees/task-559-mcp-tool-contract`. COMPLETE and on the task branch: Batches 1-31 except
+30k and 32a+ (i.e. 21/21p/21q/21r, 22-28b, 29a1, 29a2, 29b, 30, 31), 37a and 37b1a-37b3 (Lane K merged da21c936c), the O2/O3
+gate docs (O2 updated to the shipped design, 69862ba6f). Lanes H, J, K are fully merged (their worktrees can be removed).
+Lane G2 (`fix/task-559-lane-g2`, worktree `.claude-worktrees/task-559-lane-g2`, node_modules junction present): 32a committed
+a5632f1bb on the lane, NOT merged. Nothing uncommitted except the never-staged `code-logic-review.md` and
+`research/diagnostics-worktree-repro.ts`.
+
+**Process (User Decisions 24-26 in context.md).** One review round per batch; the author fixes once; the NEXT review in the same
+lane verifies those fixes; a Blocking still open after that verification goes to the user (AskUserQuestion). Moderate/Minor may
+be carried. Run independent batches in parallel lanes (≤ 3 CLI lanes). The last batch of a lane gets a closing review.
+Reviewer assignment (user-approved): Codex for every correctness- or security-critical batch and every closing review;
+Antigravity only for low-risk batches (pure moves, text, fixtures) — it approved all Lane K batches 9-10/10 while the Codex
+closing review found 4 real Blockings, so never rely on it alone. Reviewer sessions to resume: Codex Lane A
+`01a0e07a-ef19-7cb0-a0bf-a911f6d10a51` (knows Batches 21-31); Codex Lane G2 `01a0e469-fdae-7413-84b2-c994388f25d3` (32a);
+Codex Lane K closing `01a0e3f3-d098-7582-83a5-572204bababd`; Antigravity `429a13d0-3970-4005-9769-e2c7d32c8b47`. Codex
+reviewers write `code-logic-review.md` as well as the deliverable (role contract) — that file is never staged.
+
+**Next steps, in order.**
+
+1. Lane A (task worktree): **Batch 30k** (Kotlin grammar; O3 gate satisfied by User Decision 25 — attestation + npm hash + ABI-14
+   load test are enough). Its Codex review (resume the Lane A session) must VERIFY the Batch 31 fix round (e6c155260; notes
+   "## Fix round (review r1)" in batch-31-executor-report.md), including the two Batch 30 findings closed there (R30-02
+   same-line declarations keyed by name position; R30-03 Rust `{{`/escape decoding) and the platform-core compactCoverage change
+   (clean answers keep approximations; worst case ≤ 1,000 chars).
+2. Lane G2 in parallel: **Batch 32b** (resolver seam) on top of a5632f1bb. It carries: the re-export graph edge (Blocking from the
+   26b closing review — `export { X } from` adds no edge, so ptah_get_dependents misses barrel consumers; the 32a contract already
+   records re-exports as exports with isReExport + source) and the empty `export {} from` dependency gap (32a review). Its Codex
+   review (resume the G2 session) verifies the 32a fix round (Rust nested comments, byte-exact identifiers, isStatic for C#/Java).
+   Merge Lane G2 into the task branch after 32b (or earlier if 30k needs it), then 32c / 33 (carries Python per-member aliases from
+   the 32a review) → 34 → 35 → 36a → 36b → 36c (36a also needs 31).
+3. **Batch 38 completion gate** — add these carried items: (a) the protocol-dispatcher "slow empty build" test is flaky under
+   parallel load (fix it); (b) Lane K Moderate: real `_test` package unmapped attribution (lane-k-closing-review.md); (c) Minor:
+   37b1d wiring specs leave mkdtemp dirs (close the logger stream, then remove); (d) run the tests of EVERY project that depends on
+   the changed libs, not only owned ones (a 24c export once broke rpc-handlers/VS Code test mocks unseen) — the full set is
+   platform-core, platform-cli, platform-electron, workspace-intelligence, vscode-lm-tools, agent-sdk, rpc-handlers, shared,
+   vscode-core, chat, cli-engine, memory-contracts, memory-curator, tool-output-reducers, ptah-cli, ptah-electron,
+   ptah-extension-vscode; (e) the real-Go hostile integration spec (`go-vet-hostile.integration.spec.ts`) has never run — Go is
+   not installed on this machine; run it on CI or ask the user; (f) Mode 3 notes must replace "Visual: no UI change" — Batch 37b2
+   added the Electron go vet card; approved screenshots are untracked in
+   `.claude-worktrees/task-559-lane-k/.ptah/specs/TASK_2026_559_8ca9/screenshots/37b2/` (r1, r2, r3) with
+   `visual-review-37b2.md` (committed); show them to the user before the PR.
+4. Then Mode 3 completion, rebase onto main, PR (never commit to main; no --no-verify).
+
+**Standing rules and lessons.** Commit only in quiet windows (the stash stack is shared; the lint-staged hook hides unstaged
+changes, so never commit a worktree while an agent edits it). Before every commit, check the FULL `git status` — batches also
+change `scripts/` (grammar manifest, copy-wasm) and `.ptah/`; one 29b commit missed them. Tell executors never to run a
+formatter over files they did not change (one Lane K fix reformatted 16 unrelated files; a backup of that noise is in
+`%TEMP%/lane-k-format-noise.patch`). Degradation audit TOTAL 300 (never raise the baseline; an early `return` inside a `catch`
+is flagged). validate-deps `from "x"` / `import "x"` / `require("x")` fixture rule. Description budgets: the tool descriptions use
+a compact language list; ptah_code_search_symbols 668/702, reindex 519/536 — never raise a pin without a recorded reason.
+Known flakes: rpc-handlers harness-skill-selection (because `%TEMP%/.ptah/harness/state.json` exists; the user has not deleted
+it), Electron stress bundle (missing dist workspace-watch-host.mjs), protocol-dispatcher "slow empty build". Nx Cloud for this
+workspace is disabled (FREE plan exceeded) — local runs are unaffected. The `husky - command not found` hook error seen once was
+transient; a plain retry passed.
+
 ## RESUME POINT (2026-09-27, session handoff)
 
 **Progress 2026-09-27 (afternoon), supersedes steps 1-3 below:**
