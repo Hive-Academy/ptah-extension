@@ -351,3 +351,108 @@ mcp-mandate-manifest.spec.ts`: 57 total, 50 passed, 6 failed (the same 6), 1 tod
 (under the 60s budget for both files). `git status --short`: only the two spec files are new from this
 batch; `protocol-dispatcher.ts`/`.spec.ts`/`tool-result-budget.ts` remain Batch 21p's own uncommitted
 changes; `batches.md`/`context.md` remain outside this batch's ownership.
+
+## Bounded correction (review r3)
+
+Against `reviews/batch-21-code-logic-review-r3.md` findings R3-01..R3-04 (R3-05/R3-06 need production
+changes and are out of scope for a test batch). No production file was edited. Files touched:
+`mcp-contract.sweep.spec.ts` (1,900→2,870 lines), `mcp-mandate-manifest.spec.ts` (462→700 lines),
+`apps/ptah-cli/src/services/mcp/session-submit.service.spec.ts` (+72 lines).
+
+**R3-01 — below-outline-cap fixtures added, above-cap fixtures kept (sweep:835–1125).**
+`BELOW_OUTLINE_CAP_DRIVERS` adds a ~20 KB second fixture (real prose paragraph or real table/list rows,
+marker embedded) for each of the 22 drivers previously sized only above `markdown.reducer.ts`'s 262,144-char
+outline cap. Above-cap fixtures are unchanged; both cases run side by side. HTTP assertion at :2379,
+stdio at :2643 (stdio: agent spawn/message/report/stop/list through the real `StdioMcpServerService`).
+**Break proof:** commented out `ptah_agent_message: 'preformatted'` at `tool-result-budget.ts:100` →
+the new below-cap HTTP and stdio agent_message cases both failed (`344 chars returned from 20142 raw,
+reducer markdown-outline`); the pre-existing above-cap stdio case stayed green under the same sabotage,
+confirming the review's point that oversized-past-cap fixtures hide the defect. Reverted.
+**Real product defect exposed, left failing (not fixed):** 13 HTTP tests fail because
+`markdown.reducer.ts`'s `TYPED_NOTES` (:56–61, filled :140) drops a single paragraph/table/list block
+wholesale when it doesn't fit, and these 13 tools are absent from `TOOL_CONTENT_HINTS` in
+`mcp-core/tool-result-budget.ts:93–105`: `ptah_count_tokens`, `ptah_git_worktree_list`, `_add`,
+`_remove`, `ptah_json_validate`, `ptah_browser_navigate`, `_click`, `_type`, `_network`, `_close`,
+`_status`, `_record_start`, `_record_stop`. Example failure: `ptah_browser_click: planted marker
+"MARK-below-cap-ptah_browser_click" did not survive into the returned text (232 chars returned from
+20030 raw, reducer markdown-outline)`. All 7 agent tools (already `preformatted` via 21q) pass.
+Recommended fix for a future batch: add these 13 tools to `TOOL_CONTENT_HINTS` or make the outline
+reducer keep a prefix of an undivisible block instead of dropping it.
+
+**R3-02 — one reusable contract helper (sweep:1237–1420).** `budgetContractFailures` (:1362), with
+`textBlocksOf` (:1308, all text blocks, not just the first), `capturedRaw` (:1318), `BUDGET_TRAILER`
+(:1291), `KNOWN_TRAILER_REDUCERS` (:1276: none/json-compact/markdown-outline/log-reduced/html-extract/
+code-outline/code-fallback:log-reduced), literal pins `PINNED_DEFAULT_BUDGET` (8000/2000) and per-tool
+overrides (:1237), and `PINNED_PREFORMATTED_TOOLS`. It checks (a) all-block size/tokens vs. the pins,
+(b) advertised `_meta['anthropic/maxResultSizeChars']` === pin, (c) trailer reducer name is in the known
+set (and `none` for preformatted tools), (d) the printed locator is opened and compared byte-for-byte to
+the raw payload captured by `jest.spyOn(applyToolResultBudget)` (directory-diff kept as a secondary
+check). Applied to the generic 50-tool loop (:1737) and the advertised-budget test (:2124); dedicated
+exceptions get their own byte/locator assertions: `symbol_index` (:2154, largest fitting page + gapless
+continuation), `agent_read` (:2239, exact line window + byte-equal notice file; fixture completed with
+`stdoutTotalLines`/`stderrTotalLines`/`truncated`), `browser_evaluate` (:2261, exact dropped count +
+byte-equal full-value file), `browser_content` (now graded by the helper), `get_diagnostics` (:2337,
+full kept message + reducer `none`), `execute_code` (:2429, distinct head/tail markers + byte-equal
+tail file). The six stdio tests keep their existing size/marker checks unchanged (21q's fails-before
+guards) and gain `expectStdioBudgetContract` (:2539: trailer, byte-equal spool, and
+`JSON.stringify(structuredContent).length ≤ 8000` chars / ≤2000 tokens).
+**Break proofs (both reverted):** printed a mutated locator (`${spool.path}.moved`) at
+`tool-result-budget.ts:430` → 4 tests failed (`printed locator "...txt.moved" names no file`); printed a
+bogus reducer name at `tool-result-budget.ts:479` → 3 tests failed (`trailer names unknown reducer
+"bogus"`). No new product defects found here — everything outside the R3-01 set passes.
+
+**R3-03 — session_submit real cap guard + full matrix.** New tests in
+`apps/ptah-cli/.../session-submit.service.spec.ts:395` (over-cap: fake event source sends 700 KiB +
+500 KiB deltas, asserts exactly 1,048,576 chars, ordered, late text excluded,
+`structuredContent.truncated === true`, matching `session-submit.service.ts:61`/`:608`) and `:448`
+(under-cap: whole output, `truncated: false`). `MANDATE_MAP.session_submit` (manifest:200) now maps to
+this test by title (annotated: not a substitution-prompt tool, mapped per this correction's instruction).
+Matrix fixes in sweep: `listAllTools` now lists under the same requestExtra/caller/host identity used
+for calls (previously mismatched, :1101/:939); a new `CONTROL_TOOL_EXCEPTIONS` map (one entry,
+`approval_prompt`, reason: control/UI, no model-facing content) is diffed against executed vs. listed
+names; `execute_code` now has a driver and runs in the generic matrix; all 11 previously-missing
+host/caller cells (IDE+SQLite=false ×4 callers, IDE=false+SQLite=true × agent/session/workspace,
+IDE=false+SQLite=false ×4 callers) get full `sweepAllTools` passes (not narrowed — a full pass costs
+~1s alone) with all 16 combinations now pinned and passing.
+**Break proofs (reverted):** raised `AGGREGATE_BUFFER_CAP` (session-submit.service.ts:61) to 2 MiB →
+new test failed (`Expected: 1048576, Received: 1228838`); hard-coded `truncated: false` at :608 → failed
+(`Expected: true, Received: false`); renamed the mapped test title in the manifest → mandate case failed
+(`no active test titled exactly "..."`). No new product defects found.
+
+**R3-04 — real AST invocation proof + constant-false alias fix (manifest).** New shared helpers:
+`staticTruthiness` (:262, handles boolean/numeric/string literals, `null`, `void`, `!`, parens) and
+`isInDisabledContext` (:292). `hasActiveTestTitled` (:331) now resolves `cond ? it : it.skip` via
+`staticTruthiness`, so `false ? it : it.skip` resolves to the inactive branch. `hasActiveContractInvocation`
+(:440) requires a real, non-disabled call expression to `runDiagnosticsProviderContract` whose argument
+object literal contains a `createSecondCheckout` method/property (matches the real shape at
+`run-diagnostics-provider-contract.ts:213-214` and `type-script-diagnostics-provider.spec.ts:150-160`);
+`Guard.invokedBy` is now `{file, call, option}` and `checkGuard` (:493) uses this proof instead of a
+substring match. Five new self-tests added (:631–679): removed-invocation-with-leftover-comment (false),
+option named only in comment/string (false), call under `describe.skip` (false), real provider shape
+(true), and `false ? it : it.skip` / `0 ? ...` (inactive) vs. `true ? it : it.skip` (active).
+**Break proof:** wrote the self-tests against the old substring-only `invocationProven` first — 4 of 5
+failed (`Expected: false, Received: true`); after the fix all 5 (and the real diagnostics mapping) pass.
+No production file touched for this finding; no new product defect found.
+
+**Verification.**
+`nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools ptah-cli --skip-nx-cache
+--parallel=2`: header confirms 2 projects/33 tasks; lint+typecheck (both projects) and `ptah-cli:test`
+all green; `vscode-lm-tools:test` is red exactly on the 13 R3-01 product-defect tests (`Tests: 13 failed,
+1 todo, 2092 passed, 2106 total`), left failing per instruction, not weakened. No real-port/watcher
+flakes observed this run (5m29s). `ptah-electron:validate-deps` → all imports covered.
+`degradation-audit:lint` → TOTAL 300. Isolated `jest mcp-contract.sweep.spec.ts
+mcp-mandate-manifest.spec.ts`: 13 failed (same 13), 1 todo, 88 passed, 102 total, 26.9s. Isolated
+`jest session-submit.service.spec.ts`: 36 passed, 36 total, 3.0s. Mkdtemp spool roots still
+created/removed per test; nothing new written to `os.tmpdir()/.ptah` or the repo's own `.ptah`.
+
+**Production files unchanged.** HEAD already carries Batch 21p/21q's uncommitted production changes, so
+"clean diff" was verified by sha256 snapshot taken before this correction started: every `mcp-core/*.ts`,
+`mcp-stdio/*.ts` and `session-submit.service.ts` file hashes identical to the pre-correction snapshot
+except the three files this correction owns. `git status --short` after all reverts shows only: `M
+apps/ptah-cli/.../session-submit.service.spec.ts`, `?? .../mcp-contract.sweep.spec.ts`, `??
+.../mcp-mandate-manifest.spec.ts` as this correction's changes; all other modified/untracked paths
+(21p/21q's own production files and specs, other concurrent-work files) are pre-existing and untouched.
+
+**Outstanding, out of this batch's authority (test-only):** the 13-tool `TOOL_CONTENT_HINTS` gap
+(R3-01) and the fact that `session_submit`'s only truncation disclosure is
+`structuredContent.truncated` with no text-visible notice — both need a production-code fix batch.

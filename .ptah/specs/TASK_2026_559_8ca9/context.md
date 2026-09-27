@@ -66,6 +66,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 23. Batch 23b post-cap (user, 2026-09-27, after the r4-postcap review returned REVISE 6/10 with R4-B1 Blocking — a nonexistent root answered as a complete clean empty graph because root ENOENT was silently exempted — and R4-S1 Serious — escaped `[`/`]`/`(`/`)` glob components return [] only with a limit in both real adapters): one narrow fix + one final independent review. A missing or unreadable ROOT is never clean (unknown with a reason); escaped glob components match identically with and without a limit (same matcher). Commit if the final review approves; otherwise commit with its defects recorded as known issues carried into Batch 25a.
 
+24. Faster review bar (user, 2026-09-27, replaces the Decision 17 revise cycle from Batch 21r/26a onward): ONE review round per batch. The author fixes that review's findings, and the fixes are verified by the NEXT batch's review in the same lane (rolled forward), not by a dedicated re-review. Moderate/Minor findings may be carried into the next batch instead of a fix round. Test-only batches get one review. Run independent batches in parallel lanes (≤ 3 CLI lanes). A Blocking finding that the rolled-forward review still finds open goes to the user. The last batch of a lane gets one closing review of its rolled-forward fixes.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

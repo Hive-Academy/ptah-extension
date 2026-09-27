@@ -2883,14 +2883,21 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 
 ---
 
-## Batch 21: Regression harness H2 — dispatcher contract sweep and mandate manifest — IN_PROGRESS
+## Batch 21: Regression harness H2 — dispatcher contract sweep and mandate manifest — COMPLETE (21p/21q/21r product commit + 21 harness commit, 2026-09-27)
 
-- State 2026-09-27: revision round 2 done (57 tests; 6 intentionally failing, exposing the stdio agent-handler
-  budget defect → Batch 21q); r3 review pending; uncommitted. Reviews r1 REVISE 3, r2 REVISE 4 (2 revise rounds used).
-- Batch 21p (unplanned; `browser_content` HTML extractor path in `tool-result-budget.ts` / `protocol-dispatcher.ts`):
-  IMPLEMENTED, reviewed in r2 without defect, uncommitted. Report `batch-21p-executor-report.md`.
-- Batch 21q (unplanned, next): stdio agent tool handlers apply the result budget — PENDING; fails-before = the 6
-  failing sweep tests; backend-developer.
+- History: r1 REVISE 3, r2 REVISE 4, r3 (21 REVISE 5, 21p APPROVE 8, 21q REVISE 5), bounded correction, r4-postcap
+  (21 REVISE 7: R4-01; 21q REVISE 6: R4-02; 21r REVISE 4: R4-03 Blocking). R4-01..03 fixed once under User Decision 24
+  (`batch-21-r4-fix-report.md`); verification rolls forward to the Batch 24d review, together with two carried limits:
+  (a) a composed `markdown-outline+prefix` result reports `truncated: false` when it fits; (b) the R4-01 AST proof does not
+  catch `setup.createSecondCheckout = undefined` assigned before `return setup`.
+- Batch 21p (unplanned): `browser_content` HTML extractor path. Report `batch-21p-executor-report.md`.
+- Batch 21q (unplanned): stdio agent tools apply the result budget; `ptah_agent_*` are `preformatted`; bounded stdio
+  `structuredContent` (`mcp-stdio/bounded-structured-content.ts`); stdio `tools/list` advertises
+  `maxResultSizeChars` (agents 8,000; `session_submit` 1,048,576, pinned against the app's `AGGREGATE_BUFFER_CAP`).
+- Batch 21r (unplanned): the Markdown outline no longer drops the body — outline first, then a labelled leading prefix of
+  the full text (`markdown-outline+prefix`). Report `batch-21r-executor-report.md`.
+- Commits are grouped (product, then harness) because 21p/21q/21r share hunks in `tool-result-budget.ts` and
+  `protocol-dispatcher.*`.
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: backend-developer

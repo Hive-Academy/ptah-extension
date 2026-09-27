@@ -392,6 +392,78 @@ describe('SessionSubmitService', () => {
       expect(result.content[0].text).toContain('auth required');
     });
 
+    it('aggregated output over the 1 MiB cap is cut to exactly the cap, keeps the leading text in order, and discloses truncated: true', async () => {
+      // TASK_2026_559 r3 R3-03: the served session_submit result contract.
+      // A fake event source streams more than AGGREGATE_BUFFER_CAP
+      // (session-submit.service.ts) through the REAL service. The cap is
+      // pinned as a literal (1 MiB, the value the stdio catalog advertises
+      // as `_meta['anthropic/maxResultSizeChars']` for session_submit), not
+      // read back from the implementation.
+      const CAP = 1024 * 1024;
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      const head = 'MARK-session-submit-head ';
+      const firstDelta = head + 'a'.repeat(700 * 1024 - head.length);
+      const secondDelta = 'b'.repeat(500 * 1024); // crosses the cap
+      const lateDelta = 'LATE-DELTA-AFTER-CAP';
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'text_delta', delta: firstDelta },
+      });
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'text_delta', delta: secondDelta },
+      });
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'text_delta', delta: lateDelta },
+      });
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'message_complete', text: 'LATE-COMPLETE-TEXT' },
+      });
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      const resp = await promise;
+      const result = resp.result as {
+        isError?: boolean;
+        content: Array<{ type: string; text: string }>;
+        structuredContent: { truncated: boolean; tabId: string };
+      };
+      expect(result.isError).toBeUndefined();
+      // (a) the cap is enforced: exactly the cap, over ALL text blocks.
+      const texts = result.content.filter((c) => c.type === 'text');
+      expect(texts).toHaveLength(1);
+      expect(texts[0].text.length).toBe(CAP);
+      // The kept text is exactly the leading bytes of the stream, in order.
+      expect(texts[0].text).toBe((firstDelta + secondDelta).slice(0, CAP));
+      expect(texts[0].text.startsWith(head)).toBe(true);
+      expect(texts[0].text).not.toContain(lateDelta);
+      expect(texts[0].text).not.toContain('LATE-COMPLETE-TEXT');
+      // (b) the truncation is disclosed on the structured result.
+      expect(result.structuredContent.truncated).toBe(true);
+      expect(result.structuredContent.tabId).toBe('tab-1');
+    });
+
+    it('aggregated output under the cap is returned whole with truncated: false', async () => {
+      const h = makeHarness();
+      const promise = h.service.dispatch(makeRequest(), { task: 'go' });
+      await flush();
+      const body = 'c'.repeat(64 * 1024);
+      h.pushAdapter.emit('chat:chunk', {
+        tabId: 'tab-1',
+        event: { eventType: 'text_delta', delta: body },
+      });
+      h.pushAdapter.emit('chat:complete', { tabId: 'tab-1' });
+      const resp = await promise;
+      const result = resp.result as {
+        content: Array<{ text: string }>;
+        structuredContent: { truncated: boolean };
+      };
+      expect(result.content[0].text).toBe(body);
+      expect(result.structuredContent.truncated).toBe(false);
+    });
+
     it('detaches push adapter listeners after settlement', async () => {
       const h = makeHarness();
       const before = h.pushAdapter.listenerCount('chat:chunk');
