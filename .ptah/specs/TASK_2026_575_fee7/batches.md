@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 6/33
+Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 7/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -538,7 +538,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   JSON-LD content; `check-prerender.ts` is authoritative); Minor, escape ERE metacharacters in the `HEADLINE`
   anchors, or comment that they must stay free of them.
 
-## Batch 7: Scope scaffolding, global and eager projects (F3, part 1) — IN_PROGRESS
+## Batch 7: Scope scaffolding, global and eager projects (F3, part 1) — COMPLETE (21a2f889)
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -547,7 +547,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 6
 - Commit: `feat(landing): scaffold i18n scopes for app, ui, core, panel-ui and landing`
 
-### Task 7.1: Scopes for `app`, `ui`, `core` — IMPLEMENTED
+### Task 7.1: Scopes for `app`, `ui`, `core` — COMPLETE
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{en.json,ar.json,app.i18n-scope.ts}`, `$ROOT/libs/web/{ui,core}/src/lib/i18n/{en.json,ar.json,<lib>.i18n-scope.ts}`; MODIFY each project's `src/index.ts` (libs only), `tsconfig.json`, Jest config
 - Plan reference: implementation-plan.md:368-400
@@ -556,7 +556,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A2 — a spec (or existing spec run) must import a scope file; report the result.
 - Implementation details: JSON files start as `{}`.
 
-### Task 7.2: Scopes for `panelUi`, `landing` — IMPLEMENTED
+### Task 7.2: Scopes for `panelUi`, `landing` — COMPLETE
 
 - Depends on: Task 7.1
 - Files: `$ROOT/libs/web/{panel-ui,landing}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
@@ -576,7 +576,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   uncached) and the typed SonarJS check found 0 problems on the 15 changed `.ts` files. A2 confirmed in all five.
   Minor (the `unwrap()` spec helper is copied into 5 specs) carried to Task 8.0, before Batch 8 would grow it to 11.
 
-## Batch 8: Scope scaffolding, feature projects (F3, part 2) — PENDING
+## Batch 8: Scope scaffolding, feature projects (F3, part 2) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -585,7 +585,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 7
 - Commit: `feat(landing): scaffold i18n scopes for feature libraries`
 
-### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — PENDING
+### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — IN_PROGRESS
 
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts, expect-scope-loads.ts}` + spec; the five Batch 7 specs
   (`apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts`,
@@ -598,7 +598,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: keep `@ptah-extension/i18n/testing` free of Jest globals if a test runner type is not already
   used there; the helper returns data and the spec asserts.
 
-### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — PENDING
+### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — IN_PROGRESS
 
 - Files: `$ROOT/libs/web/{legal,pricing,auth,account}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
 - Plan reference: implementation-plan.md:368-400
@@ -607,7 +607,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: none.
 - Implementation details: none beyond the above.
 
-### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — PENDING
+### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — IN_PROGRESS
 
 - Depends on: Task 8.1
 - Files: `$ROOT/libs/web/{members,admin}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
