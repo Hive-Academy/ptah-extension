@@ -26,7 +26,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
+import {
+  countTokens,
+  countTokensPiecewise,
+} from '@ptah-extension/tool-output-reducers';
 import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
@@ -1508,10 +1511,11 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         'file',
         listField,
       ]);
+      // Batch 22c: a clean coverage is written as `{clean, analyzed}` only.
       expect(body).toEqual({
         count: 0,
         fileInGraph: true,
-        coverage: CLEAN_GRAPH_COVERAGE,
+        coverage: { clean: true, analyzed: 2 },
         file: stored,
         [listField]: [],
       });
@@ -1545,6 +1549,112 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         graphedFiles: 5_000,
         discoveredFiles: 5_354,
       });
+    });
+  });
+
+  /**
+   * Batch 22c (User Decision 21): on a small answer the coverage block must
+   * not outweigh the answer. Overhead = exact o200k tokens of the answer
+   * text minus those of the same answer without `coverage`. Fails before
+   * 22c: the full block (every zero bucket, census, supportedLanguages,
+   * resolution) cost more than either cap.
+   */
+  describe('ptah_get_dependents coverage overhead on a small answer', () => {
+    const root = path.resolve('/ws');
+    const dependents = [
+      'libs/shared-core/src/consumer-a.ts',
+      'libs/shared-core/src/consumer-b.ts',
+      'apps/web/src/app/feature.ts',
+      'apps/api/src/main.ts',
+    ].map((file) => path.join(root, file));
+    /** Clean coverage over a small fixture workspace. */
+    const CLEAN_OVERHEAD_CAP = 40;
+    /** A typical qualified coverage (a few Python and shell files). */
+    const QUALIFIED_OVERHEAD_CAP = 120;
+    const TYPICAL_QUALIFIED = withCoverageVerdict({
+      supportedLanguages: ['typescript', 'javascript'],
+      census: 'complete',
+      analyzed: 128,
+      unchecked: 0,
+      failed: 0,
+      unsupported: 2,
+      unrecognised: 3,
+      nonSource: 41,
+      excluded: null,
+      omittedByCap: 0,
+      unsupportedByLanguage: { python: 2 },
+      resolution: {
+        external: 57,
+        unresolvedInternal: 0,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'complete',
+      },
+    });
+
+    async function overhead(coverage: LanguageCoverage): Promise<{
+      tokens: number;
+      body: Record<string, unknown>;
+    }> {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'b22c-overhead',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_get_dependents',
+            arguments: { file: 'libs/shared-core/src/hub.ts' },
+          },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              getDependents: jest.fn().mockResolvedValue(dependents),
+              getGraphCoverageForFile: jest.fn(async (file: string) => ({
+                coverage,
+                nodePath: file,
+              })),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+      const body = JSON.parse(text) as Record<string, unknown>;
+      const { coverage: _coverage, ...withoutCoverage } = body;
+      return {
+        tokens:
+          countTokens(text) - countTokens(JSON.stringify(withoutCoverage)),
+        body,
+      };
+    }
+
+    it(`costs at most ${CLEAN_OVERHEAD_CAP} tokens when clean`, async () => {
+      const { tokens, body } = await overhead(CLEAN_GRAPH_COVERAGE);
+      expect(body['coverage']).toEqual({ clean: true, analyzed: 2 });
+      expect(body['dependents']).toEqual(dependents);
+      expect(tokens).toBeLessThanOrEqual(CLEAN_OVERHEAD_CAP);
+    });
+
+    it(`costs at most ${QUALIFIED_OVERHEAD_CAP} tokens when qualified, unknowns kept`, async () => {
+      const { tokens, body } = await overhead(TYPICAL_QUALIFIED);
+      expect(body['coverage']).toEqual({
+        clean: false,
+        reasons: ['unsupported', 'unrecognised'],
+        supportedLanguages: ['typescript', 'javascript'],
+        analyzed: 128,
+        unsupported: 2,
+        unrecognised: 3,
+        nonSource: 41,
+        excluded: null,
+        unsupportedByLanguage: { python: 2 },
+        resolution: { external: 57 },
+      });
+      expect(tokens).toBeLessThanOrEqual(QUALIFIED_OVERHEAD_CAP);
     });
   });
 
@@ -2041,7 +2151,6 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         coverage: {
           clean: false,
           reasons: ['unsupported'],
-          census: 'complete',
           analyzed: 3,
           unsupported: 2,
           unsupportedByLanguage: { python: 1, r: 1 },
@@ -2049,6 +2158,12 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         },
         dependents: [app],
       });
+      // Batch 22c: the compact block leaves the clean values out (a complete
+      // census, zero buckets) and keeps the unknown `excluded: null`.
+      const coverage = body['coverage'] as Record<string, unknown>;
+      expect(coverage).not.toHaveProperty('census');
+      expect(coverage).not.toHaveProperty('failed');
+      expect(coverage).not.toHaveProperty('omittedByCap');
       // Only the project's own five recognised files were discovered.
       expect(graph.getCoverage(root)).toEqual({
         graphedFiles: 5,
@@ -5291,7 +5406,17 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
       'coverage',
       'files',
     ]);
-    expect(whole['coverage']).toEqual(QUALIFIED_GRAPH_COVERAGE);
+    // Batch 22c: the compact qualified block — verdict, then only what is
+    // not at its clean value (`excluded: null` stays: unknown).
+    expect(whole['coverage']).toEqual({
+      clean: false,
+      reasons: ['unsupported'],
+      supportedLanguages: ['typescript', 'javascript'],
+      analyzed: 2,
+      unsupported: 3,
+      excluded: null,
+      unsupportedByLanguage: { python: 3 },
+    });
 
     const skippedText = resultOf(
       await callTool({}, qualified([tokenHeavyEntry()])),
@@ -5348,7 +5473,8 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
       incomplete: true,
       graphedFiles: 5_000,
       discoveredFiles: 5_354,
-      coverage: CLEAN_GRAPH_COVERAGE,
+      // Batch 22c: the compact clean block.
+      coverage: { clean: true, analyzed: 2 },
       files: [],
     });
   });
@@ -5365,7 +5491,7 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
       count: 0,
       total: 0,
       offset: 0,
-      coverage: CLEAN_GRAPH_COVERAGE,
+      coverage: { clean: true, analyzed: 2 },
       files: [],
     });
   });

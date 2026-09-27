@@ -77,6 +77,9 @@ export type {
 export type {
   Approximation,
   Count,
+  CompactCleanCoverage,
+  CompactCoverage,
+  CompactQualifiedCoverage,
   CoverageCensus,
   CoverageChecks,
   CoverageFields,
@@ -99,6 +102,7 @@ export {
   MAX_REPORTED_REASONS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
+  compactCoverage,
   coverageReasons,
   isCleanAnswer,
   limitApproximations,

@@ -60,6 +60,7 @@ import {
   MAX_REPORTED_APPROXIMATIONS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
+  compactCoverage,
   isCleanAnswer,
   withCoverageVerdict,
   type Approximation,
@@ -162,7 +163,9 @@ const WORST_CASE = withCoverageVerdict(WORST_FIELDS);
  * verdict's reasons change with each combination, so the longest object is
  * found, not assumed.
  */
-function longestVerdictedCoverage(): { chars: number; json: string } {
+function longestVerdictedCoverage(
+  serialise: (fields: CoverageFields) => object = withCoverageVerdict,
+): { chars: number; json: string } {
   const counts = [
     'analyzed',
     'unchecked',
@@ -194,7 +197,7 @@ function longestVerdictedCoverage(): { chars: number; json: string } {
             for (const edgeCapHit of [false, true]) {
               for (const context of ['complete', 'partial'] as const) {
                 const json = JSON.stringify(
-                  withCoverageVerdict({
+                  serialise({
                     ...base,
                     ...patch,
                     census,
@@ -227,6 +230,12 @@ function longestVerdictedCoverage(): { chars: number; json: string } {
  */
 const MEASURED_WORST_CASE_CHARS = 1_000;
 
+/**
+ * Measured length of the longest compact coverage (Batch 22c): the full worst
+ * case without the clean values it can leave out.
+ */
+const MEASURED_COMPACT_WORST_CASE_CHARS = 997;
+
 /** The plan's bound ("about 1,000 chars per response"), verdict included. */
 const WORST_CASE_BOUND_CHARS = 1_000;
 
@@ -246,6 +255,18 @@ describe('coverage size contract', () => {
     expect(JSON.stringify(WORST_CASE).length).toBeLessThanOrEqual(
       longest.chars,
     );
+  });
+
+  // Batch 22c: tools write the compact block (`compactCoverage`); its worst
+  // case is a subset of the full one and stays within the same bound. The
+  // full shape above still bounds `execute_code`, which returns the objects.
+  it('compact worst case, as tools write it, <= 1,000 chars and pinned', () => {
+    const compact = longestVerdictedCoverage(compactCoverage);
+    expect(compact.chars).toBeLessThanOrEqual(WORST_CASE_BOUND_CHARS);
+    expect(compact.chars).toBe(MEASURED_COMPACT_WORST_CASE_CHARS);
+    expect(
+      JSON.stringify(compactCoverage(WORST_FIELDS)).length,
+    ).toBeLessThanOrEqual(JSON.stringify(WORST_CASE).length);
   });
 
   it('uses the full shape: 9 language keys, 5 reasons, 4 approximations', () => {

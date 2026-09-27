@@ -390,6 +390,17 @@ describe('code index tools — coverage legend', () => {
     },
   );
 
+  // Batch 22c: the compact block leaves zero counts out, so the legend must
+  // say how to read an absent count. Fails before 22c.
+  it.each([
+    ['ptah_code_search_symbols', buildCodeSearchSymbolsTool],
+    ['ptah_code_reindex', buildCodeReindexTool],
+  ])('%s states the compact reading rule', (_name, build) => {
+    const { description } = build();
+    expect(description).toContain('A clean block holds only `analyzed`');
+    expect(description).toContain('an omitted count is 0 and null is unknown');
+  });
+
   it('ptah_code_reindex says a single file returns its own coverage', () => {
     expect(buildCodeReindexTool().description).toContain(
       'returns its own `coverage`',

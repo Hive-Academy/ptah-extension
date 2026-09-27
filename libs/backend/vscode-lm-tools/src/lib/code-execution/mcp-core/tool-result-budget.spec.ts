@@ -1,7 +1,7 @@
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { withCoverageVerdict } from '@ptah-extension/platform-core';
+import { compactCoverage } from '@ptah-extension/platform-core';
 import { SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import {
   countTokens,
@@ -590,8 +590,10 @@ describe('review 2e r2 regressions', () => {
  * only qualifier of an otherwise complete, current index.
  */
 describe('applyToolResultBudget — status blocks survive reduction', () => {
+  // Batch 22c: the block is written compact (`compactCoverage`), as the
+  // dispatcher now writes it; the reducer keeps that form verbatim.
   it('a reduced search result still shows coverage.clean:false and every null field', async () => {
-    const coverage = withCoverageVerdict({
+    const coverage = compactCoverage({
       supportedLanguages: ['typescript', 'javascript'],
       census: 'complete',
       state: 'current',
@@ -635,6 +637,9 @@ describe('applyToolResultBudget — status blocks survive reduction', () => {
     };
     expect(Object.keys(body).slice(0, 2)).toEqual(['coverage', 'index']);
     expect(body.coverage).toEqual(coverage);
+    expect(JSON.stringify(body.coverage)).toBe(
+      '{"clean":false,"reasons":["unrecognised?"],"analyzed":2,"unrecognised":null,"nonSource":null,"excluded":null}',
+    );
     expect(body.coverage['clean']).toBe(false);
     expect(body.coverage['reasons']).toEqual(['unrecognised?']);
     for (const key of ['unrecognised', 'nonSource', 'excluded']) {

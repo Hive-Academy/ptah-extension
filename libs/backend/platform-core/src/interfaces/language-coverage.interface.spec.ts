@@ -14,6 +14,7 @@ import {
   RECOGNISED_LANGUAGE_IDS,
   COVERAGE_REASONS,
   MAX_REPORTED_REASONS,
+  compactCoverage,
   coverageReasons,
   isCleanAnswer,
   limitApproximations,
@@ -228,6 +229,183 @@ describe('withCoverageVerdict', () => {
   it('gives every reason a code of at most 24 chars', () => {
     for (const reason of COVERAGE_REASONS) {
       expect(reason.length).toBeLessThanOrEqual(24);
+    }
+  });
+});
+
+/**
+ * Batch 22c (User Decision 21): the coverage block a tool writes is compact.
+ * Fails before 22c: `compactCoverage` did not exist, and every tool wrote the
+ * full field set (all zero buckets included) into small answers.
+ */
+describe('compactCoverage', () => {
+  const COUNT_KEYS = [
+    'analyzed',
+    'unchecked',
+    'failed',
+    'unsupported',
+    'unrecognised',
+    'nonSource',
+    'excluded',
+    'omittedByCap',
+  ] as const;
+
+  it('writes a clean answer as {clean: true, analyzed} and nothing else', () => {
+    expect(compactCoverage(CLEAN)).toEqual({ clean: true, analyzed: 12 });
+    expect(Object.keys(compactCoverage(CLEAN))).toEqual(['clean', 'analyzed']);
+    const busyButClean: CoverageFields = {
+      ...CLEAN,
+      state: 'current',
+      nonSource: 250,
+      excluded: null,
+      resolution: {
+        external: 40,
+        unresolvedInternal: 0,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'complete',
+      },
+      approximations: ['text-scan'],
+      checks: 'type-check',
+    };
+    expect(compactCoverage(busyButClean)).toEqual({
+      clean: true,
+      analyzed: 12,
+    });
+    expect(compactCoverage({ ...CLEAN, analyzed: null })).toEqual({
+      clean: true,
+      analyzed: null,
+    });
+  });
+
+  it('writes a qualified answer as verdict plus the non-zero buckets, in field order', () => {
+    const compact = compactCoverage({
+      ...CLEAN,
+      failed: 2,
+      failedByReason: { parse: 2, read: 0 },
+      excluded: null,
+    });
+    expect(compact).toEqual({
+      clean: false,
+      reasons: ['failed'],
+      analyzed: 12,
+      failed: 2,
+      excluded: null,
+      failedByReason: { parse: 2 },
+    });
+    expect(Object.keys(compact)).toEqual([
+      'clean',
+      'reasons',
+      'analyzed',
+      'failed',
+      'excluded',
+      'failedByReason',
+    ]);
+  });
+
+  it.each(COUNT_KEYS)('always keeps %s when it is null (unknown)', (key) => {
+    const compact = compactCoverage({
+      ...CLEAN,
+      census: 'truncated',
+      [key]: null,
+    });
+    expect(compact.clean).toBe(false);
+    expect(compact).toHaveProperty(key, null);
+  });
+
+  it('lets a reader recover every count: left out = 0, null = unknown', () => {
+    const fields: CoverageFields = {
+      ...CLEAN,
+      analyzed: 0,
+      unchecked: null,
+      failed: 3,
+      unsupported: 0,
+      unrecognised: null,
+      nonSource: 7,
+      excluded: 0,
+      omittedByCap: 0,
+    };
+    const compact = compactCoverage(fields);
+    for (const key of COUNT_KEYS) {
+      const read = key in compact ? Reflect.get(compact, key) : 0;
+      expect([key, read]).toEqual([key, fields[key]]);
+    }
+  });
+
+  it('keeps supportedLanguages only when files were unsupported', () => {
+    expect(compactCoverage({ ...CLEAN, failed: 1 })).not.toHaveProperty(
+      'supportedLanguages',
+    );
+    expect(
+      compactCoverage({
+        ...CLEAN,
+        unsupported: 3,
+        unsupportedByLanguage: { python: 3 },
+      }),
+    ).toEqual({
+      clean: false,
+      reasons: ['unsupported'],
+      supportedLanguages: ['typescript', 'javascript'],
+      analyzed: 12,
+      unsupported: 3,
+      unsupportedByLanguage: { python: 3 },
+    });
+  });
+
+  it('keeps census, censusLimit and state only off their clean values', () => {
+    expect(
+      compactCoverage({
+        ...CLEAN,
+        census: 'truncated',
+        censusLimit: 50_000,
+        state: 'updating',
+      }),
+    ).toEqual({
+      clean: false,
+      reasons: ['updating', 'truncated'],
+      census: 'truncated',
+      censusLimit: 50_000,
+      state: 'updating',
+      analyzed: 12,
+    });
+  });
+
+  it('keeps only the non-clean part of resolution, nulls included', () => {
+    const compact = compactCoverage({
+      ...CLEAN,
+      resolution: {
+        external: 40,
+        unresolvedInternal: null,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'partial',
+      },
+      approximations: ['resolver-context-partial'],
+      approximationsOmitted: 0,
+    });
+    expect(compact).toEqual({
+      clean: false,
+      reasons: ['resolution?', 'resolver-context-partial'],
+      analyzed: 12,
+      resolution: {
+        external: 40,
+        unresolvedInternal: null,
+        context: 'partial',
+      },
+      approximations: ['resolver-context-partial'],
+    });
+  });
+
+  it('agrees with isCleanAnswer and recomputes a stale verdict', () => {
+    const stale = { ...withCoverageVerdict(CLEAN), failed: 1 };
+    expect(compactCoverage(stale).clean).toBe(false);
+    for (const fields of [
+      CLEAN,
+      { ...CLEAN, excluded: 1 },
+      { ...CLEAN, unrecognised: null },
+      { ...CLEAN, nonSource: null, excluded: null },
+    ]) {
+      expect(compactCoverage(fields).clean).toBe(isCleanAnswer(fields));
     }
   });
 });

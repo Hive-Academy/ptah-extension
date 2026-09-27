@@ -1774,10 +1774,11 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
 /**
  * How to read a `coverage` block (Batch 24b r2): the reason codes are short
  * so the worst-case coverage stays within 1,000 chars, and this legend is the
- * agent-facing key to them.
+ * agent-facing key to them. Batch 22c: it also states the compact form's
+ * reading rule (omitted = 0, null = unknown).
  */
 const COVERAGE_LEGEND =
-  '`coverage` comes first: `clean` plus up to 3 `reasons`. A reason ending in `?` is unknown (null, never 0); `truncated` = census cut short, `stale` = last index run incomplete, `updating` = a write in progress. A count of 999999 means that many or more.';
+  '`coverage` comes first: `clean` plus up to 3 `reasons`. A clean block holds only `analyzed`; otherwise an omitted count is 0 and null is unknown. A reason ending in `?` is unknown (null, never 0); `truncated` = census cut short, `stale` = last index run incomplete, `updating` = a write in progress. A count of 999999 means that many or more.';
 
 /**
  * Build the ptah_code_search_symbols tool definition

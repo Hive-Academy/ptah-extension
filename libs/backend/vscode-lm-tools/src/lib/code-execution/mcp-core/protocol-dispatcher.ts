@@ -13,9 +13,12 @@ import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type {
-  IOutputChannel,
-  IWorkspaceProvider,
+import {
+  compactCoverage,
+  type CompactCoverage,
+  type IOutputChannel,
+  type IWorkspaceProvider,
+  type LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
 import {
@@ -2003,7 +2006,7 @@ async function handleIndividualTool(
         );
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          JSON.stringify(withCompactCoverage(result)),
           deps,
         );
       }
@@ -2133,7 +2136,9 @@ async function handleIndividualTool(
         });
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          JSON.stringify(
+            'coverage' in result ? withCompactCoverage(result) : result,
+          ),
           deps,
         );
       }
@@ -2165,7 +2170,9 @@ async function handleIndividualTool(
         }
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          JSON.stringify(
+            'coverage' in result ? withCompactCoverage(result) : result,
+          ),
           deps,
         );
       }
@@ -2253,7 +2260,7 @@ async function handleIndividualTool(
             getToolResultBudget(name),
             {
               ...graphCompleteness(graphCoverage),
-              coverage: graphCoverage.coverage,
+              coverage: compactCoverage(graphCoverage.coverage),
             },
             async (text) =>
               spoolToolText(text, await resolveSpoolRoot(deps), request.id),
@@ -2886,10 +2893,21 @@ function graphFileAnswer(
     count: items.length,
     ...graphCompleteness(fileCoverage),
     fileInGraph: fileCoverage.nodePath !== undefined,
-    coverage: fileCoverage.coverage,
+    coverage: compactCoverage(fileCoverage.coverage),
     file: fileCoverage.nodePath ?? resolvedFile,
     ...list,
   };
+}
+
+/**
+ * A tool result with its `coverage` block in the compact wire form (Batch
+ * 22c, {@link compactCoverage}). The key keeps its place, so the budget
+ * order is unchanged.
+ */
+function withCompactCoverage<T extends { coverage: LanguageCoverage }>(
+  result: T,
+): Omit<T, 'coverage'> & { coverage: CompactCoverage } {
+  return { ...result, coverage: compactCoverage(result.coverage) };
 }
 
 /**

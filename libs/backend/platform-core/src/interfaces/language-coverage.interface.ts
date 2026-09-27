@@ -17,17 +17,21 @@
  * - Counts saturate at {@link COVERAGE_COUNT_MAX} so the serialised object stays
  *   bounded: the enumerated worst case, verdict included, measures 1,000
  *   characters and is asserted at most 1,000 (`language-registry.spec.ts`
- *   in workspace-intelligence). A count equal to {@link COVERAGE_COUNT_MAX}
- *   means "at least this many".
+ *   in workspace-intelligence); its compact form measures 997. A count equal
+ *   to {@link COVERAGE_COUNT_MAX} means "at least this many".
  * - Every coverage a tool returns goes through {@link withCoverageVerdict}:
  *   `clean` and `reasons` come first, so the verdict survives reduction.
+ * - Every coverage a tool writes into its answer text goes through
+ *   {@link compactCoverage} (Batch 22c): a clean block is `{clean, analyzed}`;
+ *   a qualified block leaves out a count that is 0 and keeps every `null`.
+ *   Omitted = 0, `null` = unknown.
  * - Responses place `coverage` after the Batch 9 status fields (`count`,
  *   `incomplete`, `graphedFiles`, `discoveredFiles`) and before `file`, lists
  *   and hits, so a budget cut never drops it.
  *
  * Type-only apart from the closed-vocabulary constants and pure helpers
  * (`isCleanAnswer`, `coverageReasons`, `withCoverageVerdict`,
- * `limitApproximations`): platform-core is
+ * `compactCoverage`, `limitApproximations`): platform-core is
  * `scope:shared,type:util`.
  */
 
@@ -343,6 +347,131 @@ export function withCoverageVerdict(
     reasons: reasons.slice(0, MAX_REPORTED_REASONS),
     ...fields,
   };
+}
+
+/** A clean coverage as a tool writes it: only how many files were analysed. */
+export interface CompactCleanCoverage {
+  readonly clean: true;
+  readonly analyzed: Count;
+}
+
+/**
+ * A qualified coverage as a tool writes it: the verdict, then only the fields
+ * that say something. A count left out is 0 (in `resolution`, a left-out
+ * `edgeCapHit` is false and `context` is `'complete'`); `null` is unknown and
+ * is always kept.
+ */
+export type CompactQualifiedCoverage = {
+  readonly clean: false;
+  readonly reasons: readonly CoverageReason[];
+} & Partial<Omit<CoverageFields, 'resolution'>> & {
+    readonly resolution?: Partial<CoverageResolution>;
+  };
+
+export type CompactCoverage = CompactCleanCoverage | CompactQualifiedCoverage;
+
+/** The disjoint file counts, in {@link CoverageFields} order. */
+const COVERAGE_COUNT_KEYS = [
+  'analyzed',
+  'unchecked',
+  'failed',
+  'unsupported',
+  'unrecognised',
+  'nonSource',
+  'excluded',
+  'omittedByCap',
+] as const;
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** The non-zero entries of a per-key count map; `undefined` when none. */
+function nonZeroCounts<K extends string>(
+  counts: Readonly<Partial<Record<K, number>>> | undefined,
+): Partial<Record<K, number>> | undefined {
+  if (counts === undefined) return undefined;
+  const kept: Partial<Record<K, number>> = {};
+  for (const key of Object.keys(counts) as K[]) {
+    const count = counts[key];
+    if (count !== undefined && count !== 0) kept[key] = count;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/** A resolution without its clean values; `undefined` when nothing is left. */
+function compactResolution(
+  resolution: CoverageResolution | undefined,
+): Partial<CoverageResolution> | undefined {
+  if (resolution === undefined) return undefined;
+  const kept: Mutable<Partial<CoverageResolution>> = {};
+  if (resolution.external !== 0) kept.external = resolution.external;
+  if (resolution.unresolvedInternal !== 0) {
+    kept.unresolvedInternal = resolution.unresolvedInternal;
+  }
+  if (resolution.truncatedImports !== 0) {
+    kept.truncatedImports = resolution.truncatedImports;
+  }
+  if (resolution.edgeCapHit) kept.edgeCapHit = true;
+  if (resolution.context !== 'complete') kept.context = resolution.context;
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/**
+ * The one serializer of a coverage block (Batch 22c, User Decision 21): what
+ * every language-bound tool writes into its answer. The verdict is recomputed
+ * first, so the block can never disagree with {@link isCleanAnswer}.
+ *
+ * - Clean: `{clean: true, analyzed}` and nothing else. Every qualifier is 0
+ *   by definition; `nonSource`, `excluded: null` and approximations never
+ *   qualify an answer and are not repeated.
+ * - Qualified: `clean: false`, `reasons`, then, in field order, only what is
+ *   not at its clean value: a count that is not 0 (`null` is always kept, so
+ *   unknown stays visible), `census` unless `'complete'`, `censusLimit`,
+ *   `state` unless `'current'`, the non-zero entries of the per-language and
+ *   per-reason maps, the non-clean part of `resolution`, `approximations`,
+ *   a non-zero `approximationsOmitted` and `checks`. `supportedLanguages` is
+ *   kept only when `unsupported` is not 0, where it names what could have
+ *   been analysed.
+ *
+ * Reading rule: a left-out count is 0; `null` is unknown.
+ */
+export function compactCoverage(
+  coverage: CoverageFields | LanguageCoverage,
+): CompactCoverage {
+  const { clean, reasons, ...fields } = withCoverageVerdict(coverage);
+  if (clean) {
+    return { clean: true, analyzed: fields.analyzed };
+  }
+  const kept: Mutable<Omit<CompactQualifiedCoverage, 'clean' | 'reasons'>> = {};
+  if (fields.unsupported !== 0) {
+    kept.supportedLanguages = fields.supportedLanguages;
+  }
+  if (fields.census !== 'complete') kept.census = fields.census;
+  if (fields.censusLimit !== undefined) kept.censusLimit = fields.censusLimit;
+  if (fields.state !== undefined && fields.state !== 'current') {
+    kept.state = fields.state;
+  }
+  for (const key of COVERAGE_COUNT_KEYS) {
+    if (fields[key] !== 0) kept[key] = fields[key];
+  }
+  const unsupportedByLanguage = nonZeroCounts(fields.unsupportedByLanguage);
+  if (unsupportedByLanguage !== undefined) {
+    kept.unsupportedByLanguage = unsupportedByLanguage;
+  }
+  const failedByReason = nonZeroCounts(fields.failedByReason);
+  if (failedByReason !== undefined) kept.failedByReason = failedByReason;
+  const resolution = compactResolution(fields.resolution);
+  if (resolution !== undefined) kept.resolution = resolution;
+  if (fields.approximations !== undefined && fields.approximations.length > 0) {
+    kept.approximations = fields.approximations;
+  }
+  if (
+    fields.approximationsOmitted !== undefined &&
+    fields.approximationsOmitted !== 0
+  ) {
+    kept.approximationsOmitted = fields.approximationsOmitted;
+  }
+  if (fields.checks !== undefined) kept.checks = fields.checks;
+  return { clean: false, reasons, ...kept };
 }
 
 function approximationRank(approximation: Approximation): number {

@@ -19,7 +19,11 @@ import {
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
-import { FileType, withCoverageVerdict } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  compactCoverage,
+  withCoverageVerdict,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -186,7 +190,7 @@ export function buildAstNamespace(
 
       if (!hasCapability(language, 'publicSymbols')) {
         throw new Error(
-          `${JSON.stringify({ coverage: fileCoverage(filePath, 'publicSymbols', 'unknown') })} ` +
+          `${JSON.stringify({ coverage: compactCoverage(fileCoverage(filePath, 'publicSymbols', 'unknown')) })} ` +
             `Export query unsupported for ${language}. Supported: ${supportedLanguagesFor('publicSymbols').join(', ')}`,
         );
       }
@@ -271,7 +275,7 @@ async function readFileForAst(
 
   if (!language) {
     throw new Error(
-      `${JSON.stringify({ coverage: fileCoverage(absolutePath, 'parse', 'unknown') })} ` +
+      `${JSON.stringify({ coverage: compactCoverage(fileCoverage(absolutePath, 'parse', 'unknown')) })} ` +
         `Unsupported file type: ${ext}. Supported: ${Object.keys(
           EXTENSION_LANGUAGE_MAP,
         ).join(', ')}`,
