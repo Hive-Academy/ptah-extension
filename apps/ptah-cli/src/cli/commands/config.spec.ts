@@ -6,10 +6,11 @@
  *   - model-switch / model-get / models-list (RPC)
  *   - autopilot get / set (RPC; boolean parsing)
  *   - effort get / set (RPC; whitelist validation)
+ *   - go-vet status / on / off (consent RPC; exit 0/1/2/5 per O2 §5.2)
  *   - missing args produce UsageError; redact applied to list unless --reveal
  */
 
-import { execute } from './config.js';
+import { execute, executeGoVet } from './config.js';
 import type { ConfigExecuteHooks, ConfigOptions } from './config.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
@@ -476,6 +477,213 @@ describe('ptah config effort', () => {
     );
     expect(exit).toBe(ExitCode.UsageError);
     expect(engine.rpcCalls).toHaveLength(0);
+  });
+});
+
+describe('ptah config go-vet (TASK_2026_559 O2 §5.2 / §7.3)', () => {
+  const GET = 'diagnostics:go-vet-consent-get';
+  const SET = 'diagnostics:go-vet-consent-set';
+  const ROOT = '/work/go-app';
+
+  function scriptGet(engine: MockEngine, data: Record<string, unknown>): void {
+    engine.scripted.set(GET, { success: true, data });
+  }
+
+  it('status emits config.goVet with root, state and binary, exit 0', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'on',
+      goBinary: '/usr/local/go/bin/go',
+    });
+    const exit = await executeGoVet('status', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([{ method: GET, params: {} }]);
+    expect(formatterTrace.notifications).toEqual([
+      {
+        method: 'config.goVet',
+        params: {
+          supported: true,
+          workspaceRoot: ROOT,
+          state: 'on',
+          goBinary: '/usr/local/go/bin/go',
+        },
+      },
+    ]);
+  });
+
+  it('status shows stale with its reason, never as on', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'stale',
+      staleReason: 'go-changed',
+    });
+    const exit = await executeGoVet('status', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.Success);
+    expect(formatterTrace.notifications[0]?.params).toEqual({
+      supported: true,
+      workspaceRoot: ROOT,
+      state: 'stale',
+      staleReason: 'go-changed',
+    });
+  });
+
+  it('status on an unsupported host → exit 1 with one fixed stderr line', async () => {
+    const { engine, hooks, stderrTrace } = buildHooks();
+    scriptGet(engine, { supported: false, workspace: null, state: 'off' });
+    const exit = await executeGoVet('status', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(stderrTrace.buffer).toBe('ptah config go-vet: unsupported\n');
+  });
+
+  it("on → GET then SET with GET's root and source 'cli'; shows the root", async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'off',
+      goBinary: '/usr/local/go/bin/go',
+    });
+    engine.scripted.set(SET, {
+      success: true,
+      data: { success: true, state: 'on' },
+    });
+    const exit = await executeGoVet('on', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls).toEqual([
+      { method: GET, params: {} },
+      {
+        method: SET,
+        params: { enabled: true, workspaceRoot: ROOT, source: 'cli' },
+      },
+    ]);
+    expect(formatterTrace.notifications).toEqual([
+      {
+        method: 'config.goVet',
+        params: {
+          supported: true,
+          workspaceRoot: ROOT,
+          state: 'on',
+          goBinary: '/usr/local/go/bin/go',
+        },
+      },
+    ]);
+  });
+
+  it('off reports the read-back state from SET', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'on',
+    });
+    engine.scripted.set(SET, {
+      success: true,
+      data: { success: true, state: 'off' },
+    });
+    const exit = await executeGoVet('off', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.Success);
+    expect(engine.rpcCalls[1]?.params).toEqual({
+      enabled: false,
+      workspaceRoot: ROOT,
+      source: 'cli',
+    });
+    expect(formatterTrace.notifications[0]).toEqual({
+      method: 'config.goVet',
+      params: { supported: true, workspaceRoot: ROOT, state: 'off' },
+    });
+  });
+
+  it.each(['workspace-changed', 'no-go-binary', 'persist-failed'])(
+    'SET success:false (%s) → exit 1, fixed stderr line, no config.goVet notification',
+    async (error) => {
+      const { engine, hooks, formatterTrace, stderrTrace } = buildHooks();
+      scriptGet(engine, {
+        supported: true,
+        workspace: { root: ROOT },
+        state: 'off',
+      });
+      engine.scripted.set(SET, {
+        success: true,
+        data: { success: false, error },
+      });
+      const exit = await executeGoVet('on', baseGlobals, hooks);
+      expect(exit).toBe(ExitCode.GeneralError);
+      expect(stderrTrace.buffer).toBe(`ptah config go-vet: ${error}\n`);
+      expect(formatterTrace.notifications).toEqual([]);
+    },
+  );
+
+  it('SET claiming success with the wrong read-back state is not a success', async () => {
+    const { engine, hooks, formatterTrace, stderrTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'on',
+    });
+    engine.scripted.set(SET, {
+      success: true,
+      data: { success: true, state: 'on' },
+    });
+    const exit = await executeGoVet('off', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(stderrTrace.buffer).toBe('ptah config go-vet: persist-failed\n');
+    expect(formatterTrace.notifications).toEqual([]);
+  });
+
+  it('on with supported:false → exit 1, SET never called', async () => {
+    const { engine, hooks, formatterTrace, stderrTrace } = buildHooks();
+    scriptGet(engine, { supported: false, workspace: null, state: 'off' });
+    const exit = await executeGoVet('on', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(engine.rpcCalls.map((c) => c.method)).toEqual([GET]);
+    expect(stderrTrace.buffer).toBe('ptah config go-vet: unsupported\n');
+    expect(formatterTrace.notifications).toEqual([]);
+  });
+
+  it('on with no active workspace → exit 1 no-workspace, SET never called', async () => {
+    const { engine, hooks, stderrTrace } = buildHooks();
+    scriptGet(engine, { supported: true, workspace: null, state: 'off' });
+    const exit = await executeGoVet('on', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(engine.rpcCalls.map((c) => c.method)).toEqual([GET]);
+    expect(stderrTrace.buffer).toBe('ptah config go-vet: no-workspace\n');
+  });
+
+  it('unknown action → exit 2, no RPC', async () => {
+    const { engine, hooks, stderrTrace } = buildHooks();
+    const exit = await executeGoVet('enable', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(engine.rpcCalls).toHaveLength(0);
+    expect(stderrTrace.buffer).toContain("unknown sub-command 'enable'");
+  });
+
+  it('an inherited object key is not an action (exit 2)', async () => {
+    const { engine, hooks } = buildHooks();
+    const exit = await executeGoVet('toString', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(engine.rpcCalls).toHaveLength(0);
+  });
+
+  it('transport failure → exit 5, no config.goVet notification', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    engine.scripted.set(GET, { success: false, error: 'transport down' });
+    const exit = await executeGoVet('on', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(
+      formatterTrace.notifications.some((n) => n.method === 'config.goVet'),
+    ).toBe(false);
+  });
+
+  it('a malformed GET result is an internal failure, not a status', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, { supported: true, state: 'enabled' });
+    const exit = await executeGoVet('status', baseGlobals, hooks);
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(formatterTrace.notifications[0]?.method).toBe('task.error');
   });
 });
 

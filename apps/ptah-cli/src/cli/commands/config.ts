@@ -15,6 +15,10 @@
  *   autopilot set <bool>       RPC `config:autopilot-toggle`
  *   effort get                 RPC `config:effort-get`
  *   effort set <minimal|low|medium|high>   RPC `config:effort-set`
+ *   go-vet status              RPC `diagnostics:go-vet-consent-get`
+ *   go-vet on | off            RPC `diagnostics:go-vet-consent-get`, then
+ *                              `diagnostics:go-vet-consent-set` with the root
+ *                              GET returned (TASK_2026_559 O2 §5.2)
  *
  * The file-backed sub-commands (get / set / list / reset) operate directly on
  * the platform's IWorkspaceProvider (which the CLI's CliWorkspaceProvider
@@ -38,6 +42,11 @@ import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import type { EngineContext } from '@ptah-extension/cli-engine';
+import type {
+  DiagnosticsGoVetConsentGetResult,
+  DiagnosticsGoVetConsentSetParams,
+  DiagnosticsGoVetConsentSetResult,
+} from '@ptah-extension/shared';
 
 /** Sub-commands accepted by `ptah config ...`. */
 export type ConfigSubcommand =
@@ -51,7 +60,17 @@ export type ConfigSubcommand =
   | 'autopilot-get'
   | 'autopilot-set'
   | 'effort-get'
-  | 'effort-set';
+  | 'effort-set'
+  | 'go-vet-status'
+  | 'go-vet-on'
+  | 'go-vet-off';
+
+/** The actions `ptah config go-vet <action>` accepts, mapped to sub-commands. */
+const GO_VET_SUBCOMMANDS: Readonly<Record<string, ConfigSubcommand>> = {
+  status: 'go-vet-status',
+  on: 'go-vet-on',
+  off: 'go-vet-off',
+};
 
 export interface ConfigOptions {
   subcommand: ConfigSubcommand;
@@ -121,13 +140,19 @@ export async function execute(
         return await runEffortGet(globals, formatter, engine);
       case 'effort-set':
         return await runEffortSet(opts, globals, formatter, stderr, engine);
+      case 'go-vet-status':
+        return await runGoVetStatus(globals, formatter, stderr, engine);
+      case 'go-vet-on':
+        return await runGoVetChange(true, globals, formatter, stderr, engine);
+      case 'go-vet-off':
+        return await runGoVetChange(false, globals, formatter, stderr, engine);
       default:
         stderr.write(
           `ptah config: unknown sub-command '${String(opts.subcommand)}'\n`,
         );
         return ExitCode.UsageError;
     }
-  } catch (error) {
+  } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     await formatter.writeNotification('task.error', {
       ptah_code: 'internal_failure',
@@ -135,6 +160,32 @@ export async function execute(
     });
     return ExitCode.InternalFailure;
   }
+}
+
+/**
+ * Entry point for `ptah config go-vet <action>`. The action is validated here
+ * rather than by commander so an unknown action exits `2` (UsageError), which
+ * commander's own unknown-command handling does not guarantee.
+ */
+export async function executeGoVet(
+  action: string,
+  globals: GlobalOptions,
+  hooks: ConfigExecuteHooks = {},
+): Promise<number> {
+  const subcommand = Object.prototype.hasOwnProperty.call(
+    GO_VET_SUBCOMMANDS,
+    action,
+  )
+    ? GO_VET_SUBCOMMANDS[action]
+    : undefined;
+  if (subcommand === undefined) {
+    const stderr: ConfigStderrLike = hooks.stderr ?? process.stderr;
+    stderr.write(
+      `ptah config go-vet: unknown sub-command '${action}' (use status|on|off)\n`,
+    );
+    return ExitCode.UsageError;
+  }
+  return execute({ subcommand }, globals, hooks);
 }
 
 /**
@@ -171,8 +222,7 @@ async function runGet(
     const key = opts.key as string;
     const value = provider.getConfiguration<unknown>('ptah', key);
     const redacted = redact({ [key]: value }, { reveal: globals.reveal }) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     await formatter.writeNotification('config.value', {
       key,
       value: redacted ? redacted[key] : value,
@@ -477,6 +527,158 @@ async function runEffortSet(
     });
     return ExitCode.Success;
   });
+}
+
+/**
+ * `ptah config go-vet status` — read the consent for the workspace this CLI
+ * process runs in (`--cwd` or cwd) and show it, including `stale` and its
+ * reason (User Decision 25: stale is never shown as `on`). Exits `1` when the
+ * host cannot store per-workspace consent.
+ */
+async function runGoVetStatus(
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: ConfigStderrLike,
+  engine: typeof withEngine,
+): Promise<number> {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    const current = await readGoVetConsent(ctx.transport);
+    await formatter.writeNotification(
+      'config.goVet',
+      goVetStatusPayload(current),
+    );
+    if (!current.supported) {
+      return goVetFailure(stderr, 'unsupported');
+    }
+    return ExitCode.Success;
+  });
+}
+
+/**
+ * `ptah config go-vet on | off` — GET first, then SET with the root that GET
+ * returned, so the change can only land on the workspace the user sees. The
+ * notification carries the state the host read back after writing; a refused
+ * or unverified change exits `1` with one fixed stderr line and no
+ * `config.goVet` notification (unlike `autopilot set`, never exit `0`).
+ */
+async function runGoVetChange(
+  enabled: boolean,
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: ConfigStderrLike,
+  engine: typeof withEngine,
+): Promise<number> {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    const current = await readGoVetConsent(ctx.transport);
+    if (!current.supported) {
+      return goVetFailure(stderr, 'unsupported');
+    }
+    if (current.workspace === null) {
+      return goVetFailure(stderr, 'no-workspace');
+    }
+    const workspaceRoot = current.workspace.root;
+    const params: DiagnosticsGoVetConsentSetParams = {
+      enabled,
+      workspaceRoot,
+      source: 'cli',
+    };
+    const result = await callRpc<DiagnosticsGoVetConsentSetResult>(
+      ctx.transport,
+      'diagnostics:go-vet-consent-set',
+      params,
+    );
+    if (!isGoVetSetResult(result)) {
+      throw new Error(
+        'diagnostics:go-vet-consent-set returned an unexpected result',
+      );
+    }
+    if (!result.success) {
+      return goVetFailure(stderr, result.error);
+    }
+    const expected = enabled ? 'on' : 'off';
+    if (result.state !== expected) {
+      return goVetFailure(stderr, 'persist-failed');
+    }
+    const payload: Record<string, unknown> = {
+      supported: true,
+      workspaceRoot,
+      state: result.state,
+    };
+    if (enabled && current.goBinary !== undefined) {
+      payload['goBinary'] = current.goBinary;
+    }
+    await formatter.writeNotification('config.goVet', payload);
+    return ExitCode.Success;
+  });
+}
+
+async function readGoVetConsent(
+  transport: CliMessageTransport,
+): Promise<DiagnosticsGoVetConsentGetResult> {
+  const result = await callRpc<DiagnosticsGoVetConsentGetResult>(
+    transport,
+    'diagnostics:go-vet-consent-get',
+    {},
+  );
+  if (!isGoVetGetResult(result)) {
+    throw new Error(
+      'diagnostics:go-vet-consent-get returned an unexpected result',
+    );
+  }
+  return result;
+}
+
+function goVetStatusPayload(
+  current: DiagnosticsGoVetConsentGetResult,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    supported: current.supported,
+    workspaceRoot: current.workspace?.root ?? null,
+    state: current.state,
+  };
+  if (current.state === 'stale' && current.staleReason !== undefined) {
+    payload['staleReason'] = current.staleReason;
+  }
+  if (current.goBinary !== undefined) {
+    payload['goBinary'] = current.goBinary;
+  }
+  return payload;
+}
+
+function goVetFailure(stderr: ConfigStderrLike, error: string): number {
+  stderr.write(`ptah config go-vet: ${error}\n`);
+  return ExitCode.GeneralError;
+}
+
+const GO_VET_STATES: ReadonlySet<string> = new Set(['off', 'on', 'stale']);
+
+function isGoVetGetResult(
+  value: unknown,
+): value is DiagnosticsGoVetConsentGetResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v['supported'] !== 'boolean') return false;
+  if (typeof v['state'] !== 'string' || !GO_VET_STATES.has(v['state'])) {
+    return false;
+  }
+  const workspace = v['workspace'];
+  if (workspace === null) return true;
+  return (
+    typeof workspace === 'object' &&
+    workspace !== undefined &&
+    typeof (workspace as Record<string, unknown>)['root'] === 'string'
+  );
+}
+
+function isGoVetSetResult(
+  value: unknown,
+): value is DiagnosticsGoVetConsentSetResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v['success'] === true) {
+    return v['state'] === 'on' || v['state'] === 'off';
+  }
+  return v['success'] === false && typeof v['error'] === 'string';
 }
 
 /**
