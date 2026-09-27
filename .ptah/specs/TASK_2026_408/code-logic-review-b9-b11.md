@@ -29,7 +29,7 @@ The real SDK/CLI scenarios execute and S6 requires compaction and success. Howev
 - Trigger: Run the suite on a clean machine where the OS temporary directory has no ancestor installation of `zod`.
 - Symptom: S5 fails with module resolution failure before exercising the MCP round trip, despite all repository dependencies being installed.
 - Evidence: The child script is written directly into `os.tmpdir()`, then executes bare `import("zod")`. Unlike the SDK import, Zod is not passed as a resolved file URL. ESM resolves this import from the script location; the project option `cwd` does not change module resolution.
-- Local verification: Resolving from this script location found `C:\Users\abdal\node_modules\zod\index.cjs`, outside the worktree. The passing local run therefore does not establish clean-install portability or use of the repository's Zod version.
+- Local verification: Resolving from this script location found `%USERPROFILE%\node_modules\zod\index.cjs`, outside the worktree. The passing local run therefore does not establish clean-install portability or use of the repository's Zod version.
 - Fix: Resolve Zod from the repository/pinned SDK dependency context in the parent and pass its absolute import URL to the child, or execute a module situated in an explicitly controlled package context.
 
 ### 2. Moderate — S1, S4 and S5 script by request order

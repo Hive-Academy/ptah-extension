@@ -73,7 +73,7 @@ Target: `https://chatgpt.com/backend-api/codex/responses` (the route `CodexTrans
 | P3 | Two-turn tool loop: turn 1 from P2 ends in a `function_call`; turn 2 replays turn 1's reasoning item and function_call and adds `function_call_output` | status; `input_tokens_details.cached_tokens` against the same turn 2 without the reasoning item | B value (cache and continuity) |
 | P4 | P3 turn 2 with a different model id | status and error body `code` | B model-switch guard requirement |
 | P5 | P1 with `store: true` | status | C availability (expected rejection) |
-| P6 | P1 + `previous_response_id` from P1 and `store: true` (only if P5 succeeds) | status | C mechanics |
+| P6 | P1 + `previous_response_id` set to the response id returned by P5 (P1 used `store: false`, so its id is not stored) and `store: true` (only if P5 succeeds) | status | C mechanics |
 | P7 | An over-window input (replay a synthetic transcript above the catalog `context_window` from `/models`, `codex-auth.service.ts:322-336`) | HTTP status plus error `code` and message, **or** the `response.failed` / `error` event shape if streamed | Confirms the Phase 1 overflow classifier against the real endpoint (its message patterns are Assumptions in `implementation-plan.md`) |
 
 Exit criteria: write the results into this file under "Probe results (date)". The go/no-go for Option B is P2 = 200 with an `encrypted_content` present, P3 = 200, and P4 behaviour known.

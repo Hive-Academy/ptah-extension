@@ -77,7 +77,7 @@ First pass (before the two edited spec files were fixed) failed on 3 tasks: a ty
 
 ### `cli-agent-runtime` isolated-TEMP finding (differs from `integration-observations.md`)
 
-The Batch 9 note claims the 17 `agent-role-resolver` failures come from a stray `C:\Users\abdal\AppData\Local\Temp\.claude` folder and that "the suite passes with an isolated TEMP." This pass could **not reproduce that fix**:
+The Batch 9 note claims the 17 `agent-role-resolver` failures come from a stray `%TEMP%\.claude` folder and that "the suite passes with an isolated TEMP." This pass could **not reproduce that fix**:
 - Normal TEMP: 17 failures (matches the documented count).
 - `TEMP`/`TMP` set to a fresh, empty POSIX-style temp folder: same 17 failures, identical failure text.
 - `TEMP`/`TMP` set to a fresh, empty native Windows-style path (`D:\projects\ptah-extension-task-408\.tmp-qa-isolated`): same 17 failures, identical failure text.

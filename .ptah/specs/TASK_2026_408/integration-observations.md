@@ -67,9 +67,9 @@ changed, the assertions are now:
   SDK's own location (`createRequire(sdk.mjs)`). The spec throws unless it
   resolves inside the real path of this checkout's `node_modules`.
   - This worktree's `node_modules` is a symlink to
-    `D:\projects\ptah-extension\node_modules`, so that is where it resolves.
+    `<main checkout>/node_modules`, so that is where it resolves.
   - A bare `import("zod")` from the temp script had resolved to a user-profile
-    install (`C:\Users\abdal\node_modules`).
+    install (`%USERPROFILE%\node_modules`).
 - **Cleanup (F5):**
   - **Fixture location:** all fixtures (scenario dirs, child scripts, and the
     child's `TEMP`/`TMP`/`TMPDIR`) live under one `mkdtemp`
@@ -88,7 +88,7 @@ changed, the assertions are now:
     dirs stayed at 96. Those 96 dirs and 4 `ptah-sdk-integration-*.mjs`
     scripts are Batch 9 leftovers, dated 21:53–23:10 on 2026-09-26. They were
     not deleted in this pass.
-- **Stray `C:\Users\abdal\AppData\Local\Temp\.claude`:** NOT from this spec,
+- **Stray `%TEMP%\.claude`:** NOT from this spec,
   so it was not deleted.
   - It was created at 17:09:54 and holds only empty `commands\` and `skills\`
     folders.
@@ -197,8 +197,8 @@ changed, the assertions are now:
   hard-kill.
 - S6a and S6b are now one `describe.each` table with identical, strict
   assertions: compaction is REQUIRED. The earlier S6a fallback, which also
-  accepted plain prompt-too-long propagation, was removed. The 75 s child
-  hard-kill is unchanged.
+  accepted plain prompt-too-long propagation, was removed. The child hard-kill
+  stayed at 75 s here; revision round 2 later lowered it to 55 s.
 - Documented limit (not covered by an integration scenario): a
   `response.failed` that arrives AFTER output has started still leaves as the
   stream's single SSE `error` terminal, because headers are already sent. The

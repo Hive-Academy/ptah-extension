@@ -51,7 +51,7 @@ Byte equality does not prove that a cached serialized string was reused: determi
 - Evidence: `providers/codex/codex-stream-parity.spec.ts:338`; `providers/opencode/opencode-translation-proxy.spec.ts:503`; production uses the same pair at `translation/translation-proxy-base.ts:554`.
 - Current handling: runtime `JSON.stringify(guardResponsesToolNames(translateAnthropicToResponses(...)).request)` supplies the expected body. OpenCode additionally checks one literal function output at `providers/opencode/opencode-translation-proxy.spec.ts:510`.
 - Recommendation: compare the complete captured string with an explicitly authored literal wire fixture, or serialize a hand-authored expected object with deliberately fixed field order. Do not call production translators/guards to construct that expectation. Keep the two-capture retry equality checks: the first capture is a valid baseline for the relational retry requirement.
-- Impact: the explicit independent-expectation criterion is not met. This is a test coverage defect, not evidence of a current production data-loss defect.
+- Impact: the shared production oracle leaves an optional test-coverage gap. The plan's acceptance criteria (`.ptah/specs/TASK_2026_408/implementation-plan.md:474-479`) do not require separately authored fixtures, so this is not an unmet acceptance criterion or evidence of a current production data-loss defect.
 
 ## Blocking issues
 
