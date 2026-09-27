@@ -1,4 +1,5 @@
-import type { SupportedLanguage } from '../ast.types';
+import type { GenericAstNode, SupportedLanguage } from '../ast.types';
+import type { ImportInfo, ImportKind } from '../ast-analysis.interfaces';
 import type { LanguageCapabilities } from '../language-registry';
 
 export interface LanguageQueries {
@@ -37,6 +38,41 @@ export type DeclaredLanguageCapabilities = Omit<
 >;
 
 /**
+ * One import as a language decodes it from a statement. The analysis service
+ * adds what depends on the statement's position: `line` and `scopePath`.
+ */
+export type ExtractedImport = Pick<
+  ImportInfo,
+  'source' | 'importedSymbols' | 'relativeLevel' | 'alias' | 'isStatic'
+> & { kind: ImportKind };
+
+/**
+ * The Batch 32a extraction contract for one language
+ * (`AstAnalysisService.analyzeSource`).
+ *
+ * Imports: the language's `importQuery` adds statement-only patterns that
+ * capture each whole import statement as `@import.statement`. The service
+ * hands each distinct statement node (converted to depth 3) to
+ * `extractImports` once, in source order. The `@import.source` patterns stay
+ * as they were for the execute_code `ast.queryImports` decoder, which skips
+ * a match without `@import.source`.
+ *
+ * Declarations: `declarationQuery` runs as one more entry of the same
+ * `queryMulti` call. Each pattern captures the declared name as
+ * `@declaration.name` and the declaring node as `@declaration.<kind>`
+ * (`package` | `namespace` | `module`), or `@declaration.<kind>.file` when
+ * the declaration covers the rest of the file (C# `namespace N;`, Java/Go
+ * `package`). Nested names are joined with `scopeSeparator`.
+ */
+export interface LanguageExtraction {
+  readonly extractImports: (statement: GenericAstNode) => ExtractedImport[];
+  readonly declarations?: {
+    readonly query: string;
+    readonly scopeSeparator: string;
+  };
+}
+
+/**
  * One parsed language: everything the parser, the assembly in
  * `tree-sitter.config.ts` and the registry read for it.
  */
@@ -57,5 +93,10 @@ export interface LanguageModule {
   /** WASM grammar file, bundled by `scripts/copy-wasm.js`. */
   readonly grammarFile: string;
   readonly queries: LanguageQueries;
+  /**
+   * Absent for TS/JS/TSX, whose imports keep the shared capture decoder and
+   * their earlier output shape.
+   */
+  readonly extraction?: LanguageExtraction;
   readonly capabilities: DeclaredLanguageCapabilities;
 }

@@ -55,15 +55,58 @@ export interface ClassInfo {
 }
 
 /**
+ * How an import names its target (Batch 32a extraction contract). One kind per
+ * import; when a statement has several traits the first of this precedence
+ * wins: `global` > `static` > `relative` > `wildcard` > `alias` > `module`
+ * (the lost trait stays visible: a relative or static wildcard carries
+ * `importedSymbols: ['*']`, an aliased one carries `alias`, and every static
+ * import carries `isStatic: true`, so C# `global using static` keeps it).
+ * - `module`: an absolute module, package, namespace or path.
+ * - `relative`: resolved against the importing file or scope
+ *   (`relativeLevel` says how far up).
+ * - `wildcard`: brings every public name of `source` into scope (Java
+ *   `a.b.*`, Python `from a import *`, Rust `a::*`, Go dot import).
+ * - `static`: members of a type (Java `import static`, C# `using static`).
+ * - `alias`: the source itself is bound under `alias` (Python `import a as b`,
+ *   C# `using A = N.T`, Rust `use a::b as c`, Go named import).
+ * - `global`: C# `global using`, in scope for every file of the project.
+ * - `mod-decl`: Rust `mod x;`, a module whose body lives in another file.
+ * - `include-local` / `include-system`: C/C++ `#include "x"` / `<x>`.
+ */
+export type ImportKind =
+  | 'module'
+  | 'relative'
+  | 'wildcard'
+  | 'static'
+  | 'alias'
+  | 'global'
+  | 'mod-decl'
+  | 'include-local'
+  | 'include-system';
+
+/**
  * Represents information about an import statement identified in the code.
+ *
+ * `kind`, `relativeLevel`, `alias`, `line` and `scopePath` are the Batch 32a
+ * extraction contract. They are present for every language whose module
+ * defines `extraction` (`languages/types.ts`); TS/JS imports keep their
+ * earlier shape byte for byte and carry none of them. A TS/JS re-export
+ * (`export { X } from './a'`) is not an import: it is the `ExportInfo` with
+ * `isReExport` and `source`, which the graph node already stores, so a graph
+ * edge for it needs no change to this contract.
  */
 export interface ImportInfo {
   /**
-   * The source module or path being imported (e.g., 'react', './utils').
+   * The module, package, namespace or path as written, unquoted
+   * ('react', './utils', 'a.b', '..pkg.mod', 'crate::util', 'fmt'). A Rust
+   * grouped `use` is split into one import per path; a wildcard's source is
+   * the container (`a.b` for `import a.b.*`).
    */
   source: string;
   /**
-   * The symbols imported from the module.
+   * The names requested from `source` under their original names: every name
+   * of a Python `from a import b, c` (`['b', 'c']`), `['*']` for a wildcard.
+   * Absent when the statement imports `source` itself.
    */
   importedSymbols?: string[];
   /**
@@ -74,6 +117,48 @@ export interface ImportInfo {
    * Whether this is a namespace import (import * as X).
    */
   isNamespace?: boolean;
+  /** How the import names its target; see {@link ImportKind}. */
+  kind?: ImportKind;
+  /**
+   * `true` for every import of a type's static members (Java `import static`,
+   * C# `using static`, including `global using static`, whose kind is
+   * `global`): the target is a type, not a namespace or package.
+   */
+  isStatic?: true;
+  /**
+   * For `relative`: 1 is the importing file's own package or module, each
+   * further level is one more up (Python `.` = 1, `..` = 2; Rust `self::` = 1,
+   * `super::` = 2, `super::super::` = 3).
+   */
+  relativeLevel?: number;
+  /** The local name `source` is bound to (`kind: 'alias'`, or a relative or wildcard import that also renames). */
+  alias?: string;
+  /** Line of the import statement (0-indexed, like `startLine`). */
+  line?: number;
+  /**
+   * Names of the declarations (`CodeInsights.declarations`) enclosing the
+   * import, outermost first, each as written in its own declaration (C#
+   * `namespace A { namespace B.C { using X; } }` → `['A', 'B.C']`; Rust
+   * `mod a { mod b { use self::x; } }` → `['a', 'b']`). A file-scoped
+   * declaration (Java/Go `package`, C# `namespace N;`) encloses the rest of
+   * the file. `[]` when nothing encloses the import.
+   */
+  scopePath?: string[];
+}
+
+/**
+ * A package, namespace or module a file declares (Batch 32a). `name` is the
+ * full name inside the file: nested C# namespaces concatenate
+ * (`A.B.C`), nested Rust inline modules nest (`a::b`). A file-scoped
+ * declaration ends at the end of the file.
+ */
+export interface DeclarationInfo {
+  kind: 'package' | 'namespace' | 'module';
+  name: string;
+  /** 0-indexed, like `FunctionInfo.startLine`. */
+  startLine: number;
+  /** 0-indexed; the file's last line for a file-scoped declaration. */
+  endLine: number;
 }
 
 /**
@@ -156,4 +241,10 @@ export interface CodeInsights extends Partial<ParseQuality> {
    * e.g. `exports[key] = v`. Present means `exports` may be incomplete.
    */
   unextractedExports?: string[];
+  /**
+   * Packages, namespaces and modules the file declares, in source order.
+   * Present (possibly empty) only for a language whose module defines a
+   * declaration query; absent means declarations were not extracted.
+   */
+  declarations?: DeclarationInfo[];
 }
