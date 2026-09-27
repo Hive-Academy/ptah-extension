@@ -1,1 +1,72 @@
-{}
+{
+  "common": {
+    "language": "Language",
+    "logoAlt": "Ptah logo"
+  },
+  "nav": {
+    "ariaLabel": "Main navigation",
+    "homeAriaLabel": "Ptah home",
+    "toggleMenu": "Toggle navigation menu",
+    "mobileMenuAriaLabel": "Mobile navigation menu",
+    "product": "Product",
+    "features": "Features",
+    "builders": "Builders",
+    "pricing": "Pricing",
+    "pricingAriaLabel": "View pricing plans",
+    "docs": "Docs",
+    "docsAriaLabel": "View documentation",
+    "community": "Community",
+    "login": "Login",
+    "loginAriaLabel": "Sign in to your account",
+    "signUp": "Sign Up",
+    "signUpAriaLabel": "Create an account",
+    "download": "Download Ptah",
+    "downloadAriaLabel": "Download the Ptah desktop app",
+    "accountMenu": "Account menu",
+    "account": "Account",
+    "members": "Members",
+    "profile": "Profile",
+    "logout": "Logout"
+  },
+  "footer": {
+    "tagline": "Ptah is a persistent, multi-agent AI coding desktop app. Choose your model — no lock-in.",
+    "poweredBy": "Powered by Claude Agent SDK",
+    "columnAriaLabel": "{{ title }} links",
+    "columns": {
+      "product": "Product",
+      "community": "Community",
+      "legal": "Legal"
+    },
+    "links": {
+      "download": "Download",
+      "pricing": "Pricing",
+      "vsCodeExtension": "VS Code Extension",
+      "cliDocs": "CLI Docs",
+      "documentation": "Documentation",
+      "privacy": "Privacy",
+      "terms": "Terms",
+      "refundPolicy": "Refund Policy"
+    },
+    "social": {
+      "discord": "Join Discord server",
+      "github": "View on GitHub",
+      "reddit": "Join Reddit community",
+      "linkedin": "Follow on LinkedIn"
+    },
+    "copyright": "© 2026 Ptah Extension. All rights reserved.",
+    "strapline": "Persistent AI coding agent for developers."
+  },
+  "countdown": {
+    "closing": "Applications closing",
+    "days": "Days",
+    "hours": "Hrs",
+    "minutes": "Min",
+    "seconds": "Sec",
+    "ariaLabel": "{{ days }} days, {{ hours }} hours, {{ minutes }} minutes, {{ seconds }} seconds remaining"
+  },
+  "sessionCalendar": {
+    "hasMeetLink": "has a Meet link",
+    "guestsInvited": "guests invited",
+    "loading": "Loading sessions"
+  }
+}

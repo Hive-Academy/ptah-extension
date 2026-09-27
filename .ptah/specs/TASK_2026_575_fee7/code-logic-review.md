@@ -2136,3 +2136,519 @@ acceptance criterion, carried forward as observed gap rather than as a violation
   `SSEEventsService.connect`/`getTicket` covering the null-ticket path and at least one non-401 failure
   distinguishing test; (3) a one-line `SeoService` doc-comment stating the "caller's scope must already be
   loaded" assumption explicitly, since nothing enforces it at the type level for a future seventh caller.
+
+---
+
+# Code Logic Review — `TASK_2026_575_fee7` — Batch 11
+
+## Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Failure modes found | 2        |
+
+Scope reviewed: `libs/web/ui/src/lib/{navigation.component.ts + new spec, footer.component.ts,
+countdown-timer.component.ts, console/console-grid-background.component.ts,
+session-calendar/{session-calendar.ts,.html,.spec.ts}, i18n/{en,ar}.json}`,
+`libs/web/ui/project.json`, `copy-review/ui.md`, and the out-of-batch
+`libs/web/admin/src/lib/builders/sessions/sessions-list.spec.ts`. Every file was read in full,
+not only the diff hunks. Verification run: `nx run-many -t test,i18n-check -p web-ui
+--skip-nx-cache` (3 suites / 33 tests, i18n-check exit 0), `nx run-many -t test -p web-admin
+--skip-nx-cache` (pass), `nx run-many -t lint -p web-ui --skip-nx-cache` (pass),
+`tools/i18n-check/src/prerender/check-prerender.ts` against the existing
+`dist/ptah-landing-page/browser` (6/6 routes match baseline — build not rebuilt, per the
+parallel-reviewer note), and `review-tables --check` for `ui` (OK, byte-identical).
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `NavigationComponent.selectLanguage()` (`navigation.component.ts:1049-1056`) calls
+  `this.setLanguage(lang)` without awaiting it, then immediately closes the menu and refocuses
+  the trigger. If the scope load underlying that call fails, the visible state (menu closed,
+  focus on trigger, `EN`/`AR` caption) briefly implies success even though nothing changed. This
+  is not a new defect introduced by this batch — it is the literal, reviewed design-spec
+  contract (design-spec.md §2.2's own `selectLanguage` snippet, §2.6 "closes the menu and
+  explicitly refocuses the trigger") and `I18nService.setLanguage` (Batch 2, already APPROVED)
+  guarantees it never rejects and that `activeLang()` stays truthful, so reopening the menu (or
+  glancing at the trigger caption) always shows the real state, not a stale checked mark. No
+  toast/error surface exists for a failed switch, which is an accepted product decision from an
+  earlier, already-approved batch, not something Batch 11 introduces or should re-litigate.
+- `footer.component.ts:106-124`: an `@for` loop over `column.links` renders `link.label` either
+  literally (`brand: true`) or through `transloco`. If a future edit adds a link with neither
+  `brand: true` nor a valid key, the `I18nMissingHandler` (Batch 2) returns `''` in production —
+  the link would render with empty text but no error. This is the standing i18n-wide contract
+  (2.2.5), not a Batch 11-specific gap, and `i18n-check`'s reference rule would already have
+  caught a missing key had one existed in this diff (it did not: `i18n-check` exits 0).
+
+### 2. What user action produces unexpected behaviour?
+
+- Opening the language menu, then pressing `Escape`: `closeMenuAndRefocus()`
+  (`navigation.component.ts:1083-1093`) looks up `#${menu}-menu-trigger`, which resolves to
+  `#lang-menu-trigger` for `openMenu() === 'lang'` — verified by the new spec
+  (`navigation.component.spec.ts:117-128`). No behavioural surprise found; the existing
+  Escape/outside-click machinery required zero new wiring beyond widening the `NavMenu` union,
+  exactly as design-spec §2.2 states.
+- Switching language while the session calendar is mounted: `calendarOptions` recomputes only
+  when `writable()`, `i18n.intlLocale()`, `i18n.direction()`, or `validRange()` actually change
+  (Angular `computed()` semantics), so a language switch produces one new `options` object;
+  `FullCalendarComponent.ngDoCheck` (vendor code, `node_modules/@fullcalendar/angular`) does a
+  per-property shallow-inequality diff against its snapshot and calls `calendar.resetOptions(...)`
+  when anything differs — verified directly by reading the vendor source and by the new spec
+  `session-calendar.spec.ts:79-87` (`follows a switch to Arabic, keeping Western digits`), which
+  asserts `getOption('locale')`/`getOption('direction')` update post-init. This was the task's own
+  named risk ("does changing language after init update the calendar?") and it is answered: yes,
+  by both source inspection and a passing regression test.
+
+### 3. What input data produces a wrong answer?
+
+- None found in this batch's own logic. Countdown cells are keyed by a stable `unit` literal
+  (`'days' | 'hours' | 'minutes' | 'seconds'`, `countdown-timer.component.ts:110-121`) rather than
+  the old translated `label` string, which was the correct fix for `@for (... track cell.label)`
+  breaking `trackBy` identity once labels became language-dependent — tracking by a
+  language-invariant key means Angular's view diffing survives a language switch instead of
+  destroying and recreating the DOM cells (which would have discarded the `sec-pulse` animation
+  state and briefly interrupted the `role="timer"` announcement region). This is exactly the fix
+  the task called out to check, and it is correctly done.
+- `ariaParams()` (`countdown-timer.component.ts:126-134`) feeds already zero-padded decimal
+  strings (`pad(n)`, Western digits by construction) into `ui.countdown.ariaLabel`'s
+  `{{ days }}`/`{{ hours }}`/… placeholders. Per 5.2 (Western numerals throughout), this is
+  correct; there is no locale-sensitive number formatting call here to get wrong.
+
+### 4. What happens when a dependency fails?
+
+- `I18nService.setLanguage` (dependency of every component in this batch) is contractually
+  non-rejecting (Batch 2, already reviewed); this batch's components correctly rely on that
+  contract rather than adding their own try/catch, which would have been redundant defensive
+  code against an invariant the library already guarantees.
+- FullCalendar's `resetOptions` (vendor dependency) is not itself defensively wrapped, but it is
+  vendor-tested library code being handed a plain data object; there is no plausible failure mode
+  local to `session-calendar.ts` that would need catching here, and the spec exercises the real
+  code path end to end.
+
+### 5. What is missing that the requirements never mentioned?
+
+- The task's own instruction to check "ar locale lazy" surfaces a genuine gap: see Moderate-1.
+- No test file exists for `footer.component.ts` or `countdown-timer.component.ts` even though
+  both received substantial i18n/RTL rewrites in this batch (see Moderate-2). Neither the task
+  description nor the plan explicitly demands a spec per component, but `navigation.component.ts`
+  and `session-calendar.ts` — the two files that _did_ get new/updated specs in this same batch —
+  show the team's own established practice of pairing a behavioural rewrite with a regression
+  spec; the two components that didn't get one are the two left unverified by anything but
+  `prerender-check` (which only proves the six baselined SSG routes, not runtime language
+  switching, not the footer's `columnAriaLabel` interpolation, not the countdown's
+  `ariaParams` wiring).
+
+## Failure modes
+
+### FullCalendar Arabic locale bundled unconditionally
+
+- Trigger: any consumer of `SessionCalendar` (admin builders session list, members area) is
+  built, regardless of whether that visitor ever switches to Arabic.
+- Symptom: none visible to the user — this is a bundle-cost issue, not a correctness bug. Every
+  build of every app importing `@ptah-web/ui`'s `SessionCalendar` unconditionally downloads
+  FullCalendar's Arabic locale strings (`import arLocale from 'fullcalendar/locales/ar'`,
+  `session-calendar.ts:31`) even for English-only sessions.
+- Evidence: `libs/web/ui/src/lib/session-calendar/session-calendar.ts:31` (static top-level
+  import), `:199` (`locales: [arLocale]`, always included in `calendarOptions`).
+- Current handling: the locale module is a static ES import, resolved at build time into the
+  initial chunk for every consumer of this component — there is no dynamic `import()` gate on
+  the active language.
+- Recommendation: mirror the pattern this same task already established for translation JSON
+  (A1: `import('./ar.json')` lazy chunks) — load `fullcalendar/locales/ar` via a dynamic
+  `import()` inside a `computed`/effect keyed off `i18n.lang() === 'ar'`, or unconditionally
+  register both locales once but behind a route-level `import()` boundary, so an English-only
+  bundle does not carry Arabic calendar strings it will never use. This is a Moderate finding —
+  not a functional defect (the current code is correct end to end), but a bundle-size regression
+  against the task's own stated architecture for exactly this kind of asset.
+
+### Untested i18n conversion in footer and countdown components
+
+- Trigger: any future edit to `footer.component.ts` or `countdown-timer.component.ts` (e.g. a
+  copy change, a computed-key refactor, a locale-formatting change).
+- Symptom: a regression (a missing `ltr-island` class, a broken `columnAriaLabel` interpolation,
+  a `cell.unit`/`labelKey` mismatch) would not be caught by any unit test — only by
+  `prerender-check` for the exact English string on the six baselined SSG routes, and only by
+  manual QA/visual review for Arabic and for non-prerendered call sites.
+- Evidence: `find libs/web/ui -name '*.spec.ts'` returns only
+  `navigation.component.spec.ts`, `session-calendar.spec.ts` and `i18n/ui.i18n-scope.spec.ts` —
+  no `footer.component.spec.ts`, no `countdown-timer.component.spec.ts`, and none existed before
+  this batch either (`git log` on those paths is empty).
+- Current handling: none; both components changed non-trivially (footer: `columnAriaLabel`
+  interpolation over a computed `titleKey`, brand-vs-translated branching; countdown: cell keying,
+  `ariaParams` computed, `ltr-island` digit wrapping) and rely entirely on `i18n-check`'s static
+  key-reference checking plus `prerender-check`'s baseline-diff for the English happy path.
+- Recommendation: add a focused spec for each covering at minimum: (a) verbatim English render
+  before any language is switched, (b) the interpolated `columnAriaLabel`/`ariaLabel` values after
+  a switch to `ar`, and, for the countdown, (c) that `cell.unit`-based tracking survives a
+  language switch without remounting the `sec-pulse` element (a DOM-node-identity assertion). This
+  is Moderate, not Blocking/Serious, because the actual behaviour — verified by hand-tracing both
+  files line by line and by the passing `prerender-check` — is correct; the gap is coverage, not a
+  known defect.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+1. (Moderate) `session-calendar.ts:31` — `fullcalendar/locales/ar` imported statically; not
+   lazy-loaded behind the active language. See "FullCalendar Arabic locale bundled
+   unconditionally" above.
+2. (Moderate) No spec files for `footer.component.ts` / `countdown-timer.component.ts`. See
+   "Untested i18n conversion" above.
+3. (Minor) `console-grid-background.component.ts:48` marks `.glow`'s `left: 50%` /
+   `transform: translate(-50%, -50%)` as `rtl-exempt: decorative geometry, not content flow`,
+   which is accurate but not the most precise available reason — `left-1/2 -translate-x-1/2` (its
+   Tailwind analogue) is textbook design-spec §3.1 "centring pair, directionless." Either
+   exemption reason is accepted by the tool and both are true of this rule; no functional
+   difference, purely a documentation-precision nit.
+4. (Minor) `navigation.component.ts:337-408` (desktop) vs `:610-635` (mobile): the desktop skin's
+   `selectLanguage()` explicitly refocuses `#lang-menu-trigger` after a switch, while the mobile
+   row's plain `setLanguage(lang)` (`:630`) does not manage focus at all — correct per design-spec
+   §2.3 (native `<button>` operability, no roving-tabindex needed), but worth noting for a future
+   reviewer that the two code paths are intentionally asymmetric, not an oversight.
+
+## Data flow
+
+1. User opens the desktop language menu (`toggleMenu('lang')`) → `openMenu` signal flips to
+   `'lang'` → `@if (openMenu() === 'lang')` renders the menu, `aria-expanded` and the `rotate-180`
+   chevron follow the same signal. OK.
+2. User activates an option → `selectLanguage(lang)` → `I18nService.setLanguage(lang)` fired
+   (fire-and-forget, contractually non-rejecting) → `openMenu.set(null)` → trigger refocused
+   synchronously, before the language promise settles. OK — matches the reviewed and approved
+   design contract; `aria-checked` on reopen always reflects the real `activeLang()`, never a
+   forged intermediate state.
+3. `I18nService.setLanguage` resolves → `i18n.lang`/`direction`/`intlLocale` signals update →
+   every `computed()` reading them recomputes: `NavigationComponent.languageCode`/
+   `languageNativeName`, `SessionCalendar.calendarOptions` (locale/direction), any `transloco`
+   pipe bound in the templates of `footer`, `countdown-timer`, `session-calendar.html`. OK,
+   verified by the new specs for navigation and the calendar.
+4. `SessionCalendar.calendarOptions()` change → `[options]` binding on `<full-calendar>` → vendor
+   `ngDoCheck` diff → `calendar.resetOptions(...)` → the mounted FullCalendar instance re-renders
+   with the new `locale`/`direction`. OK, verified by spec and by reading vendor source.
+5. Prerendered routes (`/`, `/download`, `/pricing`, legal pages) render `FooterComponent` and
+   `NavigationComponent` server-side in English → `check-prerender.ts` confirms all 6 routes still
+   match their English baselines byte-for-byte after this batch's key extraction. OK, run and
+   confirmed in this review.
+6. `i18n-check --scope ui` (no `--allow-scope`) statically verifies every `transloco`
+   reference/computed-key marker against `en.json`/`ar.json` parity, RTL exemptions, and glossary
+   terms → exits 0. OK, run and confirmed in this review.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                           | Status   | Gap                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.8 switcher keyboard/ARIA (menu, menuitemradio, aria-checked, aria-expanded, label-in-name, own lang/dir per option) | COMPLETE | None found; matches design-spec §2.2/§2.3/§2.6 exactly, verified by new spec and prerendered HTML.                                                                                                                                              |
+| Escape/outside-click semantics unchanged                                                                              | COMPLETE | Verified by spec (`navigation.component.spec.ts:117-139`).                                                                                                                                                                                      |
+| Selection closes menu and refocuses trigger                                                                           | COMPLETE | `selectLanguage` (`navigation.component.ts:1049-1056`), verified by spec.                                                                                                                                                                       |
+| Mobile row group semantics (`role="group"` owning `menuitemradio`, valid child of the `role="menu"` overlay)          | COMPLETE | `navigation.component.ts:611-635`, matches design-spec §2.3's B3 fix.                                                                                                                                                                           |
+| `setLanguage` failure keeps state honest                                                                              | COMPLETE | Relies on Batch 2's non-rejecting, state-truthful `I18nService.setLanguage` contract; no regression introduced.                                                                                                                                 |
+| Accessible name / option labels in own language (3.8)                                                                 | COMPLETE | Verified by spec and prerendered `aria-label="EN — Language: English"`.                                                                                                                                                                         |
+| Per-option `lang`/`dir`                                                                                               | COMPLETE | `[attr.lang]="lang" [attr.dir]="LANG_DIRECTION[lang]"`, verified by spec.                                                                                                                                                                       |
+| `NavMenu` union widened without breaking other menus                                                                  | COMPLETE | `'product' \| 'community' \| 'lang' \| 'user'`; mutual exclusion via the single `openMenu` signal preserved; verified by spec ("keeps one menu open at a time").                                                                                |
+| `data-i18n-switcher` on both wrappers                                                                                 | COMPLETE | Desktop wrapper (`:338`) confirmed in prerendered HTML; mobile wrapper (`:614`) confirmed by spec — absent from the prerendered HTML only because the mobile overlay itself is conditionally rendered, which is expected, not a gap.            |
+| Countdown cells keyed by unit, not label                                                                              | COMPLETE | `track cell.unit`, `countdown-timer.component.ts:43`.                                                                                                                                                                                           |
+| Digits `ltr-island`                                                                                                   | COMPLETE | `countdown-timer.component.ts:46`.                                                                                                                                                                                                              |
+| `aria-label` params                                                                                                   | COMPLETE | `ariaParams()` computed, `:126-134`.                                                                                                                                                                                                            |
+| Volatile attribute intact                                                                                             | COMPLETE | `data-prerender-volatile` unchanged, `:27`.                                                                                                                                                                                                     |
+| Footer brand names literal                                                                                            | COMPLETE | `link.brand ? link.label : (link.label \| transloco)`, `footer.component.ts:115`.                                                                                                                                                               |
+| Footer `i18n-keys` markers valid                                                                                      | COMPLETE | `i18n-check` exits 0; markers at `:71`, `:93` cover their `@for` blocks.                                                                                                                                                                        |
+| FullCalendar locale/direction reactive to i18n signals                                                                | COMPLETE | Verified by source read of vendor `ngDoCheck`/`resetOptions` and by the new spec.                                                                                                                                                               |
+| Ar locale lazy                                                                                                        | MISSING  | `fullcalendar/locales/ar` is a static top-level import (`session-calendar.ts:31`); see Moderate-1.                                                                                                                                              |
+| Verbatim English on prerendered chrome                                                                                | COMPLETE | `check-prerender.ts` run in this review: 6/6 routes match baseline.                                                                                                                                                                             |
+| Arabic real, glossary terms Latin                                                                                     | COMPLETE | Every `ar.json` value is genuine Arabic prose; all Latin-script glossary terms (Ptah, Claude Agent SDK, VS Code, CLI, Discord, GitHub, Reddit, LinkedIn, Meet) preserved verbatim; all already present in `glossary.json` (none new to report). |
+| Admin spec edit justified and minimal                                                                                 | COMPLETE | `sessions-list.spec.ts` adds only the `ui` scope translations `SessionCalendar` now needs; no unrelated changes.                                                                                                                                |
+
+Implicit requirements not addressed: automated regression coverage for `footer.component.ts` and
+`countdown-timer.component.ts` (Moderate-2, not a stated acceptance criterion, but consistent with
+the pattern the rest of this batch follows).
+
+## Edge cases
+
+| Case                                                  | Handled                          | How                                                                                                                                                                        | Concern                                                                                                                          |
+| ----------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Select same language twice                            | YES                              | `selectLanguage`/`setLanguage` are idempotent; `I18nService` re-resolves without side effects (Batch 2).                                                                   | None.                                                                                                                            |
+| Rapid double-click between EN/AR                      | YES (by Batch 2 contract)        | "latest call wins" (`i18n.service.ts`, already reviewed); not re-tested here since no new concurrency code was added in this batch.                                        | None new.                                                                                                                        |
+| Language switch mid-drag on the calendar              | NOT COVERED                      | No test or code path specifically addresses a `resetOptions` call arriving while FullCalendar has an in-progress drag/resize interaction.                                  | Low-probability interaction; not named in task-description or design-spec; worth a follow-up e2e note, not a batch-blocking gap. |
+| Escape with no menu open                              | YES                              | `closeMenuAndRefocus()` returns early when `openMenu() === null` (`navigation.component.ts:1083-1088`).                                                                    | None.                                                                                                                            |
+| Footer link with neither `brand` nor a resolvable key | YES (by the wider i18n contract) | `I18nMissingHandler` returns `''`, never a raw key; `i18n-check` would fail the build first.                                                                               | None — covered by the standing i18n-wide contract, not this batch's own code.                                                    |
+| SSR/prerender of the language menu itself             | YES                              | `data-i18n-switcher` wrapper renders in the English SSG output with `aria-expanded="false"`, no open-menu state; confirmed in `dist/ptah-landing-page/browser/index.html`. | None.                                                                                                                            |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: `fullcalendar/locales/ar` is bundled unconditionally for every consumer of
+  `SessionCalendar`, working against this task's own "lazy per-language asset" architecture
+  (Moderate-1) — not a correctness bug, but a real regression against the task's stated goals if
+  left unaddressed in a later batch.
+- What a robust implementation would add: (1) a dynamic `import()` gate on
+  `fullcalendar/locales/ar`, loaded only when `i18n.lang() === 'ar'`; (2) `footer.component.spec.ts`
+  and `countdown-timer.component.spec.ts` covering verbatim English, the interpolated ARIA labels
+  after a language switch, and (for the countdown) DOM-node-identity survival across a switch; (3)
+  an e2e note (not necessarily a unit test) covering a language switch mid-drag on the session
+  calendar, since `resetOptions` semantics under an in-progress FullCalendar interaction are
+  untested by this batch or by FullCalendar's own type contract.
+
+---
+
+# Code Logic Review — `TASK_2026_575_fee7` — Batch 11 — round 2
+
+## Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 9/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 1        |
+
+Scope: the round-1 rework only — `libs/web/ui/src/lib/session-calendar/{session-calendar.ts,.spec.ts}`
+(the `resource()`-based lazy `ar` locale and its `locales: hasValue() ? [value()] : []` wiring),
+new `libs/web/ui/src/lib/{footer.component.spec.ts,countdown-timer.component.spec.ts}`, and the
+`countdown-timer.component.ts` row-level `dir="ltr"` change (replacing the earlier per-digit
+`.ltr-island`). `navigation.component.ts`'s further changes in this diff are class-only responsive
+spacing (`px-1 lg:px-2`, `gap-1 lg:gap-6`, `whitespace-nowrap`, `shrink-0`, `min-w-0`) with no new
+logic, ARIA, or i18n-key surface — visual-reviewer territory, out of this logic review's scope, and
+confirmed inert here by the still-passing `navigation.component.spec.ts` (unchanged assertions, all
+green). Every file was re-read in full against the round-1 finding, not only the new diff hunks.
+`fullcalendar/locales/ar`'s vendor loader/effect implementation
+(`node_modules/@angular/core/fesm2022/_resource-chunk.mjs`, the `resource()`/`ResourceImpl` source)
+was read directly to verify the reactivity and cancellation claims below rather than assumed.
+
+Verification run (no dist rebuild — the visual reviewer owns that in parallel this round):
+
+- `nx run-many -t test,i18n-check -p web-ui --skip-nx-cache`: 5 suites / 40 tests pass, i18n-check
+  exit 0 (run 3× back to back to check the new `until()` poll for flakiness — 40/40 green every time).
+- `nx run-many -t test -p web-admin --skip-nx-cache`: pass, unchanged from round 1.
+
+## Judge questions
+
+### `resource()` semantics — reactivity on en→ar→en, cancellation, error state
+
+**Reactivity (en→ar→en).** `arLocale = resource({ params: () => i18n.lang() === 'ar' ? 'ar' : undefined,
+loader: () => import('fullcalendar/locales/ar').then(m => m.default) })`
+(`session-calendar.ts:154-157`). Reading Angular's own `ResourceImpl` (`_resource-chunk.mjs:204-338`):
+`extRequest` is a `linkedSignal` that recomputes synchronously whenever `params()`'s tracked
+dependency (`i18n.lang()`) changes, producing a **new** `{request, reload}` object each time. `state`
+(also a `linkedSignal`, derived from `extRequest`) recomputes in the same synchronous pass: when
+`request === undefined` it sets `status: 'idle'` and does not carry the previous `stream` forward
+(the `previous.value.extRequest.request === request` guard fails whenever the request value itself
+changed), so `arLocale.hasValue()`/`arLocale.value()` flip back to `false`/`undefined` **immediately**
+on switching back to English, without waiting for the `loadEffect` effect to run. This matches the
+new spec's assertion exactly (`session-calendar.spec.ts:130-133`, en→codes `[]`) and matches the
+direct source read, not just the passing test.
+
+**Cancellation.** When `state` transitions to `'loading'` (request `'ar'`), the `loadEffect` effect
+(triggered because it reads `this.extRequest()`) proceeds, creates an `AbortController`, and awaits
+`this.loaderFn({params, abortSignal, ...})`. If `i18n.lang()` flips back to English _while that await
+is in flight_: `extRequest`/`state` have already synchronously reset to idle (as above) by the time
+the effect re-runs; the re-run's own `if (extRequest.request === undefined) return;` guard means it
+returns **before** calling `abortInProgressLoad()` — so the in-flight `import()` is not literally
+`AbortController.abort()`-ed (dynamic `import()` has no cancellation hook to honor it anyway). It is,
+however, correctly _discarded_: when the stale await eventually resolves, `shouldDiscard()` checks
+`untracked(this.extRequest) !== extRequest` — the captured `extRequest` object reference from the
+stale run no longer matches the live signal's current object (a new one was created on the switch
+back), so the stale result is dropped and `this.state.set(...)` is never called for it. No
+use-after-discard, no stale Arabic locale silently reappearing after a fast en→ar→en flip. This is
+correct-by-construction Angular `resource()` behaviour, not bespoke code in this component, and it
+was verified by reading the vendor source rather than trusted on faith.
+
+**Error state.** `getLoader()` (vendor) wraps the user loader in a try/catch and resolves to an
+error-carrying signal rather than letting the promise reject, so a failed `import()` (network
+failure, corrupt chunk) lands in `status: 'error'`. `BaseWritableResource.isValueDefined` explicitly
+returns `false` when `isError()` is true (`_resource-chunk.mjs:174-179`), so `hasValue()` stays
+`false` on failure — `calendarOptions.locales` stays `[]`, and the grid keeps FullCalendar's built-in
+English labels indefinitely for that session, exactly as the code's own comment states
+(`session-calendar.ts:146-153`: "if it fails to load, the grid keeps FullCalendar's built-in English
+labels"). This is intentional graceful degradation, not a defect — but see Moderate-1 below: nothing
+in this component reads `arLocale.error()`, so a genuine chunk-load failure produces **no**
+`console.error`/log of any kind, unlike `I18nService`'s own scope-load failures
+(`i18n.service.ts:99-101`, `:105`), which do log. A subsequent switch away from and back to Arabic
+retries the load automatically (new `extRequest` object, no memoized failure), so the degradation
+self-heals on the next toggle; it is the _silence_ of the first failure, not permanence, that is the
+gap.
+
+### SSR — does the resource run on the server, and is that safe?
+
+Yes, the `resource()` is constructed unconditionally (it is a field initializer, evaluated for every
+instance including one rendered on the server), but its `params()` function is gated on
+`this.i18n.lang() === 'ar'`, and `I18nService.detectLang()` (`i18n.service.ts:135-138`) returns
+`DEFAULT_LANG` (`'en'`) whenever `!this.isBrowser` — a hard, unconditional short-circuit, not a
+best-effort default. Since `I18nService.current` is seeded from `detectLang()`/`init()` and `init()`
+itself short-circuits to English on the server, `i18n.lang()` can never read `'ar'` during
+prerendering. `params()` therefore always evaluates to `undefined` server-side, `extRequest.request`
+stays `undefined`, and `loadEffect`'s very first line (`if (extRequest.request === undefined) return;`)
+means the loader — the `import('fullcalendar/locales/ar')` call — is **never invoked** on the server.
+This was confirmed by reading `i18n.service.ts:43,135-138` directly (the same `isBrowser` gate
+already reviewed and approved in Batch 2), not inferred. There is also no server-rendering exposure
+in practice regardless: `SessionCalendar` is only reachable from the admin/members CSR-only areas,
+which the app's `outputMode: "static"` build never server-renders (only the six named SSG routes in
+`app.routes.server.ts` are prerendered, and `SessionCalendar` is not on any of them) — so this is
+belt-and-braces safe on two independent grounds, not one assumption stacked on another.
+
+### The `until()` helper — bounded, not flaky?
+
+`until()` (`session-calendar.spec.ts:55-60`) polls up to 50 iterations of
+`await setTimeout(0)` + `fixture.detectChanges()`, exiting early once `done()` holds and otherwise
+falling through without throwing (the subsequent assertion then fails with a normal, readable
+mismatch — e.g. `expect(localeCodes()).toEqual(['ar'])` against an empty array — rather than a test
+runner timeout or an infinite hang). This is materially better than an unbounded `while` loop and
+better than reusing `whenStable()` here — the code comment
+(`session-calendar.spec.ts:51-54`) correctly explains why `whenStable()` cannot be used: FullCalendar's
+`nowIndicator: true` (`session-calendar.ts:223`) keeps a live timer running once the calendar renders,
+which is a genuinely pending macrotask from Angular's point of view, so `ApplicationRef.whenStable()`
+(or `fixture.whenStable()`, which layers on the same zone/task tracking) would hang for the test's
+lifetime. Run three times back to back in this review (see Verification above), all 40 tests passed
+each time with no observed timing sensitivity — the awaited work (a same-repo Jest module resolution
+of `fullcalendar/locales/ar`, effectively synchronous after Jest's module cache is warm) settles
+within one or two ticks in practice, leaving 48-49 iterations of headroom against the 50-iteration
+cap. This is a reasonable, correctly-bounded test pattern, not a source of CI flakiness.
+
+### Does `locales: []` while loading/failed cause a visible flash?
+
+Partially, and the code is explicit about accepting this trade-off rather than hiding it
+(`session-calendar.ts:146-153`'s own comment). `locale: this.i18n.intlLocale()` and
+`direction: this.i18n.direction()` come straight from `I18nService` signals and update **synchronously**
+with the language switch — RTL layout and the `ar-u-nu-latn` locale tag apply on the very next render.
+`locales: this.arLocale.hasValue() ? [this.arLocale.value()] : []`, by contrast, only gains the `'ar'`
+locale definition once the lazy chunk resolves. Between those two moments — direction/locale flipped,
+Arabic locale strings not yet registered — FullCalendar has nothing named `'ar'` to look up for its
+`locale: 'ar-u-nu-latn'` option and falls back to its own built-in default (English) toolbar/day/month
+strings, so for a brief window the grid is RTL-laid-out with English labels. On a warm module cache
+(a repeat switch to Arabic in the same session) this window is sub-frame, since the dynamic `import()`
+resolves from the browser's ES module cache almost instantly; on the **first** switch to Arabic in a
+session it is a genuine, if small (343-byte chunk, per the coordinator), network round trip, so the
+flash is real, not hypothetical, on that first switch. It self-corrects the moment the resource
+resolves (verified by the new spec), never leaves the grid in a wrong-but-stable state, and is an
+explicit, documented, single-component trade-off rather than an unnoticed gap — consistent with, and
+in fact a closer reading of, this same task's own "the only English-in-RTL window allowed is from
+first paint until hydration completes" principle (task-description.md 3.6) applied here to a
+CSR-only, non-prerendered component where that specific acceptance criterion does not technically
+apply (3.6 governs prerendered-route hydration, not a post-hydration in-session language switch on an
+admin/members-only widget). Given the size of the asset, the self-healing behaviour, and the explicit
+in-code acknowledgment, this is a Moderate observation, not a defect to block on.
+
+## Failure modes
+
+### Silent locale-chunk load failure
+
+- Trigger: `import('fullcalendar/locales/ar')` (`session-calendar.ts:156`) rejects or the returned
+  module is malformed (network failure, corrupted/missing chunk, a CDN/proxy blip).
+- Symptom: the grid quietly keeps FullCalendar's built-in English toolbar/day/month strings forever
+  for that session (by design — see "Error state" above), with no console output, no telemetry, and
+  no visible error state anywhere in the component. A developer debugging "why does the calendar
+  still say January in Arabic mode" has nothing in the console to go on.
+- Evidence: `session-calendar.ts:154-157` — `arLocale`'s error path is never read (`arLocale.error()`
+  is not referenced anywhere in the file); contrast `i18n.service.ts:99-101`/`:105`, which log a
+  `console.error` on a comparable scope-load failure.
+- Current handling: none; the error is captured in the resource's own `error` signal and left unread.
+- Recommendation: log once on `arLocale.error()` transitioning to a defined value (e.g. an `effect()`
+  or a `computed` read in a diagnostic path), mirroring `I18nService`'s own pattern for a failed load,
+  so a real failure is at least observable in the console without changing the graceful-degradation
+  UI behaviour. Moderate, not Blocking/Serious — the user-facing behaviour is correct and self-healing
+  on the next language toggle; only observability is missing.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found. Both round-1 Moderate findings are resolved:
+
+- M1 (`fullcalendar/locales/ar` bundled unconditionally): fixed. The static import is gone; the module
+  is now reached only through `resource()`'s lazy `import()`, gated on `i18n.lang() === 'ar'`. Verified
+  by reading `session-calendar.ts:154-157` (no top-level `import ... from 'fullcalendar/locales/ar'`
+  remains) and taking the coordinator's stated bundle evidence (a separate 343-byte chunk, 0
+  occurrences in `main-*.js`) as consistent with that source change — this review did not rebuild
+  `dist` itself (per the round-2 instruction to leave the concurrent rebuild to the visual reviewer),
+  so the bundle-analysis claim is accepted on the strength of the source change alone plus the
+  reported figures, not independently re-measured this round.
+- M2 (no spec coverage for `footer.component.ts`/`countdown-timer.component.ts`): fixed. Both now have
+  focused specs (`footer.component.spec.ts`, `countdown-timer.component.spec.ts`) covering verbatim
+  English, Arabic-with-Latin-brand-names, the `sec-pulse` gating, the expired state, and the
+  interpolated `aria-label` values in both languages — reviewed in full above, both correct and
+  passing.
+
+## Moderate and minor issues
+
+1. (Moderate) `session-calendar.ts:154-157` — `arLocale.error()` is never read or logged; a genuine
+   locale-chunk load failure is entirely silent. See "Silent locale-chunk load failure" above.
+2. (Minor) The brief RTL-layout/English-labels flash on the _first_ switch to Arabic in a session
+   (see "Does `locales: []` while loading/failed cause a visible flash?" above) is real but small,
+   self-healing, explicitly documented in-code, and outside this task's stated prerender-hydration
+   acceptance criteria (3.6 governs SSG routes; `SessionCalendar` is CSR-only). Noted for a future
+   polish pass (e.g. preloading the chunk on hover/focus of the language switcher, or eagerly starting
+   the `import()` once `writable`/`sessions` are first bound) rather than required for this batch.
+3. (Minor) `countdown-timer.component.ts:40` applies `dir="ltr"` unconditionally on the whole timer
+   row, including in English (where it is a no-op, since `ltr` is already the ambient default) — a
+   clean simplification over the earlier per-digit `.ltr-island` approach, and correctly reasoned in
+   the adjacent comment ("A clock reads days to seconds left to right in both languages"); flagged
+   only so a future reviewer knows this was a deliberate widening from "digits only" to "the whole
+   row," confirmed still passing `i18n-check`'s RTL rule.
+
+## Data flow (updated for the round-1 rework)
+
+1. `i18n.lang()` changes → `arLocale`'s `params()` recomputes synchronously (`'ar'` or `undefined`) →
+   `extRequest`/`state` (Angular `resource()` internals) recompute synchronously in the same pass,
+   immediately reflecting `idle` (English) or `loading`→`resolved`/`error` (Arabic) in
+   `hasValue()`/`value()`. OK, verified by source read and by the new "loads the Arabic strings lazily
+   and drops them again in English" spec.
+2. `calendarOptions()` (a `computed`) reads `this.arLocale.hasValue()`/`.value()` alongside
+   `i18n.intlLocale()`/`i18n.direction()` → recomputes whenever any of those signals change → produces
+   a new `CalendarOptions` object with `locales: [] | ['ar']`, `locale`, `direction` all consistent
+   with the _current_ signal readings at computation time (direction/locale immediate; `locales` lags
+   until the chunk resolves — the documented, accepted flash window). OK.
+3. `[options]="calendarOptions()"` → vendor `ngDoCheck`/`resetOptions` (unchanged from round 1,
+   already verified) → the mounted FullCalendar instance re-renders with whatever the latest
+   `calendarOptions()` snapshot holds, including a `locales: []` snapshot if `resetOptions` happens to
+   fire before the chunk resolves, and a second `resetOptions` once it does (the resource's own value
+   change triggers `calendarOptions` to recompute again, a second distinct `options` object, caught by
+   the same `ngDoCheck` diff). OK — this is exactly how the eventual self-correction reaches the DOM.
+4. Prerendered routes never construct `SessionCalendar` at all (confirmed: not one of the 6 SSG routes,
+   and `i18n.lang()` is hard-pinned to `'en'` server-side regardless). OK, no interaction with 3.5/3.6.
+
+## Requirements fulfilment (delta from round 1)
+
+| Requirement                                            | Status   | Gap                                                                                                                                                                                                                                             |
+| ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ar locale lazy                                         | COMPLETE | Static import removed; now a `resource()`-gated dynamic `import()`, verified by source read; bundle-split evidence accepted from the coordinator's report (not independently re-measured this round per the no-concurrent-rebuild instruction). |
+| FullCalendar locale/direction reactive across en→ar→en | COMPLETE | Verified by source read of `resource()` internals plus the new "loads... and drops them again" spec.                                                                                                                                            |
+| Countdown/footer automated regression coverage         | COMPLETE | New `footer.component.spec.ts` and `countdown-timer.component.spec.ts`, both reviewed in full and passing.                                                                                                                                      |
+
+## Edge cases (delta from round 1)
+
+| Case                                                     | Handled                       | How                                                                                                       | Concern                                                                                                                              |
+| -------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Fast en→ar→en toggle while the ar chunk is still loading | YES                           | `shouldDiscard()` reference-identity check drops the stale resolution; verified by reading vendor source. | None — no stale-value leak.                                                                                                          |
+| Ar locale chunk fails to load                            | YES (functionally)            | `hasValue()` stays `false`, grid keeps English labels indefinitely, self-heals on next toggle.            | Silent — no log (Moderate-1 above).                                                                                                  |
+| First-ever switch to Arabic in a session                 | PARTIALLY                     | Direction/locale update immediately; `locales` lags by one real network round trip for the small chunk.   | Brief, self-healing flash (Minor-2 above); not covered by an automated test, since it is a timing window rather than a steady state. |
+| `SessionCalendar` server-rendered                        | N/A, but safe if it ever were | `i18n.lang()` is hard-pinned to `'en'` server-side; loader never invoked.                                 | None.                                                                                                                                |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: a real locale-chunk load failure (network blip, bad deploy) would be entirely silent —
+  no console signal for a developer to find, though the user-facing degradation itself is correct and
+  self-healing (Moderate-1).
+- What a robust implementation would add: (1) a single `console.error`/log read of `arLocale.error()`
+  on transition to an error state, mirroring `I18nService`'s own failed-load logging; (2) an optional
+  polish, not required this batch: start the `arLocale` chunk fetch slightly earlier than the language
+  actually switching (e.g. on hover/focus of the language-switcher trigger) to shrink the first-switch
+  flash window further; (3) a note in the component's own doc comment that the `locales: []` window is
+  a deliberate, bounded trade-off, for the benefit of a future maintainer who might otherwise "fix" it
+  by re-introducing a static import.

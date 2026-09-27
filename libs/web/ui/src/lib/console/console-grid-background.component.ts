@@ -45,6 +45,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
           transparent 80%
         );
       }
+      /* rtl-exempt: decorative geometry, not content flow (glow centred on the section) */
       .glow {
         width: 600px;
         height: 600px;

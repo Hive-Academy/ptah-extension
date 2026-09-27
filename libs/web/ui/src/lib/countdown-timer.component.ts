@@ -7,6 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 
 /**
  * CountdownTimerComponent — presentational days/hours/minutes/seconds countdown
@@ -21,6 +22,7 @@ import {
  */
 @Component({
   selector: 'ptah-countdown-timer',
+  imports: [TranslocoPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { ngSkipHydration: 'true', 'data-prerender-volatile': '' },
   template: `
@@ -29,24 +31,27 @@ import {
         class="text-center font-mono text-sm uppercase tracking-[0.2em] text-amber-500"
         role="timer"
       >
-        Applications closing
+        {{ 'ui.countdown.closing' | transloco }}
       </div>
     } @else {
+      <!-- A clock reads days to seconds left to right in both languages -->
       <div
         class="flex items-start justify-center gap-2 sm:gap-3"
+        dir="ltr"
         role="timer"
-        [attr.aria-label]="ariaLabel()"
+        [attr.aria-label]="'ui.countdown.ariaLabel' | transloco: ariaParams()"
       >
-        @for (cell of cells(); track cell.label; let last = $last) {
+        <!-- i18n-keys: ui.countdown.days ui.countdown.hours ui.countdown.minutes ui.countdown.seconds -->
+        @for (cell of cells(); track cell.unit; let last = $last) {
           <div class="flex flex-col items-center">
             <span
               class="inline-flex min-w-[2.75rem] items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-2.5 py-2 font-mono text-2xl sm:text-3xl font-bold leading-none tabular-nums text-white"
-              [class.sec-pulse]="cell.label === 'Sec'"
+              [class.sec-pulse]="cell.unit === 'seconds'"
               >{{ cell.value }}</span
             >
             <span
               class="mt-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-ink-500"
-              >{{ cell.label }}</span
+              >{{ cell.labelKey | transloco }}</span
             >
           </div>
           @if (!last) {
@@ -104,16 +109,30 @@ export class CountdownTimerComponent implements OnDestroy {
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
     return [
-      { label: 'Days', value: this.pad(days) },
-      { label: 'Hrs', value: this.pad(hours) },
-      { label: 'Min', value: this.pad(minutes) },
-      { label: 'Sec', value: this.pad(seconds) },
+      { unit: 'days', labelKey: 'ui.countdown.days', value: this.pad(days) },
+      { unit: 'hours', labelKey: 'ui.countdown.hours', value: this.pad(hours) },
+      {
+        unit: 'minutes',
+        labelKey: 'ui.countdown.minutes',
+        value: this.pad(minutes),
+      },
+      {
+        unit: 'seconds',
+        labelKey: 'ui.countdown.seconds',
+        value: this.pad(seconds),
+      },
     ];
   });
 
-  protected readonly ariaLabel = computed(() => {
+  /** Parameters of `ui.countdown.ariaLabel`, one per cell. */
+  protected readonly ariaParams = computed(() => {
     const [d, h, m, s] = this.cells();
-    return `${d.value} days, ${h.value} hours, ${m.value} minutes, ${s.value} seconds remaining`;
+    return {
+      days: d.value,
+      hours: h.value,
+      minutes: m.value,
+      seconds: s.value,
+    };
   });
 
   constructor() {

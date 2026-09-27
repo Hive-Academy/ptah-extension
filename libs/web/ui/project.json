@@ -22,6 +22,13 @@
       "options": {
         "command": "npx ngc --noEmit --project libs/web/ui/tsconfig.lib.json"
       }
+    },
+    "i18n-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/main.ts --project-root libs/web/ui --scope ui --glossary tools/i18n-check/glossary.json",
+        "cwd": "{workspaceRoot}"
+      }
     }
   }
 }

@@ -21,7 +21,9 @@
           <span class="shrink-0 text-[10px] opacity-70" aria-hidden="true">
             &#9679;
           </span>
-          <span class="sr-only">has a Meet link</span>
+          <span class="sr-only">{{
+            'ui.sessionCalendar.hasMeetLink' | transloco
+          }}</span>
         }
         <!--
           Guest count is admin-only by construction: the member session shape
@@ -32,7 +34,9 @@
           <span class="shrink-0 text-[10px] tabular-nums opacity-70">
             {{ arg.event.extendedProps.session.attendees.length }}
           </span>
-          <span class="sr-only">guests invited</span>
+          <span class="sr-only">{{
+            'ui.sessionCalendar.guestsInvited' | transloco
+          }}</span>
         }
       </div>
     </ng-template>
@@ -45,7 +49,9 @@
       aria-live="polite"
     >
       <span class="loading loading-spinner loading-lg text-primary"></span>
-      <span class="sr-only">Loading sessions</span>
+      <span class="sr-only">{{
+        'ui.sessionCalendar.loading' | transloco
+      }}</span>
     </div>
   }
 </div>

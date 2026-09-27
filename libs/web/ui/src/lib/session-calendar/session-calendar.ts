@@ -3,8 +3,10 @@ import {
   Component,
   ViewEncapsulation,
   computed,
+  inject,
   input,
   output,
+  resource,
 } from '@angular/core';
 import {
   CalendarOptions,
@@ -27,6 +29,7 @@ import dayGridPlugin from 'fullcalendar/daygrid';
 import interactionPlugin from 'fullcalendar/interaction';
 import timeGridPlugin from 'fullcalendar/timegrid';
 import breezyTheme from 'fullcalendar/themes/breezy';
+import { I18nService, TranslocoPipe } from '@ptah-extension/i18n';
 
 /** Local wall-clock hour a month-view click prefills as the session start. */
 const DEFAULT_START_HOUR = 9;
@@ -129,7 +132,7 @@ export interface SessionRescheduleRequest<T extends CalendarSession> {
   selector: 'ptah-session-calendar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FullCalendarModule],
+  imports: [FullCalendarModule, TranslocoPipe],
   templateUrl: './session-calendar.html',
   styleUrl: './session-calendar.css',
   // FullCalendar's grid is built imperatively and never carries the emulated
@@ -138,6 +141,21 @@ export interface SessionRescheduleRequest<T extends CalendarSession> {
   encapsulation: ViewEncapsulation.None,
 })
 export class SessionCalendar<T extends CalendarSession = CalendarSession> {
+  private readonly i18n = inject(I18nService);
+
+  /**
+   * FullCalendar's Arabic strings (toolbar and "more" labels), fetched only
+   * while Arabic is active so English visitors never download them. In
+   * English the params are `undefined`, which keeps the resource idle.
+   * Until the chunk arrives, or if it fails to load, the grid keeps
+   * FullCalendar's built-in English labels; dates and direction still follow
+   * `locale` and `direction`, which need no chunk.
+   */
+  private readonly arLocale = resource({
+    params: () => (this.i18n.lang() === 'ar' ? 'ar' : undefined),
+    loader: () => import('fullcalendar/locales/ar').then((m) => m.default),
+  });
+
   /** Sessions currently loaded for the window the host fetched. */
   public readonly sessions = input.required<T[]>();
 
@@ -187,6 +205,13 @@ export class SessionCalendar<T extends CalendarSession = CalendarSession> {
     const writable = this.writable();
     return {
       plugins: [breezyTheme, dayGridPlugin, timeGridPlugin, interactionPlugin],
+      // Follows the active language. FullCalendar picks the raw locale by the
+      // tag's language prefix (`ar-u-nu-latn` → the lazily loaded `ar` strings) and
+      // formats with the full tag, so Arabic month and day names keep Western
+      // digits. Arabic also lays the grid and toolbar out right-to-left.
+      locales: this.arLocale.hasValue() ? [this.arLocale.value()] : [],
+      locale: this.i18n.intlLocale(),
+      direction: this.i18n.direction(),
       initialView: 'dayGridMonth',
       headerToolbar: {
         start: 'prev,next today',
