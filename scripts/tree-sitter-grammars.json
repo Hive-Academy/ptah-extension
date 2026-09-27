@@ -100,7 +100,7 @@
     {
       "id": "tsx",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-tsx.wasm",
       "licence": "MIT",
       "bytes": 1445638,

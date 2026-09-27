@@ -4485,15 +4485,25 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   (one fixed stderr line); `2` bad sub-command; `5` transport failure; `on`/`off` send GET's root
 - FB spec: `success:false` → exit `1`, no success notification
 
-#### Task 37b3.2: Matrix fragment — PENDING
+#### Task 37b3.2: Matrix fragment — PENDING (deferred to the integration branch, 2026-09-27)
 
-- Depends on: Task 37b3.1
-- Files: `WIT/matrix/activations/b37b.ts` (new)
-- Quality requirements: activates `typeCheck:go` only; fails on base 37b2
+- Depends on: Task 37b3.1; Lane K merged into `fix/task-559-mcp-tool-contract` (the orchestrator decides and runs the
+  merge; executors never run git)
+- Why deferred: Lane K (HEAD d61fc1d2b) does not contain the Batch 27 harness (`WIT/activation-fragment.ts`,
+  `WIT/required-keys.ts`, `WIT/language-honesty.contract.spec.ts`); a fragment written in Lane K cannot be
+  verified there, and unverified code is not accepted
+- Files: `WIT/matrix/activations/b37b.ts` (new), `WIT/language-honesty.contract.spec.ts` (add the
+  `HONESTY_CHECKS['typeCheck:go']` entry; without it "every activated, locally-owned key has an entry" fails)
+- Quality requirements: activates `typeCheck:go` only; fails on the base before the merge. The honesty check asserts
+  what 37b1a/37b1b guarantee: Go answers carry `checks:'syntax-only'` / `go:syntax-only` and are never labelled
+  type-checked; consent off/stale → Go `unchecked` with the reason; `unmapped-findings` never renders clean
+- Verification: `nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache` on
+  the integration branch after the merge
 
 #### Batch 37b3 verification
 
-- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-cli @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40`
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-cli --skip-nx-cache 2>&1 | tail -40` (37b3.1 in
+  Lane K); 37b3.2 verifies separately on the integration branch as stated above
 - validate-deps; degradation audit TOTAL 300; FB evidence; review approves; hostile real-Go spec still pending a CI/user run
 
 ---
