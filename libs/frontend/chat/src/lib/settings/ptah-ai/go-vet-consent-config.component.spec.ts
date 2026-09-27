@@ -234,6 +234,32 @@ describe('GoVetConsentConfigComponent', () => {
     expect(setCalls(rpc)).toHaveLength(0);
     expect(q(fixture, 'go-vet-consent-confirm')).toBeNull();
     expect(toggle(fixture).checked).toBe(false);
+    expect(text(fixture, 'go-vet-consent-state')).toBe('Off');
+  });
+
+  it('badge and switch show the same pending state during the confirm step', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+    expect(text(fixture, 'go-vet-consent-state')).toBe('Off');
+
+    flip(fixture, true);
+
+    expect(toggle(fixture).checked).toBe(true);
+    expect(text(fixture, 'go-vet-consent-state')).toBe('Confirm to enable');
+  });
+
+  it('the enlarged hit area around the switch toggles it', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    click(fixture, 'go-vet-consent-toggle-target');
+
+    expect(q(fixture, 'go-vet-consent-confirm')).not.toBeNull();
+    expect(text(fixture, 'go-vet-consent-state')).toBe('Confirm to enable');
   });
 
   it('revoke reflects the read-back state and disables the toggle while in flight', async () => {
@@ -251,6 +277,8 @@ describe('GoVetConsentConfigComponent', () => {
       { enabled: false, workspaceRoot: ROOT_A, source: 'settings-ui' },
     ]);
     expect(toggle(fixture).disabled).toBe(true);
+    expect(toggle(fixture).checked).toBe(false);
+    expect(text(fixture, 'go-vet-consent-state')).toBe('Saving…');
 
     pending.resolve(rpcSuccess({ success: true, state: 'off' }));
     await settle(fixture);

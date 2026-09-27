@@ -103,3 +103,33 @@ card "RUN go vet FOR THIS WORKSPACE". Needs an open workspace folder for the tog
 - The settings tab for this card is labelled "Search & Voice", while O2/formatter text says "Settings → Tools". Either
   rename the tab or adjust the §5.4 formatter line; not changed here (not in 37b2's files).
 - `settings.component.ts`/`.html` are not Prettier-clean at HEAD.
+
+## Visual fix round
+
+Input: `visual-review-37b2.md` (4 findings). Base HEAD 0fe312efd; the coordinator's load-`catch` change (no early
+`return` in the catch) is kept. Only `FE/ptah-ai/go-vet-consent-config.component.ts` and its spec changed. No shared
+theme token changed; no git command run.
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | Dark "On" badge 2.64:1 (`badge-success`: `success-content` #e8e6e1 on #16a34a) | Every badge state now uses `badge-outline` + `text-base-content` (the body-text pairing, AA in both themes); the state colour moved to a decorative dot (`bg-success` / `bg-warning` / `bg-info` / `bg-base-content-muted`, `aria-hidden`). The label text carries the meaning. |
+| 2 | Error text 3.55:1 dark / 3.35:1 light (`text-error`) | Error is a chip: `border-error/50 bg-error/10` with `text-base-content` and an `AlertCircle` icon in `text-error` (`aria-hidden`). The same treatment was applied to the stale line (`text-warning` → base-content + `AlertTriangle`) and the success line (`text-success` → base-content + `CheckCircle`). Light `text-success`/`text-warning` on cream has the same weakness as `text-error`, so they were fixed too. |
+| 3 | Switch target 24×16 px | The `toggle-xs` input (visual size unchanged, the same as the neighbouring cards) is wrapped in a `<label>` with `min-w-6 min-h-6 px-1` (at least 24×24 px, click activates the switch). `cursor-pointer` is only set when the switch is enabled. The visible text label `for=` is unchanged, so the accessible name is unchanged. |
+| 4 | During confirm, the badge said "Off" while the switch was on | New `badgeView`: while the confirmation is open the badge reads "Confirm to enable"; while a SET is in flight it reads "Saving…" (the switch shows the optimistic position then). Otherwise the committed state is shown. `stateView`/`stateLabel` were replaced by `badgeView`/`badgeLabel`. |
+
+Specs (16 cases, +2 new, 2 extended): a new "badge and switch show the same pending state during the confirm step"
+case; a new "the enlarged hit area around the switch toggles it" case; cancel → badge back to "Off"; revoke in flight →
+badge "Saving…". FB: a mutation where `badgeView` ignores confirm/saving gives **3 failed** (restored, `cmp` identical).
+The hit-area case fails on the previous version (no `go-vet-consent-toggle-target`). jsdom cannot measure pixel sizes
+or contrast, so items 1-3 need the visual re-review.
+
+Verification:
+- `nx run-many -t=test,lint,typecheck -p @ptah-extension/chat --skip-nx-cache --parallel=2` → "Successfully ran targets
+  test, lint, typecheck". 106 suites, 1638 passed, 2 skipped. Lint: 0 errors, 22 warnings, none in the card files
+  (`eslint` on the card files: clean).
+- `nx run degradation-audit:lint --skip-nx-cache` → `TOTAL 300`; `libs/frontend/chat: 9 ok (baseline 11)`.
+- Prettier: both card files formatted.
+
+Still open for the visual re-review: contrast of the dot colours (decorative, the text carries the meaning); keyboard
+Tab focus ring (not verifiable in the reviewer's harness). The `toggle-xs` target size in other settings cards is a
+system-wide follow-up and is not touched here.

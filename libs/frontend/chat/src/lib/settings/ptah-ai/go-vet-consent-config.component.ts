@@ -12,7 +12,13 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { LucideAngularModule, ShieldCheck } from 'lucide-angular';
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
+  LucideAngularModule,
+  ShieldCheck,
+} from 'lucide-angular';
 import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
 import type {
   DiagnosticsGoVetConsentGetResult,
@@ -130,29 +136,44 @@ const SUCCESS_MESSAGE_MS = 3000;
               <label for="go-vet-consent-toggle" class="text-xs font-medium">
                 Allow <code>go vet</code> in this workspace
               </label>
+              <!-- Text stays base-content (AA in both themes); the state
+                   colour is carried by the dot, never by the text. -->
               <span
-                class="badge badge-xs"
-                [class.badge-success]="stateView() === 'on'"
-                [class.badge-warning]="stateView() === 'stale'"
-                [class.badge-ghost]="stateView() === 'off'"
+                class="badge badge-xs badge-outline gap-1 text-base-content"
                 data-testid="go-vet-consent-state"
               >
-                {{ stateLabel() }}
+                <span
+                  class="inline-block w-1.5 h-1.5 rounded-full"
+                  [class.bg-success]="badgeView() === 'on'"
+                  [class.bg-warning]="badgeView() === 'stale'"
+                  [class.bg-info]="badgeView() === 'pending'"
+                  [class.bg-base-content-muted]="badgeView() === 'off'"
+                  aria-hidden="true"
+                ></span>
+                {{ badgeLabel() }}
               </span>
             </div>
-            <input
-              #toggle
-              id="go-vet-consent-toggle"
-              type="checkbox"
-              role="switch"
-              class="toggle toggle-xs toggle-primary"
-              [checked]="toggleChecked()"
-              [attr.aria-checked]="toggleChecked()"
-              [disabled]="toggleDisabled()"
-              aria-describedby="go-vet-consent-status"
-              (change)="onToggle($event)"
-              data-testid="go-vet-consent-toggle"
-            />
+            <!-- 24×24 px hit area around the xs switch (WCAG 2.5.8); the
+                 visual size matches the neighbouring cards' toggle-xs. -->
+            <label
+              class="inline-flex items-center justify-center min-w-6 min-h-6 px-1"
+              [class.cursor-pointer]="!toggleDisabled()"
+              data-testid="go-vet-consent-toggle-target"
+            >
+              <input
+                #toggle
+                id="go-vet-consent-toggle"
+                type="checkbox"
+                role="switch"
+                class="toggle toggle-xs toggle-primary"
+                [checked]="toggleChecked()"
+                [attr.aria-checked]="toggleChecked()"
+                [disabled]="toggleDisabled()"
+                aria-describedby="go-vet-consent-status"
+                (change)="onToggle($event)"
+                data-testid="go-vet-consent-toggle"
+              />
+            </label>
           </div>
 
           <div id="go-vet-consent-status" aria-live="polite" class="mt-1">
@@ -166,30 +187,49 @@ const SUCCESS_MESSAGE_MS = 3000;
             }
             @if (staleText(); as reason) {
               <p
-                class="text-[10px] text-warning"
+                class="flex items-start gap-1 text-[10px] text-base-content"
                 data-testid="go-vet-consent-stale"
               >
-                Consent is out of date: {{ reason }}. go vet does not run until
-                you turn it on again.
+                <lucide-angular
+                  [img]="AlertTriangleIcon"
+                  class="w-3 h-3 shrink-0 text-warning"
+                  aria-hidden="true"
+                />
+                <span>
+                  Consent is out of date: {{ reason }}. go vet does not run
+                  until you turn it on again.
+                </span>
               </p>
             }
             @if (successMessage(); as message) {
               <p
-                class="text-[10px] text-success"
+                class="flex items-start gap-1 text-[10px] text-base-content"
                 data-testid="go-vet-consent-success"
               >
-                {{ message }}
+                <lucide-angular
+                  [img]="CheckCircleIcon"
+                  class="w-3 h-3 shrink-0 text-success"
+                  aria-hidden="true"
+                />
+                <span>{{ message }}</span>
               </p>
             }
           </div>
 
           @if (errorMessage(); as message) {
+            <!-- Text in base-content on a light error tint: AA in both
+                 themes (bare text-error measured 3.35-3.55:1). -->
             <p
-              class="text-[10px] text-error mt-1"
+              class="flex items-start gap-1 mt-1 px-2 py-1 rounded border border-error/50 bg-error/10 text-[10px] text-base-content"
               role="alert"
               data-testid="go-vet-consent-error"
             >
-              {{ message }}
+              <lucide-angular
+                [img]="AlertCircleIcon"
+                class="w-3 h-3 shrink-0 text-error"
+                aria-hidden="true"
+              />
+              <span>{{ message }}</span>
             </p>
           }
 
@@ -244,6 +284,9 @@ export class GoVetConsentConfigComponent {
   private readonly injector = inject(Injector);
 
   readonly ShieldCheckIcon = ShieldCheck;
+  readonly AlertCircleIcon = AlertCircle;
+  readonly AlertTriangleIcon = AlertTriangle;
+  readonly CheckCircleIcon = CheckCircle;
 
   /** Last applied GET answer; `null` until the first one arrives. */
   readonly consent = signal<DiagnosticsGoVetConsentGetResult | null>(null);
@@ -267,13 +310,24 @@ export class GoVetConsentConfigComponent {
   readonly visible = computed(
     () => this.settled() && this.consent()?.supported !== false,
   );
-  readonly stateView = computed(() => this.consent()?.state ?? 'off');
-  readonly stateLabel = computed(() => {
-    switch (this.stateView()) {
+  /**
+   * What the badge shows. While the enable confirmation is open or a SET is in
+   * flight the switch shows the pending choice, so the badge says "pending"
+   * too instead of the committed state (the two must never disagree).
+   */
+  readonly badgeView = computed<'on' | 'off' | 'stale' | 'pending'>(() =>
+    this.confirmingRoot() !== null || this.saving()
+      ? 'pending'
+      : (this.consent()?.state ?? 'off'),
+  );
+  readonly badgeLabel = computed(() => {
+    switch (this.badgeView()) {
       case 'on':
         return 'On';
       case 'stale':
         return 'Out of date';
+      case 'pending':
+        return this.saving() ? 'Saving…' : 'Confirm to enable';
       default:
         return 'Off';
     }
