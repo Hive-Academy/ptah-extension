@@ -99,6 +99,11 @@ export interface GraphCoverageInput {
    * it were never observed: the census is `truncated`.
    */
   readonly censusLimit?: number;
+  /**
+   * Set when the caller's discovery could not read part of the tree: the
+   * census is `unknown` (never clean), whatever `censusLimit` says.
+   */
+  readonly censusUnknown?: boolean;
 }
 
 function saturate(value: number): number {
@@ -253,7 +258,12 @@ export function buildGraphCoverage(
   const truncated = input.censusLimit !== undefined;
   return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor('graphEdges'),
-    census: truncated ? 'truncated' : 'complete',
+    census:
+      input.censusUnknown === true
+        ? 'unknown'
+        : truncated
+          ? 'truncated'
+          : 'complete',
     ...(truncated ? { censusLimit: input.censusLimit } : {}),
     analyzed: saturate(input.analyzed),
     unchecked: 0,
@@ -343,6 +353,18 @@ export function invalidatedCoverage(
       context: 'partial',
     },
   });
+}
+
+/**
+ * Coverage of a graph whose root's real path could not be resolved (the
+ * lookup failed, e.g. EIO): an edit named through a link alias of the root
+ * may never reach the graph, so how many analysed files are stale is
+ * unknown. `unchecked` becomes `null`, which is never clean (`unchecked?`).
+ */
+export function identityUnavailableCoverage(
+  coverage: LanguageCoverage,
+): LanguageCoverage {
+  return withCoverageVerdict({ ...coverage, unchecked: null });
 }
 
 const CENSUS_RANK: Readonly<Record<CoverageCensus, number>> = {

@@ -13,3 +13,4 @@
 
 export * from './mocks';
 export * from './contracts';
+export * from './probes/count-directory-reads';

@@ -111,6 +111,7 @@ export {
   extensionHasCapability,
   hasCapability,
   languageForExtension,
+  recognisedSourceExtensions,
   supportedLanguagesFor,
   type CoverageFileClass,
   type GraphEdgesCapability,

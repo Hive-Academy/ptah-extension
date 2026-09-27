@@ -72,6 +72,15 @@ import {
   type AnalysisNamespaceDependencies,
 } from '../namespace-builders/analysis-namespace.builders';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
+import {
+  IncompleteFileSearchError,
+  collectBounded,
+  createFailureTally,
+  walkGlobMatches,
+  withCoverageVerdict,
+  type IFileSystemProvider,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
 import { Result } from '@ptah-extension/shared';
 import {
   DependencyGraphService,
@@ -130,6 +139,67 @@ function buildDeps(
       {} as ProtocolHandlerDependencies['permissionPromptService'],
     logger: asLogger(createMockLogger()),
     ...overrides,
+  };
+}
+
+/** A clean graph coverage (verdict first), for stubs of the graph tools. */
+const CLEAN_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
+  supportedLanguages: ['typescript', 'javascript'],
+  census: 'complete',
+  analyzed: 2,
+  unchecked: 0,
+  failed: 0,
+  unsupported: 0,
+  unrecognised: 0,
+  nonSource: 0,
+  excluded: null,
+  omittedByCap: 0,
+  resolution: {
+    external: 0,
+    unresolvedInternal: 0,
+    truncatedImports: 0,
+    edgeCapHit: false,
+    context: 'complete',
+  },
+});
+
+/** A qualified graph coverage: three Python files the graph cannot analyse. */
+const QUALIFIED_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
+  ...CLEAN_GRAPH_COVERAGE,
+  unsupported: 3,
+  unsupportedByLanguage: { python: 3 },
+});
+
+/**
+ * The Batch 23b members every stub of the graph tools needs: a graph-capable
+ * query file (no unsupported-language answer), the answering graph's coverage
+ * with the file in it, and discovery through `findFiles` (a stub that may
+ * return workspace-relative paths, as `ptah.search.findFiles` did).
+ */
+function graphToolStubs(
+  options: {
+    findFiles?: jest.Mock;
+    fileCoverage?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  const findFiles = options.findFiles ?? jest.fn().mockResolvedValue([]);
+  return {
+    unsupportedGraphLanguage: jest.fn(() => undefined),
+    discoverSourceFiles: jest.fn(async (root: string) => ({
+      files: ((await findFiles()) as string[]).map((file) =>
+        path.isAbsolute(file) ? file : path.join(root, file),
+      ),
+      truncated: false,
+      limit: 50_000,
+    })),
+    getGraphCoverageForFile: jest.fn(async (file: string) => ({
+      coverage: CLEAN_GRAPH_COVERAGE,
+      nodePath: file,
+      ...options.fileCoverage,
+    })),
+    getGraphCoverage: jest
+      .fn()
+      .mockResolvedValue({ coverage: CLEAN_GRAPH_COVERAGE }),
   };
 }
 
@@ -1117,12 +1187,11 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     const deps = buildDeps({
       ptahAPI: buildPtahAPIStub({
         workspace: { getInfo } as unknown as PtahAPI['workspace'],
-        search: { findFiles } as unknown as PtahAPI['search'],
         dependencies: {
+          ...graphToolStubs({ findFiles }),
           isBuilt,
           buildGraph,
           getDependents,
-          getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
           reserveGraphBuild: jest.fn(() => 1),
           getGraphBuildState: jest.fn(() => ({
             generation: 1,
@@ -1163,13 +1232,10 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         workspace: {
           getInfo: jest.fn().mockResolvedValue({ path: path.resolve('/ws') }),
         } as unknown as PtahAPI['workspace'],
-        search: {
-          findFiles: jest.fn().mockResolvedValue([]),
-        } as unknown as PtahAPI['search'],
         dependencies: {
+          ...graphToolStubs(),
           isBuilt: jest.fn().mockResolvedValue(true),
           getDependencies,
-          getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
         } as unknown as PtahAPI['dependencies'],
       }),
     });
@@ -1189,19 +1255,156 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
 
-  // Batch 9 revision round 1 (review F3, User Decision 14): the 5,000-file
-  // graph cap is disclosed instead of looking like a complete answer.
-  it('discovers every source file, graphs the first 5,000 and passes the discovered count', async () => {
+  // Batch 23b: discovery is bounded (census limit) and every discovered file
+  // goes to the build, whose own fair parse cap (Batch 23a) chooses what it
+  // parses; a truncated discovery passes its limit so the census says so.
+  it.each([
+    ['a complete discovery', false],
+    ['a truncated discovery', true],
+  ])(
+    'builds from every file of %s and passes the discovered count',
+    async (_label, truncated) => {
+      const root = path.resolve('/ws');
+      const discovered = Array.from({ length: 5_354 }, (_, i) =>
+        path.join(root, `src/file-${String(i).padStart(4, '0')}.ts`),
+      );
+      const discoverSourceFiles = jest.fn().mockResolvedValue({
+        files: discovered,
+        truncated,
+        limit: 50_000,
+      });
+      const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 5_000 });
+      await handleMCPRequest(
+        makeRequest({
+          id: 'b23b-discovery',
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              discoverSourceFiles,
+              isBuilt: jest.fn().mockResolvedValue(false),
+              buildGraph,
+              getDependents: jest.fn().mockResolvedValue([]),
+              reserveGraphBuild: jest.fn(() => 1),
+              getGraphBuildState: jest.fn(() => ({
+                generation: 1,
+                building: false,
+              })),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+
+      expect(discoverSourceFiles).toHaveBeenCalledWith(root);
+      expect(buildGraph).toHaveBeenCalledWith(discovered, root, 5_354, {
+        yieldToForeground: true,
+        generation: 1,
+        ...(truncated ? { censusLimit: 50_000 } : {}),
+      });
+    },
+  );
+
+  // r4 B1 (FB): a workspace root that does not exist answered every graph
+  // tool with a clean, complete, empty graph. Real namespace and graph
+  // service; discovery runs the adapters' bounded call.
+  it.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s over a missing workspace root answers with an unknown census, never clean',
+    async (toolName) => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-r4-'));
+      const root = path.join(tempDir, 'nonexistent');
+      try {
+        const graph = new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () =>
+              Result.ok({
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+              }),
+            ),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => 'source'),
+          } as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+        const findFiles = jest.fn(
+          async (
+            pattern: string,
+            exclude: string[],
+            maxResults: number,
+            cwd: string,
+          ) => {
+            const tally = createFailureTally();
+            const matches = await collectBounded(
+              walkGlobMatches(pattern, {
+                exclude,
+                cwd,
+                dot: true,
+                onFailure: tally.onFailure,
+              }),
+              maxResults,
+            );
+            const failures = tally.failures();
+            if (failures !== undefined) {
+              throw new IncompleteFileSearchError(matches, failures);
+            }
+            return matches;
+          },
+        );
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => root },
+          fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b23b-r4-missing-root-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file: 'src/a.ts' } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: root }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const body = JSON.parse(
+          (res.result as { content: Array<{ text: string }> }).content[0].text,
+        ) as Record<string, unknown>;
+
+        expect(body).toMatchObject({
+          count: 0,
+          fileInGraph: false,
+          coverage: { clean: false, census: 'unknown' },
+        });
+        expect((body['coverage'] as { reasons: string[] }).reasons[0]).toBe(
+          'census?',
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // r3 B1 (FB): a discovery that could not read part of the tree builds a
+  // graph whose census is unknown, never a clean complete one.
+  it('builds with an unknown census when discovery reports unreadable paths', async () => {
     const root = path.resolve('/ws');
-    const discovered = Array.from(
-      { length: 5_354 },
-      (_, i) => `src/file-${String(i).padStart(4, '0')}.ts`,
-    );
-    const findFiles = jest.fn().mockResolvedValue(discovered);
-    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 5_000 });
+    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 1 });
     await handleMCPRequest(
       makeRequest({
-        id: 'b9-cap',
+        id: 'b23b-unreadable',
         method: 'tools/call',
         params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
       }),
@@ -1210,12 +1413,17 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
           workspace: {
             getInfo: jest.fn().mockResolvedValue({ path: root }),
           } as unknown as PtahAPI['workspace'],
-          search: { findFiles } as unknown as PtahAPI['search'],
           dependencies: {
+            ...graphToolStubs(),
+            discoverSourceFiles: jest.fn().mockResolvedValue({
+              files: [path.join(root, 'a.ts')],
+              truncated: false,
+              limit: 50_000,
+              unreadable: { paths: 2, byCode: { EIO: 1, EACCES: 1 } },
+            }),
             isBuilt: jest.fn().mockResolvedValue(false),
             buildGraph,
             getDependents: jest.fn().mockResolvedValue([]),
-            getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
             reserveGraphBuild: jest.fn(() => 1),
             getGraphBuildState: jest.fn(() => ({
               generation: 1,
@@ -1226,13 +1434,16 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       }),
     );
 
-    // Discovery is not capped (the cap bounds parsing, not listing).
-    expect(findFiles.mock.calls[0][1]).toBeGreaterThan(5_354);
-    const [files, graphRoot, discoveredCount] = buildGraph.mock.calls[0];
-    expect(files).toHaveLength(5_000);
-    expect(files[4_999]).toBe(path.join(root, 'src/file-4999.ts'));
-    expect(graphRoot).toBe(root);
-    expect(discoveredCount).toBe(5_354);
+    expect(buildGraph).toHaveBeenCalledWith(
+      [path.join(root, 'a.ts')],
+      root,
+      1,
+      {
+        yieldToForeground: true,
+        generation: 1,
+        censusUnknown: true,
+      },
+    );
   });
 
   describe.each([
@@ -1241,9 +1452,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
   ])('%s graph completeness', (toolName, method, listField) => {
     const root = path.resolve('/ws');
 
-    async function call(
-      coverage: { graphedFiles: number; discoveredFiles: number } | undefined,
-    ): Promise<{
+    async function call(coverage: Record<string, unknown>): Promise<{
       body: Record<string, unknown>;
       getGraphCoverageForFile: jest.Mock;
     }> {
@@ -1260,6 +1469,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
               getInfo: jest.fn().mockResolvedValue({ path: root }),
             } as unknown as PtahAPI['workspace'],
             dependencies: {
+              ...graphToolStubs(),
               isBuilt: jest.fn().mockResolvedValue(true),
               [method]: jest.fn().mockResolvedValue([]),
               getGraphCoverageForFile,
@@ -1279,30 +1489,54 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     }
 
     it('adds no completeness fields when the graph covers every discovered file', async () => {
+      const stored = path.join(root, 'Src/A.ts');
       const { body, getGraphCoverageForFile } = await call({
         graphedFiles: 120,
         discoveredFiles: 120,
+        coverage: CLEAN_GRAPH_COVERAGE,
+        nodePath: stored,
       });
       expect(getGraphCoverageForFile).toHaveBeenCalledWith(
         path.join(root, 'src/a.ts'),
       );
+      // Batch 23b: status first, then coverage, then the graph's own
+      // spelling of the file, then the list.
+      expect(Object.keys(body)).toEqual([
+        'count',
+        'fileInGraph',
+        'coverage',
+        'file',
+        listField,
+      ]);
       expect(body).toEqual({
-        file: path.join(root, 'src/a.ts'),
-        [listField]: [],
         count: 0,
+        fileInGraph: true,
+        coverage: CLEAN_GRAPH_COVERAGE,
+        file: stored,
+        [listField]: [],
       });
     });
 
-    it('adds no completeness fields when no graph coverage is known', async () => {
-      const { body } = await call(undefined);
+    it('adds no completeness fields, and an unknown coverage, when no graph answers', async () => {
+      const unknown = withCoverageVerdict({
+        ...CLEAN_GRAPH_COVERAGE,
+        census: 'unknown',
+      });
+      const { body } = await call({ coverage: unknown });
       expect(body).not.toHaveProperty('incomplete');
       expect(body).not.toHaveProperty('graphedFiles');
+      expect(body).toMatchObject({
+        fileInGraph: false,
+        coverage: { clean: false, census: 'unknown' },
+        file: path.join(root, 'src/a.ts'),
+      });
     });
 
     it('says incomplete, with both counts, when the cap dropped files', async () => {
       const { body } = await call({
         graphedFiles: 5_000,
         discoveredFiles: 5_354,
+        coverage: CLEAN_GRAPH_COVERAGE,
       });
       expect(body).toMatchObject({
         [listField]: [],
@@ -1428,6 +1662,114 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     },
   );
 
+  // Batch 23b carried criterion R4-B1 (User Decision 20): the reviewer's
+  // case-variant probe through the dispatcher's own path conversion, the
+  // real namespace and the real graph service.
+  describe('R4-B1 case-variant query paths through the dispatcher', () => {
+    const onWin32 = process.platform === 'win32';
+    const ROOT = 'D:/Repo';
+    const A = 'D:/Repo/Pkg/A.ts';
+    const B = 'D:/Repo/Pkg/B.ts';
+    const C = 'D:/Repo/Pkg/C.ts';
+
+    async function call(
+      toolName: string,
+      args: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports:
+                p === A
+                  ? [{ source: './B', importedSymbols: [] }]
+                  : p === B
+                    ? [{ source: './C', importedSymbols: [] }]
+                    : [],
+              exports: [],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      await graph.buildGraph([A, B, C], ROOT);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `r4-b1-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: ROOT }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: buildDependencyNamespace({
+              dependencyGraph: graph,
+              workspaceProvider: { getWorkspaceRoot: () => ROOT },
+            } as unknown as AnalysisNamespaceDependencies),
+          }),
+        }),
+      );
+      return JSON.parse(
+        (res.result as { content: Array<{ text: string }> }).content[0].text,
+      ) as Record<string, unknown>;
+    }
+
+    it('the matching-case control answers with the stored spelling and clean coverage', async () => {
+      expect(
+        await call('ptah_get_dependencies', { file: 'Pkg/A.ts', depth: 2 }),
+      ).toMatchObject({
+        count: 2,
+        fileInGraph: true,
+        coverage: { clean: true },
+        file: A,
+        dependencies: [B, C],
+      });
+    });
+
+    (onWin32 ? it.each : it.skip.each)([
+      ['relative', 'pkg/a.ts', 'pkg/b.ts'],
+      ['absolute', 'd:/repo/pkg/a.ts', 'd:\\repo\\PKG\\b.ts'],
+    ])(
+      'a %s case variant answers the same edges, never [] with clean coverage',
+      async (_label, aVariant, bVariant) => {
+        expect(
+          await call('ptah_get_dependencies', { file: aVariant, depth: 2 }),
+        ).toMatchObject({
+          count: 2,
+          fileInGraph: true,
+          file: A,
+          dependencies: [B, C],
+        });
+        expect(
+          await call('ptah_get_dependents', { file: bVariant }),
+        ).toMatchObject({
+          count: 1,
+          fileInGraph: true,
+          file: B,
+          dependents: [A],
+        });
+      },
+    );
+
+    it('a file the graph does not hold says so beside a clean coverage', async () => {
+      expect(
+        await call('ptah_get_dependents', { file: 'Pkg/New.ts' }),
+      ).toMatchObject({
+        count: 0,
+        fileInGraph: false,
+        coverage: { clean: true },
+        dependents: [],
+      });
+    });
+  });
+
   // Round 2 review R2-S1: a list over the result budget is cut, but the
   // completeness fields come before it and survive the cut.
   describe.each([
@@ -1472,11 +1814,14 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
                 getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
               } as unknown as PtahAPI['workspace'],
               dependencies: {
+                ...graphToolStubs(),
                 isBuilt: jest.fn().mockResolvedValue(true),
                 [method]: jest.fn().mockResolvedValue(list),
                 getGraphCoverageForFile: jest.fn().mockResolvedValue({
                   graphedFiles: 5_000,
                   discoveredFiles: 6_000,
+                  coverage: QUALIFIED_GRAPH_COVERAGE,
+                  nodePath: 'C:/ws/lib/hub.ts',
                 }),
               } as unknown as PtahAPI['dependencies'],
             }),
@@ -1485,16 +1830,23 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         const text = (res.result as { content: Array<{ text: string }> })
           .content[0].text;
 
-        // The list was cut to the budget...
+        // The list was cut to the budget, measured in tokens...
         expect(text.length).toBeLessThanOrEqual(
           getToolResultBudget(toolName).chars,
         );
+        expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+          getToolResultBudget(toolName).tokens,
+        );
         expect(text).not.toContain('module-1499.ts');
-        // ...and the completeness fields were not.
+        // ...and the completeness fields and the coverage verdict were not.
         expect(text).toMatch(/"count":\s*1500/);
         expect(text).toMatch(/"incomplete":\s*true/);
         expect(text).toMatch(/"graphedFiles":\s*5000/);
         expect(text).toMatch(/"discoveredFiles":\s*6000/);
+        expect(text).toMatch(/"fileInGraph":\s*true/);
+        expect(text).toMatch(
+          /"coverage":\s*\{\s*"clean":\s*false,\s*"reasons":\s*\[\s*"unsupported"\s*\]/,
+        );
       },
     );
 
@@ -1516,6 +1868,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
               getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
             } as unknown as PtahAPI['workspace'],
             dependencies: {
+              ...graphToolStubs(),
               isBuilt: jest.fn().mockResolvedValue(true),
               [method]: jest
                 .fn()
@@ -1523,6 +1876,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
               getGraphCoverageForFile: jest.fn().mockResolvedValue({
                 graphedFiles: 5_000,
                 discoveredFiles: 6_000,
+                coverage: CLEAN_GRAPH_COVERAGE,
               }),
             } as unknown as PtahAPI['dependencies'],
           }),
@@ -1539,7 +1893,237 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       expect(text).toMatch(/"graphedFiles":\s*5000/);
       expect(text).toMatch(/"discoveredFiles":\s*6000/);
     });
+
+    // Batch 23b (Decision 15 pattern, plan "Placement"): a very long path and
+    // an oversized list together keep the qualified coverage verdict and the
+    // file-in-graph status inside the cut, measured in tokens end to end
+    // through the real budget layer.
+    it('keeps fileInGraph and the qualified coverage ahead of a very long path and an oversized list', async () => {
+      const longFile = `C:/ws/${'deepabc/'.repeat(810)}hub.ts`;
+      const list = Array.from(
+        { length: 1_500 },
+        (_, i) => `C:/ws/lib/module-${i}.ts`,
+      );
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b23b-long-path-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: longFile } },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          workspaceProvider: knownFolders(spoolRoot),
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest.fn().mockResolvedValue(list),
+              getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                graphedFiles: 5_000,
+                discoveredFiles: 6_000,
+                coverage: QUALIFIED_GRAPH_COVERAGE,
+              }),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+
+      const budget = getToolResultBudget(toolName);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(text).not.toContain('module-1499.ts');
+      expect(text).toMatch(/"count":\s*1500/);
+      expect(text).toMatch(/"fileInGraph":\s*false/);
+      expect(text).toMatch(
+        /"coverage":\s*\{\s*"clean":\s*false,\s*"reasons":\s*\[\s*"unsupported"\s*\]/,
+      );
+      expect(text).toMatch(/"unsupportedByLanguage":\s*\{\s*"python":\s*3/);
+    });
   });
+
+  // Batch 23b FB "vendor tree does not exhaust discovery", end to end: the
+  // real namespace, graph service and a fast-glob provider (the Electron/CLI
+  // provider's call) over a temporary tree. Vendor trees never reach the
+  // graph; recognised files it cannot analyse are counted in its coverage.
+  it('builds the graph from bounded discovery: vendor trees excluded, other languages counted', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-graph-'));
+    try {
+      const write = (relative: string): void => {
+        fs.mkdirSync(path.dirname(path.join(root, relative)), {
+          recursive: true,
+        });
+        fs.writeFileSync(path.join(root, relative), '');
+      };
+      // r1 B1: upper-case extensions (LIB.TS, analysis.R) are discovered too.
+      [
+        'src/app.ts',
+        'src/util.ts',
+        'src/LIB.TS',
+        'src/tool.py',
+        'stats/analysis.R',
+        'bin/cli.js',
+      ].forEach(write);
+      for (let i = 0; i < 8; i++) write(`vendor/lib/v${i}.ts`);
+      const app = path.join(root, 'src', 'app.ts').replace(/\\/g, '/');
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports:
+                p === app ? [{ source: './util', importedSymbols: [] }] : [],
+              exports: [],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      // The Electron adapter's own bounded call: the walk, stopped at the limit.
+      const findFiles = jest.fn(
+        async (
+          pattern: string,
+          exclude: string[],
+          maxResults: number,
+          cwd: string,
+        ) =>
+          collectBounded(
+            walkGlobMatches(pattern, {
+              exclude,
+              cwd,
+              dot: true,
+              // No failure is expected in this fixture; one would fail it.
+              onFailure: (code) => {
+                throw new Error(`unexpected walk failure ${code}`);
+              },
+            }),
+            maxResults,
+          ),
+      );
+      const dependencies = buildDependencyNamespace({
+        dependencyGraph: graph,
+        workspaceProvider: { getWorkspaceRoot: () => root },
+        fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+      } as unknown as AnalysisNamespaceDependencies);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'b23b-discovery-e2e',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_get_dependents',
+            arguments: { file: 'src/util.ts' },
+          },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies,
+          }),
+        }),
+      );
+      const body = JSON.parse(
+        (res.result as { content: Array<{ text: string }> }).content[0].text,
+      ) as Record<string, unknown>;
+
+      expect(body).toMatchObject({
+        count: 1,
+        fileInGraph: true,
+        coverage: {
+          clean: false,
+          reasons: ['unsupported'],
+          census: 'complete',
+          analyzed: 3,
+          unsupported: 2,
+          unsupportedByLanguage: { python: 1, r: 1 },
+          excluded: null,
+        },
+        dependents: [app],
+      });
+      // Only the project's own five recognised files were discovered.
+      expect(graph.getCoverage(root)).toEqual({
+        graphedFiles: 5,
+        discoveredFiles: 5,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Batch 23b FB "dependents of a python file is not a silent empty list":
+  // a file the graph cannot hold is answered unsupported-language, through
+  // the real namespace, and starts no graph build.
+  describe.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s for a file the graph cannot hold',
+    (toolName) => {
+      it.each([
+        ['src/tool.py', 'python'],
+        ['README.md', '.md'],
+      ])('%s answers unsupported-language (%s)', async (file, language) => {
+        const graph = new DependencyGraphService(
+          {} as unknown as AstAnalysisService,
+          {} as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+        const findFiles = jest.fn().mockResolvedValue([]);
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => path.resolve('/ws') },
+          fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b23b-unsupported-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest
+                  .fn()
+                  .mockResolvedValue({ path: path.resolve('/ws') }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const result = res.result as {
+          content: Array<{ text: string }>;
+          isError?: boolean;
+        };
+        const body = JSON.parse(result.content[0].text) as Record<
+          string,
+          unknown
+        >;
+
+        expect(result.isError).not.toBe(true);
+        expect(Object.keys(body)[0]).toBe('status');
+        expect(body).toEqual({
+          status: 'unsupported-language',
+          language,
+          supportedLanguages: ['typescript', 'javascript'],
+          message: expect.stringContaining('Graph languages'),
+          file,
+        });
+        expect(body).not.toHaveProperty('count');
+        // No build was started for it.
+        expect(findFiles).not.toHaveBeenCalled();
+        expect(graph.getBuildState(path.resolve('/ws')).generation).toBe(
+          undefined,
+        );
+      });
+    },
+  );
 
   it('ptah_count_tokens reads a relative path as-is through the sandbox', async () => {
     const read = jest.fn().mockResolvedValue('source');
@@ -4367,7 +4951,9 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
         async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
           pageSymbolIndex(entries, query, ROOT),
       ),
-      getGraphCoverage: jest.fn().mockResolvedValue(coverage),
+      getGraphCoverage: jest
+        .fn()
+        .mockResolvedValue({ ...coverage, coverage: CLEAN_GRAPH_COVERAGE }),
     } as unknown as SymbolIndexDependencies;
   }
 
@@ -4680,6 +5266,48 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
     expect(page).not.toHaveProperty('discoveredFiles');
   });
 
+  // Batch 23b: the paginator carries the (merged) graph coverage in its
+  // header, before `files`, on a whole page and on a skipped-entry page.
+  it('carries the graph coverage in the page header, before files, on every page shape', async () => {
+    const qualified = (entries: SymbolIndexEntry[]) => {
+      const dependencies = dependenciesOver(entries);
+      dependencies.getGraphCoverage.mockResolvedValue({
+        coverage: QUALIFIED_GRAPH_COVERAGE,
+      });
+      return dependencies;
+    };
+    const wholeText = resultOf(
+      await callTool({}, qualified(auditSizedIndex())),
+    ).text;
+    expect(countTokensPiecewise(wholeText)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    const whole = JSON.parse(wholeText) as Record<string, unknown>;
+    expect(Object.keys(whole)).toEqual([
+      'count',
+      'total',
+      'offset',
+      'nextOffset',
+      'coverage',
+      'files',
+    ]);
+    expect(whole['coverage']).toEqual(QUALIFIED_GRAPH_COVERAGE);
+
+    const skippedText = resultOf(
+      await callTool({}, qualified([tokenHeavyEntry()])),
+    ).text;
+    expect(countTokensPiecewise(skippedText)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    const skipped = parsedPage(skippedText) as SkippedBody &
+      Record<string, unknown>;
+    expect(skipped.error).toMatch(/skipped/);
+    expect(skipped['coverage']).toMatchObject({
+      clean: false,
+      reasons: ['unsupported'],
+    });
+  });
+
   it('says incomplete, with both counts, when the graph cap dropped files', async () => {
     const page = parsedPage(
       resultOf(
@@ -4720,6 +5348,7 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
       incomplete: true,
       graphedFiles: 5_000,
       discoveredFiles: 5_354,
+      coverage: CLEAN_GRAPH_COVERAGE,
       files: [],
     });
   });
@@ -4736,6 +5365,7 @@ describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batc
       count: 0,
       total: 0,
       offset: 0,
+      coverage: CLEAN_GRAPH_COVERAGE,
       files: [],
     });
   });
@@ -4854,13 +5484,14 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
         });
       },
     );
+    // The discovery stub: `discoverSourceFiles` lists what it returns.
     const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
     const getInfo = jest.fn().mockResolvedValue({ path: root });
     const logger = createMockLogger();
     const ptahAPI = buildPtahAPIStub({
       workspace: { getInfo } as unknown as PtahAPI['workspace'],
-      search: { findFiles } as unknown as PtahAPI['search'],
       dependencies: {
+        ...graphToolStubs({ findFiles }),
         isBuilt: jest.fn(async () => state.built),
         reserveGraphBuild: jest.fn(() => {
           state.lastGeneration += 1;
@@ -4874,7 +5505,6 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
         buildGraph,
         getDependents: jest.fn().mockResolvedValue([path.join(root, 'b.ts')]),
         getDependencies: jest.fn().mockResolvedValue([path.join(root, 'c.ts')]),
-        getGraphCoverageForFile: jest.fn().mockResolvedValue(undefined),
         getSymbolIndex: jest.fn(
           async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
             pageSymbolIndex(
@@ -4883,7 +5513,6 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
               root,
             ),
         ),
-        getGraphCoverage: jest.fn().mockResolvedValue(undefined),
       } as unknown as PtahAPI['dependencies'],
     });
     const deps = buildDeps({ ptahAPI, logger: asLogger(logger) });
@@ -5276,12 +5905,12 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
         workspace: {
           getInfo: jest.fn().mockResolvedValue({ path: root }),
         } as unknown as PtahAPI['workspace'],
-        search: {
-          findFiles: jest.fn().mockResolvedValue(files),
-        } as unknown as PtahAPI['search'],
         dependencies: buildDependencyNamespace({
           dependencyGraph: graph,
           workspaceProvider: { getWorkspaceRoot: () => root },
+          fileSystemProvider: {
+            findFiles: jest.fn().mockResolvedValue(files),
+          } as unknown as IFileSystemProvider,
         } as unknown as AnalysisNamespaceDependencies),
       }),
     });
@@ -5351,17 +5980,18 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
         { readFile } as unknown as FileSystemService,
         asLogger(createMockLogger()),
       );
+      // Discovery goes through the provider, as in production.
+      const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
       const dependencies = buildDependencyNamespace({
         dependencyGraph: graph,
         workspaceProvider: { getWorkspaceRoot: () => root },
+        fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
       } as unknown as AnalysisNamespaceDependencies);
-      const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
       const deps = buildDeps({
         ptahAPI: buildPtahAPIStub({
           workspace: {
             getInfo: jest.fn().mockResolvedValue({ path: root }),
           } as unknown as PtahAPI['workspace'],
-          search: { findFiles } as unknown as PtahAPI['search'],
           dependencies,
         }),
       });

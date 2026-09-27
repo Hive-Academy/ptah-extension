@@ -174,6 +174,14 @@ export type {
   ShrinkJsonStringLeavesOptions,
 } from './utils/json-budget';
 export { planGlobWatch } from './utils/glob-watch-plan';
+export { collectBounded } from './utils/bounded-collect';
+export {
+  IncompleteFileSearchError,
+  createFailureTally,
+  walkGlobMatches,
+  type BoundedGlobWalkOptions,
+  type FileSearchFailures,
+} from './utils/bounded-glob-walk';
 export type {
   GlobWatchPlan,
   GlobWatchPlanOptions,

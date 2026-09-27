@@ -15,8 +15,12 @@ import type {
 } from '@ptah-extension/platform-core';
 import {
   FileType,
+  IncompleteFileSearchError,
+  collectBounded,
   createEvent,
+  createFailureTally,
   planGlobWatch,
+  walkGlobMatches,
 } from '@ptah-extension/platform-core';
 
 export class ElectronFileSystemProvider implements IFileSystemProvider {
@@ -123,15 +127,37 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     maxResults?: number,
     cwd?: string,
   ): Promise<string[]> {
+    const ignore = exclude && exclude.length > 0 ? exclude : undefined;
+    if (maxResults !== undefined && maxResults > 0) {
+      // A limit bounds the walk itself: fast-glob reads each directory whole
+      // and buffers its matches, so a bounded call walks one entry at a time
+      // and stops at the limit. Same options as below (dot-files included).
+      // A path it could not read rejects, as fast-glob does, but with what
+      // was found and why (`IncompleteFileSearchError`).
+      const tally = createFailureTally();
+      const matches = await collectBounded(
+        walkGlobMatches(pattern, {
+          exclude: ignore,
+          cwd: cwd || undefined,
+          dot: true,
+          onFailure: tally.onFailure,
+        }),
+        maxResults,
+      );
+      const failures = tally.failures();
+      if (failures !== undefined) {
+        throw new IncompleteFileSearchError(matches, failures);
+      }
+      return matches;
+    }
     const fg = await import('fast-glob');
-    const results = await fg.default(pattern, {
-      ignore: exclude && exclude.length > 0 ? exclude : undefined,
+    return fg.default(pattern, {
+      ignore,
       absolute: true,
       onlyFiles: true,
       dot: true,
       cwd: cwd || undefined,
     });
-    return maxResults ? results.slice(0, maxResults) : results;
   }
 
   /**

@@ -15,6 +15,10 @@ import type {
 } from '@ptah-extension/shared';
 import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
+  LanguageCoverage,
+  UnsupportedLanguageAnswer,
+} from '@ptah-extension/platform-core';
+import type {
   WorkspaceInfo,
   ProjectInfo,
   WorkspaceStructureAnalysis,
@@ -803,7 +807,22 @@ export interface DependenciesNamespace {
     filePaths: string[],
     workspaceRoot: string,
     discoveredFiles?: number,
-    options?: { yieldToForeground?: boolean; generation?: number },
+    options?: {
+      yieldToForeground?: boolean;
+      generation?: number;
+      /**
+       * Set when discovery stopped at this many files
+       * ({@link GraphSourceDiscovery.truncated}): the coverage census is
+       * `truncated`.
+       */
+      censusLimit?: number;
+      /**
+       * Set when discovery could not read part of the tree
+       * ({@link GraphSourceDiscovery.unreadable}): the coverage census is
+       * `unknown`, never clean.
+       */
+      censusUnknown?: boolean;
+    },
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -811,6 +830,31 @@ export interface DependenciesNamespace {
     builtAt: number;
     error?: string;
   }>;
+
+  /**
+   * Discover the source files a graph of `workspaceRoot` is built from: every
+   * file with an extension a language is recognised by (graph-capable or
+   * not, so the census counts what the graph cannot analyse), with the
+   * default workspace excludes and the vendor trees (`.venv`, `vendor`,
+   * `obj`, `bin`, ...) excluded inside the bounded walk.
+   * @param limit - Census limit (integer 1-50,000, default 50,000). One more
+   *   file than this is asked for; when it exists, discovery is `truncated`.
+   * @returns Absolute paths, at most `limit` of them.
+   */
+  discoverSourceFiles: (
+    workspaceRoot: string,
+    limit?: number,
+  ) => Promise<GraphSourceDiscovery>;
+
+  /**
+   * The `unsupported-language` answer for a file the dependency graph cannot
+   * hold (its language draws no graph edges on this host, or it is not
+   * source), or `undefined` when the graph can hold it. Decided by the
+   * extension alone.
+   */
+  unsupportedGraphLanguage: (
+    filePath: string,
+  ) => UnsupportedLanguageAnswer | undefined;
 
   /**
    * Reserve a build generation for `workspaceRoot` before discovering its
@@ -870,23 +914,54 @@ export interface DependenciesNamespace {
 
   /**
    * How many files the graph was built from, against how many were
-   * discovered; `graphedFiles < discoveredFiles` means a cap dropped files.
-   * @param workspaceRoot - That workspace's graph; omit for the sum over every
-   *   graph (the scope of the merged symbol index).
-   * @returns `undefined` when no graph is built
+   * discovered (`graphedFiles < discoveredFiles` means a cap dropped files),
+   * and its language `coverage`.
+   * @param workspaceRoot - That workspace's graph; omit for every graph
+   *   combined (the scope of the merged symbol index).
+   * @returns No file counts and an unknown `coverage` (census `unknown`,
+   *   never clean) when no graph is built
    */
-  getGraphCoverage: (
-    workspaceRoot?: string,
-  ) => Promise<GraphCoverage | undefined>;
+  getGraphCoverage: (workspaceRoot?: string) => Promise<GraphQueryCoverage>;
 
   /**
    * Coverage of the graph that answers {@link getDependencies} and
-   * {@link getDependents} for `filePath` (resolved and routed the same way).
-   * @returns `undefined` when no graph answers that file
+   * {@link getDependents} for `filePath` (resolved and routed the same way),
+   * and the graph's own spelling of the file when it holds it.
+   * @returns No file counts and an unknown `coverage` when no graph answers
+   *   that file
    */
-  getGraphCoverageForFile: (
-    filePath: string,
-  ) => Promise<GraphCoverage | undefined>;
+  getGraphCoverageForFile: (filePath: string) => Promise<GraphFileCoverage>;
+}
+
+/** What {@link DependenciesNamespace.discoverSourceFiles} found. */
+export interface GraphSourceDiscovery {
+  /** Absolute paths of the discovered files, at most `limit`. */
+  files: string[];
+  /** More than `limit` files exist: the ones past it were never seen. */
+  truncated: boolean;
+  /** The census limit the discovery ran with. */
+  limit: number;
+  /**
+   * Paths discovery could not read (directories, links), by error code;
+   * absent when everything was read. `files` then holds only what was found,
+   * so the census is unknown.
+   */
+  unreadable?: { paths: number; byCode: Record<string, number> };
+}
+
+/** Coverage of the graph a dependency query is answered by. */
+export interface GraphQueryCoverage extends Partial<GraphCoverage> {
+  /** Language coverage of that graph; census `unknown` when none answers. */
+  coverage: LanguageCoverage;
+}
+
+/** {@link GraphQueryCoverage} for one queried file. */
+export interface GraphFileCoverage extends GraphQueryCoverage {
+  /**
+   * The graph's own spelling of the file (its node key), when the answering
+   * graph holds it; absent when the file is not in that graph.
+   */
+  nodePath?: string;
 }
 
 /** One file of the symbol index and the names it exports. */
@@ -1110,7 +1185,7 @@ export interface AstCodeInsights {
   errorNodeCount: number | null;
   errorNodeCountCapped: boolean;
   /** Serialized ahead of paths and lists so result budgets retain coverage. */
-  coverage: import('@ptah-extension/platform-core').LanguageCoverage;
+  coverage: LanguageCoverage;
 
   /** File that was analyzed */
   file: string;

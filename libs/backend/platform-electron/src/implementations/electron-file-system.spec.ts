@@ -16,13 +16,20 @@
  */
 
 import 'reflect-metadata';
+import * as fsSync from 'fs';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { expectNormalizedPath } from '@ptah-extension/shared/testing';
-import { runFileSystemContract } from '@ptah-extension/platform-core/testing';
+import {
+  countDirectoryReads,
+  runFileSystemContract,
+} from '@ptah-extension/platform-core/testing';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
-import { FileType } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  IncompleteFileSearchError,
+} from '@ptah-extension/platform-core';
 import { ElectronFileSystemProvider } from './electron-file-system-provider';
 
 // Track every tmp dir we provision so the afterEach teardown can remove them
@@ -148,6 +155,195 @@ describe('ElectronFileSystemProvider — Electron-specific behaviour', () => {
       expectNormalizedPath(r.slice(0, root.length), root);
     }
   });
+
+  // TASK_2026_559 Batch 23b r1/r2 M1: maxResults bounds the walk itself. On
+  // a real flat directory of 2,000 matches, a limit of 5 reads a handful of
+  // entries (fast-glob read and emitted all 2,000) and closes what it opened.
+  it('findFiles with maxResults reads a bounded number of entries of a 2,000-file directory', async () => {
+    const flat = path.join(root, 'flat');
+    await fs.mkdir(flat);
+    // The fixture is created in parallel chunks: 2,000 sequential writes
+    // alone can pass jest's default 5 s under a loaded full-suite run.
+    for (let chunk = 0; chunk < 2_000; chunk += 200) {
+      await Promise.all(
+        Array.from({ length: 200 }, (_, i) =>
+          fs.writeFile(path.join(flat, `f${chunk + i}.ts`), ''),
+        ),
+      );
+    }
+    const probe = countDirectoryReads();
+    try {
+      const results = await provider.findFiles('**/*.ts', [], 5, root);
+
+      expect(results).toHaveLength(5);
+      expect(probe.entriesRead).toBeGreaterThan(0);
+      expect(probe.entriesRead).toBeLessThanOrEqual(6);
+      expect(probe.closed).toBe(probe.opened);
+    } finally {
+      probe.restore();
+    }
+  }, 30_000);
+
+  // TASK_2026_559 Batch 23b r4 B1 (FB): a search root that does not exist
+  // (or is a file) is an incomplete search, never an empty complete answer.
+  it.each([
+    ['a missing root', 'nonexistent', 'ENOENT'],
+    ['a root that is a file', 'root-file.txt', 'ENOTDIR'],
+  ])(
+    'findFiles with maxResults rejects %s as incomplete (%s)',
+    async (_label, name, code) => {
+      await fs.writeFile(path.join(root, 'root-file.txt'), '');
+      const error = await provider
+        .findFiles('**/*.ts', [], 100, path.join(root, name))
+        .then(
+          () => undefined,
+          (rejection: unknown) => rejection,
+        );
+      expect(error).toBeInstanceOf(IncompleteFileSearchError);
+      expect((error as IncompleteFileSearchError).failures).toEqual({
+        total: 1,
+        byCode: { [code]: 1 },
+      });
+      expect((error as IncompleteFileSearchError).matches).toEqual([]);
+    },
+  );
+
+  // TASK_2026_559 Batch 23b r3 B1 (FB): an unreadable directory in a bounded
+  // search rejects with what was found and why, never a silent short list.
+  it.each([['EIO'], ['EACCES'], ['EPERM']])(
+    'findFiles with maxResults rejects an unreadable subtree (%s) as incomplete',
+    async (code) => {
+      await fs.mkdir(path.join(root, 'src'));
+      await fs.mkdir(path.join(root, 'locked'));
+      await fs.writeFile(path.join(root, 'src', 'a.ts'), '');
+      await fs.writeFile(path.join(root, 'locked', 'b.ts'), '');
+      const opendir = fsSync.promises.opendir.bind(fsSync.promises);
+      const spy = jest
+        .spyOn(fsSync.promises, 'opendir')
+        .mockImplementation(async (dir, options) => {
+          if (path.basename(String(dir)) === 'locked') {
+            throw Object.assign(new Error(code), { code });
+          }
+          return opendir(dir, options);
+        });
+      try {
+        const error = await provider.findFiles('**/*.ts', [], 100, root).then(
+          () => undefined,
+          (rejection: unknown) => rejection,
+        );
+        expect(error).toBeInstanceOf(IncompleteFileSearchError);
+        const incomplete = error as IncompleteFileSearchError;
+        expect(incomplete.failures).toEqual({
+          total: 1,
+          byCode: { [code]: 1 },
+        });
+        expect(incomplete.matches.map((m) => path.basename(m))).toEqual([
+          'a.ts',
+        ]);
+        expect(incomplete.message).not.toContain(root);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  // TASK_2026_559 Batch 23b r3 S1 (FB): a bounded search (large limit)
+  // returns exactly what the unlimited search returns, for every pattern
+  // class; a literal `package.json` was [] with a limit.
+  it.each([
+    ['package.json'],
+    ['./package.json'],
+    ['{abs}/package.json'],
+    ['missing.json'],
+    ['src'],
+    ['.env'],
+    ['*.json'],
+    ['**/package.json'],
+    ['src/{a,b}.ts'],
+    ['src/+(a|b).ts'],
+    ['src/*.TS'],
+    ['src/[aA]*.ts'],
+    ['**/.*'],
+    ['**/*'],
+    ['{abs}/src/**/*.ts'],
+    // r4 S1 (FB): escaped metacharacters in route-style names.
+    ['app/\\[id\\]/page.tsx'],
+    ['app/\\[id\\]/**/*.tsx'],
+    ['app/\\(group\\)/*.ts'],
+    ['lit\\[1\\].ts'],
+    ['{abs}/app/\\[id\\]/*.tsx'],
+  ])(
+    'findFiles %s with a large limit equals the unlimited search',
+    async (rawPattern) => {
+      for (const file of [
+        'package.json',
+        '.env',
+        'src/a.ts',
+        'src/b.ts',
+        'src/APP.TS',
+        'src/.hidden/c.ts',
+        'node_modules/pkg/package.json',
+        'app/[id]/page.tsx',
+        'app/(group)/layout.ts',
+        'lit[1].ts',
+      ]) {
+        await provider.writeFile(path.join(root, file), '');
+      }
+      const pattern = rawPattern.replace(
+        '{abs}',
+        root.split(path.sep).join('/'),
+      );
+      const exclude = ['**/node_modules/**'];
+      const unlimited = await provider.findFiles(
+        pattern,
+        exclude,
+        undefined,
+        root,
+      );
+      const bounded = await provider.findFiles(
+        pattern,
+        exclude,
+        1_000_000,
+        root,
+      );
+
+      expect([...bounded].sort()).toEqual([...unlimited].sort());
+      // An escaped pattern names an existing file: parity is not vacuous.
+      if (rawPattern.includes('\\')) expect(unlimited).toHaveLength(1);
+    },
+  );
+
+  // TASK_2026_559 Batch 23b r1 B1: per-letter bracket classes (the graph
+  // discovery glob's form) match every extension case in this adapter.
+  it.each([
+    ['bounded', 100],
+    ['unbounded', undefined],
+  ])(
+    'findFiles (%s) matches upper- and mixed-case extensions through bracket classes',
+    async (_label, max) => {
+      for (const name of [
+        'APP.TS',
+        'analysis.R',
+        'lib.Ts',
+        'main.ts',
+        'x.md',
+      ]) {
+        await provider.writeFile(path.join(root, 'src', name), '');
+      }
+      const results = await provider.findFiles(
+        '**/*.{[tT][sS],[rR]}',
+        [],
+        max,
+        root,
+      );
+      expect(results.map((r) => path.basename(r)).sort()).toEqual([
+        'APP.TS',
+        'analysis.R',
+        'lib.Ts',
+        'main.ts',
+      ]);
+    },
+  );
 
   it('stat on a written file reports correct byte size and File type', async () => {
     await provider.writeFile(path.join(root, 'sz.txt'), 'abcd');
