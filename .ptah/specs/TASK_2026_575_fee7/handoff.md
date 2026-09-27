@@ -6,7 +6,7 @@ Written at the end of the first session, 2026-09-27. Read this first. Then read 
 
 - **Branch:** `claude/sleepy-turing-pdzxlm`, pushed.
 - **PR:** [Hive-Academy/ptah-extension#603](https://github.com/Hive-Academy/ptah-extension/pull/603), a draft. Its description carries a progress checklist; update it as batches land.
-- **Progress:** 13 of 33 batches are committed if Batch 13 landed; check the top of `batches.md` and `git log`. All document gates are approved by the owner:
+- **Progress:** 13 of 33 batches are committed. The last code commit is `eebe6ed1` (Batch 13, download page) and the last batches.md record is `75a14a18`. `batches.md` carries a "Session paused after Batch 13" note; Batch 14 is PENDING and is next. All document gates are approved by the owner:
   - Gate 0 and Gate 1 (requirements),
   - Gate 1.7 (design and prototype),
   - Gate 2 (implementation plan).
@@ -77,6 +77,8 @@ After Batch 33:
 - **Team-leader instances:** use a fresh one per batch. It reads the handover notes in `batches.md`.
 
 ## Open carry-overs
+
+- **Accessibility follow-up (pre-existing, out of scope; fix only if the owner asks):** on the download page, `text-neutral-content/40` measures about 2.6:1 contrast (`download-page.component.ts:194,200,239,245,286,292,307`), and the "View release notes" link has a 16px hit area (`:303-317`). Both predate this task. The Batch 13 visual review flagged them and the batch was accepted for its i18n/RTL scope.
 
 - **Task 32.1:** glossary candidates collected in batches 10–13 (Paddle, Windows, macOS, Linux, SaaS, PRD, Cron, GitHub, SDK, Builders, Claude Agent SDK, Meet, Discord, Reddit, LinkedIn, VS Code Marketplace, IDE, AppImage, Debian, Ubuntu).
 - **Task 32.3:**
