@@ -288,7 +288,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 3 | Depends on: Batch 2 (package.json sequencing)
 - Commit: `feat(scripts): add i18n-check tool with parity and key reference rules`
 
-### Task 3.1: Tool project scaffold and glossary seed — IN_PROGRESS
+### Task 3.1: Tool project scaffold and glossary seed — IMPLEMENTED
 
 - Files: `$ROOT/tools/i18n-check/{project.json,tsconfig.json,jest.config.ts}`, `$ROOT/tools/i18n-check/glossary.json`
 - Plan reference: implementation-plan.md:362-365, :70
@@ -297,7 +297,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: tool imports no project code.
 - Implementation details: ts-node `--transpile-only` invocation as in degradation-audit.
 
-### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — IN_PROGRESS
+### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — IMPLEMENTED
 
 - Depends on: Task 3.1
 - Files: `$ROOT/tools/i18n-check/src/main.ts`, `$ROOT/tools/i18n-check/src/lib/{scope-map.ts,template-keys.ts,ts-keys.ts,translation-files.ts,glossary.ts,report.ts}` + specs
@@ -311,7 +311,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   constraint to `$ROOT/libs/frontend/i18n/CLAUDE.md`.
 - Implementation details: `@angular/compiler` `parseTemplate` for `.html` and inline `template:`; `typescript` API for `translate(`, `.translate(`, `translateSignal(`, `translateObjectSignal(`.
 
-### Task 3.3: Self-test fixture with F2a planted violations — IN_PROGRESS
+### Task 3.3: Self-test fixture with F2a planted violations — IMPLEMENTED
 
 - Depends on: Task 3.2
 - Files: `$ROOT/tools/i18n-check/run-self-test.js`, `$ROOT/tools/i18n-check/__fixtures__/project/**`
@@ -325,6 +325,31 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 
 - `node_modules/.bin/nx run i18n-check:self-test` and `node_modules/.bin/nx run-many -t test -p i18n-check` pass.
 - Reviewer: logic (rule correctness, false-positive/negative risk).
+- Review round 1 (code-logic-review.md `## Batch 3`): NEEDS_REVISION, 0 blocking, 2 serious, 2 moderate, 3 minor.
+  Team-leader verified on disk: all listed files exist; self-test PASS on both runs, 7 suites pass. Task 3.1
+  IMPLEMENTED; Tasks 3.2/3.3 stay IN_PROGRESS for rework. Fix in this batch:
+  - Serious-1 (Task 3.2): the `translateObjectSignal` group requirement is enforced for computed keys. Each use site
+    is validated with its own `target`: const values are checked per reading use site (`'any'` when no use reads
+    them); marker keys for an `object` target must name a non-empty group. Fixture plants (Task 3.3): a group-name
+    const read by `translateObjectSignal` PASSES; a leaf const read by `translateObjectSignal` FAILS; a leaf-only
+    marker on a `translateObjectSignal` computed argument FAILS.
+  - Serious-2 (Task 3.2): markers attach by AST, not line count. A template comment covers the next sibling node's
+    full source span (`parseTemplate` spans); a TS `//` marker covers the full span of the next statement or
+    property it precedes. Fixture (Task 3.3): Prettier-formatted wrapped elements where the annotated expression
+    sits 2+ lines below its marker PASS (`i18n-keys:` and `i18n-ignore:`), and a marker two nodes away does NOT
+    cover.
+  - Moderate-2 (Task 3.2): `parseTemplate` (and any other per-file parse) is wrapped so a throw becomes a per-file
+    `parse-error` and the scan continues; spec with a throwing parse.
+  - Minor, zero source files (Task 3.2): a project root whose `src` yields no `.ts`/`.html` files is a violation
+    (`no-source-files`), never a silent exit 0.
+  - Minor, duplicate key-constant name (Task 3.2): two `*_I18N_KEYS`/`*I18nKeys` declarations with the same name
+    in one project is a violation (`duplicate-key-constant`, both locations).
+    Deferred to Task 4.1 (same tool, next batch): Moderate-1, an allowed scope's own structural defects get a one-line
+    summary pointer in the consumer's report; Minor, the glossary word boundary also treats Arabic letters as word
+    characters.
+- Review round 2: APPROVED (0 blocking, 0 serious, 1 new moderate). All five round-1 fixes verified; team-leader
+  reran self-test (both runs PASS), test, eslint:lint, tsc and prettier --check: all clean. New Moderate (inline
+  template offsets are approximate after an escape sequence, `ts-keys.ts:43-47,150`) carried to Task 4.1.
 
 ## Batch 4: Review tables, Nx target defaults and CI step (F2a, part 2) — PENDING
 
@@ -336,6 +361,15 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Commit: `feat(scripts): add i18n review tables and ci i18n-check step`
 
 ### Task 4.1: `review-tables` generator — PENDING
+
+- Batch 3 review carry-over: (1) when an allowed scope's `en.json` loads but has structural violations
+  (`dotted-key`, `duplicate-key`, `invalid-value`), the consumer's report adds one `allowed-scope-defect` line
+  naming that scope's file; (2) `glossary.ts` `containsTerm` treats Arabic letters (U+0600-06FF) as word
+  characters at the boundaries. Each gets a spec. (3) Batch 3 round-2 Moderate: an inline `template:` whose raw
+  text contains a backslash has approximate offsets (`ts-keys.ts:43-47,150`). Either map offsets exactly by
+  re-scanning the raw literal's escapes, or report a marker inside such a template as `marker-in-escaped-template`
+  (a distinct violation telling the author to move the markup to an `.html` file) instead of trusting
+  `coversOffset`. Spec: an escaped inline template with a marker right before and right after the escape.
 
 - Files: `$ROOT/tools/i18n-check/src/review/review-tables.ts` + spec
 - Plan reference: implementation-plan.md:332-336, :720

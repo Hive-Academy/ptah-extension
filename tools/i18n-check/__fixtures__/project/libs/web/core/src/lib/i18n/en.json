@@ -1,0 +1,6 @@
+{
+  "checkout": {
+    "error": "Checkout failed",
+    "cancelled": "Checkout was cancelled"
+  }
+}

@@ -48,6 +48,9 @@ Tags `scope:shared`, `type:util`. No build target: consumed from source.
   read `scope.key`. A loaded `scope/lang` is remembered; a failed one is not, so
   the next `setLanguage`, route visit or English retry calls the loader again.
   Only the (empty) root translations go through `TranslocoService.load`.
+  A translation file must not have `default` as its only top-level key: the
+  loader cannot tell it from a JSON module wrapper and would drop the `default.`
+  prefix, so `i18n-check` rejects it (`sole-default-key`).
 - **Missing keys never show the key.** A key missing in Arabic renders its
   English value; missing in English too, it renders `''` (dev warns).
 - **Errors.** Everything this library throws is an `I18nError`. Errors from

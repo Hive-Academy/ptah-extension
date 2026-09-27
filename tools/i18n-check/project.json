@@ -1,0 +1,23 @@
+{
+  "name": "i18n-check",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/i18n-check/src",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "self-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node tools/i18n-check/run-self-test.js",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "tools/i18n-check/jest.config.ts"
+      }
+    }
+  }
+}

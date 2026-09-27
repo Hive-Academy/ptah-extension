@@ -599,3 +599,415 @@ label: 'Default label' }`) is returned in place of `result`. Confirmed empirical
 | Serious issues (open)          | 0                                                            |
 | Moderate issues (open)         | 1 (the single-key `{ default: {...} }` corollary above)      |
 | Issues fixed across rounds 1-3 | 5 of 6 (Serious-1, Serious-2, Moderate-1, Moderate-2, Minor) |
+
+---
+
+## Batch 3
+
+### Summary
+
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall score       | 6/10           |
+| Assessment          | NEEDS_REVISION |
+| Blocking issues     | 0              |
+| Serious issues      | 2              |
+| Moderate issues     | 2              |
+| Failure modes found | 4              |
+
+Scope examined: `tools/i18n-check/{project.json,tsconfig.json,jest.config.ts,glossary.json,run-self-test.js}`,
+`tools/i18n-check/src/main.ts`, `tools/i18n-check/src/lib/{scope-map,template-keys,ts-keys,translation-files,glossary,report,markers}.ts` and
+their `*.spec.ts`, and `tools/i18n-check/__fixtures__/project/**`. Read in full, not by diff. Verified against
+`implementation-plan.md:282-301,337-341,355-365` and `batches.md` Batch 3 task text (Tasks 3.1-3.3). Ran
+`node_modules/.bin/nx run i18n-check:self-test` (2/2 fixture runs pass) and
+`node_modules/.bin/nx run-many -t test -p i18n-check` (7 suites / 38 tests pass). Regression-sensitivity spot check:
+temporarily widened `defaultAllowedScopes('pricing')` to include `landing` in `scope-map.ts`, confirmed
+`self-test` then fails (the foreign-scope plant stops being reported), then reverted and confirmed `git diff` on
+that file is empty again (no working-tree change left behind).
+
+### Five logic questions
+
+**1. How does this fail silently?**
+
+- A `translateObjectSignal(...)` call whose argument is a computed expression backed by a `*_I18N_KEYS` constant or
+  an `i18n-keys:` marker is accepted without ever confirming the referenced key names a non-empty _namespace_, the
+  one thing `translateObjectSignal` actually requires (`main.ts:379-393`, `:400-418` — see Failure mode
+  "translateObjectSignal's group requirement is not checked for computed keys"). At runtime this becomes an empty
+  or wrong-shaped object handed to the caller with no build-time signal.
+- An allowed scope's (`ui`/`core`) real config defect — a `dotted-key`, `duplicate-key`, or unsupported-property
+  `invalid-value` in its `en.json` — is filtered out of a consuming project's report (`main.ts:328-336` keeps only
+  `missing-file`/`parse-error`), and the affected key is simply absent from `entries` (`translation-files.ts:123-154`,
+  each of those three branches `continue`s before `entries.set`). A consuming project referencing that key sees a
+  generic `unknown-key`, not the real cause; the real cause is reported only when that scope's own project is
+  checked, so CI does not miss it project-wide, but a developer chasing the `unknown-key` in the _consumer_ project
+  gets no pointer to the actual defect.
+
+**2. What user action produces unexpected behaviour?**
+
+- An author writes a `<!-- i18n-keys: core.checkout.* -->` marker one line above a `<p>` element whose interpolation
+  is itself on the _next_ line (Prettier's normal output for anything past a one-line element), e.g.:
+  ```html
+  <!-- i18n-keys: core.checkout.* -->
+  <p>{{ message.key | transloco }}</p>
+  ```
+  `coversLine` only accepts `markerLine === line` or `markerLine === line - 1` (`markers.ts:53-56`), so the marker
+  is two lines above the actual pipe argument's line and the check fails with `unannotated-computed-key`
+  (`main.ts:405-418`) even though the author did exactly what the tool asks. The only fixture case
+  (`__fixtures__/project/.../pricing-page.component.ts:34-35`) keeps the marker and the usage adjacent, so this
+  never surfaces in the self-test. See Failure mode "Marker association breaks across any intervening line".
+- An author names a translateObjectSignal group-lookup constant `GROUP_I18N_KEYS = { a: 'pricing.card', b:
+'pricing.footer' } as const` (values are namespace names, correctly matching the naming convention). Its values
+  are validated with a hardcoded `'leaf'` target (`main.ts:392`), so a perfectly correct group-name constant is
+  reported as `unknown-key` for every entry, because `pricing.card`/`pricing.footer` are namespaces, not leaves.
+
+**3. What input data produces a wrong answer rather than an error?**
+
+- Two files within the same project define an unrelated identifier that happens to end in `I18N_KEYS`/`I18nKeys`
+  (`ts-keys.ts:21`, `KEY_CONST_NAME`), with the _same_ name in two different files. `scanProject`/`run` accumulate
+  `keyConsts` into one project-wide `Map` keyed only by name (`main.ts:379-381`); the later file's declaration wins
+  silently for every computed-key receiver check via `isKeyConstReceiver` (`main.ts:394-397`), regardless of which
+  file a given computed key actually reads from. No import/data-flow tracking ties a receiver back to the specific
+  declaration it uses, so a valid constant in file A can mask an invalid or mismatched one intended for a receiver
+  in file B, or vice versa. Low likelihood in an 11-scope-per-project layout, but plausible after a copy-paste
+  refactor within one lib.
+- `containsTerm`'s word-boundary guard only excludes preceding/following `[A-Za-z0-9]` (`glossary.ts:76-78`); an
+  Arabic character glued directly to a Latin term (`شركةPtahللمنتجات`, no separating space — a realistic RTL typo
+  or a machine-translation artifact) still counts as a "whole-word" match, since Arabic letters are outside the
+  exclusion class. This can produce a false negative glossary-parity pass for a value that isn't actually a clean,
+  isolated brand mention.
+
+**4. What happens when a dependency fails?**
+
+- `@angular/compiler`'s `parseTemplate` throwing (rather than returning `errors`) is not caught anywhere in
+  `extractTemplateKeys` (`template-keys.ts:68`) or its caller (`main.ts:181-187`); an uncaught exception here
+  propagates out of `run()` to `main()`'s top-level `.catch` (`main.ts:456-461`), which exits 2 ("internal error")
+  rather than reporting a per-file `parse-error` and continuing to scan the rest of the project. This differs from
+  the TypeScript path, which explicitly treats `program.getSourceFile` returning `undefined` as a file-level
+  violation and keeps going (`main.ts:189-198`). Whether `parseTemplate` can throw synchronously (vs. always
+  populating `.errors`) was not verified against the installed `@angular/compiler@22.1.7`; if it can, one malformed
+  template turns a per-file failure into a whole-run abort that silently skips every other file's rules on that
+  run, which is a materially worse degradation-audit outcome than "every file's rules run, violations named."
+- `fast-glob` returning zero files (e.g. `--project-root` points at a project whose `src/` was renamed or is
+  temporarily empty during a migration) produces an empty `scan`, and `run()` proceeds to completion with only the
+  parity/glossary/placeholder checks against `en.json`/`ar.json` still active — the project exits 0 if those pass,
+  even though zero source files were scanned. There is no minimum-file-count or "did we actually see any source"
+  assertion, so a broken `--project-root` (a typo not caught by the `--project-root`/scope-map match check, e.g. a
+  correct root that nonetheless has no `src/*.ts`/`*.html` under it yet) reads as "clean" rather than "nothing was
+  checked."
+
+**5. What is missing that the requirements never mentioned?**
+
+- The plan's own wording for a plain `i18n-keys:` token ("resolves against the `en.json` of its own owning scope")
+  doesn't say whether that resolution should honour the surrounding call's target (`leaf` for `translate`/
+  `translateSignal`, `object` for `translateObjectSignal`). The implementation resolves every plain token as
+  `'leaf'` unconditionally (`main.ts:357-363`) and every key-const value as `'leaf'` unconditionally
+  (`main.ts:392`), so the plan gap becomes a concrete bug the moment `translateObjectSignal` is used with anything
+  other than a literal string argument — a combination the plan's own worked example never shows and the fixture
+  never plants or exercises.
+- No fixture or spec plants a genuinely un-annotated computed key argument to `translateObjectSignal` (target
+  `object`) to confirm the `unannotated-computed-key` message correctly distinguishes "needs a leaf key" from
+  "needs a non-empty group" — today's message text is target-agnostic (`main.ts:412-416`), which will read oddly
+  once `translateObjectSignal` sees real use starting in later batches.
+
+### Failure modes
+
+#### translateObjectSignal's group requirement is not checked for computed keys
+
+- Trigger: any `translateObjectSignal(EXPR)` call whose argument is not a plain string literal — the exact case
+  requirement 7.2/6.2 review focus calls out ("translateObjectSignal keys must name a non-empty group").
+- Symptom: (a) if the computed argument is annotated with an `i18n-keys:` marker or backed by a `*_I18N_KEYS`
+  constant, the tool accepts it purely on "is this annotated/const-backed", never confirming the resolved key(s)
+  are namespaces (`main.ts:400-418`); a marker or constant whose listed keys are leaves silently passes even though
+  `translateObjectSignal` needs a group. (b) Conversely, a correctly-authored group-name constant (values are
+  namespace prefixes, not leaves) is checked with a hardcoded `'leaf'` target (`main.ts:392`) and is wrongly
+  reported as `unknown-key` for every entry — a false positive that blocks a correct usage.
+- Evidence: `main.ts:379-393` (key-const values always checked `'leaf'`), `main.ts:400-418` (computed-use loop
+  never reads `use.target` once `annotated`/`isKeyConstReceiver` is true), `ts-keys.ts:230-232` (`useOf` sets
+  `target: 'object'` only for `translateObjectSignal`). Confirmed untested: no fixture or spec in
+  `ts-keys.spec.ts`/`__fixtures__/project/**` exercises a non-literal `translateObjectSignal` argument — the only
+  `translateObjectSignal` case anywhere is the literal `translateObjectSignal('a.b')` in `ts-keys.spec.ts:20`.
+- Current handling: none; both directions (false accept and false reject) are live given the code as written, they
+  are just not yet reachable because no in-repo caller has adopted `translateObjectSignal` with a computed argument
+  yet (Batch 3 is the tool itself, not a consumer).
+- Recommendation: thread `use.target` through both the key-const validation (`main.ts:392` — validate a const's
+  values with the target of _the specific use site_ that reads them, or, if a const can legitimately feed both
+  leaf and group call sites, validate with `'any'` and let target-specific misuse be a runtime concern) and the
+  annotated-computed-key path (require an object-target marker/`.*` token when `use.target === 'object'`, and
+  reject a plain leaf-shaped marker/const for a `translateObjectSignal` computed argument). Add a fixture plant
+  exercising this before Batch 5+ work starts calling `translateObjectSignal` for real.
+
+#### Marker association breaks across any intervening line
+
+- Trigger: an `i18n-keys:` or `i18n-ignore:` marker sits on the line directly above an element, but the annotated
+  expression is on a line two or more below the marker — normal Prettier output for any element whose content
+  doesn't fit on one line (a `<p>` wrapping its interpolation on its own line, a multi-attribute element, a
+  multi-line method call argument).
+- Symptom: `coversLine` (`markers.ts:53-56`) only matches `markerLine === line` or `markerLine === line - 1`. A
+  correctly-placed, well-intentioned marker fails to cover its target and the checker reports
+  `unannotated-computed-key`/flags the literal-scan string as un-ignored, even though the author followed the
+  documented convention ("on the same line or the preceding line").
+- Evidence: `markers.ts:53-56`; consumed at `main.ts:405-407` (`i18n-keys:` coverage for computed uses) and
+  `main.ts:424-426` (`i18n-ignore:` coverage for the literal scan). The only marker+usage pair in the fixture
+  keeps them on adjacent lines (`pricing-page.component.ts:34-35`), so this gap is not exercised anywhere in the
+  self-test or specs.
+- Current handling: none — this is the documented behaviour ("covers its own line and the next one only",
+  `markers.spec.ts:29`), so it is not a bug relative to spec, but the spec itself does not match how Prettier
+  formats a multi-line Angular template, meaning the rule will misfire on ordinary, correctly-formatted code the
+  moment a lib batch writes a wrapped `<p>`/`<span>` around an annotated pipe.
+- Recommendation: either extend `coversLine` to look up to N lines ahead within the same element (using the
+  template's own source spans, which the code already has access to via `parseTemplate`, to bound "same element"
+  precisely rather than guessing a line count), or document and enforce (via a lint rule or a clearer error
+  message telling the author to put the marker on the exact line of the expression) that the marker must sit
+  strictly adjacent to the _token_, not the _element_. As written, this will generate real false positives as soon
+  as lib batches start writing normally-formatted multi-line templates with annotated computed keys.
+
+#### An allowed scope's own-file defects are invisible to a consuming project's report
+
+- Trigger: `ui`'s or `core`'s `en.json` (an allowed scope, not the project under test) contains a `dotted-key`,
+  `duplicate-key`, or unsupported-property-form `invalid-value` — any violation kind other than `missing-file`/
+  `parse-error`.
+- Symptom: the affected key is silently absent from `entries` (each of those three branches `continue`s before
+  `entries.set`, `translation-files.ts:123-154`), and the filter at `main.ts:328-336` drops every non-
+  `missing-file`/`parse-error` violation for an allowed scope. A project consuming `core.checkout.foo` (which
+  exists in source but was malformed, e.g. `"checkout.foo": "..."` written as a single dotted key by mistake) sees
+  a bare `unknown-key`, with no indication the real defect lives in `core`'s file, not in the consumer.
+- Evidence: `main.ts:317-336`; `translation-files.ts:120-154` (the three `continue`-before-`entries.set` branches).
+- Current handling: the real defect is still reported when `core`'s _own_ project (`i18n-check` for `core`) runs,
+  so it is not lost from CI as a whole — only the pointer from the consumer's report to the root cause is missing.
+- Recommendation: Moderate, non-blocking for Batch 3 — worth a one-line addition once every project has an
+  `i18n-check` target (Batch 4+/Component 3): when an allowed scope's `en.json` loaded with `loaded: true` but has
+  non-empty `violations` of kinds other than `missing-file`/`parse-error`, surface a single summary note ("scope
+  X's en.json has unresolved structural issues; see its own i18n-check run") rather than nothing, so a developer
+  chasing an `unknown-key` in scope A is pointed at scope B instead of guessing.
+
+#### Template parser exceptions are not isolated per file
+
+- Trigger: `@angular/compiler`'s `parseTemplate` throws synchronously for some malformed input, rather than
+  returning a `ParseTreeResult` with populated `.errors` (not confirmed either way against the pinned
+  `@angular/compiler@22.1.7` — the plan's "Verified contracts" line only confirms the API shape was checked during
+  planning, not its exception behaviour on adversarial input).
+- Symptom: if it can throw, that exception propagates out of `extractTemplateKeys` (`template-keys.ts:68`), out of
+  `scanProject` (`main.ts:181-187`, no try/catch around the call), out of `run()`, and is caught only by `main()`'s
+  generic top-level handler (`main.ts:456-461`), which prints `"i18n-check: internal error"` and exits 2. Every
+  other file's rules in that run — parity, references, glossary, everything already scanned — are lost from the
+  report, contradicting the plan's explicit contract ("A parse failure of a file is reported as failures, never
+  skipped", `implementation-plan.md` Component 2, and the file header's own restated contract, `main.ts:14`).
+- Evidence: `template-keys.ts:68` (no try/catch around `parseTemplate`); `main.ts:181-187` (no try/catch around
+  `extractTemplateKeys`); contrast with the TS path's explicit per-file isolation at `main.ts:189-198`.
+- Current handling: the TS parse path is isolated (`ts.createProgram`/`getSyntacticDiagnostics` never throw for a
+  malformed file, by design of the TS compiler API); the template path has no equivalent guard.
+- Recommendation: wrap the `parseTemplate` call (and, symmetrically, `JSON.parse`/`ts.parseJsonText` in
+  `translation-files.ts`, which already has its own try/catch at `translation-files.ts:62-74` and is fine) in a
+  try/catch that converts any thrown error into a `parse-error` violation for that one file and continues the scan,
+  matching the isolation the TS path already has. Low cost, closes a real single-point-of-failure risk against the
+  tool's own stated contract.
+
+### Blocking issues
+
+None found.
+
+### Serious issues
+
+#### Serious-1: translateObjectSignal's group-vs-leaf distinction is not enforced for computed keys
+
+- File: `tools/i18n-check/src/main.ts:379-393` (key-const values hardcoded to `'leaf'`), `:400-418` (annotated/
+  const-backed computed uses never re-check `use.target`).
+- Scenario: any lib batch that calls `translateObjectSignal` with a non-literal argument — a `*_I18N_KEYS` constant
+  of group names, or a marker-annotated dynamic key — starting from Batch 5 onward, since no consumer of
+  `translateObjectSignal` exists yet in this repo.
+- Impact: either a correct group-name constant is wrongly rejected (blocks a legitimate PR, sends the author
+  chasing a phantom bug in their translation file), or an incorrect leaf-shaped reference is wrongly accepted
+  (ships a `translateObjectSignal` call that resolves to an empty/wrong object at runtime with no build-time
+  signal) — see the Failure mode above for both directions with line evidence.
+- Fix: as recommended above — validate key-const values and annotated computed keys against the specific use
+  site's `target`, not a hardcoded `'leaf'`. Add a fixture plant for the non-literal `translateObjectSignal` case
+  before it is exercised by real code.
+
+#### Serious-2: marker-to-usage line association does not survive normal multi-line template formatting
+
+- File: `tools/i18n-check/src/lib/markers.ts:53-56` (`coversLine`), consumed at `main.ts:405-407,424-426`.
+- Scenario: any correctly-annotated computed key or literal-scan false positive whose element wraps onto more than
+  one line — the default Prettier output for anything but a trivially short element — starting with the first lib
+  batch that writes a real, normally-formatted `<p>`/`<span>`/attribute-bound element around an annotated
+  expression.
+- Impact: the checker fails a correctly-written, correctly-annotated line with `unannotated-computed-key` (or fails
+  to silence a literal-scan false positive with a correctly-placed `i18n-ignore:`), blocking CI on code that did
+  exactly what the tool's own convention asks. This is a false positive on the checker's _own_ core mechanism for
+  handling exactly the cases (computed keys, literal-scan noise) it was built to allow through.
+- Fix: as recommended above — bound "covers" by the template's own element/statement span (already available via
+  `parseTemplate`'s source spans and the TS AST's node spans) rather than a fixed one-line lookahead, or clearly
+  require and document that the marker sit on the exact token's line/the line immediately above the _token_, and
+  verify that requirement against a fixture that wraps an annotated element the way Prettier actually formats it.
+
+### Moderate and minor issues
+
+- **Moderate:** an allowed scope's own structural defects (`dotted-key`, `duplicate-key`, non-`missing-file`/
+  `parse-error` `invalid-value`) are filtered out of a consuming project's report, leaving a bare `unknown-key`
+  with no pointer to the real cause in the other scope. `main.ts:328-336`, `translation-files.ts:120-154`.
+- **Moderate:** `extractTemplateKeys`'s call to `parseTemplate` (`template-keys.ts:68`) and its caller
+  (`main.ts:181-187`) have no try/catch, unlike the isolated TS-parse path (`main.ts:189-198`); an exception here
+  (unconfirmed whether reachable against the pinned compiler version) would abort the whole run via `main.ts`'s
+  generic handler instead of being reported as a per-file `parse-error`, contradicting the tool's own stated
+  "never skipped" contract.
+- **Minor:** `isKeyConstReceiver`/`keyConsts` resolution is name-keyed across the whole project scan with no
+  file/import scoping (`main.ts:379-397`); a same-named `*_I18N_KEYS`/`*I18nKeys` identifier declared twice within
+  one project (unlikely but not impossible after a refactor) silently lets the later declaration win for every
+  receiver check, regardless of which declaration a given use site actually reads from.
+- **Minor:** `containsTerm`'s word-boundary guard (`glossary.ts:76-78`) excludes only `[A-Za-z0-9]` before/after a
+  glossary term; an Arabic character glued directly to the term with no separator still counts as a whole-word
+  match, a narrow false-negative source for the glossary-parity rule.
+- **Minor:** `fast-glob` returning zero files for a misconfigured or temporarily-empty `--project-root/src` is not
+  distinguished from "nothing to report" — the run still exits 0 based only on the translation-file-level checks,
+  with no signal that no source files were actually scanned (`main.ts:148-171`, `:339-340`).
+
+### Data flow
+
+1. `parseArgs` (`main.ts:71-132`) — usage validated, `--project-root` cross-checked against `SCOPE_MAP[scope]`
+   (exit 2 on mismatch), `--allow-scope` validated per entry (known scope, not self) — OK, matches
+   `implementation-plan.md:282-301` and the executor-reported `--project-root` deviation is a sound addition
+   (catches a `project.json` target misconfigured against the fixed scope table before any file is even read).
+2. Glossary load (`glossary.ts:23-74`) → `run()` (`main.ts:299-337`) — malformed glossary entries are reported and
+   the run continues with only the valid entries — OK, matches "every violation reported, not only the first."
+3. Own scope's `en.json`/`ar.json` loaded, parity/placeholder/markup/glossary/real-Arabic checked
+   (`main.ts:317-323`) — OK for the happy and malformed-file paths (both covered by
+   `translation-files.spec.ts`/`glossary.spec.ts`).
+4. Allowed scopes' `en.json` loaded for key-existence only, filtered to `missing-file`/`parse-error`
+   (`main.ts:325-336`) — gap: non-`missing-file`/`parse-error` defects in an allowed scope are invisible to the
+   consumer (Moderate above).
+5. Project scan (`scanProject`, `main.ts:148-238`) — `.html` and `.ts` walked, TS parsed once into a shared
+   `ts.Program` (`ts-keys.ts:63-89`), inline templates re-parsed through the same template extractor
+   (`main.ts:226-235`) — OK for the happy path and for a malformed `.ts` file (isolated per file,
+   `main.ts:189-218`); gap for a malformed template if `parseTemplate` can throw rather than return `.errors`
+   (Moderate above, unconfirmed).
+6. Markers validated in place (`main.ts:345-376`) — OK for adjacent marker/usage pairs; gap when the annotated
+   token is more than one line below the marker (Serious-2).
+7. Key constants validated, values checked, aliases resolved (`main.ts:378-397`) — OK for the leaf-target case
+   (the only one tested); gap for a group-target (`translateObjectSignal`) constant (Serious-1).
+8. Pipe/`translate()` uses resolved: literal via `KeyResolver.check` with the use's own target, computed via
+   marker/const-receiver gating that ignores target (`main.ts:399-418`) — OK for `leaf`; gap for `object`
+   (Serious-1, same root cause as step 7).
+9. Literal scan over every string/text/attribute matching the own-scope pattern, `i18n-ignore:`-aware
+   (`main.ts:420-428`) — OK; anchored pattern confirmed not to match `ptah.live` (fixture `mustPass`, and the
+   self-test enforces it).
+10. `normaliseViolations` sorts and dedupes (`report.ts:53-60`) → printed, exit code set (`main.ts:433-461`) — OK,
+    deterministic order verified by inspection (stable `Array.prototype.sort` over a total order) and by the
+    self-test's exact-match assertions on two full runs.
+
+### Requirements fulfilment
+
+| Requirement                                                                                                                                                                                                      | Status                       | Gap                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task 3.1: scaffold, tags, `self-test`/`test` targets, `testEnvironment: node`, seeded glossary, no project-code import                                                                                           | COMPLETE                     | None — `project.json`, `jest.config.ts`, `glossary.json` all match the task text; `grep` confirms no import of `libs/**`/`apps/**` in the tool's source.                                                                                                                                                                                                  |
+| Task 3.2: parity, references (pipe/`translate`/`translateSignal`/`translateObjectSignal`), computed keys, placeholders, glossary, real Arabic, `--allow-scope` semantics, `sole-default-key`, CLAUDE.md sentence | PARTIAL                      | `translateObjectSignal`'s object-target requirement is not honoured once the key argument is computed (Serious-1). Marker-to-usage association does not survive normal multi-line formatting (Serious-2). Everything else (parity, literal references, `--allow-scope` defaults, `sole-default-key`, the CLAUDE.md sentence) verified correct and tested. |
+| Task 3.3: self-test fixture, `en`-missing-from-`ar`, unknown key, unannotated computed key, foreign-scope, `sole-default-key`, valid `core.*` must pass                                                          | COMPLETE for the planted set | Every plant in the task text is present and reported, and the `core.checkout` must-pass case is present and passes. The fixture does not plant a non-literal `translateObjectSignal` case or a multi-line-formatted marker, so Serious-1/Serious-2 are real but currently invisible to CI.                                                                |
+| Batch 3 verification: `i18n-check:self-test` and `test -p i18n-check` pass                                                                                                                                       | COMPLETE                     | Re-ran directly: self-test 2/2 fixture runs pass, 7 suites / 38 tests pass.                                                                                                                                                                                                                                                                               |
+
+Implicit requirements not addressed: a computed-argument test case for `translateObjectSignal` (Serious-1); a
+marker-placement convention (and test) that survives ordinary multi-line template formatting (Serious-2); per-file
+isolation for a `parseTemplate` exception, symmetric with the TS path's isolation (Moderate).
+
+### Edge cases
+
+| Case                                                                        | Handled | How                                                                                                                   | Concern                                                                                                                                                                                      |
+| --------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Key present in `en`, missing in `ar` (and vice versa)                       | YES     | `checkParity`, `translation-files.spec.ts:99-108`, fixture `onlyEnglish`                                              | none                                                                                                                                                                                         |
+| Unknown literal key in a pipe/`translate()`                                 | YES     | `KeyResolver.check`, fixture `pricing.page.missing`/`.ghost`                                                          | none                                                                                                                                                                                         |
+| Foreign-scope key (`landing.x` from a `pricing` project)                    | YES     | `KeyResolver.check` "foreign-scope", fixture                                                                          | none                                                                                                                                                                                         |
+| Allowed-scope key (`core.*`/`ui.*`) from a non-`ui`/`core` project          | YES     | `defaultAllowedScopes`, fixture `core.checkout.error`/`ui.nav.home`                                                   | none                                                                                                                                                                                         |
+| Unannotated computed key (identifier, member access, ternary)               | YES     | fixture `dynamicKey`/`this.dynamicKey`, `template-keys.spec.ts:26-42`                                                 | Marker-annotated variant is only tested when marker and usage sit on adjacent lines (Serious-2).                                                                                             |
+| Computed key via `*_I18N_KEYS` constant / class-property alias, leaf target | YES     | `ts-keys.spec.ts:61-86`, fixture `statusI18nKeys`                                                                     | Object target (`translateObjectSignal`) variant is not tested (Serious-1).                                                                                                                   |
+| Literal `translateObjectSignal('a.b')` argument                             | YES     | `ts-keys.spec.ts:14-37` (`target: 'object'`)                                                                          | Computed `translateObjectSignal(EXPR)` argument is not tested (Serious-1).                                                                                                                   |
+| `sole-default-key` (top-level `{ "default": {...} } `)                      | YES     | fixture `legal` scope, `translation-files.spec.ts:42-61`                                                              | none                                                                                                                                                                                         |
+| Bare `i18n-keys:`/`i18n-ignore:` marker (no tokens/reason)                  | YES     | `markers.spec.ts:4-27`, `main.ts:348-356,365-374`                                                                     | none                                                                                                                                                                                         |
+| Malformed `.html` template (parse failure)                                  | YES     | fixture `broken.component.html`, `template-keys.spec.ts:73-79`                                                        | The failure is only exercised via `.errors`; an actual thrown exception from `parseTemplate` is not exercised or guarded against (Moderate).                                                 |
+| Malformed `.ts` file (syntax error)                                         | YES     | `ts-keys.spec.ts:89-104`                                                                                              | none                                                                                                                                                                                         |
+| Placeholder/markup parity and disallowed-tag detection                      | YES     | `translation-files.spec.ts:110-139`                                                                                   | none                                                                                                                                                                                         |
+| Glossary term present in `en`, missing verbatim in `ar`                     | YES     | `glossary.spec.ts` (not read line-by-line in this pass, but self-test's `Ptah`/`brand` plant exercises it end to end) | none                                                                                                                                                                                         |
+| Verbatim-only English value (glossary/placeholder/digits/punctuation only)  | YES     | `isVerbatimValue`, fixture `page.brand: "Ptah"`                                                                       | none                                                                                                                                                                                         |
+| Real-Arabic rule (no Arabic-script character present)                       | YES     | `ARABIC_RE`, `checkGlossaryAndArabic`                                                                                 | Tag characters are not stripped before the Arabic-script test (only placeholders are), though this is inert in practice since tags contain only ASCII (Minor, no separate line item raised). |
+| `--project-root` not matching the fixed scope map                           | YES     | `parseArgs`, `main.ts:99-107` (exit 2)                                                                                | none — a sound deviation beyond the plan's literal text, catches a misconfigured `project.json` target early.                                                                                |
+| Zero source files scanned (empty/misconfigured `src/`)                      | NO      | `run()` proceeds with only file-level checks, exits 0 if those pass                                                   | No signal distinguishes "nothing to check" from "everything checked and clean" (Minor).                                                                                                      |
+
+### Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH — every finding above is backed by a specific file:line and, where feasible, an executed
+  check (self-test run, regression-sensitivity revert, direct reading of every rule's code path against its own
+  spec file). The two Serious items are real gaps in rule correctness for the exact interaction
+  (`translateObjectSignal` + computed key, and marker-to-usage association under real formatting) that this
+  review was specifically asked to verify, and neither is exercised by the current fixture or specs, so neither
+  would be caught by `self-test` regressing before this is fixed.
+- Top risk: `translateObjectSignal`'s group-vs-leaf distinction silently breaks in both directions (false accept
+  and false reject) the moment any lib batch uses it with anything but a literal string, and nothing in Batch 3's
+  own verification would catch either direction, because no fixture plant exists for the case.
+- What a robust implementation would add: (1) thread the call site's `target` through key-const and marker
+  validation instead of hardcoding `'leaf'`; (2) bound marker "coverage" by the actual template element/statement
+  span rather than a fixed one-line lookahead, and add a fixture plant that wraps an annotated element the way
+  Prettier actually formats a non-trivial one; (3) wrap `parseTemplate` in the same per-file try/catch isolation
+  the TS path already has; (4) surface (even as a one-line note) when an allowed scope's own `en.json` has
+  unresolved structural violations that a consumer's `unknown-key` report can't otherwise explain; (5) a minimum-
+  file-count or explicit "0 files scanned" signal so a misrouted `--project-root/src` doesn't read as "clean."
+
+---
+
+## Batch 3 — round 2
+
+### Summary
+
+| Metric                 | Value                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Overall score          | 8/10                                                                                                       |
+| Assessment             | APPROVED                                                                                                   |
+| Blocking issues        | 0                                                                                                          |
+| Serious issues (open)  | 0                                                                                                          |
+| Moderate issues (open) | 1 new (inline-template escape-offset approximation), 2 deferred to Task 4.1 (not counted, per coordinator) |
+| Serious issues fixed   | 2 of 2 (Serious-1, Serious-2)                                                                              |
+| Moderate issues fixed  | 1 of 2 from round 1 (parse-throw isolation); duplicate-key-constant (round-1 Minor) also fixed             |
+
+Re-read in full: `tools/i18n-check/src/main.ts`, `src/main.spec.ts` (new), `src/lib/{markers,template-keys,ts-keys,report}.ts` + specs, `run-self-test.js`, and the changed fixture files
+(`pricing-page.component.ts`, `pricing-card.component.html`, pricing `en.json`/`ar.json`, and the now-source-free `legal` fixture). Ran both commands the coordinator asked for:
+
+- `node_modules/.bin/nx run i18n-check:self-test --skip-nx-cache` → both runs PASS: pricing reports exactly 13 violations, legal reports exactly 3 (`sole-default-key` × 2 + the new `no-source-files`). Matches the executor's report exactly.
+- `node_modules/.bin/nx run-many -t test -p i18n-check --skip-nx-cache` → 8 suites / 53 tests, all pass. Matches the executor's report exactly.
+
+Regression-sensitivity spot checks (each reverted, `git status`/`git diff` confirmed clean afterward — no working-tree change left behind):
+
+- Mutated `KeyResolver.check` so `target === 'object'` also accepts `isLeaf` (i.e. "a single key counts as a group") → `self-test` fails, as the executor claimed for this exact mutation.
+- Independently confirmed marker attachment to an **object-literal property** (not just a statement/class member/call argument, which the specs already cover directly) with a throwaway script run through `ts-node` against the real `tsMarkers` export: a marker on the line above `key: dynamicExpr,` inside an object literal covers that property and correctly does not leak onto the next sibling property. Script and its containing scratch directory were removed immediately after; `git status --porcelain tools/i18n-check` shows no residue.
+- Independently reproduced the documented "approximate" escape-sequence offset behaviour for inline templates: a template literal containing `A` (6 raw source characters, decoding to the 1-character `A` `parseTemplate` actually sees) causes the reported use offset to land 5 characters short of the real expression inside the raw `.ts` source. Confirms the `firstOffset`/"approximately" caveat in `ts-keys.ts:43-47` is real, not just a defensive comment.
+
+### Judging the three executor notes
+
+1. **"TS markers also attach to object properties and call arguments."** Confirmed true. `markers.spec.ts:43-64` and `:66-81` directly test a wrapped call argument and a wrapped class property; the fixture's `checkoutNotice`/`checkoutMessage` case (`pricing-page.component.ts` — marker two lines above a multi-line `translate(...)` call) and `pricing-card.component.html`'s two-line-wrapped `<p>` exercise the same mechanism end to end and pass. Object-literal _property_ attachment specifically (as opposed to class property or call argument) had no dedicated spec, so it was verified directly against the shipped `tsMarkers` export (see above): correct, and does not leak to a sibling property. The claim holds; the one gap is an untested-but-verified-correct case, not a defect — worth a follow-up unit test for durability, not a blocker.
+
+2. **"Every marker token is checked against the covered call's target (mixed group+leaf on translateObjectSignal fails)."** Confirmed true, and confirmed non-trivial: the new `TargetMap` (`main.ts:337-352`) records every target a marker or key constant is actually read with, and checks each token/value against _every_ recorded target, so a marker or constant shared between a `translate()` (leaf) call and a `translateObjectSignal()` (object) call must satisfy both simultaneously — which a single key path structurally cannot, forcing the mixed case to fail. This is exercised directly by `main.spec.ts:90-130` (`GROUP_I18N_KEYS` read by both `translateObjectSignal` and `translate` → the `unknown-key` on the leaf check; `LEAF_I18N_KEYS` read only by `translateObjectSignal` → `not-a-group`) and by the fixture (`CARD_LEAF_I18N_KEYS`, `markedGroup`'s marker). This is exactly what closes round 1's Serious-1 (previously, a key-const's values were checked with a hardcoded `'leaf'` target regardless of how they were actually used).
+
+3. **"Inline templates with escape sequences map offsets approximately."** Confirmed true and confirmed as a real, if narrow, residual risk rather than pure defensive wording — see the reproduction above. `firstOffset: init.getStart(source) + 1` (`ts-keys.ts:150`) assumes the decoded template text (`init.text`, what `parseTemplate` walks) and the raw source slice (what `coversOffset`/marker spans are measured against) advance in lockstep; an escape sequence breaks that assumption by exactly the difference between its encoded and decoded lengths, shifting every subsequent offset in that template by that amount. In the worst case this could cause a marker immediately before/after an inline template containing an escaped character to mis-attach (cover the wrong span, or fail to cover the right one) for content after the escape. Angular inline templates rarely need escape sequences (real Unicode/HTML can be typed directly in a template literal), and the comment already discloses the limitation, so this is a **Moderate, not Serious**, new finding — accepted-and-documented today, but worth either closing (recompute the offset by walking the raw source for actual escape sequences, mirroring what `ts.isStringLiteral`/`NoSubstitutionTemplateLiteral` decoding does) or scoping explicitly (a parse-time check that rejects/flags an inline template containing a backslash escape, so the approximation is never silently relied upon) before Component 3+ lib batches start writing inline templates in earnest.
+
+### Round-1 items re-verified as fixed
+
+- **Serious-1 (translateObjectSignal group-vs-leaf not enforced for computed keys):** FIXED. `KeyResolver.check` now has an explicit `target === 'object' && isLeaf` branch producing `not-a-group` (`main.ts:304-312`), and both markers and key constants are checked against the union of targets of every use they actually cover (`main.ts:432-457, 484-512`), not a hardcoded `'leaf'`. Verified by direct mutation (reverting the fix reproduces the exact false-accept failure mode described in round 1) and by the new fixture plants (`CARD_LEAF_I18N_KEYS`, the `markedGroup` marker) and `main.spec.ts:90-130`.
+- **Serious-2 (marker-to-usage association breaks across intervening lines):** FIXED, and fixed at the root rather than patched — markers now attach to the AST span of the node/element they lead (`markers.ts:66-108` for TS via `ts.getLeadingCommentRanges`/`onOwnLine`, `template-keys.ts:164-212` for HTML via `parsed.commentNodes`/`nextSibling`), not a line-count heuristic. Directly exercised by the two "wrapped element, marker two lines above" PASS cases the fixture now plants in both a `.ts` file and a `.html` file, and by five dedicated `markers.spec.ts` cases including "does not reach past an unrelated sibling" and "does not let a file-header marker cover the whole file."
+- **Moderate (parseTemplate exception not isolated per file):** FIXED. `extractTemplateKeys` wraps its `parseTemplate` call in try/catch and converts a throw into a per-file `parse-error` (`template-keys.ts:100-111`); `scanProject`'s per-file loop additionally wraps the whole `scanFile` call in try/catch as defense in depth (`main.ts:202-217`). Directly exercised by `main.spec.ts:9-20,55-65`, which mocks `@angular/compiler`'s `parseTemplate` to throw for one file and asserts the run still reports the other file's violations — a real, executed regression test for exactly this failure mode, not just a code-reading inference.
+- **Minor (duplicate-key-constant name collision silently resolved by last-wins):** FIXED, beyond what round 1 asked for. Round 1 flagged this as a low-likelihood Minor risk; the executor added an explicit `duplicate-key-constant` rule that reports _every_ declaration site when the same `*_I18N_KEYS`/`*I18nKeys` name is declared more than once in a project (`main.ts:400-421`), rather than merely avoiding the silent-overwrite risk. Exercised by `main.spec.ts:73-88`.
+
+### Deferred items (not judged this round, per coordinator)
+
+- Allowed-scope defect pointer (an allowed scope's `dotted-key`/`duplicate-key`/`invalid-value` defects stay invisible to a consuming project's report) — unchanged, `main.ts:386-394`/`translation-files.ts:120-154` are materially the same as round 1. Deferred to Task 4.1 as instructed; not counted against this round.
+- Glossary Arabic-adjacency word-boundary (`containsTerm`'s guard excludes only `[A-Za-z0-9]`, not Arabic characters) — unchanged, `glossary.ts:76-78`. Deferred to Task 4.1 as instructed; not counted against this round.
+
+### New issues this round
+
+#### Moderate: inline-template offset approximation for escape sequences is unverified against a marker-adjacency case
+
+- File: `tools/i18n-check/src/lib/ts-keys.ts:43-47,150` (`firstOffset: init.getStart(source) + 1`, documented as "approximately").
+- Scenario: an inline `template:` string/template-literal containing an escape sequence (`\u00XX`, `\n` written literally, `\\`, `\"`/`\'` inside a quoted string) ahead of a marker-annotated computed key or a literal-scan string within the same template.
+- Impact: reproduced directly (see above) — every offset after the escape sequence is shifted by the difference between its raw and decoded lengths, which can misalign `coversOffset`'s span comparison against a marker's `covers` range for content in the same template after the escape. No test exercises a marker's coverage boundary in the presence of an inline-template escape sequence (the `firstOffset` mechanism itself is exercised only for a template with no escapes, via `ts-keys.spec.ts`'s existing inline-template tests, which predate this round and were not extended).
+- Recommendation: either compute `firstOffset`-relative positions by re-scanning the raw source text for the literal's actual escape sequences (mirroring how the TS scanner itself decodes `\uXXXX`/`\n`/etc.), or, more cheaply, detect a backslash in the raw text of an inline template literal and downgrade any marker adjacency check inside it to line-based (or refuse to trust `coversOffset` there and require the marker on the exact line, with a distinct message) so a subtle misattachment cannot happen silently. Not blocking Batch 3 — inline templates with escape sequences are not present anywhere in this fixture or, so far, in the plan's lib batches — but worth closing before a lib batch's real inline template relies on marker coverage near an escaped character.
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH — every claim in this round was checked against the running code: both requested `nx` commands executed live (not read from the executor's report), the two Serious fixes verified both by reading the new logic and by an actual reverted mutation reproducing the pre-fix failure, and all three executor notes verified against either an existing executed test or a fresh, cleanly-reverted throwaway script run through the real exported functions.
+- Top risk: none blocking. The one new Moderate item (inline-template escape-offset approximation) is real but narrow, already disclosed in the code's own comment, and not yet reachable by any code in this repository.
+- What a robust implementation would add before it matters: a marker-coverage test for an inline template containing an escape sequence (or a guard that refuses to rely on approximate offsets there); the two items already deferred to Task 4.1.

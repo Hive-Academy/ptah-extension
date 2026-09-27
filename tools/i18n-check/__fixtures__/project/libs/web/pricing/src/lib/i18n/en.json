@@ -1,0 +1,16 @@
+{
+  "page": {
+    "title": "Pricing",
+    "subtitle": "Plans for {{ count }} seats",
+    "brand": "Ptah",
+    "onlyEnglish": "This key exists only in English"
+  },
+  "status": {
+    "active": "Active",
+    "paused": "Paused"
+  },
+  "card": {
+    "heading": "Plan",
+    "note": "Billed monthly"
+  }
+}
