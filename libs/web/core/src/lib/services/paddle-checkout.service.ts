@@ -14,6 +14,7 @@ import {
   Paddle,
   type PaddleEventData,
 } from '@paddle/paddle-js';
+import type { I18nMessage } from '@ptah-extension/i18n';
 import { PADDLE_CONFIG } from '../config/paddle.config';
 
 export interface CheckoutOptions {
@@ -84,12 +85,12 @@ export class PaddleCheckoutService {
   private paddleInstance: Paddle | null = null;
   private readonly _isReady = signal(false);
   private readonly _isLoading = signal(false);
-  private readonly _error = signal<string | null>(null);
+  private readonly _error = signal<I18nMessage | null>(null);
   private readonly _isVerifying = signal(false);
   private readonly _isCheckoutOpen = signal(false);
   private readonly _loadingPlanName = signal<string | null>(null);
   private readonly _isValidating = signal(false);
-  private readonly _validationError = signal<string | null>(null);
+  private readonly _validationError = signal<I18nMessage | null>(null);
   private readonly _customerPortalUrl = signal<string | null>(null);
   public readonly isReady = this._isReady.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
@@ -165,9 +166,7 @@ export class PaddleCheckoutService {
       this._error.set(null);
     } catch (err) {
       this._isLoading.set(false);
-      this._error.set(
-        'Payment system temporarily unavailable. Please try again later.',
-      );
+      this._error.set({ key: 'core.checkout.unavailable' });
       throw err;
     }
   }
@@ -231,20 +230,11 @@ export class PaddleCheckoutService {
       this._isValidating.set(false);
 
       if (!response.canCheckout) {
-        const errorMessage =
-          response.message ||
-          `You already have an active ${
-            response.existingPlan || 'subscription'
-          }. ` + 'Please manage your existing subscription first.';
-
-        this._validationError.set(errorMessage);
+        const blocked = checkoutBlockedMessage(response);
+        this._validationError.set(blocked);
         this._customerPortalUrl.set(response.customerPortalUrl || null);
 
-        console.log(
-          '[Paddle] Checkout blocked:',
-          response.reason,
-          errorMessage,
-        );
+        console.log('[Paddle] Checkout blocked:', response.reason, blocked);
         return false;
       }
 
@@ -291,7 +281,7 @@ export class PaddleCheckoutService {
    */
   public async openCheckout(options: CheckoutOptions): Promise<void> {
     if (!this.paddleInstance || !this._isReady()) {
-      this._error.set('Paddle SDK not ready. Please try again.');
+      this._error.set({ key: 'core.checkout.notReady' });
       return;
     }
     if (this._isCheckoutOpen()) {
@@ -307,9 +297,7 @@ export class PaddleCheckoutService {
     this._isLoading.set(true);
     this._isCheckoutOpen.set(true);
     this.checkoutTimeoutId = setTimeout(() => {
-      this._error.set(
-        'Checkout timed out after 5 minutes of inactivity. Please try again.',
-      );
+      this._error.set({ key: 'core.checkout.timedOut' });
       this.closeCheckout();
     }, this.CHECKOUT_TIMEOUT);
     let customerConfig: { id: string } | { email: string } | undefined;
@@ -395,20 +383,19 @@ export class PaddleCheckoutService {
     const { environment, token, proPriceIdMonthly, proPriceIdYearly } =
       this.paddleConfig;
     if (environment !== 'sandbox' && environment !== 'production') {
-      this._error.set('Invalid Paddle environment configuration');
+      this._error.set({ key: 'core.checkout.config.invalidEnvironment' });
       return false;
     }
     if (!token || token.includes('REPLACE')) {
-      this._error.set(
-        'Paddle client-side token not configured. Please check environment configuration.',
-      );
+      this._error.set({ key: 'core.checkout.config.tokenMissing' });
       return false;
     }
     const expectedPrefix = environment === 'sandbox' ? 'test_' : 'live_';
     if (!token.startsWith(expectedPrefix)) {
-      this._error.set(
-        `Paddle token mismatch: ${environment} environment requires ${expectedPrefix} token`,
-      );
+      this._error.set({
+        key: 'core.checkout.config.tokenMismatch',
+        params: { environment, prefix: expectedPrefix },
+      });
       return false;
     }
     const placeholderPatterns = [
@@ -428,9 +415,7 @@ export class PaddleCheckoutService {
       isPlaceholder(proPriceIdMonthly) || isPlaceholder(proPriceIdYearly);
 
     if (hasPlaceholders) {
-      this._error.set(
-        'Paddle price IDs not configured. Please check environment configuration.',
-      );
+      this._error.set({ key: 'core.checkout.config.priceIdsMissing' });
       return false;
     }
 
@@ -549,4 +534,27 @@ export class PaddleCheckoutService {
         break;
     }
   }
+}
+
+/**
+ * Why checkout is blocked. A backend `message` is shown verbatim (backend
+ * copy is not localised) through `core.common.serverMessage`; otherwise the
+ * existing plan is named when the backend reports it.
+ */
+function checkoutBlockedMessage(
+  response: ValidateCheckoutResponse,
+): I18nMessage {
+  if (response.message) {
+    return {
+      key: 'core.common.serverMessage',
+      params: { text: response.message },
+    };
+  }
+  if (response.existingPlan) {
+    return {
+      key: 'core.checkout.activePlanExists',
+      params: { plan: response.existingPlan },
+    };
+  }
+  return { key: 'core.checkout.activeSubscriptionExists' };
 }

@@ -22,6 +22,24 @@
       "options": {
         "command": "npx ngc --noEmit --project libs/web/core/tsconfig.lib.json"
       }
+    },
+    "i18n-check": {
+      "executor": "nx:run-commands",
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/glossary.json",
+        "{workspaceRoot}/libs/web/ui/src/lib/i18n/**/*",
+        "{workspaceRoot}/libs/web/core/src/lib/i18n/**/*",
+        "{workspaceRoot}/apps/ptah-landing-page/src/app/i18n/**/*",
+        "{workspaceRoot}/libs/web/landing/src/lib/i18n/**/*",
+        "{workspaceRoot}/libs/web/legal/src/lib/i18n/**/*",
+        "{workspaceRoot}/libs/web/pricing/src/lib/i18n/**/*"
+      ],
+      "options": {
+        "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/main.ts --project-root libs/web/core --scope core --allow-scope ui,app,landing,legal,pricing --glossary tools/i18n-check/glossary.json",
+        "cwd": "{workspaceRoot}"
+      }
     }
   }
 }

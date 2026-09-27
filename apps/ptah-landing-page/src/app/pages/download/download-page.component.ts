@@ -20,6 +20,7 @@ import { NavigationComponent } from '@ptah-web/ui';
 import { FooterComponent } from '@ptah-web/ui';
 import { GitHubReleaseService } from '@ptah-web/core';
 import { SeoService } from '@ptah-web/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 
 @Component({
@@ -32,6 +33,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
     ViewportAnimationDirective,
     LucideAngularModule,
     ConsoleGridBackgroundComponent,
+    TranslocoPipe,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
@@ -72,12 +74,13 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
             ></div>
             <p class="text-neutral-content text-sm">Loading releases...</p>
           </div>
-        } @else if (error()) {
+        } @else if (error(); as msg) {
           <!-- Error State -->
           <div
             class="rounded-2xl border border-error/20 bg-error/5 p-8 text-center"
           >
-            <p class="text-error mb-4">{{ error() }}</p>
+            <!-- i18n-keys: core.releases.* -->
+            <p class="text-error mb-4">{{ msg.key | transloco: msg.params }}</p>
             <button
               (click)="retry()"
               class="btn btn-sm btn-outline border-secondary/30 text-secondary hover:bg-secondary hover:text-base-100"
@@ -401,13 +404,11 @@ export class DownloadPageComponent {
 
   constructor() {
     inject(SeoService).setPage({
-      title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
-      description:
-        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. Free and open source, no credit card.',
+      titleKey: 'app.seo.download.title',
+      descriptionKey: 'app.seo.download.description',
       url: 'https://ptah.live/download',
-      ogTitle: 'Download Ptah — Windows, macOS & Linux',
-      ogDescription:
-        "The desktop AI coding agent that remembers your codebase and works while you're away. Free and open source, no credit card.",
+      ogTitleKey: 'app.seo.download.ogTitle',
+      ogDescriptionKey: 'app.seo.download.ogDescription',
     });
 
     afterNextRender(() => {

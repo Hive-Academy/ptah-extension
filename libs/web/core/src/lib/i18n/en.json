@@ -1,1 +1,30 @@
-{}
+{
+  "common": {
+    "serverMessage": "{{ text }}"
+  },
+  "checkout": {
+    "unavailable": "Payment system temporarily unavailable. Please try again later.",
+    "notReady": "Paddle SDK not ready. Please try again.",
+    "timedOut": "Checkout timed out after 5 minutes of inactivity. Please try again.",
+    "activePlanExists": "You already have an active {{ plan }}. Please manage your existing subscription first.",
+    "activeSubscriptionExists": "You already have an active subscription. Please manage your existing subscription first.",
+    "config": {
+      "invalidEnvironment": "Invalid Paddle environment configuration",
+      "tokenMissing": "Paddle client-side token not configured. Please check environment configuration.",
+      "tokenMismatch": "Paddle token mismatch: {{ environment }} environment requires {{ prefix }} token",
+      "priceIdsMissing": "Paddle price IDs not configured. Please check environment configuration."
+    }
+  },
+  "releases": {
+    "rateLimited": "GitHub API rate limit reached. Please try again later.",
+    "loadFailed": "Failed to load releases. Please try again."
+  },
+  "subscription": {
+    "loadFailed": "Unable to load subscription status"
+  },
+  "realtime": {
+    "authRequired": "Authentication required. Please log in first.",
+    "connectFailed": "Failed to connect",
+    "reconnectFailed": "Unable to establish real-time connection. Please refresh the page."
+  }
+}
