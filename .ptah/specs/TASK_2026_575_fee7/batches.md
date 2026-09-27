@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 0/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 1/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -100,7 +100,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 
 ---
 
-## Batch 1: Dependency install and i18n library core (F1, part 1) — IN_PROGRESS
+## Batch 1: Dependency install and i18n library core (F1, part 1) — COMPLETE (0462df27)
 
 - Recommended executor: backend-developer
 - Fallback executor: frontend-developer
@@ -109,7 +109,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 4 | Depends on: none
 - Commit: `feat(shared): add i18n library core and transloco dependency`
 
-### Task 1.1: Establish a working install and add Transloco — IMPLEMENTED
+### Task 1.1: Establish a working install and add Transloco — COMPLETE
 
 - Files: `$ROOT/package.json`, `$ROOT/package-lock.json`
 - Plan reference: implementation-plan.md:247-250, :273
@@ -118,7 +118,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: do not upgrade unrelated packages; if `npm ci` fails, report the exact error rather than deleting the lockfile.
 - Implementation details: `npm ci` then `npm install --save-exact @jsverse/transloco@8.4.0`; confirm `@jsverse/utils@1.0.0-beta.5` is locked (accepted pin).
 
-### Task 1.2: Scaffold `@ptah-extension/i18n` project — IMPLEMENTED
+### Task 1.2: Scaffold `@ptah-extension/i18n` project — COMPLETE
 
 - Depends on: Task 1.1
 - Files: `$ROOT/libs/frontend/i18n/{project.json,package.json,CLAUDE.md,eslint.config.mjs,jest.config.ts,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json}`, `$ROOT/libs/frontend/i18n/src/{index.ts,test-setup.ts}`, `$ROOT/tsconfig.base.json`
@@ -128,7 +128,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: zero workspace imports (1.2).
 - Implementation details: barrel with grouped explicit exports (<150 lines), filled as units land.
 
-### Task 1.3: Pure language data, detection and persistence — IMPLEMENTED
+### Task 1.3: Pure language data, detection and persistence — COMPLETE
 
 - Depends on: Task 1.2
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{lang.config.ts,resolve-initial-lang.ts,lang-preference.store.ts}` + specs
@@ -138,7 +138,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: specs cover stored `ar`, `navigator ['ar-EG']`, invalid `'xx'`, throwing getter and setter.
 - Implementation details: `SUPPORTED_LANGS`, `LANG_DIRECTION`, `ANGULAR_LOCALE`, `INTL_LOCALE` (`ar-u-nu-latn`), `LANG_NATIVE_NAME`.
 
-### Task 1.4: `I18nMessage` and `defineI18nScope` — IMPLEMENTED
+### Task 1.4: `I18nMessage` and `defineI18nScope` — COMPLETE
 
 - Depends on: Task 1.2
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{i18n-message.ts,i18n-scope.ts}` + spec
@@ -165,7 +165,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   raised, and `nx run degradation-audit:lint` must exit 0.
   Resolved: marker added at `lang-preference.store.ts:31-32`; the audit exits 0 (nothing under libs/frontend/i18n).
 
-## Batch 2: i18n library runtime, pipes and testing entry (F1, part 2) — PENDING
+## Batch 2: i18n library runtime, pipes and testing entry (F1, part 2) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: frontend-developer
@@ -174,7 +174,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 5 | Depends on: Batch 1
 - Commit: `feat(shared): add i18n service, resolver, pipes and testing provider`
 
-### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — PENDING
+### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — IN_PROGRESS
 
 - Files: `$ROOT/libs/frontend/i18n/src/lib/i18n.error.ts` + spec, `$ROOT/libs/frontend/i18n/src/lib/i18n-scope.ts`,
   `$ROOT/libs/frontend/i18n/src/lib/resolve-initial-lang.ts` (+ spec), `$ROOT/libs/frontend/i18n/CLAUDE.md`,
@@ -192,7 +192,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   to the lib `CLAUDE.md` saying the scope-name guard runs in dev mode only and does not validate input at runtime.
 - Implementation details: one small file; barrel stays grouped under a new "Errors" heading.
 
-### Task 2.1: `I18nService` and `i18nScopesResolver` — PENDING
+### Task 2.1: `I18nService` and `i18nScopesResolver` — IN_PROGRESS
 
 - Depends on: Task 2.0
 
@@ -203,7 +203,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: late scope loads never re-render (`emitChange: false`) — loads must finish before render/switch. Duplicate scope name with a different loader is a dev error.
 - Implementation details: registry keyed by scope name; `documentElement.lang/dir` via `DOCUMENT`; resolver spec loads a scope with no `HttpClient` provided (1.4).
 
-### Task 2.2: `provideI18n` and `I18nMissingHandler` — PENDING
+### Task 2.2: `provideI18n` and `I18nMissingHandler` — IN_PROGRESS
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{provide-i18n.ts,i18n-missing.handler.ts}` + specs
@@ -213,7 +213,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: resolve `TranslocoService` lazily from `Injector` with a re-entrancy guard.
 - Implementation details: `EmptyRootLoader` returns `{}`; `registerLocaleData(localeAr,'ar')` in an environment initializer; `provideAppInitializer(() => inject(I18nService).init())`.
 
-### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — PENDING
+### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — IN_PROGRESS
 
 - Depends on: Task 2.2
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts,provide-i18n-testing.ts}` + spec
@@ -223,7 +223,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: spec proves a `lang: 'ar'` setup can translate the same key in `ar` and in `en` (the CORE SEO spec depends on it).
 - Implementation details: `I18nService` seeded with `lang`; locale registration included; renders synchronously.
 
-### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — PENDING
+### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — IN_PROGRESS
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/pipes/{i18n-date.pipe.ts,i18n-number.pipe.ts}` + specs, `$ROOT/libs/frontend/i18n/src/index.ts`
