@@ -91,6 +91,7 @@ export {
   type EditDelta,
 } from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
+export { formatAstAnalysisResult } from './ast/ast-result-format';
 export {
   DependencyGraphService,
   type DependencyGraph,

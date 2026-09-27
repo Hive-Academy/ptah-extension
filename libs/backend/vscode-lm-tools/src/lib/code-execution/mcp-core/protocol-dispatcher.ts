@@ -18,7 +18,10 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
-import type { GraphCoverage } from '@ptah-extension/workspace-intelligence';
+import {
+  formatAstAnalysisResult,
+  type GraphCoverage,
+} from '@ptah-extension/workspace-intelligence';
 import {
   countTokensPiecewise,
   fitsBudget,
@@ -2000,9 +2003,10 @@ async function handleIndividualTool(
           file.trim(),
           typeof workspaceRoot === 'string' ? workspaceRoot.trim() : undefined,
         );
+        // Records as tables: the lossless form that meets the promised token saving.
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          formatAstAnalysisResult(result),
           deps,
         );
       }

@@ -900,6 +900,52 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(content[0].text).toContain('b.ts');
   });
 
+  // TASK_2026_559 Batch 20.2p: per-record JSON keys cost the promised saving.
+  it('writes ptah_ast_analyze records as tables behind parse status and coverage', async () => {
+    const analyze = jest.fn().mockResolvedValue({
+      parseStatus: 'ok',
+      errorNodeCount: 0,
+      errorNodeCountCapped: false,
+      coverage: { census: 'complete', analyzed: 1 },
+      file: 'src/a.ts',
+      language: 'typescript',
+      functions: [
+        { name: 'load', parameters: ['id'], startLine: 1, endLine: 4 },
+        { name: 'save', parameters: [], startLine: 6, endLine: 9 },
+      ],
+      classes: [],
+      imports: [{ source: 'node:path', importedSymbols: ['join'] }],
+      exports: [{ name: 'load', kind: 'function' }],
+    });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        ast: { analyze } as unknown as PtahAPI['ast'],
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ast-1',
+        method: 'tools/call',
+        params: { name: 'ptah_ast_analyze', arguments: { file: 'src/a.ts' } },
+      }),
+      deps,
+    );
+
+    expect(analyze).toHaveBeenCalledWith('src/a.ts', undefined);
+    const content = (
+      res.result as { content: Array<{ type: string; text: string }> }
+    ).content;
+    expect(content[0].text).toBe(
+      '{"parseStatus":"ok","errorNodeCount":0,"errorNodeCountCapped":false,' +
+        '"coverage":{"census":"complete","analyzed":1},"file":"src/a.ts",' +
+        '"language":"typescript",' +
+        '"functions":[["name","parameters","startLine","endLine"],["load",["id"],1,4],["save",[],6,9]],' +
+        '"classes":[],"imports":[["source","importedSymbols"],["node:path",["join"]]],' +
+        '"exports":[["name","kind"],["load","function"]]}',
+    );
+  });
+
   // TASK_2026_559 Batch 11: a capped search looked complete, and an empty
   // pattern reached the provider and came back as its thrown error.
   describe('ptah_search_files limit probe and argument validation', () => {
