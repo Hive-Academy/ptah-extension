@@ -15,14 +15,15 @@
  * works" are different claims.
  *
  * What is derived and what is declared:
- * - `extensions`, `grammarFile`, `parse` and `publicSymbols` derive from
- *   `tree-sitter.config.ts` (`EXTENSION_LANGUAGE_MAP`, `GRAMMAR_FILE_MAP`,
- *   `LANGUAGE_QUERIES_MAP[*].exportQuery`), so the registry cannot claim a
+ * - Every parsed language is a module in `./languages/` — the same modules
+ *   `tree-sitter.config.ts` assembles for the parser. `extensions`,
+ *   `grammarFile`, `parse` and `publicSymbols` derive from the module
+ *   (`publicSymbols` from its `exportQuery`), so the registry cannot claim a
  *   parse or an export query the parser does not have.
  * - The remaining capabilities are implemented outside this module (the
  *   outliner in vscode-lm-tools, the enrichment gate, the code-symbol indexer,
- *   the Electron definition fallback), so they are declared below, only for
- *   languages that parse. Each value cites where it is implemented today.
+ *   the Electron definition fallback), so each language module declares them
+ *   (`capabilities`); `languages/types.ts` cites where each is implemented.
  * - Languages with no grammar yet keep an entry with their extensions and no
  *   capability, so a `.java` file counts as `unsupported` under `java` instead
  *   of disappearing. Grammar batches (29b-31, 30k) turn them on.
@@ -33,12 +34,8 @@ import {
   type LanguageId,
   type RecognisedLanguageId,
 } from '@ptah-extension/platform-core';
-import {
-  EXTENSION_LANGUAGE_MAP,
-  GRAMMAR_FILE_MAP,
-  LANGUAGE_QUERIES_MAP,
-  type SupportedLanguage,
-} from './tree-sitter.config';
+import type { SupportedLanguage } from './ast.types';
+import { LANGUAGE_MODULES } from './languages';
 
 /** How a language's dependency edges are drawn. */
 export interface GraphEdgesCapability {
@@ -85,86 +82,9 @@ export interface LanguageRegistryEntry {
   readonly capabilities: LanguageCapabilities;
 }
 
-type DeclaredCapabilities = Omit<
-  LanguageCapabilities,
-  'parse' | 'publicSymbols'
->;
-
-/**
- * TS/JS edges are drawn from `import` statements only, so graph dependents do
- * NOT bound where a declaration can be referenced: a global script, a
- * re-export (`export { X } from`), `require`, dynamic `import()` and a path
- * alias the build did not map all reach it without an edge (Batch 26b review
- * r1 B2). Claim `referenceScopeComplete` only once the resolver models every
- * one of them (Batch 32b+).
- */
-const FILE_EDGES: GraphEdgesCapability = {
-  granularity: 'file',
-  referenceScopeComplete: false,
-};
-
-/**
- * Capabilities implemented outside this module, for the languages that parse.
- * - outline: `OUTLINE_QUERIES` in vscode-lm-tools `code-outliner.adapter.ts`
- *   (all five parsed languages).
- * - enrichSummary: `ContextEnrichmentService` gate (TS/JS only).
- * - codeIndex: `CodeSymbolIndexer` `DEFAULT_EXTENSIONS` (all five).
- * - graphEdges: `DependencyGraphService` resolves relative TS/JS imports to
- *   files; other languages get no edges until Batches 33-36.
- * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;
- *   C# since Batch 26b, proven against the shipped grammar by the Electron
- *   capability spec).
- * - syntaxDiagnostics: plan initial value (py/go/cs); the TS compiler already
- *   covers TS/JS. Consumed by the language-aware diagnostics provider (25a).
- */
-const DECLARED_CAPABILITIES: Readonly<
-  Record<SupportedLanguage, DeclaredCapabilities>
-> = {
-  typescript: {
-    outline: true,
-    enrichSummary: true,
-    codeIndex: true,
-    graphEdges: FILE_EDGES,
-    definitionFallback: true,
-    syntaxDiagnostics: false,
-  },
-  javascript: {
-    outline: true,
-    enrichSummary: true,
-    codeIndex: true,
-    graphEdges: FILE_EDGES,
-    definitionFallback: true,
-    syntaxDiagnostics: false,
-  },
-  python: {
-    outline: true,
-    enrichSummary: false,
-    codeIndex: true,
-    graphEdges: null,
-    definitionFallback: true,
-    syntaxDiagnostics: true,
-  },
-  go: {
-    outline: true,
-    enrichSummary: false,
-    codeIndex: true,
-    graphEdges: null,
-    definitionFallback: true,
-    syntaxDiagnostics: true,
-  },
-  csharp: {
-    outline: true,
-    enrichSummary: false,
-    codeIndex: true,
-    graphEdges: null,
-    definitionFallback: true,
-    syntaxDiagnostics: true,
-  },
-};
-
 /**
  * Extensions of languages with no grammar yet. `tsx` has none on purpose:
- * `.tsx` parses with the TypeScript grammar (`EXTENSION_LANGUAGE_MAP`) until
+ * `.tsx` parses with the TypeScript grammar (`typescript.language.ts`) until
  * Batch 29b gives it its own grammar. `.c`/`.h` belong to `cpp` (Decision 19).
  */
 const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
@@ -177,25 +97,6 @@ const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
   php: ['.php', '.phtml'],
   ruby: ['.rb', '.rake'],
   cpp: ['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.c', '.h'],
-};
-
-/**
- * Source suffixes of a PARSED language that no consumer accepts yet: the
- * parser map, the code-symbol indexer and the graph glob all skip them today
- * (Batch 7 KI: `.mts/.cts/.mjs/.cjs` are aliased only inside the enrich
- * builder). They are recognised so a census counts them as `unsupported`
- * under their language instead of losing them (r1 S1), and they grant no
- * capability until a batch adds them to `EXTENSION_LANGUAGE_MAP` together
- * with its consumers.
- */
-const RECOGNITION_ONLY_EXTENSIONS: Readonly<
-  Record<SupportedLanguage, readonly string[]>
-> = {
-  javascript: ['.mjs', '.cjs'],
-  typescript: ['.mts', '.cts'],
-  python: ['.pyi', '.pyw'],
-  go: [],
-  csharp: [],
 };
 
 /** Source languages recognised for `unsupportedByLanguage`, never analysed. */
@@ -225,13 +126,7 @@ const NO_CAPABILITIES: LanguageCapabilities = {
 };
 
 function isParsedLanguage(id: LanguageId): id is SupportedLanguage {
-  return Object.hasOwn(GRAMMAR_FILE_MAP, id);
-}
-
-function extensionsOf(language: SupportedLanguage): readonly string[] {
-  return Object.keys(EXTENSION_LANGUAGE_MAP).filter(
-    (extension) => EXTENSION_LANGUAGE_MAP[extension] === language,
-  );
+  return Object.hasOwn(LANGUAGE_MODULES, id);
 }
 
 function buildEntry(id: LanguageId): LanguageRegistryEntry {
@@ -244,15 +139,16 @@ function buildEntry(id: LanguageId): LanguageRegistryEntry {
       capabilities: NO_CAPABILITIES,
     };
   }
+  const language = LANGUAGE_MODULES[id];
   return {
     id,
-    extensions: extensionsOf(id),
-    recognitionOnlyExtensions: RECOGNITION_ONLY_EXTENSIONS[id],
-    grammarFile: GRAMMAR_FILE_MAP[id],
+    extensions: language.extensions,
+    recognitionOnlyExtensions: language.recognitionOnlyExtensions,
+    grammarFile: language.grammarFile,
     capabilities: {
       parse: true,
-      publicSymbols: LANGUAGE_QUERIES_MAP[id].exportQuery !== '',
-      ...DECLARED_CAPABILITIES[id],
+      publicSymbols: language.queries.exportQuery !== '',
+      ...language.capabilities,
     },
   };
 }

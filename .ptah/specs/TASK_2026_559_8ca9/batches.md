@@ -4292,39 +4292,209 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 37b: Checker host wiring + consent surfaces — PENDING
+## Batch 37b: Checker host wiring + consent surfaces — PENDING (split into 37b1 / 37b2 / 37b3, 2026-09-27)
 
-- Recommended executor: backend-developer (sub-agent), Lane H
+Decomposed from O2 (`o2-go-vet-consent-surface.md`, current text incl. "Revision (review r1)"; §8 splits 37b three
+ways: backend, Electron card, CLI). O2's backend part (37b-i) names ~14 files across 6 projects, which exceeds the
+per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs as four ordered units 37b1a-37b1d.
+37b2 and 37b3 match O2 37b-ii and 37b-iii. Batch 37b is COMPLETE only when all six units are COMPLETE.
+
+- Lane: K (`task-559-lane-k`, branch `fix/task-559-lane-k`), all units sequential, on top of 37a (fe3648eff)
+- Depends on: Batches 37a (committed fe3648eff), 27 (D4)
+- Review rule (User Decision 24): one review per unit; fixes from one review are verified by the next review in Lane K
+- Consent-end rule (User Decision 25): consent ends when the Go binary changes (`stale/go-changed`); every surface
+  shows `stale` with its reason and never treats it as `on`
+- `WIT` = `WI/testing/mcp-contract`; `FE` = `libs/frontend/chat/src/lib/settings`; `RH` = `libs/backend/rpc-handlers/src/lib`
+- **Real Go not exercised on this machine.** Go is not installed here; `go-vet-hostile.integration.spec.ts` (8 cases,
+  incl. the r1 `//line` fixture) is SKIPPED with a printed reason. It must be run once on CI or by the user on a
+  machine with Go before the PR opens; 38 / Mode 3 records the result
+- **Mode 3 note:** 37b2 adds a rendered Electron card, so the "Visual: no UI change. N/A" completion note no longer
+  holds for this task; visual-reviewer evidence (dark + light) for the card is required at completion
+
+### Batch 37b1a: Runner kill fix + provider wiring (WI) — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
 - Execution mode: sequential
-- Rationale: wiring touches the 25a provider and both hosts; consent surfaces per O2
-- Review: Codex CLI lane
-- Tasks: 2 | Depends on: Batches 37a, 27 (D4)
+- Rationale: first unit touching `checker-runner.ts`; provider and registration are one rollback boundary in one lib
+- Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
+- Tasks: 2 | Depends on: Batch 37a
 
-### Task 37b.1: Wire the checker into the language-aware provider — PENDING
+#### Task 37b1a.1: Runner cleanup-failure fix (37a r1 Moderate, finding 4) — PENDING
 
-- Files: `WI/diagnostics/language-aware-diagnostics-provider.ts`, `WI/di/register.ts`, `<WT>/apps/ptah-electron/src/di/phase-2-libraries.ts`, `<WT>/libs/backend/cli-engine/src/lib/container.ts`
-- Plan reference: 37b; "Execution" (the `IProcessSpawner` each host passes in)
+- Files: `WI/diagnostics/external-checkers/checker-runner.ts`, `…/checker-runner.spec.ts`
+- Plan reference: `reviews/batch-37a-code-logic-review-r1.md` finding 4 (Lane K worktree); O2 §4.3 "Limits"
+- Quality requirements: a rejected `killTree` still calls `handle.kill` (fallback in `finally`); the default reaper
+  passes an error callback to `killProcessTree` (`PC/utils/process-tree-reaper.ts:63`) so a taskkill failure is
+  observed; result text distinguishes "stop requested" from verified termination (`go-vet-checker.ts` "stopped"
+  text, fixed wording only)
+- FB spec: rejecting terminator → `handle.kill` called once (fails on fe3648eff); default-helper failure reaches the
+  observer (fails on fe3648eff)
+
+#### Task 37b1a.2: Attach the checker to the language-aware provider — PENDING
+
+- Depends on: Task 37b1a.1
+- Files: `WI/diagnostics/language-aware-diagnostics-provider.ts`, `…/language-aware-diagnostics-provider.spec.ts`,
+  `WI/di/register.ts`; `PC/interfaces/diagnostics-provider.interface.ts` only if `unmappedFindings` /
+  `diagnosticsTruncated` cannot be carried by the existing coverage/`NotCheckedFiles` fields (then 6 files, 2 libs)
+- Plan reference: O2 §2 "DI timing" (store built at registration; spawner as lazy getter), §4.3 "Honest failure",
+  §5.4; executor report "For 37b"
 - Pattern to follow: Batch 25a registration
-- Quality requirements: denied by default; one failing checker leaves other languages intact; Go checked only with consent, else Go `unchecked` with the reason
-- Validation notes: FB "checker does not run without consent"
-- Implementation details: none beyond the plan
+- Quality requirements: denied by default; `GoVetConsentStore(WORKSPACE_STATE_STORAGE, { userDataPath })` — confirm
+  `PLATFORM_INFO.globalStoragePath` equals the host `userDataPath` (O2 §1.2 assumption) or pass it explicitly;
+  merge `GO_VET_COVERAGE` (syntax-only) and keep Tier 0 syntax for every Go file; one failing checker leaves other
+  languages intact; forward every 37a reason code (§6 codes, the executor-report extras, and the r1 six:
+  `root-unresolvable`, `outside-root`, `build-constraints`, `ignored-name`, `unverifiable`, `unmapped-findings`),
+  `notChecked`, `diagnosticsTruncated` and `unmappedFindings`. Uses 37a's `go-file-membership.ts` and
+  `go-vet-output.ts` through the checker only; a result with `unmappedFindings > 0` or `reason: unmapped-findings`
+  is never surfaced as a clean/"No issues" answer
+- FB spec: "checker does not run without consent" (0 spawns, Go `unchecked` + reason); `unmapped-findings` result →
+  provider answer not clean; Go checker throw → TS results intact
+- Review checklist (verifies the 37a fix round, Decision 24): (1) analysed-files-only credit — missing, build-tagged,
+  `_`-prefixed, GOOS/GOARCH-suffixed and cgo files are never in `checkedFiles`; (2) link resolution inside the
+  consented root — outward junction to another module spawns nothing / never uses it as `cwd`, cwd is the real
+  root; (3) unmapped findings counted — outside-root `posn` gives `findings` + `unmapped-findings`, never `ok`;
+  plus the runner Moderate above
 
-### Task 37b.2: Consent enable/revoke surfaces and the fragment — PENDING
+#### Batch 37b1a verification
 
-- Depends on: Task 37b.1
-- Files: the Electron and CLI consent-surface files named by the O2 amendment (added here when O2 closes), `WIT/matrix/activations/b37b.ts` (new)
-- Plan reference: "Consent"; O2
-- Pattern to follow: per O2
-- Quality requirements: key `ptah.diagnostics.goVet.consent` in host-owned workspace storage; repository files never grant consent; revoke works; fragment activates `typeCheck:go`
-- Validation notes: batch file count confirmed when O2 closes (≥ 6 + O2 files, 2 libs + app)
-- Implementation details: none beyond O2
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40`
+  (add `@ptah-extension/platform-core` only if the interface file is touched)
+- validate-deps; degradation audit TOTAL 300; hostile spec reported as skipped with reason; FB evidence; review approves
 
-### Batch 37b verification
+### Batch 37b1b: Formatter rendering + spawner adapter proof — PENDING
 
-- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/cli-engine ptah-electron --skip-nx-cache 2>&1 | tail -40` passes (plus any O2 surface project)
-- validate-deps passes; degradation audit TOTAL 300; other common checks
-- FB evidence; Codex review approves
+- Recommended executor: backend-developer (sub-agent), Lane K
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: leaf changes in two libs with no shared files; the formatter consumes 37b1a's provider output
+- Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
+- Tasks: 2 | Depends on: Batch 37b1a
+
+#### Task 37b1b.1: Render Go vet outcomes honestly — PENDING
+
+- Files: `MCP/mcp-core/mcp-response-formatter.ts`, `MCP/mcp-core/mcp-response-formatter.spec.ts`
+- Plan reference: O2 §5.4 (consent-off and stale lines, exact text; no quoted token after "from"), §6 reason codes
+- Quality requirements: consent off/stale line per state; `unmapped-findings`, `diagnosticsTruncated` and each new
+  reason code render as named limitations; Go vet is never labelled type-checked; no VS Code-only wording change
+- FB spec: payload with `unmappedFindings: 2` and no diagnostics renders a non-clean answer (fails before)
+
+#### Task 37b1b.2: Spawner adapter proof — PENDING
+
+- Files: `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.spec.ts`
+- Plan reference: O2 §4.1 "Through the spawner adapter", §7.3
+- Quality requirements: absolute `…\go.exe` + `['vet','-json','./a']` on win32 → same command/args, no `cmd.exe`,
+  no `/d /s /c`, `windowsVerbatimArguments` false
+
+#### Batch 37b1b verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/agent-sdk --skip-nx-cache 2>&1 | tail -40`
+- validate-deps (Electron bundle scanner: no `from "<x>"` in strings); degradation audit TOTAL 300; review approves
+
+### Batch 37b1c: `diagnosticsConsent` RPC family — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane K
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: types, capability, manifest and handler form one contract; 6 files, 2 libs
+- Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
+- Tasks: 1 | Depends on: Batch 37b1a
+
+#### Task 37b1c.1: GET/SET handler, capability and manifest — PENDING
+
+- Files: `libs/shared/src/lib/types/rpc.types.ts`, `RH/host-profile/capabilities.ts`, `RH/host-profile/host-profile.ts`,
+  `RH/host-profile/manifest.ts`, `RH/handlers/diagnostics-consent-rpc.handlers.ts` (new), `…/diagnostics-consent-rpc.handlers.spec.ts` (new)
+- Plan reference: O2 §3 (GET/SET shapes, error union, check order 1-7), §6 consent audit line, §7.3 handler cases 1-11
+- Quality requirements: capability `goVetDiagnostics` appended to `RPC_CAPABILITIES` and `ALL_DISABLED`; strict zod
+  params; stale-UI guard `workspace-changed` before any write; success only after read-back; `stale` + `staleReason`
+  (incl. `go-changed`, Decision 25) returned by GET; audit only after read-back
+- FB spec: handler cases 1-11 against real `WorkspaceAwareStateStorage` + `CliStateStorage` in a temp user-data dir
+
+#### Batch 37b1c verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/shared @ptah-extension/rpc-handlers --skip-nx-cache 2>&1 | tail -40`
+- validate-deps; degradation audit TOTAL 300; review approves
+
+### Batch 37b1d: Host profiles and DI wiring (Electron + cli-engine) — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane K
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: both hosts enable the capability and pass the lazy spawner getter; wiring specs must fail if missing
+- Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
+- Tasks: 1 | Depends on: Batches 37b1a, 37b1c
+
+#### Task 37b1d.1: Enable the capability and attach the checker in both hosts — PENDING
+
+- Files: `apps/ptah-electron/src/rpc-host-profile.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`,
+  `apps/ptah-electron/src/di/rpc-surface.spec.ts` (extend, or `phase-2-diagnostics-override.spec.ts`),
+  `libs/backend/cli-engine/src/lib/rpc/cli-host-profile.ts`, `libs/backend/cli-engine/src/lib/container.ts`,
+  `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts` (extend, or `container-diagnostics-override.spec.ts`)
+- Plan reference: O2 §2 "DI timing" (spawner `SDK_PROCESS_SPAWNER` registered after WI → lazy getter), §3, §7.3 "Host wiring"
+- Quality requirements: capability `true` in Electron and CLI profiles, `false` in VS Code; GET answers
+  `supported:true`; checker attached; `supported:false` does not satisfy the spec
+- FB spec: remove the wiring → both wiring specs fail
+- Validation notes: `apps/ptah-cli/src/test-utils/manifest-parity.spec.ts`, if it enumerates methods, is updated in 37b3
+
+#### Batch 37b1d verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-electron @ptah-extension/cli-engine --skip-nx-cache 2>&1 | tail -40`
+- `nx run ptah-electron:validate-deps`; degradation audit TOTAL 300; review approves
+
+### Batch 37b2: Electron consent card (O2 37b-ii) — PENDING
+
+- Recommended executor: frontend-developer (sub-agent), Lane K
+- Fallback executor: frontend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: one Angular card plus its two host edits; single project
+- Review: Codex CLI lane (logic) + visual-reviewer (rendered card, dark + light)
+- Tasks: 1 | Depends on: Batches 37b1c, 37b1d
+
+#### Task 37b2.1: "Run `go vet` for this workspace" card — PENDING
+
+- Files: `FE/ptah-ai/go-vet-consent-config.component.ts` (new), `FE/ptah-ai/go-vet-consent-config.component.spec.ts` (new),
+  `FE/settings.component.ts`, `FE/settings.component.html` (inside the Electron-only `tools` block)
+- Plan reference: O2 §5.1, §7.3 card spec list
+- Pattern to follow: `FE/ptah-ai/voice-config.component.ts` + spec (optimistic toggle reverted on failure)
+- Quality requirements: GET on init and on `scopeKey()` change via `effect`; stale-response discard; toggle disabled
+  while in flight; SET sends the displayed root, `source:'settings-ui'`; fixed message per error; `workspace-changed`
+  refetches; `stale` shows its reason; hidden on `supported:false`; timers cleared via `DestroyRef`
+- FB spec: the §7.3 card cases
+
+#### Batch 37b2 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/chat --skip-nx-cache 2>&1 | tail -40`
+- Visual-reviewer screenshots (dark + light) of Settings → Tools with the card in off/on/stale; review approves
+
+### Batch 37b3: CLI `ptah config go-vet` + fragment (O2 37b-iii) — PENDING
+
+- Recommended executor: backend-developer (sub-agent), Lane K
+- Fallback executor: backend-developer, fresh invocation
+- Execution mode: sequential
+- Rationale: CLI command group and the matrix fragment; the fragment lands last, once every surface exists
+- Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
+- Tasks: 2 | Depends on: Batches 37b1d, 37b2
+
+#### Task 37b3.1: `ptah config go-vet <status|on|off>` — PENDING
+
+- Files: `apps/ptah-cli/src/cli/commands/config.ts`, `apps/ptah-cli/src/cli/router.ts`, `apps/ptah-cli/src/cli/commands/config.spec.ts`,
+  `apps/ptah-cli/src/test-utils/manifest-parity.spec.ts` (only if it enumerates methods)
+- Plan reference: O2 §5.2, §7.3 CLI cases
+- Pattern to follow: `config autopilot` (`config.ts:398-432`, `router.ts:325-345`), but never exit `0` on a failed change
+- Quality requirements: notification `config.goVet`; exit `0` success; `1` on `supported:false` or `success:false`
+  (one fixed stderr line); `2` bad sub-command; `5` transport failure; `on`/`off` send GET's root
+- FB spec: `success:false` → exit `1`, no success notification
+
+#### Task 37b3.2: Matrix fragment — PENDING
+
+- Depends on: Task 37b3.1
+- Files: `WIT/matrix/activations/b37b.ts` (new)
+- Quality requirements: activates `typeCheck:go` only; fails on base 37b2
+
+#### Batch 37b3 verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-cli @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40`
+- validate-deps; degradation audit TOTAL 300; FB evidence; review approves; hostile real-Go spec still pending a CI/user run
 
 ---
 
