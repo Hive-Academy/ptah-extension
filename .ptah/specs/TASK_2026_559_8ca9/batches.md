@@ -1,6 +1,6 @@
 # Batches - TASK_2026_559_8ca9
 
-Total tasks: 111 | Batches: 60 | Complete: 31/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is partial — Tasks 20.1 and 20.3 COMPLETE, 20.2 PENDING — and is not counted. Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 5 complete — 28a, 28b, 22, 23a, 24a)
+Total tasks: 111 | Batches: 60 | Complete: 32/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is COMPLETE with known issues R5-01..R5-03 carried to Batch 24d (User Decision 22). Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 5 complete — 28a, 28b, 22, 23a, 24a)
 
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
@@ -2151,24 +2151,25 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## Parallel lanes (User Decision 17) — status 2026-09-26
 
-| Lane | Worktree                                | Batches                                                                                    | State                                                        |
-| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15, 13 COMPLETE; next 20.2 → 21         |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                         |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                             |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                                  |
-| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22, 23a merged (130b9453d); next 24b → 23b → 25a → 25b → 26a |
-| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | done (24a merged de6f56118)                                  |
-| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                       |
-| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                          |
-| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                           |
-| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                             |
-| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3                      |
-| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                       |
+| Lane | Worktree                                | Batches                                                                                    | State                                                 |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15, 13, 20.2 COMPLETE; next 21   |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                  |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                      |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                           |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22, 23a merged (130b9453d); now 23b round 2, then 22c |
+| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | done (24a merged de6f56118)                           |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                   |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                    |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                      |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3               |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                |
 
 Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
 section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
-decomposition notes D1-D10. Lane A's 13 is COMPLETE (7d92f9f77); Lane A next runs 20.2 → 21 in this worktree.
+decomposition notes D1-D10. Lane A's 13 is COMPLETE (7d92f9f77) and 20.2 is COMPLETE with known issues carried to 24d (01f3daa8b, f926423a2,
+ac441f780; User Decision 22); Lane A next runs 21 in this worktree. Lane H (2026-09-27): 23b round 2, then 22c.
 **22, 23a (H)** are merged (96f9a5553, 130b9453d; 23a under User Decision 20); Lane H's branch is fast-forwarded to
 this branch's tip and runs next **24b → 23b → 25a → 25b → 26a**. **24a (I)** is merged (de6f56118; its
 `AstCodeInsights` hunk in `types.ts` merged cleanly with 13). **P** is done (28a merged e3578b2ca, 28b merged 44336de6a).
@@ -2730,7 +2731,7 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 
 ---
 
-## Batch 20: Regression harness H1 — service-level benchmark vs native (size AND recall) — IN_PROGRESS (20.1, 20.3 COMPLETE via lane commit db52fa759, merged 1c2ad2f92; 20.2 PENDING)
+## Batch 20: Regression harness H1 — service-level benchmark vs native (size AND recall) — COMPLETE with known issues R5-01..R5-03 carried to Batch 24d (20.1, 20.3 via lane commit db52fa759, merged 1c2ad2f92; 20.2 via 01f3daa8b, f926423a2, ac441f780)
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: backend-developer
@@ -2748,7 +2749,7 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 - Validation notes: it cleans up after itself
 - Implementation details: an exported `createMcpContractFixture()` → `{ root, knownSymbols, knownEdges, cleanup }`
 
-### Task 20.2: Benchmark spec per mandated tool — PENDING
+### Task 20.2: Benchmark spec per mandated tool — COMPLETE with known issues (User Decision 22)
 
 - Files: `<WT>/libs/backend/workspace-intelligence/src/testing/mcp-contract/mcp-contract.bench.spec.ts` (new)
 - Depends on: Task 20.1
@@ -2790,6 +2791,36 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
   workspace-intelligence, tool-output-reducers `--skip-nx-cache` → "Successfully ran targets test, lint, typecheck
   for 3 projects" (first run, no timeouts); `ptah-cli`/`ptah-electron` typecheck pass;
   `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300
+
+### Batch 20.2 record (Lane A — Task 20.2 with sub-batches 20.2p, 20.2q)
+
+- Reports: `batch-20b-executor-report.md` (harness: rounds 1-2, bounded correction, User Decision 21 realistic
+  fan-in), `batch-20p-executor-report.md` (ast_analyze lossless table), `batch-20q-executor-report.md` (export
+  extraction + User Decision 22 narrow fix; platform-core coverage vocabulary gains `unsupported-syntax`)
+- Review history (`reviews/batch-20b-code-logic-review-*.md`): r1 REVISE 3/10 → r2 REVISE 6/10 → r3 REVISE 4/10
+  (found the export-extraction recall loss → 20.2q and Batch 24d) → r4-postcap REVISE 6/10 (R4-01 Serious, R4-02
+  Blocking) → r5-final REVISE 6/10 (R4-01/R4-02 original cases fixed; R5-01, R5-02 Blocking, R5-03 Moderate)
+- User Decision 21: `get_dependents` SIZE guard measured on a realistic fan-in (fixture hub with 12 real
+  dependents), not the fixture's ≤2-dependent answers; compact coverage moved to Batch 22c
+- User Decision 22: commit after r5 with its defects recorded as known issues and carried into Batch 24d (see
+  "Carried acceptance criteria (User Decision 22)" there). r5 stays REVISE; this is not an approval
+- Deliberate-break proofs (final round, all reverted, suite green after): (1) Batch 7 language-inference spy fails
+  the `context_enrich_file` SIZE test; (2) 20.2p table-format spy fails the `ast_analyze` SIZE test; (3)
+  `extractExportsFromMatches` dropping `interface` records fails both the `ast_analyze` and `get_symbol_index`
+  exact-recall tests
+- Commits: **01f3daa8b** 20.2p (ast_analyze table formatter + specs; 26% → 46-48% saving on the fixture, 78-88% on
+  real files); **f926423a2** 20.2q (export-extraction, parser/ast/namespace decoders, platform-core vocabulary,
+  specs; `ast-analyze-result.spec.ts` carries both 20.2p and 20.2q tests and lands here); **ac441f780** 20.2 harness
+  (bench, fixture + spec, `resolveEnrichLanguage` extraction and its call site; `analysis-namespace.builders.ts` +
+  spec also carry the 20.2q `exportSymbolNames` call and land here). `workspace-intelligence/src/index.ts` was split
+  by line across the three commits
+- One pending test by design: `mcp-contract.bench.spec.ts:416` "pending Batch 24r: preserved coverage survives
+  reduction" — converted into a real test after the Lane H merge (see Batch 22c)
+- Verification (2026-09-27): `platform-core:test --skip-nx-cache` isolated → 44 suites, 851 passed, 4 todo (the r5
+  failure did not reproduce; Nx flags the task flaky); `nx run-many "-t=test,lint,typecheck"` for
+  workspace-intelligence, vscode-lm-tools, platform-core `--skip-nx-cache` → success for 3 projects; `ptah-cli` /
+  `ptah-electron` typecheck pass; `ptah-electron:validate-deps` pass; `degradation-audit:lint` TOTAL 300; no
+  TODO/FIXME/PLACEHOLDER/STUB in changed source
 
 ---
 
@@ -3385,6 +3416,73 @@ Edge cases (carried by the named task):
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-electron --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - FB evidence; the Claude reviewer approves
+
+---
+
+## Batch 22c: Compact coverage block — PENDING (added 2026-09-27, User Decision 21)
+
+- Recommended executor: backend-developer (sub-agent), Lane H after Batch 23b; review: Codex CLI lane
+- Rationale: the coverage block (Batch 22 / 24r, up to ~1,000 chars) made small `get_dependents` answers larger than a
+  fair grep (Batch 20.2 bounded correction: ~370-380 vs ~316-322 tokens on a 4-dependent answer)
+- Depends on: Batch 24r (contract with `clean` + `reasons`), Batch 23b
+- Files: platform-core coverage contract + its specs; the serializers/formatters of the language-bound tools only if
+  they build the block themselves (prefer one serializer in the contract)
+- Quality requirements: a clean answer serialises as `{clean: true, analyzed: N}` only; a qualified answer as
+  `clean: false`, `reasons`, and only the non-zero buckets — zero/empty buckets omitted, `null` (unknown) buckets
+  always kept (unknown must stay visible); `isCleanAnswer` semantics unchanged; Batch 24r `preserveKeys` still
+  keeps the block verbatim; the worst case stays ≤ 1,000 chars; a small-answer spec asserts the coverage overhead of
+  a clean answer ≤ a fixed cap (e.g. 40 tokens) and of a typical qualified answer ≤ a fixed cap (e.g. 120 tokens),
+  measured with the real tokenizer; every consumer spec that pinned the old full shape is updated, not weakened
+- Verification: scoped test/lint/typecheck (platform-core, workspace-intelligence, vscode-lm-tools,
+  tool-output-reducers), validate-deps, degradation-audit TOTAL 300; re-run the Batch 20.2 bench after merge
+- Lane H merge: the platform-core coverage contract has two changes to combine — 24r (`clean` + `reasons`) and
+  20.2q (`unsupported-syntax` reason); after the merge convert the pending test "pending Batch 24r: preserved
+  coverage survives reduction" (`mcp-contract.bench.spec.ts:416`) into a real test. Per the r5 merge note: a clean
+  parse with `unextractedExports` must map to `clean: false` plus the reason; reconcile the 994-char old-shape pin
+  (`language-registry.spec.ts:153`) with the compact shape rather than picking a side; rerun the dependents /
+  symbol-index SIZE guards on the merged envelopes
+
+---
+
+## Batch 24d: Code index records every TS/JS export kind — PENDING (added 2026-09-27, orchestrator)
+
+- Recommended executor: backend-developer (sub-agent); review: Codex CLI lane
+- Rationale: the Batch 20.2 r3 review (`reviews/batch-20b-code-logic-review-r3.md`) measured that the code-symbol
+  index reads only functions and classes, so `code_search_symbols` misses interfaces, type aliases, enums, variable
+  exports, default exports and re-exports that a native grep finds — a recall loss against the task's contract.
+  Batch 20.2q fixes the shared export query and the ast/symbol-index decoders but deliberately does not touch the
+  indexer (Lane H changed it in Batch 24b)
+- Depends on: Batch 20.2q committed and Lane H (24b) merged into the task branch
+- Files: the code-symbol indexer / sink (workspace-intelligence `workspace-indexer.service.ts` and the code-symbol
+  extraction it uses; memory-curator `code-symbol.store` only if the kind column needs new values) + specs
+- Quality requirements: the index records every export kind 20.2q extracts (kind column preserved; exact-name recall
+  of Batch 5 unchanged; coverage/freshness of Batch 24b unchanged); spec: index the fixture and the three real files
+  from the r3 review, then `code_search_symbols` finds every exported name an independent grep census finds; the
+  spec fails before the change. Also check the Batch 2d code-outline reducer's separate queries for the same export
+  kinds and fix them in this batch if they miss any (the outline must not hide exported interfaces/types)
+- Verification: scoped test/lint/typecheck (workspace-intelligence, memory-curator if touched, vscode-lm-tools),
+  validate-deps, degradation-audit TOTAL 300
+
+### Carried acceptance criteria (User Decision 22)
+
+From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed with these open; `WI` =
+`libs/backend/workspace-intelligence/src`, `LM` = `libs/backend/vscode-lm-tools/src/lib`):
+
+- **R5-01 (Blocking)** — graph, symbol-index and `queryExports` discard `unextractedExports`: a file with
+  `exports[key] = 1` vanishes from the symbol index and the graph counts it analyzed/clean. Sites:
+  `WI/ast/dependency-graph.service.ts:599-609,439-443,842`; `LM/code-execution/namespace-builders/ast-namespace.builder.ts:208`;
+  `LM/code-execution/namespace-builders/analysis-namespace.builders.ts:339-350`;
+  `LM/code-execution/mcp-core/protocol-dispatcher.ts:2219-2242,2842`. Carry the disclosure (reason
+  `unsupported-syntax`) through graph publication and coverage into symbol-index responses, including empty pages;
+  `queryExports` must not return an unqualified array for a partial extraction. Test empty and mixed files after 24r
+- **R5-02 (Blocking)** — `module["exports"].x = 1` evades the CommonJS gap detector; `ast_analyze` answers
+  clean-empty. Sites: `WI/ast/tree-sitter.config.ts:218-269`; `WI/ast/export-extraction.ts:275-287`;
+  `LM/code-execution/namespace-builders/ast-namespace.builder.ts:228-254`. Recognise constant-string bracket access
+  (or disclose it as unsupported); real TS and JS tests assert it never yields clean-empty
+- **R5-03 (Moderate)** — quoted-alias escapes stay source text: `export {a as "x-y"}` yields `x-y`, not
+  `x-y`. Site: `WI/ast/export-extraction.ts:301-310` (`nameOf`). Decode string-literal escapes (or qualify the
+  form); cover escaped aliases and `Object.defineProperty` names
+- The 24d review verifies them with the r5 probes (r5 "Independent probe evidence" table)
 
 ---
 
