@@ -2157,6 +2157,22 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## RESUME POINT (2026-09-27, session handoff)
 
+**Progress 2026-09-27 (afternoon), supersedes steps 1-3 below:**
+
+- Step 1 DONE: 5678513f4 (21p/21q/21r product) + 6fac0a695 (21 harness + User Decision 24). R4-01..03 fixed once;
+  the Batch 24d review verifies them plus two carried limits (see the Batch 21 section).
+- Step 2 DONE: 25a+25b 4c9a8aefa (25a: 4 reviews, post-cap APPROVE 7; census graph-reuse deviation accepted by the
+  team leader; R4-M1 carried and fixed in 25b; 25b r3 APPROVE 8), 26a ea46dc9ad (one review, fix round; verified by the
+  26b review).
+- Step 3 DONE: merge 7d908f79f (Lane H 24r, 24b, 23b, 22c, 25a+25b, 26a), fallout folded in — report
+  `merge-lane-h-report.md`. Team-leader rulings: R1 compactCoverage names ≤ 3 failure reasons + `other` (compact worst
+  case 994 ≤ 1,000, Decision 21; the full typed shape is pinned at 1,028); R2 24b's two descriptions re-pinned
+  (ptah_code_search_symbols 1,021, ptah_code_reindex 997), 24c owns their final size.
+- Lane H: 26b implemented; review r1 REVISE 4 (6 Blocking, 3 Moderate) → one fix round in progress; verified by the next
+  Lane H review.
+- Next: 24d (Lane A) ‖ 24c (new Lane J from the task tip; also carries 26a R26A-m1: execute_code help lists the LSP
+  report methods) ‖ 26b fix; then 27 after 24c + 26b merge.
+
 Verified on disk at handoff: task branch `fix/task-559-mcp-tool-contract` HEAD ec6ad9bc8 (Batches 1-19, 11b,
 20.1/20.2/20.2p/20.2q/20.3, 22, 23a, 24a, 28a, 28b COMPLETE). Lanes B, C, D, I, P fully merged (no commits ahead).
 `git log --oneline fix/task-559-mcp-tool-contract..fix/task-559-lane-h` = 4 commits, committed on Lane H ONLY, not
