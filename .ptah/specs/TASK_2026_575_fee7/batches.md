@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 5/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 6/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -475,7 +475,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   gates on it (lint-staged formats ts/js/json/md only). The `.prettierignore` entry the executor proposed is carried
   to Task 6.1, because the team-leader does not write repository files.
 
-## Batch 6: Prerender check, baseline capture and deploy gate (F2b, part 2) — IN_PROGRESS
+## Batch 6: Prerender check, baseline capture and deploy gate (F2b, part 2) — COMPLETE (70b712f8)
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -484,7 +484,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 5
 - Commit: `feat(scripts): add prerender check and capture english baselines`
 
-### Task 6.1: `parse5` devDependency — IMPLEMENTED
+### Task 6.1: `parse5` devDependency — COMPLETE
 
 - Files: `$ROOT/package.json`, `$ROOT/package-lock.json`, `$ROOT/.prettierignore` (Batch 5 carry-over)
 - Plan reference: implementation-plan.md:69, :343
@@ -497,7 +497,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   `.prettierignore` beside the degradation-audit parse-failure entry, with a one-line comment (it is unparsable on
   purpose; the self-test's parse-error plant).
 
-### Task 6.2: `check-prerender.ts` — IMPLEMENTED
+### Task 6.2: `check-prerender.ts` — COMPLETE
 
 - Depends on: Task 6.1
 - Files: `$ROOT/tools/i18n-check/src/prerender/check-prerender.ts` + spec
@@ -507,7 +507,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: spec proves `<span class="ltr-island">$29</span>/mo` extracts as `$29/mo`.
 - Implementation details: `--update` writes `{ route, h1, text }` per route slug.
 
-### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — IMPLEMENTED
+### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — COMPLETE
 
 - Depends on: Task 6.2
 - Files: `$ROOT/apps/ptah-landing-page/prerender-baseline/{home,download,pricing,terms-and-conditions,privacy,refund}.json`, `$ROOT/.github/workflows/deploy-landing.yml`
@@ -534,7 +534,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   JSON-LD content; `check-prerender.ts` is authoritative); Minor, escape ERE metacharacters in the `HEADLINE`
   anchors, or comment that they must stay free of them.
 
-## Batch 7: Scope scaffolding, global and eager projects (F3, part 1) — PENDING
+## Batch 7: Scope scaffolding, global and eager projects (F3, part 1) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -543,7 +543,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 6
 - Commit: `feat(landing): scaffold i18n scopes for app, ui, core, panel-ui and landing`
 
-### Task 7.1: Scopes for `app`, `ui`, `core` — PENDING
+### Task 7.1: Scopes for `app`, `ui`, `core` — IN_PROGRESS
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{en.json,ar.json,app.i18n-scope.ts}`, `$ROOT/libs/web/{ui,core}/src/lib/i18n/{en.json,ar.json,<lib>.i18n-scope.ts}`; MODIFY each project's `src/index.ts` (libs only), `tsconfig.json`, Jest config
 - Plan reference: implementation-plan.md:368-400
@@ -552,7 +552,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A2 — a spec (or existing spec run) must import a scope file; report the result.
 - Implementation details: JSON files start as `{}`.
 
-### Task 7.2: Scopes for `panelUi`, `landing` — PENDING
+### Task 7.2: Scopes for `panelUi`, `landing` — IN_PROGRESS
 
 - Depends on: Task 7.1
 - Files: `$ROOT/libs/web/{panel-ui,landing}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
