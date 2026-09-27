@@ -1,5 +1,7 @@
 # Implementation Plan - TASK_2026_575_fee7
 
+Revision: 1. This revision addresses `implementation-plan-review.md` round 0 (REVISE: B1 and B2 blocking, N1-N11 non-blocking). See "Review responses (revision 1)" at the end.
+
 Bilingual English/Arabic (RTL) i18n for `ptah-landing-page` on `@jsverse/transloco` 8.4.0, through a shared `scope:shared` library.
 
 Verdict: build it as **bundled per-project scopes, loaded by resolvers before render**. Translations are imported as JSON chunks, with no HTTP loader and no asset copying. An app initializer loads the global scopes, and a route resolver loads each route's scope. A registry-driven switch loads every scope the session has used before it flips the active language. A committed inline pre-paint script sets `lang`/`dir`, and a Jest spec keeps it equal to the library's detection function. A custom `tools/i18n-check` Nx project handles the checks.
@@ -46,7 +48,7 @@ Verdict: build it as **bundled per-project scopes, loaded by resolvers before re
 | `loadComponent` from lazy lib barrels; lint forbids static imports of lazy libs | `apps/ptah-landing-page/src/app/app.routes.ts:47-51`, `:82-90`, `:101-107`, `:131-136` | Scope definitions for lazy libs are reached with a **dynamic** `import('@ptah-web/x')` inside the resolver, the same module `loadComponent` already imports. |
 | Route-table specs must not import `app.routes` (it drags in the marketing graph) | `apps/ptah-landing-page/jest.config.ts` (NOTE block), `apps/ptah-landing-page/src/app/app.routes.spec.ts:29-35` | The resolver is unit-tested in the library, not through the route table. |
 | `scope:shared` may import only `scope:shared`; `scope:web` imports shared; `type:ui` imports `ui` and `util`; `type:util` imports only `util` | `eslint.config.mjs:256-258`, `:284-292`, `:379-384` | The new lib is `["scope:shared","type:util"]` and depends on npm only. The switcher UI lives in `web-ui` and `web-panel-ui`. |
-| Precedent `scope:shared` Angular lib: provider factory, peers `package.json`, `@nx/dependency-checks` | `libs/frontend/markdown/project.json:7`, `libs/frontend/markdown/src/lib/provide-markdown-rendering.ts:475`, `libs/frontend/markdown/eslint.config.mjs` | The library shape and the `provideI18n()` factory follow this precedent. |
+| Precedent `scope:shared` Angular lib: provider factory, peers `package.json` | `libs/frontend/markdown/project.json:7`, `libs/frontend/markdown/src/lib/provide-markdown-rendering.ts:475` | The library shape and the `provideI18n()` factory follow this precedent. The markdown lib is buildable (`ng-packagr-lite`) and the new lib is not, so `@nx/dependency-checks` is not relied on here. 1.2 is proven by the `nx graph --file` inspection (rev-0 review N7). |
 | `testing` secondary entry alias precedent | `tsconfig.base.json:97-99` (`@ptah-extension/core/testing` → `src/testing/index.ts`) | `@ptah-extension/i18n/testing` follows the same shape. |
 | Local UI preference persisted with try/catch and validation | `libs/web/members/src/lib/services/member-theme.service.ts:85-108` | `LangPreferenceStore` uses the same guard pattern. |
 | `SeoService.setPage` falls back from og to title/description; 6 callers pass literals synchronously in constructors | `libs/web/core/src/lib/services/seo.service.ts:35-56`; callers `libs/web/landing/src/lib/landing-page.component.ts:90`, `libs/web/pricing/src/lib/pricing-page.component.ts:58`, `libs/web/legal/src/lib/{terms-page.component.ts:400,privacy-page.component.ts:486,refund-page.component.ts:267}`, `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:403` | N12. The key-based API writes OG from English. Callers change in the same unit. |
@@ -58,7 +60,10 @@ Verdict: build it as **bundled per-project scopes, loaded by resolvers before re
 | Nav chevrons already use `[class.rotate-180]` on `<lucide-angular>` | `libs/web/ui/src/lib/navigation.component.ts:121,197,389` | Transforms work on the icon host, so `rtl:scale-x-[-1]` mirroring is viable. |
 | Nav menu anchors | `navigation.component.ts:806` (`openMenu` union), `:900` (`toggleMenu`), `:920` (`closeMenuAndRefocus`), `:939` (`onDocumentClick`), `:468` (mobile `role="menu"`) | Header-skin wiring for design §2.2-2.3. |
 | Topbar email spans | `libs/web/members/src/lib/member-layout/member-layout.html:21-25`, `libs/web/admin/src/lib/admin-layout/admin-layout.html:19-24` | B7 truncation plus N23 `[title]`. |
-| Formatting sites: 58 `\| date` (Angular patterns such as `'medium'` or `'MMM d, HH:mm'`), 3 `\| number:'1.0-1'`, 1 `toLocaleString()`, 1 `Intl.RelativeTimeFormat('en')`, 1 `Intl.DateTimeFormat().resolvedOptions().timeZone` | grep over `libs/web`, `apps/ptah-landing-page/src` | A drop-in `i18nDate`/`i18nNumber` keeps every existing pattern string. The timezone read is not formatting, and is marker-exempted. |
+| Formatting sites: 58 `\| date` (Angular patterns such as `'medium'` or `'MMM d, HH:mm'`), 3 `\| number:'1.0-1'`, 1 `toLocaleString()`, 4 `toLocaleDateString(…)` (`libs/web/account/.../profile-details.component.ts:530`, `.../profile-header.component.ts:303`, `libs/web/members/.../locked-module-notice.ts:168`, `apps/ptah-landing-page/src/app/pages/download/download-page.component.ts:456`), 1 `Intl.RelativeTimeFormat('en')`, 1 `Intl.DateTimeFormat().resolvedOptions().timeZone` | grep over `libs/web` and `apps/ptah-landing-page/src`; the 4 `toLocaleDateString` sites come from the rev-0 review (N3) | A drop-in `i18nDate`/`i18nNumber` keeps every existing pattern string. Method-based formatters read the `intlLocale()` signal (Component 7). The timezone read is not formatting, and is marker-exempted. |
+| Core service messages are rendered by other projects' templates: `GitHubReleaseService` error at `download-page.component.ts:80,374`; `PaddleCheckoutService.error`/`validationError` at `libs/web/pricing/src/lib/components/pricing-grid.component.ts:537,540`; and an interpolated message at `libs/web/core/src/lib/services/paddle-checkout.service.ts:234-239` | rev-0 review B1, re-read during revision | `core` keys are consumed outside `core`, so `core` is an allowed foreign scope, like `ui`. Parameterized service messages need a `{ key, params }` shape. |
+| A literal arrow glyph sits in prerendered copy: `or view pricing →` | `libs/web/landing/src/lib/sections/cta/cta-section.component.ts:78` | The glyph stays as literal text on prerendered routes, and is never replaced by an icon there (B2). |
+| `provideTransloco` itself registers `provideTranslocoMissingHandler(DefaultMissingHandler)` | `@jsverse/transloco@8.4.0` `fesm2022/jsverse-transloco.mjs:1456-1462` | `provideI18n` must register its handler **after** `provideTransloco`, so that the later provider wins (N11). |
 | Angular `ar` locale data uses Latin number symbols (`"."`, `","`), and `formatDate` emits JS digits | `@angular/common@22.1.7/locales/ar.js` (symbols array); `types/common.d.ts:168` `formatDate(value, format, locale, timezone?)`, `:233` `formatNumber`, `:244` `registerLocaleData` | Angular formatting with `'ar'` already satisfies Western digits. Raw `Intl` calls use `ar-u-nu-latn`. |
 | `ApplicationRef.whenStable(): Promise<void>`, `provideAppInitializer`, `provideEnvironmentInitializer` | `@angular/core@22.1.7` `types/_debug_node-chunk.d.ts:5832`, `types/core.d.ts:1986`, `:386` | Stability marker (N13), i18n initializer, locale-data registration. |
 | Dependency floor: `@angular/compiler` 22.1.7, `ts-node`, `fast-glob`, `@playwright/test`; `parse5@8.0.1` exists only transitively (via jsdom) | `package.json:93,158,223,282`; `package-lock.json:32584` | Tooling reuses these. `parse5` is promoted to an explicit devDependency. |
@@ -110,6 +115,17 @@ Assumptions, each with the check that resolves it:
   - Check: run the 3.6 spec in **English first**. If `data-app-stable` never appears in English, that is pre-existing, and the team-leader raises it before the Arabic run is judged.
 - **A5.** `@if` branches that differ between the English prerender and the Arabic client render are handled by Angular's dehydrated-view cleanup without NG05xx. These are the check icon in the switcher and the legal notice.
   - Check: the 3.6 spec. On failure, the switcher's check icons become `[class.invisible]` toggles, a visual no-op.
+  - Risk level: low. The switcher menus are closed at load, and `/members` and `/admin` are client-rendered only, so the legal notice is the only real structural branch on a prerendered route (review, Feasibility checks).
+
+Does any assumption need a user decision? (rev 1, answering the coordinator)
+
+| Assumption | Classification | Why |
+| --- | --- | --- |
+| A1: esbuild bundles dynamic JSON | Safe technical default | The fallback (a per-language TS wrapper module) changes only the scope files. It has no product effect. |
+| A2: Jest resolves dynamic JSON | Safe technical default | Checked in F1. The same fallback applies. |
+| A3: resolvers hold SSG | Safe technical default | The lazy `loadComponent` routes already prerender, a strong precedent. F4's `prerender-check` proves it. |
+| A4: the app reaches stability | The **check** is a technical default. The **remediation needs a user decision.** | If the English control run fails, the fix means moving GSAP/Lenis loops outside the Angular zone, which is outside this task's scope. The team-leader must put that choice to the user (open a separate task, or widen this one). The team-leader must not start that fix silently. |
+| A5: `@if` differences hydrate cleanly | Safe technical default | The fallback is a visual no-op (class toggles). |
 
 ## Architecture decision
 
@@ -210,12 +226,13 @@ Assumptions, each with the check that resolves it:
     - `provideI18n(options): EnvironmentProviders` combines:
       - `provideTransloco` with `availableLangs: SUPPORTED_LANGS`, `defaultLang: 'en'`, `fallbackLang: 'en'`, `reRenderOnLangChange: true`, `prodMode: !isDevMode()`, `failedRetries: 1`, `missingHandler: { useFallbackTranslation: false, logMissingKey: false, allowEmpty: false }` and `scopes: { keepCasing: true }`;
       - the internal `EmptyRootLoader`, which returns `{}` for root languages (all real content lives in scopes, and no `HttpClient` is involved);
-      - `provideTranslocoMissingHandler(I18nMissingHandler)`;
+      - `provideTranslocoMissingHandler(I18nMissingHandler)`, placed **after** `provideTransloco`. `provideTransloco` registers `DefaultMissingHandler` itself (`fesm2022:1456-1462`), which returns the raw key, and the later provider wins;
       - `provideEnvironmentInitializer(() => registerLocaleData(localeAr, 'ar'))`;
       - `provideAppInitializer(() => inject(I18nService).init())`.
   - `i18n-missing.handler.ts` (internal):
     - When the active language is not `en`, it warns in dev (`[i18n] missing "<key>" in "<lang>"`) and returns the English value via `TranslocoService` (resolved lazily from `Injector`, to avoid a DI cycle), with a re-entrancy guard.
     - When the key is missing in English too, it warns in dev and returns `''` in prod, **never the key** (2.5).
+  - `i18n-message.ts`: `interface I18nMessage { readonly key: string; readonly params?: Readonly<Record<string, string | number>> }`. This is the shape services use to return a user-facing message (rule 3 in Component 5). It is product-neutral, so it belongs in the shared library.
   - `pipes/i18n-date.pipe.ts` (`i18nDate`, standalone, `pure: false`):
     - Signature `(value, format = 'mediumDate', timezone?)`, mirroring `DatePipe`.
     - It memoises on `(value, format, timezone, lang)` and calls `formatDate(value, format, ANGULAR_LOCALE[lang], timezone)`.
@@ -224,10 +241,13 @@ Assumptions, each with the check that resolves it:
   - Barrel `src/index.ts`, with explicit grouped exports under 150 lines (`CONVENTIONS.md:§3`). It re-exports `TranslocoPipe` and `translateSignal` from Transloco, so consumers never import `@jsverse/transloco` directly.
   - `src/testing/index.ts` (`@ptah-extension/i18n/testing`): `provideI18nTesting({ lang?: SupportedLang, translations: Record<string /*scope*/, Translation> })`.
     - It is `provideTransloco` with a **synchronous** `of()` root loader that nests each scope's JSON under its scope name, plus `I18nService` seeded with `lang`, plus the locale registration.
+    - It installs the same `I18nMissingHandler`, after `provideTransloco`, in a mode that **throws** on a key missing from every provided language. A lib spec therefore fails on a typo'd key immediately, instead of silently rendering a raw key (rev-0 review N11).
     - Specs import the real `en.json`, so existing English assertions keep passing.
 - Verified contracts and entry points: see the Transloco "verified" list, `@angular/common` `formatDate`/`formatNumber`/`registerLocaleData` (`types/common.d.ts:168,233,244`), and `provideAppInitializer`/`provideEnvironmentInitializer` (`types/core.d.ts:1986,386`).
 - Dependencies:
-  - npm only: `@angular/core`, `@angular/common`, `@angular/router`, `@jsverse/transloco@8.4.0`, `rxjs`, all declared as peers in the library `package.json` (dependency-checks lint, as in the markdown precedent).
+  - npm only: `@angular/core`, `@angular/common`, `@angular/router`, `@jsverse/transloco@8.4.0`, `rxjs`, all declared as peers in the library `package.json` for documentation.
+  - 1.2 is verified by `nx graph --file=<tmp>.json`: `@ptah-extension/i18n` must have an empty workspace-dependency list. `@nx/dependency-checks` does not apply, because the lib has no build target.
+  - `@jsverse/transloco` 8.4.0 pins the beta transitive dependency `@jsverse/utils@1.0.0-beta.5`. This is accepted and pinned by the lockfile. It is revisited on the next Transloco upgrade.
   - No workspace imports (1.2).
 - Integration points:
   - `apps/ptah-landing-page` calls `provideI18n` and uses the resolvers.
@@ -247,10 +267,10 @@ Assumptions, each with the check that resolves it:
   - a throwing storage getter and setter;
   - `setLanguage` updates `lang`, `dir`, `documentElement` and storage;
   - the resolver loads a static-import scope with **no `HttpClient` provided** (1.4);
-  - the missing handler in dev and prod;
+  - the missing handler in dev and prod. In prod, a key missing in both languages returns `''`, **never the key**. The spec also asserts that `provideI18n` resolves `TRANSLOCO_MISSING_HANDLER` to `I18nMissingHandler`, not `DefaultMissingHandler`;
   - the pipes: `'MMM d, y'` in `ar` gives Arabic month names and ASCII digits (`/[٠-٩]/` absent), and the output updates after `setLanguage` without re-creating the pipe;
   - `provideI18nTesting` renders synchronously.
-- Files: CREATE `libs/frontend/i18n/{project.json, package.json, CLAUDE.md, eslint.config.mjs, jest.config.ts, tsconfig.json, tsconfig.lib.json, tsconfig.spec.json}`, `libs/frontend/i18n/src/{index.ts, test-setup.ts}`, `libs/frontend/i18n/src/lib/{lang.config.ts, resolve-initial-lang.ts, lang-preference.store.ts, i18n.service.ts, i18n-scope.ts, i18n-scopes.resolver.ts, provide-i18n.ts, i18n-missing.handler.ts}`, `libs/frontend/i18n/src/lib/pipes/{i18n-date.pipe.ts, i18n-number.pipe.ts}`, `libs/frontend/i18n/src/testing/{index.ts, provide-i18n-testing.ts}`, plus a `*.spec.ts` beside each unit. MODIFY `tsconfig.base.json` (aliases `@ptah-extension/i18n` and `@ptah-extension/i18n/testing`), `package.json` and `package-lock.json` (`@jsverse/transloco` 8.4.0).
+- Files: CREATE `libs/frontend/i18n/{project.json, package.json, CLAUDE.md, eslint.config.mjs, jest.config.ts, tsconfig.json, tsconfig.lib.json, tsconfig.spec.json}`, `libs/frontend/i18n/src/{index.ts, test-setup.ts}`, `libs/frontend/i18n/src/lib/{lang.config.ts, resolve-initial-lang.ts, lang-preference.store.ts, i18n.service.ts, i18n-scope.ts, i18n-scopes.resolver.ts, provide-i18n.ts, i18n-missing.handler.ts, i18n-message.ts}`, `libs/frontend/i18n/src/lib/pipes/{i18n-date.pipe.ts, i18n-number.pipe.ts}`, `libs/frontend/i18n/src/testing/{index.ts, provide-i18n-testing.ts}`, plus a `*.spec.ts` beside each unit. MODIFY `tsconfig.base.json` (aliases `@ptah-extension/i18n` and `@ptah-extension/i18n/testing`), `package.json` and `package-lock.json` (`@jsverse/transloco` 8.4.0).
   - `project.json`: name `@ptah-extension/i18n`, tags `["scope:shared","type:util"]`, targets `test`/`lint`/`typecheck`, and no build target, consumed from source like the web libs.
   - `tsconfig.json`: adds `"resolveJsonModule": true`.
   - `jest.config.ts`: `transformIgnorePatterns` includes `@jsverse`.
@@ -259,16 +279,21 @@ Assumptions, each with the check that resolves it:
 
 - Purpose: the committed, rerunnable checks behind 3.5, 4.1, 5.1, 6.2, 7.1-7.3, 8.1 and 8.2.
 - Responsibilities (one entry point each, sharing `src/lib/*` helpers):
-  - **`src/main.ts --project-root <p> --scope <s> [--allow-scope ui] --glossary <file>`**. This is the per-project `i18n-check` target. It exits 1 and names the file, line and key for every failure, across these rules:
+  - **`src/main.ts --project-root <p> --scope <s> [--allow-scope ui,core] --glossary <file>`**. This is the per-project `i18n-check` target. It exits 1 and names the file, line and key for every failure, across these rules:
     - **Parity (7.1):** the flattened key sets of `en.json` and `ar.json` are equal. Every value is a non-empty string.
     - **References (7.2):**
       - Templates (`.html` files and inline `template:`) are parsed with `@angular/compiler` `parseTemplate`. It collects every `transloco` pipe's first argument, from interpolations, bound attributes and control-flow expressions.
       - TypeScript is parsed with the `typescript` compiler API. It collects the first argument of `translate(`, `.translate(`, `translateSignal(` and `translateObjectSignal(`.
-      - Literal keys, and **every string literal in the project that matches `^<scope>\.[A-Za-z0-9_]+(\.[A-Za-z0-9_-]+)+$`**, must exist in the owning scope's `en.json`. The owning scope is the project's own, or `ui` when `--allow-scope ui` is given.
+      - Literal keys, and **every string literal in the project that matches `^<scope>\.[A-Za-z0-9_]+(\.[A-Za-z0-9_-]+)+$`** for the project's own scope, must exist in that scope's `en.json`.
+      - A key's **owning scope** is its first segment. It must be the project's own scope, or one of the `--allow-scope` scopes. The check reads the owning scope's `en.json` from that project's path, using the fixed scope-to-path map in `src/lib/scope-map.ts`, for example `core` → `libs/web/core/src/lib/i18n/en.json`.
+      - `--allow-scope` defaults to `ui,core` for every web project except `ui` and `core` themselves. `ui` passes nothing. `core` passes `ui` (rev 1, B1). Both scopes are global (loaded at init), so a key from either is always present at render. This matches requirement 2.1: shared chrome text and shared service messages are consumed from their owner and never copied.
       - Any other scope prefix fails (2.1).
     - **Computed keys (7.2):** a non-literal key argument passes only when one of these holds:
       - (a) Its receiver identifier ends in `I18N_KEYS`/`I18nKeys` (for example `STATUS_I18N_KEYS[s]` or `statusI18nKeys[s]`), and a `const <X>I18N_KEYS = {...} as const` exists in the project whose values are all string-literal keys. The values are checked by the literal scan.
-      - (b) An `i18n-keys: <key> <key> …` comment, or an `i18n-keys: <prefix>.*` comment (the prefix must be a non-empty object in `en.json`), sits on the same line or the preceding line (`<!-- -->` in HTML, `//` in TS).
+      - (b) An `i18n-keys: <key> <key> …` comment, or an `i18n-keys: <prefix>.*` comment, sits on the same line or the preceding line (`<!-- -->` in HTML, `//` in TS).
+        - Each listed key, and each prefix, resolves against the `en.json` of **its own owning scope** (its first segment), which must be the project's scope or an allowed one.
+        - A prefix must name a non-empty object.
+        - Example: `{{ msg.key | transloco: msg.params }}` in `pricing-grid.component.ts`, preceded by `<!-- i18n-keys: core.checkout.* -->`.
 
       Otherwise it fails with "unannotated computed key". A literal-scan false positive is silenced with `i18n-ignore: <reason>`.
     - **Placeholder and markup parity:** the `{{ param }}` sets match between `en` and `ar`. Tags present in a value are limited to `strong|em|code|a` and match between `en` and `ar`.
@@ -281,41 +306,50 @@ Assumptions, each with the check that resolves it:
 
       It runs over `.ts`, `.html` and `.css`. A match passes when it is:
       - (i) a centring pair on the same element or line (`(left|right)-1/2` with `-?translate-x-1/2`), which is the allow-list recorded in rev 1's N1 response; or
-      - (ii) covered by an `rtl-exempt: <non-empty reason>` comment on the same line, the preceding line, or immediately before the start tag of the containing element. The element-start case exists because HTML comments cannot sit between attributes, and the parser's source spans locate the tag.
-    - **Formatting (5.1):** it fails on `\|\s*(date|number|currency|percent)\b`, `toLocale(Date|Time)?String\(` and `Intl\.[A-Za-z]+\(` unless the line or the preceding line carries `i18n-format-exempt: <reason>`, or the first argument is an `intlLocale()` call.
+      - (ii) covered by an `rtl-exempt: <non-empty reason>` comment on the same line, the preceding line, or immediately before the start tag of the containing element. The element-start case exists because HTML comments cannot sit between attributes, and the parser's source spans locate the tag; or
+      - (iii) inside an LTR island in a template: a descendant of (or on) an element carrying `dir="ltr"` or the class `ltr-island`, located through `parseTemplate` spans. Physical utilities there keep their physical meaning on purpose (design-spec §3.5 tug meter `left-0`, `left-[38%]`, `bg-gradient-to-r`, `justify-between`; terminal-mock `ml-1`). Auto-exemption avoids a wall of comments (rev-0 review N5).
+
+      The same rule **fails** on any `rtl:` or `ltr:` variant inside an island. Tailwind 3.4's `rtl:` is `:where([dir="rtl"], [dir="rtl"] *)`, so it still fires inside a `dir="ltr"` island under an RTL `<html>`.
+    - **Formatting (5.1):** detection is AST-based, not a raw regex over TypeScript. That avoids matching type unions such as `number | Date` (for example `data-table.ts:203` and `stat-tile.ts:45`, rev-0 review N3).
+      - Templates: any `BindingPipe` named `date`, `number`, `currency`, `percent` or `decimal` in the `parseTemplate` AST fails.
+      - TypeScript: through the TS AST, any call to a property named `toLocaleString`, `toLocaleDateString` or `toLocaleTimeString` fails, as does any `new Intl.<X>(…)` or `Intl.<X>(…)` whose first argument is missing or is not an `intlLocale()` call.
+      - A site passes with an `i18n-format-exempt: <reason>` comment on the same line or the preceding line.
   - **`src/prerender/check-prerender.ts --dist <dir> --baseline <dir> [--update]`** (3.5):
     - For each of the 6 routes, it reads `<dist>/<route>/index.html` and parses it with `parse5`.
-    - It extracts the visible body text: text nodes outside `script`, `style`, `template` and `[data-i18n-switcher]` subtrees, with whitespace collapsed.
+    - It extracts the visible body text with one normalisation. The **same code** normalises the baseline capture and every later comparison:
+      1. Walk `<body>` in document order. Skip comment nodes, `script`, `style`, `template` and `[data-i18n-switcher]` subtrees.
+      2. Take text-node values, with parse5 decoding HTML entities.
+      3. **Concatenate adjacent text nodes with no separator**, across element boundaries.
+      4. Collapse every run of Unicode whitespace to one space, and trim.
+
+      A new wrapper element therefore adds no text. `<span class="ltr-island">$29</span>/mo` extracts as `$29/mo`, exactly as the original `$29/mo` did. Whitespace that existed between nodes is preserved, because it is itself a text node (rev 1, B2).
     - It asserts:
       - `<html>` has `lang="en"` and `dir="ltr"`;
       - there is no text node matching `^(app|ui|core|landing|legal|pricing|auth|account|members|admin|panelUi)\.[\w-]+(\.[\w-]+)*$` (the 3.5 regex, anchored on scope names because `>ptah.live<` is real copy);
       - there is no empty `h1` or `h2`;
       - the text equals `<baseline>/<route-slug>.json`, which holds `{ route, h1, text }`.
-    - `--update` rewrites the baselines.
+    - `--update` rewrites the baselines. It is used **exactly once in this task**, in F2b, against the unmodified templates. No later unit may regenerate a baseline. A text difference is fixed in the template or the `en.json` value, never in the baseline (rev 1, B2).
   - **`src/review/review-tables.ts --project-root <p> --scope <s> --glossary <g> --out <dir> [--check]`** (8.2):
     - It writes `<out>/<scope>.md`, a table of `key | English | Arabic | notes`, sorted by key.
     - Notes are computed deterministically: glossary terms present, placeholders, identical-to-English, legal notice.
     - It also writes `<out>/glossary.md`.
     - `--check` exits 1 if the committed output differs from a fresh generation.
-  - **`run-self-test.js`:** runs `main.ts` against `__fixtures__/project/`. The fixture plants:
-    - an `en` key missing from `ar`;
-    - an unknown key;
-    - an unannotated computed key;
-    - an `ml-4`;
-    - a `| date`.
+  - **`run-self-test.js`:** runs `main.ts` against `__fixtures__/project/`. The planted violations grow with the rules, so the self-test is green at every commit (rev-0 review N2):
+    - F2a plants: an `en` key missing from `ar`, an unknown key, an unannotated computed key, and a foreign-scope key (`landing.x` inside a fixture scoped `pricing`). It also includes a valid `core.*` reference, which must **pass**.
+    - F2b adds: an `ml-4`, a `| date` pipe in a template, a `toLocaleDateString()` call, and an `rtl:` variant inside a `dir="ltr"` island. It also adds a `number | Date` type union and a physical `left-0` inside an island, both of which must **pass**.
 
-    It passes only if the checker exits 1 **and** the output names all five. This is the degradation-audit discipline.
+    It passes only if the checker exits 1, the output names every planted violation, and it names none of the must-pass lines. This is the degradation-audit discipline.
 - Verified contracts: `parseTemplate` from `@angular/compiler@22.1.7` (run during planning); `typescript` 6.0.3 (`package.json:284`); `ts-node --transpile-only` invocation precedent (`tools/degradation-audit/project.json`).
 - Dependencies: `@angular/compiler`, `typescript`, `fast-glob`, and `parse5` (a new explicit devDependency at the lockfile's `8.0.1`). The tool is Node-only and imports no project code.
 - Integration points:
   - Every in-scope `project.json` gets an `i18n-check` target, added by that project's unit:
 
     ```
-    "i18n-check": { "executor": "nx:run-commands", "options": { "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/main.ts --project-root <root> --scope <scope> --allow-scope ui --glossary apps/ptah-landing-page/i18n-glossary.json", "cwd": "{workspaceRoot}" } }
+    "i18n-check": { "executor": "nx:run-commands", "options": { "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/main.ts --project-root <root> --scope <scope> --allow-scope ui,core --glossary tools/i18n-check/glossary.json", "cwd": "{workspaceRoot}" } }
     ```
 
-    `ui` itself omits `--allow-scope`.
-  - `nx.json` `targetDefaults["i18n-check"]` sets `cache: true` and `inputs: ["{projectRoot}/src/**/*", "{workspaceRoot}/tools/i18n-check/src/**/*", "{workspaceRoot}/apps/ptah-landing-page/i18n-glossary.json"]`.
+    `ui` omits `--allow-scope`; `core` passes `--allow-scope ui`.
+  - `nx.json` `targetDefaults["i18n-check"]` sets `cache: true` and `inputs: ["{projectRoot}/src/**/*", "{workspaceRoot}/tools/i18n-check/src/**/*", "{workspaceRoot}/tools/i18n-check/glossary.json"]`.
   - The `ptah-landing-page` target `prerender-check` has `dependsOn: ["build"]`.
   - CI step (Component 11).
 - Failure behaviour:
@@ -326,9 +360,9 @@ Assumptions, each with the check that resolves it:
   - A deterministic output order, so review tables regenerate byte-for-byte.
   - Runtime under about 10 s per project.
 - Verification seam: `nx run i18n-check:self-test` (fixtures), plus the tool's own Jest spec over the `rtl-patterns` and key-extraction helpers (`tools/i18n-check/jest.config.ts`, `testEnvironment: node`).
-- Files: CREATE `tools/i18n-check/{project.json, tsconfig.json, jest.config.ts, run-self-test.js}`, `tools/i18n-check/src/{main.ts}`, `tools/i18n-check/src/lib/{template-keys.ts, ts-keys.ts, translation-files.ts, rtl-patterns.ts, format-patterns.ts, glossary.ts, report.ts}` with specs, `tools/i18n-check/src/prerender/check-prerender.ts`, `tools/i18n-check/src/review/review-tables.ts`, `tools/i18n-check/__fixtures__/project/**`, `apps/ptah-landing-page/i18n-glossary.json`, `apps/ptah-landing-page/prerender-baseline/{home,download,pricing,terms-and-conditions,privacy,refund}.json`. MODIFY `nx.json` (targetDefaults), `package.json`/`package-lock.json` (`parse5` devDependency).
+- Files: CREATE `tools/i18n-check/{project.json, tsconfig.json, jest.config.ts, run-self-test.js}`, `tools/i18n-check/src/{main.ts}`, `tools/i18n-check/src/lib/{scope-map.ts, template-keys.ts, ts-keys.ts, translation-files.ts, rtl-patterns.ts, format-patterns.ts, glossary.ts, report.ts}` with specs, `tools/i18n-check/src/prerender/check-prerender.ts`, `tools/i18n-check/src/review/review-tables.ts`, `tools/i18n-check/__fixtures__/project/**`, `tools/i18n-check/glossary.json`, `apps/ptah-landing-page/prerender-baseline/{home,download,pricing,terms-and-conditions,privacy,refund}.json`. MODIFY `nx.json` (targetDefaults), `package.json`/`package-lock.json` (`parse5` devDependency).
   - `project.json`: name `i18n-check`, tags `["type:tool"]`, targets `self-test` and `test`.
-  - `i18n-glossary.json`: `[{ "term": "Ptah", "reason": "brand" }, …]`, seeded from 6.1. Showcase-manifest identifiers are rendered from the manifest data and never copied into translation values.
+  - `tools/i18n-check/glossary.json`: `[{ "term": "Ptah", "reason": "brand" }, …]`, seeded from 6.1. It lives in the tool, not in the app, so a change to it re-runs every project's check (CI rule in Component 11), and a future webview adoption does not reach into the landing app (rev-0 review N6). Showcase-manifest identifiers are rendered from the manifest data and never copied into translation values.
   - The six baseline JSON files are **captured from the unmodified templates before any lib unit runs**.
 
 ### 3. Scope scaffolding (every in-scope project)
@@ -379,8 +413,10 @@ Assumptions, each with the check that resolves it:
     | `login`, `signup` | the auth scope, loaded the same way |
     | `profile` | the account scope |
     | the 3 legal routes | the legal scope |
-    | `members` | `MEMBERS_I18N_SCOPES` |
-    | `admin` | `ADMIN_I18N_SCOPES` |
+    | `members` | `() => import('@ptah-web/members').then(m => m.MEMBERS_I18N_SCOPES)`, **dynamic** |
+    | `admin` | `() => import('@ptah-web/admin').then(m => m.ADMIN_I18N_SCOPES)`, **dynamic** |
+
+    Every lazy lib is reached only through a dynamic `import()`. A static import would break the "static imports of lazy-loaded libraries" lint (`app.routes.ts:82-90`), and it would pull the lib into the initial bundle, failing 2.3 (rev-0 review N4).
 
     `download` needs no resolver, because `app` is global. The resolvers go on the app-level routes, so `MEMBER_ROUTES`/`ADMIN_ROUTES` and their guard-policing specs are untouched.
   - `src/app/i18n/landing-i18n.constants.ts`:
@@ -398,7 +434,7 @@ Assumptions, each with the check that resolves it:
     - `.ltr-island { direction: ltr; unicode-bidi: isolate; text-align: left; }`;
     - the `[lang='ar']` metrics rules: line-height, tracking and uppercase neutralisation, and `font-synthesis-weight: none`.
   - `tailwind.config.js:74`: `sans: ['Inter', 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'system-ui', '-apple-system', 'sans-serif']` (design §3.6 B6).
-  - `project.json`: remove `extract-i18n` (`:89-94`), and add `i18n-check` (scope `app`) and `prerender-check`.
+  - `project.json`: remove `extract-i18n` (`:89-94`), and add `prerender-check`. The app's `i18n-check` target is added later, by the APP unit, once `download-page.component.ts` is converted (`:332` `sm:text-left`, `:456` `toLocaleDateString('en-US', …)`). Adding it here would fail the CI step on F4's own PR (rev-0 review N1).
 - Verified contracts: `provideAppInitializer` and `provideEnvironmentInitializer` (Angular core types). Route `resolve` with a `ResolveFn` is standard `@angular/router` API: Assumption A3 covers only its SSR blocking.
 - Dependencies: Components 1 and 3. `web-ui` and `web-core` scopes are imported statically (they are eager already).
 - Integration points:
@@ -428,10 +464,20 @@ Assumptions, each with the check that resolves it:
 - Responsibilities (rules every lib unit follows):
   1. The server language is always `en` (`I18nService.init` short-circuits on the server platform).
   2. Text changes only through bindings (`| transloco`, `translateSignal`). A template does not branch structurally on language, except for the legal governing-language notice and the switcher's check icons (A5).
-  3. Services return **keys**, not translated strings (for example error keys from `libs/web/core` services), and templates translate them, so a later language switch re-renders them.
+  3. Services return messages as `I18nMessage` (`{ key, params? }`), not translated strings, and templates translate them, so a later language switch re-renders them.
+     - Example: `PaddleCheckoutService.validationError` becomes `Signal<I18nMessage | null>`. The interpolated text at `paddle-checkout.service.ts:234-239` becomes `{ key: 'core.checkout.activePlanExists', params: { plan } }`.
+     - A consumer in another project renders it as `{{ msg.key | transloco: msg.params }}`, with an `i18n-keys: core.<area>.*` marker. This is allowed because `core` is a global scope and in every web project's `--allow-scope` (B1).
+     - A message produced by the **backend** (`response.message` at `paddle-checkout.service.ts:235`) is rendered verbatim as data, because backend localisation is out of scope. The service wraps it as `{ key: 'core.common.serverMessage', params: { text } }`, with `en`/`ar` values `{{ text }}`, so the template path stays uniform.
   4. Inputs carry already-translated text: `PanelLayout` `title`, `badgeLabel` and nav labels are translated by their owner (`members`, `admin`), never by `panel-ui`.
   5. `[innerHTML]` is allowed only for legal-page paragraphs whose value contains the tag allow-list (`strong|em|code|a`). Angular's sanitizer still applies. Router links are never placed inside translated HTML.
   6. Only `ar` is detected. Showcase-manifest identifiers, prices and versions stay outside translation values.
+  7. **Prerendered English text is preserved exactly (3.5, rev 1 B2).** On the six prerendered routes (`landing`, `app` download page, `pricing`, `legal`, and the `ui` chrome they render), the prerender extraction (Component 2) must equal the baseline:
+     - Every `en.json` value is a **verbatim** copy of the text it replaces. There is no copy-editing in this task: no punctuation, casing or whitespace changes.
+     - Restructuring may add or remove **elements**, but not text. The split parts of a string must reproduce the original characters and whitespace in document order. For example `$29/mo` becomes `<span class="ltr-island">$29</span>{{ 'pricing.plan.perMonth' | transloco }}` with no whitespace between them, where the en value is `/mo`.
+     - Literal arrow glyphs (`→`, `←`) on these routes stay literal text **outside** the translation value, in their original position. For example `or view pricing →` at `cta-section.component.ts:78` becomes `{{ 'landing.cta.viewPricing' | transloco }} <span aria-hidden="true" class="inline-block rtl:scale-x-[-1]">→</span>`. The value is `or view pricing`, and the template keeps the original space.
+     - Converting glyphs to icon components applies only where design-spec §3.2 names it (admin templates such as `needs-attention-queue.ts` and `data-table.ts`) and in the CSR-only members/admin/auth/account routes, which have no prerender baseline.
+     - `aria-hidden` is added to decorative glyphs so screen readers do not announce "right arrow". It does not change the extracted text, because the extraction works on text nodes, not on the accessibility tree.
+     - Each unit that touches a prerendered route runs `nx run ptah-landing-page:prerender-check` before closing (LND-1, LND-2, LEG, PRC, APP, UI).
 - Verification seam: the 3.6 e2e spec (Component 15); `i18n-check` markup parity.
 - Files: none. This is a contract for Components 12-14.
 
@@ -453,9 +499,10 @@ Assumptions, each with the check that resolves it:
 - Responsibilities:
   - Replace `| date:'…'` with `| i18nDate:'…'` and `| number:'…'` with `| i18nNumber:'…'`, arguments unchanged.
   - `Intl.RelativeTimeFormat('en', …)` becomes `new Intl.RelativeTimeFormat(this.i18n.intlLocale(), …)`, recomputed per call or in a `computed`.
-  - `toLocaleString()` becomes the matching pipe, or `Intl` with `intlLocale()`.
+  - `toLocaleString()` and the 4 `toLocaleDateString(…)` sites (Codebase evidence) become the matching pipe in the template. Where a method must format (for example `profile-details.component.ts:530`), it reads `this.i18n.intlLocale()` **inside** a `computed` or a template-called method, so the signal read makes the view recompute on a switch (5.1). A value cached in a field at construction is not allowed.
+  - The download page's `toLocaleDateString('en-US', …)` (`download-page.component.ts:456`) is on a prerendered route. It must keep producing the same English string in the SSG output, which holds because the server language is `en` and `INTL_LOCALE.en` is `'en-US'`.
   - `Intl.DateTimeFormat().resolvedOptions().timeZone` gets `i18n-format-exempt: timezone lookup, not formatting`.
-  - Prices (5.3): the pricing unit splits `'$29/mo'` into an `.ltr-island` amount (`$29`), untranslated, and a translated suffix key (`pricing.plan.perMonth`). The numeric value never enters a translation.
+  - Prices (5.3): the pricing unit splits `'$29/mo'` into an `.ltr-island` amount (`$29`), untranslated, and a translated suffix key (`pricing.plan.perMonth`). The numeric value never enters a translation. The split must satisfy Component 5 rule 7: the extracted text is still `$29/mo`.
 - Verified contracts: Component 1 pipes; the Angular `ar` data (Latin symbols).
 - Dependencies: Component 1. Executed inside each lib unit.
 - Failure behaviour: invalid dates throw as `DatePipe` does today, so behaviour is unchanged.
@@ -470,8 +517,13 @@ Assumptions, each with the check that resolves it:
   - `space-x-*` becomes `gap-*`, or `rtl:space-x-reverse`.
   - Non-centring `translate-x`, `bg-gradient-to-l/r` and `origin-left/right` get paired `rtl:` variants.
   - Raw CSS becomes `inset-inline-start/end`, `margin-inline-*`, `padding-inline-*` and `text-align: start/end`.
-  - Direction-bearing icons (`ArrowRight`, `ArrowLeft`, `ChevronRight`, `ChevronLeft`, `LogOut`) get `rtl:scale-x-[-1]`. `ExternalLink`, `Download` and brand marks do not. Literal `→`/`←` characters in strings become icon components.
-  - `.ltr-island` goes on every `font-mono`, code, CLI, email, URL, license-key, file-path and version element. Block islands (`comparison-tug-meter`, the `problem-section` SVG) take `dir="ltr"`, and contain **no** `rtl:`/`ltr:` variants (Tailwind's `rtl:` still matches inside them, per the evidence row).
+  - Direction-bearing icons (`ArrowRight`, `ArrowLeft`, `ChevronRight`, `ChevronLeft`, `LogOut`) get `rtl:scale-x-[-1]`. `ExternalLink`, `Download` and brand marks do not.
+  - Literal `→`/`←` characters are moved out of translation values:
+    - On prerendered routes, they stay literal text in an `aria-hidden`, `rtl:scale-x-[-1]` span (Component 5 rule 7).
+    - Elsewhere, they become icon components (design-spec §3.2).
+  - `.ltr-island` goes on every `font-mono`, code, CLI, email, URL, license-key, file-path and version element. Block islands (`comparison-tug-meter`, the `problem-section` SVG) take `dir="ltr"`.
+    - Inside an island, physical utilities are **allowed** and keep their physical meaning, as design-spec §3.5 requires (tug meter, terminal-mock). The checker auto-exempts them.
+    - Inside an island, `rtl:`/`ltr:` variants are **forbidden**, because Tailwind's `rtl:` still matches inside them (evidence row). The checker fails on them.
   - UGC gets `dir="auto"` at the rendering element (members community, admin moderation).
   - Exemptions get `rtl-exempt: <reason>` with the design's reasons (§3.1, §3.5).
 - Verification seam: `i18n-check` RTL rule (zero unexempted matches); the 4.5 e2e for `landing`.
@@ -527,8 +579,17 @@ Assumptions, each with the check that resolves it:
 
     ```
     node_modules/.bin/nx run i18n-check:self-test
-    node_modules/.bin/nx affected -t i18n-check
+    if git diff --name-only "$NX_BASE" "$NX_HEAD" | grep -q '^tools/i18n-check/'; then
+      node_modules/.bin/nx run-many -t i18n-check
+    else
+      node_modules/.bin/nx affected -t i18n-check
+    fi
     ```
+
+    - `affected` maps changed files to projects. A change to the tool, or to its glossary (`tools/i18n-check/glossary.json`), would otherwise re-check nothing but the tool itself.
+    - The conditional re-checks every project in that case (rev-0 review N6).
+    - `NX_BASE` and `NX_HEAD` are exported by the existing `nrwl/nx-set-shas` step (`ci.yml:119-122`).
+    - `implicitDependencies` was rejected: it would also re-run every lib's build and test on a tool-only change.
 
   - **`.github/workflows/deploy-landing.yml:59-77`:** inside the existing loop, add:
     - `grep -Eq '<html[^>]*\blang="en"'` and `grep -Eq '<html[^>]*\bdir="ltr"'`;
@@ -562,7 +623,7 @@ Assumptions, each with the check that resolves it:
     - The three pages move into the `legal` scope. Paragraphs with inline emphasis or links use allow-listed `[innerHTML]` (rule 5).
     - `@if (i18n.lang() === 'ar')` wraps the design §3.8 notice `{{ 'legal.governingLanguageNotice' | transloco }}` below `<h1>` on all three routes (8.4).
     - `falling-cubes-background` is `rtl-exempt`.
-  - **pricing:** the price split (Component 7).
+  - **pricing:** the price split (Component 7, and Component 5 rule 7). `PaddleCheckoutService.error`/`validationError` are rendered as `I18nMessage` (`pricing-grid.component.ts:537,540`), with an `i18n-keys: core.checkout.*` marker.
   - **auth:** `auth-hero.component.ts:173-184` raw CSS is converted to `inset-inline-*` (design §3.5 row).
   - **account:** the 2 formatting sites; license keys and emails are `.ltr-island`.
   - **core:** service messages become keys (rule 3). Handled in the CORE unit together with Component 9.
@@ -632,6 +693,9 @@ Assumptions, each with the check that resolves it:
     - the `h1` matches Arabic.
 
     An English control run of the same routes must pass first (A4).
+  - `arabic-font.spec.ts` (4.6, rev-0 review N8):
+    - In `ar`, after `await document.fonts.ready`, `document.fonts.check('700 16px "IBM Plex Sans Arabic"', 'ع')` is `true`, and the computed `font-family` of the `h1` starts with `Inter` (the Latin-first stack).
+    - In `en`, over a full load of `/` and `/pricing`, no request goes to a URL containing `IBM+Plex+Sans+Arabic`.
   - `lazy-scopes.spec.ts` (2.3): load `/`, collect every JS response body, and assert none contains a sentinel unique to `admin` or `members` `en.json` (for example the admin scope's `seo`/nav root value, chosen by the ADM-1 unit).
   - `rtl-layout.spec.ts` (4.5): in `ar` at 375, 768 and 1440, for every landing section:
     - `scrollWidth <= clientWidth` on the landing host and the section;
@@ -647,7 +711,7 @@ Assumptions, each with the check that resolves it:
   - If it does not, the config's `webServer` uses a static-directory server command instead.
 - Failure behaviour: a timeout on `data-app-stable` reports A4. It must not be retried into a pass.
 - Verification seam: `nx run ptah-landing-page-e2e:e2e:i18n`. The existing `e2e` suite runs unchanged in English (7.5).
-- Files: CREATE `apps/ptah-landing-page-e2e/playwright.i18n.config.ts`, `apps/ptah-landing-page-e2e/src/specs-i18n/{language-switch,prepaint-hydration,lazy-scopes,rtl-layout}.spec.ts`, `apps/ptah-landing-page-e2e/src/support-i18n/i18n.ts`. MODIFY `apps/ptah-landing-page-e2e/{project.json, tsconfig.spec.json}`.
+- Files: CREATE `apps/ptah-landing-page-e2e/playwright.i18n.config.ts`, `apps/ptah-landing-page-e2e/src/specs-i18n/{language-switch,prepaint-hydration,arabic-font,lazy-scopes,rtl-layout}.spec.ts`, `apps/ptah-landing-page-e2e/src/support-i18n/i18n.ts`. MODIFY `apps/ptah-landing-page-e2e/{project.json, tsconfig.spec.json}`.
 
 ### 16. Arabic copy delivery (process component)
 
@@ -655,8 +719,11 @@ Assumptions, each with the check that resolves it:
 - Responsibilities:
   - Each lib unit drafts the Arabic, runs `i18n-check`, and generates `.ptah/specs/TASK_2026_575_fee7/copy-review/<scope>.md` plus `glossary.md` with `review-tables`.
   - The PR for a scope lists the table path.
-  - The user's sign-off is recorded as a PR review or comment, or as a line `- <scope>: approved by <user>, <date>, <PR>` in `.ptah/specs/TASK_2026_575_fee7/copy-review/SIGNOFF.md`. The **team-leader blocks the merge of any PR that contains a scope without that record**, admin included.
-  - Glossary edits after F2 are appended by the team-leader. Lib units report new terms in their report, but do not edit `i18n-glossary.json`. That keeps lib units file-disjoint, and adding a term never breaks an existing check.
+  - The user's sign-off is recorded as a PR review or comment by the user, or as a line `- <scope>: approved by <user>, <date>, <PR>, source: "<verbatim quote of the user's message>"` (or a link to it) in `.ptah/specs/TASK_2026_575_fee7/copy-review/SIGNOFF.md`.
+    - The team-leader writes the line, but it counts under 8.3 only because it quotes or links the user's own message (rev-0 review N10c).
+    - The **team-leader blocks the merge of any PR that contains a scope without that record**, admin included.
+  - **User question before the ADM-1 copy review** (task-description open question 3, design-spec §4 item 3, rev-0 review N10a): must the user read every admin string, or is a spot-check enough? The team-leader asks this before sending the first admin review table. Either answer still requires the 8.3 sign-off. It does not block implementation.
+  - Glossary edits after F2 are appended by the team-leader. Lib units report new terms in their report, but do not edit `tools/i18n-check/glossary.json`. That keeps lib units file-disjoint, and adding a term never breaks an existing check.
   - The legal notice copy is the design §3.8 draft, in the user's review like every other key.
 - Verification seam: `review-tables --check` per scope; the presence of `SIGNOFF.md` or PR sign-off before merge.
 - Files: CREATE `.ptah/specs/TASK_2026_575_fee7/copy-review/{<scope>.md…, glossary.md, SIGNOFF.md}`. The first two are generated; `SIGNOFF.md` is user and team-leader owned.
@@ -686,7 +753,7 @@ Assumptions, each with the check that resolves it:
   - Runtime failures are listed per component. No failure blocks bootstrap or navigation.
   - Rollback:
     - Each lib unit is a separate PR, and reverting one re-English-es that lib: its keys disappear and its templates go back to literals.
-    - Reverting F3/F4 restores English-only behaviour.
+    - Reverting CORE, F4 and F3 is possible only **after** every lib unit that depends on them has been reverted. The order is given in "Risks and rollback".
     - A stale stored `ptah.lang` is then an unused key, and harmless.
     - Prerendered HTML is English throughout, so SEO is unaffected by any revert.
 - **Observability:**
@@ -745,32 +812,33 @@ Assumptions, each with the check that resolves it:
 | # | Unit | Files (summary; full paths in the components above) | Depends on | AC |
 | --- | --- | --- | --- | --- |
 | F1 | Shared i18n library (Component 1) | `libs/frontend/i18n/**`, `tsconfig.base.json`, `package.json`, `package-lock.json` | — | 1.1, 1.2, 1.3, 1.4, 1.5, 2.5, 5.1, 5.2 (unit level) |
-| F2a | Check tool: translation, reference, computed-key, glossary, 8.1 rules; review tables; self-test; CI step; glossary seed (Components 2 and 11 CI half) | `tools/i18n-check/**` (except `src/prerender`), `nx.json`, `.github/workflows/ci.yml`, `apps/ptah-landing-page/i18n-glossary.json` | F1 (package.json is sequential) | 6.2, 7.1, 7.2, 7.3, 8.2 |
-| F2b | Check tool: RTL and formatting rules, `check-prerender` plus `parse5`; **capture the prerender baselines from the unmodified templates**; extend `deploy-landing.yml` | `tools/i18n-check/src/{lib/rtl-patterns.ts, lib/format-patterns.ts, prerender/**}`, `package.json`, `package-lock.json`, `apps/ptah-landing-page/prerender-baseline/*.json`, `.github/workflows/deploy-landing.yml` | F2a | 3.5 (script, deploy), 4.1 (pattern committed), 5.1 (regression rule) |
+| F2a | Check tool: translation, reference, computed-key (with the `ui,core` allow-list and scope map), glossary and 8.1 rules; review tables; self-test with F2a's planted violations; CI step with the tool-change `run-many` branch; glossary seed (Components 2 and 11 CI half) | `tools/i18n-check/**` (except `src/lib/{rtl-patterns,format-patterns}.ts` and `src/prerender`), `nx.json`, `.github/workflows/ci.yml`, `tools/i18n-check/glossary.json` | F1 (package.json is sequential) | 6.2, 7.1, 7.2, 7.3, 8.2 |
+| F2b | Check tool: RTL rule (with island auto-exemption) and AST-based formatting rule, `check-prerender` plus `parse5` with the no-separator join normalisation; **capture the prerender baselines from the unmodified templates (the only `--update` in this task)**; extend `deploy-landing.yml` | `tools/i18n-check/src/{lib/rtl-patterns.ts, lib/format-patterns.ts, prerender/**}`, `tools/i18n-check/__fixtures__/project/**` (adds F2b's planted violations), `tools/i18n-check/src/main.ts` (wires the two rules in), `package.json`, `package-lock.json`, `apps/ptah-landing-page/prerender-baseline/*.json`, `.github/workflows/deploy-landing.yml` | F2a | 3.5 (script, deploy), 4.1 (pattern committed), 5.1 (regression rule) |
 | F3 | Scope scaffolding for all 11 projects (Component 3) | `*/src/lib/i18n/*` (created), each project's `src/index.ts`, `tsconfig.json`, Jest config | F1 | 2.2, 2.4 (A1 check), N8 |
-| F4 | App wiring, pre-paint, font, styles, Tailwind stack, stable marker (Components 4 and 6) | `apps/ptah-landing-page/src/{index.html, main.ts, styles.css}`, `src/app/{app.config.ts, app.routes.ts}`, `src/app/i18n/*`, `tailwind.config.js`, `project.json` | F2b, F3 | 1.6, 2.3 (wiring), 2.4, 3.3, 3.4, 3.5 (`prerender-check` passes), 3.6 (mechanism), 4.6 |
-| CORE | `SeoService` key-based plus the 6 callers' `setPage` blocks and SEO keys; `core` service messages become keys; `web-core` `i18n-check` target (Components 9 and 12 core) | `libs/web/core/**`, the 6 caller files (`setPage` block only), SEO keys in the `landing`, `legal`, `pricing` and `app` JSON | F4 | 3.7, N12 |
+| F4 | App wiring, pre-paint, font, styles, Tailwind stack, stable marker (Components 4 and 6) | `apps/ptah-landing-page/src/{index.html, main.ts, styles.css}`, `src/app/{app.config.ts, app.routes.ts}`, `src/app/i18n/*` (except `{en,ar}.json`), `tailwind.config.js`, `project.json` (removes `extract-i18n`, adds `prerender-check`; **no** `i18n-check` target) | F2b, F3 | 1.6, 2.3 (wiring), 2.4, 3.3, 3.4, 3.5 (`prerender-check` passes), 3.6 (mechanism), 4.6 |
+| CORE | `SeoService` key-based plus the 6 callers' `setPage` blocks and SEO keys; `core` service messages become keys; `web-core` `i18n-check` target (Components 9 and 12 core) | `libs/web/core/**`, the 6 caller files (`setPage` block only), SEO keys in the `landing`, `legal`, `pricing` and `app` JSON | F4 | 3.7, N12, B1 (`I18nMessage` services) |
 | UI | Header switcher plus the rest of `ui` (Component 10) | `libs/web/ui/**` | CORE | 3.1, 3.8, 4.1, 4.2, 4.3, 2.1 |
 | PANEL | Panel switcher, header markup, chevron N22, collapse re-key, the rest of `panel-ui` (Component 13) | `libs/web/panel-ui/**` | CORE | 3.8, 4.1, 4.2, 5.1, N22 |
-| APP | Download page strings and RTL; app `i18n-check` | `apps/ptah-landing-page/src/app/pages/**`, `src/app/i18n/{en,ar}.json`, `project.json` | CORE | 2.1, 4.1, 4.3 |
+| APP | Download page strings, RTL and formatting (`toLocaleDateString` at `:456`), with `core` error messages rendered via `I18nMessage`; adds the app's `i18n-check` target (rev-0 review N1); `prerender-check` passes | `apps/ptah-landing-page/src/app/pages/**`, `src/app/i18n/{en,ar}.json`, `project.json` | CORE | 2.1, 3.5, 4.1, 4.3 |
 | LND-1 | Landing: hero, problem, pillars, comparison (meter island), builders (marquee flip and rebuild) | `libs/web/landing/src/lib/sections/{hero,problem,pillars,comparison,builders}/**`, the landing i18n JSON | CORE | 4.1, 4.2, 4.5, 2.1 |
 | LND-2 | Landing: `console/*`, cta, also-available, provider-strip, video-showcase, `landing-page.component`; landing `i18n-check` target | the remaining `libs/web/landing/src/lib/**`, the landing i18n JSON, `libs/web/landing/project.json` | LND-1 | 4.1, 4.3, 4.5, 6.1, 8.1 |
 | LEG | Legal: 3 pages, `innerHTML` policy, governing notice, falling-cubes exempt | `libs/web/legal/**` | CORE | 8.4, 4.1, 2.1, 8.1 |
 | PRC | Pricing: price split, pricing grid | `libs/web/pricing/**` | CORE | 5.3, 4.1, 2.1 |
 | AUTH | Auth: pages, hero raw CSS | `libs/web/auth/**` | CORE | 4.1, 2.1 |
 | ACC | Account: profile and related, 2 formatting sites | `libs/web/account/**` | CORE | 5.1, 4.3, 2.1 |
-| MEM-1 | Members: scope strings for `member-layout` (Component 14), `member-nav.config.ts`, account, hub, notifications, packs, search, shared, services and state | `libs/web/members/src/lib/{member-layout, account, hub, notifications, packs, search, shared, services, state}/**`, `member-nav.config.ts`, the members i18n JSON | CORE, PANEL | 4.3, 5.1, N23, 2.1 |
+| MEM-1 | Members: scope strings for `member-layout` (Component 14), `member-nav.config.ts`, account, hub, notifications, packs, search, shared, services and state | `libs/web/members/src/lib/{member-layout, account, hub, notifications, packs, search, shared, services, state}/**`, `member-nav.config.ts`, `members.routes.ts` (verify it has no UI strings), the members i18n JSON. `__fixtures__/` and `*-fixtures.ts` are test data and are not translated | CORE, PANEL | 4.3, 5.1, N23, 2.1 |
 | MEM-2 | Members: community (UGC `dir="auto"`), live | `libs/web/members/src/lib/{community,live}/**`, the members i18n JSON | MEM-1 | 4.4, 5.1 |
 | MEM-3 | Members: learning; members `i18n-check` target | `libs/web/members/src/lib/learning/**`, the members i18n JSON, `libs/web/members/project.json` | MEM-2 | 5.1, 8.1 |
-| ADM-1 | Admin: `admin-layout` (Component 14), nav keys, `admin-list`, `admin-detail`, overview, `components/*` modals and data-table (the `→` literals become icons) | `libs/web/admin/src/lib/{admin-layout, admin-list, admin-detail, overview, components}/**`, `admin-models.config.ts`, the admin i18n JSON | CORE, PANEL | 4.2, 5.1, N23 |
+| ADM-1 | Admin: `admin-layout` (Component 14), nav keys, `admin-list`, `admin-detail`, overview, `components/*` modals and data-table (the `→` literals become icons) | `libs/web/admin/src/lib/{admin-layout, admin-list, admin-detail, overview, components}/**`, `admin-models.config.ts`, `admin.routes.ts` (verify it has no UI strings; its only text is comments), the admin i18n JSON | CORE, PANEL | 4.2, 5.1, N23 |
 | ADM-2 | Admin: groups, users, waitlist, failed-webhooks, services' user messages | `libs/web/admin/src/lib/{groups, users, waitlist, failed-webhooks, services}/**`, the admin i18n JSON | ADM-1 | 5.1 |
 | ADM-3 | Admin: marketing, `builders/packs` | `libs/web/admin/src/lib/{marketing, builders/packs}/**`, the admin i18n JSON | ADM-2 | 5.1 |
 | ADM-4 | Admin: `builders/{courses, community, sessions}` (UGC `dir="auto"`); admin `i18n-check` target | `libs/web/admin/src/lib/builders/{courses, community, sessions}/**`, the admin i18n JSON, `libs/web/admin/project.json` | ADM-3 | 4.4, 5.1, 8.1 |
-| E2E | i18n Playwright suite (Component 15) | `apps/ptah-landing-page-e2e/**` (new files plus `project.json` and `tsconfig.spec.json`) | UI, PANEL, APP, LND-2, LEG, PRC | 2.3, 3.1, 3.2, 3.6, 4.5, 7.5 |
+| E2E | i18n Playwright suite (Component 15) | `apps/ptah-landing-page-e2e/**` (new files plus `project.json` and `tsconfig.spec.json`) | UI, PANEL, APP, LND-2, LEG, PRC | 2.3, 3.1, 3.2, 3.6, 4.5, 4.6, 7.5 |
 
 Every lib unit also closes with these acceptance items:
 
-- 2.1 (own scope only, plus `ui`);
+- 2.1 (own scope only, plus `ui` and `core`);
+- 3.5, for UI, APP, LND-1, LND-2, LEG and PRC: `nx run ptah-landing-page:prerender-check` passes against the unchanged F2b baselines (Component 5 rule 7);
 - 6.1 and 6.2 (the glossary check passes);
 - 7.4 (`nx run-many -t lint,test,typecheck,i18n-check` for that project);
 - 8.1 (real Arabic);
@@ -798,12 +866,13 @@ Every lib unit also closes with these acceptance items:
 
 | Risk | Likelihood | Impact | Mitigation / owner |
 | --- | --- | --- | --- |
-| The app never reaches stability because zone macrotasks (GSAP, Lenis) keep it busy. That means NG0506, no `data-app-stable`, and deferred hydration cleanup (A4) | MEDIUM | HIGH | Run the English control first in E2E. If it fails, the team-leader opens a separate fix (run the animation loops outside the zone) before the 3.6 Arabic run is judged. |
+| The app never reaches stability because zone macrotasks (GSAP, Lenis) keep it busy. That means NG0506, no `data-app-stable`, and deferred hydration cleanup (A4) | MEDIUM | HIGH | Run the English control first in E2E. If it fails, the team-leader **asks the user** whether to open a separate task or widen this one, because running the animation loops outside the zone is outside this task's scope. The team-leader does not start that fix silently, and the 3.6 Arabic run is not judged until it is resolved (rev-0 review N10b). |
 | esbuild or Jest will not bundle dynamic JSON imports (A1, A2) | LOW | HIGH | Checked in F1 and F3. The fallback is a per-language TS module wrapper, a change confined to the scope files. |
 | A structural `@if` difference between the English prerender and the Arabic client triggers NG05xx (A5) | LOW | MEDIUM | 3.6 E2E. The switcher's check icons fall back to class toggles. The legal notice is the only necessary branch. |
 | A scope loaded after render does not refresh views (`emitChange: false`) | Addressed by design | HIGH | Loads happen only in the initializer, the resolver, or before `setActiveLang`. The fully-qualified-key rule means no late component-level scope loads. |
 | The literal-scan key rule flags a non-key string that starts with a scope name | MEDIUM | LOW | `i18n-ignore: <reason>` marker. The self-test covers a false positive. |
-| `rtl:` variants misfire inside `dir="ltr"` islands (Tailwind's `:where([dir=rtl] *)`, verified) | MEDIUM | MEDIUM | Rule in Component 8: islands contain logical utilities only. The 4.5 geometry checks catch leaks. |
+| `rtl:` variants misfire inside `dir="ltr"` islands (Tailwind's `:where([dir=rtl] *)`, verified) | MEDIUM | MEDIUM | Rule in Component 8, enforced by the checker: no `rtl:`/`ltr:` variants inside islands; physical utilities are allowed there. The 4.5 geometry checks catch leaks. |
+| Prerendered text drifts from the baseline: copy edits, glyph-to-icon conversions, or whitespace lost at a split | MEDIUM | HIGH | Component 5 rule 7 (verbatim `en` values, glyphs kept on prerendered routes). A single normalisation shared by capture and comparison. Baselines are never regenerated in this task. `prerender-check` closes every unit that touches a prerendered route. |
 | Missed strings at scale (~141 components) | HIGH | MEDIUM | The per-lib `i18n-check` reference rule, plus the reviewer's grep for literal template text in each unit. 3.5 baselines guard the prerendered routes. |
 | Agent-drafted Arabic legal text is read as binding | MEDIUM | HIGH | The §3.8 notice (8.4) plus the sign-off gate (8.3). |
 | Arabic font flash for returning Arabic visitors | MEDIUM | LOW | The pre-paint script injects the font before first paint. `display=swap`. |
@@ -811,7 +880,63 @@ Every lib unit also closes with these acceptance items:
 
 **Rollback:**
 
-- Per-lib units revert independently: the lib goes back to English literals, and its `i18n-check` target leaves with it.
-- F4 revert: remove `provideI18n`, the resolvers and the pre-paint script, which restores the current app exactly.
-- F1 and F3 revert last.
+Revert in the reverse of the dependency order (rev-0 review N9):
+
+1. E2E.
+2. The lib units, each independently: the lib goes back to English literals, and its `i18n-check` target leaves with it. Within a lib, revert the later sub-unit first (for example ADM-4 before ADM-1).
+3. CORE: `SeoConfig` goes back to literals. This is only possible once LND, LEG, PRC and APP are reverted, because their callers use the key-based shape.
+4. F4: remove `provideI18n`, the resolvers, the pre-paint script and the stable marker. This restores the current app **only once steps 1-3 are done**, because translated templates need `provideI18n` and the resolvers.
+5. F3, then F2b, F2a and F1.
+
+A partial rollback, such as a single lib, is always possible, because a lib unit is self-contained on top of F1-CORE.
 - The prerendered HTML is English in every state, so crawlers see no change at any step, and a stored `ptah.lang` becomes an inert key.
+
+## Review responses (revision 1)
+
+Review: `implementation-plan-review.md`, round 0, verdict REVISE.
+
+### Blocking
+
+- **B1 (scope rule vs `core` consumers)**: fixed.
+  - `core` is now an allowed foreign scope next to `ui` for every web project: `--allow-scope ui,core`. `ui` passes none, and `core` passes `ui`. Both scopes are global, so their keys are always loaded (Component 2 References).
+  - Key ownership is resolved by first segment, through a committed scope-to-path map. `i18n-keys:` markers resolve each key or prefix against its own owning scope's `en.json`.
+  - Parameterised service messages use the new shared type `I18nMessage { key, params? }` (Component 1). Rule 3 of Component 5 now covers:
+    - the `paddle-checkout.service.ts:234-239` interpolation;
+    - backend-supplied text, carried verbatim through `core.common.serverMessage`.
+  - The F2a self-test includes a valid `core.*` reference that must pass.
+  - APP, PRC, ACC and LND-1 can now reach exit 0.
+- **B2 (prerendered text vs the 3.5 baseline)**: fixed, and 3.5 is not weakened. The requirement's intent (identical English text on the six routes) is kept by making the text identical, not by loosening the comparison.
+  - Component 5 rule 7:
+    - `en` values are verbatim copies;
+    - splits must reproduce the original characters and whitespace;
+    - arrow glyphs on prerendered routes stay literal, as `aria-hidden` `rtl:scale-x-[-1]` spans outside the translation value (for example `cta-section.component.ts:78`);
+    - glyph-to-icon conversion is limited to the design's admin cases and to CSR-only routes.
+  - The extraction normalisation is defined once and shared by capture and comparison: document-order text nodes, entity-decoded, **joined with no separator**, then whitespace runs collapsed to one space and trimmed. This normalisation only neutralises element wrappers. It still detects every added, removed or changed character, and the key-path and empty-heading assertions are unchanged.
+  - Baselines are captured once, in F2b, and never regenerated in this task.
+  - `prerender-check` is a closing criterion of UI, APP, LND-1, LND-2, LEG and PRC.
+
+### Non-blocking
+
+| # | Disposition |
+| --- | --- |
+| N1 | Fixed. F4 no longer adds the app's `i18n-check` target. APP adds it after converting `download-page.component.ts:332,456`. |
+| N2 | Fixed. The self-test fixture is split: F2a plants only F2a-rule violations, and F2b adds the RTL and formatting ones, plus the must-pass cases (a type union, a physical utility inside an island). The CI self-test is green at every commit. |
+| N3 | Fixed. The 4 `toLocaleDateString` sites are added to the evidence. Method-based formatters must read the `intlLocale()` signal inside a `computed` or a template-called method. Formatting detection is AST-based (`BindingPipe` names, TS call and `new Intl` nodes), so TypeScript unions no longer match. |
+| N4 | Fixed. The resolver table spells out dynamic `import('@ptah-web/members')` and `import('@ptah-web/admin')`, and explains the lint and 2.3 reasons. |
+| N5 | Fixed. The rule is now "no `rtl:`/`ltr:` variants inside islands; physical utilities allowed". The checker auto-exempts descendants of `dir="ltr"` or `.ltr-island` elements, and fails on variants inside them. This is consistent with design-spec §3.5. |
+| N6 | Fixed. The glossary moves to `tools/i18n-check/glossary.json`. The CI step runs `run-many -t i18n-check` whenever `tools/i18n-check/**` changed, and `affected` otherwise. `implicitDependencies` was rejected because it would also re-run builds and tests. |
+| N7 | Fixed. The dependency-checks citation is removed. 1.2 is proven by `nx graph --file` (an empty workspace-dependency list). The `@jsverse/utils` beta pin is noted. |
+| N8 | Fixed. A new `arabic-font.spec.ts` covers `document.fonts.check` for IBM Plex Sans Arabic in `ar`, an Inter-first computed stack, and no Arabic-font request in `en` (4.6). |
+| N9 | Fixed. The rollback is a reverse-dependency order (E2E, lib units, CORE, F4, F3, F2b, F2a, F1). The claim "F4 revert restores the app" is qualified. |
+| N10 | Fixed. (a) The admin review-depth question is asked of the user before the ADM-1 copy review (Component 16). (b) A4's remediation is flagged as a user decision (assumption table, risk row). (c) A `SIGNOFF.md` line must quote or link the user's message. |
+| N11 | Fixed. `provideTranslocoMissingHandler(I18nMissingHandler)` is placed after `provideTransloco`, which registers the default handler at `fesm2022:1456-1462`. The F1 spec asserts the resolved handler, and that the prod path returns `''`. `provideI18nTesting` installs the handler in a mode that throws, so specs fail on unknown keys. |
+| Work-unit note | `members.routes.ts` and `admin.routes.ts` are assigned to MEM-1 and ADM-1 as "verify no UI strings". Fixture files are test data and are not translated. |
+
+### Assumptions A1-A5: user decision or technical default
+
+See the table under "Assumptions" in the Transloco section:
+
+- A1, A2, A3 and A5 are safe technical defaults with local fallbacks.
+- A4's detection is technical, but its **remediation** (moving GSAP/Lenis out of the Angular zone) is a scope expansion that the team-leader must put to the user if the English control run fails.
+
+No approved decision in `context.md` is reopened.
