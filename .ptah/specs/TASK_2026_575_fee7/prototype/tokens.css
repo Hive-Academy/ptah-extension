@@ -1,100 +1,74 @@
-/* Tokens copied 1:1 from apps/ptah-landing-page/tailwind.config.js daisyui.themes
-   (values only — not a build dependency). Static prototype, CDN Tailwind for utilities;
-   these CSS custom properties supply the exact project colors. */
+/*
+ * Prototype-only typography adjustments layered on top of `tailwind-build.css`
+ * (the real, compiled Tailwind 3.4 + DaisyUI 4 output — see that file's own
+ * header comment). Colors, `--bcm`, `--surface-high` and `--border-hairline`
+ * are NOT duplicated here any more (revision 1 fix for review finding N15):
+ * they come from DaisyUI's own per-theme `[data-theme=...]` output, exactly
+ * as `apps/ptah-landing-page/tailwind.config.js` defines them — including
+ * that `operator` (the public marketing theme) genuinely has no
+ * `--surface-high`/`--border-hairline` of its own, matching the real config.
+ */
 
-:root {
-  --ink-950: #08090c;
-  --ink-900: #0e1015;
-  --ink-850: #12141a;
-  --ink-800: #171a21;
-  --ink-700: #262a33;
-  --ink-600: #3a3f4b;
-  --ink-500: #5b616f;
-  --ink-400: #8b92a1;
-  --ink-300: #b7bdc9;
-  --ink-100: #e9ebef;
-  --amber-400: #ffbb4d;
-  --amber-500: #f5a524;
-  --amber-600: #c97e0e;
-}
-
-/* operator (public marketing shell, dark only) */
-[data-theme='operator'] {
-  --primary: #f5a524;
-  --primary-content: #08090c;
-  --base-100: #08090c;
-  --base-200: #0e1015;
-  --base-300: #171a21;
-  --base-content: #e9ebef;
-  --bcm: #9aa0ac; /* ~5.46:1 on base-100, per base-content-muted.spec.ts */
-  --surface-high: #262a33;
-  --border-hairline: #262a33;
-}
-
-/* operator-admin */
-[data-theme='operator-admin'] {
-  --primary: #f5a524;
-  --primary-content: #08090c;
-  --base-100: #0c141f;
-  --base-200: #151c27;
-  --base-300: #19202c;
-  --base-content: #dce2f3;
-  --bcm: #9aa2b8;
-  --surface-high: #232936;
-  --border-hairline: #303849;
-}
-
-/* operator-member (dark) */
-[data-theme='operator-member'] {
-  --primary: #f5a524;
-  --primary-content: #08090c;
-  --base-100: #0c141f;
-  --base-200: #151c27;
-  --base-300: #19202c;
-  --base-content: #dce2f3;
-  --bcm: #9aa2b8;
-  --surface-high: #232936;
-  --border-hairline: #303849;
-}
-
-/* operator-member-light */
-[data-theme='operator-member-light'] {
-  --primary: #f5a524;
-  --primary-content: #08090c;
-  --base-100: #faf9f7;
-  --base-200: #ffffff;
-  --base-300: #f2f0ec;
-  --base-content: #1a1c22;
-  --bcm: #6b6b78;
-  --surface-high: #e2e2ea;
-  --border-hairline: #dcd6cb;
-}
-
-body {
-  background: var(--base-100);
-  color: var(--base-content);
-}
-.bg-base-100 { background-color: var(--base-100); }
-.bg-base-200 { background-color: var(--base-200); }
-.bg-base-300 { background-color: var(--base-300); }
-.text-base-content { color: var(--base-content); }
-.text-base-content-muted { color: var(--bcm); }
-.bg-surface-high { background-color: var(--surface-high); }
-.border-hairline { border-color: var(--border-hairline); }
-.bg-primary { background-color: var(--primary); }
-.text-primary { color: var(--primary); }
-.text-primary-content { color: var(--primary-content); }
-
-/* Fonts */
-.font-sans-ar { font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Inter', sans-serif; }
-[lang='ar'] { letter-spacing: normal !important; }
-[lang='ar'].uppercase, [lang='ar'] .uppercase { text-transform: none; letter-spacing: normal; }
-[lang='ar'] body, [lang='ar'] { line-height: 1.75; }
-
-/* LTR islands inside RTL pages */
+/* LTR islands inside RTL pages (4.3 / §3.3 of design-spec.md) */
 .ltr-island {
   direction: ltr;
   unicode-bidi: isolate;
   text-align: left;
   display: inline-block;
 }
+
+/*
+ * Arabic typography adjustments (§3.6). The font FAMILY is not overridden
+ * here (fix for review finding B6) — `fontFamily.sans` in
+ * `tailwind.config.js` already lists Inter first, so Latin glyphs (including
+ * brand/product terms inline in an Arabic sentence, 6.1) keep rendering in
+ * Inter; Arabic glyphs fall through per-character to IBM Plex Sans Arabic
+ * because Inter has none. Only line-height, letter-spacing and the
+ * extrabold-weight mapping are language-scoped.
+ */
+[lang='ar'] {
+  line-height: 1.75;
+}
+
+/* Fix for N6: target the utilities that actually carry tracking, not the
+   whole subtree (which did not reach these utility classes at all) — and
+   exclude font-mono / LTR islands, where Latin technical text keeps its own
+   metrics regardless of the active language. */
+[lang='ar'] :where([class*='tracking-'], .text-8xl, .text-9xl):not(.font-mono):not(.ltr-island) {
+  letter-spacing: normal;
+}
+[lang='ar'] .uppercase:not(.font-mono):not(.ltr-island) {
+  text-transform: none;
+}
+
+/* Fix for N7: IBM Plex Sans Arabic has no 800 cut. Map extrabold (800) to
+   700 under Arabic so the browser does not synthesize a bolder weight from
+   700 — synthetic bold distorts Arabic's connected letterforms. */
+[lang='ar'] .font-extrabold {
+  font-weight: 700;
+}
+
+/* Prototype-only focus-ring helpers (the real components use Tailwind's
+   `focus-visible:outline-*` utilities directly; these two classes exist only
+   because this file hand-links a compiled stylesheet rather than running the
+   Angular components themselves). */
+.amber-focus:focus-visible {
+  outline: 2px solid #ffbb4d;
+  outline-offset: 2px;
+}
+/* B4 fix: base-content, not amber-400 — see design-spec.md §2.5 for the
+   measured contrast (>=13:1 in every panel theme, vs. 1.68:1 for amber-400
+   on operator-member-light's white header). Literal per-theme values here
+   (the compiled build does not expose a bare `--bc` custom property to
+   reference); the real component uses `focus-visible:outline-base-content`,
+   a real Tailwind color utility that resolves the same way per theme. */
+.focus-ring-panel:focus-visible {
+  outline: 2px solid #dce2f3; /* operator-admin / operator-member base-content */
+  outline-offset: 2px;
+}
+[data-theme='operator-member-light'] .focus-ring-panel:focus-visible {
+  outline-color: #1a1c22; /* operator-member-light base-content */
+}
+
+svg { flex-shrink: 0; }
+

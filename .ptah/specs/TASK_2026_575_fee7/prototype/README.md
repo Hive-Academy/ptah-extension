@@ -2,14 +2,21 @@
 
 TASK_2026_575_fee7 · Gate 1.7 · ui-ux-designer
 
-Static HTML prototype (Tailwind via CDN + this folder's `tokens.css`, which
-copies the exact color values out of
-`apps/ptah-landing-page/tailwind.config.js`'s `operator` / `operator-admin` /
-`operator-member` / `operator-member-light` DaisyUI themes). It is a visual
-mock, not the Angular implementation — the architect and developer build the
-real components; this demonstrates the decisions in
-`../design-spec.md` at real pixel sizes so the user can confirm them before
-that build starts.
+Revision 1 (see `../design-spec.md` §6 "Review responses" for the full
+disposition of review round 1's B1-B6/N1-N15). The headline fix: this
+prototype is now fully self-contained — no CDN dependency at all — after
+round 1's screenshots turned out not to reflect the design (see B1 below).
+
+Static HTML prototype: `tailwind-build.css` is a real, offline-compiled
+Tailwind 3.4.18 + DaisyUI 4.12.24 stylesheet built from the exact color
+values in `apps/ptah-landing-page/tailwind.config.js`'s `operator` /
+`operator-admin` / `operator-member` / `operator-member-light` themes (see
+that file's own header comment for the exact, reproducible build command),
+and `fonts/fonts.css` self-hosts the real Inter, JetBrains Mono and IBM Plex
+Sans Arabic `.woff2` files. It is a visual mock, not the Angular
+implementation — the architect and developer build the real components;
+this demonstrates the decisions in `../design-spec.md` at real pixel sizes
+so the user can confirm them before that build starts.
 
 ## How to view
 
@@ -25,16 +32,17 @@ and is hidden before every captured screenshot.
 
 | Section | Demonstrates |
 | --- | --- |
-| A · Public header — desktop | Header language switcher (disclosure-menu skin, §2.2 of the spec), anchored `left`/`right` per direction, `role="menu"`/`role="menuitemradio"`, checkmark on the current option, each option's own `lang`/`dir`. |
-| A2 · Mobile menu — language row | Segmented two-button toggle for the mobile overlay (§2.3). |
-| B · Member/admin shell — shared panel-layout header | The panel-skin segmented switcher (§2.4) placed once in the shared `panel-layout.html` header — same markup renders for both the member shell and the admin shell. Shown alongside the existing (unchanged) `MemberThemeToggle` dark/light control, to scale the two "preference" controls against each other. Use the Dark/Light prototype control to see `operator-member` vs. `operator-member-light`. |
+| A · Public header — desktop | Header language switcher (disclosure-menu skin, §2.2 of the spec), anchored with the logical `start-0` (so it flips sides automatically, fix for N1), `role="menu"`/`role="menuitemradio"`, checkmark on the current option, each option's own `lang`/`dir`. Use the "Open header language menu" prototype control (or click the trigger) to see it open. |
+| A2 · Mobile menu — language row | `role="group"`/`role="menuitemradio"` segmented two-button toggle for the mobile overlay (§2.3, fix for B3's ARIA structure). |
+| B · Member/admin shell — shared panel-layout header | The panel-skin segmented switcher (§2.4) placed once in the shared `panel-layout.html` header, now projected *after* the shell's own topbar content so it sits directly next to `MemberThemeToggle` (fix for N3). Visible check icon on the selected segment (fix for N12), `base-content` focus ring (fix for B4), `EN`/`AR` visible with a native-language `aria-label` (fix for B2/N11). The topbar wraps onto two rows at narrow widths rather than overflowing (a genuine mobile-width fit issue the added switcher exposed — fixed here, not just in the spec). Use the Dark/Light prototype control to see `operator-member` vs. `operator-member-light`. |
 | C · Landing hero | A representative animated/CTA section: `ArrowRight`/`ArrowLeft`-style icons flip via `rtl:scale-x-[-1]` (§3.2); the centred decorative blur (`left-1/2 -translate-x-1/2`) does **not** move — an `rtl-exempt` centring pair (§3.1). |
-| D · Pricing card | USD amount and the year/month numeral stay Western-numeral and LTR (`.ltr-island`) in both languages; only the surrounding words translate (§5.3 of the requirements, §3.7 of the spec). |
+| D · Pricing card | USD amount and the year/month numeral stay Western-numeral and LTR (`.ltr-island`) in both languages; only the surrounding words translate (§5.3 of the requirements, §3.7 of the spec). The Arabic "Cohort 4" badge in section B and this card's digits now use Western numerals throughout, consistent with §3.7's recommendation (fix for N10 — the previous revision's Arabic-Indic badge digit contradicted its own recommendation). |
 | E · CLI block | `.ltr-island` on a `font-mono` code block inside an RTL page (§3.3) — stays left-aligned and LTR while the paragraph above it flows RTL. |
 
 ## Directions and modes captured
 
-`screenshots/full-<lang>-<mode>-<width>.png`:
+`screenshots/full-<lang>-<mode>-<width>.png` (the closed-menu, default
+state — every one of these already IS the "closed menu" shot B1 asked for):
 
 - `lang`: `en` (LTR) / `ar` (RTL, draft Arabic copy — see note below)
 - `mode`: `dark` (`operator` / `operator-admin` / `operator-member`) /
@@ -42,14 +50,26 @@ and is hidden before every captured screenshot.
   marketing and admin shells are dark-only today, unchanged by this task)
 - `width`: `375` (mobile) / `1440` (desktop)
 
-All 8 combinations are included (2 × 2 × 2).
+All 8 combinations are included (2 × 2 × 2), plus two more (fix for B1's
+"add ... one shot with the header menu open, per direction"):
+
+- `screenshots/header-menu-open-en-1440.png`
+- `screenshots/header-menu-open-ar-1440.png`
+
+— both cropped to the header region, header language menu open, showing the
+`start-0` anchoring flip (left-anchored in EN, right-anchored in AR) and the
+checkmark on the current option.
 
 Screenshots were rendered with Playwright (Chromium,
-`/opt/pw-browsers/chromium-1194`), full-page, viewport widths 375 and 1440,
-via a one-off script that loads `index.html`, calls the page's own
-`window.__proto.applyLang()` / `applyMode()` (the same functions the control
-bar's buttons call) for each of the 4 language×mode combinations, and
-captures a full-page PNG at each of the 2 widths.
+`/opt/pw-browsers/chromium-1194`, launched with no proxy/network flags —
+none are needed any more), full-page, viewport widths 375 and 1440, via a
+one-off script that loads `index.html`, calls the page's own
+`window.__proto.applyLang()` / `applyMode()` / `openHeaderMenu()` (the same
+functions the control bar's buttons call), and captures a PNG at each
+combination. Every one of the 10 PNGs was re-opened and visually confirmed
+by eye after the B1 fix — real fonts, real Tailwind/DaisyUI layout, correct
+mirroring, no clipping at 375px, no giant unstyled icons — not just
+regenerated and assumed correct.
 
 ## Arabic copy status
 
@@ -83,13 +103,16 @@ summary".
 
 ## Known prototype limitations (not implementation gaps)
 
-- Uses Tailwind's CDN runtime build + a small inline CSS safety net for icon
-  sizing (`index.html`'s `<style>` block) rather than the project's compiled
-  Tailwind/DaisyUI build, because this is a standalone static file with no
-  Nx/Angular build step. Colors, spacing and radii are taken from the real
-  theme tokens (`tokens.css`); a few DaisyUI component classes (`btn`,
-  `badge`) are approximated with plain Tailwind utilities instead of
-  DaisyUI's compiled output.
+- `tailwind-build.css` is compiled from a **standalone** `tailwind.config.js`
+  (built at `/tmp/twbuild` per that file's own header comment) that copies
+  the real project's theme values, not from the actual
+  `apps/ptah-landing-page/tailwind.config.js` in place via its own Nx build
+  — there is no Nx/Angular build step available to a standalone static
+  file. If the real config's theme values ever change, this copy needs a
+  manual re-sync (the same caveat `tokens.css`'s original comment already
+  carried for its own hand-copied values, now narrowed since most of that
+  hand-copying was replaced by the real compiled output — see B1/N15 in
+  `../design-spec.md` §6).
 - The public header's `Product`/`Community` disclosure menus and the mobile
   hamburger are static (non-interactive) in this prototype — only the
   language switcher and the member-theme toggle are wired up, since those are
@@ -97,6 +120,18 @@ summary".
 - Icons are inline SVG paths approximating the real `lucide-angular` icon set
   (`Globe`, `ChevronDown`, `Check`, `ArrowRight`, `Download`, `Sun`/`Moon`,
   `Menu`), not the library itself.
+- `focus-ring-panel`'s outline colors in `tokens.css` are literal per-theme
+  hex values (matching §2.5a's measured figures) rather than a reference to
+  a `--bc` custom property, because the standalone compiled build does not
+  expose one; the real Angular component uses a genuine Tailwind color
+  utility (`focus-visible:outline-base-content`) that resolves the same way
+  automatically per theme.
+
+## Rebuilding after an HTML change
+
+`tailwind-build.css` is generated, not hand-written — after editing
+`index.html`'s classes, regenerate it (see `tailwind-build.css`'s own header
+comment for the full command) rather than hand-editing the compiled file.
 
 ## Gate 1.7
 

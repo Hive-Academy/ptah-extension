@@ -4,29 +4,21 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Ptah — EN/AR switcher &amp; RTL prototype</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
-  rel="stylesheet"
-/>
+
+<!--
+  Revision 1 (review round 1, B1 fix): no CDN runtime dependency any more.
+  `tailwind-build.css` is a real, offline-compiled Tailwind 3.4 + DaisyUI 4
+  stylesheet (see that file's own header comment for the exact build
+  command), and `fonts/fonts.css` self-hosts the actual Inter, JetBrains
+  Mono and IBM Plex Sans Arabic files instead of linking Google Fonts live.
+  Rendering is now deterministic regardless of the capture browser's network
+  path.
+-->
+<link rel="stylesheet" href="fonts/fonts.css" />
+<link rel="stylesheet" href="tailwind-build.css" />
 <link rel="stylesheet" href="tokens.css" />
-<style>
-  html, body { font-family: 'Inter', system-ui, sans-serif; }
-  html[lang="ar"] body, html[lang="ar"] { font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Inter', sans-serif; }
-  .font-mono { font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace; }
-  .proto-frame { border: 1px dashed rgba(255,255,255,0.15); }
-  .amber-focus:focus-visible { outline: 2px solid var(--amber-500); outline-offset: 2px; }
-  /* Belt-and-suspenders icon sizing: guarantees correct render even if the
-     Tailwind CDN JIT stylesheet is slow/unavailable in a sandboxed browser. */
-  svg { flex-shrink: 0; }
-  svg.w-4.h-4 { width: 1rem; height: 1rem; }
-  svg.w-5.h-5 { width: 1.25rem; height: 1.25rem; }
-  svg.w-6.h-6 { width: 1.5rem; height: 1.5rem; }
-</style>
 </head>
-<body class="bg-[#0b0c0f] text-white">
+<body class="bg-[#0b0c0f] text-white font-sans">
 
 <!-- ============================================================= -->
 <!-- PROTOTYPE CONTROL BAR (not part of the deliverable UI itself) -->
@@ -44,6 +36,8 @@
     <button type="button" data-mode="light" class="mode-ctl px-2 py-1 rounded text-white/70">Light (member)</button>
   </div>
 
+  <button type="button" id="open-lang-menu-ctl" class="px-2 py-1 rounded border border-white/20 text-white/70">Open header language menu</button>
+
   <span class="text-white/40">Screenshots are captured programmatically at 375px and 1440px; this bar is cropped out.</span>
 </div>
 
@@ -53,9 +47,9 @@
   <!-- SECTION A — Public marketing header (operator theme)          -->
   <!-- ============================================================= -->
   <section id="sec-header" data-theme="operator" class="bg-base-100">
-    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A · Public header — desktop" data-ar="أ · رأس الصفحة العامة — سطح المكتب"></p>
+    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A · Public header — desktop" data-ar="A · رأس الصفحة العامة — سطح المكتب"></p>
 
-    <nav class="relative mt-3 h-16 px-4 sm:px-6 lg:px-16 flex items-center justify-between bg-ink-900/90 backdrop-blur-md border-b" style="background:#0e1015e6; border-color:var(--border-hairline)">
+    <nav class="relative mt-3 h-16 px-4 sm:px-6 lg:px-16 flex items-center justify-between border-b" style="background:rgba(14,16,21,0.9); border-color:#262a33">
       <a href="#" class="flex items-center gap-3 rounded-md amber-focus" aria-label="Ptah home">
         <span class="w-11 h-11 rounded-full bg-amber-500 flex items-center justify-center font-bold text-ink-950">P</span>
       </a>
@@ -73,16 +67,21 @@
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         </button>
 
-        <!-- ===== Language switcher — header skin (disclosure menu) ===== -->
+        <!-- ===== Language switcher — header skin (disclosure menu) =====
+             Placement fix (N2): immediately after Community, before the
+             signed-out Login/Sign-Up cluster (and, when authenticated,
+             still before the always-present Download CTA — the User menu
+             renders after Download in the real component either way, so
+             this ordering holds for both auth states). -->
         <div class="relative" id="lang-switch-header">
           <button type="button" id="lang-menu-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="lang-menu"
-            class="flex items-center gap-1.5 text-sm font-medium rounded-md px-2 py-1 text-white/80 hover:text-amber-500 amber-focus"
-            data-aria-en="Language: English" data-aria-ar="اللغة: العربية">
+            class="flex items-center gap-1.5 text-sm font-medium rounded-md px-2 py-1 text-white/80 hover:text-amber-500 amber-focus">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
             <span id="lang-code">EN</span>
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </button>
-          <div id="lang-menu" role="menu" aria-labelledby="lang-menu-trigger" class="hidden absolute rtl:right-0 ltr:left-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50">
+          <!-- N1 fix: logical `start-0` instead of a physical/`ltr:`/`rtl:` pair -->
+          <div id="lang-menu" role="menu" aria-labelledby="lang-menu-trigger" class="hidden absolute start-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50">
             <button type="button" role="menuitemradio" lang="en" dir="ltr" data-set-lang="en"
               class="lang-option flex w-full items-center justify-between px-4 py-2 text-sm font-medium text-white/70 hover:text-white hover:bg-white/5">
               English
@@ -106,16 +105,27 @@
       </div>
     </nav>
 
-    <p class="section-label px-4 pt-8 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A2 · Mobile menu — language row" data-ar="أ٢ · القائمة على الجوال — صف اللغة"></p>
-    <div class="mx-4 mb-6 mt-3 max-w-sm rounded-xl border" style="border-color:var(--border-hairline); background:#171a2199">
-      <div class="flex flex-col py-4 px-4 space-y-1 text-base-content">
-        <a href="#" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Features" data-ar="المزايا"></a>
-        <a href="#" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Pricing" data-ar="الأسعار"></a>
-        <div role="radiogroup" aria-label="Language" class="mx-0 mt-1 mb-2 flex rounded-lg border border-ink-700 bg-ink-950/60 p-1">
-          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang" class="mobile-lang-en flex-1 rounded-md px-3 py-2 text-sm font-medium">English</button>
-          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang" class="mobile-lang-ar flex-1 rounded-md px-3 py-2 text-sm font-medium">العربية</button>
+    <p class="section-label px-4 pt-8 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="A2 · Mobile menu — language row" data-ar="A2 · القائمة على الجوال — صف اللغة"></p>
+    <div class="mx-4 mb-6 mt-3 max-w-sm rounded-xl border" style="border-color:#262a33; background:rgba(23,26,33,0.6)">
+      <div class="flex flex-col py-4 px-4 space-y-1 text-base-content" role="menu" aria-label="Mobile navigation menu">
+        <a href="#" role="menuitem" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Features" data-ar="المزايا"></a>
+        <a href="#" role="menuitem" class="px-4 py-3 text-white/80 rounded-lg text-base font-medium" data-en="Pricing" data-ar="الأسعار"></a>
+
+        <!--
+          B3 fix: this used to be `role="radiogroup"`/`role="radio"` nested
+          directly inside the mobile panel's own `role="menu"`
+          (`navigation.component.ts:466-469`), which is an invalid owned-
+          element structure for `menu` (axe: aria-required-children). A
+          `role="group"` wrapping `role="menuitemradio"` items is a valid
+          child structure of `menu` and keeps the same two-button segmented
+          look and the same `aria-checked` semantics.
+        -->
+        <div role="group" aria-label="Language" class="mx-0 mt-1 mb-2 flex rounded-lg border border-ink-700 p-1" style="background:rgba(8,9,12,0.6)">
+          <button type="button" role="menuitemradio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang" class="mobile-lang-en flex-1 rounded-md px-3 py-2 text-sm font-medium">English</button>
+          <button type="button" role="menuitemradio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang" class="mobile-lang-ar flex-1 rounded-md px-3 py-2 text-sm font-medium">العربية</button>
         </div>
-        <a href="#" class="px-4 py-3 text-amber-500 rounded-lg text-base font-medium" data-en="Sign Up" data-ar="إنشاء حساب"></a>
+
+        <a href="#" role="menuitem" class="px-4 py-3 text-amber-500 rounded-lg text-base font-medium" data-en="Sign Up" data-ar="إنشاء حساب"></a>
       </div>
     </div>
   </section>
@@ -123,8 +133,8 @@
   <!-- ============================================================= -->
   <!-- SECTION B — Member shell topbar (panel-layout shared header)  -->
   <!-- ============================================================= -->
-  <section id="sec-member" class="mode-surface bg-base-100 border-t" style="border-color:var(--border-hairline)">
-    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="B · Member/admin shell — shared panel-layout header" data-ar="ب · واجهة الأعضاء/الإدارة — الترويسة المشتركة"></p>
+  <section id="sec-member" data-theme="operator-member" class="border-t" style="border-color:var(--border-hairline)">
+    <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="B · Member/admin shell — shared panel-layout header" data-ar="B · واجهة الأعضاء/الإدارة — الترويسة المشتركة"></p>
 
     <header class="mt-3 flex items-center justify-between gap-3 border-b px-4 py-3 lg:px-6 bg-base-200" style="border-color:var(--border-hairline)">
       <div class="flex items-center gap-3">
@@ -132,15 +142,21 @@
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <h1 class="text-xl font-bold" data-en="Ptah Builders" data-ar="Ptah Builders"></h1>
-        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full text-primary-content bg-primary" data-en="Cohort 4" data-ar="الدفعة ٤"></span>
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full text-primary-content bg-primary" data-en="Cohort 4" data-ar="الدفعة 4"></span>
       </div>
 
-      <div class="flex items-center gap-2 text-sm text-base-content-muted">
-        <!-- ===== Language switcher — panel skin (segmented, shared) ===== -->
-        <div role="radiogroup" aria-label="Language" class="panel-lang inline-flex rounded-lg border p-0.5" style="border-color:var(--border-hairline); background:var(--base-200)">
-          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang" class="panel-lang-en px-2.5 py-1 rounded-md text-xs font-medium">EN</button>
-          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang" class="panel-lang-ar px-2.5 py-1 rounded-md text-xs font-medium">AR</button>
-        </div>
+      <!--
+        N3 fix: order is now [Signed in as][email][ThemeToggle][LanguageSwitch]
+        — the language switch is projected AFTER `<ng-content
+        select="[panelTopBar]">` in `panel-layout.html`, not before it, so it
+        sits directly next to `MemberThemeToggle` (the two preference
+        controls read as one cluster) instead of being separated from it by
+        the "Signed in as / email" text. For the admin shell (no theme
+        toggle) the order is simply [Signed in as][email][LanguageSwitch].
+      -->
+      <div class="flex flex-wrap items-center justify-end gap-2 text-sm text-base-content-muted">
+        <span class="hidden sm:inline" data-en="Signed in as" data-ar="تم تسجيل الدخول باسم"></span>
+        <span class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none">abdallah@miramarstaffing.com</span>
 
         <!-- ===== Existing MemberThemeToggle (dark/light), unchanged ===== -->
         <button type="button" id="theme-toggle-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-medium" style="border-color:var(--border-hairline); background:var(--base-200); color:var(--bcm)">
@@ -149,8 +165,33 @@
           <span class="hidden sm:inline" id="theme-toggle-label" data-en="Switch to light theme" data-ar="التبديل إلى المظهر الفاتح"></span>
         </button>
 
-        <span class="hidden sm:inline" data-en="Signed in as" data-ar="تم تسجيل الدخول باسم"></span>
-        <span class="font-mono text-xs ltr-island">abdallah@miramarstaffing.com</span>
+        <!--
+          ===== Language switcher — panel skin (segmented, shared) =====
+          B2/N11 fix: visible caption stays the compact `EN`/`AR` (panel
+          topbar space is tight — matches `MemberThemeToggle`'s own
+          `hidden sm:inline` caption-collapse reasoning), but `aria-label`
+          now (a) names the language in its own language, satisfying 3.8,
+          and (b) is prefixed with the exact visible substring "EN"/"AR",
+          satisfying WCAG 2.5.3 Label in Name — see design-spec.md §2.6.
+          B4/N12 fix: focus ring uses `base-content` (≥13:1 in every panel
+          theme, including 17.03:1 in `operator-member-light` — measured in
+          design-spec.md §2.5), not `amber-400` (1.68:1 there, fails 3:1).
+          The checked segment also carries a visible check icon, so state is
+          never color-only (non-text contrast, WCAG 1.4.11).
+          B3 fix: real roving-tabindex radiogroup, implemented in the script
+          below (`initRovingRadioGroup`) — reads the computed `direction` of
+          the group and explicitly inverts ArrowLeft/ArrowRight, rather than
+          asserting this happens automatically.
+        -->
+        <div role="radiogroup" aria-label="Language" id="panel-lang-group"
+          class="panel-lang inline-flex rounded-lg border p-0.5" style="border-color:var(--border-hairline); background:var(--base-200)">
+          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang"
+            aria-label="EN — Language: English"
+            class="panel-lang-en btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel">EN</button>
+          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang"
+            aria-label="AR — اللغة: العربية"
+            class="panel-lang-ar btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel">AR</button>
+        </div>
       </div>
     </header>
 
@@ -171,7 +212,7 @@
   <!-- SECTION C — Landing hero (representative)                     -->
   <!-- ============================================================= -->
   <section id="sec-hero" data-theme="operator" class="relative overflow-hidden bg-base-100 py-20 px-4 sm:px-6 lg:px-16">
-    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="C · Landing hero" data-ar="ج · قسم البطل الرئيسي"></p>
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="C · Landing hero" data-ar="C · قسم البطل الرئيسي"></p>
     <div class="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-amber-500/[0.06] rounded-full blur-[150px]"></div>
     <div class="relative max-w-3xl">
       <h2 class="text-4xl sm:text-6xl font-extrabold leading-tight" data-en="It Knows Your Architecture. It Ships the SaaS." data-ar="يعرف بنية نظامك. وينشر تطبيق SaaS الخاص بك."></h2>
@@ -193,8 +234,8 @@
   <!-- SECTION D — Pricing card                                      -->
   <!-- ============================================================= -->
   <section id="sec-pricing" data-theme="operator" class="bg-base-100 py-16 px-4 sm:px-6 lg:px-16">
-    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="D · Pricing card (USD stays Western numerals, both languages)" data-ar="د · بطاقة الأسعار (تبقى الأرقام غربية بالدولار في اللغتين)"></p>
-    <div class="max-w-sm rounded-xl border p-6" style="border-color:var(--border-hairline); background:var(--base-200)">
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="D · Pricing card (USD stays Western numerals, both languages)" data-ar="D · بطاقة الأسعار (تبقى الأرقام غربية بالدولار في اللغتين)"></p>
+    <div class="max-w-sm rounded-xl border p-6" style="border-color:#262a33; background:#171a21">
       <h3 class="text-lg font-semibold" data-en="Builders" data-ar="Builders"></h3>
       <p class="mt-2 flex items-baseline gap-1">
         <span class="text-4xl font-extrabold ltr-island">$29</span>
@@ -216,9 +257,9 @@
   <!-- SECTION E — Code / CLI block (LTR island)                     -->
   <!-- ============================================================= -->
   <section id="sec-code" data-theme="operator" class="bg-base-100 py-16 px-4 sm:px-6 lg:px-16">
-    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="E · CLI block — LTR island inside RTL page" data-ar="هـ · كتلة سطر الأوامر — جزيرة LTR داخل صفحة RTL"></p>
+    <p class="section-label text-[11px] uppercase tracking-wider text-amber-400/70 mb-4" data-en="E · CLI block — LTR island inside RTL page" data-ar="E · كتلة سطر الأوامر — جزيرة LTR داخل صفحة RTL"></p>
     <p class="max-w-2xl text-base-content-muted mb-4" data-en="Install the Ptah CLI, then run your first session from any repository." data-ar="ثبّت واجهة سطر الأوامر Ptah، ثم شغّل أول جلسة من أي مستودع."></p>
-    <pre class="ltr-island max-w-xl rounded-lg border p-4 font-mono text-sm overflow-x-auto" style="border-color:var(--border-hairline); background:var(--base-200)"><code>$ npm install -g @ptah/cli
+    <pre class="ltr-island max-w-xl rounded-lg border p-4 font-mono text-sm overflow-x-auto" style="border-color:#262a33; background:#171a21"><code>$ npm install -g @ptah/cli
 $ ptah session start --repo .
 &gt; Ptah v2.4.0 — session_01PnRXJnJhg...</code></pre>
   </section>
@@ -239,9 +280,7 @@ $ ptah session start --repo .
       el.textContent = lang === 'ar' ? (el.getAttribute('data-ar') || '') : (el.getAttribute('data-en') || '');
     });
 
-    var trigger = document.getElementById('lang-menu-trigger');
     document.getElementById('lang-code').textContent = lang === 'ar' ? 'AR' : 'EN';
-    trigger.setAttribute('aria-label', trigger.getAttribute(lang === 'ar' ? 'data-aria-ar' : 'data-aria-en'));
 
     document.querySelectorAll('.lang-option').forEach(function (btn) {
       var isCurrent = btn.getAttribute('lang') === lang;
@@ -256,22 +295,39 @@ $ ptah session start --repo .
       var isCurrent = btn.getAttribute('lang') === lang;
       btn.setAttribute('aria-checked', String(isCurrent));
       var isMobile = btn.classList.contains('mobile-lang-en') || btn.classList.contains('mobile-lang-ar');
+      var isPanel = btn.classList.contains('panel-lang-en') || btn.classList.contains('panel-lang-ar');
       if (isMobile) {
         btn.classList.toggle('bg-amber-500', isCurrent);
         btn.classList.toggle('text-ink-950', isCurrent);
         btn.classList.toggle('text-white/70', !isCurrent);
-      } else {
-        btn.style.background = isCurrent ? 'var(--primary)' : 'transparent';
-        btn.style.color = isCurrent ? 'var(--primary-content)' : 'var(--bcm)';
+      } else if (isPanel) {
+        btn.classList.toggle('btn-primary', isCurrent);
+        btn.classList.toggle('btn-ghost', !isCurrent);
+        // Non-color state signal (B4/N12): a check mark appended to the
+        // selected segment's own label, not just a fill color.
+        var existingCheck = btn.querySelector('.panel-check');
+        if (isCurrent && !existingCheck) {
+          var check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          check.setAttribute('class', 'panel-check w-3 h-3');
+          check.setAttribute('viewBox', '0 0 24 24');
+          check.setAttribute('fill', 'none');
+          check.setAttribute('stroke', 'currentColor');
+          check.setAttribute('stroke-width', '3');
+          check.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+          btn.appendChild(check);
+        } else if (!isCurrent && existingCheck) {
+          existingCheck.remove();
+        }
       }
     });
+    // Roving tabindex must be recomputed every time selection changes.
+    setRovingTabIndex(document.getElementById('panel-lang-group'));
 
     document.querySelectorAll('.dir-arrow').forEach(function (svg) {
       svg.style.transform = lang === 'ar' ? 'scaleX(-1)' : 'none';
     });
 
-    document.getElementById('lang-menu').classList.add('hidden');
-    document.getElementById('lang-menu-trigger').setAttribute('aria-expanded', 'false');
+    closeHeaderMenu();
 
     document.querySelectorAll('.lang-ctl').forEach(function (b) {
       var on = b.getAttribute('data-lang') === lang;
@@ -301,22 +357,90 @@ $ ptah session start --repo .
     });
   }
 
+  // ---- Header (menu) skin: Tab-order only, same as the existing Product /
+  // Community / User disclosure menus (navigation.component.ts) — no
+  // auto-focus-into-menu, no arrow-roving. Escape and outside-click close
+  // it; the "closeMenuAndRefocus" behavior on Escape is native browser
+  // behavior here (focus never left the trigger). Selecting an option is a
+  // new, explicit path (`selectHeaderLanguage`) that closes the menu AND
+  // refocuses the trigger, matching the text in design-spec.md §2.6 exactly
+  // (fix for B3's snippet/prose mismatch).
+  function openHeaderMenu() {
+    document.getElementById('lang-menu').classList.remove('hidden');
+    document.getElementById('lang-menu-trigger').setAttribute('aria-expanded', 'true');
+  }
+  function closeHeaderMenu() {
+    document.getElementById('lang-menu').classList.add('hidden');
+    document.getElementById('lang-menu-trigger').setAttribute('aria-expanded', 'false');
+  }
+  function selectHeaderLanguage(lang) {
+    applyLang(lang);
+    closeHeaderMenu();
+    document.getElementById('lang-menu-trigger').focus();
+  }
   document.getElementById('lang-menu-trigger').addEventListener('click', function () {
-    var menu = document.getElementById('lang-menu');
-    var open = menu.classList.contains('hidden');
-    menu.classList.toggle('hidden', !open);
-    this.setAttribute('aria-expanded', String(open));
+    var isOpen = !document.getElementById('lang-menu').classList.contains('hidden');
+    if (isOpen) { closeHeaderMenu(); } else { openHeaderMenu(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      var open = !document.getElementById('lang-menu').classList.contains('hidden');
+      if (open) {
+        closeHeaderMenu();
+        document.getElementById('lang-menu-trigger').focus();
+      }
+    }
+  });
+  document.addEventListener('click', function (e) {
+    var wrap = document.getElementById('lang-switch-header');
+    if (!wrap.contains(e.target)) { closeHeaderMenu(); }
+  });
+  document.querySelectorAll('#lang-menu [data-set-lang]').forEach(function (btn) {
+    btn.addEventListener('click', function () { selectHeaderLanguage(this.getAttribute('data-set-lang')); });
   });
 
-  document.querySelectorAll('[data-set-lang]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      applyLang(this.getAttribute('data-set-lang'));
+  // Mobile segmented row + panel segmented row: plain click handlers (real
+  // <button> elements are natively Tab-reachable and Enter/Space-operable
+  // regardless of the `role` attribute, so B3's structural fix (role="group"
+  // + role="menuitemradio") did not need new keyboard code for the mobile
+  // row — only the panel radiogroup below gets bespoke roving-tabindex code,
+  // because it is a real standalone ARIA `radiogroup`, not a menu item.)
+  document.querySelectorAll('.mobile-lang-en, .mobile-lang-ar').forEach(function (btn) {
+    btn.addEventListener('click', function () { applyLang(this.getAttribute('data-set-lang')); });
+  });
+
+  // ---- Panel (segmented) skin: a real ARIA `radiogroup` — roving tabindex
+  // (one tab stop, on the checked radio) plus explicit Arrow-key handling
+  // that reads the group's OWN computed `direction` and inverts
+  // ArrowLeft/ArrowRight accordingly. This is the concrete implementation
+  // B3 asked for in place of the "browser-native, automatic" claim.
+  function setRovingTabIndex(group) {
+    var radios = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]'));
+    radios.forEach(function (r) {
+      r.tabIndex = r.getAttribute('aria-checked') === 'true' ? 0 : -1;
     });
+  }
+  function initRovingRadioGroup(group) {
+    setRovingTabIndex(group);
+    group.addEventListener('keydown', function (e) {
+      var radios = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]'));
+      var isRtl = getComputedStyle(group).direction === 'rtl';
+      var delta = 0;
+      if (e.key === 'ArrowRight') { delta = isRtl ? -1 : 1; }
+      else if (e.key === 'ArrowLeft') { delta = isRtl ? 1 : -1; }
+      else { return; }
+      e.preventDefault();
+      var idx = radios.indexOf(document.activeElement);
+      if (idx === -1) { idx = 0; }
+      var next = radios[(idx + delta + radios.length) % radios.length];
+      next.focus();
+      applyLang(next.getAttribute('data-set-lang'));
+    });
+  }
+  document.querySelectorAll('.panel-lang-en, .panel-lang-ar').forEach(function (btn) {
+    btn.addEventListener('click', function () { applyLang(this.getAttribute('data-set-lang')); });
   });
-
-  document.getElementById('theme-toggle-btn').addEventListener('click', function () {
-    applyMode(state.mode === 'light' ? 'dark' : 'light');
-  });
+  initRovingRadioGroup(document.getElementById('panel-lang-group'));
 
   document.querySelectorAll('.lang-ctl').forEach(function (b) {
     b.addEventListener('click', function () { applyLang(this.getAttribute('data-lang')); });
@@ -324,9 +448,10 @@ $ ptah session start --repo .
   document.querySelectorAll('.mode-ctl').forEach(function (b) {
     b.addEventListener('click', function () { applyMode(this.getAttribute('data-mode')); });
   });
+  document.getElementById('open-lang-menu-ctl').addEventListener('click', function () { openHeaderMenu(); });
 
   // Expose for Playwright screenshot script
-  window.__proto = { applyLang: applyLang, applyMode: applyMode };
+  window.__proto = { applyLang: applyLang, applyMode: applyMode, openHeaderMenu: openHeaderMenu, closeHeaderMenu: closeHeaderMenu };
 
   applyLang('en');
   applyMode('dark');
