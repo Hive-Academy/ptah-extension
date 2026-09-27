@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 1/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 2/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -167,7 +167,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   raised, and `nx run degradation-audit:lint` must exit 0.
   Resolved: marker added at `lang-preference.store.ts:31-32`; the audit exits 0 (nothing under libs/frontend/i18n).
 
-## Batch 2: i18n library runtime, pipes and testing entry (F1, part 2) — IN_PROGRESS
+## Batch 2: i18n library runtime, pipes and testing entry (F1, part 2) — COMPLETE (37537338)
 
 - Recommended executor: backend-developer
 - Fallback executor: frontend-developer
@@ -176,7 +176,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 5 | Depends on: Batch 1
 - Commit: `feat(shared): add i18n service, resolver, pipes and testing provider`
 
-### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — IMPLEMENTED
+### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — COMPLETE
 
 - Files: `$ROOT/libs/frontend/i18n/src/lib/i18n.error.ts` + spec, `$ROOT/libs/frontend/i18n/src/lib/i18n-scope.ts`,
   `$ROOT/libs/frontend/i18n/src/lib/resolve-initial-lang.ts` (+ spec), `$ROOT/libs/frontend/i18n/CLAUDE.md`,
@@ -194,7 +194,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   to the lib `CLAUDE.md` saying the scope-name guard runs in dev mode only and does not validate input at runtime.
 - Implementation details: one small file; barrel stays grouped under a new "Errors" heading.
 
-### Task 2.1: `I18nService` and `i18nScopesResolver` — IMPLEMENTED
+### Task 2.1: `I18nService` and `i18nScopesResolver` — COMPLETE
 
 - Depends on: Task 2.0
 
@@ -205,7 +205,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: late scope loads never re-render (`emitChange: false`) — loads must finish before render/switch. Duplicate scope name with a different loader is a dev error.
 - Implementation details: registry keyed by scope name; `documentElement.lang/dir` via `DOCUMENT`; resolver spec loads a scope with no `HttpClient` provided (1.4).
 
-### Task 2.2: `provideI18n` and `I18nMissingHandler` — IMPLEMENTED
+### Task 2.2: `provideI18n` and `I18nMissingHandler` — COMPLETE
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{provide-i18n.ts,i18n-missing.handler.ts}` + specs
@@ -215,7 +215,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: resolve `TranslocoService` lazily from `Injector` with a re-entrancy guard.
 - Implementation details: `EmptyRootLoader` returns `{}`; `registerLocaleData(localeAr,'ar')` in an environment initializer; `provideAppInitializer(() => inject(I18nService).init())`.
 
-### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — IMPLEMENTED
+### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — COMPLETE
 
 - Depends on: Task 2.2
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts,provide-i18n-testing.ts}` + spec
@@ -225,7 +225,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: spec proves a `lang: 'ar'` setup can translate the same key in `ar` and in `en` (the CORE SEO spec depends on it).
 - Implementation details: `I18nService` seeded with `lang`; locale registration included; renders synchronously.
 
-### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — IMPLEMENTED
+### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — COMPLETE
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/pipes/{i18n-date.pipe.ts,i18n-number.pipe.ts}` + specs, `$ROOT/libs/frontend/i18n/src/index.ts`
@@ -279,7 +279,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - 1.2: `node_modules/.bin/nx graph --file=<scratch>.json` shows `@ptah-extension/i18n` with an empty workspace-dependency list (evidence quoted in the report).
 - Reviewer: logic (DI ordering, missing-handler semantics, N13/N14 shape).
 
-## Batch 3: i18n-check tool core rules (F2a, part 1) — PENDING
+## Batch 3: i18n-check tool core rules (F2a, part 1) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -288,7 +288,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 3 | Depends on: Batch 2 (package.json sequencing)
 - Commit: `feat(scripts): add i18n-check tool with parity and key reference rules`
 
-### Task 3.1: Tool project scaffold and glossary seed — PENDING
+### Task 3.1: Tool project scaffold and glossary seed — IN_PROGRESS
 
 - Files: `$ROOT/tools/i18n-check/{project.json,tsconfig.json,jest.config.ts}`, `$ROOT/tools/i18n-check/glossary.json`
 - Plan reference: implementation-plan.md:362-365, :70
@@ -297,7 +297,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: tool imports no project code.
 - Implementation details: ts-node `--transpile-only` invocation as in degradation-audit.
 
-### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — PENDING
+### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — IN_PROGRESS
 
 - Depends on: Task 3.1
 - Files: `$ROOT/tools/i18n-check/src/main.ts`, `$ROOT/tools/i18n-check/src/lib/{scope-map.ts,template-keys.ts,ts-keys.ts,translation-files.ts,glossary.ts,report.ts}` + specs
@@ -311,7 +311,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   constraint to `$ROOT/libs/frontend/i18n/CLAUDE.md`.
 - Implementation details: `@angular/compiler` `parseTemplate` for `.html` and inline `template:`; `typescript` API for `translate(`, `.translate(`, `translateSignal(`, `translateObjectSignal(`.
 
-### Task 3.3: Self-test fixture with F2a planted violations — PENDING
+### Task 3.3: Self-test fixture with F2a planted violations — IN_PROGRESS
 
 - Depends on: Task 3.2
 - Files: `$ROOT/tools/i18n-check/run-self-test.js`, `$ROOT/tools/i18n-check/__fixtures__/project/**`
