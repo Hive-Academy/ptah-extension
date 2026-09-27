@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 4/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 5/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -417,7 +417,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   duplicated CLI code, no raw U+2028/2029, nx.json inputs match scope-map paths; self-test (3 stages), test,
   eslint:lint, tsc and prettier are all clean.
 
-## Batch 5: RTL and formatting rules (F2b, part 1) — IN_PROGRESS
+## Batch 5: RTL and formatting rules (F2b, part 1) — COMPLETE (29f643dd)
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -431,7 +431,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   `src/lib/markers.ts` (Batch 3 Serious-2), which covers the next sibling node or statement span, instead of
   line-based matching. "Before the containing start tag" in Task 5.1 is satisfied by that attachment.
 
-### Task 5.1: RTL pattern rule with island auto-exemption — IMPLEMENTED
+### Task 5.1: RTL pattern rule with island auto-exemption — COMPLETE
 
 - Files: `$ROOT/tools/i18n-check/src/lib/rtl-patterns.ts` + spec, `$ROOT/tools/i18n-check/src/main.ts`
 - Plan reference: implementation-plan.md:302-312, :59
@@ -440,7 +440,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: Tailwind `rtl:` matches inside islands (verified, plan:59).
 - Implementation details: `.ts`, `.html`, `.css` inputs.
 
-### Task 5.2: AST formatting rule and F2b fixtures — IMPLEMENTED
+### Task 5.2: AST formatting rule and F2b fixtures — COMPLETE
 
 - Depends on: Task 5.1
 - Files: `$ROOT/tools/i18n-check/src/lib/format-patterns.ts` + spec, `$ROOT/tools/i18n-check/__fixtures__/project/**`, `$ROOT/tools/i18n-check/run-self-test.js`
@@ -475,7 +475,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   gates on it (lint-staged formats ts/js/json/md only). The `.prettierignore` entry the executor proposed is carried
   to Task 6.1, because the team-leader does not write repository files.
 
-## Batch 6: Prerender check, baseline capture and deploy gate (F2b, part 2) — PENDING
+## Batch 6: Prerender check, baseline capture and deploy gate (F2b, part 2) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -484,16 +484,20 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 5
 - Commit: `feat(scripts): add prerender check and capture english baselines`
 
-### Task 6.1: `parse5` devDependency — PENDING
+### Task 6.1: `parse5` devDependency — IN_PROGRESS
 
-- Files: `$ROOT/package.json`, `$ROOT/package-lock.json`
+- Files: `$ROOT/package.json`, `$ROOT/package-lock.json`, `$ROOT/.prettierignore` (Batch 5 carry-over)
 - Plan reference: implementation-plan.md:69, :343
 - Pattern to follow: existing devDependency pins
 - Quality requirements: `parse5` pinned at `8.0.1` (lockfile version); nothing else changes.
 - Validation notes: none.
-- Implementation details: `npm install --save-dev --save-exact parse5@8.0.1`.
+- Implementation details: `npx npm@11 install --save-dev --save-exact parse5@8.0.1` (never the container's npm 10;
+  the lock diff must stay scoped to parse5 and its own deps).
+- Batch 5 carry-over: add `tools/i18n-check/__fixtures__/project/libs/web/pricing/src/lib/broken.component.html` to
+  `.prettierignore` beside the degradation-audit parse-failure entry, with a one-line comment (it is unparsable on
+  purpose; the self-test's parse-error plant).
 
-### Task 6.2: `check-prerender.ts` — PENDING
+### Task 6.2: `check-prerender.ts` — IN_PROGRESS
 
 - Depends on: Task 6.1
 - Files: `$ROOT/tools/i18n-check/src/prerender/check-prerender.ts` + spec
@@ -503,7 +507,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: spec proves `<span class="ltr-island">$29</span>/mo` extracts as `$29/mo`.
 - Implementation details: `--update` writes `{ route, h1, text }` per route slug.
 
-### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — PENDING
+### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — IN_PROGRESS
 
 - Depends on: Task 6.2
 - Files: `$ROOT/apps/ptah-landing-page/prerender-baseline/{home,download,pricing,terms-and-conditions,privacy,refund}.json`, `$ROOT/.github/workflows/deploy-landing.yml`
@@ -512,6 +516,10 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Quality requirements: baselines from `node_modules/.bin/nx build ptah-landing-page` of UNMODIFIED templates; deploy loop adds `lang="en"`, `dir="ltr"`, per-route headline greps from baseline `h1`, and a failing key-path grep.
 - Validation notes: verify `git diff --stat -- apps/ptah-landing-page/src libs/web` is empty before capture.
 - Implementation details: route slugs map to the six `app.routes.server.ts` prerender routes.
+- Team-leader notes: (1) the pre-commit hook runs `nx format:write` on staged `.json`, so baselines must already be
+  Prettier-clean, or compare must read them as parsed JSON, never byte-for-byte; verify with `prettier --check`.
+  (2) The `dir="ltr"` deploy grep only holds once Batch 9 renders `dir`. The whole task merges as one branch, so
+  this is acceptable, but state it in the ci comment and in the report.
 
 ### Batch 6 verification
 
