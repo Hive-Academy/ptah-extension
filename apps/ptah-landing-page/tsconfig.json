@@ -12,6 +12,7 @@
     "emitDecoratorMetadata": false,
     "module": "preserve",
     "lib": ["dom", "es2022"],
+    "resolveJsonModule": true,
     "ignoreDeprecations": "6.0"
   },
   "angularCompilerOptions": {

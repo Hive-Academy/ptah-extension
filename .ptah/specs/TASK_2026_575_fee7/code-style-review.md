@@ -280,3 +280,234 @@ file.
   name rather than executor name, and a one-line comment in
   `literal-offsets.ts` on the two literal `U+2028`/`U+2029` characters in
   `LINE_TERMINATORS`.
+
+## Batch 7
+
+### Summary
+
+| Metric          | Value                                                                   |
+| --------------- | ----------------------------------------------------------------------- |
+| Overall score   | 9/10                                                                    |
+| Assessment      | APPROVED                                                                |
+| Blocking issues | 0                                                                       |
+| Serious issues  | 0                                                                       |
+| Minor issues    | 1                                                                       |
+| Files reviewed  | 34 (20 new, 9 modified index.ts/tsconfig.json, 5 modified jest configs) |
+
+Scope: Task 7.1 (scopes for `app`, `ui`, `core`) and Task 7.2 (scopes for
+`panelUi`, `landing`) — mechanical scaffolding across 5 projects. Reviewed
+every new `en.json`/`ar.json`/`<name>.i18n-scope.ts`/`<name>.i18n-scope.spec.ts`
+in full, every modified `tsconfig.json`, `jest.config.cts`/`jest.config.ts`,
+and `src/index.ts`, plus `libs/frontend/i18n/CLAUDE.md`,
+`libs/frontend/i18n/jest.config.ts`, and
+`tools/i18n-check/src/lib/scope-map.ts` for the contracts this batch must
+match. Verified: `node_modules/.bin/nx run-many -t lint,test,typecheck -p
+ptah-landing-page web-ui web-core web-panel-ui web-landing` — 15/15 green
+(the scope-verification A2 note is closed by this run: every
+`<name>.i18n-scope.spec.ts` imports its own scope file and asserts a real
+dynamic `import()` of its JSON resolves, so Jest's JSON-module handling is
+exercised, not merely typechecked).
+
+On the "`nx test --testPathPattern` ignored the filter" remark relayed from
+the executor: not reproduced and not a finding. `Batch 7 verification` in
+`batches.md:565-568` specifies `-p <project>` scoping, which is what this
+review ran and is the correct way to scope an Nx run-many; nothing in this
+batch's targets or executor options adds or depends on
+`--testPathPattern`, so there is no misconfiguration to trace here.
+
+### Five style questions
+
+#### 1. What breaks when requirements change in six months?
+
+Nothing structural — this batch only wires each project's own scope. The one
+thing to watch is `libs/web/panel-ui/src/index.ts:4` and `:11-15`, the
+"authoritative count" comment: it is correct today (11 export lines / 12
+symbols, matching the 11 `export *` lines at `index.ts:28-38`), but every
+future addition to this barrel must update the same two numbers in the same
+edit or the comment goes stale again, exactly as it did before this task
+(`index.ts:5-6`).
+
+#### 2. What would a new team member misread?
+
+Nothing in this batch itself; the five `<name>.i18n-scope.ts` files are three
+lines of `defineI18nScope` each, and the five spec files read as one
+template. The one thing worth flagging for a newcomer is that the identical
+`unwrap()` helper in each spec (e.g.
+`apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts:6-9`,
+`libs/web/ui/src/lib/i18n/ui.i18n-scope.spec.ts:6-9`, and three more) is
+copy-pasted rather than shared, which could read as "each project owns its
+own unwrap logic" when it is in fact one concept repeated five times.
+
+#### 3. What does this cost to maintain?
+
+Very little. Each project's `resolveJsonModule` addition
+(`apps/ptah-landing-page/tsconfig.json:15`, `libs/web/{ui,core,landing,panel-ui}/tsconfig.json`)
+and `transformIgnorePatterns` addition
+(`apps/ptah-landing-page/jest.config.ts:33`,
+`libs/web/{ui,core,landing,panel-ui}/jest.config.cts`) is a single line each,
+placed exactly where the plan and `libs/frontend/i18n/jest.config.ts` say it
+belongs. The recurring cost is the 5-way (soon 11-way, once Batch 8 lands)
+duplication of the 9-line `unwrap()` spec helper — small today, and it is
+already the pattern the owning library's own spec uses
+(`libs/frontend/i18n/src/lib/i18n-scope.spec.ts:44`, a one-line inline
+`const unwrap = ...`), just expanded here into a named function with a
+repeated JSDoc comment.
+
+#### 4. Where is this inconsistent with the rest of the repository?
+
+It is not, on any check this batch changes. Barrel exports use `export *`
+for the new scope constant in all four lib barrels
+(`libs/web/{ui,core,landing,panel-ui}/src/index.ts`), which is the same
+style every pre-existing line in those same barrels already uses — a
+pre-existing repo-wide departure from CONVENTIONS.md §3's "explicit named
+exports" rule that this batch neither introduces nor worsens (see Pattern
+compliance). `resolveJsonModule` lands in the project root `tsconfig.json`
+(inherited by both `tsconfig.lib.json`/`tsconfig.app.json` and
+`tsconfig.spec.json` via `extends`), matching the plan's explicit rationale
+(avoid invalidating `tsconfig.base.json`-rooted caches,
+`implementation-plan.md:390`) and the cited precedent
+`libs/web/ui/tsconfig.json`.
+
+#### 5. What would you have done differently, and why is that better rather than merely other?
+
+Hoist the spec `unwrap()` helper (and its JSDoc) into
+`@ptah-extension/i18n/testing` once, e.g. `unwrapJsonModule`, and import it
+from each `<name>.i18n-scope.spec.ts`. The library already owns the concept
+under a different name in production code
+(`libs/frontend/i18n/src/lib/i18n.service.ts:258-259`,
+`unwrapJsonModule`); exporting a test-only twin from `testing/` would let
+Batch 8's six additional scope specs import instead of copy, so the
+duplication count stops at one shared helper instead of growing to eleven
+independent copies. This is not blocking because Batch 7's copies are
+correctly written and match established precedent, but a single publish
+point is cheaper than any point where an eleventh spec diverges from the
+other ten.
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+None.
+
+### Minor issues
+
+- The `unwrap()` helper is copy-pasted verbatim (implementation and JSDoc)
+  across all five new spec files instead of being imported from one place:
+  `apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts:6-9`,
+  `libs/web/ui/src/lib/i18n/ui.i18n-scope.spec.ts:6-9`,
+  `libs/web/core/src/lib/i18n/core.i18n-scope.spec.ts:6-9`,
+  `libs/web/landing/src/lib/i18n/landing.i18n-scope.spec.ts:6-9`,
+  `libs/web/panel-ui/src/lib/i18n/panel-ui.i18n-scope.spec.ts:6-9`. Consistent
+  with the owning library's own inline precedent
+  (`libs/frontend/i18n/src/lib/i18n-scope.spec.ts:44`), so not a new
+  deviation, but Batch 8 repeats the same pattern for 6 more projects
+  (`batches.md:583,593`: "Pattern to follow: Task 7.1"), so the count is
+  about to reach eleven. See question 5 for the fix.
+
+### File-by-file
+
+#### `apps/ptah-landing-page/src/app/i18n/{en.json,ar.json,app.i18n-scope.ts,app.i18n-scope.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. `defineI18nScope('app', ...)`
+matches the CLAUDE.md recipe exactly; the spec asserts both `scope`/`alias`
+and a real async load of each JSON module against the statically-imported
+file, closing the A2 verification note.
+
+#### `libs/web/ui/src/lib/i18n/{en.json,ar.json,ui.i18n-scope.ts,ui.i18n-scope.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Scope name `ui` matches
+`SCOPE_MAP.ui` (`tools/i18n-check/src/lib/scope-map.ts:20`) and the JSON
+files start empty, per plan.
+
+#### `libs/web/core/src/lib/i18n/{en.json,ar.json,core.i18n-scope.ts,core.i18n-scope.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Same shape as `ui`; scope name
+`core` matches `SCOPE_MAP.core`.
+
+#### `libs/web/landing/src/lib/i18n/{en.json,ar.json,landing.i18n-scope.ts,landing.i18n-scope.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Same shape; scope name
+`landing` matches `SCOPE_MAP.landing`.
+
+#### `libs/web/panel-ui/src/lib/i18n/{en.json,ar.json,panel-ui.i18n-scope.ts,panel-ui.i18n-scope.spec.ts}`
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Scope name is `panelUi`
+(camelCase, matching `SCOPE_MAP.panelUi` and the `keepCasing` validation note
+in `batches.md:563`), file name is kebab-case `panel-ui.i18n-scope.ts` —
+correctly following the library-directory-name convention rather than the
+scope-name casing.
+
+#### `libs/web/panel-ui/src/index.ts` (modified)
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. The authoritative-count comment
+is updated correctly and precisely (11 export lines, 12 symbols, both
+verified by counting `index.ts:28-38`), and the new prose
+(`index.ts:13-15`) correctly notes `PANEL_UI_I18N_SCOPE` is exempt from the
+promotion rule (§5.3) rather than silently folding it into the primitive
+count — the one place in this batch where a wrong edit would have been easy
+to make invisibly.
+
+#### `libs/web/{ui,core,landing,panel-ui}/src/index.ts` (modified, barrel additions)
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Each adds exactly one
+`export * from './lib/i18n/<name>.i18n-scope'` line, in the same `export *`
+style as every existing line in the same file.
+
+#### `apps/ptah-landing-page/tsconfig.json`, `libs/web/{ui,core,landing,panel-ui}/tsconfig.json` (modified)
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. `"resolveJsonModule": true`
+added at the project-root level in all five, inherited by both the
+lib/app and spec `tsconfig`s through `extends`, matching the plan's explicit
+"per project, not `tsconfig.base.json`" rationale and the cited
+`libs/web/ui/tsconfig.json` precedent.
+
+#### `apps/ptah-landing-page/jest.config.ts`, `libs/web/{ui,core,landing,panel-ui}/jest.config.cts` (modified)
+
+Score 9/10 — 0 blocking, 0 serious, 0 minor. Each `transformIgnorePatterns`
+gains `|@jsverse|@angular/common/locales` alongside its project's existing
+entries (`marked|ngx-markdown` for the app;
+`@fullcalendar|...|temporal-utils` for `ui`/`panel-ui`; the bare `.mjs$`
+default for `core`/`landing`), matching
+`libs/frontend/i18n/jest.config.ts`'s pattern and comment rationale
+verbatim, and each carries an inline comment explaining why (consistent with
+every pre-existing entry in these same files already being commented).
+
+### Pattern compliance
+
+| Repository rule or nearby convention                                                                                                                         | Status | Evidence                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scope constant name `<LIB>_I18N_SCOPE`, aliased to its own name (`libs/frontend/i18n/CLAUDE.md`)                                                             | PASS   | `app.i18n-scope.ts:3`, `ui.i18n-scope.ts:3`, `core.i18n-scope.ts:3`, `landing.i18n-scope.ts:3`, `panel-ui.i18n-scope.ts:3`, each asserted in its spec's `scope`/`alias` test |
+| File name `<name>.i18n-scope.ts` per library directory name, not scope camelCase                                                                             | PASS   | `panel-ui.i18n-scope.ts` for scope `panelUi`                                                                                                                                 |
+| Scope name/path matches `SCOPE_MAP` (`tools/i18n-check/src/lib/scope-map.ts:19-30`)                                                                          | PASS   | `app`/`ui`/`core`/`landing`/`panelUi` all resolve to `src/app/i18n` or `src/lib/i18n` as declared                                                                            |
+| JSON translation files start `{}` (plan, Component 3)                                                                                                        | PASS   | All 10 new `en.json`/`ar.json` files                                                                                                                                         |
+| `resolveJsonModule` per project tsconfig, not `tsconfig.base.json` (plan:390)                                                                                | PASS   | `apps/ptah-landing-page/tsconfig.json:15`; `libs/web/{ui,core,landing,panel-ui}/tsconfig.json`                                                                               |
+| Jest `transformIgnorePatterns` adds `@jsverse` and `@angular/common/locales` next to existing entries (Batch 2 finding; `libs/frontend/i18n/jest.config.ts`) | PASS   | All 5 touched Jest configs                                                                                                                                                   |
+| Panel-ui barrel authoritative-count comment updated in the same edit as the export list (`index.ts:3-9` precedent)                                           | PASS   | `libs/web/panel-ui/src/index.ts:4,11-15,38`                                                                                                                                  |
+| Barrel exports use `export * from` (existing sibling style in `libs/web/{ui,core,landing,panel-ui}/src/index.ts`)                                            | PASS   | New lines match every pre-existing line in the same files                                                                                                                    |
+| CONVENTIONS.md §3 "explicit named exports" barrel rule                                                                                                       | FAIL   | Pre-existing repo-wide departure in `libs/web/*` barrels, not introduced or worsened by this batch — not attributable to Task 7.1/7.2                                        |
+| No translation content in the shared library (plan Component 3 quality requirement)                                                                          | PASS   | `libs/frontend/i18n` unmodified by this batch                                                                                                                                |
+| `nx run-many -t lint,test,typecheck` stays green over the 11 in-scope projects (Verification seam)                                                           | PASS   | `-p ptah-landing-page web-ui web-core web-panel-ui web-landing`: 15/15 tasks green                                                                                           |
+
+### Maintenance debt
+
+- Introduced: 5 scope-constant/JSON pairs, 5 specs, 5 `resolveJsonModule`
+  flags, 5 Jest `transformIgnorePatterns` entries — all mechanical, all
+  matched to their stated pattern-to-follow. One copy of a 9-line spec
+  helper × 5, which Batch 8 is set to grow to × 11 unless hoisted first.
+- Retired: nothing.
+- Net: neutral-to-positive. This batch adds exactly the scaffolding the plan
+  calls for and nothing else; the only debt is the small, easily-collapsed
+  `unwrap()` duplication, not yet costly enough to block on.
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: hoist the spec `unwrap()` helper into
+  `@ptah-extension/i18n/testing` before Batch 8 repeats it six more times.
+- What a 10/10 version would do differently: export a shared
+  `unwrapJsonModule` test helper from `@ptah-extension/i18n/testing` and have
+  all five (soon eleven) `<name>.i18n-scope.spec.ts` files import it instead
+  of redefining it.

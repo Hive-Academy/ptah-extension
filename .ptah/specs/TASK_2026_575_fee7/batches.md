@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 6/33
+Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 6/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -23,6 +23,10 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
   Trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and
   `Claude-Session: https://claude.ai/code/session_01PnRXJnJhgYDMeYGwFS2UTD`.
 - Executors never run git and never edit `task.md` or `batches.md`.
+- SonarCloud reliability gate (added after e4a71cee / 850f2a2d): every batch touching TypeScript runs the typed
+  SonarJS bug-rule check on its changed `.ts` files and must report 0 problems:
+  `/tmp/claude-0/-home-user-ptah-extension/796962e2-8323-5794-bdb7-e6d506a4bc9d/scratchpad/sonar/node_modules/.bin/eslint -c /tmp/claude-0/-home-user-ptah-extension/796962e2-8323-5794-bdb7-e6d506a4bc9d/scratchpad/sonar/eslint.typed.mjs --no-config-lookup <changed .ts files>`
+  (no `.sort()` without a comparator; no `=== undefined` on a value typed as never-undefined).
 - Every batch touching TS also runs `node_modules/.bin/nx run degradation-audit:lint` (the pre-commit hook runs
   `nx affected -t lint`, which includes it). A swallowed `catch` needs a
   `// degradation-audit: optional-capability|reported - <reason>` marker; never raise `baseline.json`.
@@ -543,7 +547,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 6
 - Commit: `feat(landing): scaffold i18n scopes for app, ui, core, panel-ui and landing`
 
-### Task 7.1: Scopes for `app`, `ui`, `core` — IN_PROGRESS
+### Task 7.1: Scopes for `app`, `ui`, `core` — IMPLEMENTED
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{en.json,ar.json,app.i18n-scope.ts}`, `$ROOT/libs/web/{ui,core}/src/lib/i18n/{en.json,ar.json,<lib>.i18n-scope.ts}`; MODIFY each project's `src/index.ts` (libs only), `tsconfig.json`, Jest config
 - Plan reference: implementation-plan.md:368-400
@@ -552,7 +556,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A2 — a spec (or existing spec run) must import a scope file; report the result.
 - Implementation details: JSON files start as `{}`.
 
-### Task 7.2: Scopes for `panelUi`, `landing` — IN_PROGRESS
+### Task 7.2: Scopes for `panelUi`, `landing` — IMPLEMENTED
 
 - Depends on: Task 7.1
 - Files: `$ROOT/libs/web/{panel-ui,landing}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
@@ -566,6 +570,11 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p ptah-landing-page web-ui web-core web-panel-ui web-landing` passes.
 - Reviewer: style.
+- Review round 1: code-style-review.md `## Batch 7` APPROVED (0 blocking, 0 serious, 1 minor). Team-leader verified
+  on disk: five scopes (`app`, `ui`, `core`, `panelUi`, `landing`) plus JSON `{}` and a spec each; tsconfig
+  `resolveJsonModule`; jest `@jsverse` + `@angular/common/locales`. Scoped lint/test/typecheck passed (5 projects,
+  uncached) and the typed SonarJS check found 0 problems on the 15 changed `.ts` files. A2 confirmed in all five.
+  Minor (the `unwrap()` spec helper is copied into 5 specs) carried to Task 8.0, before Batch 8 would grow it to 11.
 
 ## Batch 8: Scope scaffolding, feature projects (F3, part 2) — PENDING
 
@@ -573,8 +582,21 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Fallback executor: backend-developer
 - Execution mode: sequential
 - Rationale: same mechanical shape as Batch 7.
-- Tasks: 2 | Depends on: Batch 7
+- Tasks: 3 | Depends on: Batch 7
 - Commit: `feat(landing): scaffold i18n scopes for feature libraries`
+
+### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — PENDING
+
+- Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts, expect-scope-loads.ts}` + spec; the five Batch 7 specs
+  (`apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts`,
+  `libs/web/{ui,core,panel-ui,landing}/src/lib/i18n/*.i18n-scope.spec.ts`)
+- Plan reference: code-style-review.md `## Batch 7`, Minor
+- Pattern to follow: `@ptah-extension/i18n/testing` entry shape (Task 2.3)
+- Quality requirements: one exported testing helper that runs a scope's `en`/`ar` loaders and returns the unwrapped
+  JSON (same `default` handling as the library). The five Batch 7 specs use it, and their local `unwrap()` copies
+  are deleted. Batch 8 specs use it from the start. `libs/frontend/i18n` lint/test/typecheck stays green.
+- Validation notes: keep `@ptah-extension/i18n/testing` free of Jest globals if a test runner type is not already
+  used there; the helper returns data and the spec asserts.
 
 ### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — PENDING
 

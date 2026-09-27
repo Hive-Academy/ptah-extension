@@ -26,9 +26,13 @@ export default {
    * (fullcalendar, gsap, lenis) into the module graph, each with its own ESM
    * packaging problem. Prefer testing route BEHAVIOUR against the pieces a
    * route composes rather than against the route table itself.
+   *
+   * `@jsverse/*` (Transloco, behind `@ptah-extension/i18n`) and
+   * `@angular/common/locales/*` (registered by the i18n runtime) ship plain
+   * `.js` ESM for the same reason.
    */
   transformIgnorePatterns: [
-    'node_modules/(?!(?:.*\\.mjs$|marked|ngx-markdown))',
+    'node_modules/(?!(?:.*\\.mjs$|marked|ngx-markdown|@jsverse|@angular/common/locales))',
   ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',

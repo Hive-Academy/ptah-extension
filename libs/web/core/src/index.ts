@@ -23,3 +23,4 @@ export * from './lib/config/api-base-url.token';
 export * from './lib/config/builders-checkout.token';
 export * from './lib/interceptors/api.interceptor';
 export * from './lib/services/sse-events.service';
+export * from './lib/i18n/core.i18n-scope';
