@@ -1,6 +1,8 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 12/33
+Session paused after Batch 13; resume via handoff.md
+
+Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 13/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -71,6 +73,9 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
 - Open carry-overs: Batch 15 A1 re-confirmation line (Batch 9 logic review Moderate-1: prove the server half of
   A1 from the prerendered HTML); Task 32.3 (Batch 10 logic review moderate: specs for PaddleCheckoutService and
   SSEEventsService; Batch 11 round 2 moderate: surface `arLocale.error()` in session-calendar.ts). Glossary candidates accumulate in Task 32.1.
+- A11y follow-up (pre-existing, out of this task's scope; fix only if the owner asks): download page
+  `text-neutral-content/40` contrast ~2.6:1 (`download-page.component.ts:194,200,239,245,286,292,307`) and the
+  "View release notes" link 16px hit area (:303-317). Evidence: visual-review.md `## Batch 13`.
 - Testing recipe for lib batches: scope specs use `loadScopeTranslations` from `@ptah-extension/i18n/testing`;
   component specs use `provideI18nTesting` with the global scopes (`ui`, `core`, plus `app` for app specs),
   documented in `libs/frontend/i18n/CLAUDE.md`.
@@ -974,7 +979,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Remaining informational items: M3 formatting (owner informed, kept); index-keyed collapse contract documented
   and tested. needs-attention-queue ChevronRight carried to Batch 25.
 
-## Batch 13: Download page (APP) — IN_PROGRESS
+## Batch 13: Download page (APP) — COMPLETE (eebe6ed1)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -983,7 +988,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 12
 - Commit: `feat(landing): translate download page and add app i18n-check`
 
-### Task 13.1: Download page strings, RTL, formatting — IN_PROGRESS
+### Task 13.1: Download page strings, RTL, formatting — COMPLETE
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/pages/download/download-page.component.ts` (+ spec if present), `$ROOT/apps/ptah-landing-page/src/app/i18n/{en,ar}.json`
 - Plan reference: implementation-plan.md:822, :503, :474-480
@@ -992,7 +997,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: verbatim English values.
 - Implementation details: none.
 
-### Task 13.2: App `i18n-check` target and copy review — IN_PROGRESS
+### Task 13.2: App `i18n-check` target and copy review — COMPLETE
 
 - Depends on: Task 13.1
 - Files: `$ROOT/apps/ptah-landing-page/project.json`, `copy-review/app.md`
@@ -1006,6 +1011,18 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck,i18n-check -p ptah-landing-page`; `prerender-check`; `review-tables --check`.
 - Reviewer: logic and visual.
+- Logic: APPROVED (`## Batch 13` + `## Batch 13 — round 2`; round 1 serious RangeError on unparsable dates fixed,
+  `formatDate()` returns ''; reactive language-switch spec added).
+- Visual: NEEDS_REVISION 6/10 (`## Batch 13`, `screenshots/visual-batch-13/`) on two a11y findings only; every
+  i18n/RTL check passed (gradient/divider mirroring, LTR islands, icons, no overflow 6 viewports x 2 langs, no
+  NG05xx). Both findings are pre-existing: `text-neutral-content/40` occurs 7 times in
+  `download-page.component.ts` at HEAD~ and after (team-leader verified via `git show`), and the release-notes link
+  hit area is unchanged. Orchestrator decision: accept for this task's i18n/RTL scope; carried as an out-of-scope
+  follow-up (see Open carry-overs). This is a recorded deviation from "commit only on an accepting verdict".
+- Team-leader re-ran `nx run-many -t test,typecheck,i18n-check -p ptah-landing-page` and `prerender-check`: pass;
+  `rg` icon guard empty. Pre-commit hook passed.
+- Out of scope, noted by executor: `github-release.service.ts` `getAssetLabel`/`formatSize` English labels and
+  unvalidated `published_at` (core scope).
 
 ## Batch 14: Landing sections, part 1 (LND-1) — PENDING
 
@@ -1578,6 +1595,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Quality requirements: the team-leader passes the collected term list in the prompt; no term may break a check.
 - Collected glossary candidates (append as lib batches report them): Batch 10 — Paddle, Windows, macOS, Linux,
   SaaS, PRD, Cron, GitHub, SDK. Batch 11 — Builders, Claude Agent SDK, Meet, Discord, Reddit, LinkedIn.
+  Batch 13 — Windows, macOS, Linux, VS Code Marketplace, IDE, GitHub, AppImage, Debian, Ubuntu.
 - Validation notes: if the list is empty, the batch is reduced to Task 32.2.
 - Implementation details: none.
 
