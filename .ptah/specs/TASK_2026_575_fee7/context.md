@@ -30,3 +30,6 @@ Gate 0 decisions (user, via AskUserQuestion):
 1. URL strategy: **client-side toggle only** — same URLs, language chosen in the browser and remembered locally. No `/ar/` routes, no hreflang. Prerendered HTML stays English.
 2. Scope: **whole landing app** — marketing, legal, auth (login/signup), account/profile, sessions, contact and admin screens, plus shared header/footer, across `apps/ptah-landing-page` and `libs/web/*`.
 3. Arabic copy: **agents draft, user reviews** before merge.
+
+## Gate decisions
+- Gate 1: user replied "approved" to task-description.md revision 1 (review: task-description-review.md, round 1, APPROVED, same-side, open non-blocking N12/N13 handed to architect). Open questions (numbering system, legal governing-language notice) deferred to Gate 1.7.
