@@ -484,7 +484,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 5
 - Commit: `feat(scripts): add prerender check and capture english baselines`
 
-### Task 6.1: `parse5` devDependency — IN_PROGRESS
+### Task 6.1: `parse5` devDependency — IMPLEMENTED
 
 - Files: `$ROOT/package.json`, `$ROOT/package-lock.json`, `$ROOT/.prettierignore` (Batch 5 carry-over)
 - Plan reference: implementation-plan.md:69, :343
@@ -497,7 +497,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   `.prettierignore` beside the degradation-audit parse-failure entry, with a one-line comment (it is unparsable on
   purpose; the self-test's parse-error plant).
 
-### Task 6.2: `check-prerender.ts` — IN_PROGRESS
+### Task 6.2: `check-prerender.ts` — IMPLEMENTED
 
 - Depends on: Task 6.1
 - Files: `$ROOT/tools/i18n-check/src/prerender/check-prerender.ts` + spec
@@ -507,7 +507,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: spec proves `<span class="ltr-island">$29</span>/mo` extracts as `$29/mo`.
 - Implementation details: `--update` writes `{ route, h1, text }` per route slug.
 
-### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — IN_PROGRESS
+### Task 6.3: Capture baselines (the only `--update` in this task) and extend deploy assertions — IMPLEMENTED
 
 - Depends on: Task 6.2
 - Files: `$ROOT/apps/ptah-landing-page/prerender-baseline/{home,download,pricing,terms-and-conditions,privacy,refund}.json`, `$ROOT/.github/workflows/deploy-landing.yml`
@@ -526,6 +526,13 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Build succeeds; six baseline files exist with non-empty `h1`/`text`; a compare run (without `--update`) against the same dist passes except the documented `dir` assertion.
 - `node_modules/.bin/nx run i18n-check:self-test` passes.
 - Reviewer: logic (normalisation shared by capture and compare).
+- Review round 1: APPROVED (0 blocking, 0 serious, 1 moderate, 1 minor). Team-leader verified on disk: lock diff is
+  one root devDependency line (parse5 8.0.1 was already locked); `report.ts` diff is only the five `prerender-*`
+  kinds; check-prerender imports only committed exports (`cli.ts`, `report.ts`, `KNOWN_SCOPES` in HEAD).
+  Carried to Batch 9 (it touches the landing app's prerender output and `dir`): Moderate, add a comment in
+  `deploy-landing.yml` beside `KEY_PATH` saying the grep is not DOM-aware (it can false-positive on script or
+  JSON-LD content; `check-prerender.ts` is authoritative); Minor, escape ERE metacharacters in the `HEADLINE`
+  anchors, or comment that they must stay free of them.
 
 ## Batch 7: Scope scaffolding, global and eager projects (F3, part 1) — PENDING
 
@@ -601,6 +608,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Rationale: cross-file app wiring with an SSG contract; needs design judgement.
 - Tasks: 4 | Depends on: Batches 6, 8
 - Commit: `feat(landing): wire i18n provider, route resolvers and pre-paint script`
+- Batch 6 carry-over (deploy-landing.yml, one comment and one escape): see "Batch 6 verification", review round 1.
 
 ### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — PENDING
 

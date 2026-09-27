@@ -37,7 +37,12 @@ export type ViolationKind =
   | 'locale-format-pipe'
   | 'locale-format-call'
   | 'intl-without-locale'
-  | 'detached-marker';
+  | 'detached-marker'
+  | 'prerender-lang'
+  | 'prerender-dir'
+  | 'prerender-key-path'
+  | 'prerender-empty-heading'
+  | 'prerender-drift';
 
 export interface Violation {
   /** Workspace-relative path with forward slashes. */

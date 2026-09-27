@@ -13,6 +13,8 @@ apps/ptah-license-server/prisma/seed/__fixtures__/malformed.json
 # Same reason (TASK_2026_383): the degradation audit's parse guard must fail on
 # a file TypeScript cannot parse, and its self-test pins that with this fixture.
 tools/degradation-audit/__fixtures__/__parse-failure__/
+# Same reason (TASK_2026_575): the i18n-check self-test's parse-error plant is unparsable on purpose.
+tools/i18n-check/__fixtures__/project/libs/web/pricing/src/lib/broken.component.html
 
 # Managed Claude harness assets (TASK_2026_361). `.claude/{agents,commands,
 # skills,output-styles}` are git-tracked but WRITTEN by the setup wizard and the

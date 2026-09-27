@@ -13,8 +13,16 @@ export default {
       'ts-jest',
       { tsconfig: { allowJs: true, module: 'commonjs' }, diagnostics: false },
     ],
+    // `parse5` 8 and its `entities` dependency are `"type": "module"` `.js`
+    // packages: same reason, same transform.
+    'node_modules/(parse5|entities)/.+\\.js$': [
+      'ts-jest',
+      { tsconfig: { allowJs: true, module: 'commonjs' }, diagnostics: false },
+    ],
   },
-  transformIgnorePatterns: ['node_modules/(?!@angular/compiler/)'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(@angular/compiler|parse5|entities)/)',
+  ],
   moduleFileExtensions: ['ts', 'js', 'mjs', 'json'],
   coverageDirectory: '../../coverage/tools/i18n-check',
 };
