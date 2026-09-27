@@ -90,9 +90,17 @@ type DeclaredCapabilities = Omit<
   'parse' | 'publicSymbols'
 >;
 
+/**
+ * TS/JS edges are drawn from `import` statements only, so graph dependents do
+ * NOT bound where a declaration can be referenced: a global script, a
+ * re-export (`export { X } from`), `require`, dynamic `import()` and a path
+ * alias the build did not map all reach it without an edge (Batch 26b review
+ * r1 B2). Claim `referenceScopeComplete` only once the resolver models every
+ * one of them (Batch 32b+).
+ */
 const FILE_EDGES: GraphEdgesCapability = {
   granularity: 'file',
-  referenceScopeComplete: true,
+  referenceScopeComplete: false,
 };
 
 /**
@@ -103,8 +111,9 @@ const FILE_EDGES: GraphEdgesCapability = {
  * - codeIndex: `CodeSymbolIndexer` `DEFAULT_EXTENSIONS` (all five).
  * - graphEdges: `DependencyGraphService` resolves relative TS/JS imports to
  *   files; other languages get no edges until Batches 33-36.
- * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go; C#
- *   arrives with Batch 26b).
+ * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;
+ *   C# since Batch 26b, proven against the shipped grammar by the Electron
+ *   capability spec).
  * - syntaxDiagnostics: plan initial value (py/go/cs); the TS compiler already
  *   covers TS/JS. Consumed by the language-aware diagnostics provider (25a).
  */
@@ -148,7 +157,7 @@ const DECLARED_CAPABILITIES: Readonly<
     enrichSummary: false,
     codeIndex: true,
     graphEdges: null,
-    definitionFallback: false,
+    definitionFallback: true,
     syntaxDiagnostics: true,
   },
 };

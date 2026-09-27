@@ -19,15 +19,37 @@
  *     identifier resolves to. That file is read only when its canonical
  *     (realpath) location lies inside the canonical workspace root, so a
  *     junction or symlink never leads the read outside the workspace.
- *   - getReferences: word-boundary scan of indexed workspace files for the
+ *   - getReferences: word-boundary scan of workspace source files for the
  *     identifier, with two precision passes:
- *       (1) when THIS workspace's dependency graph is built and the symbol
- *           index names the declaration, scope the scan to the declaration
- *           file(s) + their transitive dependents instead of the whole
- *           workspace. The index-free fallback above never scopes the scan:
- *           global-script references have no import edge to follow;
- *       (2) drop matches that fall inside string/comment nodes via Tree-sitter.
- *     Otherwise it runs a bounded full-workspace scan.
+ *       (1) narrowing gate (TASK_2026_559 Batch 26b): the scan is scoped to
+ *           the declaration file(s) + their transitive dependents only when
+ *           THIS workspace's graph proves, for this query, that its
+ *           dependents bound every reference: every language in the graph's
+ *           census has `referenceScopeComplete`, the graph coverage is clean
+ *           (complete census, nothing unsupported/unrecognised/failed/capped,
+ *           clean import resolution with no edge cap), and the symbol index
+ *           names declarations (from a page that was not full) that are nodes
+ *           of that same graph. The certificate is re-checked after the scan;
+ *           if the graph changed, the answer is a text scan instead. TS/JS
+ *           graphs do not claim `referenceScopeComplete` (global scripts,
+ *           re-exports, `require`, dynamic import and aliases have no edge),
+ *           so today they always get the text scan;
+ *       (2) drop matches that fall inside comments and literal string text
+ *           via Tree-sitter (interpolated expressions are kept).
+ *     Otherwise it runs a bounded scan of every recognised source file
+ *     (`text-scan`) outside the default vendor excludes and the workspace
+ *     ignore files. Every cap and every skipped file (unreadable, over 1 MiB,
+ *     unreadable tree part) is reported as `truncated`; an ignored file is
+ *     out of scope, not skipped.
+ *   - getDefinitionReport / getReferencesReport: the same lookups, reporting
+ *     the mechanism that answered (`symbol-index`, `declaration-scan`,
+ *     `graph-scoped-scan`, `text-scan`), the registry language of the queried
+ *     file, whether that mechanism supports it, and any cap that was hit. A
+ *     lookup that cannot run (no identifier, unreadable file, no workspace
+ *     root), or whose analysis failed (parse or query failure, unreadable
+ *     import target), is an error there, never an empty answer. An empty
+ *     declaration scan is `truncated` (it reads at most two files); a full
+ *     symbol-index page is `truncated` too, whatever the pick.
  *   - getHover: surface the matched symbol's index entry text.
  *   - getSignatureHelp: unsupported name-based — returns null.
  *
@@ -38,23 +60,35 @@
 
 import { promises as nodeFs } from 'node:fs';
 import * as path from 'node:path';
-import type {
-  IEditorProvider,
-  IFileSystemProvider,
-  IWorkspaceProvider,
+import {
+  IncompleteFileSearchError,
+  LANGUAGE_IDS,
+  isCleanAnswer,
+  type IEditorProvider,
+  type IFileSystemProvider,
+  type IWorkspaceProvider,
+  type LanguageCoverage,
+  type LanguageId,
 } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
-import type {
-  WorkspaceIndexerService,
-  DependencyGraphService,
-  AstAnalysisService,
-  TreeSitterParserService,
-  SupportedLanguage,
+import {
+  DEFAULT_WORKSPACE_EXCLUDES,
+  LANGUAGE_REGISTRY,
+  extensionHasCapability,
+  languageForExtension,
+  recognisedSourceExtensions,
+  type DependencyGraphService,
+  type IgnorePatternResolverService,
+  type AstAnalysisService,
+  type TreeSitterParserService,
+  type SupportedLanguage,
 } from '@ptah-extension/workspace-intelligence';
 import type {
   IIDECapabilities,
   Location,
+  LspLocationReport,
+  LspMechanism,
   HoverInfo,
   SignatureHelp,
   ActiveEditorInfo,
@@ -66,31 +100,23 @@ import type {
 const DEFINITION_TOP_K = 25;
 /** Hard cap on reference locations returned (bounds workspace scan cost). */
 const MAX_REFERENCE_MATCHES = 500;
-/** Hard cap on files read during an unscoped (brute) reference scan. */
+/**
+ * Hard cap on files discovered and read by a text scan (discovery asks for
+ * one more, so its presence alone says files were left out).
+ */
 const MAX_FILES_SCANNED = 8000;
-/** Code file extensions scanned for references — mirrors the symbol indexer. */
-const SCAN_EXTENSIONS = [
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mts',
-  '.cts',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.go',
-  '.rs',
-  '.java',
-  '.rb',
-  '.php',
-  '.c',
-  '.cc',
-  '.cpp',
-  '.h',
-  '.hpp',
-  '.cs',
-];
+/**
+ * Larger files are skipped by the reference scan, and the skip is disclosed
+ * as `truncated` (the same 1 MiB the workspace indexer uses).
+ */
+const MAX_SCAN_FILE_BYTES = 1024 * 1024;
+/**
+ * Extensions the reference text scan reads: every source extension the
+ * language registry recognises (capability-bearing, recognition-only and
+ * recognised-only languages alike), so a reference from a language without a
+ * grammar (Java, Kotlin, Rust, ...) is still found by name.
+ */
+const SCAN_EXTENSIONS: readonly string[] = recognisedSourceExtensions();
 
 /** Script extensions an import specifier may carry or omit (ESM `./x.js` → `x.ts`). */
 const MODULE_EXTENSIONS = [
@@ -140,6 +166,20 @@ const JS_DECLARATIONS = `[
   (variable_declaration (variable_declarator name: (identifier) @name))
 ]`;
 
+/**
+ * C# type declarations, each capturing its name as `@name`. `record_declaration`
+ * covers `record`, `record class` and `record struct`. Node names proven
+ * against the shipped `tree-sitter-c-sharp.wasm` (Batch 26b real-grammar spec).
+ */
+const CSHARP_DECLARATIONS = `[
+  (class_declaration name: (identifier) @name)
+  (interface_declaration name: (identifier) @name)
+  (struct_declaration name: (identifier) @name)
+  (enum_declaration name: (identifier) @name)
+  (record_declaration name: (identifier) @name)
+  (delegate_declaration name: (identifier) @name)
+]`;
+
 /** Any parse error in the file makes a declaration answer uncertain. */
 const ERROR_PATTERN = '(ERROR) @error';
 
@@ -186,15 +226,29 @@ const DECLARATION_QUERIES: Partial<Record<SupportedLanguage, string>> = {
     ])`,
     ERROR_PATTERN,
   ].join('\n'),
+  // Top-level C# types: directly in the file (global or file-scoped
+  // namespace, whose members are siblings of its declaration) or in a block
+  // namespace at any depth. A namespace body holds no statements, so a type
+  // nested in a class or declared in a method never matches.
+  csharp: [
+    `(compilation_unit ${CSHARP_DECLARATIONS})`,
+    `(namespace_declaration body: (declaration_list ${CSHARP_DECLARATIONS}))`,
+    ERROR_PATTERN,
+  ].join('\n'),
 };
 
 /**
  * Outcome of a declaration scan: the 0-based position of the declared name,
- * `null` when the file parses cleanly and declares nothing by that name, or
- * `'uncertain'` when the file cannot be parsed reliably (no query for the
- * language, a failed parse, or a parse error in the file).
+ * `null` when the file parses cleanly and declares nothing by that name,
+ * `'unsupported'` when there is no declaration query for the language, or
+ * `'uncertain'` when the file cannot be parsed reliably (a failed query or a
+ * parse error in the file).
  */
-type DeclarationScan = { line: number; column: number } | null | 'uncertain';
+type DeclarationScan =
+  | { line: number; column: number }
+  | null
+  | 'unsupported'
+  | 'uncertain';
 
 /** Module file to read: the reported (lexical) path and its canonical path. */
 interface ModuleFile {
@@ -212,12 +266,21 @@ const IDENTIFIER_RE = /[A-Za-z0-9_$]/;
  * Per-language Tree-sitter queries capturing comment + string-literal nodes,
  * used to exclude textual reference matches that aren't real code identifiers.
  * Languages absent here skip filtering (matches are kept as-is).
+ *
+ * A string that can hold code (a TS/JS template, a Python f-string, a C#
+ * interpolated string) excludes only its literal text: an expression inside
+ * `${...}` / `{...}` is a real reference (Batch 26b r1 B6). Node names proven
+ * against the shipped grammars.
  */
 const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
-  typescript: '[(comment) @x (string) @x (template_string) @x]',
-  javascript: '[(comment) @x (string) @x (template_string) @x]',
-  python: '[(comment) @x (string) @x]',
+  typescript: '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
+  javascript: '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
+  python: '[(comment) @x (string (string_content) @x)]',
   go: '[(comment) @x (interpreted_string_literal) @x (raw_string_literal) @x]',
+  csharp:
+    '[(comment) @x (string_literal) @x (verbatim_string_literal) @x ' +
+    '(raw_string_literal) @x (character_literal) @x ' +
+    '(interpolated_string_expression (string_content) @x)]',
 };
 
 /** Excluded node range (0-based rows/columns), end-exclusive on column. */
@@ -228,11 +291,78 @@ interface ExcludedRange {
   endColumn: number;
 }
 
+/**
+ * A lookup that could not answer: it could not run (no identifier, no root,
+ * unreadable cursor file) or its analysis failed (a parse or query failure,
+ * an unreadable import target). The array APIs answer it with `[]`, as
+ * before; the report APIs raise it as an error so it is never read as "the
+ * symbol has none".
+ */
+interface LookupUnavailable {
+  readonly unavailable: string;
+}
+
+type LookupResult = LspLocationReport | LookupUnavailable;
+
+function isUnavailable(result: LookupResult): result is LookupUnavailable {
+  return 'unavailable' in result;
+}
+
+function locationsOf(result: LookupResult): Location[] {
+  return isUnavailable(result) ? [] : result.locations;
+}
+
+function reportOf(result: LookupResult): LspLocationReport {
+  if (isUnavailable(result)) {
+    throw new Error(`Lookup could not answer: ${result.unavailable}`);
+  }
+  return result;
+}
+
+/**
+ * Outcome of the index-free declaration scan (Batch 26b r1 B1):
+ * - `found`: the declaration(s);
+ * - `not-found`: every file it read parsed cleanly without one. The scan
+ *   reads only the cursor file and at most one relative import target, so
+ *   this is bounded, never proof of absence (reported as `truncated`);
+ * - `unsupported`: no reliable declaration query for the cursor language
+ *   (reported as `languageSupported: false`);
+ * - `failed`: a file it needed could not be read or parsed reliably.
+ */
+type FallbackOutcome =
+  | { readonly kind: 'found'; readonly locations: Location[] }
+  | { readonly kind: 'not-found' }
+  | { readonly kind: 'unsupported' }
+  | { readonly kind: 'failed'; readonly reason: string };
+
+/** Exact-name index candidates, and whether the index page was full. */
+interface IndexCandidates {
+  readonly locations: Location[];
+  /**
+   * The raw index page reached its size limit, so more same-named
+   * declarations may exist beyond it (Batch 26b r1 M1).
+   */
+  readonly saturated: boolean;
+}
+
+/** What reading one file for matches achieved. */
+type FileScanStatus = 'scanned' | 'unreadable' | 'too-large';
+
+/**
+ * The narrowing decision for one query: the files to scan, and the exact
+ * coverage object it was certified against, which is re-checked after the
+ * scan (Batch 26b r1 B3).
+ */
+interface NarrowedScope {
+  readonly files: string[];
+  readonly certified: LanguageCoverage;
+}
+
 export class ElectronIDECapabilities implements IIDECapabilities {
   constructor(
     private readonly symbolReader: ICodeSymbolReader | undefined,
-    private readonly indexer: WorkspaceIndexerService,
     private readonly fs: IFileSystemProvider,
+    private readonly ignoreResolver: IgnorePatternResolverService,
     private readonly workspaceProvider: IWorkspaceProvider,
     private readonly editorProvider: IEditorProvider,
     private readonly dependencyGraph: DependencyGraphService,
@@ -244,10 +374,17 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   ) {}
 
   readonly lsp: IIDECapabilities['lsp'] = {
-    getDefinition: (file, line, col) =>
-      this.resolveDeclaration(file, line, col),
+    getDefinition: async (file, line, col) =>
+      locationsOf(await this.definitionLookup(file, line, col)),
 
-    getReferences: (file, line, col) => this.scanReferences(file, line, col),
+    getReferences: async (file, line, col) =>
+      locationsOf(await this.referenceLookup(file, line, col)),
+
+    getDefinitionReport: async (file, line, col) =>
+      reportOf(await this.definitionLookup(file, line, col)),
+
+    getReferencesReport: async (file, line, col) =>
+      reportOf(await this.referenceLookup(file, line, col)),
 
     getHover: async (file, line, col): Promise<HoverInfo | null> => {
       const identifier = await this.identifierAt(file, line, col);
@@ -265,8 +402,8 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       return contents.length > 0 ? { contents } : null;
     },
 
-    getTypeDefinition: (file, line, col) =>
-      this.resolveDeclaration(file, line, col),
+    getTypeDefinition: async (file, line, col) =>
+      locationsOf(await this.definitionLookup(file, line, col)),
 
     getSignatureHelp: async (): Promise<SignatureHelp | null> => null,
   };
@@ -305,39 +442,76 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   };
 
   /**
-   * Resolve the identifier under the cursor to its declaration location(s).
-   * Reads the cursor file once and delegates to declarationsFor().
+   * The identifier under a 0-based cursor, with the cursor file's path and
+   * content (read once), or why the lookup cannot run.
    */
-  private async resolveDeclaration(
+  private async cursorIdentifier(
     file: string,
     line: number,
     col: number,
-  ): Promise<Location[]> {
+  ): Promise<
+    | { cursorPath: string; content: string; identifier: string }
+    | LookupUnavailable
+  > {
     const cursorPath = this.resolveAbsolutePath(file);
-    if (!cursorPath) return [];
+    if (!cursorPath) {
+      return { unavailable: `no workspace root to resolve ${file}` };
+    }
     const content = await this.safeReadFile(cursorPath);
-    if (content === null) return [];
+    if (content === null) {
+      return { unavailable: `could not read ${cursorPath}` };
+    }
     const identifier = extractIdentifier(content, line, col);
-    if (!identifier) return [];
-    return this.declarationsFor(cursorPath, content, identifier);
+    if (!identifier) {
+      return {
+        unavailable: `no identifier at ${cursorPath}:${line}:${col} (zero-based)`,
+      };
+    }
+    return { cursorPath, content, identifier };
   }
 
   /**
-   * Declarations named by the symbol index; with zero index candidates,
-   * declarationsWithoutIndex() answers instead.
+   * Resolve the identifier under the cursor to its declaration location(s):
+   * the symbol index first (`symbol-index`); with zero index candidates,
+   * declarationsWithoutIndex() answers instead (`declaration-scan`).
    */
-  private async declarationsFor(
-    cursorPath: string,
-    cursorContent: string,
-    identifier: string,
-  ): Promise<Location[]> {
+  private async definitionLookup(
+    file: string,
+    line: number,
+    col: number,
+  ): Promise<LookupResult> {
+    const cursor = await this.cursorIdentifier(file, line, col);
+    if ('unavailable' in cursor) return cursor;
+    const { cursorPath, content, identifier } = cursor;
     const indexed = await this.indexedDeclarations(
       cursorPath,
-      cursorContent,
+      content,
       identifier,
     );
-    if (indexed.length > 0) return indexed;
-    return this.declarationsWithoutIndex(cursorPath, cursorContent, identifier);
+    if (indexed.locations.length > 0) {
+      return lspReport(
+        cursorPath,
+        indexed.locations,
+        'symbol-index',
+        indexed.saturated,
+      );
+    }
+    const fallback = await this.declarationsWithoutIndex(
+      cursorPath,
+      content,
+      identifier,
+    );
+    switch (fallback.kind) {
+      case 'failed':
+        return { unavailable: fallback.reason };
+      case 'found':
+        return lspReport(cursorPath, fallback.locations, 'declaration-scan');
+      case 'not-found':
+        // Bounded read set (cursor file + one import target): qualified.
+        return lspReport(cursorPath, [], 'declaration-scan', true);
+      case 'unsupported':
+        return lspReport(cursorPath, [], 'declaration-scan');
+    }
   }
 
   /**
@@ -346,20 +520,26 @@ export class ElectronIDECapabilities implements IIDECapabilities {
    *   - a declaration in the cursor file itself wins;
    *   - otherwise the declaration in the module the cursor file imports the
    *     identifier from wins;
-   *   - otherwise all exact-name candidates are returned (no confident pick).
-   * Returns [] when the index has no candidate (or there is no reader).
+   *   - otherwise all exact-name candidates are returned (no pick).
+   * `saturated` (the index page was full, more may exist) is carried through
+   * EVERY path: a local or imported-file pick narrows by file, not by unique
+   * binding, and a full page may have cut off more same-named declarations
+   * in that very file (closing review R26B-C-M1). Empty when the index has no
+   * candidate (or no reader).
    */
   private async indexedDeclarations(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
-  ): Promise<Location[]> {
-    const candidates = await this.indexCandidates(identifier);
-    if (candidates.length <= 1) return candidates;
+  ): Promise<IndexCandidates> {
+    const all = await this.indexCandidates(identifier);
+    const { locations: candidates, saturated } = all;
+    if (candidates.length === 0) return all;
 
     const cursorNorm = this.normalize(cursorPath) as string;
     const local = candidates.filter((c) => c.file === cursorNorm);
-    if (local.length > 0) return local;
+    if (local.length > 0) return { locations: local, saturated };
+    if (candidates.length === 1) return all;
 
     const importedModule = await this.resolveImportedModule(
       cursorPath,
@@ -370,15 +550,15 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       const matched = candidates.filter((c) =>
         fileMatchesModule(c.file, importedModule),
       );
-      if (matched.length > 0) return matched;
+      if (matched.length > 0) return { locations: matched, saturated };
     }
 
-    return candidates;
+    return all;
   }
 
-  /** Exact-name declaration candidates from the symbol index ([] without one). */
-  private async indexCandidates(identifier: string): Promise<Location[]> {
-    if (!this.symbolReader) return [];
+  /** Exact-name declaration candidates from the symbol index (none without one). */
+  private async indexCandidates(identifier: string): Promise<IndexCandidates> {
+    if (!this.symbolReader) return { locations: [], saturated: false };
     const wsRoot = this.normalize(this.workspaceProvider.getWorkspaceRoot());
     const page = await this.symbolReader.searchSymbols(
       identifier,
@@ -398,7 +578,12 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       seen.add(key);
       candidates.push({ file: filePath, line: startLine, column: 0 });
     }
-    return candidates;
+    // The port has no "has more" signal: a full raw page (before exact-name
+    // filtering) may have cut off further same-named declarations.
+    return {
+      locations: candidates,
+      saturated: page.hits.length >= DEFINITION_TOP_K,
+    };
   }
 
   /**
@@ -407,44 +592,64 @@ export class ElectronIDECapabilities implements IIDECapabilities {
    *   2. otherwise the top-level declaration in the ONE workspace file the
    *      cursor file's relative import of the identifier resolves to (a single
    *      file read).
-   * A file that does not parse cleanly makes the answer unresolved ([]), as do
-   * package, alias (tsconfig paths) and re-exported (barrel) symbols, and a
-   * .tsx cursor or target file (see declarationLanguage).
+   * See {@link FallbackOutcome}: a file that does not parse cleanly, or an
+   * import target that cannot be read, is `failed`; a package, alias
+   * (tsconfig paths), re-exported (barrel), out-of-workspace or .tsx target
+   * leaves the bounded scan `not-found`, never an authoritative empty answer.
    */
   private async declarationsWithoutIndex(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
-  ): Promise<Location[]> {
+  ): Promise<FallbackOutcome> {
     const cursorNorm = this.normalize(cursorPath) as string;
     const local = await this.findDeclaration(
       cursorContent,
       identifier,
       declarationLanguage(cursorNorm),
     );
-    if (local === 'uncertain') return [];
-    if (local) return [{ file: cursorNorm, ...local }];
+    if (local === 'unsupported') return { kind: 'unsupported' };
+    if (local === 'uncertain') {
+      return {
+        kind: 'failed',
+        reason: `${cursorNorm} could not be parsed reliably (parse error or query failure)`,
+      };
+    }
+    if (local) {
+      return { kind: 'found', locations: [{ file: cursorNorm, ...local }] };
+    }
 
     const modulePath = await this.resolveImportedModule(
       cursorPath,
       cursorContent,
       identifier,
     );
-    if (!modulePath) return [];
+    if (!modulePath) return { kind: 'not-found' };
     const target = await this.findModuleFile(modulePath);
-    if (!target) return [];
+    if (!target) return { kind: 'not-found' };
     const targetLanguage = declarationLanguage(target.file);
-    if (!targetLanguage) return [];
+    if (!targetLanguage) return { kind: 'not-found' };
     const content = await this.safeReadFile(target.readPath);
-    if (content === null) return [];
+    if (content === null) {
+      return {
+        kind: 'failed',
+        reason: `the import target ${target.file} could not be read`,
+      };
+    }
     const found = await this.findDeclaration(
       content,
       identifier,
       targetLanguage,
     );
-    return found && found !== 'uncertain'
-      ? [{ file: target.file, ...found }]
-      : [];
+    if (found === 'uncertain' || found === 'unsupported') {
+      return {
+        kind: 'failed',
+        reason: `the import target ${target.file} could not be parsed reliably`,
+      };
+    }
+    return found
+      ? { kind: 'found', locations: [{ file: target.file, ...found }] }
+      : { kind: 'not-found' };
   }
 
   /**
@@ -457,7 +662,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     language: SupportedLanguage | null,
   ): Promise<DeclarationScan> {
     const query = language ? DECLARATION_QUERIES[language] : undefined;
-    if (!language || !query) return 'uncertain';
+    if (!language || !query) return 'unsupported';
     const result = await this.treeSitter.query(content, language, query);
     if (!result.isOk() || !result.value) return 'uncertain';
 
@@ -567,162 +772,346 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   }
 
   /**
-   * Name-based reference search. When the dependency graph is built, scopes the
-   * scan to the declaration file(s) + their transitive dependents; otherwise
-   * falls back to a bounded full-workspace scan. Matches inside string/comment
-   * nodes are dropped via Tree-sitter. Bounded by MAX_REFERENCE_MATCHES.
+   * Name-based reference search. Scopes the scan to the declaration file(s) +
+   * their transitive dependents only when the narrowing gate holds
+   * (`graph-scoped-scan`, see narrowedReferenceScope); otherwise scans every
+   * recognised source file (`text-scan`). Matches inside string/comment nodes
+   * are dropped via Tree-sitter. Bounded by MAX_REFERENCE_MATCHES and, for the
+   * text scan, MAX_FILES_SCANNED; a hit cap is reported as `truncated`.
    */
-  private async scanReferences(
+  private async referenceLookup(
     file: string,
     line: number,
     col: number,
-  ): Promise<Location[]> {
-    const cursorPath = this.resolveAbsolutePath(file);
-    if (!cursorPath) return [];
-    const cursorContent = await this.safeReadFile(cursorPath);
-    if (cursorContent === null) return [];
-    const identifier = extractIdentifier(cursorContent, line, col);
-    if (!identifier) return [];
+  ): Promise<LookupResult> {
+    const cursor = await this.cursorIdentifier(file, line, col);
+    if ('unavailable' in cursor) return cursor;
+    const { cursorPath, content, identifier } = cursor;
 
     const workspaceFolder = this.normalize(
       this.workspaceProvider.getWorkspaceRoot(),
     );
-    if (!workspaceFolder) return [];
+    if (!workspaceFolder) {
+      return { unavailable: 'no workspace root is open' };
+    }
 
-    const scopeFiles = await this.computeReferenceScope(
+    const scope = await this.narrowedReferenceScope(
       cursorPath,
-      cursorContent,
+      content,
       identifier,
       workspaceFolder,
     );
-    const locations: Location[] = [];
-
-    try {
-      if (scopeFiles) {
-        for (const filePath of scopeFiles) {
-          if (locations.length >= MAX_REFERENCE_MATCHES) break;
-          await this.collectMatchesInFile(filePath, identifier, locations);
-        }
-      } else {
-        await this.bruteScan(workspaceFolder, identifier, locations);
+    if (scope) {
+      const scoped = await this.scanFiles(scope.files, identifier);
+      // The reads awaited: the graph may have been invalidated or rebuilt
+      // meanwhile. Publish the narrowed answer only if the exact coverage it
+      // was certified against is still the root's (Batch 26b r1 B3).
+      if (this.certificateHolds(workspaceFolder, scope.certified)) {
+        return lspReport(
+          cursorPath,
+          scoped.locations,
+          'graph-scoped-scan',
+          scoped.truncated,
+        );
       }
-    } catch (error: unknown) {
-      this.logger.warn('[ElectronIDECapabilities] Reference scan failed', {
-        identifier,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    if (locations.length >= MAX_REFERENCE_MATCHES) {
       this.logger.info(
-        `[ElectronIDECapabilities] Reference scan capped at ${MAX_REFERENCE_MATCHES} matches for "${identifier}"`,
+        '[ElectronIDECapabilities] Graph changed during a scoped reference scan; answering with a text scan',
+        { identifier },
       );
     }
-    return locations;
+
+    const scan = await this.textScan(workspaceFolder, identifier);
+    return lspReport(cursorPath, scan.locations, 'text-scan', scan.truncated);
   }
 
   /**
-   * Returns the scoped file set (declaration files + transitive dependents +
-   * the cursor file) when this workspace's dependency graph is built and the
-   * symbol index names the declaration, or null to signal a full-workspace
-   * brute scan. The index-free declaration fallback is deliberately NOT used
-   * here: a guessed declaration says nothing about scope completeness, and
-   * global-script references have no import edge in the graph.
+   * The narrowing gate, evaluated per query. Returns the scoped file set
+   * (declaration files + transitive dependents + the cursor file) only when
+   * ALL of these hold, else null (a text scan):
+   *   - the symbol index names the declaration(s) from a page that was not
+   *     full (every same-named declaration is known, r1 M1);
+   *   - this workspace's graph is built and publishes its language coverage;
+   *   - every language in that graph's census has `referenceScopeComplete`
+   *     (graphReferenceScopeIsComplete). TS/JS do not claim it: their graph
+   *     has no edge for global scripts, re-exports, `require`, dynamic
+   *     `import()` or unmapped path aliases (r1 B2, `language-registry.ts`);
+   *   - the coverage passes the clean-answer rule, including `resolution`;
+   *   - each declaration file, and every node the walk visits, is answered by
+   *     the SAME graph whose coverage was certified (r1 B4: a nested root's
+   *     graph must not stand in for the parent's).
+   * The index lookup (the only await) runs first; the certificate and the
+   * walk then run synchronously, so the graph cannot change between them
+   * (r1 B3). The index-free declaration fallback is deliberately NOT used: a
+   * guessed declaration says nothing about scope completeness.
    */
-  private async computeReferenceScope(
+  private async narrowedReferenceScope(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
     workspaceFolder: string,
-  ): Promise<string[] | null> {
+  ): Promise<NarrowedScope | null> {
     if (!this.dependencyGraph.isBuilt(workspaceFolder)) return null;
     const declarations = await this.indexedDeclarations(
       cursorPath,
       cursorContent,
       identifier,
     );
-    if (declarations.length === 0) return null;
+    if (declarations.saturated || declarations.locations.length === 0) {
+      return null;
+    }
+    return this.certifiedScope(
+      workspaceFolder,
+      declarations.locations,
+      this.normalize(cursorPath) as string,
+    );
+  }
+
+  /** Synchronous part of the gate: certificate, then the walk on that graph. */
+  private certifiedScope(
+    workspaceFolder: string,
+    declarations: readonly Location[],
+    cursorFile: string,
+  ): NarrowedScope | null {
+    if (!this.dependencyGraph.isBuilt(workspaceFolder)) return null;
+    const certified =
+      this.dependencyGraph.getCoverageReport(workspaceFolder)?.languages;
+    if (!certified || !graphReferenceScopeIsComplete(certified)) return null;
+    // A graph publishes one coverage object per build (and a new one on each
+    // invalidation), so identity names the graph that answers a file.
+    const answeredByCertified = (file: string): boolean =>
+      this.dependencyGraph.getCoverageReportForFile(file)?.languages ===
+      certified;
 
     const declFiles = new Set(declarations.map((d) => d.file));
-    const scope = this.collectTransitiveDependents(declFiles);
-    scope.add(this.normalize(cursorPath) as string);
-    return [...scope];
-  }
+    const graphNodes: string[] = [];
+    for (const declFile of declFiles) {
+      if (!answeredByCertified(declFile)) return null;
+      const node = this.dependencyGraph.resolveNodePath(declFile);
+      if (node === undefined) return null;
+      graphNodes.push(node);
+    }
 
-  /** Breadth-first walk of reverse-import edges from the declaration files. */
-  private collectTransitiveDependents(declFiles: Set<string>): Set<string> {
+    // Breadth-first walk of reverse-import edges from the declarations' graph
+    // nodes; the declaration files keep the index's spelling in the scope.
     const scope = new Set<string>(declFiles);
-    const queue = [...declFiles];
+    const visited = new Set<string>(graphNodes);
+    const queue = [...graphNodes];
     while (queue.length > 0) {
       const current = queue.shift() as string;
+      if (!answeredByCertified(current)) return null;
       for (const dependent of this.dependencyGraph.getDependents(current)) {
         const normalized = this.normalize(dependent) as string;
-        if (!scope.has(normalized)) {
-          scope.add(normalized);
-          queue.push(normalized);
-        }
+        if (visited.has(normalized)) continue;
+        visited.add(normalized);
+        scope.add(normalized);
+        queue.push(normalized);
       }
     }
-    return scope;
+    scope.add(cursorFile);
+    return { files: [...scope], certified };
   }
 
-  /** Bounded full-workspace scan used when the dependency graph is unbuilt. */
-  private async bruteScan(
+  /** Whether the root still publishes the exact coverage a scope was certified on. */
+  private certificateHolds(
     workspaceFolder: string,
-    identifier: string,
-    out: Location[],
-  ): Promise<void> {
-    const includePatterns = SCAN_EXTENSIONS.map((ext) => `**/*${ext}`);
-    const stream = this.indexer.indexWorkspaceStream({
-      includePatterns,
-      respectIgnoreFiles: true,
-      workspaceFolder,
-    });
-
-    let filesScanned = 0;
-    for await (const indexed of stream) {
-      if (filesScanned >= MAX_FILES_SCANNED) break;
-      if (out.length >= MAX_REFERENCE_MATCHES) break;
-      filesScanned++;
-      await this.collectMatchesInFile(
-        this.normalize(indexed.path) as string,
-        identifier,
-        out,
-      );
-    }
+    certified: LanguageCoverage,
+  ): boolean {
+    return (
+      this.dependencyGraph.getCoverageReport(workspaceFolder)?.languages ===
+      certified
+    );
   }
 
   /**
-   * Read a file, collect word-boundary matches for the identifier, then drop
-   * matches inside string/comment nodes (only parsing the file when it has at
-   * least one raw match). Appends surviving matches to `out` up to the cap.
+   * Bounded scan of every recognised source file, used whenever the
+   * narrowing gate does not hold. Discovery is itself bounded (one past
+   * MAX_FILES_SCANNED, r1 M3) and applies the default vendor and build
+   * excludes plus the workspace ignore files (closing review R26B-C-M2), so
+   * an ignored generated tree cannot use up the caps before source. A file
+   * skipped by ignore rules is out of scope, not a truncation. `truncated`
+   * when discovery stopped at the bound, could not read part of the tree, or
+   * failed, or when the scan left files unread.
+   */
+  private async textScan(
+    workspaceFolder: string,
+    identifier: string,
+  ): Promise<{ locations: Location[]; truncated: boolean }> {
+    const pattern = `{${SCAN_EXTENSIONS.map((ext) => `**/*${ext}`).join(',')}}`;
+    const ignore = await this.workspaceIgnore(workspaceFolder);
+    let found: readonly string[];
+    let discoveryIncomplete = false;
+    try {
+      found = await this.fs.findFiles(
+        pattern,
+        [...DEFAULT_WORKSPACE_EXCLUDES, ...ignore.walkExcludes],
+        MAX_FILES_SCANNED + 1,
+        workspaceFolder,
+      );
+    } catch (error: unknown) {
+      if (!(error instanceof IncompleteFileSearchError)) {
+        // Discovery failed outright: nothing could be scanned, which the
+        // report discloses as `truncated` (never a clean "Found: 0").
+        this.logger.warn('[ElectronIDECapabilities] Reference discovery failed', {
+          identifier,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { locations: [], truncated: true };
+      }
+      // Part of the tree could not be read: scan what was found, disclosed.
+      found = error.matches;
+      discoveryIncomplete = true;
+    }
+    const files = found
+      .slice(0, MAX_FILES_SCANNED)
+      .map((file) => this.toAbsolute(workspaceFolder, file))
+      .filter((file) => !ignore.isIgnored(file));
+    const scan = await this.scanFiles(files, identifier);
+    return {
+      locations: scan.locations,
+      truncated:
+        scan.truncated ||
+        discoveryIncomplete ||
+        found.length > MAX_FILES_SCANNED,
+    };
+  }
+
+  /**
+   * The workspace ignore rules, the same ones the indexer stream applied
+   * before the fix round (`IgnorePatternResolverService`):
+   *   - `isIgnored`: the exact decision (last match wins, negations), applied
+   *     to every discovered file;
+   *   - `walkExcludes`: the ignore patterns passed into the bounded walk
+   *     itself (the `ContextService.getEffectiveExcludes` precedent), so an
+   *     ignored tree never spends the discovery bound. Left empty when any
+   *     pattern is a negation: a walk exclude cannot re-include a file, and
+   *     dropping a re-included source file would be a silent omission.
+   * Unreadable ignore files mean no ignore rules (more files scanned, never
+   * fewer).
+   */
+  private async workspaceIgnore(workspaceFolder: string): Promise<{
+    isIgnored: (file: string) => boolean;
+    walkExcludes: string[];
+  }> {
+    let ignoreFiles: Awaited<
+      ReturnType<IgnorePatternResolverService['parseWorkspaceIgnoreFiles']>
+    >;
+    try {
+      ignoreFiles =
+        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[ElectronIDECapabilities] Workspace ignore files could not be read; scanning without them',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return { isIgnored: () => false, walkExcludes: [] };
+    }
+    const patterns = ignoreFiles.flatMap((file) => file.patterns);
+    return {
+      isIgnored: this.ignoreResolver.compileMatcher(
+        ignoreFiles,
+        workspaceFolder,
+      ),
+      walkExcludes: patterns.some((p) => p.isNegation)
+        ? []
+        : patterns.map((p) => p.pattern),
+    };
+  }
+
+  /**
+   * Scan `files` in order. `truncated` when the match cap stopped the scan
+   * with matches or files left, or any file was skipped (unreadable, too
+   * large, or an unexpected failure) — r1 B5: a skipped file is an omission
+   * the report must disclose.
+   */
+  private async scanFiles(
+    files: readonly string[],
+    identifier: string,
+  ): Promise<{ locations: Location[]; truncated: boolean }> {
+    const locations: Location[] = [];
+    const matcher = identifierMatcher(identifier);
+    let truncated = false;
+    for (let i = 0; i < files.length; i++) {
+      if (locations.length >= MAX_REFERENCE_MATCHES) {
+        truncated = true;
+        break;
+      }
+      try {
+        const scan = await this.collectMatchesInFile(
+          files[i],
+          matcher,
+          locations,
+        );
+        if (scan.status !== 'scanned' || scan.capped) truncated = true;
+        if (scan.capped) break;
+      } catch (error: unknown) {
+        truncated = true;
+        this.logger.warn('[ElectronIDECapabilities] Reference scan failed', {
+          identifier,
+          file: files[i],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (truncated) {
+      this.logger.info(
+        `[ElectronIDECapabilities] Reference scan for "${identifier}" is incomplete (cap or skipped file)`,
+      );
+    }
+    return { locations, truncated };
+  }
+
+  /**
+   * Read a file (at most MAX_SCAN_FILE_BYTES), then append matches of the
+   * identifier outside string/comment nodes to `out`, stopping at the match
+   * cap. Matches are streamed, never collected in full first (r1 M3); the
+   * file is only parsed when it has at least one raw match.
    */
   private async collectMatchesInFile(
     filePath: string,
-    identifier: string,
+    matcher: RegExp,
     out: Location[],
-  ): Promise<void> {
-    const content = await this.safeReadFile(filePath);
-    if (content === null) return;
-
-    const wordRe = new RegExp(`\\b${escapeRegExp(identifier)}\\b`, 'g');
-    const lines = content.split(/\r?\n/);
-    const raw: Array<{ line: number; column: number }> = [];
-    for (let i = 0; i < lines.length; i++) {
-      wordRe.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = wordRe.exec(lines[i])) !== null) {
-        raw.push({ line: i, column: match.index });
-      }
+  ): Promise<{ status: FileScanStatus; capped: boolean }> {
+    let size: number;
+    try {
+      size = (await this.fs.stat(filePath)).size;
+    } catch (error: unknown) {
+      this.logger.warn('[ElectronIDECapabilities] Could not stat file', {
+        file: filePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { status: 'unreadable', capped: false };
     }
-    if (raw.length === 0) return;
+    if (size > MAX_SCAN_FILE_BYTES) {
+      return { status: 'too-large', capped: false };
+    }
+    const content = await this.safeReadFile(filePath);
+    if (content === null) return { status: 'unreadable', capped: false };
+
+    matcher.lastIndex = 0;
+    if (!matcher.test(content)) return { status: 'scanned', capped: false };
 
     const excluded = await this.findExcludedRanges(content, filePath);
-    for (const r of raw) {
-      if (out.length >= MAX_REFERENCE_MATCHES) return;
-      if (isInExcludedRange(r.line, r.column, excluded)) continue;
-      out.push({ file: filePath, line: r.line, column: r.column });
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      matcher.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = matcher.exec(lines[i])) !== null) {
+        if (isInExcludedRange(i, match.index, excluded)) continue;
+        if (out.length >= MAX_REFERENCE_MATCHES) {
+          return { status: 'scanned', capped: true };
+        }
+        out.push({ file: filePath, line: i, column: match.index });
+      }
     }
+    return { status: 'scanned', capped: false };
+  }
+
+  /** A discovered path as an absolute forward-slash path under the root. */
+  private toAbsolute(workspaceFolder: string, file: string): string {
+    const normalized = toForwardSlashes(file);
+    return /^[a-zA-Z]:/.test(normalized) || normalized.startsWith('/')
+      ? normalized
+      : `${workspaceFolder}/${normalized}`;
   }
 
   /**
@@ -892,9 +1281,96 @@ function extToLanguage(filePath: string): SupportedLanguage | null {
       return 'python';
     case '.go':
       return 'go';
+    case '.cs':
+    case '.csx':
+      return 'csharp';
     default:
       return null;
   }
+}
+
+/** Lower-case extension (leading dot) of a forward-slash path. */
+function extensionOfPath(filePath: string): string {
+  return path.posix.extname(filePath).toLowerCase();
+}
+
+/**
+ * The report for a lookup that ran: the registry language of the queried
+ * file, whether `mechanism` covers it, and `text-scan` disclosed as the
+ * approximation of a name scan that no graph narrowed.
+ */
+function lspReport(
+  cursorPath: string,
+  locations: Location[],
+  mechanism: Exclude<LspMechanism, 'none' | 'provider-defined'>,
+  truncated = false,
+): LspLocationReport {
+  return {
+    locations,
+    mechanism,
+    language: languageForExtension(extensionOfPath(cursorPath)),
+    languageSupported: mechanismCoversFile(mechanism, cursorPath),
+    approximations: mechanism === 'text-scan' ? ['text-scan'] : [],
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
+/** Whether `mechanism` can answer for the queried file's language. */
+function mechanismCoversFile(
+  mechanism: Exclude<LspMechanism, 'none' | 'provider-defined'>,
+  cursorPath: string,
+): boolean {
+  const extension = extensionOfPath(cursorPath);
+  switch (mechanism) {
+    case 'symbol-index':
+      return extensionHasCapability(extension, 'codeIndex');
+    case 'declaration-scan': {
+      // The registry claim and the query that implements it must both hold;
+      // `.tsx` has the claim through TypeScript but no reliable grammar here.
+      const language = declarationLanguage(cursorPath);
+      return (
+        extensionHasCapability(extension, 'definitionFallback') &&
+        language !== null &&
+        DECLARATION_QUERIES[language] !== undefined
+      );
+    }
+    case 'graph-scoped-scan':
+      // Reached only through the narrowing gate, which proved the scope.
+      return true;
+    case 'text-scan':
+      return SCAN_EXTENSIONS.includes(extension);
+  }
+}
+
+function isLanguageId(id: string): id is LanguageId {
+  return (LANGUAGE_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * First two conditions of the narrowing gate, on the graph's published
+ * coverage:
+ *   - every language in the census has `referenceScopeComplete`. The census
+ *     languages are the graphed ones (bounded above by the graph's
+ *     `supportedLanguages` claim, all checked) and the unsupported ones (any
+ *     `unsupportedByLanguage` entry; `other` is never scope-complete);
+ *   - the coverage is clean, `resolution` included and required.
+ */
+function graphReferenceScopeIsComplete(coverage: LanguageCoverage): boolean {
+  if (coverage.resolution === undefined || !isCleanAnswer(coverage)) {
+    return false;
+  }
+  const census = new Set<string>(coverage.supportedLanguages);
+  for (const [language, count] of Object.entries(
+    coverage.unsupportedByLanguage ?? {},
+  )) {
+    if (count !== undefined && count !== 0) census.add(language);
+  }
+  return [...census].every(
+    (language) =>
+      isLanguageId(language) &&
+      LANGUAGE_REGISTRY[language].capabilities.graphEdges
+        ?.referenceScopeComplete === true,
+  );
 }
 
 /**
@@ -964,6 +1440,18 @@ function isInsideDirectory(filePath: string, dir: string): boolean {
 function fileMatchesModule(candidateFile: string, modulePath: string): boolean {
   const stripped = stripExtension(candidateFile);
   return stripped === modulePath || stripped === `${modulePath}/index`;
+}
+
+/**
+ * Global matcher for an identifier as a whole token. Boundaries use the same
+ * identifier character set as extraction (`$` included), not `\b`, which
+ * treats `$` as a non-word character (r1 M2: `$Foo` never matched).
+ */
+function identifierMatcher(identifier: string): RegExp {
+  return new RegExp(
+    `(?<![A-Za-z0-9_$])${escapeRegExp(identifier)}(?![A-Za-z0-9_$])`,
+    'g',
+  );
 }
 
 function escapeRegExp(value: string): string {
