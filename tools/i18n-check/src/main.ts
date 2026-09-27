@@ -42,6 +42,7 @@ import {
   type Marker,
 } from './lib/markers';
 import {
+  compareText,
   formatViolation,
   normaliseViolations,
   type SiteViolation,
@@ -92,7 +93,7 @@ function parseArgs(argv: readonly string[]): Options {
   const values = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
-    const value = argv[i + 1];
+    const value = argv[i + 1] as string | undefined;
     if (
       ![
         '--project-root',
@@ -138,7 +139,7 @@ function parseArgs(argv: readonly string[]): Options {
     ),
     projectRoot: normalisedRoot,
     scope,
-    allowScopes: [...new Set(allowScopes)].sort(),
+    allowScopes: [...new Set(allowScopes)].sort(compareText),
     glossary,
   };
 }
@@ -168,7 +169,7 @@ async function scanProject(options: Options): Promise<ProjectScan> {
         '**/*.d.ts',
       ],
     })
-  ).sort();
+  ).sort(compareText);
 
   const scan: ProjectScan = {
     uses: [],
@@ -297,7 +298,7 @@ function allowedScopeDefect(
   structural: readonly Violation[],
 ): Violation | null {
   if (structural.length === 0) return null;
-  const kinds = [...new Set(structural.map((v) => v.kind))].sort();
+  const kinds = [...new Set(structural.map((v) => v.kind))].sort(compareText);
   return {
     file: file.file,
     line: 0,

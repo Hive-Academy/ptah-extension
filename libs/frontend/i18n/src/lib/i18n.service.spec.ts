@@ -14,6 +14,12 @@ import { provideI18nRuntime } from './provide-i18n';
 
 const KEY = 'spec.lang';
 
+/** UTF-16 code-unit order, the same order as a bare `sort()`. */
+function byCodeUnit(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 @Injectable()
 class EmptyLoader implements TranslocoLoader {
   getTranslation(): Observable<Translation> {
@@ -119,7 +125,7 @@ describe('I18nService', () => {
       expect(transloco.getActiveLang()).toBe('ar');
       expect(root.lang).toBe('ar');
       expect(root.dir).toBe('rtl');
-      expect(global.calls.sort()).toEqual(['ar', 'en']);
+      expect(global.calls.sort(byCodeUnit)).toEqual(['ar', 'en']);
       expect(i18n.translate('greeting.hello')).toBe('مرحبا');
       expect(i18n.translate('greeting.hello', {}, 'en')).toBe('Hello');
     });
@@ -229,7 +235,7 @@ describe('I18nService', () => {
 
       await expect(i18n.setLanguage('ar')).resolves.toBe(true);
 
-      expect(global.calls.sort()).toEqual(['ar', 'en']);
+      expect(global.calls.sort(byCodeUnit)).toEqual(['ar', 'en']);
       expect(i18n.lang()).toBe('ar');
       expect(i18n.direction()).toBe('rtl');
       expect(transloco.getActiveLang()).toBe('ar');
@@ -343,7 +349,7 @@ describe('I18nService', () => {
       release();
 
       await expect(switching).resolves.toBe(true);
-      expect(late.calls.sort()).toEqual(['ar', 'en']);
+      expect(late.calls.sort(byCodeUnit)).toEqual(['ar', 'en']);
       expect(i18n.translate('late.hello')).toBe('مرحبا');
     });
   });
@@ -426,7 +432,7 @@ describe('I18nService', () => {
         i18n.loadScopes([feature.scope]).subscribe({ complete: resolve }),
       );
 
-      expect(feature.calls.sort()).toEqual(['ar', 'en']);
+      expect(feature.calls.sort(byCodeUnit)).toEqual(['ar', 'en']);
       expect(i18n.translate('feature.hello')).toBe('مرحبا');
     });
 

@@ -209,7 +209,7 @@ export function inlineSourceOf(
   return {
     text: init.text,
     offsetAt: (index: number): number => {
-      const offset = offsets[index];
+      const offset = offsets[index] as number | undefined;
       if (offset === undefined) {
         throw new Error(`template index ${index} is outside the template`);
       }
@@ -370,7 +370,7 @@ export function componentMetadataName(
   if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) {
     return null;
   }
-  const call = node.parent.parent;
+  const call = node.parent.parent as ts.Node | undefined;
   const isComponent =
     call !== undefined &&
     ts.isCallExpression(call) &&

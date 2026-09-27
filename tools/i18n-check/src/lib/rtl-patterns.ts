@@ -268,7 +268,7 @@ export function propertyViolation(
   label: string,
 ): SiteViolation | null {
   const property = kebab(name);
-  const logical = RTL_CSS_PROPERTIES[property];
+  const logical = RTL_CSS_PROPERTIES[property] as string | undefined;
   if (logical === undefined) return null;
   if (
     property === 'text-align' &&

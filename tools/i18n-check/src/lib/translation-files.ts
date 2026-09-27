@@ -9,7 +9,7 @@
  */
 import * as fs from 'fs';
 import * as ts from 'typescript';
-import type { Violation } from './report';
+import { compareText, type Violation } from './report';
 
 export interface TranslationEntry {
   key: string;
@@ -233,7 +233,7 @@ const ALLOWED_TAGS = new Set(['strong', 'em', 'code', 'a']);
 export function placeholdersOf(value: string): string[] {
   const names = new Set<string>();
   for (const match of value.matchAll(PLACEHOLDER_RE)) names.add(match[1]);
-  return [...names].sort();
+  return [...names].sort(compareText);
 }
 
 /** Every tag occurrence (`a`, `/a`, …) in a value, sorted. */
@@ -243,7 +243,7 @@ export function tagsOf(value: string): string[] {
     const closing = match[0].startsWith('</') ? '/' : '';
     tags.push(`${closing}${match[1].toLowerCase()}`);
   }
-  return tags.sort();
+  return tags.sort(compareText);
 }
 
 /** Placeholder and markup parity for every key present in both files. */

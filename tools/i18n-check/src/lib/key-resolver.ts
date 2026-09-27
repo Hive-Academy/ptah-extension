@@ -3,7 +3,7 @@
  * its owning scope's `en.json`, which must be the project's own scope or an
  * allowed one.
  */
-import type { Violation } from './report';
+import { compareText, type Violation } from './report';
 import { owningScope } from './scope-map';
 import type { TranslationFile } from './translation-files';
 
@@ -92,6 +92,6 @@ export class TargetMap<T> {
   /** The recorded targets, or `any` when nothing reads the item. */
   of(item: T): Target[] {
     const set = this.map.get(item);
-    return set ? [...set].sort() : ['any'];
+    return set ? [...set].sort(compareText) : ['any'];
   }
 }

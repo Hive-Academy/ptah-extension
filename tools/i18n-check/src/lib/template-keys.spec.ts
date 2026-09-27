@@ -1,3 +1,4 @@
+import { compareText } from './report';
 import {
   extractTemplateKeys,
   fileTemplateSource,
@@ -77,7 +78,7 @@ describe('extractTemplateKeys', () => {
       'x.html',
       1,
     );
-    expect(scan.strings.map((s) => s.value).sort()).toEqual([
+    expect(scan.strings.map((s) => s.value).sort(compareText)).toEqual([
       'https://ptah.live',
       'legal.a.b',
       'ptah.live',

@@ -6,6 +6,8 @@
  * the workspace root. The map is data, not an import of project code.
  */
 
+import { compareText } from './report';
+
 export interface ScopeLocation {
   /** Project root, workspace-relative. */
   projectRoot: string;
@@ -27,7 +29,8 @@ export const SCOPE_MAP: Readonly<Record<string, ScopeLocation>> = {
   admin: { projectRoot: 'libs/web/admin', i18nDir: 'src/lib/i18n' },
 };
 
-export const KNOWN_SCOPES: readonly string[] = Object.keys(SCOPE_MAP).sort();
+export const KNOWN_SCOPES: readonly string[] =
+  Object.keys(SCOPE_MAP).sort(compareText);
 
 export function isKnownScope(scope: string): boolean {
   return Object.prototype.hasOwnProperty.call(SCOPE_MAP, scope);

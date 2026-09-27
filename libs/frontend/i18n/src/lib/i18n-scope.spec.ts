@@ -9,6 +9,12 @@ jest.mock('@angular/core', () => ({
 
 const isDevMode = jest.mocked(angularCore.isDevMode);
 
+/** UTF-16 code-unit order, the same order as a bare `sort()`. */
+function byCodeUnit(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 describe('defineI18nScope', () => {
   afterEach(() => isDevMode.mockReturnValue(true));
 
@@ -20,7 +26,7 @@ describe('defineI18nScope', () => {
 
     expect(scope.scope).toBe('panelUi');
     expect(scope.alias).toBe('panelUi');
-    expect(Object.keys(scope.loader).sort()).toEqual(['ar', 'en']);
+    expect(Object.keys(scope.loader).sort(byCodeUnit)).toEqual(['ar', 'en']);
     expect(Object.isFrozen(scope)).toBe(true);
     expect(Object.isFrozen(scope.loader)).toBe(true);
   });

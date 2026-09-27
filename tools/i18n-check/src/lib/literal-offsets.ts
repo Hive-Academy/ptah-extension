@@ -60,7 +60,7 @@ export function decodeLiteral(raw: string, start: number): DecodedLiteral {
       continue;
     }
 
-    const next = raw[i + 1];
+    const next = raw[i + 1] as string | undefined;
     if (next === undefined) {
       throw new Error(`unterminated escape at literal offset ${i}`);
     }

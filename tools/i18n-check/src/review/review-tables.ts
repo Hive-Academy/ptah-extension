@@ -95,7 +95,7 @@ export function parseArgs(argv: readonly string[]): ReviewOptions {
     if (!VALUE_FLAGS.includes(flag)) {
       throw new UsageError(`unknown argument "${flag}"`);
     }
-    const value = argv[i + 1];
+    const value = argv[i + 1] as string | undefined;
     if (value === undefined || value.startsWith('--')) {
       throw new UsageError(`${flag} needs a value`);
     }
