@@ -7,7 +7,11 @@
  * 1. Under the tool's budget → the raw text, byte-for-byte. Nothing is
  *    spooled, because nothing was withheld.
  * 2. Over it → `reduceOutput` (content detection + the per-kind reducer; the
- *    per-tool hint in {@link TOOL_CONTENT_HINTS} wins over sniffing).
+ *    caller's hint, else the per-tool hint in {@link TOOL_CONTENT_HINTS},
+ *    wins over sniffing). A Markdown outline is followed by a labelled
+ *    prefix of the raw text in the room it leaves (reducer
+ *    `markdown-outline+prefix`): the outline keeps late headings and
+ *    answers, the prefix keeps the body the outline dropped.
  * 3. Still over either limit (reducers may return more than the budget) →
  *    cut at the last line break inside the window, or at the limit itself
  *    when the window's last 20% has no line break (single-line JSON). The
@@ -82,12 +86,24 @@ export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
  * reducer runs on them, only the cut (so the diagnostics requested-files-first
  * order of Batch 1 is never undone by a generic reducer). The paged tools keep
  * their own page unit.
+ *
+ * The `ptah_agent_*` tools return an agent's own curated reply under a short
+ * Markdown header. The outline reducer would keep the header and drop the
+ * reply's body (a 20 KB `agent_message` detail came back as 312 chars with no
+ * detail), so their text is cut to a prefix instead, on the HTTP and the
+ * stdio surface alike.
  */
 export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
   Object.freeze({
     ptah_get_diagnostics: 'preformatted',
     ptah_get_symbol_index: 'preformatted',
+    ptah_agent_spawn: 'preformatted',
+    ptah_agent_status: 'preformatted',
     ptah_agent_read: 'preformatted',
+    ptah_agent_message: 'preformatted',
+    ptah_agent_report: 'preformatted',
+    ptah_agent_stop: 'preformatted',
+    ptah_agent_list: 'preformatted',
     ptah_task_list: 'preformatted',
   });
 
@@ -115,6 +131,11 @@ export interface ApplyToolResultBudgetInput {
    * caller). A relative or empty value falls back to `os.tmpdir()`.
    */
   readonly spoolRoot: string;
+  /**
+   * Content kind the caller knows for this text (the browser page's own
+   * HTML); wins over {@link TOOL_CONTENT_HINTS} and over sniffing.
+   */
+  readonly hint?: ContentKind;
   readonly outliner?: CodeOutliner;
   /** Receives one line when a reducer throws or the budget step fails. */
   readonly output?: IOutputChannel;
@@ -169,6 +190,17 @@ const BOUNDARY_TOKEN_SLACK = 8;
 const MAX_TRAILER_SHARE = 0.25;
 /** The cut prefers a line break inside this last share of the window. */
 const LINE_BREAK_WINDOW_SHARE = 0.2;
+/** Name of the Markdown heading-outline reducer (`markdown.reducer.ts`). */
+const OUTLINE_REDUCER = 'markdown-outline';
+/** Trailer name of an outline followed by a labelled prefix of the raw text. */
+const OUTLINE_WITH_PREFIX_REDUCER = 'markdown-outline+prefix';
+/** Separates the outline from the raw prefix and says what follows. */
+const PREFIX_LABEL = '\n\n[the full output from its start, cut to fit:]\n\n';
+/**
+ * Share of the window kept for the raw prefix: an outline that leaves less
+ * is requested again within the rest of the window.
+ */
+const PREFIX_RESERVE_SHARE = 0.2;
 /** Cut passes with a smaller window when the final text still measures over the budget. */
 const MAX_FIT_PASSES = 4;
 /**
@@ -252,15 +284,23 @@ async function budgetText(
   );
   const locator = chooseLocator(budget, samplePath, location);
   const window = trailerWindow(budget, samplePath, location, locator);
-  const result = await reduceOutput(raw, {
-    budgetTokens: window.tokens,
-    budgetChars: window.chars,
-    hint: Object.hasOwn(TOOL_CONTENT_HINTS, input.toolName)
-      ? TOOL_CONTENT_HINTS[input.toolName]
-      : undefined,
-    outliner: input.outliner,
-    output: input.output,
-  });
+  const reduceWithin = (limit: TextBudget): Promise<ReducedBody> =>
+    reduceOutput(raw, {
+      budgetTokens: limit.tokens,
+      budgetChars: limit.chars,
+      hint:
+        input.hint ??
+        (Object.hasOwn(TOOL_CONTENT_HINTS, input.toolName)
+          ? TOOL_CONTENT_HINTS[input.toolName]
+          : undefined),
+      outliner: input.outliner,
+      output: input.output,
+    });
+  const reducedOutput = await reduceWithin(window);
+  const result =
+    reducedOutput.reducer === OUTLINE_REDUCER
+      ? await outlineWithPrefix(raw, reducedOutput, window, reduceWithin)
+      : reducedOutput;
 
   const spool = await spoolRaw(raw, location.dir, input.requestId);
   const where = describeSpool(spool, location, locator);
@@ -287,6 +327,101 @@ async function budgetText(
     totalChars: raw.length,
     ...('path' in spool ? { spoolPath: spool.path } : {}),
   };
+}
+
+/** The body the trailer is appended to, and how it was made. */
+interface ReducedBody {
+  readonly text: string;
+  readonly reducer: string;
+  readonly reduced: boolean;
+  readonly rawTokens: number;
+}
+
+/**
+ * A Markdown outline followed by a labelled prefix of the raw text, filling
+ * the window (review r4 R4-03). The outline keeps every heading and the head
+ * of each section, but drops a block that does not fit whole (a long first
+ * paragraph, table or list — often the answer). The prefix keeps the start
+ * of the raw text, but drops everything after the window (late headings and
+ * answers). Neither alone preserves both, and no size measure tells which
+ * one lost the content, so both are returned.
+ *
+ * The outline comes first: it is short, names the whole document's
+ * structure, and the final cut ({@link fitWithTrailer}) only ever shortens
+ * the text's end — the prefix, which is recoverable from the spool — never
+ * the outline. An outline that leaves less than
+ * {@link PREFIX_RESERVE_SHARE} of the window is requested again within the
+ * rest of it, so a dense outline still leaves room for the prefix. When no
+ * prefix fits, the outline alone is returned under its own name.
+ */
+async function outlineWithPrefix(
+  raw: string,
+  outline: ReducedBody,
+  window: TextBudget,
+  reduceWithin: (limit: TextBudget) => Promise<ReducedBody>,
+): Promise<ReducedBody> {
+  const outlineRoom: TextBudget = {
+    tokens: Math.max(1, Math.floor(window.tokens * (1 - PREFIX_RESERVE_SHARE))),
+    chars: Math.max(1, Math.floor(window.chars * (1 - PREFIX_RESERVE_SHARE))),
+  };
+  let kept = outline;
+  if (!fitsBudget(outline.text.trimEnd() + PREFIX_LABEL, outlineRoom)) {
+    const smaller = await reduceWithin(outlineRoom);
+    if (smaller.reducer === OUTLINE_REDUCER) {
+      kept = smaller;
+    }
+  }
+  const text = composeWithPrefix(kept.text, raw, window);
+  return text === undefined
+    ? outline
+    : {
+        text,
+        reducer: OUTLINE_WITH_PREFIX_REDUCER,
+        reduced: true,
+        rawTokens: outline.rawTokens,
+      };
+}
+
+/**
+ * `outline`, the {@link PREFIX_LABEL}, and the longest prefix of `raw` that
+ * keeps the whole within `window` (ended at a line break when one is near,
+ * as {@link fitWindow} does); `undefined` when not even one char of prefix
+ * fits after the outline.
+ */
+function composeWithPrefix(
+  outline: string,
+  raw: string,
+  window: TextBudget,
+): string | undefined {
+  const head = outline.trimEnd() + PREFIX_LABEL;
+  if (!fitsBudget(head, window)) {
+    return undefined;
+  }
+  let room: TextBudget = {
+    tokens: window.tokens - countTokensPiecewise(head) - BOUNDARY_TOKEN_SLACK,
+    chars: window.chars - head.length,
+  };
+  for (let pass = 0; pass < MAX_FIT_PASSES; pass++) {
+    if (room.tokens < 1 || room.chars < 1) {
+      return undefined;
+    }
+    const { body } = fitWindow(raw, room);
+    if (body === '') {
+      return undefined;
+    }
+    const text = head + body;
+    if (fitsBudget(text, window)) {
+      return text;
+    }
+    room = {
+      tokens:
+        room.tokens -
+        Math.max(0, countTokensPiecewise(text) - window.tokens) -
+        1,
+      chars: room.chars - Math.max(0, text.length - window.chars) - 1,
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -409,8 +544,25 @@ function describeSpool(
   if (locator === 'absolute') {
     return `full output: ${spool.path}`;
   }
-  const relative = path.join(SPOOL_SUBDIR, path.basename(spool.path));
-  return `full output: ${relative} under the ${location.rootLabel}`;
+  return `full output: ${relativeLocator(spool.path, location)}`;
+}
+
+function relativeLocator(spoolPath: string, location: SpoolLocation): string {
+  const relative = path.join(SPOOL_SUBDIR, path.basename(spoolPath));
+  return `${relative} under the ${location.rootLabel}`;
+}
+
+/**
+ * A spool file written by {@link spoolToolText} under `spoolRoot`, named
+ * relative to that root (`.ptah/tmp/mcp-out/<name> under the workspace
+ * root`). Its length is bounded (the file name's id part is at most 64
+ * chars), whatever the length of the root itself.
+ */
+export function relativeSpoolLocator(
+  spoolPath: string,
+  spoolRoot: string,
+): string {
+  return relativeLocator(spoolPath, spoolLocation(spoolRoot));
 }
 
 /**

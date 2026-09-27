@@ -45,6 +45,7 @@ import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
 import {
   DEFAULT_TOOL_RESULT_BUDGET_CHARS,
   DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+  getToolResultBudget,
 } from '../mcp-core/tool-result-budget';
 import type { ISessionSubmitHandler } from './session-submit.port';
 
@@ -180,6 +181,54 @@ describe('StdioMcpServerService', () => {
       const resp = svc.handleToolsList(req, []);
       const tools = (resp.result as { tools: { name: string }[] }).tools;
       expect(tools).toHaveLength(8);
+    });
+
+    it('declares each served tool’s result ceiling in _meta (review r3: R3-06)', () => {
+      const { svc } = makeService();
+      const resp = svc.handleToolsList(makeRequest({ method: 'tools/list' }));
+      const tools = (
+        resp.result as {
+          tools: { name: string; _meta?: Record<string, unknown> }[];
+        }
+      ).tools;
+      const declared = Object.fromEntries(
+        tools.map((t) => [t.name, t._meta?.['anthropic/maxResultSizeChars']]),
+      );
+      // The seven agent tools enforce their `ptah_agent_*` budget (8,000
+      // chars); session_submit returns up to its own 1 MiB aggregate cap
+      // (apps/ptah-cli session-submit.service.ts `AGGREGATE_BUFFER_CAP`).
+      expect(declared).toEqual({
+        agent_spawn: 8000,
+        agent_status: 8000,
+        agent_read: 8000,
+        agent_message: 8000,
+        agent_report: 8000,
+        agent_stop: 8000,
+        agent_list: 8000,
+        session_submit: 1_048_576,
+      });
+      for (const tool of tools) {
+        if (tool.name !== 'session_submit') {
+          expect(declared[tool.name]).toBe(
+            getToolResultBudget(`ptah_${tool.name}`).chars,
+          );
+        }
+      }
+    });
+
+    it('keeps the declared ceiling on a filtered catalog', () => {
+      const { svc } = makeService();
+      const resp = svc.handleToolsList(makeRequest({ method: 'tools/list' }), [
+        'agent_list',
+      ]);
+      const tools = (
+        resp.result as {
+          tools: { name: string; _meta?: Record<string, unknown> }[];
+        }
+      ).tools;
+      expect(tools[0]._meta).toMatchObject({
+        'anthropic/maxResultSizeChars': 8000,
+      });
     });
   });
 

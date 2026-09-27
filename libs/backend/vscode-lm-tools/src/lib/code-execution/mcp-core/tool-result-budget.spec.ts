@@ -28,7 +28,8 @@ jest.mock('@ptah-extension/tool-output-reducers', () => {
  * The real builtin modules. The `import * as` bindings above are interop
  * wrappers whose getters read these objects, so a spy has to go here.
  */
-const realCrypto: typeof import('node:crypto') = jest.requireActual('node:crypto');
+const realCrypto: typeof import('node:crypto') =
+  jest.requireActual('node:crypto');
 const realOs: typeof import('node:os') = jest.requireActual('node:os');
 
 const DEFAULT: TextBudget = {
@@ -82,7 +83,10 @@ function expectWithin(text: string, budget: TextBudget = DEFAULT): void {
 }
 
 /** Parses the trailer and checks the returned text is within `budget`. */
-function trailerOf(text: string, budget: TextBudget = DEFAULT): RegExpExecArray {
+function trailerOf(
+  text: string,
+  budget: TextBudget = DEFAULT,
+): RegExpExecArray {
   expectWithin(text, budget);
   const match = TRAILER.exec(text);
   if (match === null) {
@@ -128,7 +132,12 @@ describe('budget tables', () => {
   });
 
   it('never resolves an inherited property name as an override', () => {
-    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    for (const name of [
+      'constructor',
+      '__proto__',
+      'toString',
+      'hasOwnProperty',
+    ]) {
       expect(getToolResultBudget(name)).toEqual(DEFAULT);
     }
   });
@@ -137,9 +146,168 @@ describe('budget tables', () => {
     expect(TOOL_CONTENT_HINTS).toEqual({
       ptah_get_diagnostics: 'preformatted',
       ptah_get_symbol_index: 'preformatted',
+      ptah_agent_spawn: 'preformatted',
+      ptah_agent_status: 'preformatted',
       ptah_agent_read: 'preformatted',
+      ptah_agent_message: 'preformatted',
+      ptah_agent_report: 'preformatted',
+      ptah_agent_stop: 'preformatted',
+      ptah_agent_list: 'preformatted',
       ptah_task_list: 'preformatted',
     });
+  });
+
+  it('cuts an agent reply to a prefix instead of outlining away its body (review r3: R3-01)', async () => {
+    // The shape `formatAgentMessage` returns: a short Markdown header, then
+    // the agent's own reply. Both surfaces budget it under this name.
+    const text =
+      '## Agent Message\n\n**Agent ID:** a1  \n**Mode:** steer  \n' +
+      `**Detail:** MARK-small-${'e'.repeat(20_000)}\n`;
+    const outcome = await call(text, { toolName: 'ptah_agent_message' });
+    const match = trailerOf(outcome.text);
+    expect(match[1]).toBe('none');
+    expect(outcome.reducer).toBe('none');
+    expect(outcome.text).toContain(`MARK-small-${'e'.repeat(1000)}`);
+    expect(fsSync.readFileSync(outcome.spoolPath as string, 'utf8')).toBe(text);
+  });
+});
+
+describe('Markdown outline plus a labelled prefix (Batch 21r, reviews r3 R3-01 and r4 R4-03)', () => {
+  const SENTENCE =
+    'The retry used the same connection pool, so it failed again. ';
+  const PREFIX_LABEL = '[the full output from its start, cut to fit:]';
+
+  /** The outline part and the prefix part of a composed body. */
+  function partsOf(text: string): { outline: string; prefix: string } {
+    const body = text.slice(0, TRAILER.exec(text)?.index ?? text.length);
+    const at = body.indexOf(PREFIX_LABEL);
+    expect(at).toBeGreaterThan(0);
+    return {
+      outline: body.slice(0, at),
+      prefix: body.slice(at + PREFIX_LABEL.length + 2),
+    };
+  }
+
+  it('keeps a short header over one long paragraph, then a prefix of the paragraph', async () => {
+    // Any tool (no hint): a short Markdown header, then one ~20 KB block.
+    const text =
+      '## Browser Click\n\n**Error:** MARK-paragraph ' +
+      SENTENCE.repeat(330) +
+      '\n';
+    expect(text.length).toBeGreaterThan(DEFAULT.chars);
+    const outcome = await call(text);
+    const match = trailerOf(outcome.text);
+    expect(match[1]).toBe('markdown-outline+prefix');
+    expect(outcome).toMatchObject({
+      reduced: true,
+      reducer: 'markdown-outline+prefix',
+    });
+    const { outline, prefix } = partsOf(outcome.text);
+    expect(outline).toContain('## Browser Click');
+    expect(text.startsWith(prefix)).toBe(true);
+    expect(prefix).toContain('MARK-paragraph');
+    expect(prefix.length).toBeGreaterThan(DEFAULT.chars * 0.5);
+    expect(fsSync.readFileSync(outcome.spoolPath as string, 'utf8')).toBe(text);
+  });
+
+  it('review r4 R4-03 A: a late heading and answer after one long paragraph survive with the start of the paragraph (was a 7,939-char prefix without the heading)', async () => {
+    const text =
+      '## Summary\n\nMARK-FRONT ' +
+      SENTENCE.repeat(330).trimEnd() +
+      '\n\n## CRITICAL-LATE-HEADING\n\nCRITICAL-ANSWER: pool size 4.\n';
+    expect(text.length).toBeGreaterThan(DEFAULT.chars);
+    const outcome = await call(text);
+    expect(trailerOf(outcome.text)[1]).toBe('markdown-outline+prefix');
+    const { outline, prefix } = partsOf(outcome.text);
+    expect(outline).toContain('## CRITICAL-LATE-HEADING');
+    expect(outline).toContain('CRITICAL-ANSWER: pool size 4.');
+    expect(prefix).toContain('MARK-FRONT');
+    expect(text.startsWith(prefix)).toBe(true);
+    expect(fsSync.readFileSync(outcome.spoolPath as string, 'utf8')).toBe(text);
+  });
+
+  it('review r4 R4-03 B: a first long paragraph before 60 short sections keeps its front marker and every heading (was markdown-outline, 6,130 chars, marker gone)', async () => {
+    const text =
+      'MARK-BODY-DROPPED ' +
+      SENTENCE.repeat(40).trimEnd() +
+      '\n\n' +
+      Array.from(
+        { length: 60 },
+        (_, i) => `## Section ${i}\n\n${SENTENCE.repeat(2).trimEnd()}\n`,
+      ).join('\n');
+    expect(text.length).toBeGreaterThan(DEFAULT.chars);
+    const outcome = await call(text);
+    expect(trailerOf(outcome.text)[1]).toBe('markdown-outline+prefix');
+    expect(outcome.text).toContain('MARK-BODY-DROPPED');
+    const { outline } = partsOf(outcome.text);
+    for (let i = 0; i < 60; i++) {
+      expect(outline).toContain(`## Section ${i}\n`);
+    }
+    expect(fsSync.readFileSync(outcome.spoolPath as string, 'utf8')).toBe(text);
+  });
+
+  it('keeps a header over one long table or list, then a prefix with the first rows', async () => {
+    const table =
+      '## Git Worktrees\n\n| Path | Branch |\n|---|---|\n' +
+      Array.from(
+        { length: 300 },
+        (_, i) =>
+          `| /work/${i === 0 ? 'MARK-table' : `repo-${i}`} | feature/${i}-long-branch-name |`,
+      ).join('\n') +
+      '\n';
+    const list =
+      '## JSON Validation\n\n### Repairs\n\n' +
+      Array.from(
+        { length: 300 },
+        (_, i) =>
+          `- ${i === 0 ? 'MARK-list' : 'Removed'} a trailing comma at line ${i + 1}`,
+      ).join('\n') +
+      '\n\n### Errors\n\n- Unexpected token } in JSON at position 4211\n';
+    for (const [text, marker] of [
+      [table, 'MARK-table'],
+      [list, 'MARK-list'],
+    ]) {
+      expect(text.length).toBeGreaterThan(DEFAULT.chars);
+      const outcome = await call(text);
+      expect(trailerOf(outcome.text)[1]).toBe('markdown-outline+prefix');
+      expect(outcome.reducer).toBe('markdown-outline+prefix');
+      expect(partsOf(outcome.text).prefix).toContain(marker);
+    }
+  });
+
+  it('outlines a document with many sections, every heading kept, and still leaves room for the prefix', async () => {
+    const text = Array.from(
+      { length: 60 },
+      (_, i) =>
+        `## Section ${i}\n\n${SENTENCE.repeat(3)}\n\n${SENTENCE.repeat(3)}\n`,
+    ).join('\n');
+    expect(text.length).toBeGreaterThan(DEFAULT.chars);
+    const outcome = await call(text);
+    expect(trailerOf(outcome.text)[1]).toBe('markdown-outline+prefix');
+    expect(outcome.reducer).toBe('markdown-outline+prefix');
+    const { outline, prefix } = partsOf(outcome.text);
+    for (let i = 0; i < 60; i++) {
+      expect(outline).toContain(`## Section ${i}\n`);
+    }
+    expect(text.startsWith(prefix)).toBe(true);
+    expect(prefix).toContain('## Section 0\n');
+  });
+
+  it('leaves the non-outline reducers alone however little they return', async () => {
+    // JSON compaction drops empty fields; a small result is not an omission.
+    const raw = JSON.stringify(
+      Array.from({ length: 400 }, (_, i) => ({
+        id: i,
+        note: null,
+        tags: [],
+        meta: {},
+      })),
+      null,
+      2,
+    );
+    const outcome = await call(raw);
+    expect(outcome.reducer).toBe('json-compact');
+    expect(outcome.text.length).toBeLessThan(DEFAULT.chars * 0.5);
   });
 });
 
@@ -185,14 +353,19 @@ describe('applyToolResultBudget', () => {
     expect(Number(trailer[3])).toBeLessThan(outcome.rawTokens);
     expect(trailer[6]).toBe(outcome.spoolPath);
     expect(path.dirname(outcome.spoolPath ?? '')).toBe(spoolDir());
-    expect(path.basename(outcome.spoolPath ?? '')).toMatch(/^7-\d+-[0-9a-f]{4}\.txt$/);
+    expect(path.basename(outcome.spoolPath ?? '')).toMatch(
+      /^7-\d+-[0-9a-f]{4}\.txt$/,
+    );
     expect(fsSync.readFileSync(outcome.spoolPath ?? '', 'utf8')).toBe(raw);
     expect(outcome.returnedTokens).toBeLessThanOrEqual(DEFAULT.tokens);
   });
 
   it('cuts reduced JSON that is still over budget mid-line and marks it partial', async () => {
     const raw = JSON.stringify({
-      rows: Array.from({ length: 900 }, (_, i) => `distinct value number ${i} ${'z'.repeat(i % 13)}`),
+      rows: Array.from(
+        { length: 900 },
+        (_, i) => `distinct value number ${i} ${'z'.repeat(i % 13)}`,
+      ),
     });
     expect(raw).not.toContain('\n');
     const outcome = await call(raw);
@@ -205,7 +378,11 @@ describe('applyToolResultBudget', () => {
   it('cuts over-budget single-line text at the limit and spools it', async () => {
     const raw = 'word '.repeat(4000).trim();
     const outcome = await call(raw);
-    expect(outcome).toMatchObject({ reduced: false, truncated: true, reducer: 'none' });
+    expect(outcome).toMatchObject({
+      reduced: false,
+      truncated: true,
+      reducer: 'none',
+    });
     const trailer = trailerOf(outcome.text);
     expect(trailer[1]).toBe('none');
     expect(trailer[2]).toBe(' — partial, cut mid-line');
@@ -216,7 +393,10 @@ describe('applyToolResultBudget', () => {
   });
 
   it('cuts multi-line text at the last line break inside the window', async () => {
-    const lines = Array.from({ length: 400 }, (_, i) => `Line ${i}: an ordinary sentence of prose.`);
+    const lines = Array.from(
+      { length: 400 },
+      (_, i) => `Line ${i}: an ordinary sentence of prose.`,
+    );
     const raw = lines.join('\r\n');
     const outcome = await call(raw);
     const trailer = trailerOf(outcome.text);
@@ -238,7 +418,11 @@ describe('applyToolResultBudget', () => {
   it('cuts preformatted diagnostics and never runs a reducer on them', async () => {
     const raw = jsonRows(150);
     const outcome = await call(raw, { toolName: 'ptah_get_diagnostics' });
-    expect(outcome).toMatchObject({ reduced: false, truncated: true, reducer: 'none' });
+    expect(outcome).toMatchObject({
+      reduced: false,
+      truncated: true,
+      reducer: 'none',
+    });
     const trailer = trailerOf(outcome.text);
     expect(raw.startsWith(outcome.text.slice(0, trailer.index))).toBe(true);
   });
@@ -246,9 +430,14 @@ describe('applyToolResultBudget', () => {
   it('keeps the error lines of an over-budget log through the reducer', async () => {
     const lines: string[] = [];
     for (let i = 0; i < 3000; i++) {
-      lines.push(`[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i}`);
+      lines.push(
+        `[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i}`,
+      );
       if (i === 1500) {
-        lines.push('ERROR: expected 3 to be 4', '    at Object.<anonymous> (src/a.spec.ts:12:5)');
+        lines.push(
+          'ERROR: expected 3 to be 4',
+          '    at Object.<anonymous> (src/a.spec.ts:12:5)',
+        );
       }
     }
     const outcome = await call(lines.join('\n'));
@@ -258,9 +447,12 @@ describe('applyToolResultBudget', () => {
   });
 
   it('reports a spool write failure in the trailer and still returns the capped text', async () => {
-    const denied = Object.assign(new Error(`EACCES: permission denied, open '${root}'`), {
-      code: 'EACCES',
-    });
+    const denied = Object.assign(
+      new Error(`EACCES: permission denied, open '${root}'`),
+      {
+        code: 'EACCES',
+      },
+    );
     jest.spyOn(fsSync.promises, 'writeFile').mockRejectedValue(denied);
     const outcome = await call('word '.repeat(4000));
     expect(outcome.spoolPath).toBeUndefined();
@@ -273,7 +465,9 @@ describe('applyToolResultBudget', () => {
   it('reports a spool directory failure the same way', async () => {
     jest
       .spyOn(fsSync.promises, 'mkdir')
-      .mockRejectedValue(Object.assign(new Error('read-only'), { code: 'EROFS' }));
+      .mockRejectedValue(
+        Object.assign(new Error('read-only'), { code: 'EROFS' }),
+      );
     const outcome = await call(jsonRows(150));
     expect(outcome.reducer).toBe('json-compact');
     expect(trailerOf(outcome.text)[7]).toBe('EROFS');
@@ -281,32 +475,55 @@ describe('applyToolResultBudget', () => {
 
   it('writes two files for two calls with the same request id', async () => {
     const first = await call(`first ${'word '.repeat(4000)}`, { requestId: 1 });
-    const second = await call(`second ${'word '.repeat(4000)}`, { requestId: 1 });
+    const second = await call(`second ${'word '.repeat(4000)}`, {
+      requestId: 1,
+    });
     expect(first.spoolPath).not.toBe(second.spoolPath);
     expect(spooledFiles()).toHaveLength(2);
-    expect(fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first')).toBe(true);
-    expect(fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second')).toBe(true);
+    expect(
+      fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first'),
+    ).toBe(true);
+    expect(
+      fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second'),
+    ).toBe(true);
   });
 
   it('never overwrites an existing spool file with the same name', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(1_790_000_000_000);
     const fixed = Buffer.from([0xab, 0xcd]);
-    const random = jest.spyOn(realCrypto, 'randomBytes') as unknown as jest.Mock;
+    const random = jest.spyOn(
+      realCrypto,
+      'randomBytes',
+    ) as unknown as jest.Mock;
     // The first call's name, then the second call's first attempt: the same name.
     random.mockReturnValueOnce(fixed).mockReturnValueOnce(fixed);
-    const first = await call(`first ${'word '.repeat(4000)}`, { requestId: 'a' });
-    const second = await call(`second ${'word '.repeat(4000)}`, { requestId: 'a' });
-    expect(path.basename(first.spoolPath ?? '')).toBe('a-1790000000000-abcd.txt');
+    const first = await call(`first ${'word '.repeat(4000)}`, {
+      requestId: 'a',
+    });
+    const second = await call(`second ${'word '.repeat(4000)}`, {
+      requestId: 'a',
+    });
+    expect(path.basename(first.spoolPath ?? '')).toBe(
+      'a-1790000000000-abcd.txt',
+    );
     expect(second.spoolPath).toBeDefined();
     expect(second.spoolPath).not.toBe(first.spoolPath);
-    expect(fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first')).toBe(true);
-    expect(fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second')).toBe(true);
+    expect(
+      fsSync.readFileSync(first.spoolPath ?? '', 'utf8').startsWith('first'),
+    ).toBe(true);
+    expect(
+      fsSync.readFileSync(second.spoolPath ?? '', 'utf8').startsWith('second'),
+    ).toBe(true);
   });
 
   it('sanitises the request id so the spool file stays in the spool directory', async () => {
-    const outcome = await call('word '.repeat(4000), { requestId: '../../evil/..\\x' });
+    const outcome = await call('word '.repeat(4000), {
+      requestId: '../../evil/..\\x',
+    });
     expect(path.dirname(outcome.spoolPath ?? '')).toBe(spoolDir());
-    expect(path.basename(outcome.spoolPath ?? '')).toMatch(/^[A-Za-z0-9_-]+-\d+-[0-9a-f]{4}\.txt$/);
+    expect(path.basename(outcome.spoolPath ?? '')).toMatch(
+      /^[A-Za-z0-9_-]+-\d+-[0-9a-f]{4}\.txt$/,
+    );
   });
 
   it('falls back to os.tmpdir() for a relative or empty spool root', async () => {
@@ -354,7 +571,9 @@ describe('applyToolResultBudget', () => {
     const outcome = await call(raw, { output });
     expect(outcome.truncated).toBe(true);
     expectWithin(outcome.text);
-    expect(outcome.text).toMatch(/full output could not be saved: TypeError\]$/);
+    expect(outcome.text).toMatch(
+      /full output could not be saved: TypeError\]$/,
+    );
     expect(raw.startsWith(outcome.text.split('\n\n[reduced:')[0])).toBe(true);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('TypeError');
@@ -416,7 +635,8 @@ describe('review 2e r1 regressions', () => {
   it('S2: a verbose head never pushes the failure and the summary out of a log', async () => {
     const lines = Array.from(
       { length: 1000 },
-      (_, i) => `[2026-09-26T10:00:00] INFO step ${i} ${'normal detail '.repeat(40)}`,
+      (_, i) =>
+        `[2026-09-26T10:00:00] INFO step ${i} ${'normal detail '.repeat(40)}`,
     );
     lines.splice(700, 0, 'ERROR: UNIQUE_FAILURE', '    at fail (x.ts:1:2)');
     lines.push('Tests: 1 failed, 999 passed');
@@ -450,7 +670,10 @@ describe('review 2e r1 regressions', () => {
   });
 
   it('M1: a temp-directory spool root is named as such in a relative locator', async () => {
-    const longTmp = path.join(root, ...Array.from({ length: 30 }, () => 'tq'.repeat(100)));
+    const longTmp = path.join(
+      root,
+      ...Array.from({ length: 30 }, () => 'tq'.repeat(100)),
+    );
     jest.spyOn(realOs, 'tmpdir').mockReturnValue(longTmp);
     jest.spyOn(fsSync.promises, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fsSync.promises, 'writeFile').mockResolvedValue(undefined);
@@ -466,15 +689,22 @@ describe('review 2e r1 regressions', () => {
     const outcome = await call(raw, { output: sinkDown() });
     expect(outcome.truncated).toBe(true);
     expectWithin(outcome.text);
-    expect(outcome.text).toMatch(/full output could not be saved: TypeError\]$/);
+    expect(outcome.text).toMatch(
+      /full output could not be saved: TypeError\]$/,
+    );
   });
 
   it('M3: a custom Error name never reaches the trailer or the log', async () => {
     const lines: string[] = [];
-    const output = { ...sinkDown(), appendLine: (line: string) => lines.push(line) } as ApplyToolResultBudgetInput['output'];
+    const output = {
+      ...sinkDown(),
+      appendLine: (line: string) => lines.push(line),
+    } as ApplyToolResultBudgetInput['output'];
     jest
       .mocked(reduceOutput)
-      .mockRejectedValueOnce(Object.assign(new Error('message'), { name: '/private/SECRET' }));
+      .mockRejectedValueOnce(
+        Object.assign(new Error('message'), { name: '/private/SECRET' }),
+      );
     const outcome = await call('word '.repeat(4000), { output });
     expect(outcome.text).toMatch(/full output could not be saved: Error\]$/);
     expect(outcome.text).not.toContain('SECRET');
@@ -484,7 +714,9 @@ describe('review 2e r1 regressions', () => {
   it('M3: a spool failure with a custom name and no errno code reports only Error', async () => {
     jest
       .spyOn(fsSync.promises, 'writeFile')
-      .mockRejectedValue(Object.assign(new Error('x'), { name: '/private/SECRET' }));
+      .mockRejectedValue(
+        Object.assign(new Error('x'), { name: '/private/SECRET' }),
+      );
     const outcome = await call('word '.repeat(4000));
     expect(outcome.text).toMatch(/full output could not be saved: Error\]$/);
     expect(outcome.text).not.toContain('SECRET');

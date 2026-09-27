@@ -39,6 +39,7 @@ import {
 import {
   formatBrowserContent,
   formatSearchFiles,
+  formatWebSearch,
 } from './mcp-response-formatter';
 import {
   buildBrowserScreenshotTool,
@@ -3152,52 +3153,157 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     expect(fs.existsSync(spoolDir())).toBe(false);
   });
 
-  // Pins TODAY's behaviour under the ptah_browser_content override (32 KiB +
-  // 1 KiB): the formatter caps text and HTML at 32 KiB EACH, so a large page
-  // exceeds the override. The Markdown reducer then keeps the text section
-  // and replaces the whole HTML code block with an omission line (no line
-  // cut is needed after that); the full formatted output is spooled and the
-  // trailer names it. Batch 2e follow-up: a later fix to the browser output
-  // should show up as a deliberate change to this spec.
-  it('ptah_browser_content: a large page loses its HTML block to the override, the full output is spooled, and the trailer names it', async () => {
-    const page = {
-      text: Array.from(
-        { length: 900 },
+  // TASK_2026_559 Batch 21p (review r1 finding 5): over the 32 KiB + 1 KiB
+  // override, the page's own HTML goes through the budget declared as HTML,
+  // so the extracted main content is what the agent sees and the raw HTML is
+  // spooled byte-equal. Replaces the Batch 2f pin (HTML block omitted by the
+  // Markdown outline of the formatted envelope).
+  describe('ptah_browser_content over its budget (Batch 21p)', () => {
+    const TITLE = 'ARTICLE-TITLE-21p';
+    const PARAGRAPH = 'Article paragraph 0: the committee approved the budget.';
+
+    /** A ~200 KB news page: a large nav, the article, a large footer. */
+    function newsPage(articleExtra = ''): { text: string; html: string } {
+      const links = (label: string, href: string): string[] =>
+        Array.from(
+          { length: 2000 },
+          (_, i) => `<a href="/${href}/${i}">${label} ${i}</a>`,
+        );
+      const paragraphs = Array.from(
+        { length: 600 },
         (_, i) =>
-          `Paragraph ${i}: the quick brown fox jumps over the lazy dog.`,
-      ).join('\n'),
-      html: Array.from(
-        { length: 900 },
-        (_, i) => `<p class="para">Paragraph ${i}: the quick brown fox</p>`,
-      ).join('\n'),
-    };
-    const raw = formatBrowserContent(page);
-    const budget = getToolResultBudget('ptah_browser_content');
-    expect(raw.length).toBeGreaterThan(budget.chars);
-    const deps = buildDeps({
-      ptahAPI: buildPtahAPIStub({
-        browser: {
-          getContent: jest.fn().mockResolvedValue(page),
-        } as unknown as PtahAPI['browser'],
-      }),
+          `<p>Article paragraph ${i}: the committee approved the budget.</p>`,
+      );
+      const html =
+        '<!doctype html><html><head><title>News</title></head><body>' +
+        `<nav>${links('NAV-NOISE', 'section').join(' ')}</nav>` +
+        `<article><h1>${TITLE}</h1>${articleExtra}${paragraphs.join('\n')}</article>` +
+        `<footer>${links('FOOTER-NOISE', 'legal').join(' ')}</footer>` +
+        '</body></html>';
+      // The page text as the browser reports it: nav first, as rendered.
+      const text = [
+        Array.from({ length: 2000 }, (_, i) => `NAV-NOISE ${i}`).join(' '),
+        TITLE,
+        ...paragraphs.map((p) => p.replace(/<\/?p>/g, '')),
+        Array.from({ length: 2000 }, (_, i) => `FOOTER-NOISE ${i}`).join(' '),
+      ].join('\n');
+      return { text, html };
+    }
+
+    function depsFor(page: { text: string; html: string }) {
+      return buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          browser: {
+            getContent: jest.fn().mockResolvedValue(page),
+          } as unknown as PtahAPI['browser'],
+        }),
+      });
+    }
+
+    function expectWithinBrowserBudget(text: string): void {
+      const budget = getToolResultBudget('ptah_browser_content');
+      expect(budget.chars).toBe(32 * 1024 + 1024);
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+    }
+
+    it('keeps the article title and paragraphs, drops nav/footer noise, spools the raw HTML byte-equal and names html-extract', async () => {
+      const page = newsPage();
+      expect(page.html.length).toBeGreaterThan(190_000);
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text.startsWith(TITLE)).toBe(true);
+      expect(text).toContain(PARAGRAPH);
+      expect(text).not.toContain('NAV-NOISE');
+      expect(text).not.toContain('FOOTER-NOISE');
+      expect(text).not.toContain('<p>');
+      expect(onlySpoolFile()).toBe(page.html);
+      const [spooled] = fs.readdirSync(spoolDir());
+      const trailer =
+        /\n\n\[reduced: html-extract(?: — partial, cut at a line end)? — showing \d+ of \d+ tokens — full output: ([^\]]+)\]$/.exec(
+          text,
+        );
+      expect(trailer?.[1]).toBe(path.join(spoolDir(), spooled));
     });
 
-    const text = textOf(await callTool('ptah_browser_content', {}, deps));
+    // Review r4 R4-03: the fallback is the ordinary budget path for the
+    // formatted page. Its Markdown outline keeps the page's structure (every
+    // section heading, and the HTML section a raw prefix never reaches); the
+    // rest of the window is a labelled prefix of the formatted page.
+    it('falls back to the formatted page (outline + labelled prefix + spool) when the extractor refuses the HTML', async () => {
+      // `<xmp>` raw text is not modelled by the extractor: it refuses.
+      const page = newsPage('<xmp>raw <b>text</b></xmp>');
+      const raw = formatBrowserContent(page);
 
-    expect(budget.chars).toBe(32 * 1024 + 1024);
-    expect(text.length).toBeLessThanOrEqual(budget.chars);
-    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
-    expect(text).toMatch(
-      /\n\n\[reduced: markdown-outline — showing \d+ of \d+ tokens — full output: [^\]]+\]$/,
-    );
-    expect(text).not.toContain('— partial');
-    expect(onlySpoolFile()).toBe(raw);
-    // The text section (already capped by the formatter) comes first and
-    // survives whole; the HTML section keeps its heading only.
-    expect(text).toContain('Paragraph 0: the quick brown fox');
-    expect(text).toContain('[...truncated]');
-    expect(text).toMatch(/### HTML\n\n\(code block, \d+ lines, omitted\)/);
-    expect(text).not.toContain('<p class="para">');
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text).not.toContain('html-extract');
+      expect(text).toMatch(
+        /\n\n\[reduced: markdown-outline\+prefix(?: — partial, cut (?:at a line end|mid-line))? — showing \d+ of \d+ tokens — full output: [^\]]+\]$/,
+      );
+      // The outline comes first: the page's headings, including the late
+      // HTML section and the note that names what was omitted from it.
+      const outlineEnd = text.indexOf('[the full output from its start');
+      expect(outlineEnd).toBeGreaterThan(0);
+      const outline = text.slice(0, outlineEnd);
+      expect(outline).toContain('## Page Content');
+      expect(outline).toContain('### Text');
+      expect(outline).toContain('### HTML');
+      expect(outline).toMatch(/\(code block, \d+ lines, omitted\)/);
+      // Then a large prefix of the formatted page itself.
+      const prefix = text.slice(
+        text.indexOf('\n\n', outlineEnd) + 2,
+        text.lastIndexOf('\n\n[reduced: '),
+      );
+      expect(raw.startsWith(prefix)).toBe(true);
+      expect(prefix.length).toBeGreaterThan(8 * 1024);
+      // One spool file only: the refused attempt wrote nothing.
+      expect(onlySpoolFile()).toBe(raw);
+    });
+
+    it('falls back to the formatted page when the HTML alone is within the budget (large text only)', async () => {
+      const page = {
+        text: 'T'.repeat(60_000),
+        html: `<article><h1>${TITLE}</h1><p>${PARAGRAPH}</p></article>`,
+      };
+      const raw = formatBrowserContent(page);
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text).not.toContain('html-extract');
+      expect(text).toContain('[reduced: markdown-outline+prefix');
+      // The outline keeps the whole (small) HTML section, the article itself,
+      // which the text-first prefix never reaches.
+      expect(text).toContain(`<h1>${TITLE}</h1>`);
+      expect(text).toContain(PARAGRAPH);
+      // The prefix keeps the start of the large text.
+      expect(text).toContain('T'.repeat(1000));
+      expect(onlySpoolFile()).toBe(raw);
+    });
+
+    it('returns a page within the budget unchanged (text and HTML sections), with no spool', async () => {
+      const page = {
+        text: `${TITLE}\n${PARAGRAPH}`,
+        html: `<nav><a href="/x">NAV-NOISE</a></nav><article><h1>${TITLE}</h1><p>${PARAGRAPH}</p></article>`,
+      };
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expect(text).toBe(formatBrowserContent(page));
+      expect(fs.existsSync(spoolDir())).toBe(false);
+    });
   });
 
   // TASK_2026_559 Batch 18: an over-budget evaluate value is cut by the
@@ -3852,10 +3958,21 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
 
   // TASK_2026_559 Batch 11b (r1 Minor): the ptah_search_files truncation
   // notice precedes the list so the budget cannot drop it. Pinned through
-  // both oversized paths: the Markdown reducer and the plain prefix cut.
+  // both oversized sizes. Review r4 R4-03: below the outline cap the Markdown
+  // outline keeps the header and the notice (the list does not fit whole),
+  // and the rest of the window is a labelled prefix that keeps the first
+  // files; above the cap the plain prefix cut keeps both.
   it.each([
-    ['the Markdown reducer', 1_000, /^\[reduced: markdown-outline — /m],
-    ['a prefix cut', 10_000, /^\[reduced: \S+ — partial, cut /m],
+    [
+      'the outline plus a labelled prefix below the outline cap',
+      1_000,
+      /^\[reduced: markdown-outline\+prefix /m,
+    ],
+    [
+      'a prefix cut above the outline cap',
+      10_000,
+      /^\[reduced: \S+ — partial, cut /m,
+    ],
   ])(
     'keeps the search_files truncation notice through %s (%i files over the limit)',
     async (_path, limit, trailer) => {
@@ -3885,9 +4002,59 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
         `Found: more than ${limit} files (showing first ${limit}; narrow the pattern or raise limit)`,
       );
       expect(text).toMatch(trailer);
+      // The first file rows survive, in order, not only the notice.
+      expect(text).toContain(
+        '1. libs/group-0/src/lib/file-0.service.ts\n 2. libs/group-1/src/lib/file-1.service.ts',
+      );
       expect(onlySpoolFile()).toBe(raw);
     },
   );
+
+  // Review r4 R4-03 counterexample A, through the real handler: a long prose
+  // summary followed by a late heading and a short answer. The outline keeps
+  // the late heading and answer; the labelled prefix keeps the start of the
+  // summary. Neither is traded for the other.
+  it('ptah_web_search: a late heading and its answer after a long prose summary survive, next to the start of the summary', async () => {
+    const sentence =
+      'The providers agreed on the retry budget and the cache policy for the rollout. ';
+    const prose = `MARK-SUMMARY-FRONT ${sentence.repeat(250)}`.trimEnd();
+    const summary = `${prose}\n\n## CRITICAL-LATE-HEADING\n\nCRITICAL-ANSWER: use the second provider.`;
+    const result = {
+      query: 'rollout policy',
+      summary,
+      providers: ['serper'],
+      status: 'ok',
+      durationMs: 10,
+      results: [],
+      resultCount: 0,
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 10, resultCount: 0 },
+      ],
+    };
+    const search = jest.fn().mockResolvedValue(result);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        webSearch: { search } as unknown as PtahAPI['webSearch'],
+      }),
+    });
+
+    const res = await callTool(
+      'ptah_web_search',
+      { query: 'rollout policy' },
+      deps,
+    );
+
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = textOf(res);
+    const raw = formatWebSearch(result);
+    expect(raw.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expectWithinDefaultBudget(text);
+    expect(text).toContain('## CRITICAL-LATE-HEADING');
+    expect(text).toContain('CRITICAL-ANSWER: use the second provider.');
+    expect(text).toContain('MARK-SUMMARY-FRONT');
+    expect(text).toMatch(/\n\n\[reduced: markdown-outline\+prefix /);
+    expect(onlySpoolFile()).toBe(raw);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,9 @@
  *   1. Parses the inbound `tools/call` arguments through a Zod schema.
  *   2. Delegates to the corresponding `PtahAPI.agent.*` method.
  *   3. Returns an MCP-compliant `{ content, isError?, structuredContent }`
- *      payload.
+ *      payload. Success text goes through the tool-result budget first —
+ *      the same step, with the same per-tool budget, as the HTTP surface —
+ *      and `structuredContent` is held to that budget too.
  *
  * On schema-validation failure, returns an MCP `result.isError: true` envelope
  * with `structuredContent.ptah_code = 'mcp_invalid_tool_args'` and the
@@ -26,6 +28,7 @@
  */
 
 import { z } from 'zod';
+import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   MCPRequest,
@@ -46,10 +49,16 @@ import {
   checkRepeatAgentStatus,
 } from '../mcp-core/agent-status-throttle';
 import {
+  applyToolResultBudget,
   getToolResultBudget,
   spoolToolText,
 } from '../mcp-core/tool-result-budget';
 import { MAX_AGENT_MESSAGE_LENGTH } from '../mcp-core/tool-description.builder';
+import {
+  boundStructuredContent,
+  structuredContentFits,
+} from './bounded-structured-content';
+import { agentToolBudgetName } from './tool-builders';
 import { AgentSpawnArgsSchema } from '../mcp-core/agent-spawn-args.schema';
 import {
   AgentMessageError,
@@ -126,18 +135,18 @@ function toolError(
   };
 }
 
-function toolSuccess(
-  request: MCPRequest,
-  text: string,
-  structuredContent?: Record<string, unknown>,
-): MCPResponse {
+/** Budget-step diagnostics go to the dispatcher's logger at warn. */
+function budgetOutputChannel(logger: Logger): IOutputChannel {
+  const write = (line: string): void => {
+    logger.warn(line);
+  };
   return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: {
-      content: [{ type: 'text', text }],
-      ...(structuredContent !== undefined ? { structuredContent } : {}),
-    },
+    name: 'McpStdio',
+    appendLine: write,
+    append: write,
+    clear: () => undefined,
+    show: () => undefined,
+    dispose: () => undefined,
   };
 }
 
@@ -197,7 +206,8 @@ export class AgentToolDispatcher {
     /** Clock (epoch ms) of the `agent_status` repeat throttle. */
     private readonly now: () => number = () => Date.now(),
     /**
-     * Root of the `agent_read` spool (`<root>/.ptah/tmp/mcp-out`). The host
+     * Root of the result spool (`<root>/.ptah/tmp/mcp-out`): the full text of
+     * an over-budget result and `agent_read`'s saved line ranges. The host
      * process's working directory: set by whoever launched `mcp-serve`, not
      * by the calling model — the stdio counterpart of the HTTP surface's
      * host-owned workspace folder.
@@ -244,6 +254,78 @@ export class AgentToolDispatcher {
     }
   }
 
+  /**
+   * A success result held to the tool's declared budget. The text goes
+   * through the step the HTTP surface applies to every success
+   * (`protocol-dispatcher.ts` `createToolSuccessResponse`): within the
+   * budget it is returned byte-for-byte and nothing is spooled; over it the
+   * text is cut to a prefix (the agent tools are hinted `preformatted`), the
+   * raw text is spooled under {@link spoolRoot}, and a trailer names the
+   * reducer and the spool file.
+   *
+   * `structuredContent` is held to the same budget, because a host may show
+   * it to the model instead of the text: a value whose JSON fits is returned
+   * unchanged; a larger one is saved whole as JSON and replaced by a bounded
+   * object ({@link boundStructuredContent}). Error results are not budgeted,
+   * as on the HTTP surface.
+   */
+  private async toolSuccess(
+    request: MCPRequest,
+    tool: string,
+    text: string,
+    structuredContent?: Record<string, unknown>,
+  ): Promise<MCPResponse> {
+    const toolName = agentToolBudgetName(tool);
+    const budgeted = await applyToolResultBudget({
+      text,
+      toolName,
+      requestId: request.id,
+      spoolRoot: this.spoolRoot(),
+      output: budgetOutputChannel(this.logger),
+    });
+    const structured =
+      structuredContent === undefined
+        ? undefined
+        : await this.budgetStructured(
+            request,
+            toolName,
+            structuredContent,
+            budgeted.spoolPath,
+          );
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        content: [{ type: 'text', text: budgeted.text }],
+        ...(structured !== undefined ? { structuredContent: structured } : {}),
+      },
+    };
+  }
+
+  /** `value` when its JSON fits the tool's budget; else the bounded object. */
+  private async budgetStructured(
+    request: MCPRequest,
+    toolName: string,
+    value: Record<string, unknown>,
+    textSpoolPath: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    const budget = getToolResultBudget(toolName);
+    if (structuredContentFits(value, budget)) {
+      return value;
+    }
+    const spoolRoot = this.spoolRoot();
+    const saved = await spoolToolText(
+      JSON.stringify(value),
+      spoolRoot,
+      request.id,
+    );
+    return boundStructuredContent(value, budget, {
+      structured: saved,
+      spoolRoot,
+      ...(textSpoolPath !== undefined ? { textSpoolPath } : {}),
+    });
+  }
+
   private async handleSpawn(
     request: MCPRequest,
     args: unknown,
@@ -280,8 +362,9 @@ export class AgentToolDispatcher {
         parentSessionId: this.callerSessionId,
         role: p.role,
       });
-      return toolSuccess(
+      return await this.toolSuccess(
         request,
+        'agent_spawn',
         formatAgentSpawn(result, {
           modelTier: p.ptahCliId ? (p.modelTier ?? 'sonnet') : undefined,
         }),
@@ -365,8 +448,9 @@ export class AgentToolDispatcher {
         const fullAgain = new Date(
           Date.parse(unchanged.since) + AGENT_STATUS_REPEAT_WINDOW_MS,
         ).toISOString();
-        return toolSuccess(
+        return await this.toolSuccess(
           request,
+          'agent_status',
           `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
             `Repeat calls return this line until ${fullAgain}; a status ` +
             'change is reported at once.',
@@ -377,9 +461,12 @@ export class AgentToolDispatcher {
           },
         );
       }
-      return toolSuccess(request, formatAgentStatus(result), {
-        agents: Array.isArray(result) ? result : [result],
-      });
+      return await this.toolSuccess(
+        request,
+        'agent_status',
+        formatAgentStatus(result),
+        { agents: Array.isArray(result) ? result : [result] },
+      );
     } catch (err) {
       return toolError(
         request,
@@ -409,15 +496,15 @@ export class AgentToolDispatcher {
         parsed.data.tail,
         parsed.data.offset,
       );
-      // The same budgeted window the HTTP surface returns: stdio has no
-      // budget step of its own, so this is the only bound on the answer.
+      // The same budgeted window the HTTP surface returns. It already fits
+      // the budget, so the budget step below returns it unchanged.
       const view = await renderAgentRead(
         result,
         parsed.data.offset,
         getToolResultBudget('ptah_agent_read'),
         (text) => spoolToolText(text, this.spoolRoot(), request.id),
       );
-      return toolSuccess(request, view.text, {
+      return await this.toolSuccess(request, 'agent_read', view.text, {
         agentId: result.agentId,
         lineCount: view.shownLines,
         totalLines: result.totalLines,
@@ -454,8 +541,9 @@ export class AgentToolDispatcher {
         parsed.data.agentId,
         parsed.data.message,
       );
-      return toolSuccess(
+      return await this.toolSuccess(
         request,
+        'agent_message',
         formatAgentMessage({ agentId: parsed.data.agentId, ...outcome }),
         {
           agentId: parsed.data.agentId,
@@ -507,7 +595,12 @@ export class AgentToolDispatcher {
         delivered: false,
         reason: 'unattributed-caller' as const,
       };
-      return toolSuccess(request, formatAgentReport(refusal), refusal);
+      return this.toolSuccess(
+        request,
+        'agent_report',
+        formatAgentReport(refusal),
+        refusal,
+      );
     }
     try {
       const delivery = await this.ptahAPI.agent.report({
@@ -515,13 +608,18 @@ export class AgentToolDispatcher {
         message: parsed.data.message,
         summary: parsed.data.summary,
       });
-      return toolSuccess(request, formatAgentReport(delivery), {
-        delivered: delivery.delivered,
-        ...(delivery.reason !== undefined ? { reason: delivery.reason } : {}),
-        ...(delivery.parentSessionId !== undefined
-          ? { parentSessionId: delivery.parentSessionId }
-          : {}),
-      });
+      return await this.toolSuccess(
+        request,
+        'agent_report',
+        formatAgentReport(delivery),
+        {
+          delivered: delivery.delivered,
+          ...(delivery.reason !== undefined ? { reason: delivery.reason } : {}),
+          ...(delivery.parentSessionId !== undefined
+            ? { parentSessionId: delivery.parentSessionId }
+            : {}),
+        },
+      );
     } catch (err: unknown) {
       return toolError(
         request,
@@ -547,12 +645,19 @@ export class AgentToolDispatcher {
     }
     try {
       const result = await this.ptahAPI.agent.stop(parsed.data.agentId);
-      return toolSuccess(request, formatAgentStop(result), {
-        agentId: result.agentId,
-        cli: result.cli,
-        status: result.status,
-        ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
-      });
+      return await this.toolSuccess(
+        request,
+        'agent_stop',
+        formatAgentStop(result),
+        {
+          agentId: result.agentId,
+          cli: result.cli,
+          status: result.status,
+          ...(result.exitCode !== undefined
+            ? { exitCode: result.exitCode }
+            : {}),
+        },
+      );
     } catch (err) {
       return toolError(
         request,
@@ -579,11 +684,12 @@ export class AgentToolDispatcher {
     try {
       const agents = await this.ptahAPI.agent.list();
       const roles = await this.listRolesOrEmpty();
-      return toolSuccess(request, formatAgentList(agents, roles), {
-        agents,
-        total: agents.length,
-        roles,
-      });
+      return await this.toolSuccess(
+        request,
+        'agent_list',
+        formatAgentList(agents, roles),
+        { agents, total: agents.length, roles },
+      );
     } catch (err) {
       return toolError(
         request,

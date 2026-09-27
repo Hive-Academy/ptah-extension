@@ -27,7 +27,30 @@ import {
   buildAgentStopTool,
   buildAgentListTool,
 } from '../mcp-core/tool-description.builder';
+import { getToolResultBudget } from '../mcp-core/tool-result-budget';
 import type { MCPToolDefinition } from '../mcp-core/types/mcp-protocol.types';
+
+/** The `_meta` key a tool's result ceiling is declared under (as on HTTP). */
+const MAX_RESULT_SIZE_META = 'anthropic/maxResultSizeChars';
+
+/**
+ * Largest `session_submit` result text, in chars: the aggregate text cap its
+ * handler keeps (`AGGREGATE_BUFFER_CAP`, 1024 * 1024, in
+ * `apps/ptah-cli/src/services/mcp/session-submit.service.ts`, measured as
+ * string length). The handler lives in the app, which this lib must not
+ * import, so the value is restated here; the tool is not held to the agent
+ * tools' budget and must not declare it.
+ */
+const SESSION_SUBMIT_MAX_RESULT_CHARS = 1024 * 1024;
+
+/**
+ * The name a stdio agent tool's budget is kept under: its HTTP counterpart's
+ * (`agent_spawn` → `ptah_agent_spawn`), so both surfaces declare and enforce
+ * the same `getToolResultBudget` entry.
+ */
+export function agentToolBudgetName(tool: string): string {
+  return `ptah_${tool}`;
+}
 
 /** MCP-wire tool names as advertised on `tools/list`. */
 export const MCP_MVP_TOOL_NAMES = [
@@ -43,11 +66,23 @@ export const MCP_MVP_TOOL_NAMES = [
 
 export type McpMvpToolName = (typeof MCP_MVP_TOOL_NAMES)[number];
 
+/**
+ * The canonical definition under its MCP-wire name, declaring the result
+ * ceiling the stdio dispatcher holds this tool's text to.
+ */
 function rename(
   def: MCPToolDefinition,
   name: McpMvpToolName,
 ): MCPToolDefinition {
-  return { ...def, name };
+  return {
+    ...def,
+    name,
+    _meta: {
+      ...def._meta,
+      [MAX_RESULT_SIZE_META]: getToolResultBudget(agentToolBudgetName(name))
+        .chars,
+    },
+  };
 }
 
 export function buildMcpAgentSpawnTool(): MCPToolDefinition {
@@ -132,6 +167,7 @@ export function buildMcpSessionSubmitTool(): MCPToolDefinition {
       },
       required: ['task'],
     },
+    _meta: { [MAX_RESULT_SIZE_META]: SESSION_SUBMIT_MAX_RESULT_CHARS },
   };
 }
 

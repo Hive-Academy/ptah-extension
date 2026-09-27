@@ -25,7 +25,9 @@ import {
 import {
   countTokensPiecewise,
   fitsBudget,
+  reduceOutput,
   type CodeOutliner,
+  type ContentKind,
   type TextBudget,
 } from '@ptah-extension/tool-output-reducers';
 // Value import: `AgentMessageError` is narrowed with `instanceof` below so the
@@ -46,6 +48,7 @@ import type {
   MCPToolDefinition,
   ExecuteCodeParams,
   ApprovalPromptParams,
+  BrowserContentResult,
   SymbolIndexPage,
 } from '../types';
 import { parseSymbolIndexQuery } from '../namespace-builders/symbol-index-query';
@@ -1634,11 +1637,7 @@ async function handleIndividualTool(
         const contentResult = await ptahAPI.browser.getContent(
           selector ? { selector } : undefined,
         );
-        return await createToolSuccessResponse(
-          request,
-          formatBrowserContent(contentResult),
-          deps,
-        );
+        return await createBrowserContentResponse(request, contentResult, deps);
       }
 
       case 'ptah_browser_network': {
@@ -3024,8 +3023,9 @@ async function createToolSuccessResponse(
   request: MCPRequest,
   text: string,
   deps: ProtocolHandlerDependencies,
+  hint?: ContentKind,
 ): Promise<MCPResponse> {
-  const budgeted = await budgetToolText(request, text, deps);
+  const budgeted = await budgetToolText(request, text, deps, hint);
   runObserver(() =>
     deps.onToolResult?.(request.id.toString(), budgeted.text, false),
   );
@@ -3053,6 +3053,7 @@ async function budgetToolText(
   request: MCPRequest,
   text: string,
   deps: ProtocolHandlerDependencies,
+  hint?: ContentKind,
 ): Promise<BudgetTelemetry> {
   const toolName = toolNameOf(request);
   const tokens = tokensWithinBudget(text, getToolResultBudget(toolName));
@@ -3070,10 +3071,56 @@ async function budgetToolText(
     toolName,
     requestId: request.id,
     spoolRoot: await resolveSpoolRoot(deps),
+    hint,
     outliner: deps.codeOutliner,
     output: budgetOutputChannel(deps.logger),
   });
 }
+
+/**
+ * The `ptah_browser_content` success response (Batch 21p). Within the budget:
+ * the formatted page (text and HTML sections), unchanged. Over it, the
+ * formatted Markdown envelope would be sniffed as Markdown and its HTML block
+ * dropped by the outline reducer, so the page's own uncut HTML goes through
+ * the budget declared as HTML instead: the agent gets the extracted main
+ * content (title, headings, paragraphs), the raw HTML is spooled byte-equal,
+ * and the trailer names `html-extract` and the spool file.
+ *
+ * The extractor is asked first, without spooling, whether it extracts this
+ * page. When it refuses (a shape it cannot model, input over the reducer cap)
+ * or the HTML alone is within the budget, the formatted page takes the
+ * ordinary path: its reducer, the cut and the spool. The accepted case
+ * extracts twice (the budget step extracts again within its trailer window);
+ * the work is linear and bounded by the reducer input cap.
+ */
+async function createBrowserContentResponse(
+  request: MCPRequest,
+  result: BrowserContentResult,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  const formatted = formatBrowserContent(result);
+  const budget = getToolResultBudget(toolNameOf(request));
+  if (
+    result.error ||
+    typeof result.html !== 'string' ||
+    tokensWithinBudget(formatted, budget) !== null
+  ) {
+    return createToolSuccessResponse(request, formatted, deps);
+  }
+  const probe = await reduceOutput(result.html, {
+    budgetTokens: budget.tokens,
+    budgetChars: budget.chars,
+    hint: 'html',
+    output: budgetOutputChannel(deps.logger),
+  });
+  if (probe.reducer !== HTML_EXTRACT_REDUCER) {
+    return createToolSuccessResponse(request, formatted, deps);
+  }
+  return createToolSuccessResponse(request, result.html, deps, 'html');
+}
+
+/** Reducer name the HTML main-content extractor reports when it extracted. */
+const HTML_EXTRACT_REDUCER = 'html-extract';
 
 /** Token count of `text` when it fits both limits of `budget`, else `null` (also when counting throws). */
 function tokensWithinBudget(text: string, budget: TextBudget): number | null {

@@ -10,7 +10,11 @@
 // `@ptah-extension/cli-agent-runtime`'s barrel reaches tsyringe decorators on
 // import (the dispatcher narrows `AgentMessageError` with `instanceof`).
 import 'reflect-metadata';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   MCPRequest,
@@ -22,6 +26,11 @@ import {
   CliCommandLineTooLongError,
   type AgentRoleErrorCode,
 } from '@ptah-extension/cli-agent-runtime';
+import {
+  formatAgentMessage,
+  formatAgentStop,
+} from '../mcp-core/mcp-response-formatter';
+import { getToolResultBudget } from '../mcp-core/tool-result-budget';
 import { AgentToolDispatcher } from './agent-tool.dispatcher';
 
 const request: MCPRequest = {
@@ -518,5 +527,446 @@ describe('AgentToolDispatcher — agent_report', () => {
     });
     expect(report).not.toHaveBeenCalled();
     expect(toolResult(response).isError).toBe(true);
+  });
+});
+
+describe('AgentToolDispatcher — result budget', () => {
+  // Every spooling call is pointed at a throw-away root through the
+  // dispatcher's own `spoolRoot` argument; nothing is written to the
+  // system temp directory's .ptah or to the repository's.
+  let spoolRoot: string;
+
+  beforeEach(() => {
+    spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-stdio-budget-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  });
+
+  type StopResult = Parameters<typeof formatAgentStop>[0];
+
+  function createStopHarness(stop: jest.Mock): AgentToolDispatcher {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    const ptahAPI = { agent: { stop } } as unknown as PtahAPI;
+    return new AgentToolDispatcher(
+      ptahAPI,
+      logger,
+      undefined,
+      undefined,
+      () => Date.now(),
+      () => spoolRoot,
+    );
+  }
+
+  function textOf(response: MCPResponse | null): string {
+    const result = (response?.result ?? {}) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    return result.content?.find((c) => c.type === 'text')?.text ?? '';
+  }
+
+  function spoolFiles(): string[] {
+    const dir = path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out');
+    return fs.existsSync(dir)
+      ? fs.readdirSync(dir).map((name) => path.join(dir, name))
+      : [];
+  }
+
+  it('bounds an oversized success to the declared budget, names the reducer and spool file, and spools the raw text byte-equal', async () => {
+    const stopped = {
+      agentId: 'a1',
+      cli: 'claude',
+      status: 'stopped',
+      cliSessionId: `MARK-${'c'.repeat(200_000)}`,
+    } as unknown as StopResult;
+    const dispatcher = createStopHarness(jest.fn().mockResolvedValue(stopped));
+
+    const response = await dispatcher.dispatch('agent_stop', request, {
+      agentId: 'a1',
+    });
+
+    const text = textOf(response);
+    const budget = getToolResultBudget('ptah_agent_stop');
+    expect(toolResult(response).isError).toBeUndefined();
+    expect(text.length).toBeLessThanOrEqual(budget.chars);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+    expect(text).toMatch(/\[reduced: [^\]]+ — full output: [^\]]+\]$/);
+    const files = spoolFiles();
+    expect(files).toHaveLength(1);
+    expect(text).toContain(path.basename(files[0]));
+    expect(fs.readFileSync(files[0], 'utf8')).toBe(formatAgentStop(stopped));
+    // Structured data is passed through unchanged, as before.
+    expect(toolResult(response).structuredContent).toEqual({
+      agentId: 'a1',
+      cli: 'claude',
+      status: 'stopped',
+    });
+  });
+
+  it('returns a success within the budget byte-for-byte and spools nothing', async () => {
+    const stopped = {
+      agentId: 'a1',
+      cli: 'claude',
+      status: 'stopped',
+      exitCode: 0,
+    } as unknown as StopResult;
+    const dispatcher = createStopHarness(jest.fn().mockResolvedValue(stopped));
+
+    const response = await dispatcher.dispatch('agent_stop', request, {
+      agentId: 'a1',
+    });
+
+    expect(textOf(response)).toBe(formatAgentStop(stopped));
+    expect(spoolFiles()).toHaveLength(0);
+  });
+
+  it('leaves an error result un-budgeted, as the HTTP surface does', async () => {
+    const detail = 'e'.repeat(20_000);
+    const dispatcher = createStopHarness(
+      jest.fn().mockRejectedValue(new Error(detail)),
+    );
+
+    const response = await dispatcher.dispatch('agent_stop', request, {
+      agentId: 'a1',
+    });
+
+    expect(toolResult(response).isError).toBe(true);
+    expect(textOf(response)).toBe(`agent_stop failed: ${detail}`);
+    expect(spoolFiles()).toHaveLength(0);
+  });
+});
+
+describe('AgentToolDispatcher — oversized replies (review r3: R3-01, R3-05)', () => {
+  let spoolRoot: string;
+
+  beforeEach(() => {
+    spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-stdio-reply-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  });
+
+  function createDispatcher(agent: Partial<PtahAPI['agent']>): {
+    dispatcher: AgentToolDispatcher;
+  } {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    const ptahAPI = { agent } as unknown as PtahAPI;
+    return {
+      dispatcher: new AgentToolDispatcher(
+        ptahAPI,
+        logger,
+        undefined,
+        undefined,
+        () => Date.now(),
+        () => spoolRoot,
+      ),
+    };
+  }
+
+  function resultOf(response: MCPResponse | null): {
+    text: string;
+    isError?: boolean;
+    structuredContent?: Record<string, unknown>;
+  } {
+    const result = (response?.result ?? {}) as {
+      content?: Array<{ type: string; text?: string }>;
+      isError?: boolean;
+      structuredContent?: Record<string, unknown>;
+    };
+    return {
+      text: result.content?.find((c) => c.type === 'text')?.text ?? '',
+      isError: result.isError,
+      structuredContent: result.structuredContent,
+    };
+  }
+
+  /** Ordinary prose paragraphs — the shape of a real agent reply. */
+  function paragraphs(chars: number): string {
+    const sentence =
+      'The reviewer traced the budget layer and confirmed the reply keeps its substance. ';
+    const out: string[] = [];
+    let length = 0;
+    while (length < chars) {
+      const paragraph = sentence.repeat(4).trimEnd();
+      out.push(paragraph);
+      length += paragraph.length + 2;
+    }
+    return out.join('\n\n');
+  }
+
+  function messageText(agentId: string, detail: string): string {
+    return formatAgentMessage({ agentId, mode: 'steer', detail });
+  }
+
+  const budget = getToolResultBudget('ptah_agent_message');
+
+  describe('R3-01: an agent reply is preformatted text, not outlined Markdown', () => {
+    it('keeps the marker and a prefix of a 20 KB single-run detail (the reviewer probe)', async () => {
+      const detail = 'MARK-small-' + 'e'.repeat(20_000);
+      const message = jest.fn().mockResolvedValue({ mode: 'steer', detail });
+      const { dispatcher } = createDispatcher({ message });
+
+      const { text, isError } = resultOf(
+        await dispatcher.dispatch('agent_message', request, {
+          agentId: 'a1',
+          message: 'hi',
+        }),
+      );
+
+      const raw = messageText('a1', detail);
+      expect(isError).toBeUndefined();
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+      expect(text).toContain('MARK-small-');
+      // A single 20,000-char run counts one token per byte, so the token
+      // budget, not the char budget, sizes this prefix.
+      const markerEnd = raw.indexOf('MARK-small-') + 'MARK-small-'.length;
+      expect(text.startsWith(raw.slice(0, markerEnd + 1000))).toBe(true);
+      expect(text).toMatch(/\[reduced: none — partial, cut [^\]]+\]$/);
+    });
+
+    it('keeps a budget-sized prefix of a 20 KB prose reply, and spools the raw text byte-equal', async () => {
+      const detail = `MARK-prose ${paragraphs(20_000)}`;
+      const message = jest.fn().mockResolvedValue({ mode: 'steer', detail });
+      const { dispatcher } = createDispatcher({ message });
+
+      const { text } = resultOf(
+        await dispatcher.dispatch('agent_message', request, {
+          agentId: 'a1',
+          message: 'hi',
+        }),
+      );
+
+      const raw = messageText('a1', detail);
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+      expect(text).toContain('MARK-prose');
+      // Most of the 8,000-char budget is the reply itself, not an outline.
+      expect(text.startsWith(raw.slice(0, 5000))).toBe(true);
+      expect(text).toMatch(/\[reduced: none — partial, cut [^\]]+\]$/);
+      const dir = path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out');
+      const textSpool = fs
+        .readdirSync(dir)
+        .map((name) => path.join(dir, name))
+        .find((file) => text.includes(path.basename(file)));
+      expect(textSpool).toBeDefined();
+      expect(fs.readFileSync(textSpool as string, 'utf8')).toBe(raw);
+    });
+
+    it('still bounds a reply above the outline cap (300 KB), marker kept', async () => {
+      const detail = `MARK-large ${paragraphs(300_000)}`;
+      const message = jest.fn().mockResolvedValue({ mode: 'steer', detail });
+      const { dispatcher } = createDispatcher({ message });
+
+      const { text } = resultOf(
+        await dispatcher.dispatch('agent_message', request, {
+          agentId: 'a1',
+          message: 'hi',
+        }),
+      );
+
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+      expect(text).toContain('MARK-large');
+      expect(text).toMatch(/\[reduced: none — partial, cut [^\]]+\]$/);
+    });
+  });
+
+  describe('R3-05: structuredContent is held to the same budget', () => {
+    /** The bounded structured result: valid JSON, within the budget, recoverable. */
+    function expectBoundedStructured(
+      structured: Record<string, unknown> | undefined,
+      original: Record<string, unknown>,
+    ): Record<string, unknown> {
+      expect(structured).toBeDefined();
+      const value = structured as Record<string, unknown>;
+      const json = JSON.stringify(value);
+      expect(json.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(json)).toBeLessThanOrEqual(budget.tokens);
+      const note = value['ptah_truncation'] as Record<string, unknown>;
+      expect(note).toMatchObject({
+        truncated: true,
+        limitChars: budget.chars,
+      });
+      const fullStructured = note['fullStructuredContent'];
+      expect(typeof fullStructured).toBe('string');
+      expect(
+        JSON.parse(fs.readFileSync(fullStructured as string, 'utf8')),
+      ).toEqual(original);
+      return value;
+    }
+
+    it('agent_message: keeps agentId and mode, cuts the long detail to a prefix, names both spool files', async () => {
+      const detail = 'MARK-small-' + 'e'.repeat(20_000);
+      const message = jest.fn().mockResolvedValue({ mode: 'steer', detail });
+      const { dispatcher } = createDispatcher({ message });
+
+      const { text, structuredContent } = resultOf(
+        await dispatcher.dispatch('agent_message', request, {
+          agentId: 'a1',
+          message: 'hi',
+        }),
+      );
+
+      const value = expectBoundedStructured(structuredContent, {
+        agentId: 'a1',
+        mode: 'steer',
+        detail,
+      });
+      expect(value).toMatchObject({ agentId: 'a1', mode: 'steer' });
+      const shownDetail = value['detail'] as string;
+      expect(shownDetail.startsWith('MARK-small-')).toBe(true);
+      expect(detail.startsWith(shownDetail)).toBe(true);
+      const note = value['ptah_truncation'] as Record<string, unknown>;
+      expect(note['omittedFields']).toEqual([]);
+      expect(note['cutFields']).toEqual({
+        detail: { shown: shownDetail.length, total: detail.length },
+      });
+      expect(typeof note['fullText']).toBe('string');
+      expect(text).toContain(path.basename(note['fullText'] as string));
+    });
+
+    it('agent_status: keeps each shown agent’s identifiers and the shown/total counts', async () => {
+      const agents = Array.from({ length: 400 }, (_, i) => ({
+        agentId: `agent-${i}`,
+        cli: 'claude',
+        status: 'running',
+        task: 't'.repeat(200),
+        startedAt: new Date(0).toISOString(),
+        messagingMode: 'steer',
+      }));
+      const status = jest.fn().mockResolvedValue(agents);
+      const { dispatcher } = createDispatcher({ status });
+
+      const { structuredContent } = resultOf(
+        await dispatcher.dispatch('agent_status', request, {}),
+      );
+
+      const value = expectBoundedStructured(structuredContent, { agents });
+      const shown = value['agents'] as Array<Record<string, unknown>>;
+      expect(shown.length).toBeGreaterThan(0);
+      expect(shown[0]).toMatchObject({
+        agentId: 'agent-0',
+        cli: 'claude',
+        status: 'running',
+      });
+      // The 200-char task is not an identifier and is left to the spool.
+      expect(shown[0]).not.toHaveProperty('task');
+      const note = value['ptah_truncation'] as Record<string, unknown>;
+      expect(note['lists']).toEqual({
+        agents: { shown: shown.length, total: 400 },
+      });
+    });
+
+    it('agent_list: keeps total and roles, and bounds the agents array', async () => {
+      const agents = Array.from({ length: 2000 }, (_, i) => ({
+        cli: `cli-${i}`,
+        installed: true,
+        messagingMode: 'steer',
+        providerName: 'p'.repeat(80),
+      }));
+      const list = jest.fn().mockResolvedValue(agents);
+      const listRoles = jest.fn().mockResolvedValue(['reviewer']);
+      const { dispatcher } = createDispatcher({ list, listRoles });
+
+      const { structuredContent } = resultOf(
+        await dispatcher.dispatch('agent_list', request, {}),
+      );
+
+      const value = expectBoundedStructured(structuredContent, {
+        agents,
+        total: 2000,
+        roles: ['reviewer'],
+      });
+      expect(value['total']).toBe(2000);
+      expect(value['roles']).toEqual(['reviewer']);
+      const shown = value['agents'] as Array<Record<string, unknown>>;
+      expect(shown[0]).toMatchObject({ cli: 'cli-0', installed: true });
+      const note = value['ptah_truncation'] as Record<string, unknown>;
+      expect(note['lists']).toEqual({
+        agents: { shown: shown.length, total: 2000 },
+        roles: { shown: 1, total: 1 },
+      });
+    });
+
+    it('agent_spawn with two long fields: the omitted field is disclosed and the JSON stays within both limits (review r4 R4-02: was 2,002 tokens)', async () => {
+      const spawned = {
+        agentId: 'a1',
+        cli: 'ptah-cli',
+        status: 'running',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        ptahCliId: 'p1',
+        ptahCliName: 'MARK-name-' + 'n'.repeat(20_000),
+        role: 'r'.repeat(200),
+      };
+      const spawn = jest.fn().mockResolvedValue(spawned);
+      const { dispatcher } = createDispatcher({ spawn });
+
+      const { isError, structuredContent } = resultOf(
+        await dispatcher.dispatch('agent_spawn', request, {
+          task: 'Do the thing',
+          ptahCliId: 'p1',
+        }),
+      );
+
+      expect(isError).toBeUndefined();
+      const spawnBudget = getToolResultBudget('ptah_agent_spawn');
+      const value = structuredContent as Record<string, unknown>;
+      const json = JSON.stringify(value);
+      expect(json.length).toBeLessThanOrEqual(spawnBudget.chars);
+      expect(countTokensPiecewise(json)).toBeLessThanOrEqual(
+        spawnBudget.tokens,
+      );
+      expect(JSON.parse(json)).toEqual(value);
+      expect(value).toMatchObject({
+        agentId: 'a1',
+        status: 'running',
+        ptahCliId: 'p1',
+      });
+      const note = value['ptah_truncation'] as Record<string, unknown>;
+      const omitted = note['omittedFields'] as string[];
+      const cut = note['cutFields'] as Record<string, unknown>;
+      for (const key of ['ptahCliName', 'role']) {
+        expect(key in cut || omitted.includes(key)).toBe(true);
+      }
+      expect(
+        JSON.parse(
+          fs.readFileSync(note['fullStructuredContent'] as string, 'utf8'),
+        ),
+      ).toEqual(spawned);
+    });
+
+    it('leaves a small result’s structuredContent unchanged and spools nothing', async () => {
+      const message = jest
+        .fn()
+        .mockResolvedValue({ mode: 'steer', detail: 'delivered' });
+      const { dispatcher } = createDispatcher({ message });
+
+      const { structuredContent } = resultOf(
+        await dispatcher.dispatch('agent_message', request, {
+          agentId: 'a1',
+          message: 'hi',
+        }),
+      );
+
+      expect(structuredContent).toEqual({
+        agentId: 'a1',
+        mode: 'steer',
+        detail: 'delivered',
+      });
+      expect(fs.existsSync(path.join(spoolRoot, '.ptah'))).toBe(false);
+    });
   });
 });
