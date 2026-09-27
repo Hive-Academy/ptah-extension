@@ -614,6 +614,31 @@ describe('GoVetChecker — review r1 finding 1: only files Go selects are credit
       'package a\n\n' + IMPORT + ' "\\x43"\n',
       'unverifiable',
     ],
+    // Lane K closing review finding 3.
+    [
+      'an upper-case .GO extension',
+      'a/IGNORED.GO',
+      'package a\n\nfunc I() {}\n',
+      'not-go-source',
+    ],
+    [
+      'a mixed-case .Go extension',
+      'a/Mixed.Go',
+      'package a\n\nfunc M() {}\n',
+      'not-go-source',
+    ],
+    [
+      'a package documentation file',
+      'a/documentation.go',
+      '// Package docs only.\npackage documentation\n',
+      'documentation-package',
+    ],
+    [
+      'a //go:build ignore generator file',
+      'a/gen.go',
+      '//go:build ignore\n\npackage main\n\nfunc main() {}\n',
+      'build-constraints',
+    ],
   ])('%s → %s, not checked', async (_label, relative, content, reason) => {
     const { result, root, a } = await vetOne({ [relative]: content });
 
@@ -622,6 +647,15 @@ describe('GoVetChecker — review r1 finding 1: only files Go selects are credit
     expect(result.skippedFiles).toEqual([
       { file: path.join(root, relative), reason },
     ]);
+  });
+
+  it('closing review 3: a doc.go of the package itself is vetted and credited', async () => {
+    const { result, root, a } = await vetOne({
+      'a/doc.go': '// Package a is documented here.\npackage a\n',
+    });
+
+    expect(result.checkedFiles).toEqual([a, path.join(root, 'a/doc.go')]);
+    expect(result.skippedFiles).toEqual([]);
   });
 
   it('a commented-out cgo import does not exclude the file', async () => {

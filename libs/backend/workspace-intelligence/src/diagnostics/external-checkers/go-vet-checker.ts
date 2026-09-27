@@ -161,6 +161,8 @@ export type GoVetReason =
   | 'build-constraints'
   | 'ignored-name'
   | 'unverifiable'
+  | 'not-go-source'
+  | 'documentation-package'
   | 'unmapped-findings';
 
 export interface GoVetCheckRequest {
@@ -274,6 +276,10 @@ const REASON_TEXT: Readonly<Record<GoVetReason, string>> = {
     'go vet does not analyse it: the go command ignores file names starting with "_" or ".".',
   unverifiable:
     'go vet may not have analysed it: its header could not be read with certainty (too large, unreadable, or unusual import syntax), so it is not claimed.',
+  'not-go-source':
+    'go vet does not analyse it: the go command reads only files ending in lower-case ".go".',
+  'documentation-package':
+    'go vet does not analyse it: the go command ignores files in "package documentation".',
   'unmapped-findings':
     'go vet reported findings in its package at positions outside the workspace (for example a //line directive); they cannot be shown, so the file is not claimed clean.',
 };

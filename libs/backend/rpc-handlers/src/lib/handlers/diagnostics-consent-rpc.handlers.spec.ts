@@ -27,6 +27,7 @@ jest.mock('../../../../workspace-intelligence/src/ast/wasm-bundle-dir', () => ({
 
 import 'reflect-metadata';
 
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
@@ -51,7 +52,7 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
-  GO_VET_CONSENT_KEY,
+  GO_VET_CONSENT_DIR,
   GoVetChecker,
   GoVetConsentStore,
 } from '@ptah-extension/workspace-intelligence';
@@ -187,9 +188,11 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     return response.data as DiagnosticsGoVetConsentSetResult;
   }
 
-  const grant = (workspaceRoot: string) => ({
+  /** An enabling SET carrying `confirmToken` (from a GET the caller showed). */
+  const grant = (workspaceRoot: string, confirmToken?: string) => ({
     enabled: true,
     workspaceRoot,
+    ...(confirmToken !== undefined ? { confirmToken } : {}),
     source: 'settings-ui',
   });
   const revoke = (workspaceRoot: string) => ({
@@ -198,19 +201,42 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     source: 'cli',
   });
 
-  /** The consent record as it sits on disk for `root`, or `undefined`. */
-  function onDisk(root: string): unknown {
-    const file = path.join(
-      userData,
-      'workspace-storage',
-      encoded.get(root) ?? 'missing',
-      'workspace-state.json',
+  /** GET, then an enabling SET with exactly the root and token it showed. */
+  async function enable(
+    h: Harness,
+    workspaceRoot?: string,
+  ): Promise<DiagnosticsGoVetConsentSetResult> {
+    const shown = await get(h);
+    return set(
+      h,
+      grant(
+        workspaceRoot ?? shown.workspace?.root ?? 'none',
+        shown.confirmToken,
+      ),
     );
-    if (!fs.existsSync(file)) return undefined;
-    return JSON.parse(fs.readFileSync(file, 'utf-8'))[GO_VET_CONSENT_KEY];
   }
 
-  /** Every file under the user-data dir or a root that mentions the key. */
+  /** The consent record file of `root` (the store's naming, pinned here). */
+  function recordFile(root: string): string {
+    const key =
+      process.platform === 'win32'
+        ? path.resolve(root).toLowerCase()
+        : path.resolve(root);
+    return path.join(
+      userData,
+      GO_VET_CONSENT_DIR,
+      `${createHash('sha256').update(key).digest('hex').slice(0, 32)}.json`,
+    );
+  }
+
+  /** The consent record as it sits on disk for `root`, or `undefined`. */
+  function onDisk(root: string): unknown {
+    const file = recordFile(root);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  }
+
+  /** Every file under the user-data dir or a root holding a consent record. */
   function filesHoldingConsent(): string[] {
     const found: string[] = [];
     const walk = (dir: string): void => {
@@ -218,7 +244,7 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (fs.readFileSync(full, 'utf-8').includes('goVet')) {
+        else if (fs.readFileSync(full, 'utf-8').includes('rootRealpath')) {
           found.push(full);
         }
       }
@@ -233,6 +259,33 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     return logger.info.mock.calls.filter(
       (call: unknown[]) => call[0] === '[Diagnostics] go vet consent changed',
     );
+  }
+
+  /** A checker over `h`'s storage whose spawner getter marks the spawn stage. */
+  function checkerFor(h: Harness): {
+    checker: GoVetChecker;
+    getSpawner: jest.Mock;
+    goFile: string;
+  } {
+    const goFile = path.join(rootA, 'main.go');
+    fs.writeFileSync(
+      path.join(rootA, 'go.mod'),
+      'module example.com/a\n\ngo 1.21\n',
+    );
+    fs.writeFileSync(goFile, 'package main\n\nfunc main() {}\n');
+    const getSpawner = jest.fn(() => {
+      throw new Error('spawn stage reached');
+    });
+    const checker = new GoVetChecker({
+      consentStore: new GoVetConsentStore(h.storage, {
+        userDataPath: userData,
+      }),
+      getSpawner,
+      userDataPath: userData,
+      logger: createMockLogger(),
+      env: () => ({ PATH: binDir }),
+    });
+    return { checker, getSpawner, goFile };
   }
 
   beforeEach(() => {
@@ -256,33 +309,32 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     process.env['PATH'] = savedPath;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('1. a grant lands in the root’s own workspace-state.json only (no global or settings key)', async () => {
+  it('1. a grant lands in the root’s own record file under the user-data dir only (no workspace-state, global or settings key)', async () => {
     const h = await buildHost();
 
-    expect(await set(h, grant(rootA))).toEqual({ success: true, state: 'on' });
+    expect(await enable(h)).toEqual({
+      success: true,
+      state: 'on',
+      goBinary,
+    });
 
     expect(onDisk(rootA)).toMatchObject({
       v: 1,
       rootRealpath: rootA,
       goBinary: { path: goBinary },
     });
-    expect(filesHoldingConsent()).toEqual([
-      path.join(
-        userData,
-        'workspace-storage',
-        encoded.get(rootA) as string,
-        'workspace-state.json',
-      ),
-    ]);
+    expect(filesHoldingConsent()).toEqual([recordFile(rootA)]);
     expect(await get(h)).toEqual({
       supported: true,
       workspace: { root: rootA },
       state: 'on',
       goBinary,
+      confirmToken: expect.stringMatching(/^[0-9a-f]{24}\.[0-9a-f]{24}$/),
     });
     const [audit] = auditLines(h.logger);
     expect(audit[1]).toEqual({
@@ -296,7 +348,7 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
   });
 
   it('2. a restarted host over the same user-data directory reads the grant back', async () => {
-    await set(await buildHost(), grant(rootA));
+    await enable(await buildHost());
 
     const restarted = await buildHost();
 
@@ -305,7 +357,7 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
 
   it('3. consent is per root: A on, B off; revoking B leaves A on', async () => {
     const h = await buildHost();
-    await set(h, grant(rootA));
+    await enable(h);
 
     active = rootB;
     expect(await get(h)).toMatchObject({
@@ -322,27 +374,10 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     expect(onDisk(rootA)).toBeDefined();
   });
 
-  it('4. revoke deletes the key, GET answers off, and the next checker run spawns nothing', async () => {
+  it('4. revoke deletes the record, GET answers off, and the next checker run spawns nothing', async () => {
     const h = await buildHost();
-    const goFile = path.join(rootA, 'main.go');
-    fs.writeFileSync(
-      path.join(rootA, 'go.mod'),
-      'module example.com/a\n\ngo 1.21\n',
-    );
-    fs.writeFileSync(goFile, 'package main\n\nfunc main() {}\n');
-    const getSpawner = jest.fn(() => {
-      throw new Error('spawn stage reached');
-    });
-    const checker = new GoVetChecker({
-      consentStore: new GoVetConsentStore(h.storage, {
-        userDataPath: userData,
-      }),
-      getSpawner,
-      userDataPath: userData,
-      logger: createMockLogger(),
-      env: () => ({ PATH: binDir }),
-    });
-    await set(h, grant(rootA));
+    const { checker, getSpawner, goFile } = checkerFor(h);
+    await enable(h);
 
     // With consent the run gets as far as the spawner.
     const before = await checker.check({
@@ -357,9 +392,6 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       state: 'off',
     });
     expect(onDisk(rootA)).toBeUndefined();
-    expect(h.storage.getStorageForWorkspace(rootA)?.keys()).not.toContain(
-      GO_VET_CONSENT_KEY,
-    );
     expect((await get(h)).state).toBe('off');
 
     const after = await checker.check({
@@ -376,6 +408,35 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     });
   });
 
+  it('closing review 1: a revoke by another host process ends consent for a host that is still running, and its later unrelated writes never restore it', async () => {
+    const running = await buildHost();
+    const { checker, getSpawner, goFile } = checkerFor(running);
+    await enable(running);
+    expect(
+      (await checker.check({ workspaceRoot: rootA, files: [goFile] })).reason,
+    ).toBe('no-spawner');
+
+    // A second CLI invocation over the same user-data directory revokes.
+    const other = await buildHost();
+    expect(await set(other, revoke(rootA))).toEqual({
+      success: true,
+      state: 'off',
+    });
+
+    // The running host sees it at its next decision.
+    expect((await get(running)).state).toBe('off');
+    const next = await checker.check({ workspaceRoot: rootA, files: [goFile] });
+    expect(next.reason).toBe('no-consent');
+    expect(getSpawner).toHaveBeenCalledTimes(1);
+
+    // An unrelated state write from the running host re-persists nothing.
+    await (
+      running.storage.getStorageForWorkspace(rootA) as IStateStorage
+    ).update('some.other.key', 1);
+    expect(onDisk(rootA)).toBeUndefined();
+    expect((await get(running)).state).toBe('off');
+  });
+
   it('5. no active or registered root: GET has no workspace, SET is no-workspace and writes nothing', async () => {
     const h = await buildHost();
 
@@ -385,7 +446,7 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       workspace: null,
       state: 'off',
     });
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await set(h, grant(rootA, 'a.b'))).toEqual({
       success: false,
       error: 'no-workspace',
     });
@@ -394,7 +455,7 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     fs.mkdirSync(unregistered);
     active = unregistered;
     expect((await get(h)).workspace).toBeNull();
-    expect(await set(h, grant(unregistered))).toEqual({
+    expect(await set(h, grant(unregistered, 'a.b'))).toEqual({
       success: false,
       error: 'no-workspace',
     });
@@ -413,22 +474,27 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       workspace: null,
       state: 'off',
     });
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await set(h, grant(rootA, 'a.b'))).toEqual({
       success: false,
       error: 'unsupported',
     });
     expect(plain.keys()).toEqual([]);
+    expect(filesHoldingConsent()).toEqual([]);
     expect(capabilities({}).goVetDiagnostics).toBe(false);
   });
 
   it.each([
-    ['an extra key', { ...grant('x'), extra: 1 }],
+    ['an extra key', { ...grant('x', 'a.b'), extra: 1 }],
     [
       'a non-boolean enabled',
       { enabled: 'yes', workspaceRoot: 'x', source: 'cli' },
     ],
     ['a missing workspaceRoot', { enabled: true, source: 'cli' }],
-    ['an unknown source', { enabled: true, workspaceRoot: 'x', source: 'mcp' }],
+    [
+      'an unknown source',
+      { enabled: true, workspaceRoot: 'x', confirmToken: 'a.b', source: 'mcp' },
+    ],
+    ['an enable without a confirmToken', grant('x')],
     ['no params', undefined],
   ])('7. %s is invalid-params and writes nothing', async (_label, params) => {
     const h = await buildHost();
@@ -454,41 +520,47 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     expect(response).toMatchObject({ success: false, error: 'invalid-params' });
   });
 
-  it('8. a throwing write is persist-failed, with no audit line and no error text logged', async () => {
+  it('8 / closing review 2: a grant whose durable write really fails is persist-failed and never effective (GET off, checker never spawns)', async () => {
     const h = await buildHost();
-    const rootStorage = h.storage.getStorageForWorkspace(
-      rootA,
-    ) as IStateStorage;
-    jest
-      .spyOn(rootStorage, 'update')
-      .mockRejectedValue(new Error(`disk full at ${rootA}`));
+    const { checker, getSpawner, goFile } = checkerFor(h);
+    // A file where the record directory must go: the write fails on disk.
+    fs.writeFileSync(path.join(userData, GO_VET_CONSENT_DIR), 'blocker');
 
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await enable(h)).toEqual({
       success: false,
       error: 'persist-failed',
     });
+
+    expect((await get(h)).state).toBe('off');
+    const result = await checker.check({
+      workspaceRoot: rootA,
+      files: [goFile],
+    });
+    expect(result.reason).toBe('no-consent');
+    expect(getSpawner).not.toHaveBeenCalled();
     expect(auditLines(h.logger)).toEqual([]);
-    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain('disk full');
+    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(
+      JSON.stringify(tmp).slice(1, -1),
+    );
   });
 
   it('8. a read-back that disagrees is persist-failed for grant and for revoke', async () => {
     const h = await buildHost();
-    const rootStorage = h.storage.getStorageForWorkspace(
-      rootA,
-    ) as IStateStorage;
     const swallow = jest
-      .spyOn(rootStorage, 'update')
+      .spyOn(GoVetConsentStore.prototype, 'grant')
       .mockResolvedValue(undefined);
 
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await enable(h)).toEqual({
       success: false,
       error: 'persist-failed',
     });
 
     swallow.mockRestore();
-    await set(h, grant(rootA));
+    await enable(h);
     h.logger.info.mockClear();
-    jest.spyOn(rootStorage, 'update').mockResolvedValue(undefined);
+    jest
+      .spyOn(GoVetConsentStore.prototype, 'revoke')
+      .mockResolvedValue(undefined);
 
     expect(await set(h, revoke(rootA))).toEqual({
       success: false,
@@ -500,24 +572,25 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
 
   it('9. stale UI: the active root changed to B or to none after GET on A → refused, nothing changed', async () => {
     const h = await buildHost();
-    expect((await get(h)).workspace).toEqual({ root: rootA });
+    const shown = await get(h);
+    expect(shown.workspace).toEqual({ root: rootA });
 
     active = rootB;
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await set(h, grant(rootA, shown.confirmToken))).toEqual({
       success: false,
       error: 'workspace-changed',
     });
     expect(filesHoldingConsent()).toEqual([]);
 
     active = undefined;
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await set(h, grant(rootA, shown.confirmToken))).toEqual({
       success: false,
       error: 'no-workspace',
     });
 
     // Same for revoke: A's grant survives a revoke aimed at a stale view.
     active = rootA;
-    await set(h, grant(rootA));
+    await enable(h);
     active = rootB;
     expect(await set(h, revoke(rootA))).toEqual({
       success: false,
@@ -534,12 +607,13 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
 
   it('10. the caller value is never a write target: a registered non-active root or an unregistered path is workspace-changed', async () => {
     const h = await buildHost();
+    const token = (await get(h)).confirmToken;
 
-    expect(await set(h, grant(rootB))).toEqual({
+    expect(await set(h, grant(rootB, token))).toEqual({
       success: false,
       error: 'workspace-changed',
     });
-    expect(await set(h, grant(path.join(tmp, 'elsewhere')))).toEqual({
+    expect(await set(h, grant(path.join(tmp, 'elsewhere'), token))).toEqual({
       success: false,
       error: 'workspace-changed',
     });
@@ -548,9 +622,10 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
 
   it('11. no Go binary on PATH → no-go-binary, nothing written', async () => {
     const h = await buildHost();
+    const token = (await get(h)).confirmToken;
     process.env['PATH'] = emptyBinDir;
 
-    expect(await set(h, grant(rootA))).toEqual({
+    expect(await set(h, grant(rootA, token))).toEqual({
       success: false,
       error: 'no-go-binary',
     });
@@ -558,13 +633,14 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       supported: true,
       workspace: { root: rootA },
       state: 'off',
+      confirmToken: expect.any(String),
     });
     expect(filesHoldingConsent()).toEqual([]);
   });
 
   it('Decision 25: a changed Go binary makes the consent stale/go-changed until re-enabled', async () => {
     const h = await buildHost();
-    await set(h, grant(rootA));
+    await enable(h);
 
     fs.appendFileSync(goBinary, ' upgraded');
 
@@ -574,9 +650,86 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
       state: 'stale',
       staleReason: 'go-changed',
       goBinary,
+      confirmToken: expect.any(String),
     });
-    expect(await set(h, grant(rootA))).toEqual({ success: true, state: 'on' });
+    expect(await enable(h)).toEqual({ success: true, state: 'on', goBinary });
     expect((await get(h)).state).toBe('on');
+  });
+
+  describe('closing review 4: the grant binds the root and binary the GET displayed', () => {
+    it('a binary that changed after the GET is refused go-changed; nothing is written', async () => {
+      const h = await buildHost();
+      const shown = await get(h);
+
+      fs.appendFileSync(goBinary, ' replaced');
+
+      expect(await set(h, grant(rootA, shown.confirmToken))).toEqual({
+        success: false,
+        error: 'go-changed',
+      });
+      expect(filesHoldingConsent()).toEqual([]);
+    });
+
+    it('a folder replaced at the same path after the GET is refused workspace-changed; nothing is written', async () => {
+      const h = await buildHost();
+      const shown = await get(h);
+      const before = fs.statSync(rootA, { bigint: true }).ino;
+
+      fs.rmSync(rootA, { recursive: true, force: true });
+      fs.mkdirSync(rootA);
+      const after = fs.statSync(rootA, { bigint: true }).ino;
+
+      const answer = await set(h, grant(rootA, shown.confirmToken));
+      if (before === after || after === BigInt(0)) {
+        // The volume reused the id or reports none (O2 §1.2 limitation).
+        expect(answer.success).toBe(true);
+      } else {
+        expect(answer).toEqual({ success: false, error: 'workspace-changed' });
+        expect(filesHoldingConsent()).toEqual([]);
+      }
+    });
+
+    it('a folder re-pointed (junction) after the GET is refused workspace-changed', async () => {
+      const targetOne = path.join(tmp, 'target-one');
+      const targetTwo = path.join(tmp, 'target-two');
+      fs.mkdirSync(targetOne);
+      fs.mkdirSync(targetTwo);
+      fs.rmSync(rootA, { recursive: true, force: true });
+      fs.symlinkSync(targetOne, rootA, 'junction');
+      const h = await buildHost();
+      const shown = await get(h);
+
+      fs.rmSync(rootA, { recursive: true, force: true });
+      fs.symlinkSync(targetTwo, rootA, 'junction');
+
+      expect(await set(h, grant(rootA, shown.confirmToken))).toEqual({
+        success: false,
+        error: 'workspace-changed',
+      });
+      expect(filesHoldingConsent()).toEqual([]);
+    });
+
+    it('a binary that changes while the grant is being written is refused go-changed and the record is removed', async () => {
+      const h = await buildHost();
+      const shown = await get(h);
+      const realGrant = GoVetConsentStore.prototype.grant;
+      jest
+        .spyOn(GoVetConsentStore.prototype, 'grant')
+        .mockImplementation(async function (
+          this: GoVetConsentStore,
+          ...args: Parameters<GoVetConsentStore['grant']>
+        ) {
+          await realGrant.apply(this, args);
+          fs.appendFileSync(goBinary, ' swapped mid-write');
+        });
+
+      expect(await set(h, grant(rootA, shown.confirmToken))).toEqual({
+        success: false,
+        error: 'go-changed',
+      });
+      expect(onDisk(rootA)).toBeUndefined();
+      expect(auditLines(h.logger)).toEqual([]);
+    });
   });
 
   (process.platform === 'win32' ? it : it.skip)(
@@ -584,9 +737,10 @@ describe('DiagnosticsConsentRpcHandlers (go vet consent)', () => {
     async () => {
       const h = await buildHost();
 
-      expect(await set(h, grant(rootA.toUpperCase()))).toEqual({
+      expect(await enable(h, rootA.toUpperCase())).toEqual({
         success: true,
         state: 'on',
+        goBinary,
       });
     },
   );

@@ -41,6 +41,8 @@ const SET_ERROR_TEXT: Record<DiagnosticsGoVetConsentSetError, string> = {
   'no-workspace': 'No workspace folder is open. Nothing changed.',
   'workspace-changed':
     'The active workspace changed before the change was saved. Nothing changed; the card now shows the current workspace.',
+  'go-changed':
+    'The Go toolchain changed after this card was shown. Nothing changed; review the toolchain now shown and enable again.',
   'no-go-binary':
     'No Go toolchain was found on PATH outside this workspace. Nothing changed.',
   'persist-failed':
@@ -296,6 +298,8 @@ export class GoVetConsentConfigComponent {
   readonly saving = signal(false);
   /** Root named in the open enable confirmation, or `null` when closed. */
   readonly confirmingRoot = signal<string | null>(null);
+  /** The GET `confirmToken` captured when the confirmation opened. */
+  private confirmingToken: string | undefined;
   /** Toggle position while a SET is in flight; `null` shows the host state. */
   readonly optimisticEnabled = signal<boolean | null>(null);
   readonly errorMessage = signal<string | null>(null);
@@ -421,20 +425,25 @@ export class GoVetConsentConfigComponent {
   confirmEnable(): void {
     const root = this.confirmingRoot();
     if (!root) return;
+    // The identity of the root and binary the confirmation displayed.
+    const token = this.confirmingToken;
     this.confirmingRoot.set(null);
+    this.confirmingToken = undefined;
     this.focusToggle();
-    void this.submit(true, root);
+    void this.submit(true, root, token);
   }
 
   cancelEnable(): void {
     if (this.confirmingRoot() === null) return;
     this.confirmingRoot.set(null);
+    this.confirmingToken = undefined;
     this.focusToggle();
   }
 
   private openConfirm(root: string): void {
     this.errorMessage.set(null);
     this.clearSuccess();
+    this.confirmingToken = this.consent()?.confirmToken;
     this.confirmingRoot.set(root);
     afterNextRender(() => this.cancelButtonRef()?.nativeElement.focus(), {
       injector: this.injector,
@@ -448,7 +457,11 @@ export class GoVetConsentConfigComponent {
   }
 
   /** SET with the displayed root; success only as the host read it back. */
-  private async submit(enabled: boolean, workspaceRoot: string): Promise<void> {
+  private async submit(
+    enabled: boolean,
+    workspaceRoot: string,
+    confirmToken?: string,
+  ): Promise<void> {
     const key = this.scope.scopeKey();
     this.errorMessage.set(null);
     this.clearSuccess();
@@ -458,6 +471,7 @@ export class GoVetConsentConfigComponent {
       const result = await this.rpc.call('diagnostics:go-vet-consent-set', {
         enabled,
         workspaceRoot,
+        ...(confirmToken !== undefined ? { confirmToken } : {}),
         source: 'settings-ui',
       });
       // A workspace switch already triggered a fresh GET for the new scope.
@@ -471,7 +485,7 @@ export class GoVetConsentConfigComponent {
         this.fail(SET_ERROR_TEXT[answer.error] ?? TRANSPORT_SET_ERROR);
         return;
       }
-      this.applyReadBack(answer.state);
+      this.applyReadBack(answer.state, answer.goBinary);
     } catch {
       if (key === this.scope.scopeKey()) this.fail(TRANSPORT_SET_ERROR);
     } finally {
@@ -487,15 +501,18 @@ export class GoVetConsentConfigComponent {
     void this.load();
   }
 
-  private applyReadBack(state: 'on' | 'off'): void {
+  private applyReadBack(state: 'on' | 'off', committedBinary?: string): void {
     const current = this.consent();
     if (current) {
+      // An enable shows the binary the host committed, not the one on screen.
+      const goBinary = committedBinary ?? current.goBinary;
       this.consent.set({
         supported: current.supported,
         workspace: current.workspace,
         state,
-        ...(current.goBinary !== undefined
-          ? { goBinary: current.goBinary }
+        ...(goBinary !== undefined ? { goBinary } : {}),
+        ...(current.confirmToken !== undefined
+          ? { confirmToken: current.confirmToken }
           : {}),
       });
     }

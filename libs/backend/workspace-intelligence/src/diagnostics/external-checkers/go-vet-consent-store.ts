@@ -2,11 +2,21 @@
  * GoVetConsentStore — the per-workspace opt-in that authorises `go vet`
  * (TASK_2026_559 Batch 37a; O2 §1, User Decisions 19 and 25).
  *
- * Consent lives in HOST-owned per-workspace state: the storage
- * `getStorageForWorkspace(root)` returns, under
- * {@link GO_VET_CONSENT_KEY}. That file sits in the host user-data directory,
+ * Consent is HOST-owned: one record file per workspace under the host
+ * user-data directory (`<userData>/go-vet-consent/<sha256(root)>.json`),
  * never in the repository, and no repository file (`.ptah/`, `.vscode/`,
- * `go.mod`, settings) is ever read for consent.
+ * `go.mod`, settings) is ever read for consent. Only a root the host
+ * registered in its workspace-scoped storage (`getStorageForWorkspace(root)`)
+ * can hold consent.
+ *
+ * Durable and fresh (Lane K closing review findings 1-2): the record is its
+ * OWN file, read from disk at every decision — never from a storage object's
+ * in-memory snapshot — so a revoke by any process (a second CLI, the desktop
+ * app) takes effect on the next `go vet` decision, and no write of another
+ * state key can re-persist it. A grant is written to a temporary file and
+ * renamed into place: it becomes visible only once durably committed, and a
+ * failed write leaves nothing a reader could see (the effective state stays
+ * what the disk says).
  *
  * Every read FAILS CLOSED: a storage that is not workspace-scoped, a root the
  * host never registered, a missing or malformed record, a user-data directory
@@ -21,7 +31,9 @@
  * the checker treats it exactly like `off`.
  */
 
+import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import {
   isPathWithinRoots,
@@ -30,8 +42,8 @@ import {
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { isSameGoBinary, type GoBinaryIdentity } from './go-binary-resolver';
 
-/** The host-state key; the only place consent is ever read or written. */
-export const GO_VET_CONSENT_KEY = 'ptah.diagnostics.goVet.consent';
+/** Directory under the host user-data directory holding the record files. */
+export const GO_VET_CONSENT_DIR = 'go-vet-consent';
 
 /** The stored grant (O2 §1.2). */
 export interface GoVetConsentRecord {
@@ -161,30 +173,35 @@ export class GoVetConsentStore {
     currentGoBinary: GoBinaryIdentity | null,
   ): GoVetConsentState {
     try {
-      const storage = this.storageFor(workspaceRoot);
-      if (storage === null) return OFF;
-      const record = parseGoVetConsentRecord(storage.get(GO_VET_CONSENT_KEY));
+      if (!this.isRegistered(workspaceRoot)) return OFF;
+      const record = parseGoVetConsentRecord(
+        JSON.parse(fs.readFileSync(this.recordFile(workspaceRoot), 'utf8')),
+      );
       if (record === null) return OFF;
       return this.judge(workspaceRoot, record, currentGoBinary);
     } catch (error: unknown) {
-      // Consent fails closed: a store that is not ready, or any other throw,
-      // means go vet does not run.
+      // Consent fails closed: no record file, an unreadable or malformed one,
+      // a store that is not ready, or any other throw means go vet does not
+      // run.
       void error;
       return OFF;
     }
   }
 
   /**
-   * Record consent for `workspaceRoot` and the binary it will run. Throws
-   * (fixed text) when the root has no host storage or the user-data directory
-   * lies inside it; the caller reads back through {@link read}.
+   * Record consent for `workspaceRoot` and the binary it will run: written
+   * to a temporary file, then renamed over the record, so it is visible only
+   * once committed. Throws (fixed text, or the file-system error) when the
+   * root is not registered, the user-data directory lies inside it, or the
+   * write fails — nothing is published then. The caller reads back through
+   * {@link read}.
    */
   async grant(
     workspaceRoot: string,
     goBinary: GoBinaryIdentity,
     now: Date = new Date(),
   ): Promise<void> {
-    const storage = this.requireStorage(workspaceRoot);
+    this.requireRegistered(workspaceRoot);
     const rootRealpath = this.fileSystem.realpath(workspaceRoot);
     const record: GoVetConsentRecord = {
       v: 1,
@@ -197,23 +214,95 @@ export class GoVetConsentStore {
       },
       grantedAt: now.toISOString(),
     };
-    await storage.update(GO_VET_CONSENT_KEY, record);
+    const target = this.recordFile(workspaceRoot);
+    await fsPromises.mkdir(path.dirname(target), { recursive: true });
+    const suffix = `${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    const temporary = `${target}.${suffix}`;
+    try {
+      await fsPromises.writeFile(temporary, JSON.stringify(record), {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+      await fsPromises.rename(temporary, target);
+    } finally {
+      await fsPromises.rm(temporary, { force: true });
+    }
   }
 
-  /** Delete the key (`update(key, undefined)` removes it in both hosts). */
+  /** Delete the record file; an absent record is already revoked. */
   async revoke(workspaceRoot: string): Promise<void> {
-    await this.requireStorage(workspaceRoot).update(
-      GO_VET_CONSENT_KEY,
-      undefined,
+    this.requireRegistered(workspaceRoot);
+    await fsPromises.rm(this.recordFile(workspaceRoot), { force: true });
+  }
+
+  /**
+   * Does a record file exist for `workspaceRoot` now? The revoke read-back:
+   * `true` also when existence cannot be established, so an uncertain revoke
+   * is never reported as done.
+   */
+  hasRecord(workspaceRoot: string): boolean {
+    try {
+      fs.statSync(this.recordFile(workspaceRoot));
+      return true;
+    } catch (error: unknown) {
+      return !(isErrnoException(error) && error.code === 'ENOENT');
+    }
+  }
+
+  /**
+   * The identity a user confirms (Lane K closing review finding 4): the
+   * root's real path and `dev:ino`, and the binary a grant would record,
+   * each hashed. GET hands it out with what it displays; SET refuses when
+   * the part for the root (`workspace-changed`) or for the binary
+   * (`go-changed`) no longer matches. `null` when the root does not resolve.
+   */
+  confirmToken(
+    workspaceRoot: string,
+    goBinary: GoBinaryIdentity | null,
+  ): string | null {
+    try {
+      return `${this.rootToken(workspaceRoot)}.${binaryToken(goBinary)}`;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - a root that does not
+      // resolve has no identity to confirm; SET then refuses.
+      void error;
+      return null;
+    }
+  }
+
+  /** The root part of {@link confirmToken} for a stored record. */
+  recordRootToken(record: GoVetConsentRecord): string {
+    return hashParts([
+      this.fold(record.rootRealpath),
+      record.rootId ?? 'no-id',
+    ]);
+  }
+
+  private rootToken(workspaceRoot: string): string {
+    return hashParts([
+      this.fold(this.fileSystem.realpath(workspaceRoot)),
+      this.fileSystem.rootId(workspaceRoot) ?? 'no-id',
+    ]);
+  }
+
+  private fold(value: string): string {
+    return this.platform === 'win32' ? value.toLowerCase() : value;
+  }
+
+  /** The root's record file, named by a hash of its resolved path. */
+  private recordFile(workspaceRoot: string): string {
+    const key = this.fold(path.resolve(workspaceRoot));
+    return path.join(
+      this.options.userDataPath,
+      GO_VET_CONSENT_DIR,
+      `${createHash('sha256').update(key).digest('hex').slice(0, 32)}.json`,
     );
   }
 
-  private requireStorage(workspaceRoot: string): IStateStorage {
-    const storage = this.storageFor(workspaceRoot);
-    if (storage === null) {
+  private requireRegistered(workspaceRoot: string): void {
+    if (!this.isRegistered(workspaceRoot)) {
       throw new Error('go vet consent: no host storage for this workspace');
     }
-    return storage;
   }
 
   private judge(
@@ -241,29 +330,28 @@ export class GoVetConsentStore {
   }
 
   /**
-   * The root's OWN storage, or `null`. Lookup copies the plugin loader's
+   * Did the host register this root? Lookup copies the plugin loader's
    * (`plugin-loader.service.ts` `storageFor`): `path.resolve`, exact key,
-   * then on win32 a case-folded match over `getAllWorkspacePaths()`. Unlike
-   * it, a storage with one scope is `null` too: consent is only ever read
-   * from a root-addressed store.
+   * then on win32 a case-folded match over `getAllWorkspacePaths()`. A
+   * storage with one scope answers `false`: consent exists only for a root
+   * the host addressed. A user-data directory inside the root is `false` too.
    */
-  private storageFor(workspaceRoot: string): IStateStorage | null {
+  private isRegistered(workspaceRoot: string): boolean {
     const storage = this.storage;
-    if (!isWorkspaceScopedStateStorage(storage)) return null;
+    if (!isWorkspaceScopedStateStorage(storage)) return false;
     const wanted = path.resolve(workspaceRoot);
-    if (this.userDataInside(wanted)) return null;
+    if (this.userDataInside(wanted)) return false;
 
-    const exact = storage.getStorageForWorkspace(wanted);
-    if (exact !== undefined) return exact;
+    if (storage.getStorageForWorkspace(wanted) !== undefined) return true;
     if (this.platform === 'win32') {
       const folded = wanted.toLowerCase();
       for (const registered of storage.getAllWorkspacePaths()) {
         if (path.resolve(registered).toLowerCase() === folded) {
-          return storage.getStorageForWorkspace(registered) ?? null;
+          return storage.getStorageForWorkspace(registered) !== undefined;
         }
       }
     }
-    return null;
+    return false;
   }
 
   /** Is the host user-data directory the root or inside it (either spelling)? */
@@ -284,4 +372,28 @@ export class GoVetConsentStore {
     }
     return isPathWithinRoots(canonicalUserData, roots, this.platform);
   }
+}
+
+function hashParts(parts: readonly string[]): string {
+  return createHash('sha256')
+    .update(JSON.stringify(parts))
+    .digest('hex')
+    .slice(0, 24);
+}
+
+/** The binary part of {@link GoVetConsentStore.confirmToken}. */
+function binaryToken(goBinary: GoBinaryIdentity | null): string {
+  return goBinary === null
+    ? hashParts(['no-go-binary'])
+    : hashParts([
+        goBinary.path,
+        String(goBinary.size),
+        String(goBinary.mtimeMs),
+      ]);
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  // Structural: a Node fs error from another realm (a test VM) is not an
+  // `instanceof Error` of this one.
+  return typeof error === 'object' && error !== null && 'code' in error;
 }

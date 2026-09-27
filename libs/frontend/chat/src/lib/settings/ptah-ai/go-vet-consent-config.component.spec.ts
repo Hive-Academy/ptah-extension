@@ -19,6 +19,8 @@ const ROOT_B = 'D:\\work\\service-b';
 const GO = 'C:\\Program Files\\Go\\bin\\go.exe';
 
 const GET = 'diagnostics:go-vet-consent-get';
+/** The host's identity token for the root and binary a GET displayed. */
+const TOKEN_A = 'aaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbb';
 const SET = 'diagnostics:go-vet-consent-set';
 
 function getResult(
@@ -29,6 +31,7 @@ function getResult(
     workspace: { root: ROOT_A },
     state: 'off',
     goBinary: GO,
+    confirmToken: TOKEN_A,
     ...overrides,
   };
 }
@@ -212,7 +215,12 @@ describe('GoVetConsentConfigComponent', () => {
     await settle(fixture);
 
     expect(setCalls(rpc)).toEqual([
-      { enabled: true, workspaceRoot: ROOT_A, source: 'settings-ui' },
+      {
+        enabled: true,
+        workspaceRoot: ROOT_A,
+        confirmToken: TOKEN_A,
+        source: 'settings-ui',
+      },
     ]);
     expect(text(fixture, 'go-vet-consent-state')).toBe('On');
     expect(text(fixture, 'go-vet-consent-success')).toBe(
@@ -286,6 +294,53 @@ describe('GoVetConsentConfigComponent', () => {
     expect(text(fixture, 'go-vet-consent-state')).toBe('Off');
     expect(toggle(fixture).checked).toBe(false);
     expect(toggle(fixture).disabled).toBe(false);
+  });
+
+  it('closing review 4: go-changed reverts, shows the fixed message and re-fetches the binary now on PATH', async () => {
+    const rpc = createMockRpcService();
+    const NEW_GO = '/opt/go-new/bin/go';
+    routeRpc(rpc, {
+      [GET]: [
+        () => rpcSuccess(getResult()),
+        () => rpcSuccess(getResult({ goBinary: NEW_GO, confirmToken: 'c.d' })),
+      ],
+      [SET]: [() => rpcSuccess({ success: false, error: 'go-changed' })],
+    });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    flip(fixture, true);
+    click(fixture, 'go-vet-consent-allow');
+    await settle(fixture);
+
+    expect(setCalls(rpc)).toEqual([
+      expect.objectContaining({ confirmToken: TOKEN_A }),
+    ]);
+    expect(toggle(fixture).checked).toBe(false);
+    expect(text(fixture, 'go-vet-consent-error')).toContain(
+      'The Go toolchain changed after this card was shown',
+    );
+    expect(text(fixture, 'go-vet-consent-binary')).toBe(NEW_GO);
+    expect(q(fixture, 'go-vet-consent-success')).toBeNull();
+  });
+
+  it('closing review 4: after an enable the card shows the binary the host committed', async () => {
+    const rpc = createMockRpcService();
+    const COMMITTED = '/usr/local/go/bin/go-committed';
+    routeRpc(rpc, {
+      [GET]: [() => rpcSuccess(getResult())],
+      [SET]: [
+        () => rpcSuccess({ success: true, state: 'on', goBinary: COMMITTED }),
+      ],
+    });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    flip(fixture, true);
+    click(fixture, 'go-vet-consent-allow');
+    await settle(fixture);
+
+    expect(text(fixture, 'go-vet-consent-binary')).toBe(COMMITTED);
   });
 
   it('workspace-changed reverts the toggle, shows the fixed message and re-fetches', async () => {

@@ -3453,6 +3453,14 @@ export interface DiagnosticsGoVetConsentGetResult {
   staleReason?: GoVetConsentStaleReasonDto;
   /** The binary the consent records (`on`) or a grant would record; display only. */
   goBinary?: string;
+  /**
+   * Opaque, host-issued identity of what this answer displays: the root's
+   * real path and file identity, and the Go binary a grant would record.
+   * Present whenever `workspace` is. A SET that enables must send it back
+   * unchanged; the host refuses (`workspace-changed` / `go-changed`) when the
+   * folder or the binary is no longer the one shown.
+   */
+  confirmToken?: string;
 }
 
 /** Params for `diagnostics:go-vet-consent-set`. */
@@ -3464,6 +3472,12 @@ export interface DiagnosticsGoVetConsentSetParams {
    * `workspace-changed` when the two differ.
    */
   workspaceRoot: string;
+  /**
+   * The `confirmToken` of the GET whose root and binary the user saw.
+   * Required when `enabled` is `true` (else `invalid-params`); ignored on a
+   * revoke, which is never refused for a changed target.
+   */
+  confirmToken?: string;
   source: 'settings-ui' | 'cli';
 }
 
@@ -3473,12 +3487,18 @@ export type DiagnosticsGoVetConsentSetError =
   | 'unsupported'
   | 'no-workspace'
   | 'workspace-changed'
+  | 'go-changed'
   | 'no-go-binary'
   | 'persist-failed';
 
 /** Response from `diagnostics:go-vet-consent-set`; success only after read-back. */
 export type DiagnosticsGoVetConsentSetResult =
-  | { success: true; state: 'on' | 'off' }
+  | {
+      success: true;
+      state: 'on' | 'off';
+      /** On a grant: the binary the committed record binds (display). */
+      goBinary?: string;
+    }
   | { success: false; error: DiagnosticsGoVetConsentSetError };
 
 /**

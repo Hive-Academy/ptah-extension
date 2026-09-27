@@ -577,9 +577,15 @@ async function runGoVetChange(
       return goVetFailure(stderr, 'no-workspace');
     }
     const workspaceRoot = current.workspace.root;
+    // The SET carries exactly what this GET showed: its root and, to enable,
+    // its confirm token (root identity + Go binary). The host refuses when
+    // either changed in between (`workspace-changed` / `go-changed`).
     const params: DiagnosticsGoVetConsentSetParams = {
       enabled,
       workspaceRoot,
+      ...(enabled && current.confirmToken !== undefined
+        ? { confirmToken: current.confirmToken }
+        : {}),
       source: 'cli',
     };
     const result = await callRpc<DiagnosticsGoVetConsentSetResult>(
@@ -604,8 +610,9 @@ async function runGoVetChange(
       workspaceRoot,
       state: result.state,
     };
-    if (enabled && current.goBinary !== undefined) {
-      payload['goBinary'] = current.goBinary;
+    // The binary the committed record binds, as the host read it back.
+    if (result.state === 'on' && result.goBinary !== undefined) {
+      payload['goBinary'] = result.goBinary;
     }
     await formatter.writeNotification('config.goVet', payload);
     return ExitCode.Success;

@@ -164,13 +164,14 @@ export {
 } from './diagnostics/external-checkers/go-vet-checker';
 export {
   GoVetConsentStore,
-  GO_VET_CONSENT_KEY,
+  GO_VET_CONSENT_DIR,
   type GoVetConsentRecord,
   type GoVetConsentStaleReason,
   type GoVetConsentState,
 } from './diagnostics/external-checkers/go-vet-consent-store';
 export {
   resolveGoBinary,
+  isSameGoBinary,
   type GoBinaryIdentity,
   type ResolvedGoBinary,
 } from './diagnostics/external-checkers/go-binary-resolver';

@@ -539,17 +539,18 @@ describe('ptah config go-vet (TASK_2026_559 O2 §5.2 / §7.3)', () => {
     expect(stderrTrace.buffer).toBe('ptah config go-vet: unsupported\n');
   });
 
-  it("on → GET then SET with GET's root and source 'cli'; shows the root", async () => {
+  it("on → GET then SET with GET's root and confirm token, source 'cli'; shows the binary the host committed", async () => {
     const { engine, hooks, formatterTrace } = buildHooks();
     scriptGet(engine, {
       supported: true,
       workspace: { root: ROOT },
       state: 'off',
       goBinary: '/usr/local/go/bin/go',
+      confirmToken: 'root-part.binary-part',
     });
     engine.scripted.set(SET, {
       success: true,
-      data: { success: true, state: 'on' },
+      data: { success: true, state: 'on', goBinary: '/usr/local/go/bin/go' },
     });
     const exit = await executeGoVet('on', baseGlobals, hooks);
     expect(exit).toBe(ExitCode.Success);
@@ -557,7 +558,12 @@ describe('ptah config go-vet (TASK_2026_559 O2 §5.2 / §7.3)', () => {
       { method: GET, params: {} },
       {
         method: SET,
-        params: { enabled: true, workspaceRoot: ROOT, source: 'cli' },
+        params: {
+          enabled: true,
+          workspaceRoot: ROOT,
+          confirmToken: 'root-part.binary-part',
+          source: 'cli',
+        },
       },
     ]);
     expect(formatterTrace.notifications).toEqual([
@@ -571,6 +577,25 @@ describe('ptah config go-vet (TASK_2026_559 O2 §5.2 / §7.3)', () => {
         },
       },
     ]);
+  });
+
+  it('closing review 4: on never reports a binary the host did not commit', async () => {
+    const { engine, hooks, formatterTrace } = buildHooks();
+    scriptGet(engine, {
+      supported: true,
+      workspace: { root: ROOT },
+      state: 'off',
+      goBinary: '/old/go/bin/go',
+      confirmToken: 'r.b',
+    });
+    engine.scripted.set(SET, {
+      success: true,
+      data: { success: true, state: 'on', goBinary: '/usr/local/go/bin/go' },
+    });
+    await executeGoVet('on', baseGlobals, hooks);
+    expect(formatterTrace.notifications[0]?.params).toMatchObject({
+      goBinary: '/usr/local/go/bin/go',
+    });
   });
 
   it('off reports the read-back state from SET', async () => {
@@ -597,7 +622,12 @@ describe('ptah config go-vet (TASK_2026_559 O2 §5.2 / §7.3)', () => {
     });
   });
 
-  it.each(['workspace-changed', 'no-go-binary', 'persist-failed'])(
+  it.each([
+    'workspace-changed',
+    'go-changed',
+    'no-go-binary',
+    'persist-failed',
+  ])(
     'SET success:false (%s) → exit 1, fixed stderr line, no config.goVet notification',
     async (error) => {
       const { engine, hooks, formatterTrace, stderrTrace } = buildHooks();

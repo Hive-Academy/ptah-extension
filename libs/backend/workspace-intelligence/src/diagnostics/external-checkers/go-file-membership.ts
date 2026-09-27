@@ -10,11 +10,15 @@
  * one fixed invocation, so it cannot ask Go which files it chose. Instead a
  * file is credited only when none of those exclusions can apply:
  *
+ * - `not-go-source` — the extension is not exactly `.go` (go/build matches
+ *   extensions case-sensitively, so `X.GO` is never compiled or vetted);
  * - `ignored-name` — the name starts with `_` or `.`;
  * - `build-constraints` — a known GOOS/GOARCH filename suffix, or any
  *   `//go:build` / `// +build` line before the package clause (conservative:
  *   the constraint is not evaluated, so a file it might exclude is never
  *   claimed);
+ * - `documentation-package` — `package documentation`, which go/build
+ *   skips (`build.go`: a `documentation` package is ignored);
  * - `cgo` — the import section, read with a Go-aware scanner (comments,
  *   grouped and single imports, named imports), imports C;
  * - `unverifiable` — the file is larger than {@link MEMBERSHIP_MAX_BYTES},
@@ -29,7 +33,13 @@ import * as path from 'path';
 export const MEMBERSHIP_MAX_BYTES = 1024 * 1024;
 
 export type GoFileMembership =
-  'member' | 'ignored-name' | 'build-constraints' | 'cgo' | 'unverifiable';
+  | 'member'
+  | 'not-go-source'
+  | 'documentation-package'
+  | 'ignored-name'
+  | 'build-constraints'
+  | 'cgo'
+  | 'unverifiable';
 
 /** `go/build` `knownOS` (syslist.go). */
 const KNOWN_OS: ReadonlySet<string> = new Set([
@@ -97,6 +107,7 @@ export function hasFilenameConstraint(fileName: string): boolean {
 
 /** What the header scan found; `null` when it could not scan. */
 export interface GoHeader {
+  readonly packageName: string;
   readonly buildConstraint: boolean;
   readonly imports: readonly string[];
 }
@@ -214,12 +225,14 @@ export function scanGoHeader(source: string): GoHeader | null {
     }
     token = next();
   }
-  return { buildConstraint, imports };
+  return { packageName: name, buildConstraint, imports };
 }
 
 /** Can a clean vet of this file's package be credited to this file? */
 export function goFileMembership(realFile: string): GoFileMembership {
   const name = path.basename(realFile);
+  // Exactly `.go`: Go does not treat `.GO` / `.Go` as Go source.
+  if (!name.endsWith('.go')) return 'not-go-source';
   if (name.startsWith('_') || name.startsWith('.')) return 'ignored-name';
   if (hasFilenameConstraint(name)) return 'build-constraints';
   let source: string;
@@ -237,6 +250,7 @@ export function goFileMembership(realFile: string): GoFileMembership {
   const header = scanGoHeader(source);
   if (header === null) return 'unverifiable';
   if (header.buildConstraint) return 'build-constraints';
+  if (header.packageName === 'documentation') return 'documentation-package';
   if (header.imports.includes('C')) return 'cgo';
   return 'member';
 }
