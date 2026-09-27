@@ -16,6 +16,7 @@ import {
   LANGUAGE_IDS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   limitApproximations,
+  withCoverageVerdict,
   type Approximation,
   type Count,
   type CoverageCensus,
@@ -98,6 +99,11 @@ export interface GraphCoverageInput {
    * it were never observed: the census is `truncated`.
    */
   readonly censusLimit?: number;
+  /**
+   * Set when the caller's discovery could not read part of the tree: the
+   * census is `unknown` (never clean), whatever `censusLimit` says.
+   */
+  readonly censusUnknown?: boolean;
 }
 
 function saturate(value: number): number {
@@ -250,9 +256,14 @@ export function buildGraphCoverage(
   const approximations: Approximation[] =
     resolution.context === 'partial' ? ['resolver-context-partial'] : [];
   const truncated = input.censusLimit !== undefined;
-  return {
+  return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor('graphEdges'),
-    census: truncated ? 'truncated' : 'complete',
+    census:
+      input.censusUnknown === true
+        ? 'unknown'
+        : truncated
+          ? 'truncated'
+          : 'complete',
     ...(truncated ? { censusLimit: input.censusLimit } : {}),
     analyzed: saturate(input.analyzed),
     unchecked: 0,
@@ -278,7 +289,7 @@ export function buildGraphCoverage(
       context: resolution.context,
     },
     ...limitApproximations(approximations),
-  };
+  });
 }
 
 /**
@@ -326,7 +337,7 @@ export function invalidatedCoverage(
 ): LanguageCoverage {
   const moved =
     wasAnalyzed && coverage.analyzed !== null && coverage.analyzed > 0;
-  return {
+  return withCoverageVerdict({
     ...coverage,
     ...(moved
       ? {
@@ -341,7 +352,19 @@ export function invalidatedCoverage(
       edgeCapHit: coverage.resolution?.edgeCapHit ?? false,
       context: 'partial',
     },
-  };
+  });
+}
+
+/**
+ * Coverage of a graph whose root's real path could not be resolved (the
+ * lookup failed, e.g. EIO): an edit named through a link alias of the root
+ * may never reach the graph, so how many analysed files are stale is
+ * unknown. `unchecked` becomes `null`, which is never clean (`unchecked?`).
+ */
+export function identityUnavailableCoverage(
+  coverage: LanguageCoverage,
+): LanguageCoverage {
+  return withCoverageVerdict({ ...coverage, unchecked: null });
 }
 
 const CENSUS_RANK: Readonly<Record<CoverageCensus, number>> = {
@@ -470,7 +493,7 @@ export function mergeGraphCoverages(
   );
   const checks = mergeChecks(coverages);
 
-  return {
+  return withCoverageVerdict({
     supportedLanguages: LANGUAGE_IDS.filter((id) => supported.has(id)),
     census,
     ...(limits.length > 0 ? { censusLimit: Math.max(...limits) } : {}),
@@ -493,5 +516,5 @@ export function mergeGraphCoverages(
       : { approximations: approximations.approximations }),
     ...(omitted > 0 ? { approximationsOmitted: omitted } : {}),
     ...(checks === undefined ? {} : { checks }),
-  };
+  });
 }

@@ -5,6 +5,7 @@ import {
   buildAgentReportTool,
   buildAgentSpawnTool,
   buildCodeReindexTool,
+  buildCodeSearchSymbolsTool,
   buildGetDependenciesTool,
   buildGetDependentsTool,
   buildGetSymbolIndexTool,
@@ -361,5 +362,48 @@ describe('buildTaskListTool / buildTaskCheckTool', () => {
     expect(tool.description).toContain('invalidTotal');
     expect(tool.description).toContain('excludedTotal');
     expect(tool.description).not.toContain('every SKIPPED');
+  });
+});
+
+// TASK_2026_559 Batch 24b r2: the short coverage reason codes are explained
+// where an agent reads them, within the description budget.
+describe('code index tools — coverage legend', () => {
+  it.each([
+    ['ptah_code_search_symbols', buildCodeSearchSymbolsTool],
+    ['ptah_code_reindex', buildCodeReindexTool],
+  ])(
+    '%s explains clean, reasons, ?, truncated, stale, updating and saturation',
+    (_name, build) => {
+      const { description } = build();
+      for (const term of [
+        '`clean`',
+        '`reasons`',
+        '`?`',
+        '`truncated`',
+        '`stale`',
+        '`updating`',
+        '999999',
+      ]) {
+        expect(description).toContain(term);
+      }
+      expect(description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    },
+  );
+
+  // Batch 22c: the compact block leaves zero counts out, so the legend must
+  // say how to read an absent count. Fails before 22c.
+  it.each([
+    ['ptah_code_search_symbols', buildCodeSearchSymbolsTool],
+    ['ptah_code_reindex', buildCodeReindexTool],
+  ])('%s states the compact reading rule', (_name, build) => {
+    const { description } = build();
+    expect(description).toContain('A clean block holds only `analyzed`');
+    expect(description).toContain('an omitted count is 0 and null is unknown');
+  });
+
+  it('ptah_code_reindex says a single file returns its own coverage', () => {
+    expect(buildCodeReindexTool().description).toContain(
+      'returns its own `coverage`',
+    );
   });
 });

@@ -78,6 +78,8 @@ export interface ReduceOutputOptions {
   readonly languageHint?: string;
   /** Declaration the code reducer keeps in full. */
   readonly focusSymbol?: string;
+  /** Top-level JSON keys kept verbatim and first (see `ReduceContext`). */
+  readonly preserveKeys?: readonly string[];
   /** Syntax-aware outliner; without one the code kind takes the log fallback. */
   readonly outliner?: CodeOutliner;
   /** Receives one line when a reducer throws. */
@@ -149,6 +151,7 @@ export async function reduceOutput(
       budgetChars: Math.max(1, budgetChars - noteChars),
       languageHint: options.languageHint,
       focusSymbol: options.focusSymbol,
+      preserveKeys: options.preserveKeys,
     });
   } catch (error) {
     // Only the error's type is logged: a message can carry content or paths.

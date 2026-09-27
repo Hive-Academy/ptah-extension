@@ -20,7 +20,11 @@ import {
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
-import { FileType } from '@ptah-extension/platform-core';
+import {
+  FileType,
+  compactCoverage,
+  withCoverageVerdict,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -194,7 +198,7 @@ export function buildAstNamespace(
 
       if (!hasCapability(language, 'publicSymbols')) {
         throw new Error(
-          `${JSON.stringify({ coverage: fileCoverage(filePath, 'publicSymbols', 'unknown') })} ` +
+          `${JSON.stringify({ coverage: compactCoverage(fileCoverage(filePath, 'publicSymbols', 'unknown')) })} ` +
             `Export query unsupported for ${language}. Supported: ${supportedLanguagesFor('publicSymbols').join(', ')}`,
         );
       }
@@ -232,7 +236,7 @@ function fileCoverage(
   const unsupportedSyntax =
     eligible && parseStatus === 'ok' && hasUnextractedExports;
   const language = languageForExtension(path.extname(filePath));
-  return {
+  return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor(capability),
     census: 'complete',
     analyzed: eligible && parseStatus === 'ok' && !unsupportedSyntax ? 1 : 0,
@@ -253,7 +257,7 @@ function fileCoverage(
     ...(unsupportedSyntax
       ? { failedByReason: { 'unsupported-syntax': 1 } }
       : {}),
-  };
+  });
 }
 
 /**
@@ -290,7 +294,7 @@ async function readFileForAst(
 
   if (!language) {
     throw new Error(
-      `${JSON.stringify({ coverage: fileCoverage(absolutePath, 'parse', 'unknown') })} ` +
+      `${JSON.stringify({ coverage: compactCoverage(fileCoverage(absolutePath, 'parse', 'unknown')) })} ` +
         `Unsupported file type: ${ext}. Supported: ${Object.keys(
           EXTENSION_LANGUAGE_MAP,
         ).join(', ')}`,

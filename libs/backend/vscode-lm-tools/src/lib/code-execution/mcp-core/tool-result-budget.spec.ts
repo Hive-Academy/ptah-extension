@@ -1,6 +1,7 @@
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { compactCoverage } from '@ptah-extension/platform-core';
 import { SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import {
   countTokens,
@@ -12,6 +13,7 @@ import {
   DEFAULT_TOOL_RESULT_BUDGET_CHARS,
   DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
   getToolResultBudget,
+  PRESERVED_RESULT_KEYS,
   TOOL_CONTENT_HINTS,
   TOOL_RESULT_BUDGET_OVERRIDES,
   type ApplyToolResultBudgetInput,
@@ -738,5 +740,79 @@ describe('review 2e r2 regressions', () => {
     expect(outcome.text).not.toContain('HIDDEN_SCRIPT_SENTINEL');
     trailerOf(outcome.text);
     expect(fsSync.readFileSync(outcome.spoolPath ?? '', 'utf8')).toBe(raw);
+  });
+});
+
+/**
+ * Batch 24r (r1 B1 of Batch 24b): the JSON reducer used to drop `null`
+ * fields, so a reduced search answer lost `coverage.unrecognised: null` — the
+ * only qualifier of an otherwise complete, current index.
+ */
+describe('applyToolResultBudget — status blocks survive reduction', () => {
+  // Batch 22c: the block is written compact (`compactCoverage`), as the
+  // dispatcher now writes it; the reducer keeps that form verbatim.
+  it('a reduced search result still shows coverage.clean:false and every null field', async () => {
+    const coverage = compactCoverage({
+      supportedLanguages: ['typescript', 'javascript'],
+      census: 'complete',
+      state: 'current',
+      analyzed: 2,
+      unchecked: 0,
+      failed: 0,
+      unsupported: 0,
+      unrecognised: null,
+      nonSource: null,
+      excluded: null,
+      omittedByCap: 0,
+    });
+    const result = {
+      index: {
+        symbolCount: 300,
+        indexAgeMs: null,
+        reindexStarted: false,
+        reindexInFlight: false,
+      },
+      coverage,
+      bm25Only: false,
+      hits: Array.from({ length: 300 }, (_, i) => ({
+        subject: null,
+        filePath: `/ws/src/deep/directory/module${i}/handlers.ts`,
+        symbolName: `handleRequest${i}`,
+        kind: 'function',
+        text: `function handleRequest${i}(request: Request): Response {}`,
+        score: 0.01,
+      })),
+    };
+
+    const outcome = await call(JSON.stringify(result), {
+      toolName: 'ptah_code_search_symbols',
+    });
+
+    expect(outcome.reduced || outcome.truncated).toBe(true);
+    expectWithin(outcome.text);
+    const body = JSON.parse(outcome.text.split('\n')[0]) as {
+      coverage: Record<string, unknown>;
+      index: Record<string, unknown>;
+    };
+    expect(Object.keys(body).slice(0, 2)).toEqual(['coverage', 'index']);
+    expect(body.coverage).toEqual(coverage);
+    expect(JSON.stringify(body.coverage)).toBe(
+      '{"clean":false,"reasons":["unrecognised?"],"analyzed":2,"unrecognised":null,"nonSource":null,"excluded":null}',
+    );
+    expect(body.coverage['clean']).toBe(false);
+    expect(body.coverage['reasons']).toEqual(['unrecognised?']);
+    for (const key of ['unrecognised', 'nonSource', 'excluded']) {
+      expect(body.coverage).toHaveProperty(key, null);
+    }
+    expect(body.index).toHaveProperty('indexAgeMs', null);
+  });
+
+  it('declares the preserved keys it hands to the reducer', () => {
+    expect(PRESERVED_RESULT_KEYS).toEqual([
+      'coverage',
+      'status',
+      'index',
+      'parseStatus',
+    ]);
   });
 });

@@ -19,9 +19,23 @@ import {
   DependencyGraphService,
   exportSymbolNames,
   resolveEnrichLanguage,
+  DEFAULT_WORKSPACE_EXCLUDES,
+  EXTENSION_LANGUAGE_MAP,
+  classifyFileForCoverage,
+  languageForExtension,
+  recognisedSourceExtensions,
+  supportedLanguagesFor,
   type StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  IncompleteFileSearchError,
+  withCoverageVerdict,
+  type FileSearchFailures,
+  type IFileSystemProvider,
+  type IWorkspaceProvider,
+  type LanguageCoverage,
+  type UnsupportedLanguageAnswer,
+} from '@ptah-extension/platform-core';
 import {
   ContextNamespace,
   ProjectNamespace,
@@ -31,6 +45,9 @@ import {
   MonorepoResult,
   DependencyResult,
   FileRelevanceResult,
+  GraphFileCoverage,
+  GraphQueryCoverage,
+  GraphSourceDiscovery,
   SymbolIndexEntry,
   SymbolIndexPage,
   SymbolIndexQuery,
@@ -52,6 +69,8 @@ export interface AnalysisNamespaceDependencies {
   contextEnrichment: ContextEnrichmentService;
   dependencyGraph: DependencyGraphService;
   workspaceProvider: IWorkspaceProvider;
+  /** Bounded source discovery for the dependency graph. */
+  fileSystemProvider: IFileSystemProvider;
 }
 
 /**
@@ -329,13 +348,116 @@ function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
 }
 
 /**
+ * Vendored and generated trees graph discovery excludes inside its walk, on
+ * top of `DEFAULT_WORKSPACE_EXCLUDES` (plan "Bounds", Discovery row), so a
+ * large vendor tree can never use up the census limit before the project's
+ * own code is reached. Excluded inside discovery, they are never observed:
+ * the coverage reports `excluded: null`.
+ */
+export const GRAPH_VENDOR_EXCLUDES: readonly string[] = [
+  '**/.venv/**',
+  '**/venv/**',
+  '**/site-packages/**',
+  '**/__pycache__/**',
+  '**/vendor/**',
+  '**/obj/**',
+  '**/bin/**',
+  '**/.gradle/**',
+  '**/Pods/**',
+];
+
+/** Most files one graph discovery lists; past it the census is `truncated`. */
+export const GRAPH_CENSUS_LIMIT = 50_000;
+
+/**
+ * `ts` → `[tT][sS]`: an extension pattern that matches every letter case.
+ * The registry recognises extensions case-insensitively (`APP.TS` is
+ * TypeScript, `analysis.R` is R), so discovery must too, or such files
+ * vanish from a census that then reads complete (review r1 B1). Bracket
+ * classes, not a provider option, so the VS Code, Electron and CLI globs all
+ * honour it. Every other character is a one-character class too (`c++` →
+ * `[cC][+][+]`): a bare `+` after a class is a glob operator to picomatch,
+ * so `[cC]++` never matched `.c++` (review r2).
+ */
+function anyCaseExtensionPattern(extension: string): string {
+  return [...extension]
+    .map((char) =>
+      char.toLowerCase() === char.toUpperCase()
+        ? `[${char}]`
+        : `[${char.toLowerCase()}${char.toUpperCase()}]`,
+    )
+    .join('');
+}
+
+/**
+ * Every extension a language is recognised by, graph-capable or not, in any
+ * letter case, so the graph's census counts the files it cannot analyse
+ * (`unsupported`) as well as the ones it parses.
+ */
+const GRAPH_DISCOVERY_GLOB = `**/*.{${recognisedSourceExtensions()
+  .map((extension) => anyCaseExtensionPattern(extension.slice(1)))
+  .join(',')}}`;
+
+/** Graph coverage when no graph answers: nothing is known, so never clean. */
+function unknownGraphCoverage(): LanguageCoverage {
+  return withCoverageVerdict({
+    supportedLanguages: supportedLanguagesFor('graphEdges'),
+    census: 'unknown',
+    analyzed: null,
+    unchecked: null,
+    failed: null,
+    unsupported: null,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    omittedByCap: null,
+  });
+}
+
+/**
+ * The `unsupported-language` answer for a file the dependency graph cannot
+ * hold, or `undefined` when its extension is graph-capable. Every other file
+ * (another language, a recognition-only extension such as `.mjs`, non-source
+ * or unrecognised) is never a graph node, so an empty list for it would read
+ * as "nothing imports it".
+ */
+function unsupportedGraphLanguage(
+  filePath: string,
+): UnsupportedLanguageAnswer | undefined {
+  const trimmed = filePath.trim();
+  if (classifyFileForCoverage(trimmed, 'graphEdges') === 'eligible') {
+    return undefined;
+  }
+  const extension = path.extname(trimmed).toLowerCase();
+  const language =
+    languageForExtension(extension) ??
+    (extension === '' ? 'unknown' : extension);
+  const supportedLanguages = supportedLanguagesFor('graphEdges');
+  const subject =
+    extension === ''
+      ? 'Files without an extension'
+      : language === extension
+        ? `Files with extension "${extension}"`
+        : `${language} files (${extension})`;
+  return {
+    status: 'unsupported-language',
+    language,
+    supportedLanguages,
+    message:
+      `${subject} are not part of the dependency graph on this host, so no dependents or dependencies were looked up. ` +
+      `Graph languages: ${supportedLanguages.join(', ')}. ` +
+      'Use Grep or ptah_search_files to find references to this file.',
+  };
+}
+
+/**
  * Build dependency graph namespace
  * Import-based file dependency tracking and symbol indexing
  */
 export function buildDependencyNamespace(
   deps: AnalysisNamespaceDependencies,
 ): DependenciesNamespace {
-  const { dependencyGraph, workspaceProvider } = deps;
+  const { dependencyGraph, workspaceProvider, fileSystemProvider } = deps;
 
   const readSymbolEntries = (workspaceRoot?: string): SymbolIndexEntry[] => {
     try {
@@ -381,6 +503,9 @@ export function buildDependencyNamespace(
       readSymbolEntries(workspaceRoot),
       parsed.query,
       workspaceRoot ?? workspaceProvider.getWorkspaceRoot(),
+      // The prefix matched with the identity dependency queries use: a
+      // junction root's real target (or its alias) finds the same entries.
+      (prefix) => dependencyGraph.graphSpellingsOf(prefix),
     );
   }
 
@@ -389,7 +514,12 @@ export function buildDependencyNamespace(
       filePaths: string[],
       workspaceRoot: string,
       discoveredFiles?: number,
-      options?: { yieldToForeground?: boolean; generation?: number },
+      options?: {
+        yieldToForeground?: boolean;
+        generation?: number;
+        censusLimit?: number;
+        censusUnknown?: boolean;
+      },
     ) => {
       try {
         const graph = await dependencyGraph.buildGraph(
@@ -410,6 +540,10 @@ export function buildDependencyNamespace(
             ...(options?.generation === undefined
               ? {}
               : { generation: options.generation }),
+            ...(options?.censusLimit === undefined
+              ? {}
+              : { censusLimit: options.censusLimit }),
+            ...(options?.censusUnknown === true ? { censusUnknown: true } : {}),
           },
         );
         let edgeCount = 0;
@@ -433,6 +567,53 @@ export function buildDependencyNamespace(
         };
       }
     },
+
+    discoverSourceFiles: async (
+      workspaceRoot: string,
+      limit: number = GRAPH_CENSUS_LIMIT,
+    ): Promise<GraphSourceDiscovery> => {
+      if (!Number.isInteger(limit) || limit < 1 || limit > GRAPH_CENSUS_LIMIT) {
+        throw new RangeError(
+          `"limit" must be an integer from 1 to ${GRAPH_CENSUS_LIMIT}.`,
+        );
+      }
+      // One past the limit: its presence alone says the census is truncated.
+      let found: readonly string[];
+      let unreadable: FileSearchFailures | undefined;
+      try {
+        found = await fileSystemProvider.findFiles(
+          GRAPH_DISCOVERY_GLOB,
+          [...DEFAULT_WORKSPACE_EXCLUDES, ...GRAPH_VENDOR_EXCLUDES],
+          limit + 1,
+          workspaceRoot,
+        );
+      } catch (error: unknown) {
+        // degradation-audit: reported — part of the tree could not be read
+        // (review r3 B1): keep what was found, and return the failures so
+        // the graph built from it publishes an unknown census (never clean).
+        // Any other failure propagates (the build reports `failed`).
+        if (!(error instanceof IncompleteFileSearchError)) throw error;
+        found = error.matches;
+        unreadable = error.failures;
+      }
+      return {
+        files: found
+          .slice(0, limit)
+          .map((file) => toAbsoluteWorkspacePath(workspaceRoot, file)),
+        truncated: found.length > limit,
+        limit,
+        ...(unreadable === undefined
+          ? {}
+          : {
+              unreadable: {
+                paths: unreadable.total,
+                byCode: { ...unreadable.byCode },
+              },
+            }),
+      };
+    },
+
+    unsupportedGraphLanguage,
 
     reserveGraphBuild: (workspaceRoot: string) =>
       dependencyGraph.reserveBuild(workspaceRoot),
@@ -481,24 +662,41 @@ export function buildDependencyNamespace(
       }
     },
 
-    getGraphCoverage: async (workspaceRoot?: string) =>
-      dependencyGraph.getCoverage(workspaceRoot),
+    getGraphCoverage: async (
+      workspaceRoot?: string,
+    ): Promise<GraphQueryCoverage> => {
+      const report = dependencyGraph.getCoverageReport(workspaceRoot);
+      return report
+        ? { ...report.files, coverage: report.languages }
+        : { coverage: unknownGraphCoverage() };
+    },
 
     // Resolved exactly as getDependencies/getDependents resolve their path, so
     // the service routes it to the graph that answers those calls.
-    getGraphCoverageForFile: async (filePath: string) => {
+    getGraphCoverageForFile: async (
+      filePath: string,
+    ): Promise<GraphFileCoverage> => {
       const trimmed = filePath.trim();
       // A relative path with no open workspace cannot be resolved; the
-      // dependency calls answer [] for it, from no graph, so neither has coverage.
+      // dependency calls answer [] for it, from no graph, so nothing is known.
       if (
         !isAbsoluteFileArg(trimmed) &&
         !workspaceProvider.getWorkspaceRoot()
       ) {
-        return undefined;
+        return { coverage: unknownGraphCoverage() };
       }
-      return dependencyGraph.getCoverageForFile(
-        resolveWorkspaceFilePath(trimmed, workspaceProvider),
-      );
+      const resolved = resolveWorkspaceFilePath(trimmed, workspaceProvider);
+      // Both read the service synchronously, so they describe one graph.
+      const report = dependencyGraph.getCoverageReportForFile(resolved);
+      if (!report) {
+        return { coverage: unknownGraphCoverage() };
+      }
+      const nodePath = dependencyGraph.resolveNodePath(resolved);
+      return {
+        ...report.files,
+        coverage: report.languages,
+        ...(nodePath === undefined ? {} : { nodePath }),
+      };
     },
   };
 }

@@ -310,3 +310,163 @@ describe('reduceJson — size and preserved content', () => {
     });
   });
 });
+
+/**
+ * Batch 24r: a caller's status block (a coverage verdict and its `null`
+ * unknowns) must survive compaction untouched and ahead of the bulk.
+ */
+describe('reduceJson — preserveKeys', () => {
+  const coverage = {
+    clean: false,
+    reasons: ['unknown-unrecognised'],
+    census: 'complete',
+    unchecked: 0,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    byLanguage: {},
+    notes: [],
+  };
+  const document = {
+    hits: rows300(),
+    meta: { empty: null, label: '' },
+    coverage,
+  };
+
+  it('keeps a preserved value verbatim, nulls and empties included, and first', () => {
+    const input = pretty(document);
+    const result = reduceJson(input, {
+      ...ctx,
+      preserveKeys: ['coverage'],
+    });
+
+    expect(result.reducer).toBe('json-compact');
+    const head = JSON.parse(result.text.split('\n')[0]) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(head)[0]).toBe('coverage');
+    expect(head['coverage']).toEqual(coverage);
+    // The rest is still compacted: the empty meta fields are dropped.
+    expect(head['meta']).toBeUndefined();
+    expect(result.notes).toContain('kept 1 field(s) verbatim and first');
+  });
+
+  it('places several preserved keys in preserveKeys order', () => {
+    const input = pretty({
+      z: 1,
+      index: { n: null },
+      coverage,
+      hits: rows300(),
+    });
+    const result = reduceJson(input, {
+      ...ctx,
+      preserveKeys: ['coverage', 'status', 'index'],
+    });
+
+    const head = JSON.parse(result.text.split('\n')[0]) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(head)).toEqual(['coverage', 'index', 'z']);
+    expect(head['index']).toEqual({ n: null });
+  });
+
+  it('never renders a preserved array of objects as a table', () => {
+    const input = pretty({ coverage: rows300().slice(0, 5), hits: rows300() });
+    const result = reduceJson(input, { ...ctx, preserveKeys: ['coverage'] });
+
+    const head = JSON.parse(result.text.split('\n')[0]) as Record<
+      string,
+      unknown
+    >;
+    expect(head['coverage']).toEqual(rows300().slice(0, 5));
+    expect(result.text).not.toContain('$.coverage');
+  });
+
+  it('without preserveKeys, behaves exactly as before (nulls dropped)', () => {
+    const input = pretty(document);
+    const before = reduceJson(input, ctx);
+    const head = JSON.parse(before.text.split('\n')[0]) as {
+      coverage: Record<string, unknown>;
+    };
+    expect(head.coverage).not.toHaveProperty('unrecognised');
+  });
+
+  it('ignores preserveKeys for an array document or when no key matches', () => {
+    const array = pretty(rows300());
+    expect(reduceJson(array, { ...ctx, preserveKeys: ['coverage'] })).toEqual(
+      reduceJson(array, ctx),
+    );
+    const other = pretty({ hits: rows300() });
+    expect(reduceJson(other, { ...ctx, preserveKeys: ['coverage'] })).toEqual(
+      reduceJson(other, ctx),
+    );
+  });
+
+  it('keeps a document whose only field is preserved', () => {
+    const input = pretty({ coverage: { a: null, b: [] }, empty: null });
+    const result = reduceJson(input, { ...ctx, preserveKeys: ['coverage'] });
+    expect(JSON.parse(result.text)).toEqual({ coverage: { a: null, b: [] } });
+  });
+});
+
+/**
+ * Batch 24b r2 M2: a preserved key is protected wherever it appears, so an
+ * aggregated answer (per-result coverage) keeps its unknowns too.
+ */
+describe('reduceJson — preserveKeys at any depth', () => {
+  const coverage = {
+    clean: false,
+    reasons: ['unrecognised?'],
+    unrecognised: null,
+    excluded: null,
+  };
+
+  it('keeps a nested preserved value verbatim and first among its siblings', () => {
+    const input = pretty({
+      result: { hits: rows300(), note: null, coverage },
+    });
+    const result = reduceJson(input, { ...ctx, preserveKeys: ['coverage'] });
+
+    const head = JSON.parse(result.text.split('\n')[0]) as {
+      result: Record<string, unknown>;
+    };
+    expect(Object.keys(head.result)[0]).toBe('coverage');
+    expect(head.result['coverage']).toEqual(coverage);
+    expect(head.result).not.toHaveProperty('note');
+  });
+
+  it('renders preserved columns first, with verbatim cells, in a table of results', () => {
+    const results = [0, 1, 2, 3].map((i) => ({
+      name: `r${i}`,
+      empty: null,
+      coverage,
+    }));
+    const input = pretty({ results, padding: rows300() });
+    const result = reduceJson(input, { ...ctx, preserveKeys: ['coverage'] });
+
+    const table = result.text
+      .split('\n\n')
+      .find((section) => section.includes('$.results'));
+    const lines = (table ?? result.text)
+      .split('\n')
+      .filter((line) => line.startsWith('|'));
+    const header = lines.find((line) => line.includes('coverage')) ?? '';
+    expect(header.startsWith('|coverage|')).toBe(true);
+    expect(result.text).toContain(JSON.stringify(coverage));
+  });
+
+  it('keeps per-element preserved values in an array document', () => {
+    const input = pretty([
+      { coverage, items: rows300().slice(0, 50) },
+      { coverage, items: [] },
+    ]);
+    const result = reduceJson(input, { ...ctx, preserveKeys: ['coverage'] });
+
+    expect(result.reducer).toBe('json-compact');
+    const occurrences = result.text.split(JSON.stringify(coverage)).length - 1;
+    expect(occurrences).toBe(2);
+    expect(result.notes).toContain('kept 2 field(s) verbatim and first');
+  });
+});

@@ -24,6 +24,7 @@ import {
   GRAPH_EDGE_CAP,
   buildGraphCoverage,
   classifyUnresolvedSpecifier,
+  identityUnavailableCoverage,
   invalidatedCoverage,
   mergeGraphCoverages,
   selectGraphFiles,
@@ -112,6 +113,12 @@ export interface BuildGraphOptions {
    * the caller discovered every file (`complete`).
    */
   censusLimit?: number;
+  /**
+   * Set when the caller's discovery could not read part of the tree (a
+   * directory it failed to open): which files exist there is unknown, so
+   * the census is `unknown` and the coverage never clean.
+   */
+  censusUnknown?: boolean;
 }
 
 /** What {@link DependencyGraphService.getBuildState} reports for one root. */
@@ -192,21 +199,44 @@ function isUncPath(filePath: string): boolean {
   return /^[\\/]{2}(?![?.][\\/])/.test(filePath);
 }
 
+/** What resolving a root's real path established about its identity. */
+interface RootIdentity {
+  /** The real path's identity; `undefined` when it has none or is unknown. */
+  readonly real: string | undefined;
+  /**
+   * The lookup failed for a reason other than the root being absent (EIO,
+   * EACCES, a link loop, ...): whether the root is a link alias is unknown,
+   * so an invalidation named through its real path may go unmatched (r4 M1).
+   */
+  readonly unavailable: boolean;
+}
+
+/** Errors that prove there is nothing on disk to follow: no alias exists. */
+const ABSENT_PATH_CODES: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR']);
+
 /**
- * The identity of `root`'s real path (links and junctions followed), or
- * `undefined` when it cannot be resolved (missing, a UNC share, or a failed
- * lookup): the lexical key is then the root's only identity.
+ * The identity of `root`'s real path (links and junctions followed). A UNC
+ * share is never resolved, and a root that does not exist has no alias:
+ * both keep the lexical key as their only identity. Any other failed lookup
+ * is `unavailable`, which the published coverage discloses.
  */
-async function realRootIdentity(root: string): Promise<string | undefined> {
-  if (isUncPath(root)) return undefined;
+async function realRootIdentity(root: string): Promise<RootIdentity> {
+  if (isUncPath(root)) return { real: undefined, unavailable: false };
   try {
-    return graphPathIdentity(await fs.promises.realpath(root));
+    return {
+      real: graphPathIdentity(await fs.promises.realpath(root)),
+      unavailable: false,
+    };
   } catch (error: unknown) {
-    // degradation-audit: optional-capability — a root that cannot be
-    // resolved keeps its lexical identity (the pre-alias behaviour); only a
-    // link alias of it goes unmatched. Nothing is hidden: `error` is unused.
-    void error;
-    return undefined;
+    // degradation-audit: reported — a root that cannot be resolved keeps its
+    // lexical identity; unless it is absent (no alias can exist), the graph
+    // built under it publishes `unchecked: null` (never clean), because an
+    // edit named through its real path may not be matched. Only the code is read.
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : '';
+    return { real: undefined, unavailable: !ABSENT_PATH_CODES.has(code) };
   }
 }
 
@@ -324,10 +354,10 @@ export class DependencyGraphService {
    */
   private readonly realRoots = new Map<string, string>();
 
-  /** Lazily built node-identity lookups; see {@link nodeKeyFor}. */
+  /** Lazily built node-identity lookups; see {@link nodeKeysFor}. */
   private readonly nodeIdentityIndexes = new WeakMap<
     DependencyGraph,
-    Map<string, string>
+    Map<string, string[]>
   >();
 
   /** Latch: a defective governor is warned about once, not per chunk. */
@@ -392,8 +422,9 @@ export class DependencyGraphService {
     try {
       // Resolved once per build, so invalidations named through a junction
       // or symlink alias of the root (or its target) are matched.
-      const realRoot = await realRootIdentity(workspaceRoot);
-      inFlight.realRoot = realRoot === key ? undefined : realRoot;
+      const rootIdentity = await realRootIdentity(workspaceRoot);
+      inFlight.realRoot =
+        rootIdentity.real === key ? undefined : rootIdentity.real;
       const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
       const background = options.yieldToForeground === true;
       const selection = selectGraphFiles(filePaths);
@@ -432,21 +463,25 @@ export class DependencyGraphService {
         (discoveredFiles as number) > listedFiles
           ? (discoveredFiles as number)
           : listedFiles;
+      const languages = buildGraphCoverage({
+        selection,
+        analyzed: nodes.size,
+        failedByReason,
+        resolution,
+        omittedUpstream: discovered - listedFiles,
+        ...(options.censusLimit === undefined
+          ? {}
+          : { censusLimit: options.censusLimit }),
+        ...(options.censusUnknown === true ? { censusUnknown: true } : {}),
+      });
       this.publish(key, graph, {
         files: {
           graphedFiles: listedFiles - selection.omittedByCap,
           discoveredFiles: discovered,
         },
-        languages: buildGraphCoverage({
-          selection,
-          analyzed: nodes.size,
-          failedByReason,
-          resolution,
-          omittedUpstream: discovered - listedFiles,
-          ...(options.censusLimit === undefined
-            ? {}
-            : { censusLimit: options.censusLimit }),
-        }),
+        languages: rootIdentity.unavailable
+          ? identityUnavailableCoverage(languages)
+          : languages,
       });
       if (inFlight.realRoot === undefined) this.realRoots.delete(key);
       else this.realRoots.set(key, inFlight.realRoot);
@@ -759,29 +794,23 @@ export class DependencyGraphService {
    * @returns Array of resolved dependency file paths
    */
   getDependencies(filePath: string, depth = 1): string[] {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const graph = this.findGraphForFile(normalizedPath);
-    if (!graph) {
+    const found = this.findNode(filePath);
+    if (!found) {
       return [];
     }
+    const [graph, nodeKey] = found;
 
     const clampedDepth = Math.min(Math.max(depth, 1), MAX_DEPTH);
 
     if (clampedDepth === 1) {
-      const directEdges = graph.edges.get(normalizedPath);
+      const directEdges = graph.edges.get(nodeKey);
       return directEdges ? Array.from(directEdges) : [];
     }
     const result: string[] = [];
     const visited = new Set<string>();
-    visited.add(normalizedPath); // Mark origin as visited to prevent self-cycles
+    visited.add(nodeKey); // Mark origin as visited to prevent self-cycles
 
-    this.collectDependencies(
-      graph,
-      normalizedPath,
-      clampedDepth,
-      visited,
-      result,
-    );
+    this.collectDependencies(graph, nodeKey, clampedDepth, visited, result);
 
     return result;
   }
@@ -793,14 +822,61 @@ export class DependencyGraphService {
    * @returns Array of dependent file paths
    */
   getDependents(filePath: string): string[] {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const graph = this.findGraphForFile(normalizedPath);
-    if (!graph) {
+    const found = this.findNode(filePath);
+    if (!found) {
       return [];
     }
-
-    const dependents = graph.reverseEdges.get(normalizedPath);
+    const dependents = found[0].reverseEdges.get(found[1]);
     return dependents ? Array.from(dependents) : [];
+  }
+
+  /**
+   * The graph's own spelling of `filePath` (its node key) in the graph that
+   * answers {@link getDependencies} and {@link getDependents} for it, or
+   * `undefined` when that graph holds no node for the file (or no graph
+   * answers it). Found through the same path identity as invalidation: an
+   * exact spelling first, else the unique node whose identity matches (case
+   * folded where paths are case-insensitive), else the file's real path
+   * re-rooted under the graph's root when the root is a link alias.
+   */
+  resolveNodePath(filePath: string): string | undefined {
+    return this.findNode(filePath)?.[1];
+  }
+
+  /** The answering graph and the file's node key in it (see {@link resolveNodePath}). */
+  private findNode(filePath: string): [DependencyGraph, string] | undefined {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const entry = this.findGraphEntryForFile(normalizedPath);
+    if (!entry) {
+      return undefined;
+    }
+    const [key, graph] = entry;
+    if (graph.nodes.has(normalizedPath)) {
+      return [graph, normalizedPath];
+    }
+    const unique = (candidates: readonly string[]): string | undefined =>
+      candidates.length === 1 ? candidates[0] : undefined;
+    const byIdentity = unique(
+      this.nodeKeysFor(graph, graphPathIdentity(normalizedPath)),
+    );
+    if (byIdentity !== undefined) {
+      return [graph, byIdentity];
+    }
+    // Spelt through a link alias of the root (or its target): follow the
+    // file's real path, re-rooted at the key, as invalidation does. Only on
+    // a miss, so an ordinary query costs no file-system lookup.
+    const candidates = new Set<string>();
+    for (const identity of this.identitiesUnderRoot(
+      fileIdentities(normalizedPath),
+      key,
+      this.realRoots.get(key),
+    )) {
+      for (const nodeKey of this.nodeKeysFor(graph, identity)) {
+        candidates.add(nodeKey);
+      }
+    }
+    const byRealPath = unique([...candidates]);
+    return byRealPath === undefined ? undefined : [graph, byRealPath];
   }
 
   /**
@@ -907,14 +983,21 @@ export class DependencyGraphService {
     realRoot: string | undefined,
   ): boolean {
     const underRoot = this.identitiesUnderRoot(identities, key, realRoot);
-    let nodeKey: string | undefined;
+    const nodeKeys = new Set<string>();
     for (const identity of [...underRoot, ...identities]) {
-      nodeKey ??= this.nodeKeyFor(graph, identity);
+      for (const nodeKey of this.nodeKeysFor(graph, identity)) {
+        nodeKeys.add(nodeKey);
+      }
     }
-    if (underRoot.length === 0 && nodeKey === undefined) {
+    if (underRoot.length === 0 && nodeKeys.size === 0) {
       return false;
     }
-    this.invalidateInGraph(key, graph, nodeKey);
+    if (nodeKeys.size === 0) {
+      this.invalidateInGraph(key, graph, undefined);
+    }
+    for (const nodeKey of nodeKeys) {
+      this.invalidateInGraph(key, graph, nodeKey);
+    }
     return true;
   }
 
@@ -1144,27 +1227,28 @@ export class DependencyGraphService {
   }
 
   /**
-   * Identity of every node, keyed by {@link graphPathIdentity}, so an
-   * invalidation spelt differently (case on win32, a junction alias) finds
-   * the stored node key. Built on first use; a published graph never gains
-   * nodes, and a removed node is re-checked against `graph.nodes`.
+   * Every node key whose {@link graphPathIdentity} is `identity`, so a path
+   * spelt differently (case on win32, a junction alias) finds the stored
+   * node keys. More than one means the identity is ambiguous: a query then
+   * matches none of them, an invalidation removes all. Built on first use; a
+   * published graph never gains nodes, and a removed node is re-checked
+   * against `graph.nodes`.
    */
-  private nodeKeyFor(
-    graph: DependencyGraph,
-    identity: string,
-  ): string | undefined {
+  private nodeKeysFor(graph: DependencyGraph, identity: string): string[] {
     let index = this.nodeIdentityIndexes.get(graph);
     if (index === undefined) {
       index = new Map();
       for (const nodeKey of graph.nodes.keys()) {
-        index.set(graphPathIdentity(nodeKey), nodeKey);
+        const nodeIdentity = graphPathIdentity(nodeKey);
+        const keys = index.get(nodeIdentity);
+        if (keys) keys.push(nodeKey);
+        else index.set(nodeIdentity, [nodeKey]);
       }
       this.nodeIdentityIndexes.set(graph, index);
     }
-    const nodeKey = index.get(identity);
-    return nodeKey !== undefined && graph.nodes.has(nodeKey)
-      ? nodeKey
-      : undefined;
+    return (index.get(identity) ?? []).filter((nodeKey) =>
+      graph.nodes.has(nodeKey),
+    );
   }
 
   /**
@@ -1191,22 +1275,17 @@ export class DependencyGraphService {
   }
 
   /**
-   * Find the graph a file belongs to. With a single open workspace the sole
-   * graph answers every query (identical to the pre-multi-workspace behavior).
-   * With several open, the file is routed to the graph whose root is the
-   * longest prefix of the file path.
+   * The root key and graph a file belongs to. With a single open workspace
+   * the sole graph answers every query (identical to the pre-multi-workspace
+   * behavior). With several open, the file is routed with the identities
+   * invalidation uses (`fileIdentities`: lexical, and the real path) against
+   * every graph's root identities (its key, and its real path when the root
+   * is a link alias), so a path spelt through a junction or its target
+   * reaches the same graph however many other roots are cached. Among the
+   * graphs that contain it, the longest matching root identity wins; equal
+   * lengths go to the smaller key, so the choice never depends on the order
+   * the graphs were built in.
    */
-  private findGraphForFile(
-    normalizedPath: string,
-  ): DependencyGraph | undefined {
-    return this.findGraphEntryForFile(normalizedPath)?.[1];
-  }
-
-  /** Whether `filePath` is the root keyed `rootKey` or lies under it. */
-  private isUnderRoot(filePath: string, rootKey: string): boolean {
-    return isUnderIdentity(graphPathIdentity(filePath), rootKey);
-  }
-
   private findGraphEntryForFile(
     normalizedPath: string,
   ): [string, DependencyGraph] | undefined {
@@ -1217,16 +1296,72 @@ export class DependencyGraphService {
       const [entry] = this.graphs.entries();
       return entry;
     }
+    const identities = fileIdentities(normalizedPath);
     let best: [string, DependencyGraph] | undefined;
+    let bestLength = -1;
     for (const entry of this.graphs.entries()) {
-      const root = entry[0];
-      if (this.isUnderRoot(normalizedPath, root)) {
-        if (!best || root.length > best[0].length) {
+      const key = entry[0];
+      const realRoot = this.realRoots.get(key);
+      for (const rootIdentity of realRoot === undefined
+        ? [key]
+        : [key, realRoot]) {
+        if (!identities.some((id) => isUnderIdentity(id, rootIdentity))) {
+          continue;
+        }
+        if (
+          rootIdentity.length > bestLength ||
+          (rootIdentity.length === bestLength && best && key < best[0])
+        ) {
           best = entry;
+          bestLength = rootIdentity.length;
         }
       }
     }
     return best;
+  }
+
+  /**
+   * Every spelling, in graph node form, that an absolute path prefix has in
+   * the cached graphs, compared through the identities invalidation uses
+   * (the prefix's lexical and real-path identities, each root's key and real
+   * path), in both directions:
+   * - a prefix inside a root (or equal to it): the prefix re-rooted at the
+   *   graph's key (see `identitiesUnderRoot`), trailing `/` kept;
+   * - a prefix above a root (a string prefix of the root, as the symbol-index
+   *   filter itself compares): that root's key followed by `/`, which selects
+   *   exactly that graph's nodes, so a wider real-path prefix never loses an
+   *   indexed alias subtree (review r2 B1).
+   *
+   * Only graphs whose own root is reached this way contribute, never an
+   * unrelated parent spelling. The spellings are path identities, so they are
+   * case-folded where paths are case-insensitive. Empty when no graph root is
+   * related to the prefix.
+   */
+  graphSpellingsOf(filePath: string): string[] {
+    const normalized = filePath.replace(/\\/g, '/');
+    const trailing = normalized.endsWith('/') ? '/' : '';
+    const stripped = normalized.replace(/\/+$/, '');
+    if (stripped === '') return [];
+    const identities = fileIdentities(stripped);
+    const result = new Set<string>();
+    for (const key of this.graphs.keys()) {
+      const realRoot = this.realRoots.get(key);
+      for (const spelling of this.identitiesUnderRoot(
+        identities,
+        key,
+        realRoot,
+      )) {
+        result.add(spelling + trailing);
+      }
+      const rootIdentities = realRoot === undefined ? [key] : [key, realRoot];
+      const aboveRoot = rootIdentities.some((rootIdentity) =>
+        identities.some((identity) =>
+          `${rootIdentity}/`.startsWith(identity + trailing),
+        ),
+      );
+      if (aboveRoot) result.add(`${key}/`);
+    }
+    return [...result];
   }
 
   /**

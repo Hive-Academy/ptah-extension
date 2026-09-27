@@ -57,12 +57,17 @@ import {
   COVERAGE_COUNT_MAX,
   FAILURE_REASONS,
   LANGUAGE_IDS,
+  MAX_COMPACT_FAILURE_REASONS,
   MAX_REPORTED_APPROXIMATIONS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
+  compactCoverage,
   isCleanAnswer,
+  withCoverageVerdict,
   type Approximation,
-  type LanguageCoverage,
+  type Count,
+  type CoverageFields,
+  type CoverageState,
 } from '@ptah-extension/platform-core';
 import {
   LANGUAGE_REGISTRY,
@@ -90,7 +95,7 @@ const MAX = COVERAGE_COUNT_MAX;
  * The serialised worst case, committed as the fixture for the size contract:
  * every language claimed, `censusLimit` and every count saturated, the longest
  * `state` and `checks` values, the eight longest language keys plus `other`,
- * all five failure reasons, a full `resolution` (longest literal values), the
+ * all six failure reasons (the three longest carrying the largest counts), a full `resolution` (longest literal values), the
  * four LONGEST approximation strings (a bound above what the priority rule can
  * actually keep) and a saturated `approximationsOmitted`.
  */
@@ -117,7 +122,19 @@ function longestApproximations(): Approximation[] {
     .slice(0, MAX_REPORTED_APPROXIMATIONS);
 }
 
-const WORST_CASE: LanguageCoverage = {
+/**
+ * The failure reasons the compact block keeps by name when every reason is
+ * non-zero: the largest counts. The fixture gives the LONGEST names the
+ * largest counts (every count still six digits), so the compact worst case
+ * keeps the longest names, not the tie-break's first ones.
+ */
+function longestFailureReasons(): string[] {
+  return [...FAILURE_REASONS]
+    .sort((a, b) => b.length - a.length || (a < b ? -1 : 1))
+    .slice(0, MAX_COMPACT_FAILURE_REASONS);
+}
+
+const WORST_FIELDS: CoverageFields = {
   supportedLanguages: [...LANGUAGE_IDS],
   census: 'truncated',
   censusLimit: MAX,
@@ -135,7 +152,10 @@ const WORST_CASE: LanguageCoverage = {
     ['other', MAX],
   ]),
   failedByReason: Object.fromEntries(
-    FAILURE_REASONS.map((reason) => [reason, MAX]),
+    FAILURE_REASONS.map((reason) => [
+      reason,
+      longestFailureReasons().includes(reason) ? MAX : MAX - 1,
+    ]),
   ),
   resolution: {
     external: MAX,
@@ -149,17 +169,125 @@ const WORST_CASE: LanguageCoverage = {
   checks: 'provider-defined',
 };
 
-/** Measured length of `JSON.stringify(WORST_CASE)`: 965 in the Batch 22 report, 994 since Batch 20.2q added the `unsupported-syntax` reason. */
-const MEASURED_WORST_CASE_CHARS = 994;
+/** The fields as a tool returns them: verdict first (Batch 24r). */
+const WORST_CASE = withCoverageVerdict(WORST_FIELDS);
+
+/**
+ * Every combination of the values that make the serialised coverage longest:
+ * each count saturated or `null` (`null` is shorter, but adds an `unknown-*`
+ * reason), every census and state, and every resolution qualifier. The
+ * verdict's reasons change with each combination, so the longest object is
+ * found, not assumed.
+ */
+function longestVerdictedCoverage(
+  serialise: (fields: CoverageFields) => object = withCoverageVerdict,
+): { chars: number; json: string } {
+  const counts = [
+    'analyzed',
+    'unchecked',
+    'failed',
+    'unsupported',
+    'unrecognised',
+    'nonSource',
+    'excluded',
+    'omittedByCap',
+  ] as const;
+  const censuses = ['complete', 'truncated', 'unknown'] as const;
+  const states: (CoverageState | undefined)[] = [
+    undefined,
+    'current',
+    'updating',
+    'incomplete',
+  ];
+  const { state: _unusedState, ...base } = WORST_FIELDS;
+  let longest = { chars: 0, json: '' };
+  for (let mask = 0; mask < 1 << counts.length; mask++) {
+    const patch: Partial<Record<(typeof counts)[number], Count>> = {};
+    counts.forEach((key, bit) => {
+      patch[key] = mask & (1 << bit) ? null : MAX;
+    });
+    for (const census of censuses) {
+      for (const state of states) {
+        for (const unresolvedInternal of [MAX, null]) {
+          for (const truncatedImports of [MAX, null]) {
+            for (const edgeCapHit of [false, true]) {
+              for (const context of ['complete', 'partial'] as const) {
+                const json = JSON.stringify(
+                  serialise({
+                    ...base,
+                    ...patch,
+                    census,
+                    ...(state === undefined ? {} : { state }),
+                    resolution: {
+                      external: MAX,
+                      unresolvedInternal,
+                      truncatedImports,
+                      edgeCapHit,
+                      context,
+                    },
+                  }),
+                );
+                if (json.length > longest.chars) {
+                  longest = { chars: json.length, json };
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return longest;
+}
+
+/**
+ * Measured length of the longest verdicted coverage, the FULL shape
+ * `execute_code` returns (every failure reason kept). 1,000 at Batch 24r
+ * (five failure reasons); 1,028 since the Lane H merge, because Batch 20.2q
+ * added the sixth reason `unsupported-syntax` (+27 chars, +1 separator). The
+ * full shape is pinned exactly, not bounded: the 1,000-char bound of User
+ * Decision 21 applies to the compact block every tool writes (team-leader
+ * ruling R1, Lane H merge).
+ */
+const MEASURED_WORST_CASE_CHARS = 1_028;
+
+/**
+ * Measured length of the longest compact coverage: the full worst case
+ * without the clean values it can leave out, and with at most
+ * {@link MAX_COMPACT_FAILURE_REASONS} named failure reasons plus `other`.
+ * 997 at Batch 22c (five reasons, all named); 1,025 with six named reasons
+ * (over the bound); 994 since the Lane H merge caps the named reasons at
+ * three (ruling R1).
+ */
+const MEASURED_COMPACT_WORST_CASE_CHARS = 994;
+
+/** The plan's bound ("about 1,000 chars per response"), verdict included. */
+const WORST_CASE_BOUND_CHARS = 1_000;
 
 describe('coverage size contract', () => {
-  it('worst-case coverage <= 1,000 chars', () => {
-    const serialised = JSON.stringify(WORST_CASE);
-    expect(serialised.length).toBeLessThanOrEqual(1_000);
+  const longest = longestVerdictedCoverage();
+
+  it('pins the measured full worst-case length (execute_code shape) so a contract change is visible', () => {
+    expect(longest.chars).toBe(MEASURED_WORST_CASE_CHARS);
   });
 
-  it('pins the measured worst-case length so a contract change is visible', () => {
-    expect(JSON.stringify(WORST_CASE).length).toBe(MEASURED_WORST_CASE_CHARS);
+  it('the fixed fixture carries its verdict first', () => {
+    expect(Object.keys(WORST_CASE).slice(0, 2)).toEqual(['clean', 'reasons']);
+    expect(JSON.stringify(WORST_CASE).length).toBeLessThanOrEqual(
+      longest.chars,
+    );
+  });
+
+  // Batch 22c: tools write the compact block (`compactCoverage`); its worst
+  // case is a subset of the full one and stays within the same bound. The
+  // full shape above still bounds `execute_code`, which returns the objects.
+  it('compact worst case, as tools write it, <= 1,000 chars and pinned', () => {
+    const compact = longestVerdictedCoverage(compactCoverage);
+    expect(compact.chars).toBeLessThanOrEqual(WORST_CASE_BOUND_CHARS);
+    expect(compact.chars).toBe(MEASURED_COMPACT_WORST_CASE_CHARS);
+    expect(
+      JSON.stringify(compactCoverage(WORST_FIELDS)).length,
+    ).toBeLessThanOrEqual(JSON.stringify(WORST_CASE).length);
   });
 
   it('uses the full shape: 9 language keys, 6 reasons, 4 approximations', () => {
@@ -295,7 +423,7 @@ describe('language registry', () => {
 function censusOf(
   files: readonly string[],
   capability: LanguageCapability,
-): LanguageCoverage {
+): CoverageFields {
   const counts = { eligible: 0, unsupported: 0, unrecognised: 0, nonSource: 0 };
   for (const file of files) {
     counts[classifyFileForCoverage(file, capability)] += 1;

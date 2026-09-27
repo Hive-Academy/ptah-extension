@@ -5,7 +5,11 @@ import {
   reduceOutput,
   type ReduceOutputOptions,
 } from './reduce-output';
-import type { CodeLineSpan, CodeOutline, CodeOutliner } from './reducers/code.reducer';
+import type {
+  CodeLineSpan,
+  CodeOutline,
+  CodeOutliner,
+} from './reducers/code.reducer';
 import { reduceJson } from './reducers/json.reducer';
 import { countTokens, countTokensPiecewise } from './token-measure';
 
@@ -16,9 +20,9 @@ jest.mock('gpt-tokenizer', () => {
 });
 
 jest.mock('./reducers/json.reducer', () => {
-  const actual = jest.requireActual<
-    typeof import('./reducers/json.reducer')
-  >('./reducers/json.reducer');
+  const actual = jest.requireActual<typeof import('./reducers/json.reducer')>(
+    './reducers/json.reducer',
+  );
   return { ...actual, reduceJson: jest.fn(actual.reduceJson) };
 });
 
@@ -32,9 +36,15 @@ const NOTE =
 
 /** Every output line is an input line (a `(×N)` suffix allowed) or an omission note. */
 function expectVerbatimLines(output: string, input: string): void {
-  const source = new Set(input.split('\n').map((line) => line.replace(/\r$/, '')));
+  const source = new Set(
+    input.split('\n').map((line) => line.replace(/\r$/, '')),
+  );
   for (const line of output.split('\n')) {
-    if (NOTE.test(line) || source.has(line) || source.has(line.replace(/ \(×\d+\)$/, ''))) {
+    if (
+      NOTE.test(line) ||
+      source.has(line) ||
+      source.has(line.replace(/ \(×\d+\)$/, ''))
+    ) {
       continue;
     }
     throw new Error(`output line ${JSON.stringify(line)} is not an input line`);
@@ -71,7 +81,9 @@ function jsonRows(count: number): string {
 function jestLog(lines: number): string {
   const out: string[] = [];
   for (let i = 0; i < lines; i++) {
-    out.push(`[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i} running`);
+    out.push(
+      `[2026-09-26T10:00:${String(i % 60).padStart(2, '0')}] INFO step ${i} running`,
+    );
     if (i === Math.floor(lines / 2)) {
       out.push('ERROR: expected 3 to be 4');
       out.push('    at Object.<anonymous> (src/a.spec.ts:12:5)');
@@ -86,7 +98,10 @@ function markdownDoc(sections: number): string {
   for (let i = 0; i < sections; i++) {
     out.push(`## Section ${i}`, '');
     for (let p = 0; p < 6; p++) {
-      out.push(`Paragraph ${p} of section ${i} explains a detail of the result in plain words.`, '');
+      out.push(
+        `Paragraph ${p} of section ${i} explains a detail of the result in plain words.`,
+        '',
+      );
     }
   }
   return out.join('\n');
@@ -95,7 +110,8 @@ function markdownDoc(sections: number): string {
 function htmlPage(paragraphs: number): string {
   const body = Array.from(
     { length: paragraphs },
-    (_, i) => `<p>Article paragraph ${i} with the content the reader came for.</p>`,
+    (_, i) =>
+      `<p>Article paragraph ${i} with the content the reader came for.</p>`,
   ).join('');
   return (
     '<!doctype html><html><head><title>T</title></head><body>' +
@@ -118,7 +134,9 @@ function tsSource(functions: number): string {
 }
 
 /** Outliner that marks every function body (the lines between signature and `}`) omittable. */
-function bodyOutliner(): CodeOutliner & { calls: Array<[string, string | undefined]> } {
+function bodyOutliner(): CodeOutliner & {
+  calls: Array<[string, string | undefined]>;
+} {
   const calls: Array<[string, string | undefined]> = [];
   return {
     calls,
@@ -161,7 +179,10 @@ describe('reduceOutput', () => {
 
     it('keeps a result exactly at both limits unreduced', async () => {
       const raw = 'abcd';
-      const result = await reduceOutput(raw, { budgetTokens: 1, budgetChars: 4 });
+      const result = await reduceOutput(raw, {
+        budgetTokens: 1,
+        budgetChars: 4,
+      });
       expect(result.text).toBe(raw);
       expect(result.reduced).toBe(false);
     });
@@ -192,7 +213,9 @@ describe('reduceOutput', () => {
       const result = await reduceOutput(raw, BUDGET);
       expect(result.reducer).toBe('log-reduced');
       expect(result.text).toContain('ERROR: expected 3 to be 4');
-      expect(result.text).toContain('    at Object.<anonymous> (src/a.spec.ts:12:5)');
+      expect(result.text).toContain(
+        '    at Object.<anonymous> (src/a.spec.ts:12:5)',
+      );
       expect(result.text).toContain('Tests: 1 failed, 99 passed');
       expectVerbatimLines(result.text, raw);
     });
@@ -233,7 +256,11 @@ describe('reduceOutput', () => {
 
     it('falls back to the log reducer for code when there is no outliner', async () => {
       const raw = tsSource(40);
-      const result = await reduceOutput(raw, { ...BUDGET, hint: 'code', languageHint: '.ts' });
+      const result = await reduceOutput(raw, {
+        ...BUDGET,
+        hint: 'code',
+        languageHint: '.ts',
+      });
       expect(result.reducer).toBe('code-fallback:log-reduced');
       expectVerbatimLines(result.text, raw);
     });
@@ -241,7 +268,11 @@ describe('reduceOutput', () => {
     it('runs no reducer on plain text', async () => {
       const raw = 'An ordinary sentence of prose that goes on. '.repeat(1000);
       const result = await reduceOutput(raw, BUDGET);
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
       expect(result.rawTokens).toBe(countTokensPiecewise(raw));
     });
   });
@@ -249,8 +280,15 @@ describe('reduceOutput', () => {
   describe('hint', () => {
     it('wins over sniffing: preformatted JSON is not compacted', async () => {
       const raw = jsonRows(400);
-      const result = await reduceOutput(raw, { ...BUDGET, hint: 'preformatted' });
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      const result = await reduceOutput(raw, {
+        ...BUDGET,
+        hint: 'preformatted',
+      });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
       expect(reduceJsonMock).not.toHaveBeenCalled();
     });
 
@@ -271,7 +309,11 @@ describe('reduceOutput', () => {
       const output = recordingOutput();
       const raw = jsonRows(400);
       const result = await reduceOutput(raw, { ...BUDGET, output });
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
       expect(result.rawTokens).toBe(countTokensPiecewise(raw));
       expect(output.lines).toHaveLength(1);
       expect(output.lines[0]).toContain('json reducer threw TypeError');
@@ -300,7 +342,9 @@ describe('reduceOutput', () => {
         throw new Error('sink down');
       };
       const raw = jsonRows(400);
-      await expect(reduceOutput(raw, { ...BUDGET, output })).resolves.toMatchObject({
+      await expect(
+        reduceOutput(raw, { ...BUDGET, output }),
+      ).resolves.toMatchObject({
         text: raw,
         reducer: 'none',
       });
@@ -320,7 +364,11 @@ describe('reduceOutput', () => {
     it('keeps the raw when the reducer returns its input unchanged', async () => {
       const raw = '{"truncated": [' + '1, '.repeat(5000);
       const result = await reduceOutput(raw, { ...BUDGET, hint: 'json' });
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
     });
 
     it('keeps the raw when the reducer does not lower the token count', async () => {
@@ -330,24 +378,31 @@ describe('reduceOutput', () => {
         reducer: 'json-compact',
       }));
       const result = await reduceOutput(raw, BUDGET);
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
     });
 
     it('keeps the raw when the reducer returns blank text', async () => {
       const raw = jsonRows(400);
-      reduceJsonMock.mockImplementationOnce(() => ({ text: ' \n ', reducer: 'json-compact' }));
+      reduceJsonMock.mockImplementationOnce(() => ({
+        text: ' \n ',
+        reducer: 'json-compact',
+      }));
       const result = await reduceOutput(raw, BUDGET);
       expect(result.text).toBe(raw);
     });
 
     it('rejects a budget that is not a finite number above zero', async () => {
       for (const bad of [0, -1, Number.NaN, Infinity]) {
-        await expect(reduceOutput('x', { budgetTokens: bad, budgetChars: 10 })).rejects.toThrow(
-          RangeError,
-        );
-        await expect(reduceOutput('x', { budgetTokens: 10, budgetChars: bad })).rejects.toThrow(
-          RangeError,
-        );
+        await expect(
+          reduceOutput('x', { budgetTokens: bad, budgetChars: 10 }),
+        ).rejects.toThrow(RangeError);
+        await expect(
+          reduceOutput('x', { budgetTokens: 10, budgetChars: bad }),
+        ).rejects.toThrow(RangeError);
       }
     });
   });
@@ -373,7 +428,11 @@ describe('reduceOutput', () => {
       expect(result.reducer).toBe('log-reduced');
       const notes = result.text
         .split('\n')
-        .map((line) => /^… (\d+) chars in the middle omitted \(2 MiB reducer input cap\) …$/.exec(line))
+        .map((line) =>
+          /^… (\d+) chars in the middle omitted \(2 MiB reducer input cap\) …$/.exec(
+            line,
+          ),
+        )
         .filter((match) => match !== null);
       expect(notes).toHaveLength(1);
       const omitted = Number(notes[0]?.[1]);
@@ -385,9 +444,16 @@ describe('reduceOutput', () => {
 
     it('review 2e r1 S2: keeps a failure and the summary that lie past the first 2 MiB', async () => {
       const lines = longLog(400_000);
-      lines.push('ERROR: UNIQUE_FAILURE', '    at fail (x.ts:1:2)', ...lines.slice(0, 50), 'Tests: 1 failed, 999 passed');
+      lines.push(
+        'ERROR: UNIQUE_FAILURE',
+        '    at fail (x.ts:1:2)',
+        ...lines.slice(0, 50),
+        'Tests: 1 failed, 999 passed',
+      );
       const raw = lines.join('\n');
-      expect(raw.indexOf('UNIQUE_FAILURE')).toBeGreaterThan(MAX_REDUCER_INPUT_CHARS);
+      expect(raw.indexOf('UNIQUE_FAILURE')).toBeGreaterThan(
+        MAX_REDUCER_INPUT_CHARS,
+      );
       const result = await reduceOutput(raw, BUDGET);
       expect(result.reducer).toBe('log-reduced');
       const out = result.text.split('\n');
@@ -401,7 +467,11 @@ describe('reduceOutput', () => {
     it('runs no reducer on one line longer than the cap', async () => {
       const raw = `[${'1,'.repeat(MAX_REDUCER_INPUT_CHARS / 2 + 10)}1]`;
       const result = await reduceOutput(raw, BUDGET);
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
       expect(reduceJsonMock).not.toHaveBeenCalled();
     });
 
@@ -430,7 +500,11 @@ describe('reduceOutput', () => {
         'y'.repeat(1100000) +
         '\n<p>HIDDEN_SCRIPT_SENTINEL</p>\n</script>\n</main>';
       const result = await reduceOutput(raw, BUDGET);
-      expect(result).toMatchObject({ text: raw, reducer: 'none', reduced: false });
+      expect(result).toMatchObject({
+        text: raw,
+        reducer: 'none',
+        reduced: false,
+      });
     });
   });
 
@@ -455,7 +529,11 @@ describe('reduceOutput', () => {
       return elapsed;
     }
 
-    async function expectWithin(raw: string, bound: number, reference: string): Promise<void> {
+    async function expectWithin(
+      raw: string,
+      bound: number,
+      reference: string,
+    ): Promise<void> {
       const elapsed = await fastestMs(raw);
       if (elapsed < bound) {
         return;
@@ -511,5 +589,35 @@ describe('reduceOutput', () => {
       },
       TIMING_TEST_TIMEOUT_MS,
     );
+  });
+});
+
+describe('reduceOutput — preserveKeys (Batch 24r)', () => {
+  it('hands preserveKeys to the reducer, so a status block keeps its nulls', async () => {
+    const raw = JSON.stringify(
+      {
+        coverage: { clean: false, unrecognised: null, excluded: null },
+        hits: Array.from({ length: 400 }, (_, i) => ({
+          name: `symbol${i}`,
+          path: `/ws/src/module${i}/file.ts`,
+          empty: null,
+        })),
+      },
+      null,
+      2,
+    );
+
+    const result = await reduceOutput(raw, {
+      ...BUDGET,
+      hint: 'json',
+      preserveKeys: ['coverage'],
+    });
+
+    expect(result.reduced).toBe(true);
+    expect(
+      result.text.startsWith(
+        '{"coverage":{"clean":false,"unrecognised":null,"excluded":null}',
+      ),
+    ).toBe(true);
   });
 });

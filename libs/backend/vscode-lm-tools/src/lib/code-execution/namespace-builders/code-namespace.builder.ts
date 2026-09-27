@@ -9,15 +9,32 @@
  * Index freshness (TASK_2026_559 User Decision 1): the first symbol call that
  * finds the index empty or older than {@link CODE_INDEX_STALE_MS} starts a
  * governed background reindex and returns without waiting for it.
+ *
+ * Coverage (TASK_2026_559 Batch 24b): a search carries the index's live
+ * `coverage` (`updating` / `current` / `incomplete`, or `unknown` in a new
+ * host session) before its hits, and a file in a language the index does not
+ * hold is answered `unsupported-language` instead of an empty search or a
+ * reindex that pretends to have scanned it.
  */
 
+import * as path from 'path';
 import type {
   CodeIndexFreshness,
   IMemoryReader,
   ICodeSymbolReader,
   MemoryHit,
 } from '@ptah-extension/memory-contracts';
-import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import {
+  withCoverageVerdict,
+  type LanguageCoverage,
+  type UnsupportedLanguageAnswer,
+} from '@ptah-extension/platform-core';
+import {
+  classifyFileForCoverage,
+  languageForExtension,
+  supportedLanguagesFor,
+  type CodeSymbolIndexer,
+} from '@ptah-extension/workspace-intelligence';
 
 /**
  * An index whose newest symbol is older than this is stale. It is also the
@@ -74,21 +91,34 @@ export interface IndexFreshnessStatus {
   readonly reindexInFlight: boolean;
 }
 
+/**
+ * Key order is the wire order: the freshness and coverage blocks come before
+ * the unbounded `hits`, so a budget cut of a long answer never removes them.
+ */
 export interface SymbolSearchResult {
-  hits: readonly SymbolHit[];
-  bm25Only: boolean;
   index: IndexFreshnessStatus;
+  /** What the index covers right now; `unknown` never reads as complete. */
+  coverage: LanguageCoverage;
+  bm25Only: boolean;
+  hits: readonly SymbolHit[];
 }
 
 export interface SymbolSearchError {
-  hits: [];
+  index: IndexFreshnessStatus;
+  coverage: LanguageCoverage;
   bm25Only: true;
   error: string;
-  index: IndexFreshnessStatus;
+  hits: [];
 }
 
 /** A single-file reindex, awaited. */
 export interface ReindexResult {
+  /**
+   * The file's own one-file coverage, first: a recovered parse reads
+   * `failed`, an unknown parse quality `unchecked`, a skipped file
+   * `excluded` — never a bare zero-error success.
+   */
+  coverage: LanguageCoverage;
   filesScanned: number;
   symbolsIndexed: number;
   errors: number;
@@ -111,15 +141,27 @@ export interface ReindexError {
 }
 
 export interface CodeNamespace {
+  /**
+   * A `filePath` whose language is recognised but not in the index is
+   * answered `unsupported-language` without searching.
+   */
   searchSymbols(
     query: string,
     options?: { maxResults?: number; filePath?: string },
-  ): Promise<SymbolSearchResult | SymbolSearchError>;
+  ): Promise<
+    SymbolSearchResult | SymbolSearchError | UnsupportedLanguageAnswer
+  >;
 
-  /** `filePath` reindexes one file and waits; no `filePath` starts a full run in the background. */
+  /**
+   * `filePath` reindexes one file and waits; no `filePath` starts a full run
+   * in the background. A file the index cannot hold is answered
+   * `unsupported-language`: nothing is deleted and nothing is counted.
+   */
   reindex(options?: {
     filePath?: string;
-  }): Promise<ReindexResult | ReindexStarted | ReindexError>;
+  }): Promise<
+    ReindexResult | ReindexStarted | ReindexError | UnsupportedLanguageAnswer
+  >;
 
   /**
    * Reads the index freshness and, when the index is stale, starts a governed
@@ -207,6 +249,11 @@ export function buildCodeNamespace(
    * A lazy run is `userInitiated: false` and so waits on the background-work
    * governor before each batch; it is never awaited from inside a tool call,
    * which would make the generating turn wait for itself (TASK_2026_437).
+   *
+   * `indexWorkspace` is called synchronously (inside the executor), because
+   * it begins its run before its first `await`: coverage read right after
+   * this returns already says `updating`. A synchronous throw still becomes
+   * a rejection of the chain below.
    */
   function startBackgroundRun(
     indexer: CodeSymbolIndexer,
@@ -215,8 +262,9 @@ export function buildCodeNamespace(
   ): void {
     inFlight.add(root);
     lastRunStartedAt.set(root, now());
-    void Promise.resolve()
-      .then(() => indexer.indexWorkspace(root, { userInitiated }))
+    void new Promise<unknown>((resolve) =>
+      resolve(indexer.indexWorkspace(root, { userInitiated })),
+    )
       .finally(() => inFlight.delete(root))
       .catch((error: unknown) => {
         // degradation-audit: reported — a background reindex failure is logged
@@ -228,6 +276,27 @@ export function buildCodeNamespace(
           userInitiated,
         });
       });
+  }
+
+  /**
+   * The indexer's live coverage of `root`. No indexer on this host means
+   * nothing can say what the rows cover: `unknown`, never clean.
+   */
+  function readCoverage(root: string): LanguageCoverage {
+    const indexer = getSymbolIndexer();
+    if (indexer === undefined) return unknownIndexCoverage();
+    try {
+      return indexer.getCoverage(root);
+    } catch {
+      // degradation-audit: reported — coverage is advisory beside the hits:
+      // a failed read is logged at warn and reported as unknown coverage,
+      // which never reads as complete. Fixed text: indexer errors can carry
+      // paths.
+      logger.warn(
+        '[ptah.code] code index coverage read failed; coverage reported as unknown',
+      );
+      return unknownIndexCoverage();
+    }
   }
 
   async function checkFreshness(
@@ -287,9 +356,18 @@ export function buildCodeNamespace(
 
   return {
     async searchSymbols(query, options = {}) {
+      if (options.filePath != null) {
+        const unsupported = unsupportedFileAnswer(options.filePath, 'search');
+        if (unsupported !== undefined) return unsupported;
+      }
       const maxResults = options.maxResults ?? 20;
       const workspaceRoot = getWorkspaceRoot();
       const index = await ensureIndexFresh();
+      // Read after the freshness check, so a run it started reads
+      // `updating`, and again once the rows were read (see spanningRead).
+      const coverageBefore = readCoverage(workspaceRoot);
+      const coverageNow = (): LanguageCoverage =>
+        spanningRead(coverageBefore, readCoverage(workspaceRoot));
 
       // Preferred path: dedicated hybrid search over the code_symbols index.
       const codeReader = getCodeSymbolSearch?.();
@@ -314,13 +392,19 @@ export function buildCodeNamespace(
               text: h.text,
               score: h.score,
             }));
-          return { hits, bm25Only: page.bm25Only ?? false, index };
+          return {
+            index,
+            coverage: coverageNow(),
+            bm25Only: page.bm25Only ?? false,
+            hits,
+          };
         } catch (err) {
           return {
-            hits: [] as [],
+            index,
+            coverage: coverageNow(),
             bm25Only: true as const,
             error: err instanceof Error ? err.message : String(err),
-            index,
+            hits: [] as [],
           };
         }
       }
@@ -330,10 +414,11 @@ export function buildCodeNamespace(
       const reader = getMemorySearch();
       if (!reader) {
         return {
-          hits: [] as [],
+          index,
+          coverage: coverageNow(),
           bm25Only: true as const,
           error: 'Code symbol search service not available',
-          index,
+          hits: [] as [],
         };
       }
       try {
@@ -358,13 +443,19 @@ export function buildCodeNamespace(
             text: h.chunkText,
             score: h.score,
           }));
-        return { hits, bm25Only: page.bm25Only ?? false, index };
+        return {
+          index,
+          coverage: coverageNow(),
+          bm25Only: page.bm25Only ?? false,
+          hits,
+        };
       } catch (err) {
         return {
-          hits: [] as [],
+          index,
+          coverage: coverageNow(),
           bm25Only: true as const,
           error: err instanceof Error ? err.message : String(err),
-          index,
+          hits: [] as [],
         };
       }
     },
@@ -385,11 +476,17 @@ export function buildCodeNamespace(
           };
         }
         if (options.filePath != null) {
+          const unsupported = unsupportedFileAnswer(
+            options.filePath,
+            'reindex',
+          );
+          if (unsupported !== undefined) return unsupported;
           const stats = await indexer.reindexFile(
             options.filePath,
             workspaceRoot,
           );
           return {
+            coverage: stats.coverage,
             filesScanned: 1,
             symbolsIndexed: stats.symbolsIndexed,
             errors: stats.errors,
@@ -440,6 +537,76 @@ export function startIndexFreshnessCheck(
       // fixed text (namespace errors can carry paths).
       logger.debug('[ptah.code] index freshness check could not start');
     });
+}
+
+/**
+ * The coverage of a search that read rows between two coverage reads. A
+ * write that was pending when the read began may have cleared rows the
+ * search then missed, even if it has finished by now, so the answer stays
+ * `updating` (or worse); otherwise the later read stands.
+ */
+function spanningRead(
+  before: LanguageCoverage,
+  after: LanguageCoverage,
+): LanguageCoverage {
+  if (before.state !== 'updating' || after.state !== 'current') return after;
+  return withCoverageVerdict({ ...after, state: 'updating' });
+}
+
+/**
+ * Coverage when no indexer can describe the rows (a host without one, or a
+ * failed read): nothing was enumerated, so it is never clean.
+ */
+function unknownIndexCoverage(): LanguageCoverage {
+  return withCoverageVerdict({
+    supportedLanguages: supportedLanguagesFor('codeIndex'),
+    census: 'unknown',
+    analyzed: null,
+    unchecked: null,
+    failed: null,
+    unsupported: null,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    omittedByCap: null,
+  });
+}
+
+/**
+ * The `unsupported-language` answer for a file the code index cannot hold,
+ * or `undefined` when it can. A search filter is answered only when its
+ * extension names a recognised language without `codeIndex` (a filter
+ * without one, such as a directory, is an ordinary substring filter); a
+ * reindex target is answered whenever its extension is not indexable.
+ */
+function unsupportedFileAnswer(
+  filePath: string,
+  use: 'search' | 'reindex',
+): UnsupportedLanguageAnswer | undefined {
+  const fileClass = classifyFileForCoverage(filePath, 'codeIndex');
+  if (fileClass === 'eligible') return undefined;
+  if (use === 'search' && fileClass !== 'unsupported') return undefined;
+  const extension = path.extname(filePath).toLowerCase();
+  const language =
+    languageForExtension(extension) ??
+    (extension === '' ? 'unknown' : extension);
+  const supportedLanguages = supportedLanguagesFor('codeIndex');
+  const subject =
+    language === extension || language === 'unknown'
+      ? `Files with extension "${extension}"`
+      : `${language} files (${extension})`;
+  const outcome =
+    use === 'search'
+      ? 'have no symbols in the code symbol index on this host, so nothing was searched'
+      : 'are not indexed by the code symbol index on this host, so nothing was reindexed';
+  return {
+    status: 'unsupported-language',
+    language,
+    supportedLanguages,
+    message:
+      `${subject} ${outcome}. Indexed languages: ${supportedLanguages.join(', ')}. ` +
+      'Use ptah_search_files or Grep for this file.',
+  };
 }
 
 /** The indexer's clean stop (governor abort on shutdown, or a signal). */

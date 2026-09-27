@@ -12,79 +12,41 @@
  * degrade contract.
  */
 
-// The SUT reads `EXTENSION_LANGUAGE_MAP` and `resolveEnrichLanguage` as
-// values from `@ptah-extension/workspace-intelligence`, whose barrel
-// transitively loads `vscode-core` → `vscode`. Replace the module at the
-// boundary with the map's real entries and a same-algorithm reimplementation
-// of `resolveEnrichLanguage` (the service classes are used as types only),
-// the same pattern as `ast-namespace.builder.spec.ts`. A `require()` of the
-// real module by relative path is not used here: `@nx/enforce-module-
-// boundaries` treats that as a second, inconsistent import style for the
-// same library across the project and fails every OTHER static import of
-// `@ptah-extension/workspace-intelligence` in this project as a result. The
-// authoritative "exercises the real production inference" guard for TASK_
-// 2026_559 Batch 20 r1 defect 5 is the Task 20.2 bench
-// (`mcp-contract.bench.spec.ts`, in workspace-intelligence), which imports
-// the real, unmocked `resolveEnrichLanguage`. This copy only has to match the
-// wiring/delegation this spec actually tests.
-jest.mock('@ptah-extension/workspace-intelligence', () => {
-  const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
-    '.js': 'javascript',
-    '.jsx': 'javascript',
-    '.ts': 'typescript',
-    '.tsx': 'typescript',
-    '.py': 'python',
-    '.go': 'go',
-    '.cs': 'csharp',
-    '.csx': 'csharp',
-  };
-  const MODULE_EXTENSION_BASE: Record<string, string> = {
-    '.mts': '.ts',
-    '.cts': '.ts',
-    '.mjs': '.js',
-    '.cjs': '.js',
-  };
-  const isEnrichLanguage = (v: unknown): v is 'typescript' | 'javascript' =>
-    v === 'typescript' || v === 'javascript';
-  const resolveEnrichLanguage = (
-    filePath: string,
-    language?: string,
-  ): 'typescript' | 'javascript' | undefined => {
-    if (isEnrichLanguage(language)) return language;
-    const dot = filePath.lastIndexOf('.');
-    const extension = (dot === -1 ? '' : filePath.slice(dot)).toLowerCase();
-    if (extension === '.tsx') return undefined;
-    const key = Object.hasOwn(MODULE_EXTENSION_BASE, extension)
-      ? MODULE_EXTENSION_BASE[extension]
-      : extension;
-    const inferred = EXTENSION_LANGUAGE_MAP[key];
-    return isEnrichLanguage(inferred) ? inferred : undefined;
-  };
-  // The real symbol-index naming: a type-only module, cheap to load for real.
-  const { exportSymbolNames } = jest.requireActual<
-    typeof import('@ptah-extension/workspace-intelligence')
-  >('../../../../../workspace-intelligence/src/ast/export-extraction');
-  return { EXTENSION_LANGUAGE_MAP, resolveEnrichLanguage, exportSymbolNames };
-});
+import 'reflect-metadata';
 
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-
-import type {
-  ContextSizeOptimizerService,
-  MonorepoDetectorService,
-  DependencyAnalyzerService,
-  FileRelevanceScorerService,
-  TokenCounterService,
-  WorkspaceIndexerService,
-  ProjectDetectorService,
-  WorkspaceAnalyzerService,
-  ContextEnrichmentService,
+import {
+  DEFAULT_WORKSPACE_EXCLUDES,
   DependencyGraphService,
+  type AstAnalysisService,
+  type ContextSizeOptimizerService,
+  type MonorepoDetectorService,
+  type DependencyAnalyzerService,
+  type FileRelevanceScorerService,
+  type FileSystemService,
+  type TokenCounterService,
+  type WorkspaceIndexerService,
+  type ProjectDetectorService,
+  type WorkspaceAnalyzerService,
+  type ContextEnrichmentService,
 } from '@ptah-extension/workspace-intelligence';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { Result } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  IncompleteFileSearchError,
+  collectBounded,
+  createFailureTally,
+  walkGlobMatches,
+  type IFileSystemProvider,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { SymbolIndexPage } from '../types';
 
 import {
+  GRAPH_CENSUS_LIMIT,
+  GRAPH_VENDOR_EXCLUDES,
   buildContextNamespace,
   buildProjectNamespace,
   buildRelevanceNamespace,
@@ -99,6 +61,35 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * `IFileSystemProvider.findFiles` exactly as the Electron adapter runs a
+ * bounded call (`walkGlobMatches` stopped at `maxResults`), over a real
+ * directory. This lib may not import the platform adapters (module
+ * boundaries); their own specs pin that they honour the same glob form.
+ */
+async function fastGlobFindFiles(
+  pattern: string,
+  exclude: string[],
+  maxResults: number,
+  cwd: string,
+): Promise<string[]> {
+  const tally = createFailureTally();
+  const matches = await collectBounded(
+    walkGlobMatches(pattern, {
+      exclude,
+      cwd,
+      dot: true,
+      onFailure: tally.onFailure,
+    }),
+    maxResults,
+  );
+  const failures = tally.failures();
+  if (failures !== undefined) {
+    throw new IncompleteFileSearchError(matches, failures);
+  }
+  return matches;
+}
 
 function makeMocks(): AnalysisNamespaceDependencies & {
   _contextOptimizer: {
@@ -119,12 +110,15 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependents: jest.Mock;
     getSymbolIndex: jest.Mock;
     isBuilt: jest.Mock;
-    getCoverage: jest.Mock;
-    getCoverageForFile: jest.Mock;
+    getCoverageReport: jest.Mock;
+    getCoverageReportForFile: jest.Mock;
+    resolveNodePath: jest.Mock;
+    graphSpellingsOf: jest.Mock;
     reserveBuild: jest.Mock;
     getBuildState: jest.Mock;
   };
   _workspaceProvider: { getWorkspaceRoot: jest.Mock };
+  _fileSystemProvider: { findFiles: jest.Mock };
 } {
   const _contextOptimizer = {
     optimizeContext: jest.fn(),
@@ -144,14 +138,17 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependents: jest.fn(),
     getSymbolIndex: jest.fn(),
     isBuilt: jest.fn(),
-    getCoverage: jest.fn(),
-    getCoverageForFile: jest.fn(),
+    getCoverageReport: jest.fn(),
+    getCoverageReportForFile: jest.fn(),
+    resolveNodePath: jest.fn(),
+    graphSpellingsOf: jest.fn().mockReturnValue([]),
     reserveBuild: jest.fn(),
     getBuildState: jest.fn(),
   };
   const _workspaceProvider = {
     getWorkspaceRoot: jest.fn().mockReturnValue('D:/ws'),
   };
+  const _fileSystemProvider = { findFiles: jest.fn().mockResolvedValue([]) };
 
   return {
     contextOptimizer:
@@ -169,6 +166,7 @@ function makeMocks(): AnalysisNamespaceDependencies & {
       _contextEnrichment as unknown as ContextEnrichmentService,
     dependencyGraph: _dependencyGraph as unknown as DependencyGraphService,
     workspaceProvider: _workspaceProvider as unknown as IWorkspaceProvider,
+    fileSystemProvider: _fileSystemProvider as unknown as IFileSystemProvider,
     _contextOptimizer,
     _monorepoDetector,
     _dependencyAnalyzer,
@@ -180,6 +178,7 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     _contextEnrichment,
     _dependencyGraph,
     _workspaceProvider,
+    _fileSystemProvider,
   };
 }
 
@@ -637,9 +636,10 @@ describe('buildDependencyNamespace', () => {
       unresolvedCount: 0,
       builtAt: 1,
     });
-    deps._dependencyGraph.getCoverage.mockReturnValue({
-      graphedFiles: 1,
-      discoveredFiles: 9,
+    const languages = { clean: true, reasons: [] };
+    deps._dependencyGraph.getCoverageReport.mockReturnValue({
+      files: { graphedFiles: 1, discoveredFiles: 9 },
+      languages,
     });
     const ns = buildDependencyNamespace(deps);
 
@@ -660,8 +660,27 @@ describe('buildDependencyNamespace', () => {
     await expect(ns.getGraphCoverage('D:/ws')).resolves.toEqual({
       graphedFiles: 1,
       discoveredFiles: 9,
+      coverage: languages,
     });
-    expect(deps._dependencyGraph.getCoverage).toHaveBeenCalledWith('D:/ws');
+    expect(deps._dependencyGraph.getCoverageReport).toHaveBeenCalledWith(
+      'D:/ws',
+    );
+  });
+
+  it('getGraphCoverage with no graph built is unknown, never clean', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.getCoverageReport.mockReturnValue(undefined);
+
+    const out = await buildDependencyNamespace(deps).getGraphCoverage();
+
+    expect(out).not.toHaveProperty('graphedFiles');
+    expect(out.coverage).toMatchObject({
+      clean: false,
+      census: 'unknown',
+      analyzed: null,
+      supportedLanguages: ['typescript', 'javascript'],
+    });
+    expect(out.coverage.reasons[0]).toBe('census?');
   });
 
   // Batch 9b: only a build nobody awaits (the dependency tools' background
@@ -722,28 +741,580 @@ describe('buildDependencyNamespace', () => {
   // Round 2 review R2-B1.
   it('getGraphCoverageForFile routes the path resolved as getDependents resolves it', async () => {
     const deps = makeMocks();
-    deps._dependencyGraph.getCoverageForFile.mockReturnValue({
-      graphedFiles: 1,
-      discoveredFiles: 5_001,
+    const languages = { clean: true, reasons: [] };
+    deps._dependencyGraph.getCoverageReportForFile.mockReturnValue({
+      files: { graphedFiles: 1, discoveredFiles: 5_001 },
+      languages,
     });
+    deps._dependencyGraph.resolveNodePath.mockReturnValue('C:/b/b.ts');
     const ns = buildDependencyNamespace(deps);
 
     await expect(ns.getGraphCoverageForFile(' C:/b/b.ts ')).resolves.toEqual({
       graphedFiles: 1,
       discoveredFiles: 5_001,
+      coverage: languages,
+      nodePath: 'C:/b/b.ts',
     });
-    expect(deps._dependencyGraph.getCoverageForFile).toHaveBeenCalledWith(
+    expect(deps._dependencyGraph.getCoverageReportForFile).toHaveBeenCalledWith(
       'C:/b/b.ts',
     );
-    await ns.getGraphCoverageForFile('src/a.ts');
-    expect(deps._dependencyGraph.getCoverageForFile).toHaveBeenLastCalledWith(
-      path.join('D:/ws', 'src/a.ts'),
+    expect(deps._dependencyGraph.resolveNodePath).toHaveBeenCalledWith(
+      'C:/b/b.ts',
     );
+    deps._dependencyGraph.resolveNodePath.mockReturnValue(undefined);
+    await expect(
+      ns.getGraphCoverageForFile('src/a.ts'),
+    ).resolves.not.toHaveProperty('nodePath');
+    expect(
+      deps._dependencyGraph.getCoverageReportForFile,
+    ).toHaveBeenLastCalledWith(path.join('D:/ws', 'src/a.ts'));
 
     deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
-    await expect(ns.getGraphCoverageForFile('src/a.ts')).resolves.toBe(
-      undefined,
+    const unknown = await ns.getGraphCoverageForFile('src/a.ts');
+    expect(unknown).not.toHaveProperty('graphedFiles');
+    expect(unknown.coverage).toMatchObject({ clean: false, census: 'unknown' });
+  });
+
+  describe('unsupportedGraphLanguage (TASK_2026_559 Batch 23b)', () => {
+    it.each([['src/a.ts'], ['src/view.tsx'], ['src/a.js'], ['src/a.jsx']])(
+      '%s is graph-capable: no answer',
+      (file) => {
+        expect(
+          buildDependencyNamespace(makeMocks()).unsupportedGraphLanguage(file),
+        ).toBeUndefined();
+      },
     );
+
+    it.each([
+      ['tool.py', 'python', 'python files (.py)'],
+      ['Main.java', 'java', 'java files (.java)'],
+      ['esm.mjs', 'javascript', 'javascript files (.mjs)'],
+      ['build.zig', '.zig', 'Files with extension ".zig"'],
+      ['README.md', '.md', 'Files with extension ".md"'],
+      ['Makefile', 'unknown', 'Files without an extension'],
+    ])('%s answers unsupported-language (%s)', (file, language, subject) => {
+      const answer = buildDependencyNamespace(
+        makeMocks(),
+      ).unsupportedGraphLanguage(` src/${file} `);
+      expect(answer).toEqual({
+        status: 'unsupported-language',
+        language,
+        supportedLanguages: ['typescript', 'javascript'],
+        message: expect.stringContaining(subject),
+      });
+      expect(answer?.message).toContain(
+        'Graph languages: typescript, javascript',
+      );
+    });
+  });
+
+  describe('discoverSourceFiles (TASK_2026_559 Batch 23b)', () => {
+    it('asks for one past the census limit with the vendor excludes inside the walk', async () => {
+      const deps = makeMocks();
+      deps._fileSystemProvider.findFiles.mockResolvedValue([
+        'D:/ws/src/a.ts',
+        'src/b.py',
+      ]);
+
+      const out =
+        await buildDependencyNamespace(deps).discoverSourceFiles('D:/ws');
+
+      const [glob, excludes, maxResults, cwd] =
+        deps._fileSystemProvider.findFiles.mock.calls[0];
+      expect(maxResults).toBe(50_001);
+      expect(cwd).toBe('D:/ws');
+      expect(excludes).toEqual([
+        ...DEFAULT_WORKSPACE_EXCLUDES,
+        ...GRAPH_VENDOR_EXCLUDES,
+      ]);
+      expect(GRAPH_VENDOR_EXCLUDES).toEqual([
+        '**/.venv/**',
+        '**/venv/**',
+        '**/site-packages/**',
+        '**/__pycache__/**',
+        '**/vendor/**',
+        '**/obj/**',
+        '**/bin/**',
+        '**/.gradle/**',
+        '**/Pods/**',
+      ]);
+      // Recognised-unsupported extensions come through the same call, each
+      // in every letter case (r1 B1): `ts` as `[tT][sS]`, `c++` keeps `+`.
+      for (const extension of [
+        '[tT][sS]',
+        '[tT][sS][xX]',
+        '[jJ][sS]',
+        '[pP][yY]',
+        '[jJ][aA][vV][aA]',
+        '[rR][sS]',
+        '[kK][tT]',
+        '[rR]',
+        '[cC][+][+]',
+      ]) {
+        expect(
+          glob.includes(`{${extension},`) ||
+            glob.includes(`,${extension},`) ||
+            glob.includes(`,${extension}}`),
+        ).toBe(true);
+      }
+      expect(glob).not.toMatch(/[{,]ts[,}]/);
+      expect(out).toEqual({
+        files: ['D:/ws/src/a.ts', path.join('D:/ws', 'src/b.py')],
+        truncated: false,
+        limit: GRAPH_CENSUS_LIMIT,
+      });
+    });
+
+    it('is truncated at limit + 1 files and returns only limit of them', async () => {
+      const deps = makeMocks();
+      deps._fileSystemProvider.findFiles.mockResolvedValue(
+        Array.from({ length: 4 }, (_, i) => `D:/ws/f${i}.ts`),
+      );
+
+      const out = await buildDependencyNamespace(deps).discoverSourceFiles(
+        'D:/ws',
+        3,
+      );
+
+      expect(deps._fileSystemProvider.findFiles.mock.calls[0][2]).toBe(4);
+      expect(out).toEqual({
+        files: ['D:/ws/f0.ts', 'D:/ws/f1.ts', 'D:/ws/f2.ts'],
+        truncated: true,
+        limit: 3,
+      });
+    });
+
+    it.each([[0], [1.5], [50_001], [Number.NaN]])(
+      'rejects limit %p without walking',
+      async (limit) => {
+        const deps = makeMocks();
+        await expect(
+          buildDependencyNamespace(deps).discoverSourceFiles('D:/ws', limit),
+        ).rejects.toThrow(RangeError);
+        expect(deps._fileSystemProvider.findFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    // FB "vendor tree does not exhaust discovery": a vendor tree larger than
+    // the census limit, walked before the project's code, through the same
+    // fast-glob call the Electron and CLI providers make.
+    it('a vendor tree larger than the limit does not exhaust discovery', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-vendor-'));
+      try {
+        for (const vendor of ['vendor/lib', '.venv/site', 'bin', 'obj']) {
+          fs.mkdirSync(path.join(root, vendor), { recursive: true });
+          for (let i = 0; i < 8; i++) {
+            fs.writeFileSync(path.join(root, vendor, `v${i}.ts`), '');
+          }
+        }
+        fs.mkdirSync(path.join(root, 'src'));
+        fs.writeFileSync(path.join(root, 'src', 'app.ts'), '');
+        fs.writeFileSync(path.join(root, 'src', 'tool.py'), '');
+        const deps = makeMocks();
+        deps._fileSystemProvider.findFiles.mockImplementation(
+          fastGlobFindFiles,
+        );
+
+        const out = await buildDependencyNamespace(deps).discoverSourceFiles(
+          root,
+          5,
+        );
+
+        expect(out.truncated).toBe(false);
+        expect(out.files.map((f) => path.basename(f)).sort()).toEqual([
+          'app.ts',
+          'tool.py',
+        ]);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    // r1 B1 (FB): upper- and mixed-case extensions were never discovered, so
+    // the graph published a clean complete census without them. The
+    // provider is the Electron/CLI adapters' own fast-glob call.
+    it('discovers and counts upper-case extensions (APP.TS, analysis.R)', async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-case-'));
+      try {
+        fs.mkdirSync(path.join(root, 'src'));
+        fs.writeFileSync(path.join(root, 'src', 'APP.TS'), '');
+        fs.writeFileSync(path.join(root, 'src', 'analysis.R'), '');
+        fs.writeFileSync(path.join(root, 'src', 'Lib.Js'), '');
+        // r2: `.c++` (non-letter characters) was never matched either.
+        fs.writeFileSync(path.join(root, 'src', 'engine.C++'), '');
+        const deps = makeMocks();
+        deps._fileSystemProvider.findFiles.mockImplementation(
+          fastGlobFindFiles,
+        );
+        const graph = new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () =>
+              Result.ok({
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+              }),
+            ),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => 'source'),
+          } as unknown as FileSystemService,
+          {
+            info: jest.fn(),
+            debug: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+          } as unknown as Logger,
+        );
+        const ns = buildDependencyNamespace({
+          ...deps,
+          dependencyGraph: graph,
+        });
+
+        const discovery = await ns.discoverSourceFiles(root);
+        expect(discovery.files.map((f) => path.basename(f)).sort()).toEqual([
+          'APP.TS',
+          'Lib.Js',
+          'analysis.R',
+          'engine.C++',
+        ]);
+        await ns.buildGraph(discovery.files, root, discovery.files.length);
+
+        const { coverage } = await ns.getGraphCoverage(root);
+        expect(coverage).toMatchObject({
+          clean: false,
+          census: 'complete',
+          analyzed: 2,
+          unsupported: 2,
+          unsupportedByLanguage: { cpp: 1, r: 1 },
+        });
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    // r3 B1 (FB): an unreadable directory made a clean, complete census.
+    it.each([
+      ['a subtree', 'locked'],
+      ['the root', ''],
+    ])(
+      'an EIO opening %s is returned as unreadable and the graph census is unknown',
+      async (_label, failing) => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-eio-'));
+        const opendir = fs.promises.opendir.bind(fs.promises);
+        try {
+          fs.mkdirSync(path.join(root, 'src'));
+          fs.mkdirSync(path.join(root, 'locked'));
+          fs.writeFileSync(path.join(root, 'src', 'APP.TS'), '');
+          fs.writeFileSync(path.join(root, 'locked', 'hidden.ts'), '');
+          const failingDir = path.resolve(root, failing);
+          jest
+            .spyOn(fs.promises, 'opendir')
+            .mockImplementation(async (dir, options) => {
+              if (path.resolve(String(dir)) === failingDir) {
+                throw Object.assign(new Error('EIO'), { code: 'EIO' });
+              }
+              return opendir(dir, options);
+            });
+          const deps = makeMocks();
+          deps._fileSystemProvider.findFiles.mockImplementation(
+            fastGlobFindFiles,
+          );
+          const graph = new DependencyGraphService(
+            {
+              analyzeSource: jest.fn(async () =>
+                Result.ok({
+                  imports: [],
+                  exports: [],
+                  functions: [],
+                  classes: [],
+                }),
+              ),
+            } as unknown as AstAnalysisService,
+            {
+              readFile: jest.fn(async () => 'source'),
+            } as unknown as FileSystemService,
+            {
+              info: jest.fn(),
+              debug: jest.fn(),
+              warn: jest.fn(),
+              error: jest.fn(),
+            } as unknown as Logger,
+          );
+          const ns = buildDependencyNamespace({
+            ...deps,
+            dependencyGraph: graph,
+          });
+
+          const discovery = await ns.discoverSourceFiles(root);
+          expect(discovery.unreadable).toEqual({
+            paths: 1,
+            byCode: { EIO: 1 },
+          });
+          expect(discovery.files.map((f) => path.basename(f))).toEqual(
+            failing === '' ? [] : ['APP.TS'],
+          );
+          await ns.buildGraph(discovery.files, root, discovery.files.length, {
+            censusUnknown: true,
+          });
+
+          const { coverage } = await ns.getGraphCoverage(root);
+          expect(coverage).toMatchObject({ clean: false, census: 'unknown' });
+          expect(coverage.reasons[0]).toBe('census?');
+        } finally {
+          jest.restoreAllMocks();
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      },
+    );
+  });
+
+  // r1 B2 (FB): the reviewer's junction probes. The graph is built through a
+  // junction alias; its real target spelling must answer the symbol-index
+  // prefix and dependency queries alike, and keep answering them after an
+  // unrelated second root is cached.
+  describe('r1 B2 real-target spellings of a junction root', () => {
+    const onWin32 = process.platform === 'win32';
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-b23b-r1-alias-'),
+    );
+    const realRoot = path.join(tempDir, 'real');
+    const aliasRoot = path.join(tempDir, 'alias');
+    const otherRoot = path.join(tempDir, 'other');
+    fs.mkdirSync(path.join(realRoot, 'pkg'), { recursive: true });
+    fs.mkdirSync(otherRoot);
+    for (const name of ['A.ts', 'B.ts']) {
+      fs.writeFileSync(path.join(realRoot, 'pkg', name), '');
+    }
+    let linked = true;
+    try {
+      fs.symlinkSync(realRoot, aliasRoot, onWin32 ? 'junction' : 'dir');
+    } catch (error: unknown) {
+      linked = false;
+      console.warn(
+        `[r1 B2] junction spec skipped: cannot create a directory link (${String(error)})`,
+      );
+    }
+    const alias = aliasRoot.replace(/\\/g, '/');
+    const real = realRoot.replace(/\\/g, '/');
+    const A = `${alias}/pkg/A.ts`;
+    const B = `${alias}/pkg/B.ts`;
+    const itLinked = linked ? it : it.skip;
+
+    afterAll(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    /** The alias graph, but rooted at alias/pkg (the reviewer's r2 root). */
+    async function pkgRootedGraph() {
+      const { graph, ns, deps } = await aliasGraph();
+      graph.evict(alias);
+      await graph.buildGraph([A, B], `${alias}/pkg`, undefined, undefined, {});
+      return { graph, ns, deps };
+    }
+
+    async function aliasGraph() {
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports: p === A ? [{ source: './B', importedSymbols: [] }] : [],
+              exports: [{ name: path.posix.basename(p, '.ts') }],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        {
+          info: jest.fn(),
+          debug: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+        } as unknown as Logger,
+      );
+      const deps = makeMocks();
+      deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(alias);
+      const ns = buildDependencyNamespace({ ...deps, dependencyGraph: graph });
+      await graph.buildGraph([A, B], alias, undefined, undefined, {});
+      return { graph, ns, deps };
+    }
+
+    itLinked(
+      'a real-target pathPrefix pages the same entries as the alias prefix',
+      async () => {
+        const { ns } = await aliasGraph();
+        const viaAlias = await ns.getSymbolIndex(undefined, {
+          pathPrefix: `${alias}/pkg/`,
+        });
+        const viaTarget = await ns.getSymbolIndex(undefined, {
+          pathPrefix: `${real}/pkg/`,
+        });
+        expect(viaAlias.total).toBe(2);
+        expect(viaTarget).toEqual(viaAlias);
+        // A sibling-named directory is not under the prefix.
+        const sibling = await ns.getSymbolIndex(undefined, {
+          pathPrefix: `${real}/pk/`,
+        });
+        expect(sibling.total).toBe(0);
+      },
+    );
+
+    // r2 B1 (FB): the reviewer's case. Graph and session rooted at
+    // alias/pkg; a prefix above the root in its real spelling returned a
+    // clean empty page while the alias ancestor returned both files.
+    itLinked(
+      'r2 B1: ancestor, equal and descendant prefixes select the alias/pkg graph in both spellings',
+      async () => {
+        const { graph, ns, deps } = await pkgRootedGraph();
+        // An unrelated second graph must not leak into any prefix below.
+        const other = otherRoot.replace(/\\/g, '/');
+        await graph.buildGraph(
+          [`${other}/x.ts`],
+          other,
+          undefined,
+          undefined,
+          {},
+        );
+        deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(
+          `${alias}/pkg`,
+        );
+        const page = (pathPrefix: string) =>
+          ns.getSymbolIndex(undefined, { pathPrefix });
+        const both = [A, B];
+        for (const prefix of [
+          `${real}`,
+          `${real}/`,
+          `${alias}`,
+          `${alias}/`,
+          `${real}/pkg`,
+          `${real}/pkg/`,
+          `${alias}/pkg/`,
+          '.', // the session root itself
+        ]) {
+          const result = await page(prefix);
+          expect({
+            prefix,
+            files: result.files.map((entry) => entry.file),
+          }).toEqual({ prefix, files: both });
+        }
+        // A descendant (partial name) selects only its file, in either spelling.
+        for (const prefix of [`${real}/pkg/A`, `${alias}/pkg/A`]) {
+          expect((await page(prefix)).files.map((entry) => entry.file)).toEqual(
+            [A],
+          );
+        }
+        // A sibling path that is not above the root selects nothing.
+        expect((await page(`${real}x/`)).total).toBe(0);
+        expect((await page(`${real}/pk/`)).total).toBe(0);
+      },
+    );
+
+    itLinked(
+      'a real-target dependency query keeps answering after an unrelated root is cached',
+      async () => {
+        const { graph, ns } = await aliasGraph();
+        const realA = `${real}/pkg/A.ts`;
+        await expect(ns.getDependencies(realA)).resolves.toEqual([B]);
+
+        await graph.buildGraph(
+          [`${otherRoot.replace(/\\/g, '/')}/x.ts`],
+          otherRoot,
+          undefined,
+          undefined,
+          {},
+        );
+
+        await expect(ns.getDependencies(realA)).resolves.toEqual([B]);
+        await expect(ns.getDependents(`${real}/pkg/B.ts`)).resolves.toEqual([
+          A,
+        ]);
+        const covered = await ns.getGraphCoverageForFile(realA);
+        expect(covered).toMatchObject({ nodePath: A });
+        expect(covered.coverage).toMatchObject({
+          clean: true,
+          census: 'complete',
+        });
+      },
+    );
+  });
+
+  // Batch 23b carried criterion R4-B1 (User Decision 20): the reviewer's
+  // namespace probe, through the real namespace path resolution and the real
+  // graph service (only reads and parses are stubbed).
+  describe('R4-B1 case-variant query paths (real graph service)', () => {
+    const onWin32 = process.platform === 'win32';
+    const ROOT = 'D:/Repo';
+    const A = 'D:/Repo/Pkg/A.ts';
+    const B = 'D:/Repo/Pkg/B.ts';
+
+    async function probe() {
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports: p === A ? [{ source: './B', importedSymbols: [] }] : [],
+              exports: [{ name: path.posix.basename(p, '.ts') }],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        {
+          info: jest.fn(),
+          debug: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+        } as unknown as Logger,
+      );
+      const deps = makeMocks();
+      deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(ROOT);
+      const ns = buildDependencyNamespace({ ...deps, dependencyGraph: graph });
+      await graph.buildGraph([A, B], ROOT, undefined, undefined, {});
+      return ns;
+    }
+
+    it('the matching-case control returns the edge with its stored spelling', async () => {
+      const ns = await probe();
+      await expect(ns.getDependencies('Pkg/A.ts')).resolves.toEqual([B]);
+      await expect(ns.getDependents(B)).resolves.toEqual([A]);
+      const covered = await ns.getGraphCoverageForFile('Pkg/A.ts');
+      expect(covered).toMatchObject({ nodePath: A });
+      expect(covered.coverage.clean).toBe(true);
+    });
+
+    (onWin32 ? it.each : it.skip.each)([
+      ['relative', 'pkg/a.ts', 'pkg/b.ts'],
+      ['absolute', 'd:/repo/pkg/a.ts', 'd:/repo/pkg/b.ts'],
+    ])(
+      'a %s case variant returns the same edge, never [] with clean coverage',
+      async (_label, aVariant, bVariant) => {
+        const ns = await probe();
+        await expect(ns.getDependencies(aVariant)).resolves.toEqual([B]);
+        await expect(ns.getDependents(bVariant)).resolves.toEqual([A]);
+        await expect(
+          ns.getGraphCoverageForFile(aVariant),
+        ).resolves.toMatchObject({ nodePath: A });
+      },
+    );
+
+    it('a relative pathPrefix of another case pages the same entries on Windows paths', async () => {
+      const ns = await probe();
+      const exact = await ns.getSymbolIndex(ROOT, { pathPrefix: 'Pkg/' });
+      const variant = await ns.getSymbolIndex(ROOT, { pathPrefix: 'pkg/' });
+      const absolute = await ns.getSymbolIndex(ROOT, {
+        pathPrefix: 'd:/repo/pkg/',
+      });
+      expect(exact.total).toBe(2);
+      expect(variant).toEqual(exact);
+      expect(absolute).toEqual(exact);
+    });
   });
 
   it('buildGraph returns a zeroed envelope with error on failure', async () => {

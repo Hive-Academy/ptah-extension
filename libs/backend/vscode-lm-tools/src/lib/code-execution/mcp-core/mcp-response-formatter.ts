@@ -30,7 +30,20 @@ import type {
   BrowserStatusResult,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
+  LspLocationReport,
 } from '../types';
+import {
+  compactCoverage,
+  coverageReasons,
+  withCoverageVerdict,
+  type CompactCoverage,
+  type Count,
+  type CoverageCensus,
+  type CoverageChecks,
+  type CoverageReason,
+  type CoverageState,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
 import {
   fitsBudget,
   type TextBudget,
@@ -493,6 +506,14 @@ const OMITTED_FILES_NAMED_MAX = 20;
  * scoped result — an empty one included — closes with a `Shown N of M`
  * summary. The error and warning totals always count every diagnostic in the
  * payload.
+ *
+ * The payload's `coverage` (Batch 25b) decides what an answer may claim: a
+ * bare "No issues found" only under the clean-answer rule with a type check
+ * (see {@link DiagnosticsVerdict}); otherwise every qualifier is named in
+ * words (syntax-only, unchecked, unsupported, census unknown, omittedByCap,
+ * provider-defined, ...). The verdict and the compact coverage block sit
+ * right under the totals, so the budget's cut of the tail never drops them
+ * (the tool is `preformatted`: cut, never reduced).
  */
 export function formatDiagnostics(payload: unknown): string {
   try {
@@ -501,16 +522,24 @@ export function formatDiagnostics(payload: unknown): string {
         status: 'available' | 'unavailable';
         source: string;
         reason?: string;
+        coverage?: unknown;
+        notChecked?: unknown;
         diagnostics?: unknown[];
         requestedFiles?: unknown;
       };
+      const verdict = diagnosticsVerdict(p.coverage);
+      const notChecked = notCheckedGroups(p.notChecked);
 
       if (p.status === 'unavailable') {
+        // The reason is unbounded (a compiler failure can run to pages), so
+        // it goes last: the budget's cut of the tail may shorten it, never
+        // the coverage verdict or the not-checked groups above it.
         return json2md([
           { h2: 'Diagnostics' },
-          {
-            p: `**Source:** ${p.source} — Unavailable. ${p.reason ?? ''}`,
-          },
+          { p: `**Source:** ${p.source} — Unavailable (reason below).` },
+          coverageBlock(verdict),
+          ...notCheckedBlocks(notChecked),
+          { p: `**Reason:** ${p.reason ?? 'none given.'}` },
         ]);
       }
 
@@ -520,8 +549,10 @@ export function formatDiagnostics(payload: unknown): string {
         return json2md([
           { h2: 'Diagnostics' },
           {
-            p: `**Source:** ${p.source}  \nErrors: 0 | Warnings: 0 — No issues found.`,
+            p: `**Source:** ${p.source}  \n${emptyVerdictLine(verdict)}`,
           },
+          coverageBlock(verdict),
+          ...notCheckedBlocks(notChecked),
           ...(isRequested
             ? [
                 {
@@ -539,16 +570,25 @@ export function formatDiagnostics(payload: unknown): string {
         ]);
       }
 
-      return formatDiagnosticList(diagnostics, p.source, isRequested);
+      return formatDiagnosticList(diagnostics, p.source, isRequested, {
+        verdict,
+        notChecked,
+      });
     }
 
     if (Array.isArray(payload)) {
+      // The legacy shape carries no coverage, so it is never a clean answer.
+      const verdict = diagnosticsVerdict(undefined);
       if (payload.length === 0)
         return json2md([
           { h2: 'Diagnostics' },
-          { p: 'Errors: 0 | Warnings: 0 — No issues found.' },
+          { p: emptyVerdictLine(verdict) },
+          coverageBlock(verdict),
         ]);
-      return formatDiagnosticList(payload, undefined, undefined);
+      return formatDiagnosticList(payload, undefined, undefined, {
+        verdict,
+        notChecked: [],
+      });
     }
 
     return fallbackJson(payload);
@@ -600,6 +640,10 @@ function formatDiagnosticList(
   diagnostics: unknown[],
   source: string | undefined,
   isRequested: ((file: string) => boolean) | undefined,
+  answered: {
+    readonly verdict: DiagnosticsVerdict;
+    readonly notChecked: readonly NotCheckedGroup[];
+  },
 ): string {
   const ranked: RankedDiagnostic[] = (
     diagnostics as Record<string, unknown>[]
@@ -649,7 +693,14 @@ function formatDiagnosticList(
         otherCount > 0 ? ` | **Other:** ${otherCount}` : ''
       }`,
     },
+    // Right under the totals, before every list: a budget cut of the tail
+    // never drops what the answer did not cover.
+    coverageBlock(answered.verdict),
   ];
+  // Unscoped, the not-checked groups are counts only and go next. Scoped,
+  // they name requested files and follow the requested-file diagnostics, which
+  // keep their place ahead of everything else (Batch 1 ordering).
+  if (!isRequested) blocks.push(...notCheckedBlocks(answered.notChecked));
 
   // The grouped lists are pushed as raw strings: json2md passes a string
   // through untouched, whereas a `p` block would put a blank line between
@@ -673,6 +724,7 @@ function formatDiagnosticList(
             }
           : { p: 'No diagnostics in the requested files.' },
     );
+    blocks.push(...notCheckedBlocks(answered.notChecked));
     if (shownSiblings.length > 0) {
       blocks.push({ h3: 'Sibling files' });
       blocks.push(renderDiagnosticsByFile(shownSiblings, true));
@@ -727,6 +779,291 @@ function coverageClause(c: DiagnosticsSummaryCounts): string {
       ? ` (${c.requestedCoverage} in requested files)`
       : '';
   return `${c.coverage} coverage failure${c.coverage === 1 ? '' : 's'}${inRequested}, `;
+}
+
+/**
+ * What a diagnostics answer may claim (TASK_2026_559 Batch 25b). `bare` is
+ * the only case that may print "No issues found": the coverage passes the
+ * clean-answer rule (`coverageReasons` is empty) and the check was a type
+ * check with no approximation. Otherwise `qualifiers` names, in words, each
+ * reason the answer is not clean.
+ */
+interface DiagnosticsVerdict {
+  readonly bare: boolean;
+  readonly qualifiers: readonly string[];
+  /** The compact coverage block (Batch 22c), when the payload carried one. */
+  readonly compact?: CompactCoverage;
+}
+
+/** One `notChecked` group, as validated from the payload. */
+interface NotCheckedGroup {
+  readonly language: string;
+  readonly count: number;
+  readonly files: readonly string[];
+  readonly reason: string;
+}
+
+const COVERAGE_NOT_REPORTED =
+  'coverage not reported: which files and languages were checked is unknown';
+
+const PROVIDER_DEFINED =
+  'provider-defined: only what the installed language extensions report; census unknown, per-language coverage unknown';
+
+/** A coverage object as the namespace forwards it, or `undefined`. */
+function asCoverage(value: unknown): LanguageCoverage | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const candidate = value as Partial<LanguageCoverage>;
+  return typeof candidate.census === 'string' &&
+    Array.isArray(candidate.supportedLanguages)
+    ? (value as LanguageCoverage)
+    : undefined;
+}
+
+function diagnosticsVerdict(value: unknown): DiagnosticsVerdict {
+  const received = asCoverage(value);
+  if (received === undefined) {
+    return { bare: false, qualifiers: [COVERAGE_NOT_REPORTED] };
+  }
+  // The payload crosses a boundary: a value outside a closed vocabulary is
+  // one the clean-answer rule cannot judge, so it qualifies the answer and
+  // is named (fail closed), never read as clean. The prose and the compact
+  // block are both built from the same normalized coverage, so the block can
+  // never say `clean: true` where the prose does not.
+  const unrecognised = unrecognisedVocabularyTexts(received);
+  const coverage = normalizedCoverage(received);
+  const providerDefined = coverage.checks === 'provider-defined';
+  const qualifiers: string[] = providerDefined ? [PROVIDER_DEFINED] : [];
+  qualifiers.push(...unrecognised);
+  for (const reason of coverageReasons(coverage)) {
+    // Provider-defined coverage is unknown by construction; its sentence
+    // already says so, so the unknown-count codes are not repeated.
+    if (providerDefined && reason.endsWith('?')) continue;
+    qualifiers.push(reasonText(reason, coverage));
+  }
+  qualifiers.push(...approximationTexts(coverage));
+  const typeCheckOnly =
+    coverage.checks === undefined || coverage.checks === 'type-check';
+  if (!typeCheckOnly && qualifiers.length === 0) {
+    // Never an empty qualifier list: a check that is not a type check is
+    // itself the qualifier.
+    qualifiers.push(`${String(coverage.checks)} check: not a type-check claim`);
+  }
+  return {
+    bare: qualifiers.length === 0 && typeCheckOnly,
+    qualifiers,
+    compact: compactCoverage(coverage),
+  };
+}
+
+const CENSUS_VALUES: ReadonlySet<unknown> = new Set<CoverageCensus>([
+  'complete',
+  'truncated',
+  'unknown',
+]);
+const STATE_VALUES: ReadonlySet<unknown> = new Set<CoverageState>([
+  'current',
+  'updating',
+  'incomplete',
+]);
+const CHECKS_VALUES: ReadonlySet<unknown> = new Set<CoverageChecks>([
+  'type-check',
+  'syntax-only',
+  'mixed',
+  'provider-defined',
+]);
+
+/**
+ * The coverage with each out-of-vocabulary verdict input replaced by a
+ * non-clean value: an unrecognised `census` becomes `'unknown'`, an
+ * unrecognised `state` becomes `'incomplete'`. (`checks` does not enter the
+ * clean-answer rule; an unrecognised one is never bare, see the caller.)
+ */
+function normalizedCoverage(c: LanguageCoverage): LanguageCoverage {
+  const censusValid = CENSUS_VALUES.has(c.census);
+  const stateValid = c.state === undefined || STATE_VALUES.has(c.state);
+  if (censusValid && stateValid) return c;
+  return withCoverageVerdict({
+    ...c,
+    ...(censusValid ? {} : { census: 'unknown' as const }),
+    ...(stateValid ? {} : { state: 'incomplete' as const }),
+  });
+}
+
+/** A qualifier per `census`/`state`/`checks` value outside its vocabulary. */
+function unrecognisedVocabularyTexts(c: LanguageCoverage): string[] {
+  const texts: string[] = [];
+  if (!CENSUS_VALUES.has(c.census)) {
+    texts.push(
+      `census ${JSON.stringify(c.census)} not recognised (treated as census unknown)`,
+    );
+  }
+  if (c.state !== undefined && !STATE_VALUES.has(c.state)) {
+    texts.push(`state ${JSON.stringify(c.state)} not recognised`);
+  }
+  if (c.checks !== undefined && !CHECKS_VALUES.has(c.checks)) {
+    texts.push(
+      `check kind ${JSON.stringify(c.checks)} not recognised (not a type-check claim)`,
+    );
+  }
+  return texts;
+}
+
+function filesText(count: Count): string {
+  return count === null
+    ? 'an unknown number of files'
+    : `${count} file${count === 1 ? '' : 's'}`;
+}
+
+/** `{python: 2, ruby: 1}` → `python 2, ruby 1`. */
+function perKeyText(
+  counts: Readonly<Partial<Record<string, number>>> | undefined,
+): string {
+  return Object.entries(counts ?? {})
+    .filter(([, n]) => n !== undefined && n !== 0)
+    .map(([key, n]) => `${key} ${n}`)
+    .join(', ');
+}
+
+/** One clean-answer condition the coverage fails, in words. */
+function reasonText(reason: CoverageReason, c: LanguageCoverage): string {
+  switch (reason) {
+    case 'census?':
+      return 'census unknown (files outside the check were not counted)';
+    case 'truncated':
+      return `census truncated at ${c.censusLimit ?? 'its limit of'} files`;
+    case 'updating':
+      return 'index updating';
+    case 'stale':
+      return 'index incomplete';
+    case 'unchecked':
+      return `${filesText(c.unchecked)} unchecked (pass \`files\` to check them)`;
+    case 'failed': {
+      const why = perKeyText(c.failedByReason);
+      return `${filesText(c.failed)} failed${why ? ` (${why})` : ''}`;
+    }
+    case 'unsupported': {
+      const which = perKeyText(c.unsupportedByLanguage);
+      return `${filesText(c.unsupported)} unsupported (no diagnostics for ${which || 'their language'} on this host)`;
+    }
+    case 'unrecognised':
+      return `${filesText(c.unrecognised)} unrecognised (no language Ptah recognises)`;
+    case 'omitted-by-cap':
+      return `${filesText(c.omittedByCap)} omittedByCap (past the per-call cap; request them in another call)`;
+    case 'excluded':
+      return `${filesText(c.excluded)} excluded`;
+    case 'unchecked?':
+      return 'unchecked count unknown';
+    case 'failed?':
+      return 'failed count unknown';
+    case 'unsupported?':
+      return 'unsupported count unknown';
+    case 'unrecognised?':
+      return 'unrecognised count unknown';
+    case 'omitted?':
+      return 'omittedByCap count unknown';
+    default:
+      return reason;
+  }
+}
+
+/**
+ * The approximations the answer rests on. A syntax-only check is never a
+ * type-check claim (Batch 25a floor amendment), so it is named even when the
+ * counts are clean.
+ */
+function approximationTexts(c: LanguageCoverage): string[] {
+  const approximations = c.approximations ?? [];
+  const syntaxOnly = approximations
+    .filter((a) => a.endsWith(':syntax-only'))
+    .map((a) => a.slice(0, -':syntax-only'.length));
+  const others = approximations.filter((a) => !a.endsWith(':syntax-only'));
+  const texts: string[] = [];
+  if (
+    c.checks === 'syntax-only' ||
+    c.checks === 'mixed' ||
+    syntaxOnly.length > 0
+  ) {
+    // A mixed or syntax-only check always names its limitation, even when
+    // the provider did not list which languages were syntax-only.
+    const languages =
+      syntaxOnly.length > 0 ? syntaxOnly.join(', ') : 'languages not named';
+    texts.push(
+      c.checks === 'mixed'
+        ? `mixed check: ${languages} syntax-only (syntax errors only, not type-checked), the rest type-checked`
+        : `syntax-only check (${languages}): syntax errors only, not type-checked`,
+    );
+  }
+  if (others.length > 0) texts.push(`approximations: ${others.join(', ')}`);
+  if (c.approximationsOmitted) {
+    texts.push(
+      `${c.approximationsOmitted} more approximation${c.approximationsOmitted === 1 ? '' : 's'} not listed`,
+    );
+  }
+  return texts;
+}
+
+/** The totals line of an answer with no diagnostics. */
+function emptyVerdictLine(verdict: DiagnosticsVerdict): string {
+  return verdict.bare
+    ? 'Errors: 0 | Warnings: 0 — No issues found.'
+    : 'Errors: 0 | Warnings: 0 in what was checked — not a clean answer (see Coverage).';
+}
+
+/** The verdict in words, then the compact coverage block. */
+function coverageBlock(verdict: DiagnosticsVerdict): { p: string } {
+  const words = verdict.bare
+    ? 'clean'
+    : `qualified — ${verdict.qualifiers.join('; ')}.`;
+  const block =
+    verdict.compact === undefined
+      ? ''
+      : `  \n\`${JSON.stringify(verdict.compact)}\``;
+  return { p: `**Coverage:** ${words}${block}` };
+}
+
+/** The payload's `notChecked` groups; malformed entries are dropped. */
+function notCheckedGroups(value: unknown): NotCheckedGroup[] {
+  if (!Array.isArray(value)) return [];
+  const groups: NotCheckedGroup[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const g = entry as Record<string, unknown>;
+    if (
+      typeof g['language'] !== 'string' ||
+      typeof g['count'] !== 'number' ||
+      typeof g['reason'] !== 'string'
+    ) {
+      continue;
+    }
+    const files = Array.isArray(g['files'])
+      ? g['files'].filter((f): f is string => typeof f === 'string')
+      : [];
+    groups.push({
+      language: g['language'],
+      count: g['count'],
+      files,
+      reason: g['reason'],
+    });
+  }
+  return groups;
+}
+
+/** A `Not checked` heading and one bullet per group, its files nested. */
+function notCheckedBlocks(
+  groups: readonly NotCheckedGroup[],
+): Array<{ h3: string } | string> {
+  if (groups.length === 0) return [];
+  const lines: string[] = [];
+  for (const group of groups) {
+    lines.push(
+      `- ${group.count} ${group.language} file${group.count === 1 ? '' : 's'} — ${compactMessage(group.reason)}`,
+    );
+    for (const file of group.files) lines.push(`  - \`${file}\``);
+    if (group.files.length > 0 && group.count > group.files.length) {
+      lines.push(`  - … and ${group.count - group.files.length} more`);
+    }
+  }
+  return [{ h3: 'Not checked' }, lines.join('\n') + '\n'];
 }
 
 /**
@@ -918,64 +1255,145 @@ function extractRangeLine(range: unknown): number | string | undefined {
 }
 
 /**
- * Format ptah_lsp_references result
+ * Format ptah_lsp_references result: an `LspLocationReport` (what the
+ * dispatcher passes) or a plain location array.
  */
 export function formatLspReferences(refs: unknown): string {
-  try {
-    if (!Array.isArray(refs)) return fallbackJson(refs);
-    if (refs.length === 0)
-      return json2md([{ h2: 'LSP References' }, { p: 'Found: 0 references' }]);
-
-    const items = refs.map((ref: Record<string, unknown>) => {
-      const file = ref['file'] ?? ref['uri'] ?? ref['path'] ?? '';
-      const line = ref['line'] ?? '';
-      const col = ref['col'] ?? ref['column'] ?? '';
-      return line
-        ? `\`${file}:${line}${col ? ':' + col : ''}\``
-        : `\`${file}\``;
-    });
-
-    return json2md([
-      { h2: 'LSP References' },
-      { p: `Found: ${refs.length} reference${refs.length !== 1 ? 's' : ''}` },
-      { ol: items },
-    ]);
-  } catch {
-    return fallbackJson(refs);
-  }
+  return formatLspLocations(refs, 'LSP References', 'reference');
 }
 
 /**
- * Format ptah_lsp_definitions result
+ * Format ptah_lsp_definitions result: an `LspLocationReport` (what the
+ * dispatcher passes) or a plain location array.
  */
 export function formatLspDefinitions(defs: unknown): string {
+  return formatLspLocations(defs, 'LSP Definitions', 'definition');
+}
+
+function formatLspLocations(
+  value: unknown,
+  title: string,
+  noun: string,
+): string {
   try {
-    if (!Array.isArray(defs)) return fallbackJson(defs);
-    if (defs.length === 0)
-      return json2md([
-        { h2: 'LSP Definitions' },
-        { p: 'Found: 0 definitions' },
-      ]);
-
-    const items = defs.map((def: Record<string, unknown>) => {
-      const file = def['file'] ?? def['uri'] ?? def['path'] ?? '';
-      const line = def['line'] ?? '';
-      const col = def['col'] ?? def['column'] ?? '';
-      return line
-        ? `\`${file}:${line}${col ? ':' + col : ''}\``
-        : `\`${file}\``;
-    });
-
-    return json2md([
-      { h2: 'LSP Definitions' },
+    if (isLspLocationReport(value)) {
+      return formatLspReport(value, title, noun);
+    }
+    if (!Array.isArray(value)) return fallbackJson(value);
+    // A bare location list says nothing about how it was produced: render it
+    // as a host answer whose language support is unknown.
+    return formatLspReport(
       {
-        p: `Found: ${defs.length} definition${defs.length !== 1 ? 's' : ''}`,
+        locations: value,
+        mechanism: 'provider-defined',
+        language: null,
+        languageSupported: null,
+        approximations: [],
       },
-      { ol: items },
-    ]);
+      title,
+      noun,
+    );
   } catch {
-    return fallbackJson(defs);
+    return fallbackJson(value);
   }
+}
+
+function isLspLocationReport(value: unknown): value is LspLocationReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Array.isArray(record['locations']) &&
+    typeof record['mechanism'] === 'string' &&
+    Array.isArray(record['approximations'])
+  );
+}
+
+/** A report whose locations are rendered leniently (legacy arrays too). */
+type RenderableLspReport = Omit<LspLocationReport, 'locations'> & {
+  readonly locations: readonly unknown[];
+};
+
+/**
+ * The mechanism, language support, approximations and caps come before the
+ * locations, so a cut result still says how it was produced. `none` never
+ * prints a count: nothing was searched.
+ */
+function formatLspReport(
+  report: RenderableLspReport,
+  title: string,
+  noun: string,
+): string {
+  const language = report.language ?? 'unrecognised';
+  if (report.mechanism === 'none') {
+    return json2md([
+      { h2: title },
+      {
+        p:
+          `Not available on this host (mechanism: none; language: ${language}). ` +
+          `No ${noun} lookup ran, so this is not an empty result; ` +
+          `search the workspace text instead.`,
+      },
+    ]);
+  }
+
+  const support =
+    report.languageSupported === true
+      ? ''
+      : report.languageSupported === false
+        ? ' (not supported by this mechanism)'
+        : ' (support unknown: not reported by the host)';
+  const blocks: json2md.DataObject[] = [
+    { h2: title },
+    { p: `Mechanism: ${report.mechanism}; language: ${language}${support}` },
+  ];
+  if (report.approximations.length > 0) {
+    blocks.push({ p: `Approximations: ${report.approximations.join(', ')}` });
+  }
+  if (report.truncated === true) {
+    blocks.push({
+      p: `Truncated: a scan or result cap was hit; more ${noun}s may exist.`,
+    });
+  }
+
+  const count = report.locations.length;
+  // Only an explicitly supported language makes an empty list meaningful.
+  const qualified =
+    report.languageSupported !== true ||
+    report.approximations.length > 0 ||
+    report.truncated === true;
+  const found = `Found: ${count} ${noun}${count !== 1 ? 's' : ''}`;
+  blocks.push({
+    p:
+      count === 0 && qualified
+        ? `${found} (qualified as above; not proof that none exist)`
+        : found,
+  });
+  if (count > 0) {
+    blocks.push({ ol: report.locations.map(formatLspLocationItem) });
+  }
+  return json2md(blocks);
+}
+
+function formatLspLocationItem(location: unknown): string {
+  const loc = (location ?? {}) as Record<string, unknown>;
+  const file = loc['file'] ?? loc['uri'] ?? loc['path'] ?? '';
+  const line = loc['line'];
+  const col = loc['col'] ?? loc['column'];
+  // Coordinates are zero-based, as the tools take them: 0 is a real position,
+  // so test presence, not truthiness.
+  if (!isCoordinate(line)) return `\`${file}\``;
+  return isCoordinate(col)
+    ? `\`${file}:${line}:${col}\``
+    : `\`${file}:${line}\``;
+}
+
+function isCoordinate(value: unknown): value is number | string {
+  return (
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'string' && value !== '')
+  );
 }
 
 /**

@@ -24,6 +24,7 @@ import {
 } from '@ptah-extension/workspace-intelligence';
 import {
   FileType,
+  compactCoverage,
   isCleanAnswer,
   type IFileSystemProvider,
   type IWorkspaceProvider,
@@ -226,12 +227,22 @@ describe('ptah_ast_analyze result text (real parser)', () => {
     expect(1 - resultTokens / sourceTokens).toBeGreaterThanOrEqual(0.4);
   });
 
+  // Lane H merge (Batches 22c + 24r): the namespace result carries the full
+  // coverage with its verdict first; the dispatcher writes it in the compact
+  // form (`withCompactCoverage`), so a clean parse is `{clean, analyzed}`.
   it('keeps parse status and coverage ahead of the tables', async () => {
     const result = await ast.analyze(`${ROOT}/src/record-store.ts`);
-    const text = formatAstAnalysisResult(result);
+    expect(Object.keys(result.coverage).slice(0, 2)).toEqual([
+      'clean',
+      'reasons',
+    ]);
+    const text = formatAstAnalysisResult({
+      ...result,
+      coverage: compactCoverage(result.coverage),
+    });
 
     expect(text).toMatch(
-      /^\{"parseStatus":"ok","errorNodeCount":0,"errorNodeCountCapped":false,"coverage":\{[^[]*"supportedLanguages":\[[^\]]*\][^[]*\},"file":"D:\/ws\/src\/record-store\.ts","language":"typescript","functions":\[\["name","parameters","startLine","endLine"\],/,
+      /^\{"parseStatus":"ok","errorNodeCount":0,"errorNodeCountCapped":false,"coverage":\{"clean":true,"analyzed":1\},"file":"D:\/ws\/src\/record-store\.ts","language":"typescript","functions":\[\["name","parameters","startLine","endLine"\],/,
     );
   });
 

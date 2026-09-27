@@ -28,11 +28,14 @@ import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
+import { withCoverageVerdict } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   IWorkspaceProvider,
   IFileSystemProvider,
   DiagnosticsResult,
+  LanguageCoverage,
+  NotCheckedFiles,
 } from '@ptah-extension/platform-core';
 import {
   buildWorkspaceNamespace,
@@ -782,5 +785,130 @@ describe('buildDiagnosticsNamespace', () => {
       );
       expect(out).toContain(`\`${onDisk('packages/other/src/a.ts')}\` (1)`);
     });
+  });
+
+  describe('coverage forwarding (TASK_2026_559 Batch 25b)', () => {
+    const MIXED_UNSCOPED: LanguageCoverage = withCoverageVerdict({
+      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python'],
+      census: 'complete',
+      analyzed: null,
+      unchecked: 2,
+      failed: 0,
+      unsupported: 0,
+      unrecognised: 0,
+      nonSource: 0,
+      excluded: null,
+      omittedByCap: 0,
+      checks: 'type-check',
+    });
+    const NOT_CHECKED: NotCheckedFiles[] = [
+      {
+        language: 'python',
+        count: 2,
+        reason:
+          'The syntax check runs only on requested files: pass `files` to check them.',
+      },
+    ];
+
+    it('mixed repo never prints a bare No issues found', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock('D:/workspace'),
+      );
+
+      const out = formatDiagnostics(await ns.getErrors());
+
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain('2 files unchecked (pass `files` to check them)');
+      expect(out).toContain('2 python files');
+    });
+
+    it('forwards coverage and notChecked unchanged on the available arm, for every severity filter', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          ...availableResult,
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+        }),
+        createWorkspaceProviderMock(),
+      );
+
+      for (const payload of [
+        await ns.getErrors(),
+        await ns.getWarnings(),
+        await ns.getAll(),
+      ]) {
+        expect(payload.coverage).toBe(MIXED_UNSCOPED);
+        expect(payload.notChecked).toBe(NOT_CHECKED);
+      }
+    });
+
+    it('forwards coverage and notChecked on the unavailable arm', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'unavailable',
+          source: 'typescript-compiler',
+          reason: 'No tsconfig.json found under workspace root.',
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+        }),
+        createWorkspaceProviderMock(),
+      );
+
+      const payload = await ns.getAll();
+
+      expect(payload).toMatchObject({
+        status: 'unavailable',
+        coverage: MIXED_UNSCOPED,
+        notChecked: NOT_CHECKED,
+        diagnostics: [],
+      });
+    });
+
+    it('leaves notChecked out when the provider names none', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          notChecked: [],
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock(),
+      );
+      expect('notChecked' in (await ns.getAll())).toBe(false);
+    });
+
+    it.each(['available', 'unavailable'] as const)(
+      'a provider with no coverage (the VS Code provider) is provider-defined on the %s arm, analyzed null, never clean',
+      async (status) => {
+        const result: DiagnosticsResult =
+          status === 'available'
+            ? { status, source: 'vscode-languages', diagnostics: [] }
+            : { status, source: 'vscode-languages', reason: 'No workspace.' };
+        const ns = buildDiagnosticsNamespace(
+          createDiagnosticsProvider(result),
+          createWorkspaceProviderMock(),
+        );
+
+        const payload = await ns.getAll();
+
+        expect(payload.coverage).toMatchObject({
+          clean: false,
+          checks: 'provider-defined',
+          census: 'unknown',
+          analyzed: null,
+        });
+        const out = formatDiagnostics(payload);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain('provider-defined');
+      },
+    );
   });
 });

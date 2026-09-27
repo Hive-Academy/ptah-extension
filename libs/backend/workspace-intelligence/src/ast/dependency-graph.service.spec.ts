@@ -820,6 +820,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     const report = svc.getCoverageReport(WS_A);
     expect(report?.files).toEqual(svc.getCoverage(WS_A));
     expect(report?.languages).toEqual({
+      clean: true,
+      reasons: [],
       supportedLanguages: ['typescript', 'javascript'],
       census: 'complete',
       analyzed: 2,
@@ -1365,5 +1367,307 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     svc.evict(WS_B);
     expect(svc.getCoverageReport(WS_B)).toBeUndefined();
     expect(svc.getCoverageReport()?.languages.analyzed).toBe(2);
+  });
+
+  // Batch 23b carried criteria (User Decision 20), reviewer probes of
+  // reviews/batch-23a-code-logic-review-r4-postcap.md.
+  describe('query path identity and root identity failures (r4)', () => {
+    const onWin32 = process.platform === 'win32';
+    const itOnWin32 = onWin32 ? it : it.skip;
+    const itOffWin32 = onWin32 ? it.skip : it;
+    const REPO = 'D:/Repo';
+    const A = 'D:/Repo/Pkg/A.ts';
+    const B = 'D:/Repo/Pkg/B.ts';
+    const C = 'D:/Repo/Pkg/C.ts';
+
+    /** A.ts imports ./B, B.ts imports ./C (depth > 1 reaches C). */
+    async function caseGraph() {
+      const { svc } = serviceWith({
+        [A]: insights([imp('./B')], []),
+        [B]: insights([imp('./C')], []),
+      });
+      await svc.buildGraph([A, B, C], REPO, {});
+      expect(isCleanAnswer(svc.getCoverageReport(REPO)!.languages)).toBe(true);
+      return svc;
+    }
+
+    it('the matching-case control answers with the stored spelling', async () => {
+      const svc = await caseGraph();
+      expect(svc.getDependencies(A)).toEqual([B]);
+      expect(svc.getDependencies(A, 2)).toEqual([B, C]);
+      expect(svc.getDependents(B)).toEqual([A]);
+      expect(svc.resolveNodePath(A)).toBe(A);
+    });
+
+    // R4-B1 (FB): a case-variant spelling answered [] with clean coverage.
+    itOnWin32.each([
+      [
+        'a relative-joined variant',
+        'D:\\Repo\\pkg\\a.ts',
+        'D:\\Repo\\pkg\\b.ts',
+      ],
+      ['an absolute variant', 'd:/repo/pkg/a.ts', 'd:/repo/pkg/b.ts'],
+    ])(
+      'R4-B1: %s resolves to the stored node (dependencies, depth 2, dependents)',
+      async (_label, aVariant, bVariant) => {
+        const svc = await caseGraph();
+        expect(svc.getDependencies(aVariant)).toEqual([B]);
+        expect(svc.getDependencies(aVariant, 2)).toEqual([B, C]);
+        expect(svc.getDependents(bVariant)).toEqual([A]);
+        expect(svc.resolveNodePath(aVariant)).toBe(A);
+      },
+    );
+
+    itOffWin32(
+      'a case variant is a different path where paths are case-sensitive',
+      async () => {
+        const svc = await caseGraph();
+        expect(svc.getDependencies('D:/repo/pkg/a.ts')).toEqual([]);
+        expect(svc.resolveNodePath('D:/repo/pkg/a.ts')).toBeUndefined();
+      },
+    );
+
+    itOnWin32(
+      'an ambiguous folded identity selects no node; an exact spelling still wins',
+      async () => {
+        const lower = 'D:/Repo/x.ts';
+        const upper = 'D:/Repo/X.ts';
+        const { svc } = serviceWith({
+          [lower]: insights([imp('./Pkg/B')], []),
+          [upper]: insights([imp('./Pkg/C')], []),
+        });
+        await svc.buildGraph([lower, upper, B, C], REPO, {});
+
+        expect(svc.resolveNodePath('d:/repo/X.TS')).toBeUndefined();
+        expect(svc.getDependencies('d:/repo/X.TS')).toEqual([]);
+        expect(svc.getDependencies(upper)).toEqual([C]);
+        expect(svc.getDependencies(lower)).toEqual([B]);
+      },
+    );
+
+    // R4-M1 (FB): a failed root realpath dropped the alias identity silently.
+    describe('root realpath failure', () => {
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      function failRealpath(code: string): jest.SpyInstance {
+        return jest
+          .spyOn(fs.promises, 'realpath')
+          .mockRejectedValue(
+            Object.assign(new Error(`${code}: realpath failed`), { code }),
+          );
+      }
+
+      it('R4-M1: an EIO lookup is disclosed as unknown unchecked files, never clean', async () => {
+        failRealpath('EIO');
+        const { svc } = serviceWith(INSIGHTS);
+        await svc.buildGraph(A_FILES, WS_A, {});
+
+        const languages = svc.getCoverageReport(WS_A)!.languages;
+        expect(languages.unchecked).toBeNull();
+        expect(languages.clean).toBe(false);
+        expect(languages.reasons[0]).toBe('unchecked?');
+        // The graph itself still answers (lexical identity is kept).
+        expect(svc.getDependents('D:/ws-a/b.ts')).toEqual(['D:/ws-a/a.ts']);
+        // An invalidation keeps it unknown, not a number.
+        svc.invalidateFile('D:/ws-a/a.ts');
+        expect(svc.getCoverageReport(WS_A)!.languages.unchecked).toBeNull();
+      });
+
+      it('an absent root (ENOENT) proves no alias exists: coverage stays clean', async () => {
+        failRealpath('ENOENT');
+        const { svc } = serviceWith(INSIGHTS);
+        await svc.buildGraph(A_FILES, WS_A, {});
+
+        expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(
+          true,
+        );
+      });
+
+      it('a later build whose lookup succeeds is clean again', async () => {
+        const spy = failRealpath('EACCES');
+        const { svc } = serviceWith(INSIGHTS);
+        await svc.buildGraph(A_FILES, WS_A, {});
+        expect(svc.getCoverageReport(WS_A)!.languages.clean).toBe(false);
+
+        spy.mockRejectedValue(
+          Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+        );
+        await svc.buildGraph(A_FILES, WS_A, {});
+        expect(svc.getCoverageReport(WS_A)!.languages.clean).toBe(true);
+      });
+    });
+
+    describe('a junction/symlink alias root (real filesystem fixture)', () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-graph-r4-alias-'),
+      );
+      const realRoot = path.join(tempDir, 'real');
+      const aliasRoot = path.join(tempDir, 'alias');
+      fs.mkdirSync(path.join(realRoot, 'pkg'), { recursive: true });
+      for (const name of ['a.ts', 'b.ts']) {
+        fs.writeFileSync(path.join(realRoot, 'pkg', name), '');
+      }
+      let linked = true;
+      try {
+        fs.symlinkSync(realRoot, aliasRoot, onWin32 ? 'junction' : 'dir');
+      } catch (error: unknown) {
+        linked = false;
+        console.warn(
+          `[r4] junction spec skipped: cannot create a directory link (${String(error)})`,
+        );
+      }
+      const alias = aliasRoot.replace(/\\/g, '/');
+
+      afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      (linked ? it : it.skip)(
+        'a query spelt through the real path finds the node of the alias root',
+        async () => {
+          const { svc } = serviceWith({
+            [`${alias}/pkg/a.ts`]: insights([imp('./b')], []),
+          });
+          await svc.buildGraph(
+            [`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`],
+            alias,
+            {},
+          );
+
+          expect(svc.getDependents(path.join(realRoot, 'pkg', 'b.ts'))).toEqual(
+            [`${alias}/pkg/a.ts`],
+          );
+          expect(svc.resolveNodePath(path.join(realRoot, 'pkg', 'a.ts'))).toBe(
+            `${alias}/pkg/a.ts`,
+          );
+        },
+      );
+
+      // r1 B2 (FB): routing used lexical roots only, so a second cached root
+      // made the real-path query unroutable.
+      (linked ? it : it.skip).each([
+        ['alias graph first', false],
+        ['sibling graph first', true],
+      ])(
+        'r1 B2: a real-path query reaches the alias graph with an unrelated root cached (%s)',
+        async (_label, siblingFirst) => {
+          const { svc } = serviceWith({
+            [`${alias}/pkg/a.ts`]: insights([imp('./b')], []),
+          });
+          const buildAlias = () =>
+            svc.buildGraph(
+              [`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`],
+              alias,
+              {},
+            );
+          const buildSibling = () =>
+            svc.buildGraph(['D:/elsewhere/x.ts'], 'D:/elsewhere', {});
+          if (siblingFirst) {
+            await buildSibling();
+            await buildAlias();
+          } else {
+            await buildAlias();
+            await buildSibling();
+          }
+
+          const realB = path.join(realRoot, 'pkg', 'b.ts');
+          expect(svc.getDependents(realB)).toEqual([`${alias}/pkg/a.ts`]);
+          expect(
+            isCleanAnswer(svc.getCoverageReportForFile(realB)!.languages),
+          ).toBe(true);
+        },
+      );
+
+      // r1 B2: a graph of the alias and a graph of its real target both
+      // contain a real-path query at the same depth: the smaller key answers,
+      // whatever order they were built in.
+      (linked ? it : it.skip).each([[false], [true]])(
+        'r1 B2: equally deep containing graphs are chosen deterministically (real graph first: %p)',
+        async (realFirst) => {
+          const { svc } = serviceWith({});
+          const aliasFiles = [`${alias}/pkg/a.ts`];
+          const realSlashed = realRoot.replace(/\\/g, '/');
+          const realFiles = [`${realSlashed}/pkg/a.ts`];
+          const builds = [
+            () => svc.buildGraph(aliasFiles, alias, {}),
+            () => svc.buildGraph(realFiles, realSlashed, {}),
+          ];
+          for (const build of realFirst ? builds.reverse() : builds) {
+            await build();
+          }
+          const expected =
+            graphPathIdentity(alias) < graphPathIdentity(realSlashed)
+              ? `${alias}/pkg/a.ts`
+              : `${realSlashed}/pkg/a.ts`;
+
+          expect(svc.resolveNodePath(path.join(realRoot, 'pkg', 'a.ts'))).toBe(
+            expected,
+          );
+        },
+      );
+
+      (linked ? it : it.skip)(
+        'graphSpellingsOf re-roots a real-target prefix at the alias key, keeping a trailing slash',
+        async () => {
+          const { svc } = serviceWith({});
+          await svc.buildGraph([`${alias}/pkg/a.ts`], alias, {});
+
+          expect(
+            svc.graphSpellingsOf(`${realRoot.replace(/\\/g, '/')}/pkg/`),
+          ).toContain(`${graphPathIdentity(alias)}/pkg/`);
+          expect(svc.graphSpellingsOf('D:/unrelated/pkg/')).toEqual([]);
+        },
+      );
+
+      // r2 B1 (FB): a prefix ABOVE a root, in the root's real spelling,
+      // selects that root's whole graph; a sibling name does not.
+      (linked ? it : it.skip)(
+        'r2 B1: graphSpellingsOf maps a real-spelled ancestor prefix to the alias/pkg root',
+        async () => {
+          const { svc } = serviceWith({});
+          await svc.buildGraph([`${alias}/pkg/a.ts`], `${alias}/pkg`, {});
+          const realSlashed = realRoot.replace(/\\/g, '/');
+          const rootSpelling = `${graphPathIdentity(`${alias}/pkg`)}/`;
+
+          expect(svc.graphSpellingsOf(`${realSlashed}/`)).toContain(
+            rootSpelling,
+          );
+          expect(svc.graphSpellingsOf(realSlashed)).toContain(rootSpelling);
+          expect(svc.graphSpellingsOf(`${alias}/`)).toContain(rootSpelling);
+          expect(svc.graphSpellingsOf(`${realSlashed}x/`)).toEqual([]);
+          expect(svc.graphSpellingsOf(`${realSlashed}/pk/`)).toEqual([]);
+        },
+      );
+
+      // The reviewer's r4 probe: EIO injected during both builds, restored
+      // before the invalidation through the real path.
+      (linked ? it : it.skip)(
+        'R4-M1 probe: parent and child alias roots built during EIO are not clean after a real-path invalidation',
+        async () => {
+          const files = [`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`];
+          const { svc } = serviceWith({});
+          const spy = jest
+            .spyOn(fs.promises, 'realpath')
+            .mockRejectedValue(
+              Object.assign(new Error('EIO'), { code: 'EIO' }),
+            );
+          await svc.buildGraph(files, alias, {});
+          await svc.buildGraph(files, `${alias}/pkg`, {});
+          spy.mockRestore();
+
+          svc.invalidateFile(path.join(realRoot, 'pkg', 'a.ts'));
+
+          for (const root of [alias, `${alias}/pkg`]) {
+            expect(svc.getCoverageReport(root)!.languages.clean).toBe(false);
+          }
+        },
+      );
+    });
   });
 });

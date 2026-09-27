@@ -167,13 +167,42 @@ describe('buildAstNamespace — analyze', () => {
     },
   );
 
-  it.each(['sample.java', 'sample.xyz', 'sample.mjs'])(
+  // Batch 22c: the coverage in the message is the compact block, so it names
+  // `supportedLanguages` only when the file's language is unsupported; an
+  // unrecognised file still gets the supported list in the message itself.
+  it.each([
+    ['sample.java', 'unsupported'],
+    ['sample.xyz', 'unrecognised'],
+    ['sample.mjs', 'unsupported'],
+  ])(
     '24a rejects %s with shared coverage ahead of the path',
-    async (file) => {
+    async (file, bucket) => {
       const { deps } = makeDeps();
-      await expect(buildAstNamespace(deps).analyze(file)).rejects.toThrow(
-        /coverage.*supportedLanguages/,
+      const failure = await buildAstNamespace(deps)
+        .analyze(file)
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect(failure).toBeInstanceOf(Error);
+      const message = failure instanceof Error ? failure.message : '';
+      const coverage: unknown = JSON.parse(
+        message.slice(0, message.indexOf('} ') + 1),
       );
+      expect(coverage).toEqual({
+        coverage: {
+          clean: false,
+          reasons: [bucket],
+          ...(bucket === 'unsupported'
+            ? { supportedLanguages: expect.any(Array) }
+            : {}),
+          [bucket]: 1,
+          ...(bucket === 'unsupported'
+            ? { unsupportedByLanguage: expect.any(Object) }
+            : {}),
+        },
+      });
+      expect(message).toMatch(/Supported: /);
     },
   );
 

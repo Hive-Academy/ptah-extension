@@ -550,6 +550,7 @@ export class PtahAPIBuilder {
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
       workspaceProvider: sessionAwareWorkspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const astDeps = {

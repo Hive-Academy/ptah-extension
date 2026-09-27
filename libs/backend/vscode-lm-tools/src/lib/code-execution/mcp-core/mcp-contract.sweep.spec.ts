@@ -64,7 +64,16 @@ import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 import { AgentToolDispatcher } from '../mcp-stdio/agent-tool.dispatcher';
 import { StdioMcpServerService } from '../mcp-stdio/stdio-mcp-server.service';
 import { MCP_MVP_TOOL_NAMES } from '../mcp-stdio/tool-builders';
-import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
+import {
+  countTokensPiecewise,
+  reduceJson,
+} from '@ptah-extension/tool-output-reducers';
+import {
+  compactCoverage,
+  withCoverageVerdict,
+  type CoverageFields,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -118,6 +127,52 @@ function bigDiagnosticsPayload(marker: string) {
     source: 'typescript',
     diagnostics,
     requestedFiles: ['/fixture/src/file_0.ts'],
+  };
+}
+
+/**
+ * A clean coverage, verdict first (Batch 24r), as the graph and AST
+ * namespaces return it. The dispatcher writes every coverage block through
+ * `compactCoverage` (Batch 22c), which requires the full field set.
+ */
+const CLEAN_FIELDS: CoverageFields = {
+  supportedLanguages: ['typescript', 'javascript'],
+  census: 'complete',
+  analyzed: 1,
+  unchecked: 0,
+  failed: 0,
+  unsupported: 0,
+  unrecognised: 0,
+  nonSource: 0,
+  excluded: 0,
+  omittedByCap: 0,
+};
+const CLEAN_COVERAGE: LanguageCoverage = withCoverageVerdict(CLEAN_FIELDS);
+
+/** The Batch 23b graph members a get_dependents/get_dependencies stub needs. */
+function graphFileStubs(coverage: LanguageCoverage = CLEAN_COVERAGE) {
+  return {
+    unsupportedGraphLanguage: () => undefined,
+    getGraphCoverageForFile: async (file: string) => ({
+      coverage,
+      nodePath: file,
+    }),
+  };
+}
+
+/**
+ * An LSP answer that says how it was produced (Batch 26a
+ * `LspLocationReport`): a host lookup whose language support is unreported.
+ */
+function lspReport(
+  locations: Array<{ file: string; line: number; column: number }>,
+) {
+  return {
+    locations,
+    mechanism: 'provider-defined' as const,
+    language: 'typescript',
+    languageSupported: null,
+    approximations: [],
   };
 }
 
@@ -205,21 +260,24 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
   ptah_lsp_references: {
     args: { file: '/fixture/a.ts', line: 0, col: 0 },
     mock: (api, marker) => {
-      // Object shape, not strings: `formatLspReferences` reads
-      // `ref['file']`/`ref['line']`/`ref['col']` (mcp-response-formatter.ts:929-935).
-      // A string-valued fixture (the r1-flagged bug) renders every location as
-      // an empty label and is a false green.
+      // Object shape, not strings: `formatLspLocationItem` reads
+      // `file`/`line`/`column` (mcp-response-formatter.ts). A string-valued
+      // fixture (the r1-flagged bug) renders every location as an empty
+      // label and is a false green. The dispatcher calls the Batch 26a
+      // report API, not the bare `getReferences` array.
       api.ide = {
         lsp: {
-          getReferences: async () =>
-            Array.from({ length: 2000 }, (_, i) => ({
-              file:
-                i === 0
-                  ? `/fixture/${marker}.ts`
-                  : `/fixture/ref/${filler(100, 'r')}${i}.ts`,
-              line: i + 1,
-              col: 1,
-            })),
+          getReferencesReport: async () =>
+            lspReport(
+              Array.from({ length: 2000 }, (_, i) => ({
+                file:
+                  i === 0
+                    ? `/fixture/${marker}.ts`
+                    : `/fixture/ref/${filler(100, 'r')}${i}.ts`,
+                line: i + 1,
+                column: 1,
+              })),
+            ),
         },
       };
     },
@@ -227,17 +285,20 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
   ptah_lsp_definitions: {
     args: { file: '/fixture/a.ts', line: 0, col: 0 },
     mock: (api, marker) => {
+      // The Batch 26a report API, as for ptah_lsp_references.
       api.ide = {
         lsp: {
-          getDefinition: async () =>
-            Array.from({ length: 2000 }, (_, i) => ({
-              file:
-                i === 0
-                  ? `/fixture/${marker}.ts`
-                  : `/fixture/def/${filler(100, 'd')}${i}.ts`,
-              line: i + 1,
-              col: 1,
-            })),
+          getDefinitionReport: async () =>
+            lspReport(
+              Array.from({ length: 2000 }, (_, i) => ({
+                file:
+                  i === 0
+                    ? `/fixture/${marker}.ts`
+                    : `/fixture/def/${filler(100, 'd')}${i}.ts`,
+                line: i + 1,
+                column: 1,
+              })),
+            ),
         },
       };
     },
@@ -656,6 +717,8 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     mock: (api, marker) => {
       api.ast = {
         analyze: async () => ({
+          parseStatus: 'ok',
+          coverage: CLEAN_COVERAGE,
           functions: Array.from({ length: 800 }, (_, i) => ({
             name: i === 0 ? marker : `fn_${i}`,
             startLine: i,
@@ -681,7 +744,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
           `/fixture/${marker}.ts`,
           ...bigStringArray(2000, '/fixture/dependent'),
         ],
-        getGraphCoverageForFile: async () => undefined,
+        ...graphFileStubs(),
       };
     },
   },
@@ -694,7 +757,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
           `/fixture/${marker}.ts`,
           ...bigStringArray(2000, '/fixture/dependency'),
         ],
-        getGraphCoverageForFile: async () => undefined,
+        ...graphFileStubs(),
       };
     },
   },
@@ -743,7 +806,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
           total: 2000,
           offset: 0,
         }),
-        getGraphCoverage: async () => undefined,
+        getGraphCoverage: async () => ({ coverage: CLEAN_COVERAGE }),
       };
     },
   },
@@ -2030,7 +2093,10 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_report: 799,
       ptah_harness_install_mcp_server: 780,
       ptah_get_dependents: 722,
-      ptah_code_search_symbols: 702,
+      // Re-pinned at the Lane H merge (ruling R2): Batch 24b rewrote the
+      // description (measured 972 chars; was 702). Measured + 5%; Batch 24c
+      // owns its final size.
+      ptah_code_search_symbols: 1021,
       ptah_get_dependencies: 689,
       ptah_dashboard_propose_spec: 671,
       ptah_lsp_definitions: 639,
@@ -2038,7 +2104,10 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_message: 591,
       execute_code: 567,
       ptah_agent_read: 553,
-      ptah_code_reindex: 536,
+      // Re-pinned at the Lane H merge (ruling R2): Batch 24b rewrote the
+      // description (measured 949 chars; was 536). Measured + 5%; Batch 24c
+      // owns its final size.
+      ptah_code_reindex: 997,
       ptah_get_diagnostics: 535,
       ptah_lsp_references: 529,
       ptah_web_search: 506,
@@ -2177,7 +2246,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
             offset: q.offset,
           };
         },
-        getGraphCoverage: async () => undefined,
+        getGraphCoverage: async () => ({ coverage: CLEAN_COVERAGE }),
       },
     };
     const call = async (offset: number): Promise<string> => {
@@ -2417,12 +2486,86 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
   );
 
   // Coverage-preserving reduction for tools that answer with a coverage/
-  // status block (Decisions 18, 21, 22): the block must survive the budget
-  // intact and first. `preserveKeys` support for the JSON reducer lands in
-  // Batch 24r (Lane H), not yet merged here — see batches.md Batch 22c.
-  it.todo(
-    'pending Batch 24r: ptah_get_dependents coverage/status block survives the budget intact and first',
-  );
+  // status block (Decisions 18, 21, 22; Batch 24r `preserveKeys`, merged with
+  // Lane H): the block survives the budget intact and first. The coverage is
+  // qualified with `null` (unknown) counts — exactly what the JSON reducer
+  // drops from any field it does not preserve. With `coverage` preserved the
+  // reducer finds nothing to drop in this answer, so only the cut runs
+  // (`none`) and the status block, coverage included, leads the text
+  // verbatim. Fails before 24r: the reducer had no `preserveKeys`, dropped
+  // the coverage nulls and reported `json-compact` (the control below).
+  it('ptah_get_dependents over budget: the status block, compact coverage included (nulls too), survives verbatim and first', async () => {
+    const marker = 'MARK-dependents-coverage-first';
+    const coverage = withCoverageVerdict({
+      ...CLEAN_FIELDS,
+      analyzed: 2001,
+      unsupported: 3,
+      unrecognised: null,
+      excluded: null,
+      unsupportedByLanguage: { python: 3 },
+      resolution: {
+        external: 0,
+        unresolvedInternal: null,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'partial',
+      },
+    });
+    const compact = compactCoverage(coverage);
+    expect(compact).toMatchObject({
+      clean: false,
+      unrecognised: null,
+      excluded: null,
+      resolution: { unresolvedInternal: null, context: 'partial' },
+    });
+    const api: any = {};
+    TOOL_DRIVERS['ptah_get_dependents'].mock(api, marker);
+    Object.assign(api.dependencies, graphFileStubs(coverage));
+    const spoolBefore = snapshotSpoolFiles();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'dependents-coverage-first',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_dependents',
+          arguments: { file: '/fixture/a.ts' },
+        },
+      }),
+      buildDeps(api),
+    );
+    expect(isErrorResult(res)).toBe(false);
+    const raw = capturedRaw(budgetSpy, 0, 'ptah_get_dependents');
+    // Production order: status fields, then coverage, then file and list.
+    expect(
+      raw?.startsWith(
+        `{"count":2001,"fileInGraph":true,"coverage":${JSON.stringify(compact)},"file":"/fixture/a.ts","dependents":["/fixture/${marker}.ts",`,
+      ),
+    ).toBe(true);
+    const text = textOf(res);
+    expect(BUDGET_TRAILER.exec(text)?.[1]).toBe('none');
+    expect(
+      text.startsWith(
+        `{"count":2001,"fileInGraph":true,"coverage":${JSON.stringify(compact)},"file":"/fixture/a.ts","dependents":["/fixture/${marker}.ts",`,
+      ),
+    ).toBe(true);
+    // Control: the same reducer WITHOUT `preserveKeys` drops the unknowns.
+    const unpreserved = reduceJson(raw ?? '', {
+      budgetTokens: PINNED_DEFAULT_BUDGET.tokens,
+      budgetChars: PINNED_DEFAULT_BUDGET.chars,
+    });
+    expect(unpreserved.reducer).toBe('json-compact');
+    expect(unpreserved.text).not.toContain('"unrecognised":null');
+    expect(
+      budgetContractFailures({
+        budgetName: 'ptah_get_dependents',
+        result: res.result,
+        raw,
+        advertisedMaxChars: await advertisedMaxChars('ptah_get_dependents'),
+        marker,
+        spoolBefore,
+      }),
+    ).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

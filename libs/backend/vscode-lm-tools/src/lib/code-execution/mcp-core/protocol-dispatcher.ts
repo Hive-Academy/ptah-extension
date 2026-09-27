@@ -13,15 +13,15 @@ import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type {
-  IOutputChannel,
-  IWorkspaceProvider,
+import {
+  compactCoverage,
+  type CompactCoverage,
+  type IOutputChannel,
+  type IWorkspaceProvider,
+  type LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
-import {
-  formatAstAnalysisResult,
-  type GraphCoverage,
-} from '@ptah-extension/workspace-intelligence';
+import { formatAstAnalysisResult } from '@ptah-extension/workspace-intelligence';
 import {
   countTokensPiecewise,
   fitsBudget,
@@ -49,6 +49,8 @@ import type {
   ExecuteCodeParams,
   ApprovalPromptParams,
   BrowserContentResult,
+  GraphFileCoverage,
+  GraphQueryCoverage,
   SymbolIndexPage,
 } from '../types';
 import { parseSymbolIndexQuery } from '../namespace-builders/symbol-index-query';
@@ -978,7 +980,9 @@ async function handleIndividualTool(
           line: number;
           col: number;
         };
-        const refs = await ptahAPI.ide.lsp.getReferences(file, line, col);
+        // The report names its mechanism, so a host without a lookup answers
+        // "not available on this host" instead of "Found: 0".
+        const refs = await ptahAPI.ide.lsp.getReferencesReport(file, line, col);
         return await createToolSuccessResponse(
           request,
           formatLspReferences(refs),
@@ -992,9 +996,9 @@ async function handleIndividualTool(
           line: number;
           col: number;
         };
-        // `getDefinition` starts the index freshness check itself (wired in
-        // the API builder), so `execute_code` callers get it too.
-        const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
+        // `getDefinitionReport` starts the index freshness check itself (wired
+        // in the API builder), as `getDefinition` does for `execute_code`.
+        const defs = await ptahAPI.ide.lsp.getDefinitionReport(file, line, col);
         return await createToolSuccessResponse(
           request,
           formatLspDefinitions(defs),
@@ -2005,7 +2009,7 @@ async function handleIndividualTool(
         // Records as tables: the lossless form that meets the promised token saving.
         return await createToolSuccessResponse(
           request,
-          formatAstAnalysisResult(result),
+          formatAstAnalysisResult(withCompactCoverage(result)),
           deps,
         );
       }
@@ -2028,6 +2032,18 @@ async function handleIndividualTool(
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
         }
+        // A file the graph can never hold is answered as such, not as an
+        // empty list, and needs no graph build.
+        const unsupported = ptahAPI.dependencies.unsupportedGraphLanguage(
+          file.trim(),
+        );
+        if (unsupported !== undefined) {
+          return await createToolSuccessResponse(
+            request,
+            JSON.stringify({ ...unsupported, file: file.trim() }),
+            deps,
+          );
+        }
         const readiness = await ensureDependencyGraph(ptahAPI, deps);
         if (readiness.state !== 'ready') {
           return await graphNotReadyResponse(request, readiness, deps);
@@ -2038,21 +2054,17 @@ async function handleIndividualTool(
         );
         // Both read the graph service when invoked, in the same turn, so the
         // coverage is that of the graph which answered (not the session's).
-        const [dependents, coverage] = await Promise.all([
+        const [dependents, fileCoverage] = await Promise.all([
           ptahAPI.dependencies.getDependents(resolvedFile),
           ptahAPI.dependencies.getGraphCoverageForFile(resolvedFile),
         ]);
-        // The list goes last: a budget cut keeps the completeness fields.
         return await createToolSuccessResponse(
           request,
-          // Status fields before the unbounded path and list, so a budget
-          // cut keeps them.
-          JSON.stringify({
-            count: dependents.length,
-            ...graphCompleteness(coverage),
-            file: resolvedFile,
-            dependents,
-          }),
+          JSON.stringify(
+            graphFileAnswer(resolvedFile, fileCoverage, {
+              dependents,
+            }),
+          ),
           deps,
         );
       }
@@ -2061,6 +2073,17 @@ async function handleIndividualTool(
         const { file, depth } = args as { file: string; depth?: number };
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
+        }
+        // As in ptah_get_dependents.
+        const unsupported = ptahAPI.dependencies.unsupportedGraphLanguage(
+          file.trim(),
+        );
+        if (unsupported !== undefined) {
+          return await createToolSuccessResponse(
+            request,
+            JSON.stringify({ ...unsupported, file: file.trim() }),
+            deps,
+          );
         }
         const readiness = await ensureDependencyGraph(ptahAPI, deps);
         if (readiness.state !== 'ready') {
@@ -2071,21 +2094,17 @@ async function handleIndividualTool(
           file.trim(),
         );
         // Same graph for answer and coverage, as in ptah_get_dependents.
-        const [dependencies, coverage] = await Promise.all([
+        const [dependencies, fileCoverage] = await Promise.all([
           ptahAPI.dependencies.getDependencies(resolvedFile, depth),
           ptahAPI.dependencies.getGraphCoverageForFile(resolvedFile),
         ]);
-        // The list goes last: a budget cut keeps the completeness fields.
         return await createToolSuccessResponse(
           request,
-          // Status fields before the unbounded path and list, so a budget
-          // cut keeps them.
-          JSON.stringify({
-            count: dependencies.length,
-            ...graphCompleteness(coverage),
-            file: resolvedFile,
-            dependencies,
-          }),
+          JSON.stringify(
+            graphFileAnswer(resolvedFile, fileCoverage, {
+              dependencies,
+            }),
+          ),
           deps,
         );
       }
@@ -2120,7 +2139,9 @@ async function handleIndividualTool(
         });
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          JSON.stringify(
+            'coverage' in result ? withCompactCoverage(result) : result,
+          ),
           deps,
         );
       }
@@ -2152,7 +2173,9 @@ async function handleIndividualTool(
         }
         return await createToolSuccessResponse(
           request,
-          JSON.stringify(result),
+          JSON.stringify(
+            'coverage' in result ? withCompactCoverage(result) : result,
+          ),
           deps,
         );
       }
@@ -2229,15 +2252,19 @@ async function handleIndividualTool(
           undefined,
           parsed.query,
         );
+        // The index has no root (the merged index), so neither has its
+        // coverage: every graph's, merged.
+        const graphCoverage =
+          await ptahAPI.dependencies.getGraphCoverage(undefined);
         return await createToolSuccessResponse(
           request,
           await renderSymbolIndexPage(
             page,
             getToolResultBudget(name),
-            // The index has no root (the merged index), so neither has its coverage.
-            graphCompleteness(
-              await ptahAPI.dependencies.getGraphCoverage(undefined),
-            ),
+            {
+              ...graphCompleteness(graphCoverage),
+              coverage: compactCoverage(graphCoverage.coverage),
+            },
             async (text) =>
               spoolToolText(text, await resolveSpoolRoot(deps), request.id),
           ),
@@ -2419,12 +2446,6 @@ function repeatAgentStatusLine(
     : `Status unchanged since ${unchanged.since} (${unchanged.status}). ` +
         'Wait for <agent-lane-completed> instead of polling.';
 }
-
-/**
- * Most source files the workspace import graph is built from. Discovery lists
- * every matching file, so the graph can report how many the cap dropped.
- */
-const DEPENDENCY_GRAPH_FILE_CAP = 5000;
 
 /**
  * Longest a dependency tool waits on a graph build before it answers
@@ -2749,32 +2770,34 @@ async function buildDependencyGraph(
   root: string,
   job: GraphBuildJob,
 ): Promise<number | undefined> {
-  const discovered = await ptahAPI.search.findFiles(
-    '**/*.{ts,tsx,js,jsx}',
-    Number.MAX_SAFE_INTEGER,
-  );
-  job.filesDiscovered = discovered.length;
+  // Bounded, vendor trees excluded inside the walk; every recognised source
+  // file, so the graph's coverage counts what it cannot analyse.
+  const discovery = await ptahAPI.dependencies.discoverSourceFiles(root);
+  const discovered = discovery.files.length;
+  job.filesDiscovered = discovered;
   const isCurrent = (): boolean =>
     ptahAPI.dependencies.getGraphBuildState(root).generation === job.generation;
   // Evicted or rebuilt while discovering: this list must not become the graph.
   if (!isCurrent()) return undefined;
-  // findFiles yields workspace-relative paths; the graph must be keyed by
-  // ABSOLUTE paths so its nodes match absolute-path queries (and so the graph
-  // reads real files rather than resolving relative paths against process.cwd).
-  const absoluteFiles = discovered
-    .slice(0, DEPENDENCY_GRAPH_FILE_CAP)
-    .map((f) => toAbsoluteWorkspacePath(root, f));
+  // Every discovered file goes to the build: its own parse cap chooses the
+  // graph-capable files fairly across languages and counts the rest.
   const result = await ptahAPI.dependencies.buildGraph(
-    absoluteFiles,
+    discovery.files,
     root,
-    discovered.length,
-    { yieldToForeground: true, generation: job.generation },
+    discovered,
+    {
+      yieldToForeground: true,
+      generation: job.generation,
+      ...(discovery.truncated ? { censusLimit: discovery.limit } : {}),
+      // Part of the tree was unreadable: an unknown census, never clean.
+      ...(discovery.unreadable === undefined ? {} : { censusUnknown: true }),
+    },
   );
   if (result.error !== undefined) {
     // Fixed text: the namespace's message can carry a path.
     throw new Error('The dependency graph build reported an error.');
   }
-  return isCurrent() ? discovered.length : undefined;
+  return isCurrent() ? discovered : undefined;
 }
 
 /** Wait for `settled`, but never longer than `ms`. */
@@ -2839,23 +2862,55 @@ async function graphNotReadyResponse(
  * answer may then be a file the graph never saw. Nothing when complete.
  */
 function graphCompleteness(
-  coverage: GraphCoverage | undefined,
+  coverage: GraphQueryCoverage,
 ):
   | { incomplete: true; graphedFiles: number; discoveredFiles: number }
   | Record<string, never> {
-  if (!coverage || coverage.discoveredFiles <= coverage.graphedFiles) {
+  const { graphedFiles, discoveredFiles } = coverage;
+  if (
+    graphedFiles === undefined ||
+    discoveredFiles === undefined ||
+    discoveredFiles <= graphedFiles
+  ) {
     return {};
   }
+  return { incomplete: true, graphedFiles, discoveredFiles };
+}
+
+/**
+ * The answer of `ptah_get_dependents` / `ptah_get_dependencies`. Field order
+ * is the budget order (Decision 15, Batch 22): `count`, the Batch 9 cap
+ * fields, `fileInGraph`, the graph's `coverage` (verdict first), and only
+ * then the unbounded `file` and list, so a cut keeps every status field.
+ * `fileInGraph: false` says the answering graph holds no node for the file,
+ * so an empty list is not "nothing imports it". `file` is the graph's own
+ * spelling of the file when it holds it.
+ */
+function graphFileAnswer(
+  resolvedFile: string,
+  fileCoverage: GraphFileCoverage,
+  list: { dependents: string[] } | { dependencies: string[] },
+): object {
+  const items = 'dependents' in list ? list.dependents : list.dependencies;
   return {
-    incomplete: true,
-    graphedFiles: coverage.graphedFiles,
-    discoveredFiles: coverage.discoveredFiles,
+    count: items.length,
+    ...graphCompleteness(fileCoverage),
+    fileInGraph: fileCoverage.nodePath !== undefined,
+    coverage: compactCoverage(fileCoverage.coverage),
+    file: fileCoverage.nodePath ?? resolvedFile,
+    ...list,
   };
 }
 
-/** Join a workspace-relative path to its root; pass absolute paths through. */
-function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
-  return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+/**
+ * A tool result with its `coverage` block in the compact wire form (Batch
+ * 22c, {@link compactCoverage}). The key keeps its place, so the budget
+ * order is unchanged.
+ */
+function withCompactCoverage<T extends { coverage: LanguageCoverage }>(
+  result: T,
+): Omit<T, 'coverage'> & { coverage: CompactCoverage } {
+  return { ...result, coverage: compactCoverage(result.coverage) };
 }
 
 /**
@@ -2889,8 +2944,8 @@ interface OversizedSymbolIndexEntry {
  *   `error` saying the entry was skipped, the saved file when it still fits,
  *   and `nextOffset` past the entry.
  *
- * `completeness` (the graph-cap fields) goes between the paging fields and
- * `files`. No page reaches the budget's cut.
+ * `completeness` (the graph-cap fields and the graph's `coverage`) goes
+ * between the paging fields and `files`. No page reaches the budget's cut.
  */
 async function renderSymbolIndexPage(
   page: SymbolIndexPage,

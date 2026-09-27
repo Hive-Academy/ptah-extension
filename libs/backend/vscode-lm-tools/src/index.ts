@@ -25,6 +25,8 @@ export type {
   BrowserRecordStartResult,
   BrowserRecordStopResult,
   Location,
+  LspLocationReport,
+  LspMechanism,
   HoverInfo,
   SignatureHelp,
   ActiveEditorInfo,

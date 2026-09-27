@@ -12,7 +12,12 @@
  * - only object fields whose value is `null`, `""`, `[]` or `{}` are dropped;
  *   array elements keep their positions, and `0`/`false` are never dropped;
  * - a table has one row per array element and one column per key, so two
- *   rows or two keys never share a cell.
+ *   rows or two keys never share a cell;
+ * - a field named in `ctx.preserveKeys`, at any depth, is kept verbatim (its
+ *   empty and `null` values included, never lifted into a table) and comes
+ *   first among its siblings, in `preserveKeys` order, so it sits before the
+ *   unbounded fields a later cut reaches first. In a table the preserved
+ *   columns come first and their cells are the verbatim JSON.
  */
 import type { OutputReducer, ReduceResult } from '../reducer.types';
 
@@ -38,7 +43,7 @@ const LINE_SEPARATORS = new RegExp(
   'g',
 );
 
-export const reduceJson: OutputReducer = (input) => {
+export const reduceJson: OutputReducer = (input, ctx) => {
   const source = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
   let parsed: JsonValue;
   try {
@@ -49,7 +54,7 @@ export const reduceJson: OutputReducer = (input) => {
     return { text: input, reducer: 'json-invalid' };
   }
   try {
-    return compact(input, source, parsed);
+    return compact(input, source, parsed, ctx.preserveKeys ?? []);
   } catch (error) {
     // Only a pathologically deep document (JSON.parse is iterative, the
     // recursive walk below is not) exhausts the stack; keep the input.
@@ -64,6 +69,7 @@ function compact(
   input: string,
   source: string,
   parsed: JsonValue,
+  preserveKeys: readonly string[],
 ): ReduceResult {
   if (!isContainer(parsed)) {
     return unchanged(input, 'scalar document');
@@ -72,14 +78,19 @@ function compact(
   if (loss !== undefined) {
     return unchanged(input, loss);
   }
+  const preserve: Preserve = {
+    keys: preserveKeys,
+    set: new Set(preserveKeys),
+    kept: 0,
+  };
   const counter = { dropped: 0 };
-  const pruned = prune(parsed, counter);
+  const pruned = prune(parsed, counter, preserve);
   if (isEmpty(pruned)) {
     return unchanged(input, 'nothing left after dropping empty fields');
   }
 
   const tables: Table[] = [];
-  const remainder = extractTables(pruned, '$', tables);
+  const remainder = extractTables(pruned, '$', tables, preserve.set);
   const sections: string[] = [];
   if (remainder !== undefined) {
     sections.push(JSON.stringify(remainder));
@@ -93,6 +104,9 @@ function compact(
   }
 
   const notes: string[] = [];
+  if (preserve.kept > 0) {
+    notes.push(`kept ${preserve.kept} field(s) verbatim and first`);
+  }
   if (counter.dropped > 0) {
     notes.push(`dropped ${counter.dropped} empty field(s)`);
   }
@@ -129,20 +143,42 @@ function newObject(): JsonObject {
   return Object.create(null) as JsonObject;
 }
 
+/** The keys kept verbatim, and how many fields they matched. */
+interface Preserve {
+  readonly keys: readonly string[];
+  readonly set: ReadonlySet<string>;
+  kept: number;
+}
+
 /**
  * Drop empty object fields, recursively. Array elements are pruned inside but
- * never removed: removing one would shift every later index.
+ * never removed: removing one would shift every later index. A preserved
+ * field is copied verbatim and placed first among its siblings.
  */
-function prune(value: JsonValue, counter: { dropped: number }): JsonValue {
+function prune(
+  value: JsonValue,
+  counter: { dropped: number },
+  preserve: Preserve,
+): JsonValue {
   if (Array.isArray(value)) {
-    return value.map((element) => prune(element, counter));
+    return value.map((element) => prune(element, counter, preserve));
   }
   if (!isObject(value)) {
     return value;
   }
   const out = newObject();
+  for (const key of preserve.keys) {
+    if (
+      Object.prototype.hasOwnProperty.call(value, key) &&
+      !Object.prototype.hasOwnProperty.call(out, key)
+    ) {
+      out[key] = value[key];
+      preserve.kept++;
+    }
+  }
   for (const [key, child] of Object.entries(value)) {
-    const kept = prune(child, counter);
+    if (preserve.set.has(key)) continue;
+    const kept = prune(child, counter, preserve);
     if (isEmpty(kept)) {
       counter.dropped++;
     } else {
@@ -156,12 +192,14 @@ function prune(value: JsonValue, counter: { dropped: number }): JsonValue {
  * Move every table-shaped array reachable from the root through object
  * fields into `tables` (document order) and return what is left, or
  * `undefined` when nothing is. Arrays nested in arrays stay inline: lifting
- * them out would lose their position.
+ * them out would lose their position. A preserved field stays where it is,
+ * whole.
  */
 function extractTables(
   value: JsonValue,
   path: string,
   tables: Table[],
+  preserved: ReadonlySet<string>,
 ): JsonValue | undefined {
   const table = asTable(value, path);
   if (table) {
@@ -174,7 +212,9 @@ function extractTables(
   const out = newObject();
   let kept = 0;
   for (const [key, child] of Object.entries(value)) {
-    const rest = extractTables(child, childPath(path, key), tables);
+    const rest = preserved.has(key)
+      ? child
+      : extractTables(child, childPath(path, key), tables, preserved);
     if (rest !== undefined) {
       out[key] = rest;
       kept++;

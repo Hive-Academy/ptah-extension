@@ -121,6 +121,7 @@ export {
   extensionHasCapability,
   hasCapability,
   languageForExtension,
+  recognisedSourceExtensions,
   supportedLanguagesFor,
   type CoverageFileClass,
   type GraphEdgesCapability,
@@ -143,3 +144,8 @@ export {
   CODE_SYMBOL_INDEXER,
 } from './di';
 export { TypeScriptDiagnosticsProvider } from './diagnostics/type-script-diagnostics-provider';
+// Batch 25b's end-to-end spec drives the real provider over a fake inner one.
+export {
+  LanguageAwareDiagnosticsProvider,
+  type SyntaxParser,
+} from './diagnostics/language-aware-diagnostics-provider';

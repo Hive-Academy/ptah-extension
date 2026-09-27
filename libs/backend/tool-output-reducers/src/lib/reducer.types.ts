@@ -12,13 +12,7 @@
  * diagnostics list); no content reducer runs on it, only the final cut.
  */
 export type ContentKind =
-  | 'html'
-  | 'json'
-  | 'log'
-  | 'code'
-  | 'markdown'
-  | 'text'
-  | 'preformatted';
+  'html' | 'json' | 'log' | 'code' | 'markdown' | 'text' | 'preformatted';
 
 export interface ReduceContext {
   /** Token budget the reduced text should fit in (gpt-tokenizer count). */
@@ -32,6 +26,13 @@ export interface ReduceContext {
   readonly languageHint?: string;
   /** Symbol the caller cares about most; reducers that can keep it in full should. */
   readonly focusSymbol?: string;
+  /**
+   * Top-level object keys whose values a structured reducer keeps verbatim
+   * (no empty-field dropping, no table rendering) and places first, in this
+   * order. Status blocks a caller must never lose to reduction go here.
+   * Reducers for unstructured content ignore it.
+   */
+  readonly preserveKeys?: readonly string[];
 }
 
 export interface ReduceResult {

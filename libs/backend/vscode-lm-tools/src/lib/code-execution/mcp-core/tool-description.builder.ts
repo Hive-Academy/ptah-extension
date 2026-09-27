@@ -1772,6 +1772,15 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
 }
 
 /**
+ * How to read a `coverage` block (Batch 24b r2): the reason codes are short
+ * so the worst-case coverage stays within 1,000 chars, and this legend is the
+ * agent-facing key to them. Batch 22c: it also states the compact form's
+ * reading rule (omitted = 0, null = unknown).
+ */
+const COVERAGE_LEGEND =
+  '`coverage` comes first: `clean` plus up to 3 `reasons`. A clean block holds only `analyzed`; otherwise an omitted count is 0 and null is unknown. A reason ending in `?` is unknown (null, never 0); `truncated` = census cut short, `stale` = last index run incomplete, `updating` = a write in progress. A count of 999999 means that many or more.';
+
+/**
  * Build the ptah_code_search_symbols tool definition
  * Hybrid BM25 + vector search over the indexed workspace symbol table
  */
@@ -1779,7 +1788,9 @@ export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_search_symbols',
     description:
-      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score, plus `index` { symbolCount, indexAgeMs, reindexStarted, reindexInFlight }: an empty or day-old index starts a background reindex, so 0 hits with a stale `index` means "not indexed yet", not "not found". NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
+      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score, plus `index` { symbolCount, indexAgeMs, reindexStarted, reindexInFlight }: an empty or day-old index starts a background reindex, so 0 hits with a stale `index` means "not indexed yet", not "not found". ' +
+      COVERAGE_LEGEND +
+      ' NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1812,7 +1823,9 @@ export function buildCodeReindexTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_reindex',
     description:
-      'Refresh the code symbol index that ptah_code_search_symbols reads. Use it when a search returns no useful hits and its `index` shows an empty or old index. Without filePath it starts a full workspace reindex in the background and returns at once with { started, symbolCount, indexAgeMs, reindexInFlight } — search again once it finishes. With filePath it reindexes that one file and returns its stats. Returns an error result on runtimes without the symbol index (e.g. VS Code).',
+      'Refresh the code symbol index that ptah_code_search_symbols reads. Use it when a search returns no useful hits and its `index` shows an empty or old index. Without filePath it starts a full workspace reindex in the background and returns at once with { started, symbolCount, indexAgeMs, reindexInFlight } — search again once it finishes. With filePath it reindexes that one file and returns its own `coverage` (a recovered or unknown parse is not clean) and stats, or status "unsupported-language" for a language the index lacks. ' +
+      COVERAGE_LEGEND +
+      ' Returns an error result on runtimes without the symbol index (e.g. VS Code).',
     inputSchema: {
       type: 'object',
       properties: {

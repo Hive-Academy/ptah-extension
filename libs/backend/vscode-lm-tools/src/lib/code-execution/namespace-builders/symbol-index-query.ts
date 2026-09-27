@@ -121,12 +121,15 @@ function resolveSymbolIndexPrefix(
  * them at `offset`. A relative prefix resolves against `workspaceRoot`; with
  * no root it matches nothing. A Windows prefix (drive letter or UNC) matches
  * case-insensitively, as the file system it names does; a POSIX prefix
- * matches exactly.
+ * matches exactly. `graphSpellingsOf` gives the other spellings the resolved
+ * prefix has in the graph (its root's link alias or real target, the
+ * graph's path identity); an entry under any of them matches.
  */
 export function pageSymbolIndex(
   entries: readonly SymbolIndexEntry[],
   query: ParsedSymbolIndexQuery,
   workspaceRoot: string | undefined,
+  graphSpellingsOf: (absolutePrefix: string) => readonly string[] = () => [],
 ): SymbolIndexPage {
   const { limit, offset } = query;
   let matching: SymbolIndexEntry[] = [...entries];
@@ -135,11 +138,15 @@ export function pageSymbolIndex(
     if (prefix === undefined) {
       return { files: [], count: 0, total: 0, offset };
     }
-    const foldCase = WINDOWS_ABSOLUTE.test(prefix);
-    const wanted = foldCase ? prefix.toLowerCase() : prefix;
+    const wanted = [prefix, ...graphSpellingsOf(prefix)].map((spelling) => {
+      const foldCase = WINDOWS_ABSOLUTE.test(spelling);
+      return { foldCase, text: foldCase ? spelling.toLowerCase() : spelling };
+    });
     matching = matching.filter((entry) => {
       const file = entry.file.replace(/\\/g, '/');
-      return (foldCase ? file.toLowerCase() : file).startsWith(wanted);
+      return wanted.some(({ foldCase, text }) =>
+        (foldCase ? file.toLowerCase() : file).startsWith(text),
+      );
     });
   }
   matching.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));

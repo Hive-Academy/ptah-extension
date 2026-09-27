@@ -194,6 +194,8 @@ describe('buildGraphCoverage', () => {
       'D:/ws/README.md',
     ]);
     expect(coverage).toEqual({
+      clean: true,
+      reasons: [],
       supportedLanguages: ['typescript', 'javascript'],
       census: 'complete',
       analyzed: 2,

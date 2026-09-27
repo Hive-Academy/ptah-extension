@@ -71,14 +71,23 @@ export type {
   DiagnosticSeverity,
   DiagnosticEntry,
   FileDiagnostics,
+  DiagnosticsCoverageFields,
   DiagnosticsResult,
   DiagnosticsScope,
+  NotCheckedFiles,
 } from './interfaces/diagnostics-provider.interface';
+export { MAX_NOT_CHECKED_FILES_LISTED } from './interfaces/diagnostics-provider.interface';
 export type {
   Approximation,
   Count,
+  CompactCleanCoverage,
+  CompactCoverage,
+  CompactFailedByReason,
+  CompactQualifiedCoverage,
   CoverageCensus,
   CoverageChecks,
+  CoverageFields,
+  CoverageReason,
   CoverageResolution,
   CoverageState,
   FailureReason,
@@ -90,13 +99,19 @@ export type {
 export {
   APPROXIMATION_PRIORITY,
   COVERAGE_COUNT_MAX,
+  COVERAGE_REASONS,
   FAILURE_REASONS,
   LANGUAGE_IDS,
+  MAX_COMPACT_FAILURE_REASONS,
   MAX_REPORTED_APPROXIMATIONS,
+  MAX_REPORTED_REASONS,
   MAX_UNSUPPORTED_LANGUAGE_KEYS,
   RECOGNISED_LANGUAGE_IDS,
+  compactCoverage,
+  coverageReasons,
   isCleanAnswer,
   limitApproximations,
+  withCoverageVerdict,
 } from './interfaces/language-coverage.interface';
 export type {
   IMemoryWriter,
@@ -168,6 +183,15 @@ export type {
   ShrinkJsonStringLeavesOptions,
 } from './utils/json-budget';
 export { planGlobWatch } from './utils/glob-watch-plan';
+export { collectBounded } from './utils/bounded-collect';
+export {
+  IncompleteFileSearchError,
+  createFailureTally,
+  searchRootError,
+  walkGlobMatches,
+  type BoundedGlobWalkOptions,
+  type FileSearchFailures,
+} from './utils/bounded-glob-walk';
 export type {
   GlobWatchPlan,
   GlobWatchPlanOptions,

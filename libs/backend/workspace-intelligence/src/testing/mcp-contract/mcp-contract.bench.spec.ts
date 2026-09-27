@@ -71,7 +71,10 @@ jest.mock('web-tree-sitter', () => {
 });
 
 import * as fs from 'node:fs';
-import { countTokens } from '@ptah-extension/tool-output-reducers';
+import {
+  countTokens,
+  reduceOutput,
+} from '@ptah-extension/tool-output-reducers';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   IFileSystemProvider,
@@ -79,7 +82,11 @@ import type {
   IWorkspaceProvider,
   LanguageCoverage,
 } from '@ptah-extension/platform-core';
-import { FileType as PlatformFileType } from '@ptah-extension/platform-core';
+import {
+  FileType as PlatformFileType,
+  compactCoverage,
+  withCoverageVerdict,
+} from '@ptah-extension/platform-core';
 import * as WorkspaceIntelligence from '../../index';
 import {
   AstAnalysisService,
@@ -265,7 +272,7 @@ function buildAstNamespaceEnvelope(
   const language = languageForExtension(
     absolutePath.slice(absolutePath.lastIndexOf('.')),
   ) as SupportedLanguage;
-  const coverage: LanguageCoverage = {
+  const coverage: LanguageCoverage = withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor('parse'),
     census: 'complete',
     analyzed: eligible && parseStatus === 'ok' ? 1 : 0,
@@ -276,12 +283,14 @@ function buildAstNamespaceEnvelope(
     nonSource: classification === 'nonSource' ? 1 : 0,
     excluded: 0,
     omittedByCap: 0,
-  };
+  });
   return {
     parseStatus,
     errorNodeCount: insights.errorNodeCount ?? null,
     errorNodeCountCapped: insights.errorNodeCountCapped ?? false,
-    coverage,
+    // The dispatcher writes the compact block (`withCompactCoverage`,
+    // protocol-dispatcher.ts `ptah_ast_analyze` case, Batch 22c).
+    coverage: compactCoverage(coverage),
     file: absolutePath,
     language,
     functions: insights.functions,
@@ -405,15 +414,71 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
 
     // r2 R2-03: `formatAstAnalysisResult`'s output is lossless BELOW the MCP
     // result budget; above it, `tool-result-budget.ts` hands the JSON to
-    // `json.reducer.ts`, which can drop null/empty metadata fields
-    // (`errorNodeCount: null`, `coverage.excluded: null`) before the table
-    // rows. Preserving those keys through reduction is Batch 24r's
-    // `preserveKeys` work (Lane H), not yet merged. Choosing a named pending
-    // test over an `it.skip`/weakened assertion so this specific contract —
-    // required parse/coverage keys survive an above-budget cut — is written
-    // down now and enforced automatically once Batch 24r lands, instead of
-    // depending on someone remembering to add it later.
-    it.todo('pending Batch 24r: preserved coverage survives reduction');
+    // `json.reducer.ts`, which drops null/empty fields. Batch 24r (merged
+    // with Lane H) gives the reducer `preserveKeys`: the budget layer passes
+    // `PRESERVED_RESULT_KEYS` (tool-result-budget.ts, vscode-lm-tools — not
+    // importable from this lib, so its value is restated here), and those
+    // fields survive verbatim, nulls included, and first.
+    it('preserved coverage survives reduction: parseStatus and a qualified coverage (nulls included) stay verbatim and first', async () => {
+      const PRESERVED_RESULT_KEYS = [
+        'coverage',
+        'status',
+        'index',
+        'parseStatus',
+      ];
+      const insights = await analyzeDataProcessor();
+      const envelope = buildAstNamespaceEnvelope(
+        insights,
+        dataProcessorPath,
+      ) as Record<string, unknown>;
+      // A qualified coverage with unknown (`null`) counts: the fields a
+      // reducer without `preserveKeys` drops. `errorNodeCount: null` is not
+      // preserved, so its removal proves the reducer ran.
+      const coverage = compactCoverage(
+        withCoverageVerdict({
+          supportedLanguages: supportedLanguagesFor('parse'),
+          census: 'complete',
+          analyzed: 1,
+          unchecked: 0,
+          failed: 0,
+          unsupported: 0,
+          unrecognised: null,
+          nonSource: 0,
+          excluded: null,
+          omittedByCap: 0,
+        }),
+      );
+      expect(coverage).toMatchObject({ unrecognised: null, excluded: null });
+      const raw = formatAstAnalysisResult({
+        ...envelope,
+        errorNodeCount: null,
+        coverage,
+      });
+      const rawTokens = countTokens(raw);
+
+      const reduced = await reduceOutput(raw, {
+        budgetTokens: rawTokens - 1,
+        budgetChars: raw.length - 1,
+        hint: 'json',
+        preserveKeys: PRESERVED_RESULT_KEYS,
+      });
+
+      expect(reduced.reduced).toBe(true);
+      expect(reduced.reducer).toBe('json-compact');
+      const parsed = JSON.parse(reduced.text) as Record<string, unknown>;
+      expect(Object.keys(parsed).slice(0, 2)).toEqual([
+        'coverage',
+        'parseStatus',
+      ]);
+      expect(parsed['coverage']).toEqual(coverage);
+      expect(parsed['parseStatus']).toBe('ok');
+      expect(
+        reduced.text.startsWith(
+          `{"coverage":${JSON.stringify(coverage)},"parseStatus":"ok",`,
+        ),
+      ).toBe(true);
+      expect(parsed).not.toHaveProperty('errorNodeCount');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -614,19 +679,26 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
       const hubPath = hubEdges[0].toPath;
 
       // `ptah_get_dependents` answers ONE target per call
-      // (`protocol-dispatcher.ts:2027-2058`): `{count, ...graphCompleteness,
-      // file, dependents}`, UNALTERED (absolute) paths — exactly what
-      // `getDependents` returns (r3 R3-S1: no relativized surrogate).
+      // (`protocol-dispatcher.ts` `graphFileAnswer`): `{count,
+      // ...graphCompleteness, fileInGraph, coverage, file, dependents}`,
+      // UNALTERED (absolute) paths — exactly what `getDependents` returns
+      // (r3 R3-S1: no relativized surrogate). Since the Lane H merge the
+      // answer carries Batch 23b's `fileInGraph` and the graph's coverage in
+      // the Batch 22c compact form: the overhead User Decision 21 is about.
       const dependents = graph.getDependents(hubPath);
       for (const edge of hubEdges) {
         expect(dependents).toContain(edge.fromPath);
       }
 
-      const files = graph.getCoverageReport(fixture.root)?.files;
+      const report = graph.getCoverageReportForFile(hubPath);
+      expect(report).toBeDefined();
+      const nodePath = graph.resolveNodePath(hubPath);
       const answer = {
         count: dependents.length,
-        ...graphCompletenessFields(files),
-        file: hubPath,
+        ...graphCompletenessFields(report?.files),
+        fileInGraph: nodePath !== undefined,
+        coverage: compactCoverage(report!.languages),
+        file: nodePath ?? hubPath,
         dependents,
       };
       const answerTokens = countTokens(JSON.stringify(answer));
@@ -677,13 +749,16 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
       }
 
       // SIZE (r2 R2-02 / r3 R3-S1): the exact production envelope
-      // `renderSymbolIndexPage` builds (`protocol-dispatcher.ts:2903-2911`):
+      // `renderSymbolIndexPage` builds (`protocol-dispatcher.ts`):
       // `{count, total, offset, ...completeness, files: [{file, symbols}]}`,
+      // where `completeness` is the graph-cap fields plus the graph's
+      // coverage in the Batch 22c compact form (Lane H merge),
       // with `symbols` produced by the SAME production `exportSymbolNames`
       // helper the real `getSymbolIndex` MCP path uses, and UNALTERED
       // (absolute) paths — not a rewritten/relativized surrogate. One page,
       // no pagination needed for 6 files, so no `nextOffset`.
-      const files = graph.getCoverageReport(fixture.root)?.files;
+      const report = graph.getCoverageReport(fixture.root);
+      expect(report).toBeDefined();
       const pageEntries = graphFiles.map((file) => ({
         file,
         symbols: WorkspaceIntelligence.exportSymbolNames(
@@ -694,7 +769,8 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
         count: pageEntries.length,
         total: pageEntries.length,
         offset: 0,
-        ...graphCompletenessFields(files),
+        ...graphCompletenessFields(report?.files),
+        coverage: compactCoverage(report!.languages),
         files: pageEntries,
       });
       const answerTokens = countTokens(answerText);

@@ -47,6 +47,33 @@ import type {
   AgentProcessInfo,
   CliDetectionResult,
 } from '@ptah-extension/shared';
+import {
+  withCoverageVerdict,
+  type CoverageFields,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
+
+/** A type-checked answer that passes the clean-answer rule. */
+const CLEAN_TYPE_CHECK_FIELDS: CoverageFields = {
+  supportedLanguages: ['typescript', 'javascript', 'tsx', 'python'],
+  census: 'complete',
+  analyzed: null,
+  unchecked: 0,
+  failed: 0,
+  unsupported: 0,
+  unrecognised: 0,
+  nonSource: 0,
+  excluded: null,
+  omittedByCap: 0,
+  checks: 'type-check',
+};
+const CLEAN_TYPE_CHECK: LanguageCoverage = withCoverageVerdict(
+  CLEAN_TYPE_CHECK_FIELDS,
+);
+
+function coverageWith(fields: Partial<CoverageFields>): LanguageCoverage {
+  return withCoverageVerdict({ ...CLEAN_TYPE_CHECK_FIELDS, ...fields });
+}
 
 // ---------------------------------------------------------------------------
 // Workspace / search
@@ -500,9 +527,11 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
     expect(out).toMatch(/maybe bad/);
   });
 
-  it('formatDiagnostics renders the empty state for zero issues', () => {
+  it('formatDiagnostics renders the legacy empty array as zero issues, never as a clean answer (it carries no coverage)', () => {
     const out = formatDiagnostics([]);
-    expect(out).toMatch(/No issues found/);
+    expect(out).toContain('Errors: 0 | Warnings: 0');
+    expect(out).not.toMatch(/No issues found/);
+    expect(out).toContain('coverage not reported');
   });
 
   it('formatDiagnostics renders unavailable status with source and reason (TASK_2026_299)', () => {
@@ -518,14 +547,18 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
     expect(out).not.toMatch(/No issues found/);
   });
 
-  it('formatDiagnostics renders available-empty with source and "No issues found" (TASK_2026_299)', () => {
+  it('formatDiagnostics renders available-empty with source and "No issues found" under a clean type-check coverage (TASK_2026_299, 559 Batch 25b)', () => {
     const out = formatDiagnostics({
       status: 'available',
       source: 'typescript-compiler',
+      coverage: CLEAN_TYPE_CHECK,
       diagnostics: [],
     });
     expect(out).toMatch(/No issues found/);
     expect(out).toMatch(/typescript-compiler/);
+    expect(out).toMatch(
+      /\*\*Coverage:\*\* clean\s+`\{"clean":true,"analyzed":null\}`/,
+    );
   });
 
   it('formatDiagnostics renders available-populated with source header (TASK_2026_299)', () => {
@@ -572,6 +605,7 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
       return {
         status: 'available',
         source: 'typescript-compiler',
+        coverage: CLEAN_TYPE_CHECK,
         diagnostics,
         ...(requestedFiles ? { requestedFiles } : {}),
       };
@@ -756,6 +790,7 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
       return {
         status: 'available',
         source: 'typescript-compiler',
+        coverage: CLEAN_TYPE_CHECK,
         diagnostics,
         ...(requestedFiles ? { requestedFiles } : {}),
       };
@@ -1016,6 +1051,315 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
       expect(out).toContain(
         'Shown 0 of 0 (0 in requested files, 0 in sibling files omitted)',
       );
+    });
+  });
+
+  describe('coverage and the clean-answer rule (TASK_2026_559 Batch 25b)', () => {
+    const PASS_FILES =
+      'The syntax check runs only on requested files: pass `files` to check them.';
+
+    function empty(
+      coverage: unknown,
+      notChecked?: unknown,
+      requestedFiles?: string[],
+    ): string {
+      return formatDiagnostics({
+        status: 'available',
+        source: 'typescript-compiler',
+        coverage,
+        ...(notChecked !== undefined ? { notChecked } : {}),
+        diagnostics: [],
+        ...(requestedFiles ? { requestedFiles } : {}),
+      });
+    }
+
+    it('mixed repo never prints a bare No issues found', () => {
+      // An unscoped call on a TS + Python repository: the compiler found
+      // nothing, the two Python files were never looked at.
+      const out = empty(coverageWith({ unchecked: 2 }), [
+        { language: 'python', count: 2, reason: PASS_FILES },
+      ]);
+
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain('not a clean answer');
+      expect(out).toContain(
+        '**Coverage:** qualified — 2 files unchecked (pass `files` to check them).',
+      );
+      expect(out).toContain('"reasons":["unchecked"]');
+      expect(out).toContain('### Not checked');
+      expect(out).toContain(`- 2 python files — ${PASS_FILES}`);
+    });
+
+    it.each([
+      [
+        'syntax-only',
+        coverageWith({
+          analyzed: 1,
+          checks: 'syntax-only',
+          approximations: ['python:syntax-only'],
+        }),
+        'syntax-only check (python): syntax errors only, not type-checked',
+      ],
+      [
+        'mixed',
+        coverageWith({
+          checks: 'mixed',
+          approximations: ['go:syntax-only', 'python:syntax-only'],
+        }),
+        'mixed check: go, python syntax-only (syntax errors only, not type-checked), the rest type-checked',
+      ],
+      [
+        'unsupported',
+        coverageWith({ unsupported: 1, unsupportedByLanguage: { ruby: 1 } }),
+        '1 file unsupported (no diagnostics for ruby 1 on this host)',
+      ],
+      [
+        'census unknown',
+        coverageWith({
+          census: 'unknown',
+          unchecked: null,
+          failed: null,
+          unsupported: null,
+          unrecognised: null,
+          nonSource: null,
+          omittedByCap: null,
+        }),
+        'census unknown (files outside the check were not counted)',
+      ],
+      [
+        'omittedByCap',
+        coverageWith({ analyzed: 50, checks: 'syntax-only', omittedByCap: 1 }),
+        '1 file omittedByCap (past the per-call cap; request them in another call)',
+      ],
+      [
+        'failed',
+        coverageWith({
+          failed: 2,
+          failedByReason: { read: 1, 'too-large': 1 },
+        }),
+        '2 files failed (read 1, too-large 1)',
+      ],
+      [
+        'truncated census',
+        coverageWith({ census: 'truncated', censusLimit: 50_000 }),
+        'census truncated at 50000 files',
+      ],
+      [
+        'provider-defined',
+        withCoverageVerdict({
+          supportedLanguages: [],
+          census: 'unknown',
+          analyzed: null,
+          unchecked: null,
+          failed: null,
+          unsupported: null,
+          unrecognised: null,
+          nonSource: null,
+          excluded: null,
+          omittedByCap: null,
+          checks: 'provider-defined',
+        }),
+        'provider-defined: only what the installed language extensions report',
+      ],
+    ] as const)(
+      'names the %s qualifier instead of a bare No issues found',
+      (_name, coverage, qualifier) => {
+        const out = empty(coverage);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain(qualifier);
+      },
+    );
+
+    it('a clean syntax-only answer is still not a type-check claim', () => {
+      const coverage = coverageWith({
+        analyzed: 3,
+        checks: 'syntax-only',
+        approximations: ['python:syntax-only'],
+      });
+      expect(coverage.clean).toBe(true);
+      expect(empty(coverage)).not.toMatch(/No issues found/);
+    });
+
+    it('a payload with no coverage is never clean', () => {
+      const out = empty(undefined);
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain('coverage not reported');
+    });
+
+    // Review r1 M1: a value outside a closed vocabulary fails closed and is
+    // named, even when every count is clean.
+    it.each([
+      [
+        'census',
+        { census: 'unavailable' },
+        'census "unavailable" not recognised (treated as census unknown)',
+      ],
+      ['state', { state: 'frozen' }, 'state "frozen" not recognised'],
+      [
+        'checks',
+        { checks: 'lint' },
+        'check kind "lint" not recognised (not a type-check claim)',
+      ],
+    ])(
+      'an unrecognised %s value with zero counts is never a bare clean answer',
+      (_field, override, qualifier) => {
+        const coverage = { ...CLEAN_TYPE_CHECK, ...override };
+        const out = empty(coverage);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain(`**Coverage:** qualified — ${qualifier}`);
+      },
+    );
+
+    // Review r2 R2-M1: the compact block is built from the same normalized
+    // coverage as the prose, so it never says clean where the prose does not.
+    it.each([
+      [
+        'census',
+        { census: 'unavailable' },
+        '"reasons":["census?"]',
+        '"census":"unknown"',
+        'census unknown (files outside the check were not counted)',
+      ],
+      [
+        'state',
+        { state: 'frozen' },
+        '"reasons":["stale"]',
+        '"state":"incomplete"',
+        'index incomplete',
+      ],
+    ])(
+      'an unrecognised %s value makes the compact block clean:false, consistent with the prose',
+      (_field, override, reasons, normalized, prose) => {
+        const out = empty({ ...CLEAN_TYPE_CHECK, ...override });
+        const compact = /`(\{"clean":[^`]*\})`/.exec(out);
+        expect(compact).not.toBeNull();
+        const block = compact?.[1] ?? '';
+        expect(block.startsWith('{"clean":false,')).toBe(true);
+        expect(block).toContain(reasons);
+        expect(block).toContain(normalized);
+        expect(out).not.toContain('"clean":true');
+        expect(out).toContain(prose);
+      },
+    );
+
+    // Review r1 M3: never an empty qualifier list.
+    it.each([
+      [
+        'mixed',
+        'mixed check: languages not named syntax-only (syntax errors only, not type-checked), the rest type-checked',
+      ],
+      [
+        'syntax-only',
+        'syntax-only check (languages not named): syntax errors only, not type-checked',
+      ],
+    ] as const)(
+      'a %s check without approximation names still names its qualifier',
+      (checks, qualifier) => {
+        const out = empty(coverageWith({ checks }));
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).not.toContain('qualified — .');
+        expect(out).toContain(`**Coverage:** qualified — ${qualifier}.`);
+      },
+    );
+
+    it('renders coverage and the not-checked files on the unavailable arm', () => {
+      const file = '/repo/app/main.rb';
+      const out = formatDiagnostics({
+        status: 'unavailable',
+        source: 'tree-sitter-syntax',
+        reason: 'No requested file could be checked.',
+        coverage: coverageWith({
+          analyzed: 0,
+          checks: undefined,
+          unsupported: 1,
+          unsupportedByLanguage: { ruby: 1 },
+        }),
+        notChecked: [
+          {
+            language: 'ruby',
+            count: 1,
+            files: [file],
+            reason: 'No diagnostics for ruby.',
+          },
+        ],
+        diagnostics: [],
+      });
+      expect(out).toContain('Unavailable (reason below).');
+      expect(out).toContain('**Reason:** No requested file could be checked.');
+      expect(out).toContain('1 file unsupported');
+      // Review r1 M2: the unbounded reason comes after the coverage.
+      expect(out.indexOf('**Coverage:**')).toBeLessThan(
+        out.indexOf('**Reason:**'),
+      );
+      expect(out.indexOf('### Not checked')).toBeLessThan(
+        out.indexOf('**Reason:**'),
+      );
+      expect(out).toContain(
+        `- 1 ruby file — No diagnostics for ruby.\n  - \`${file}\``,
+      );
+    });
+
+    it('lists a group past its named files with the remainder counted', () => {
+      const out = empty(
+        coverageWith({ omittedByCap: 12, checks: 'syntax-only' }),
+        [
+          {
+            language: 'python',
+            count: 12,
+            files: ['/r/a.py', '/r/b.py'],
+            reason: 'Past the cap.',
+          },
+        ],
+      );
+      expect(out).toContain('  - `/r/b.py`\n  - … and 10 more');
+    });
+
+    it('puts the verdict above every list; scoped, the not-checked files follow the requested ones and precede siblings', () => {
+      const REPO = '/repo';
+      const out = formatDiagnostics({
+        status: 'available',
+        source: 'typescript-compiler+tree-sitter-syntax',
+        coverage: coverageWith({
+          checks: 'mixed',
+          approximations: ['python:syntax-only'],
+          unsupported: 1,
+          unsupportedByLanguage: { ruby: 1 },
+        }),
+        notChecked: [
+          {
+            language: 'ruby',
+            count: 1,
+            files: [`${REPO}/x.rb`],
+            reason: 'No diagnostics for ruby.',
+          },
+        ],
+        diagnostics: [
+          {
+            file: `${REPO}/sib.ts`,
+            line: 1,
+            severity: 'error',
+            message: 'SIB',
+          },
+          {
+            file: `${REPO}/req.py`,
+            line: 2,
+            severity: 'error',
+            message: 'REQ',
+          },
+        ],
+        requestedFiles: [`${REPO}/req.py`, `${REPO}/x.rb`],
+      });
+      const at = (s: string): number => {
+        const i = out.indexOf(s);
+        expect(i).toBeGreaterThanOrEqual(0);
+        return i;
+      };
+      expect(at('**Coverage:** qualified')).toBeLessThan(
+        at('### Requested files'),
+      );
+      expect(at('REQ')).toBeLessThan(at('### Not checked'));
+      expect(at('### Not checked')).toBeLessThan(at('### Sibling files'));
+      expect(at('### Sibling files')).toBeLessThan(at('SIB'));
     });
   });
 
