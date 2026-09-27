@@ -323,6 +323,32 @@ describe('translateAnthropicToResponses (end-to-end round-trip)', () => {
     });
   });
 
+  it('drops a user-message URL image source even when its media_type is allowed', () => {
+    const urlImage = {
+      type: 'image',
+      source: {
+        type: 'url',
+        media_type: 'image/png',
+        url: 'https://example.test/a.png',
+      },
+    } as unknown as AnthropicImageBlock;
+    const req: AnthropicMessagesRequest = {
+      model: 'gpt-5.4',
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'look' }, urlImage],
+        },
+      ],
+    };
+    const out = translateAnthropicToResponses(req);
+    const userMsg = out.input[0] as {
+      content: Array<{ type: string; text?: string; image_url?: string }>;
+    };
+    expect(userMsg.content).toEqual([{ type: 'input_text', text: 'look' }]);
+  });
+
   it('joins array tool_result content and prefixes Error: for is_error=true results', () => {
     const req: AnthropicMessagesRequest = {
       model: 'gpt-5.4',
