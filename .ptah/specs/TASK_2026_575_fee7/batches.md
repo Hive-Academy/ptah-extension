@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 2/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 3/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -279,7 +279,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - 1.2: `node_modules/.bin/nx graph --file=<scratch>.json` shows `@ptah-extension/i18n` with an empty workspace-dependency list (evidence quoted in the report).
 - Reviewer: logic (DI ordering, missing-handler semantics, N13/N14 shape).
 
-## Batch 3: i18n-check tool core rules (F2a, part 1) — IN_PROGRESS
+## Batch 3: i18n-check tool core rules (F2a, part 1) — COMPLETE (83b0d38c)
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -288,7 +288,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 3 | Depends on: Batch 2 (package.json sequencing)
 - Commit: `feat(scripts): add i18n-check tool with parity and key reference rules`
 
-### Task 3.1: Tool project scaffold and glossary seed — IMPLEMENTED
+### Task 3.1: Tool project scaffold and glossary seed — COMPLETE
 
 - Files: `$ROOT/tools/i18n-check/{project.json,tsconfig.json,jest.config.ts}`, `$ROOT/tools/i18n-check/glossary.json`
 - Plan reference: implementation-plan.md:362-365, :70
@@ -297,7 +297,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: tool imports no project code.
 - Implementation details: ts-node `--transpile-only` invocation as in degradation-audit.
 
-### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — IMPLEMENTED
+### Task 3.2: Helpers and `main.ts` rules: parity, references, computed keys, placeholders, glossary, real Arabic — COMPLETE
 
 - Depends on: Task 3.1
 - Files: `$ROOT/tools/i18n-check/src/main.ts`, `$ROOT/tools/i18n-check/src/lib/{scope-map.ts,template-keys.ts,ts-keys.ts,translation-files.ts,glossary.ts,report.ts}` + specs
@@ -311,7 +311,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   constraint to `$ROOT/libs/frontend/i18n/CLAUDE.md`.
 - Implementation details: `@angular/compiler` `parseTemplate` for `.html` and inline `template:`; `typescript` API for `translate(`, `.translate(`, `translateSignal(`, `translateObjectSignal(`.
 
-### Task 3.3: Self-test fixture with F2a planted violations — IMPLEMENTED
+### Task 3.3: Self-test fixture with F2a planted violations — COMPLETE
 
 - Depends on: Task 3.2
 - Files: `$ROOT/tools/i18n-check/run-self-test.js`, `$ROOT/tools/i18n-check/__fixtures__/project/**`
@@ -351,7 +351,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   reran self-test (both runs PASS), test, eslint:lint, tsc and prettier --check: all clean. New Moderate (inline
   template offsets are approximate after an escape sequence, `ts-keys.ts:43-47,150`) carried to Task 4.1.
 
-## Batch 4: Review tables, Nx target defaults and CI step (F2a, part 2) — PENDING
+## Batch 4: Review tables, Nx target defaults and CI step (F2a, part 2) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -360,7 +360,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 2 | Depends on: Batch 3
 - Commit: `feat(scripts): add i18n review tables and ci i18n-check step`
 
-### Task 4.1: `review-tables` generator — PENDING
+### Task 4.1: `review-tables` generator — IN_PROGRESS
 
 - Batch 3 review carry-over: (1) when an allowed scope's `en.json` loads but has structural violations
   (`dotted-key`, `duplicate-key`, `invalid-value`), the consumer's report adds one `allowed-scope-defect` line
@@ -371,14 +371,14 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   (a distinct violation telling the author to move the markup to an `.html` file) instead of trusting
   `coversOffset`. Spec: an escaped inline template with a marker right before and right after the escape.
 
-- Files: `$ROOT/tools/i18n-check/src/review/review-tables.ts` + spec
+- Files: `$ROOT/tools/i18n-check/src/review/review-tables.ts` + spec; carry-over: `$ROOT/tools/i18n-check/src/{main.ts,lib/glossary.ts,lib/ts-keys.ts,lib/report.ts}` + specs
 - Plan reference: implementation-plan.md:332-336, :720
 - Pattern to follow: `report.ts` from Task 3.2
 - Quality requirements: `<out>/<scope>.md` (`key | English | Arabic | notes`, sorted), `<out>/glossary.md`; `--check` exits 1 on drift; byte-for-byte deterministic.
 - Validation notes: notes computed deterministically (glossary terms, placeholders, identical-to-English, legal notice).
 - Implementation details: add a `review-tables` invocation example to the tool's `project.json` or a README comment for lib executors.
 
-### Task 4.2: `nx.json` targetDefaults and CI step — PENDING
+### Task 4.2: `nx.json` targetDefaults and CI step — IN_PROGRESS
 
 - Depends on: Task 4.1
 - Files: `$ROOT/nx.json`, `$ROOT/.github/workflows/ci.yml`
