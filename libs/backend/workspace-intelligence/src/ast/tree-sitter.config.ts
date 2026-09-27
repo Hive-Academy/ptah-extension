@@ -224,24 +224,62 @@ const JS_TS_EXPORT_QUERY = `
   (#eq? @_module "module")
   (#eq? @_exports "exports"))
 
-; CommonJS: exports.name = value
+; CommonJS: module[<key>] = value. The decoder reads the WHOLE key: only a
+; constant that evaluates to "exports" is the export object.
 (assignment_expression
-  left: (member_expression
-    object: (identifier) @_exports
-    property: (property_identifier) @export.commonjs_name) @export.commonjs_target
+  left: (subscript_expression
+    object: (identifier) @_module
+    index: (_) @export.module_key) @export.commonjs_target
+  right: (_) @export.commonjs_value
+  (#eq? @_module "module"))
+
+; CommonJS: exports.name = value / exports["name"] = value
+(assignment_expression
+  left: [
+    (member_expression
+      object: (identifier) @_exports
+      property: (property_identifier) @export.commonjs_name)
+    (subscript_expression
+      object: (identifier) @_exports
+      index: (string) @export.commonjs_name)
+  ] @export.commonjs_target
   right: (_) @export.commonjs_value
   (#eq? @_exports "exports"))
 
-; CommonJS: module.exports.name = value
+; CommonJS: module.exports.name = value / module.exports["name"] = value
 (assignment_expression
-  left: (member_expression
-    object: (member_expression
-      object: (identifier) @_module
-      property: (property_identifier) @_exports)
-    property: (property_identifier) @export.commonjs_name) @export.commonjs_target
+  left: [
+    (member_expression
+      object: (member_expression
+        object: (identifier) @_module
+        property: (property_identifier) @_exports)
+      property: (property_identifier) @export.commonjs_name)
+    (subscript_expression
+      object: (member_expression
+        object: (identifier) @_module
+        property: (property_identifier) @_exports)
+      index: (string) @export.commonjs_name)
+  ] @export.commonjs_target
   right: (_) @export.commonjs_value
   (#eq? @_module "module")
   (#eq? @_exports "exports"))
+
+; CommonJS: module[<key>].name = value / module[<key>]["name"] = value
+(assignment_expression
+  left: [
+    (member_expression
+      object: (subscript_expression
+        object: (identifier) @_module
+        index: (_) @export.module_key)
+      property: (property_identifier) @export.commonjs_name)
+    (subscript_expression
+      object: (subscript_expression
+        object: (identifier) @_module
+        index: (_) @export.module_key)
+      index: (string) @export.commonjs_name)
+  ] @export.commonjs_target
+  right: (_) @export.commonjs_value
+  (#eq? @_module "module"))
 
 ; CommonJS: Object.defineProperty(exports, "name", ...)
 (call_expression
@@ -257,9 +295,9 @@ const JS_TS_EXPORT_QUERY = `
   (#eq? @_define "defineProperty")
   (#eq? @_exports "exports")) @export.commonjs_target
 
-; Every other mention of exports / module.exports. The decoder reports those
-; outside a decoded CommonJS form as unextracted, so the answer is never a
-; clean empty list for a module whose exports it could not read.
+; Every other mention of exports / module.exports / module[<key>]. The
+; decoder reports those outside a decoded CommonJS form as unextracted, so the
+; answer is never a clean empty list for a module whose exports it could not read.
 ((identifier) @export.commonjs_reference
   (#eq? @export.commonjs_reference "exports"))
 ((member_expression
@@ -267,6 +305,12 @@ const JS_TS_EXPORT_QUERY = `
   property: (property_identifier) @_exports) @export.commonjs_reference
   (#eq? @_module "module")
   (#eq? @_exports "exports"))
+; module[<key>]: the decoder keeps it unless the key is a constant other
+; than "exports".
+((subscript_expression
+  object: (identifier) @_module
+  index: (_) @export.module_reference_key) @export.module_reference
+  (#eq? @_module "module"))
 `;
 
 /**

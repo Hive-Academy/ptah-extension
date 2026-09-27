@@ -37,7 +37,16 @@ export class MemoryStoreSymbolSink implements ISymbolSink {
     if (chunks.length === 0) return;
     const entries: CodeSymbolInsert[] = [];
     for (const chunk of chunks) {
-      const parsed = parseSubject(chunk.subject);
+      // A producer-supplied kind and name win: a name holding `:` cannot be
+      // parsed back out of the subject.
+      const parsed =
+        chunk.kind !== undefined &&
+        chunk.symbolName !== undefined &&
+        chunk.kind.length > 0 &&
+        chunk.symbolName.length > 0 &&
+        chunk.subject.startsWith('code:')
+          ? { kind: chunk.kind, symbolName: chunk.symbolName }
+          : parseSubject(chunk.subject);
       if (!parsed) continue;
       entries.push({
         workspaceRoot: chunk.workspaceRoot,

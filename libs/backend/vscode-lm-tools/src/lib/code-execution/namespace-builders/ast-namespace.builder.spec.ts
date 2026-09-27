@@ -465,10 +465,17 @@ describe('buildAstNamespace — query methods', () => {
       Result.ok([
         {
           captures: [
-            { name: 'export.func_name', text: 'doIt' },
+            {
+              name: 'export.func_name',
+              text: 'doIt',
+              startPosition: { row: 0, column: 24 },
+              endPosition: { row: 0, column: 28 },
+            },
             {
               name: 'export.statement',
               text: 'export default function doIt() {}',
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 33 },
               node: {
                 children: [{ type: 'export' }, { type: 'default' }],
               },

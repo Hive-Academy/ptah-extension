@@ -209,7 +209,20 @@ export function buildAstNamespace(
         throw new Error(result.error?.message ?? 'Export query failed');
       }
 
-      return extractExportsFromMatches(result.value ?? []).exports;
+      const { exports, unextracted } = extractExportsFromMatches(
+        result.value ?? [],
+      );
+      if (unextracted.length > 0) {
+        // A bare array has no room for the disclosure, so a partial
+        // extraction is refused rather than returned as if complete.
+        throw new Error(
+          `${JSON.stringify({ coverage: compactCoverage(fileCoverage(filePath, 'publicSymbols', 'ok', true)) })} ` +
+            `Export extraction is partial for ${filePath}: ${exports.length} export(s) read, ` +
+            `these forms could not be read: ${unextracted.join('; ')}. ` +
+            'Use ptah.ast.analyze(file) for the known exports with this disclosure.',
+        );
+      }
+      return exports;
     },
 
     getSupportedLanguages: (): string[] => {

@@ -15,6 +15,8 @@
  *    and handed over as bytes.
  */
 import 'reflect-metadata';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { TreeSitterParserService } from '@ptah-extension/workspace-intelligence';
@@ -77,9 +79,7 @@ function sorted(spans: readonly CodeLineSpan[]): CodeLineSpan[] {
 
 /** Token count summed line by line (never one encode over a large text). */
 function lineTokens(text: string): number {
-  return text
-    .split('\n')
-    .reduce((sum, line) => sum + countTokens(line) + 1, 0);
+  return text.split('\n').reduce((sum, line) => sum + countTokens(line) + 1, 0);
 }
 
 /**
@@ -277,7 +277,9 @@ function serviceModule(): {
   exported.push('formatOrder');
   out.push('export const formatOrder = (order: Order): string => {');
   for (let k = 0; k < 20; k++) {
-    out.push(`  const part${k} = String(order.items[${k}] ?? '').padStart(${k + 2});`);
+    out.push(
+      `  const part${k} = String(order.items[${k}] ?? '').padStart(${k + 2});`,
+    );
   }
   out.push("  return [order.id, part0, part19].join(' ');", '};', '');
   return { source: out.join('\n'), exported, focusBlock };
@@ -372,6 +374,97 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
     });
   });
 
+  // Batch 24d: the outline's own declaration queries are separate from the
+  // export query, so check them for the same export kinds. An export line is
+  // never inside an omittable span, and focus finds every declared export.
+  describe('never hides an exported declaration (Batch 24d)', () => {
+    const EXPORT_KINDS_SOURCE = [
+      'export interface Shape {',
+      '  a: string;',
+      '}',
+      'export type Alias = { b: number };',
+      'export enum Colour {',
+      '  Red,',
+      '}',
+      'export const enum Flag { On }',
+      'export declare function declared(): void;',
+      'export declare const ambient: number;',
+      'export abstract class Base {',
+      '  abstract run(): void;',
+      '}',
+      'export namespace Space {',
+      '  export interface Inner {',
+      '    c: boolean;',
+      '  }',
+      '}',
+      'export function make() {',
+      '  return { d: 1 };',
+      '}',
+      'export const factory = () => {',
+      '  return 2;',
+      '};',
+      'export let counter = 0;',
+      'export var legacy = 1;',
+      'export default class Main {',
+      '  go() {',
+      '    return 3;',
+      '  }',
+      '}',
+    ].join('\n');
+
+    /** Row and name of every `export <kind> <Name>` line, by regex. */
+    function exportDeclarations(
+      text: string,
+    ): Array<{ row: number; name: string }> {
+      const found: Array<{ row: number; name: string }> = [];
+      text.split('\n').forEach((line, row) => {
+        const m =
+          /^\s*export\s+(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:const\s+(?=enum))?(?:interface|type|enum|class|function|const|let|var|namespace)\*?\s+([A-Za-z_$][\w$]*)/.exec(
+            line,
+          );
+        if (m) found.push({ row, name: m[1] });
+      });
+      return found;
+    }
+
+    const realFile = (relative: string): string =>
+      fs.readFileSync(
+        path.resolve(
+          __dirname,
+          '../../../../../workspace-intelligence/src',
+          relative,
+        ),
+        'utf8',
+      );
+
+    it.each([
+      ['every TS export kind', () => EXPORT_KINDS_SOURCE, 14],
+      ['ast/ast.types.ts', () => realFile('ast/ast.types.ts'), 3],
+      [
+        'types/workspace.types.ts',
+        () => realFile('types/workspace.types.ts'),
+        11,
+      ],
+    ] as const)('%s', async (_title, read, declarations) => {
+      const source = read();
+      const exports = exportDeclarations(source);
+      expect(exports).toHaveLength(declarations);
+
+      for (const { row, name } of exports) {
+        const outline = await outliner.outline(source, 'typescript', name);
+        expect(outline).not.toBeNull();
+        const hidden = (outline?.omittable ?? []).some(
+          (span) => span.startLine <= row && row <= span.endLine,
+        );
+        expect({ name, hidden }).toEqual({ name, hidden: false });
+        const focused = (outline?.focus ?? []).some(
+          (span) => span.startLine <= row && row <= span.endLine,
+        );
+        expect({ name, focused }).toEqual({ name, focused: true });
+      }
+    });
+  });
+
   describe('300-line TypeScript module through the code reducer', () => {
     const { source, exported, focusBlock } = serviceModule();
 
@@ -394,7 +487,10 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       );
       for (const name of exported) {
         expect(result.text).toMatch(
-          new RegExp(`^export (?:interface|type|function|class|const) ${name}\\b`, 'm'),
+          new RegExp(
+            `^export (?:interface|type|function|class|const) ${name}\\b`,
+            'm',
+          ),
         );
       }
       expect(result.text).toContain(focusBlock);
@@ -410,7 +506,13 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
 
   describe('refuses (null) instead of guessing', () => {
     it('returns null for a parse with syntax errors', async () => {
-      const broken = lines('function a( {', '  x();', '  y();', '}', 'export const z = 1;');
+      const broken = lines(
+        'function a( {',
+        '  x();',
+        '  y();',
+        '}',
+        'export const z = 1;',
+      );
       await expect(outliner.outline(broken, 'typescript')).resolves.toBeNull();
     });
 
@@ -424,7 +526,14 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       await expect(outliner.outline(tsx, '.tsx')).resolves.toBeNull();
     });
 
-    it.each(['typescriptreact', 'rust', 'constructor', '.toString', '', 'src/readme.md'])(
+    it.each([
+      'typescriptreact',
+      'rust',
+      'constructor',
+      '.toString',
+      '',
+      'src/readme.md',
+    ])(
       'returns null for the unsupported language %j without parsing',
       async (language) => {
         const runner = { queryMulti: jest.fn() };
@@ -445,19 +554,22 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ['py', 'python'],
       ['.cs', 'csharp'],
       ['go', 'go'],
-    ])('resolves the language hint %j to the %s grammar', async (hint, grammar) => {
-      const runner = {
-        queryMulti: jest.fn().mockResolvedValue(Result.ok(new Map())),
-      };
+    ])(
+      'resolves the language hint %j to the %s grammar',
+      async (hint, grammar) => {
+        const runner = {
+          queryMulti: jest.fn().mockResolvedValue(Result.ok(new Map())),
+        };
 
-      await new TreeSitterCodeOutliner(runner).outline('x', hint);
+        await new TreeSitterCodeOutliner(runner).outline('x', hint);
 
-      expect(runner.queryMulti).toHaveBeenCalledWith(
-        'x',
-        grammar,
-        expect.any(Array),
-      );
-    });
+        expect(runner.queryMulti).toHaveBeenCalledWith(
+          'x',
+          grammar,
+          expect.any(Array),
+        );
+      },
+    );
 
     it('asks for declarations only when a focus symbol is given', async () => {
       const runner = {

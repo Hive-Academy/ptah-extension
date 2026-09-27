@@ -981,6 +981,13 @@ export interface GraphFileCoverage extends GraphQueryCoverage {
 export interface SymbolIndexEntry {
   file: string;
   symbols: string[];
+  /**
+   * Export forms found in the file that could not be read (`line N:
+   * <source>`, e.g. `exports[key] = v`): `symbols` may be incomplete (it can
+   * be empty). The graph's coverage counts the file `failed`
+   * (`unsupported-syntax`). Absent when every export was read.
+   */
+  unextractedExports?: string[];
 }
 
 /** Paging and filtering of {@link DependenciesNamespace.getSymbolIndex}. */
@@ -1178,6 +1185,10 @@ export interface AstNamespace {
    * Query exports from a file
    * @param filePath - Absolute or relative file path
    * @returns Array of export statements
+   * @throws When the file has export forms the extractor could not read
+   *   (the array would be incomplete): the message carries the coverage
+   *   (`unsupported-syntax`) and those forms; `analyze` returns the known
+   *   exports with the disclosure.
    */
   queryExports: (filePath: string) => Promise<AstExportInfo[]>;
 

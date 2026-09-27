@@ -464,9 +464,13 @@ export function buildDependencyNamespace(
       const index = dependencyGraph.getSymbolIndex(workspaceRoot);
       const result: SymbolIndexEntry[] = [];
       for (const [file, exports] of index) {
+        const unextracted = dependencyGraph.getUnextractedExports(file);
         result.push({
           file,
           symbols: exportSymbolNames(exports),
+          ...(unextracted === undefined
+            ? {}
+            : { unextractedExports: [...unextracted] }),
         });
       }
       return result;

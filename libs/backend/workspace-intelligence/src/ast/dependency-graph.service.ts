@@ -41,6 +41,13 @@ export interface FileNode {
   imports: ImportInfo[];
   /** Parsed export information */
   exports: ExportInfo[];
+  /**
+   * Export forms the extractor found but could not read (`line N: <source>`,
+   * e.g. `exports[key] = v`): `exports` may be incomplete, so the file counts
+   * as `failed` (`unsupported-syntax`) in the coverage, never `analyzed`.
+   * Absent when every export was read.
+   */
+  unextractedExports?: string[];
   /** Language of the file */
   language: SupportedLanguage;
 }
@@ -463,9 +470,15 @@ export class DependencyGraphService {
         (discoveredFiles as number) > listedFiles
           ? (discoveredFiles as number)
           : listedFiles;
+      // A node with unextracted exports keeps its edges and known symbols,
+      // but parseFile counted it failed (`unsupported-syntax`), not analysed.
+      let partialNodes = 0;
+      for (const node of nodes.values()) {
+        if (node.unextractedExports !== undefined) partialNodes++;
+      }
       const languages = buildGraphCoverage({
         selection,
-        analyzed: nodes.size,
+        analyzed: nodes.size - partialNodes,
         failedByReason,
         resolution,
         omittedUpstream: discovered - listedFiles,
@@ -572,6 +585,8 @@ export class DependencyGraphService {
    * Read and parse one file into `nodes`. A file that fails is left out of
    * the graph and reported to `recordFailure` with its reason: `read` when
    * the read fails, `parse` when the analysis fails or reports an error.
+   * A file whose exports were only partly extracted stays in the graph (its
+   * edges and known exports are real) and is reported `unsupported-syntax`.
    */
   private async parseFile(
     filePath: string,
@@ -636,11 +651,14 @@ export class DependencyGraphService {
       .relative(normalizedRoot, normalizedPath)
       .replace(/\\/g, '/');
 
+    const unextracted = insights.unextractedExports ?? [];
+    if (unextracted.length > 0) recordFailure('unsupported-syntax');
     nodes.set(normalizedPath, {
       path: normalizedPath,
       relativePath,
       imports: insights.imports,
       exports: insights.exports ?? [],
+      ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
       language,
     });
   }
@@ -905,7 +923,23 @@ export class DependencyGraphService {
     return merged;
   }
 
-  /** Build (and cache) the symbol index for a single graph, keyed by root. */
+  /**
+   * The export forms of `filePath` the extractor found but could not read,
+   * from the node of the graph that answers the file (see
+   * {@link resolveNodePath}); `undefined` when every export was read or no
+   * graph holds the file.
+   */
+  getUnextractedExports(filePath: string): readonly string[] | undefined {
+    const found = this.findNode(filePath);
+    return found?.[0].nodes.get(found[1])?.unextractedExports;
+  }
+
+  /**
+   * Build (and cache) the symbol index for a single graph, keyed by root. A
+   * file with no export is left out, unless its extraction was partial: then
+   * it stays, even with an empty list, so the index can say which file may
+   * have exports it does not list ({@link getUnextractedExports}).
+   */
   private symbolIndexForKey(key: string): SymbolIndex {
     const cached = this.symbolIndexes.get(key);
     if (cached) {
@@ -916,7 +950,7 @@ export class DependencyGraphService {
     const graph = this.graphs.get(key);
     if (graph) {
       for (const [filePath, node] of graph.nodes) {
-        if (node.exports.length > 0) {
+        if (node.exports.length > 0 || node.unextractedExports !== undefined) {
           index.set(filePath, node.exports);
         }
       }
@@ -1013,9 +1047,13 @@ export class DependencyGraphService {
   ): void {
     const report = this.coverages.get(key);
     if (report) {
+      // A partial node was counted failed, not analysed: nothing moves.
+      const wasAnalyzed =
+        nodeKey !== undefined &&
+        graph.nodes.get(nodeKey)?.unextractedExports === undefined;
       this.coverages.set(key, {
         files: report.files,
-        languages: invalidatedCoverage(report.languages, nodeKey !== undefined),
+        languages: invalidatedCoverage(report.languages, wasAnalyzed),
       });
     }
     if (nodeKey === undefined) {

@@ -523,6 +523,125 @@ function objectGivesFunction(
   return ts.isIdentifier(value) && namesFunction(value.text, scopes);
 }
 
+/** The key a property access or a literal element access names, if static. */
+function accessedKey(
+  access: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+): string | undefined {
+  if (ts.isPropertyAccessExpression(access)) return access.name.text;
+  const argument = unwrapExpression(access.argumentExpression);
+  return ts.isStringLiteralLike(argument) || ts.isNumericLiteral(argument)
+    ? argument.text
+    : undefined;
+}
+
+const ASSIGNMENT_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsToken,
+  ts.SyntaxKind.PlusEqualsToken,
+  ts.SyntaxKind.MinusEqualsToken,
+  ts.SyntaxKind.AsteriskEqualsToken,
+  ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+  ts.SyntaxKind.SlashEqualsToken,
+  ts.SyntaxKind.PercentEqualsToken,
+  ts.SyntaxKind.LessThanLessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+]);
+
+/**
+ * 24d review r1 R24d-05: whether the const setup object `name` reaches its
+ * `return` with `option` intact. Fail closed: every mention of `name` in the
+ * callback must be the declaration, a `return name`, or a member access. A
+ * member access of `option` (or of a computed key, which could be `option`)
+ * may only be read, or assigned a function with plain `=`; a `delete`, a
+ * compound assignment, `++`/`--`, and a non-function value all fail. Any
+ * other use — an argument (`Object.assign(setup, …)`), an alias (`const s =
+ * setup`), a spread, a destructuring target — fails, because it could change
+ * `option` out of sight.
+ */
+function setupKeepsOption(
+  callback: ts.ArrowFunction | ts.FunctionExpression,
+  name: string,
+  option: string,
+  scopes: ReadonlyArray<readonly ts.Statement[]>,
+): boolean {
+  let intact = true;
+  const givesFunction = (value: ts.Expression): boolean => {
+    const unwrapped = unwrapExpression(value);
+    return (
+      isFunctionLike(unwrapped) ||
+      (ts.isIdentifier(unwrapped) && namesFunction(unwrapped.text, scopes))
+    );
+  };
+  function check(node: ts.Identifier): void {
+    const parent = node.parent;
+    if (
+      (ts.isVariableDeclaration(parent) && parent.name === node) ||
+      (ts.isReturnStatement(parent) && parent.expression === node) ||
+      (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+      (ts.isPropertyAssignment(parent) && parent.name === node) ||
+      (ts.isMethodDeclaration(parent) && parent.name === node) ||
+      ts.isTypeReferenceNode(parent) ||
+      ts.isQualifiedName(parent)
+    ) {
+      return;
+    }
+    if (!(
+      (ts.isPropertyAccessExpression(parent) ||
+        ts.isElementAccessExpression(parent)) &&
+      parent.expression === node
+    )) {
+      intact = false;
+      return;
+    }
+    const key = accessedKey(parent);
+    if (key !== undefined && key !== option) return;
+    // `option` itself, or a computed key that might be it.
+    let access: ts.Node = parent;
+    while (ts.isParenthesizedExpression(access.parent)) access = access.parent;
+    const user = access.parent;
+    if (ts.isBinaryExpression(user) && user.left === access) {
+      if (ASSIGNMENT_OPERATORS.has(user.operatorToken.kind)) {
+        // Only `setup.option = <function>` keeps the capability.
+        intact =
+          key !== undefined &&
+          user.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          givesFunction(user.right);
+      }
+      return; // a comparison or other binary read
+    }
+    // Reads that cannot write: a call of it, the right side of a binary
+    // expression, a condition, a `typeof`, a value passed on or returned.
+    const reads =
+      (ts.isCallExpression(user) &&
+        (user.expression === access ||
+          user.arguments.includes(access as ts.Expression))) ||
+      (ts.isBinaryExpression(user) && user.right === access) ||
+      ts.isTypeOfExpression(user) ||
+      (ts.isPrefixUnaryExpression(user) &&
+        user.operator === ts.SyntaxKind.ExclamationToken) ||
+      ts.isIfStatement(user) ||
+      ts.isConditionalExpression(user) ||
+      ts.isReturnStatement(user) ||
+      (ts.isVariableDeclaration(user) && user.initializer === access);
+    // Anything else — `delete`, `++`/`--`, a destructuring or `for…of`
+    // target — could change `option`.
+    if (!reads) intact = false;
+  }
+  function visit(node: ts.Node): void {
+    if (!intact) return;
+    if (ts.isIdentifier(node) && node.text === name) check(node);
+    ts.forEachChild(node, visit);
+  }
+  if (callback.body !== undefined) visit(callback.body);
+  return intact;
+}
+
 /**
  * r4 R4-01: whether the setup callback passed to the contract RETURNS a
  * setup object whose `option` is a function. The returned value is resolved
@@ -548,9 +667,12 @@ function setupReturnsOption(
       : [callback.body];
     const resolve = (expr: ts.Expression): ts.Expression | undefined => {
       const value = unwrapExpression(expr);
-      return ts.isIdentifier(value)
+      if (!ts.isIdentifier(value)) return value;
+      // 24d review r1 R24d-05: a const setup object can still be changed
+      // before it is returned; any use that could change `option` fails.
+      return setupKeepsOption(callback, value.text, option, scopes)
         ? constInitializer(statements, value.text)
-        : value;
+        : undefined;
     };
     return (
       returned.length > 0 &&
@@ -837,6 +959,69 @@ describe('MCP mandate manifest (TASK_2026_559 Batch 21, Task 21.2)', () => {
     const overridden =
       "runDiagnosticsProviderContract('real', () => ({ createSecondCheckout(r) { return r; }, createSecondCheckout: undefined }));";
     expect(invocationProven(overridden, DIAGNOSTICS_INVOCATION)).toBe(false);
+  });
+
+  // -- 24d review r1 R24d-05: writes to the const setup before `return setup` --
+
+  const mutatedSetup = (...mutation: string[]): string =>
+    [
+      "runDiagnosticsProviderContract('P', () => {",
+      '  const setup = { provider, createSecondCheckout(root: string) { return root; } };',
+      ...mutation.map((line) => `  ${line}`),
+      '  return setup;',
+      '});',
+    ].join('\n');
+
+  it.each([
+    [
+      'assigned undefined (review r1 counterexample)',
+      'setup.createSecondCheckout = undefined;',
+    ],
+    [
+      'assigned null by element access',
+      "setup['createSecondCheckout'] = null;",
+    ],
+    ['assigned a non-function value', 'setup.createSecondCheckout = 42;'],
+    ['deleted', 'delete setup.createSecondCheckout;'],
+    ['deleted by element access', "delete setup['createSecondCheckout'];"],
+    ['a computed key written', 'setup[key] = undefined;'],
+    ['a compound assignment', 'setup.createSecondCheckout ??= undefined;'],
+    [
+      'an Object.assign of the setup',
+      'Object.assign(setup, { createSecondCheckout: undefined });',
+    ],
+    [
+      'an Object.defineProperty on the setup',
+      "Object.defineProperty(setup, 'createSecondCheckout', { value: undefined });",
+    ],
+    [
+      'an alias that is then written',
+      'const alias = setup;',
+      'alias.createSecondCheckout = undefined;',
+    ],
+    [
+      'a destructuring target',
+      '({ x: setup.createSecondCheckout } = { x: undefined });',
+    ],
+  ])(
+    'invocation proof: the returned const setup with its option %s is NOT proof',
+    (_title, ...mutation) => {
+      expect(
+        invocationProven(mutatedSetup(...mutation), DIAGNOSTICS_INVOCATION),
+      ).toBe(false);
+    },
+  );
+
+  it('invocation proof: reassigning the option to a function, or touching another member, stays proof', () => {
+    for (const mutation of [
+      'setup.createSecondCheckout = (root: string) => `${root}-2`;',
+      'setup.provider = provider;',
+      "setup['label'] = 'x';",
+    ]) {
+      expect(
+        invocationProven(mutatedSetup(mutation), DIAGNOSTICS_INVOCATION),
+      ).toBe(true);
+    }
   });
 
   it('invocation proof: a returned expression-body setup with an arrow, or a shorthand bound to a function, IS proof', () => {

@@ -24,6 +24,8 @@ import {
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import type { SupportedLanguage } from '../ast/ast.types';
+import type { CodeInsights, ExportInfo } from '../ast/ast-analysis.interfaces';
+import { exportRowRange } from '../ast/export-extraction';
 import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
 import { graphPathIdentity } from '../ast/dependency-graph.service';
 import {
@@ -263,12 +265,45 @@ const UNCHECKED: FileOutcome = { kind: 'unchecked' };
  * The Batch 24a parse-quality contract: only a clean parse counts as
  * analysed. A recovered tree (ERROR/MISSING nodes) is a parse failure even
  * though its partial symbols are still written; an unknown quality is
- * unchecked.
+ * unchecked. A clean parse with export forms the extractor could not read
+ * (`exports[key] = v`) is a failure too (`unsupported-syntax`, the reason
+ * ptah_ast_analyze and the graph give): its known symbols are written, but
+ * the file's rows may miss an export.
  */
-function outcomeOfParse(parseStatus: string | undefined): FileOutcome {
-  if (parseStatus === 'ok') return ANALYZED;
-  if (parseStatus === 'recovered') return failure('parse');
+function outcomeOfParse(insights: CodeInsights): FileOutcome {
+  if (insights.parseStatus === 'ok') {
+    return (insights.unextractedExports ?? []).length > 0
+      ? failure('unsupported-syntax')
+      : ANALYZED;
+  }
+  if (insights.parseStatus === 'recovered') return failure('parse');
   return UNCHECKED;
+}
+
+/**
+ * The `code_symbols` kind of an export record. A declared kind keeps its
+ * name; a name the statement only re-exposes (`export { a as b }`, `export
+ * default a`, `exports.a = a`, `export import A = N.B`) is `export`.
+ */
+function exportRowKind(info: ExportInfo): string {
+  return info.kind === 'unknown' ? 'export' : info.kind;
+}
+
+/**
+ * Names an export row is never written for: `*` (a wildcard names nothing
+ * here; its names are indexed in their own module), `default` and `export=`
+ * (the module's own slot, not a name anyone searches; a named default keeps
+ * its declared name). Any other name is written as extracted, a `:` in it
+ * included: each chunk carries its kind and name for the sink, so nothing is
+ * parsed back out of the subject.
+ */
+function isIndexableExportName(info: ExportInfo): boolean {
+  return (
+    info.kind !== 'wildcard' &&
+    info.name !== 'default' &&
+    info.name !== 'export=' &&
+    info.name.length > 0
+  );
 }
 
 function failure(reason: FailureReason | 'write'): FileOutcome {
@@ -1017,6 +1052,8 @@ export class CodeSymbolIndexer {
       const text = `function ${name} in ${relPath}:${startLine}-${endLine}`;
       chunks.push({
         subject: `code:function:${normalizedFilePath}:${name}`,
+        kind: 'function',
+        symbolName: name,
         text,
         tokenCount: Math.ceil(text.length / 4),
         filePath: normalizedFilePath,
@@ -1030,6 +1067,8 @@ export class CodeSymbolIndexer {
       const classText = `class ${className} in ${relPath}:${classStartLine}-${classEndLine}`;
       chunks.push({
         subject: `code:class:${normalizedFilePath}:${className}`,
+        kind: 'class',
+        symbolName: className,
         text: classText,
         tokenCount: Math.ceil(classText.length / 4),
         filePath: normalizedFilePath,
@@ -1043,6 +1082,8 @@ export class CodeSymbolIndexer {
           const methodText = `method ${className}.${methodName} in ${relPath}:${methodStartLine}-${methodEndLine}`;
           chunks.push({
             subject: `code:method:${normalizedFilePath}:${className}.${methodName}`,
+            kind: 'method',
+            symbolName: `${className}.${methodName}`,
             text: methodText,
             tokenCount: Math.ceil(methodText.length / 4),
             filePath: normalizedFilePath,
@@ -1050,6 +1091,37 @@ export class CodeSymbolIndexer {
           });
         }
       }
+    }
+
+    // Every other export (TASK_2026_559 Batch 24d): interfaces, type
+    // aliases, enums, variables, namespaces and export-clause names. A row is
+    // skipped only when the same kind and name already has one (an exported
+    // function or class declaration): a same-named symbol of another kind or
+    // scope is a different symbol, so both keep their rows.
+    const subjects = new Set(chunks.map((chunk) => chunk.subject));
+    for (const info of insights.exports ?? []) {
+      if (!isIndexableExportName(info)) continue;
+      const rows = exportRowRange(info);
+      const startLine = rows?.startLine ?? 0;
+      const endLine = rows?.endLine ?? startLine;
+      const kind = exportRowKind(info);
+      const subject = `code:${kind}:${normalizedFilePath}:${info.name}`;
+      if (subjects.has(subject)) continue;
+      subjects.add(subject);
+      const text =
+        `${kind} ${info.name}` +
+        (info.localName === undefined ? '' : ` = ${info.localName}`) +
+        (info.source === undefined ? '' : ` from ${info.source}`) +
+        ` in ${relPath}:${startLine}-${endLine}`;
+      chunks.push({
+        subject,
+        kind,
+        symbolName: info.name,
+        text,
+        tokenCount: Math.ceil(text.length / 4),
+        filePath: normalizedFilePath,
+        workspaceRoot,
+      });
     }
 
     if (chunks.length > 0) {
@@ -1077,7 +1149,7 @@ export class CodeSymbolIndexer {
       // A recovered parse is a failure even though its symbols are written.
       errors: insights.parseStatus === 'recovered' ? 1 : 0,
       durationMs: Date.now() - startMs,
-      outcome: outcomeOfParse(insights.parseStatus),
+      outcome: outcomeOfParse(insights),
     };
   }
 }

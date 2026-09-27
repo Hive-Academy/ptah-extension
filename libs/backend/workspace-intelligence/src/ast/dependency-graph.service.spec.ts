@@ -1671,3 +1671,69 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     });
   });
 });
+
+// Batch 24d R5-01: a file whose exports the extractor could not fully read
+// (`unextractedExports`) is counted `failed` (`unsupported-syntax`), never
+// cleanly analysed, keeps its edges and known symbols, and stays in the
+// symbol index even with no extracted export.
+describe('DependencyGraphService — partial export extraction (R5-01)', () => {
+  const PARTIAL = 'D:/ws-p/partial.js';
+  const MIXED = 'D:/ws-p/mixed.js';
+  const CLEAN = 'D:/ws-p/clean.js';
+
+  function partialInsights(): Record<string, CodeInsights> {
+    return {
+      [PARTIAL]: {
+        ...insights([imp('./clean')], []),
+        parseStatus: 'ok',
+        unextractedExports: ['line 1: exports'],
+      },
+      [MIXED]: {
+        ...insights([], [exp('known')]),
+        parseStatus: 'ok',
+        unextractedExports: ['line 2: exports'],
+      },
+      [CLEAN]: { ...insights([], [exp('C')]), parseStatus: 'ok' },
+    };
+  }
+
+  it('counts an empty and a mixed partial file as failed, not analysed', async () => {
+    const svc = makeServiceWith(partialInsights());
+    await svc.buildGraph([PARTIAL, MIXED, CLEAN], 'D:/ws-p');
+
+    const languages = svc.getCoverageReport('D:/ws-p')?.languages;
+    expect(languages).toMatchObject({
+      analyzed: 1,
+      failed: 2,
+      failedByReason: { 'unsupported-syntax': 2 },
+    });
+    expect(languages && isCleanAnswer(languages)).toBe(false);
+    // The partial file's edge is kept.
+    expect(svc.getDependents(CLEAN)).toEqual([PARTIAL]);
+  });
+
+  it('keeps partial files in the symbol index and names what was not extracted', async () => {
+    const svc = makeServiceWith(partialInsights());
+    await svc.buildGraph([PARTIAL, MIXED, CLEAN], 'D:/ws-p');
+
+    const index = svc.getSymbolIndex('D:/ws-p');
+    expect(index.get(PARTIAL)).toEqual([]);
+    expect(index.get(MIXED)?.map((e) => e.name)).toEqual(['known']);
+    expect(svc.getUnextractedExports(PARTIAL)).toEqual(['line 1: exports']);
+    expect(svc.getUnextractedExports(MIXED)).toEqual(['line 2: exports']);
+    expect(svc.getUnextractedExports(CLEAN)).toBeUndefined();
+  });
+
+  it('does not move a partial file to unchecked when it is invalidated', async () => {
+    const svc = makeServiceWith(partialInsights());
+    await svc.buildGraph([PARTIAL, CLEAN], 'D:/ws-p');
+
+    svc.invalidateFile(PARTIAL);
+
+    expect(svc.getCoverageReport('D:/ws-p')?.languages).toMatchObject({
+      analyzed: 1,
+      unchecked: 0,
+      failed: 1,
+    });
+  });
+});

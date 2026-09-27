@@ -439,6 +439,151 @@ const CASES: ExportCase[] = [
     unextracted: ['line 1: exports', 'line 2: module.exports'],
     js: true,
   },
+  // Batch 24d R5-02: constant-string bracket access is the same CommonJS
+  // export as the dot form, never a clean empty answer.
+  {
+    title: 'CommonJS module["exports"].name (R5-02 probe)',
+    source: 'module["exports"].actual = 1;',
+    expected: [{ name: 'actual', kind: 'variable' }],
+    js: true,
+  },
+  {
+    title: 'CommonJS bracket forms with constant string keys',
+    source: [
+      "module['exports'] = main;",
+      'exports["a-b"] = 1;',
+      'module.exports["run"] = function () {};',
+      'module["exports"]["Klass"] = class {};',
+    ].join('\n'),
+    expected: [
+      { name: 'export=', kind: 'unknown', localName: 'main' },
+      { name: 'a-b', kind: 'variable' },
+      { name: 'run', kind: 'function' },
+      { name: 'Klass', kind: 'class' },
+    ],
+    js: true,
+  },
+  {
+    title: 'CommonJS bracket forms with a computed key stay unextracted',
+    source: [
+      'module["exports"][key] = 1;',
+      'const self = module["exports"];',
+      'exports[`t`] = 1;',
+    ].join('\n'),
+    expected: [],
+    unextracted: [
+      'line 1: module["exports"]',
+      'line 2: module["exports"]',
+      'line 3: exports',
+    ],
+    js: true,
+  },
+  // Batch 24d review r1 R24d-01: the WHOLE decoded module key decides, never
+  // one string fragment of it.
+  {
+    title: 'escaped module key that evaluates to "exports" (R24d-01)',
+    source: [
+      'module["\\u0065xports"].actual = 1;',
+      "module['export\\x73'] = main;",
+    ].join('\n'),
+    expected: [
+      { name: 'actual', kind: 'variable' },
+      { name: 'export=', kind: 'unknown', localName: 'main' },
+    ],
+    js: true,
+  },
+  {
+    title: 'computed module key is disclosed, never clean-empty (R24d-01)',
+    source: [
+      'const k = "exports";',
+      'module[k].actual = 1;',
+      'module[k] = main;',
+      'const view = module[`exports`];',
+    ].join('\n'),
+    expected: [],
+    unextracted: [
+      'line 2: module[k].actual',
+      'line 3: module[k]',
+      'line 4: module[`exports`]',
+    ],
+    js: true,
+  },
+  {
+    title:
+      'a key that only contains "exports" is not the export object (R24d-01)',
+    source: [
+      'module["exports\\x78"].actual = 1;',
+      'module["id"] = 2;',
+      'const loaded = module["loaded"];',
+    ].join('\n'),
+    expected: [],
+    js: true,
+  },
+  // R24d-04: legacy (sloppy-mode) escapes decode to the runtime key.
+  {
+    title: 'legacy octal and non-octal decimal escapes (R24d-04)',
+    source: [
+      'exports["\\141"] = 1;',
+      'exports["\\8"] = 2;',
+      'exports["\\400"] = 3;',
+      'exports["\\0"] = 4;',
+    ].join('\n'),
+    expected: [
+      { name: 'a', kind: 'variable' },
+      { name: '8', kind: 'variable' },
+      { name: ' 0', kind: 'variable' },
+      { name: '\0', kind: 'variable' },
+    ],
+    js: true,
+  },
+  {
+    title: 'a name that cannot be decoded exactly is disclosed, not guessed',
+    source: ['const a = 1;', 'export { a as "\\u{110000}" };'].join('\n'),
+    expected: [],
+    unextracted: ['line 2: a as "\\u{110000}"'],
+    js: true,
+  },
+  // Batch 24d R5-03: string names are their semantic value, escapes decoded.
+  {
+    title: 'escaped string-literal export names (R5-03 probe)',
+    source: [
+      'const a = 1;',
+      'export { a as "x\\u002dy", a as "\\x41\\u{42}", a as \'q\\\'s\', a as "t\\\\u" };',
+    ].join('\n'),
+    expected: [
+      { name: 'x-y', kind: 'unknown', localName: 'a' },
+      { name: 'AB', kind: 'unknown', localName: 'a' },
+      { name: "q's", kind: 'unknown', localName: 'a' },
+      { name: 't\\u', kind: 'unknown', localName: 'a' },
+    ],
+    js: true,
+  },
+  {
+    title: 'escaped string-literal re-export and local names',
+    source: `export { "l\\u006fcal" as "p\\u0075b" } ${FROM} './m';`,
+    expected: [
+      {
+        name: 'pub',
+        kind: 'unknown',
+        isReExport: true,
+        source: './m',
+        localName: 'local',
+      },
+    ],
+    js: true,
+  },
+  {
+    title: 'escaped Object.defineProperty and bracket names',
+    source: [
+      'Object.defineProperty(exports, "b\\u0063", { value: 2 });',
+      'exports["q\\u0072"] = 1;',
+    ].join('\n'),
+    expected: [
+      { name: 'bc', kind: 'unknown' },
+      { name: 'qr', kind: 'variable' },
+    ],
+    js: true,
+  },
 ];
 
 /** Drops absent optional fields so `toEqual` compares exactly what is set. */

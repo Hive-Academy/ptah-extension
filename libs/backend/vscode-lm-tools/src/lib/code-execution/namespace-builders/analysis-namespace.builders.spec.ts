@@ -109,6 +109,7 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependencies: jest.Mock;
     getDependents: jest.Mock;
     getSymbolIndex: jest.Mock;
+    getUnextractedExports: jest.Mock;
     isBuilt: jest.Mock;
     getCoverageReport: jest.Mock;
     getCoverageReportForFile: jest.Mock;
@@ -137,6 +138,8 @@ function makeMocks(): AnalysisNamespaceDependencies & {
     getDependencies: jest.fn(),
     getDependents: jest.fn(),
     getSymbolIndex: jest.fn(),
+    // Every export read (Batch 24d): no entry carries `unextractedExports`.
+    getUnextractedExports: jest.fn().mockReturnValue(undefined),
     isBuilt: jest.fn(),
     getCoverageReport: jest.fn(),
     getCoverageReportForFile: jest.fn(),

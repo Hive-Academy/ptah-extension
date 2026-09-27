@@ -302,6 +302,7 @@ function buildAstNamespaceEnvelope(
 
 describe('MCP tool contract benchmark (size + recall vs native)', () => {
   const suiteStartedAt = Date.now();
+  const suiteCpuAtStart = process.cpuUsage();
   const parser = new TreeSitterParserService(makeLogger());
   let fixture: McpContractFixture;
   let dataProcessorPath: string;
@@ -320,8 +321,15 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
     parser.dispose();
     // r1 defect 9: an aggregate bound on the WHOLE file, not a per-test
     // timeout that lets the sum silently exceed the "normal test target"
-    // budget.
-    expect(Date.now() - suiteStartedAt).toBeLessThan(30_000);
+    // budget. It bounds the CPU time this file's worker spent (user +
+    // system), not wall time: in a full scoped run the other WASM-parsing
+    // suites share the machine, and wall time then passed 30 s while this
+    // file did no more work (Batch 24d review r1 — 16 s alone, 29 s under
+    // load). A wall-clock ceiling stays as a hang guard.
+    const cpu = process.cpuUsage(suiteCpuAtStart);
+    const cpuMs = (cpu.user + cpu.system) / 1000;
+    expect(cpuMs).toBeLessThan(30_000);
+    expect(Date.now() - suiteStartedAt).toBeLessThan(120_000);
   });
 
   /** The fixture's own declared symbols for `dataProcessorPath`, by kind. */
