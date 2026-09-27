@@ -44,7 +44,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { killProcessTree } from '@ptah-extension/platform-core';
+import {
+  killProcessTree,
+  PROCESS_TREE_KILL_GRACE_MS,
+} from '@ptah-extension/platform-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexTranslationProxy } from '../providers/codex/codex-translation-proxy';
@@ -55,7 +58,20 @@ const SCENARIO_TIMEOUT_MS = 90_000;
 const CHILD_HARD_KILL_MS = 55_000;
 /** Timeout cleanup phases; each is individually bounded. */
 const DESCENDANT_DISCOVERY_TIMEOUT_MS = 10_000;
-const TREE_KILL_TIMEOUT_MS = 4_000;
+/**
+ * On POSIX, `boundedTreeKill` calls `killProcessTree(pid, 'SIGKILL', ...)`,
+ * whose own liveness poll (see process-tree-reaper.ts) only resolves early on
+ * an ESRCH probe; absent that, it unconditionally waits out the full
+ * `PROCESS_TREE_KILL_GRACE_MS` grace period before its escalation branch
+ * resolves — even though the signal sent was already SIGKILL. This bound
+ * must exceed that grace period (plus scheduling slack for a loaded Linux CI
+ * runner, e.g. coverage + --maxWorkers=2) or the race is lost by
+ * construction, not because the kill logic is broken: a prior fixed 4000 ms
+ * bound was strictly below the 5000 ms grace period and failed under CI
+ * load (observed in GitHub Actions run 36315241583) while passing locally on
+ * Windows, whose taskkill-based branch never goes through this poll at all.
+ */
+const TREE_KILL_TIMEOUT_MS = PROCESS_TREE_KILL_GRACE_MS + 1_000;
 const CHILD_EXIT_WAIT_MS = 4_000;
 const SURVIVOR_POLL_MS = 4_000;
 const TIMEOUT_CLEANUP_BUDGET_MS =
