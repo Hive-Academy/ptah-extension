@@ -33,3 +33,7 @@ Gate 0 decisions (user, via AskUserQuestion):
 
 ## Gate decisions
 - Gate 1: user replied "approved" to task-description.md revision 1 (review: task-description-review.md, round 1, APPROVED, same-side, open non-blocking N12/N13 handed to architect). Open questions (numbering system, legal governing-language notice) deferred to Gate 1.7.
+- Gate 1.7: user replied "approced" (approved) to design-spec.md revision 2 + prototype (review: design-spec-review.md, round 2 of 2, APPROVED, same-side; open non-blocking N22/N23 handed to architect). The reply named no choices, so the designer's recommendations stand as the approved decisions, stated back to the user at approval time:
+  - Numbering system: Western 0-9 everywhere, dates included (`ar-u-nu-latn`).
+  - Legal pages: Arabic-only "English version governs" notice on terms/privacy/refund (design-spec §3.8).
+  - Orchestrator replaced the user's real email in prototype/index.html with `member@example.com` and re-rendered the 10 affected screenshots (content-only change, no design change).
