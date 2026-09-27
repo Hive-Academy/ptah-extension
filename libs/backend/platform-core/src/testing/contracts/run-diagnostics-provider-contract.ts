@@ -12,6 +12,21 @@ import type {
   DiagnosticsResult,
   FileDiagnostics,
 } from '../../interfaces/diagnostics-provider.interface';
+import type { LanguageId } from '../../interfaces/language-coverage.interface';
+
+/**
+ * A language a provider checks with a syntax-only check (Batch 25a): one
+ * file with a syntax error and one without, in that language.
+ */
+export interface SyntaxOnlyFixture {
+  readonly language: LanguageId;
+  /** File extension with its leading dot, e.g. `.py`. */
+  readonly extension: string;
+  /** Source with at least one syntax error. */
+  readonly broken: string;
+  /** Source without a syntax error. */
+  readonly clean: string;
+}
 
 export interface DiagnosticsProviderSetup {
   provider: IDiagnosticsProvider;
@@ -24,6 +39,69 @@ export interface DiagnosticsProviderSetup {
    * the contract writes the primary fixture and removes both roots afterwards.
    */
   createSecondCheckout?(primaryRoot: string): Promise<string> | string;
+  /**
+   * Supplied only by a provider that reads a real workspace from disk AND
+   * syntax-checks a language it cannot type-check. The contract writes the
+   * fixture pair and checks the answer is never a type-check claim.
+   */
+  syntaxOnly?: SyntaxOnlyFixture;
+}
+
+/**
+ * Why `result` breaks the floor-rule amendment (Batch 25a), one line per
+ * broken rule; empty when it holds. `syntaxOnlyLanguage` is the language the
+ * caller knows was syntax-checked, if any.
+ *
+ * - `checks: 'type-check'` never accompanies an `<id>:syntax-only`
+ *   approximation, and a syntax-only approximation needs `checks`
+ *   `'syntax-only'` or `'mixed'`;
+ * - a result for a known syntax-only language carries `coverage`, whose
+ *   `checks` is not `'type-check'` and whose approximations name it.
+ */
+export function syntaxOnlyClaimViolations(
+  result: DiagnosticsResult,
+  syntaxOnlyLanguage?: LanguageId,
+): string[] {
+  const violations: string[] = [];
+  const coverage = result.coverage;
+  if (coverage === undefined) {
+    if (syntaxOnlyLanguage !== undefined) {
+      violations.push(
+        `no coverage: nothing says ${syntaxOnlyLanguage} was only syntax-checked`,
+      );
+    }
+    return violations;
+  }
+  const syntaxOnly = (coverage.approximations ?? []).filter((approximation) =>
+    approximation.endsWith(':syntax-only'),
+  );
+  if (coverage.checks === 'type-check' && syntaxOnly.length > 0) {
+    violations.push(
+      `checks is 'type-check' beside ${syntaxOnly.join(', ')}: a syntax-only check reported as a type-check`,
+    );
+  }
+  if (
+    syntaxOnly.length > 0 &&
+    coverage.checks !== 'syntax-only' &&
+    coverage.checks !== 'mixed'
+  ) {
+    violations.push(
+      `syntax-only approximations with checks ${String(coverage.checks)}`,
+    );
+  }
+  if (syntaxOnlyLanguage !== undefined) {
+    if (coverage.checks === 'type-check') {
+      violations.push(
+        `${syntaxOnlyLanguage} was only syntax-checked, but checks is 'type-check'`,
+      );
+    }
+    if (!syntaxOnly.includes(`${syntaxOnlyLanguage}:syntax-only`)) {
+      violations.push(
+        `approximations do not name ${syntaxOnlyLanguage}:syntax-only`,
+      );
+    }
+  }
+  return violations;
 }
 
 const ALLOWED_SEVERITIES = new Set(['error', 'warning', 'info', 'hint']);
@@ -244,6 +322,56 @@ export function runDiagnosticsProviderContract(
         for (const root of roots) {
           fs.rmSync(root, { recursive: true, force: true });
         }
+      }
+    }, 60_000);
+
+    /** TASK_2026_559 Batch 25a: the floor-rule amendment holds for every answer. */
+    it('never reports a syntax-only check as a type-check (any answer)', async () => {
+      setup.seed?.([
+        {
+          file: '/tmp/d.ts',
+          diagnostics: [{ message: 'z', line: 1, severity: 'error' }],
+        },
+      ]);
+      expect(
+        syntaxOnlyClaimViolations(await setup.provider.getDiagnostics()),
+      ).toEqual([]);
+    });
+
+    /**
+     * TASK_2026_559 Batch 25a, "syntax-only is not a type-check claim". A
+     * provider that syntax-checks a language answers a scoped request for
+     * two files of it with the syntax error found, the clean file clean,
+     * and coverage that names the check as syntax-only.
+     */
+    it('syntax-only is not a type-check claim', async () => {
+      const fixture = setup.syntaxOnly;
+      if (!fixture) return;
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-diag-syntax-'));
+      try {
+        const broken = path.join(root, 'src', `broken${fixture.extension}`);
+        const clean = path.join(root, 'src', `clean${fixture.extension}`);
+        writeFixtureFile(root, path.relative(root, broken), fixture.broken);
+        writeFixtureFile(root, path.relative(root, clean), fixture.clean);
+
+        const result = await setup.provider.getDiagnostics(root, {
+          files: [broken, clean],
+        });
+
+        expect(syntaxOnlyClaimViolations(result, fixture.language)).toEqual([]);
+        expect(result.status).toBe('available');
+        if (result.status !== 'available') return;
+        expect(result.coverage?.checks).toBe('syntax-only');
+        expect(result.coverage?.analyzed).toBe(2);
+        const view = relativeView(result.diagnostics, root);
+        const brokenRel = path.relative(root, broken).replace(/\\/g, '/');
+        const brokenEntry = view.find((entry) => entry.file === brokenRel);
+        expect(brokenEntry?.entries.some((e) => e.includes(':error:'))).toBe(
+          true,
+        );
+        expect(view.every((entry) => entry.file === brokenRel)).toBe(true);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
       }
     }, 60_000);
   });

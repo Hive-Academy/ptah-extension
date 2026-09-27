@@ -208,6 +208,75 @@ describe('ElectronFileSystemProvider — Electron-specific behaviour', () => {
     },
   );
 
+  // TASK_2026_559 Batch 25a (review r5 B1, FB): the UNLIMITED search skipped
+  // the root check, so a missing workspace (a stale session worktree) came
+  // back `[]` and the indexer published a successful zero-file index.
+  it.each([
+    ['a missing root', 'nonexistent', 'ENOENT'],
+    ['a root that is a file', 'root-file.txt', 'ENOTDIR'],
+  ])(
+    'findFiles without maxResults rejects %s as incomplete (%s)',
+    async (_label, name, code) => {
+      await fs.writeFile(path.join(root, 'root-file.txt'), '');
+      const error = await provider
+        .findFiles('**/*', undefined, undefined, path.join(root, name))
+        .then(
+          () => undefined,
+          (rejection: unknown) => rejection,
+        );
+      expect(error).toBeInstanceOf(IncompleteFileSearchError);
+      expect((error as IncompleteFileSearchError).failures).toEqual({
+        total: 1,
+        byCode: { [code]: 1 },
+      });
+      expect((error as IncompleteFileSearchError).matches).toEqual([]);
+    },
+  );
+
+  // The root rule is about the ROOT only: a literal file missing under a
+  // readable root stays an ordinary empty answer, with and without a limit.
+  it('findFiles still answers [] for a missing literal file under an existing root', async () => {
+    await expect(
+      provider.findFiles('missing.json', undefined, undefined, root),
+    ).resolves.toEqual([]);
+    await expect(
+      provider.findFiles('missing.json', undefined, 10, root),
+    ).resolves.toEqual([]);
+  });
+
+  // r5 B1, second half: fast-glob also reads a root removed WHILE it runs as
+  // no files, so the unlimited path checks the root again afterwards.
+  it('findFiles without maxResults rejects when the root is lost during the search', async () => {
+    await fs.writeFile(path.join(root, 'a.ts'), '');
+    const stat = fsSync.promises.stat.bind(fsSync.promises);
+    let rootStats = 0;
+    const spy = jest
+      .spyOn(fsSync.promises, 'stat')
+      .mockImplementation(async (target, options) => {
+        if (path.resolve(String(target)) === path.resolve(root)) {
+          rootStats++;
+          if (rootStats > 1) {
+            throw Object.assign(new Error('ENOENT: gone'), { code: 'ENOENT' });
+          }
+        }
+        return stat(target, options);
+      });
+    try {
+      const error = await provider
+        .findFiles('**/*.ts', undefined, undefined, root)
+        .then(
+          () => undefined,
+          (rejection: unknown) => rejection,
+        );
+      expect(error).toBeInstanceOf(IncompleteFileSearchError);
+      const incomplete = error as IncompleteFileSearchError;
+      expect(incomplete.failures).toEqual({ total: 1, byCode: { ENOENT: 1 } });
+      expect(incomplete.matches.map((m) => path.basename(m))).toEqual(['a.ts']);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   // TASK_2026_559 Batch 23b r3 B1 (FB): an unreadable directory in a bounded
   // search rejects with what was found and why, never a silent short list.
   it.each([['EIO'], ['EACCES'], ['EPERM']])(

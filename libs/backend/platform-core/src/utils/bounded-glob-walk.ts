@@ -34,13 +34,17 @@
  *
  * I/O failures are never silent (reviews r3 B1, r4 B1). The search root
  * (`cwd`) must be a readable directory: any failure there, ENOENT and
- * ENOTDIR included, is reported and nothing is walked. Below the root,
- * ENOENT is a benign race (the entry vanished between listing and reading;
- * fast-glob suppresses it too); every other failure (EIO, EACCES, EPERM,
- * ELOOP, ...) is reported to `onFailure` with its code, and the walk
- * continues with the remaining entries. The adapters turn any reported failure into an
- * {@link IncompleteFileSearchError}, so a caller can never read an unread
- * directory as "no files".
+ * ENOTDIR included, is reported and nothing is walked. That holds for the
+ * whole walk, not only its first `stat` (Batch 25a, review r5 M1): opening
+ * `cwd` itself failing with ENOENT is a root failure, and any other ENOENT
+ * re-checks `cwd` ({@link searchRootFailure}), so a root renamed or removed
+ * after the first check is reported, never read as an empty tree. Below a
+ * root that is still there, ENOENT is a benign race (the entry vanished
+ * between listing and reading; fast-glob suppresses it too); every other
+ * failure (EIO, EACCES, EPERM, ELOOP, ...) is reported to `onFailure` with
+ * its code, and the walk continues with the remaining entries. The adapters
+ * turn any reported failure into an {@link IncompleteFileSearchError}, so a
+ * caller can never read an unread directory as "no files".
  *
  * State held: one open directory handle, one real path and one read buffer
  * per level of depth.
@@ -125,6 +129,48 @@ function errorCode(error: unknown): string {
 }
 
 /**
+ * Why `cwd` cannot be searched, as an error code, or `undefined` when it is a
+ * directory that `stat` can read. The one root rule every `findFiles` path
+ * shares, bounded or not (Batch 25a, review r5 B1): a missing (`ENOENT`),
+ * non-directory (`ENOTDIR`) or unreadable root is a failed search, never an
+ * empty one.
+ */
+export async function searchRootFailure(
+  cwd: string,
+): Promise<string | undefined> {
+  try {
+    const rootStat = await fs.promises.stat(cwd);
+    return rootStat.isDirectory() ? undefined : 'ENOTDIR';
+  } catch (error: unknown) {
+    // degradation-audit: reported — the code is returned to the caller,
+    // which reports it as a failed search (`onFailure` or
+    // `IncompleteFileSearchError`); nothing is swallowed.
+    return errorCode(error);
+  }
+}
+
+/**
+ * The {@link IncompleteFileSearchError} for a search whose root `cwd` cannot
+ * be searched, carrying `matches` (what was found before the root was lost),
+ * or `undefined` when the root is a readable directory. For the adapters'
+ * unlimited (fast-glob) path, checked before the search and again after it:
+ * fast-glob reports a missing `cwd`, or one removed while it runs, as no
+ * files (review r5 B1).
+ */
+export async function searchRootError(
+  cwd: string,
+  matches: readonly string[],
+): Promise<IncompleteFileSearchError | undefined> {
+  const code = await searchRootFailure(path.resolve(cwd));
+  return code === undefined
+    ? undefined
+    : new IncompleteFileSearchError(matches, {
+        total: 1,
+        byCode: { [code]: 1 },
+      });
+}
+
+/**
  * Every file under `cwd` that `pattern` matches and no exclude glob does, as
  * an absolute forward-slashed path, one at a time.
  */
@@ -144,26 +190,39 @@ export async function* walkGlobMatches(
   const relative = (absolute: string): string =>
     toPosix(path.relative(cwd, absolute));
 
-  /** Report a failure unless it is the benign ENOENT race. */
-  const failed = (error: unknown): void => {
+  const cwdSpelling = toPosix(cwd);
+  /** Set once the root is reported lost, so it is reported once. */
+  let rootLost = false;
+
+  /**
+   * Report a failure unless it is the benign ENOENT race below a root that is
+   * still there. `directory` is the directory whose opening or reading failed,
+   * when there is one: ENOENT on `cwd` itself is the root vanishing after the
+   * first check (review r5 M1), never benign. Any other ENOENT re-checks the
+   * root, because a root renamed mid-walk surfaces as ENOENT on whatever the
+   * walk touches next.
+   */
+  const failed = async (error: unknown, directory?: string): Promise<void> => {
     const code = errorCode(error);
-    if (code !== 'ENOENT') options.onFailure(code);
+    if (code !== 'ENOENT') {
+      options.onFailure(code);
+      return;
+    }
+    if (rootLost) return;
+    const rootCode =
+      directory === cwdSpelling ? 'ENOENT' : await searchRootFailure(cwd);
+    if (rootCode !== undefined) {
+      rootLost = true;
+      options.onFailure(rootCode);
+    }
   };
 
   // The search root itself must be a readable directory. A missing, non-
   // directory or unreadable `cwd` is a failure, never an empty answer
   // (review r4 B1): ENOENT is exempt only for entries that vanish below it.
-  try {
-    const rootStat = await fs.promises.stat(cwd);
-    if (!rootStat.isDirectory()) {
-      options.onFailure('ENOTDIR');
-      return;
-    }
-  } catch (error: unknown) {
-    // degradation-audit: reported — every code, ENOENT included, is reported
-    // to `onFailure`: the adapters turn it into an incomplete result and the
-    // graph publishes an unknown census.
-    options.onFailure(errorCode(error));
+  const rootFailure = await searchRootFailure(cwd);
+  if (rootFailure !== undefined) {
+    options.onFailure(rootFailure);
     return;
   }
 
@@ -180,9 +239,10 @@ export async function* walkGlobMatches(
       stat = await fs.promises.stat(absolute);
     } catch (error: unknown) {
       // degradation-audit: reported — ENOENT is "no such file" (an empty
-      // answer, as fast-glob gives); any other code is reported to
+      // answer, as fast-glob gives) while the root is still there; any other
+      // code, or a root gone since the first check, is reported to
       // `onFailure`, which the adapters turn into an incomplete result.
-      failed(error);
+      await failed(error);
       return;
     }
     if (stat.isFile() && !excludes(relative(absolute))) {
@@ -226,9 +286,10 @@ export async function* walkGlobMatches(
       });
     } catch (error: unknown) {
       // degradation-audit: reported — an unreadable directory is reported to
-      // `onFailure` (ENOENT, a directory removed mid-walk, excepted), which
-      // the adapters turn into an incomplete result; the walk goes on.
-      failed(error);
+      // `onFailure` (ENOENT, a directory removed mid-walk below a root that
+      // is still there, excepted), which the adapters turn into an incomplete
+      // result; the walk goes on.
+      await failed(error, directory);
       return;
     }
     if (ancestors.has(real)) {
@@ -253,7 +314,7 @@ export async function* walkGlobMatches(
             // degradation-audit: reported — a dangling link (ENOENT) is
             // neither a file nor a directory, as in fast-glob; any other
             // failure (ELOOP, EACCES) is reported to `onFailure`.
-            failed(error);
+            await failed(error);
             continue;
           }
         }
@@ -267,7 +328,7 @@ export async function* walkGlobMatches(
       // degradation-audit: reported — a read that fails part-way through a
       // directory is reported to `onFailure`; the walk goes on with the rest
       // of the tree. Failures below it are reported by their own walk.
-      failed(error);
+      await failed(error, directory);
     } finally {
       ancestors.delete(real);
     }

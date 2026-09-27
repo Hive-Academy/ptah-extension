@@ -11,6 +11,7 @@ import { IgnorePatternResolverService } from './ignore-pattern-resolver.service'
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileType } from '../types/workspace.types';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { IncompleteFileSearchError } from '@ptah-extension/platform-core';
 
 /**
  * The libuv detail text each errno carries, so a fixture reads like the error
@@ -491,6 +492,29 @@ describe('WorkspaceIndexerService', () => {
       await expect(service.indexWorkspace()).rejects.toThrow(
         'No workspace folder available for indexing',
       );
+    });
+
+    // TASK_2026_559 Batch 25a (review r5 B1): the adapters now reject an
+    // unlimited search of a missing root with `IncompleteFileSearchError`.
+    // The indexer must hand that failure to its caller, never turn it into
+    // a successful zero-file index. The adapter-level FB specs live in
+    // platform-cli / platform-electron; this pins the indexer's half.
+    it('rejects with the search failure when the root cannot be searched, never an empty index', async () => {
+      const failure = new IncompleteFileSearchError([], {
+        total: 1,
+        byCode: { ENOENT: 1 },
+      });
+      mockFsProvider.findFiles.mockRejectedValue(failure);
+
+      await expect(
+        service.indexWorkspace({
+          workspaceFolder: WORKSPACE_ROOT,
+          respectIgnoreFiles: false,
+        }),
+      ).rejects.toBe(failure);
+      await expect(
+        service.getFileCount({ workspaceFolder: WORKSPACE_ROOT }),
+      ).rejects.toBe(failure);
     });
   });
 

@@ -22,6 +22,7 @@ import {
   createEvent,
   createFailureTally,
   planGlobWatch,
+  searchRootError,
   walkGlobMatches,
 } from '@ptah-extension/platform-core';
 
@@ -152,13 +153,23 @@ export class CliFileSystemProvider implements IFileSystemProvider {
       }
       return matches;
     }
+    // The unlimited path answers for the same root rule (review r5 B1):
+    // fast-glob reads a missing `cwd`, or one removed while it runs, as no
+    // files, so the root is checked before and after the search and a lost
+    // root rejects as incomplete, never as an empty workspace.
+    const root = cwd || process.cwd();
+    const before = await searchRootError(root, []);
+    if (before !== undefined) throw before;
     const fg = await import('fast-glob');
-    return fg.default(pattern, {
+    const matches = await fg.default(pattern, {
       ignore,
       absolute: true,
       onlyFiles: true,
       cwd: cwd || undefined,
     });
+    const after = await searchRootError(root, matches);
+    if (after !== undefined) throw after;
+    return matches;
   }
 
   /**

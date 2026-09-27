@@ -5,7 +5,15 @@
  * `DiagnosticsResult` discriminated union so callers can distinguish "this
  * runtime has no diagnostics source" (`unavailable`) from "the source was
  * queried and reported zero issues" (`available` + empty `diagnostics`).
+ *
+ * Both arms may carry `coverage` and `notChecked` (TASK_2026_559 Batch 25a):
+ * what the answer covered, and which files it did not check and why. A
+ * provider that knows files went unchecked (another language, a cap, an
+ * unscoped call that syntax-checks nothing) MUST say so there, because an
+ * `available` answer with no diagnostics otherwise reads as "no errors".
  */
+
+import type { LanguageCoverage } from './language-coverage.interface';
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
 
@@ -21,9 +29,56 @@ export interface FileDiagnostics {
   diagnostics: DiagnosticEntry[];
 }
 
+/**
+ * Files one answer did not check, grouped by language and reason. A scoped
+ * answer names the requested files (`files`, bounded); an unscoped answer
+ * gives the count only.
+ */
+export interface NotCheckedFiles {
+  /** Registry language id, recognised language id, or `other`. */
+  readonly language: string;
+  /** How many files of this group were not checked. */
+  readonly count: number;
+  /**
+   * The requested files of this group, absolute, at most
+   * {@link MAX_NOT_CHECKED_FILES_LISTED}; absent on an unscoped answer.
+   */
+  readonly files?: readonly string[];
+  /** Why they were not checked, and what the caller can do about it. */
+  readonly reason: string;
+}
+
+/** At most this many paths are listed per {@link NotCheckedFiles} group. */
+export const MAX_NOT_CHECKED_FILES_LISTED = 10;
+
+/**
+ * Coverage fields shared by both arms. Optional: a provider that cannot know
+ * what it covered (a live language-server source) leaves them out, and a
+ * consumer then treats the answer as `provider-defined`, never as a complete
+ * census.
+ */
+export interface DiagnosticsCoverageFields {
+  /**
+   * What this answer analysed and what it did not (Batch 22 contract). Its
+   * `checks` says which kind of check was made; a syntax-only language is
+   * named `<id>:syntax-only` in `approximations`.
+   */
+  readonly coverage?: LanguageCoverage;
+  /** The files this answer did not check, and why. Absent when none. */
+  readonly notChecked?: readonly NotCheckedFiles[];
+}
+
 export type DiagnosticsResult =
-  | { status: 'available'; source: string; diagnostics: FileDiagnostics[] }
-  | { status: 'unavailable'; source: string; reason: string };
+  | ({
+      status: 'available';
+      source: string;
+      diagnostics: FileDiagnostics[];
+    } & DiagnosticsCoverageFields)
+  | ({
+      status: 'unavailable';
+      source: string;
+      reason: string;
+    } & DiagnosticsCoverageFields);
 
 /**
  * Narrows a check to the projects that own a set of files.
@@ -43,6 +98,16 @@ export type DiagnosticsResult =
  * language servers) may narrow to the named files and nothing more. What no
  * implementation may do is report `available` while silently checking LESS than
  * the projects owning these files.
+ *
+ * The floor governs TYPE-CHECK claims only (Batch 25a amendment). A provider
+ * may also run a syntax-only check (a parser, no compiler, nothing spawned)
+ * for a language it cannot type-check; such a check is never a type-check
+ * claim. Its answer carries `coverage` with `checks` `'syntax-only'` (only
+ * syntax-checked files) or `'mixed'` (with type-checked ones), and each
+ * syntax-only language named `<id>:syntax-only` in `coverage.approximations`
+ * (under the four-item overflow rule, the rest counted in
+ * `approximationsOmitted`). `checks: 'type-check'` never accompanies a
+ * syntax-only approximation.
  */
 export interface DiagnosticsScope {
   /**

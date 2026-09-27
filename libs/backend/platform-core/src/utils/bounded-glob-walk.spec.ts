@@ -289,6 +289,80 @@ describe('walkGlobMatches', () => {
       });
     });
 
+    // Batch 25a (review r5 M1, FB): the root passed its first stat and was
+    // renamed before the walk opened it. That ENOENT was dropped as the
+    // benign below-root race, and the graph built from the empty result
+    // published a complete, clean census.
+    describe('a root lost after its first stat', () => {
+      /** Walk `ws` under the mkdtemp root; rename it right after its first stat. */
+      async function walkRenamedRoot(
+        pattern: string,
+      ): Promise<{ files: string[]; failures: Record<string, number> }> {
+        const workspace = path.join(root, 'ws');
+        const moved = path.join(root, 'ws-moved');
+        fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(workspace, 'src', 'a.ts'), '');
+        const stat = fs.promises.stat.bind(fs.promises);
+        let renamed = false;
+        jest
+          .spyOn(fs.promises, 'stat')
+          .mockImplementation(async (target, options) => {
+            const result = await stat(target, options);
+            if (
+              !renamed &&
+              path.resolve(String(target)) === path.resolve(workspace)
+            ) {
+              fs.renameSync(workspace, moved);
+              renamed = true;
+            }
+            return result;
+          });
+        const tally = createFailureTally();
+        const files: string[] = [];
+        for await (const file of walkGlobMatches(pattern, {
+          cwd: workspace,
+          dot: true,
+          onFailure: tally.onFailure,
+        })) {
+          files.push(file);
+        }
+        expect(renamed).toBe(true);
+        return { files, failures: { ...tally.failures()?.byCode } };
+      }
+
+      it.each([['**/*.ts'], ['src/**/*.ts'], ['src/a.ts']])(
+        'records the root ENOENT for %s instead of answering empty',
+        async (pattern) => {
+          expect(await walkRenamedRoot(pattern)).toEqual({
+            files: [],
+            failures: { ENOENT: 1 },
+          });
+        },
+      );
+
+      it('records ENOENT opening the root itself, even though the root stat passed', async () => {
+        write('src/a.ts');
+        failOpendir(
+          (dir) => path.resolve(dir) === path.resolve(root),
+          'ENOENT',
+        );
+
+        expect(await walk('**/*.ts', [], true)).toEqual({
+          files: [],
+          failures: { ENOENT: 1 },
+        });
+      });
+
+      it('keeps a missing literal file under a root that is still there an empty answer', async () => {
+        write('src/a.ts');
+
+        expect(await walk('src/missing.ts', [], true)).toEqual({
+          files: [],
+          failures: {},
+        });
+      });
+    });
+
     it('records a literal path whose stat fails with a non-ENOENT code', async () => {
       write('package.json');
       jest

@@ -13,12 +13,14 @@ import {
   ContextOrchestrationService,
   DEFAULT_WORKSPACE_EXCLUDES,
 } from '@ptah-extension/workspace-intelligence';
+import { withCoverageVerdict } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   IWorkspaceProvider,
   IFileSystemProvider,
   DiagnosticsResult,
   FileDiagnostics,
+  LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
@@ -205,6 +207,10 @@ export function buildSearchNamespace(
  * provider receives, so the provider and the formatter agree on which files
  * were asked about; the resolved absolute scope rides on the payload as
  * `requestedFiles`. See {@link resolveRequestedFiles}.
+ *
+ * The provider's `coverage` and `notChecked` are forwarded on both arms
+ * (TASK_2026_559 Batch 25b); a provider that reports no coverage gets
+ * {@link providerDefinedCoverage}, never a clean one.
  */
 export function buildDiagnosticsNamespace(
   diagnosticsProvider: IDiagnosticsProvider,
@@ -222,11 +228,21 @@ export function buildDiagnosticsNamespace(
       scopeFiles.length > 0 ? { files: scopeFiles } : undefined,
     );
 
+    // Coverage rides on both arms (Batch 25b): an answer that did not check
+    // every file must say so to the formatter, whatever its status.
+    const coverage = result.coverage ?? providerDefinedCoverage();
+    const notChecked =
+      result.notChecked && result.notChecked.length > 0
+        ? { notChecked: result.notChecked }
+        : {};
+
     if (result.status === 'unavailable') {
       return {
         status: 'unavailable',
         source: result.source,
         reason: result.reason,
+        coverage,
+        ...notChecked,
         diagnostics: [],
       };
     }
@@ -254,6 +270,8 @@ export function buildDiagnosticsNamespace(
     return {
       status: 'available',
       source: result.source,
+      coverage,
+      ...notChecked,
       diagnostics,
       ...(requestedFiles.length > 0 ? { requestedFiles } : {}),
     };
@@ -264,6 +282,31 @@ export function buildDiagnosticsNamespace(
     getWarnings: (files) => getPayload('warning', files),
     getAll: (files) => getPayload(undefined, files),
   };
+}
+
+/**
+ * The coverage of an answer whose provider reports none. The contract
+ * (`DiagnosticsCoverageFields` in platform-core) reads that as
+ * `provider-defined`, never as a complete census: the VS Code provider
+ * returns whatever the installed language extensions publish, so which
+ * languages and files were checked is not knowable here. Every count is
+ * `null` and the census `unknown`, so the answer is never clean.
+ */
+function providerDefinedCoverage(): LanguageCoverage {
+  return withCoverageVerdict({
+    // No capability claim: the host's language extensions decide.
+    supportedLanguages: [],
+    census: 'unknown',
+    analyzed: null,
+    unchecked: null,
+    failed: null,
+    unsupported: null,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    omittedByCap: null,
+    checks: 'provider-defined',
+  });
 }
 
 /**

@@ -16,6 +16,7 @@ import type {
 import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
   LanguageCoverage,
+  NotCheckedFiles,
   UnsupportedLanguageAnswer,
 } from '@ptah-extension/platform-core';
 import type {
@@ -205,6 +206,17 @@ export interface DiagnosticsPayload {
   status: 'available' | 'unavailable';
   source: string;
   reason?: string;
+  /**
+   * What the answer covered (TASK_2026_559 Batch 25b), on both arms: the
+   * provider's own coverage, or, when the provider reports none (the VS Code
+   * provider reads whatever the installed language extensions publish),
+   * `checks: 'provider-defined'` with every count unknown. The formatter
+   * prints a bare "No issues found" only when this passes the clean-answer
+   * rule and the check is a type check.
+   */
+  coverage: LanguageCoverage;
+  /** The files the answer did not check, and why; absent when none. */
+  notChecked?: readonly NotCheckedFiles[];
   diagnostics: DiagnosticInfo[];
   /**
    * The `files` scope of the call as absolute paths, relative entries resolved

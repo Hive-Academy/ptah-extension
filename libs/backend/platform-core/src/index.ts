@@ -71,9 +71,12 @@ export type {
   DiagnosticSeverity,
   DiagnosticEntry,
   FileDiagnostics,
+  DiagnosticsCoverageFields,
   DiagnosticsResult,
   DiagnosticsScope,
+  NotCheckedFiles,
 } from './interfaces/diagnostics-provider.interface';
+export { MAX_NOT_CHECKED_FILES_LISTED } from './interfaces/diagnostics-provider.interface';
 export type {
   Approximation,
   Count,
@@ -182,6 +185,7 @@ export { collectBounded } from './utils/bounded-collect';
 export {
   IncompleteFileSearchError,
   createFailureTally,
+  searchRootError,
   walkGlobMatches,
   type BoundedGlobWalkOptions,
   type FileSearchFailures,

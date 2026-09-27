@@ -26,7 +26,9 @@ export {
 } from './run-editor-provider-contract';
 export {
   runDiagnosticsProviderContract,
+  syntaxOnlyClaimViolations,
   type DiagnosticsProviderSetup,
+  type SyntaxOnlyFixture,
 } from './run-diagnostics-provider-contract';
 export { runTokenCounterContract } from './run-token-counter-contract';
 export {
