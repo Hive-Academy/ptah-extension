@@ -218,7 +218,7 @@ export function safeDocsUrl(value: string | undefined): string | null {
       ? url.href
       : null;
   } catch {
-    // degradation-audit: not an absolute URL — the fact is simply omitted.
+    // degradation-audit: optional-capability — a docs value that is not an absolute URL renders no link, by contract.
     return null;
   }
 }

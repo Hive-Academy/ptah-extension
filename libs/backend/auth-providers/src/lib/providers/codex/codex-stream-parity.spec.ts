@@ -10,17 +10,23 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexTranslationProxy } from './codex-translation-proxy';
 import type { ICodexAuthService } from './codex-provider.types';
+import { translateAnthropicToResponses } from '../../translation/responses-request-translator';
+import { guardResponsesToolNames } from '../../translation/responses-tool-names';
+import type { AnthropicMessagesRequest } from '../../translation/openai-translation.types';
 
 const response = (usage: unknown, output: unknown[] = [
   { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
 ]) => ({ status: 'completed', output, usage });
 
-function auth(endpoint: string): ICodexAuthService {
+function auth(
+  endpoint: string,
+  ensureTokensFresh: () => Promise<boolean> = async () => false,
+): ICodexAuthService {
   return {
     getAccountUsageEligibility: async () => 'supported',
     getApiEndpoint: () => endpoint,
     getHeaders: async () => ({ authorization: 'Bearer fake-only' }),
-    ensureTokensFresh: async () => false,
+    ensureTokensFresh,
     isAuthenticated: async () => true,
     listModels: async () => [],
     clearCache: () => undefined,
@@ -159,7 +165,9 @@ describe('Codex Responses real-consumer usage parity', () => {
     );
     try {
       const { url } = await proxy.start();
-      const client = new Anthropic({ apiKey: 'fake-client-key', baseURL: url });
+      // A failure before any output is an HTTP 502, which the SDK would
+      // otherwise retry: one attempt keeps this at one proxy request.
+      const client = new Anthropic({ apiKey: 'fake-client-key', baseURL: url, maxRetries: 0 });
       const stream = client.messages.stream({
         model: 'gpt-test', max_tokens: 50,
         messages: [{ role: 'user', content: 'hi' }],
@@ -174,5 +182,168 @@ describe('Codex Responses real-consumer usage parity', () => {
       await proxy.stop();
       await upstream.close();
     }
+  });
+});
+
+describe('Codex Responses tool-result images', () => {
+  const PNG_1X1_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=';
+  const request: Anthropic.MessageCreateParamsNonStreaming = {
+    model: 'gpt-test',
+    max_tokens: 50,
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call-1', name: 'screenshot', input: {} },
+          { type: 'tool_use', id: 'call-2', name: 'read_file', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: [
+              { type: 'text', text: 'captured' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: PNG_1X1_B64,
+                },
+              },
+            ],
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-2',
+            content: 'plain result',
+          },
+        ],
+      },
+    ],
+  };
+
+  async function run(
+    statuses: number[],
+    requestOverride: Anthropic.MessageCreateParamsNonStreaming = request,
+  ) {
+    const bodies: string[] = [];
+    const upstream = await server((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        bodies.push(body);
+        res.writeHead(statuses[bodies.length - 1] ?? 200, {
+          'content-type': 'application/json',
+        });
+        res.end(
+          JSON.stringify(response({ input_tokens: 1, output_tokens: 1 })),
+        );
+      });
+    });
+    const proxy = new CodexTranslationProxy(
+      createMockLogger() as unknown as Logger,
+      auth(upstream.origin, async () => true),
+    );
+    try {
+      const { url } = await proxy.start();
+      const client = new Anthropic({
+        apiKey: 'fake-client-key',
+        baseURL: url,
+        maxRetries: 0,
+      });
+      await client.messages.create(requestOverride);
+      // `raw` is the exact wire string (not re-serialized), so callers can
+      // assert byte-for-byte parity instead of structural equality on the
+      // parsed object, which would hide field-order or whitespace drift.
+      return {
+        raw: bodies,
+        parsed: bodies.map(
+          (body) =>
+            JSON.parse(body) as { input: Array<Record<string, unknown>> },
+        ),
+      };
+    } finally {
+      await proxy.stop();
+      await upstream.close();
+    }
+  }
+
+  const outputs = (body: { input: Array<Record<string, unknown>> }) =>
+    body.input.filter((item) => item['type'] === 'function_call_output');
+
+  it('forwards an image tool_result as an input_image array and a text-only one as a string', async () => {
+    const {
+      parsed: [body],
+    } = await run([200]);
+    expect(outputs(body)).toEqual([
+      {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: [
+          { type: 'input_text', text: 'captured' },
+          {
+            type: 'input_image',
+            image_url: `data:image/png;base64,${PNG_1X1_B64}`,
+          },
+        ],
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-2',
+        output: 'plain result',
+      },
+    ]);
+  });
+
+  it('resends the same image array on the 401 refresh retry', async () => {
+    const { parsed, raw } = await run([401, 200]);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[1]).toEqual(parsed[0]);
+    expect(JSON.stringify(parsed[1])).toContain('"input_image"');
+    // Byte-for-byte, not just structurally equal: the resend must be the
+    // literal wire string the base class cached before the 401, so field
+    // order and whitespace prove it was not rebuilt.
+    expect(raw[1]).toBe(raw[0]);
+    expect(raw[1]).toContain('"input_image"');
+  });
+
+  it('sends a text-only tool_result byte-identical to the translator output', async () => {
+    const textOnlyRequest: Anthropic.MessageCreateParamsNonStreaming = {
+      model: 'gpt-test',
+      max_tokens: 50,
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'call-2', name: 'read_file', input: {} },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'call-2', content: 'plain result' },
+          ],
+        },
+      ],
+    };
+    const { raw } = await run([200], textOnlyRequest);
+    expect(raw[0]).toBe(
+      JSON.stringify(
+        guardResponsesToolNames(
+          translateAnthropicToResponses(
+            textOnlyRequest as unknown as AnthropicMessagesRequest,
+            { modelPrefix: '' },
+          ),
+        ).request,
+      ),
+    );
   });
 });

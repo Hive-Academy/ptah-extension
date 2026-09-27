@@ -63,11 +63,14 @@ export interface ResponsesFunctionCallItem {
   arguments: string;
 }
 
-/** A function call output item in the Responses API */
+/**
+ * A function call output item in the Responses API. `output` is an array only
+ * when the tool result carried an image; text-only results stay a string.
+ */
 export interface ResponsesFunctionCallOutputItem {
   type: 'function_call_output';
   call_id: string;
-  output: string;
+  output: string | Array<ResponsesInputTextPart | ResponsesInputImagePart>;
 }
 
 /** A message input item in the Responses API */
@@ -387,10 +390,55 @@ function translateAssistantMessageToResponses(
 
 /**
  * Convert an Anthropic tool_result block into a Responses API function_call_output item.
+ *
+ * Text-only results become a plain string. A result carrying an image becomes
+ * an array of parts in block order: text as `input_text`, images as
+ * `input_image` data URLs resolved like `flattenToResponsesContentParts`, and
+ * an unresolvable image (including a non-base64 source, which has no data to
+ * resolve) as a placeholder `input_text`. Providers that do not accept images
+ * in tool results get the array downgraded later by `downgradeToolOutputImages`.
  */
 function translateToolResultToFunctionCallOutput(
   toolResult: AnthropicToolResultBlock,
 ): ResponsesFunctionCallOutputItem {
+  if (
+    Array.isArray(toolResult.content) &&
+    toolResult.content.some((b) => b.type === 'image')
+  ) {
+    const parts: Array<ResponsesInputTextPart | ResponsesInputImagePart> = [];
+    for (const block of toolResult.content) {
+      if (block.type === 'text') {
+        parts.push({ type: 'input_text', text: block.text });
+      } else if (block.type === 'image') {
+        const resolved = resolveBase64ImageMediaType(block);
+        parts.push(
+          resolved === null
+            ? {
+                type: 'input_text',
+                text: '[image omitted: unsupported media type]',
+              }
+            : {
+                type: 'input_image',
+                image_url: `data:${resolved};base64,${block.source.data}`,
+              },
+        );
+      }
+    }
+    if (toolResult.is_error) {
+      const first = parts[0];
+      if (first.type === 'input_text') {
+        parts[0] = { type: 'input_text', text: `Error: ${first.text}` };
+      } else {
+        parts.unshift({ type: 'input_text', text: 'Error:' });
+      }
+    }
+    return {
+      type: 'function_call_output',
+      call_id: toolResult.tool_use_id,
+      output: parts,
+    };
+  }
+
   let output: string;
 
   if (typeof toolResult.content === 'string') {
@@ -416,6 +464,19 @@ function translateToolResultToFunctionCallOutput(
 }
 
 /**
+ * Resolve the media type of an image block that carries base64 data, or null.
+ * The Messages envelope is passthrough, so a `url` (or other) source can arrive
+ * despite the type; it has no base64 data to embed, and its claimed
+ * `media_type` alone must not produce a `data:` URL.
+ */
+function resolveBase64ImageMediaType(block: AnthropicImageBlock): string | null {
+  const { source } = block;
+  return source.type === 'base64' && typeof source.data === 'string'
+    ? resolveImageMediaType(source.media_type, source.data)
+    : null;
+}
+
+/**
  * Flatten Anthropic content blocks into Responses API content parts.
  * Handles text and image blocks; skips tool_use and tool_result
  * (those are handled separately).
@@ -433,10 +494,7 @@ function flattenToResponsesContentParts(
       });
     } else if (block.type === 'image') {
       const img = block as AnthropicImageBlock;
-      const resolved = resolveImageMediaType(
-        img.source.media_type,
-        img.source.data,
-      );
+      const resolved = resolveBase64ImageMediaType(img);
       if (resolved === null) {
         continue;
       }

@@ -1,15 +1,34 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { MAX_BODY_SIZE, translateResponsesUsage } from './translation-proxy-helpers';
+import {
+  classifyResponsesError,
+  classifyResponsesTerminal,
+  INCOMPLETE_TOOL_INPUT_MESSAGE,
+  type AnthropicErrorMapping,
+  type ResponsesTerminalEventName,
+} from './responses-error-mapping';
+
+export type ResponsesStreamErrorCode =
+  | 'payload_too_large'
+  | 'upstream_incomplete'
+  | 'upstream_failed'
+  | 'invalid_response';
 
 export class ResponsesStreamError extends Error {
-  constructor(public readonly code: 'payload_too_large' | 'upstream_incomplete' | 'invalid_response') {
+  /** Classified Anthropic outcome, when the upstream reported a terminal failure. */
+  public readonly mapping?: AnthropicErrorMapping;
+
+  constructor(public readonly code: ResponsesStreamErrorCode, mapping?: AnthropicErrorMapping) {
     super(code === 'payload_too_large'
       ? 'Upstream Responses payload exceeds the proxy body limit'
       : code === 'upstream_incomplete'
-        ? 'Upstream response ended with incomplete tool input'
-        : 'Invalid Responses event stream');
+        ? INCOMPLETE_TOOL_INPUT_MESSAGE
+        : code === 'upstream_failed'
+          ? mapping?.message ?? 'Upstream Responses request failed'
+          : 'Invalid Responses event stream');
     this.name = 'ResponsesStreamError';
+    if (mapping) this.mapping = mapping;
   }
 }
 
@@ -18,22 +37,39 @@ const outputItem = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional(), refusal: z.string().optional() })).optional(),
   call_id: z.string().optional(),
   name: z.string().optional(),
-  arguments: z.string().optional(),
+  // Raw value: the incomplete precedence rule must see non-string arguments
+  // (mapped to upstream_incomplete); collectFunctionCall rejects them on completed.
+  arguments: z.unknown().optional(),
 });
 const responseSchema = z.object({
   status: z.string(),
   output: z.array(outputItem),
-  incomplete_details: z.object({ reason: z.string() }).nullish(),
+  incomplete_details: z.object({ reason: z.string().nullish() }).nullish(),
   usage: z.object({
     input_tokens: z.number().nonnegative(),
     output_tokens: z.number().nonnegative(),
     input_tokens_details: z.object({ cached_tokens: z.number().nonnegative().optional() }).nullish(),
   }).nullish(),
 });
+// Error fields stay `unknown`: the classifier sanitizes them, and a gateway's
+// odd typing must still classify rather than turn into invalid_response.
+const errorFieldsSchema = z.object({ code: z.unknown().optional(), message: z.unknown().optional() });
+// A failed snapshot may omit `output`/`status`; only its `error` is read.
+const failedResponseSchema = z.object({ error: z.unknown().optional() });
 const eventSchema = z.object({
   type: z.string().optional(),
   response: z.unknown().optional(),
+  // Standalone Responses `error` events carry top-level code/message; some
+  // gateways nest them under `error`.
+  code: z.unknown().optional(),
+  message: z.unknown().optional(),
+  error: z.unknown().optional(),
 });
+
+function readErrorFields(value: unknown): z.infer<typeof errorFieldsSchema> {
+  const parsed = errorFieldsSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 function collectMessageContent(item: z.infer<typeof outputItem>): Array<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [];
@@ -48,36 +84,47 @@ function collectMessageContent(item: z.infer<typeof outputItem>): Array<Record<s
   return content;
 }
 
-function collectFunctionCall(item: z.infer<typeof outputItem>, status: string): Record<string, unknown> {
+function collectFunctionCall(
+  item: z.infer<typeof outputItem>,
+  resolveToolName: (upstream: string) => string,
+): Record<string, unknown> {
   if (!item.call_id || !item.name) throw new Error('Invalid function call');
-  let input: Record<string, unknown>;
-  try {
-    if (typeof item.arguments !== 'string') throw new Error('Missing function arguments');
-    input = z.record(z.string(), z.unknown()).parse(JSON.parse(item.arguments));
-  } catch (error: unknown) {
-    // Anthropic JSON tool_use requires an object; fabricating {} or
-    // dropping the truncated call could execute the wrong operation.
-    if (status === 'incomplete') throw new ResponsesStreamError('upstream_incomplete');
-    throw error;
-  }
-  return { type: 'tool_use', id: item.call_id, name: item.name, input };
+  // Anthropic JSON tool_use requires an object; never fabricate {}. Incomplete
+  // snapshots with truncated arguments were already rejected by the terminal
+  // precedence rule, so a failure here is a malformed completed response.
+  if (typeof item.arguments !== 'string') throw new Error('Missing function arguments');
+  const input = z.record(z.string(), z.unknown()).parse(JSON.parse(item.arguments));
+  // Upstream aliases (responses-tool-names.ts) must never reach the SDK.
+  return { type: 'tool_use', id: item.call_id, name: resolveToolName(item.name), input };
 }
 
-function collectOutputContent(response: z.infer<typeof responseSchema>): Array<Record<string, unknown>> {
+function collectOutputContent(
+  response: z.infer<typeof responseSchema>,
+  resolveToolName: (upstream: string) => string,
+): Array<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [];
   for (const item of response.output) {
     if (item.type === 'message') {
       for (const part of collectMessageContent(item)) content.push(part);
     } else if (item.type === 'function_call') {
-      content.push(collectFunctionCall(item, response.status));
+      content.push(collectFunctionCall(item, resolveToolName));
     }
   }
   return content;
 }
 
-function responseStopReason(response: z.infer<typeof responseSchema>, content: Array<Record<string, unknown>>): string {
-  if (response.status === 'incomplete') return 'max_tokens';
-  return content.some((item) => item['type'] === 'tool_use') ? 'tool_use' : 'end_turn';
+/** Precedence rule and stop reason, decided before any content translation. */
+function terminalStopReason(name: ResponsesTerminalEventName, response: z.infer<typeof responseSchema>): string {
+  const calls = response.output.filter((item) => item.type === 'function_call');
+  const outcome = classifyResponsesTerminal(name, response, {
+    hadToolUse: calls.length > 0,
+    toolArgs: name === 'response.incomplete' ? calls.map((item) => item.arguments) : undefined,
+  });
+  if (outcome.kind === 'stop') return outcome.stopReason;
+  throw new ResponsesStreamError(
+    outcome.cause === 'incomplete_tool_input' ? 'upstream_incomplete' : 'upstream_failed',
+    outcome.mapping,
+  );
 }
 
 /**
@@ -92,12 +139,14 @@ export function collectResponsesStream(
   model: string,
   requestId: string,
   onUsage: (usage: ReturnType<typeof translateResponsesUsage>) => void = () => undefined,
+  resolveToolName: (upstream: string) => string = (name) => name,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let buffer = '';
     let eventType = '';
     let data: string[] = [];
     let response: z.infer<typeof responseSchema> | undefined;
+    let terminalName: ResponsesTerminalEventName = 'response.completed';
     let settled = false;
     let receivedBytes = 0;
 
@@ -132,18 +181,26 @@ export function collectResponsesStream(
       if (payload === '[DONE]') return;
       const event = eventSchema.parse(JSON.parse(payload));
       const name = event.type ?? type;
-      if (name === 'error' || name === 'response.failed') {
-        throw new Error('Upstream Responses stream failed');
+      if (name === 'error') {
+        const nested = readErrorFields(event.error);
+        throw new ResponsesStreamError('upstream_failed',
+          classifyResponsesError(event.code ?? nested.code, event.message ?? nested.message));
+      }
+      if (name === 'response.failed') {
+        const failed = failedResponseSchema.safeParse(event.response);
+        const error = readErrorFields(failed.success ? failed.data.error : undefined);
+        throw new ResponsesStreamError('upstream_failed', classifyResponsesError(error.code, error.message));
       }
       if (name === 'response.completed' || name === 'response.incomplete') {
         if (response) throw new Error('Duplicate terminal Responses event');
         response = responseSchema.parse(event.response);
+        terminalName = name;
         if (name === 'response.completed' && response.status !== 'completed') {
           throw new Error('Invalid completed response status');
         }
-        if (name === 'response.incomplete' &&
-          (response.status !== 'incomplete' || response.incomplete_details?.reason !== 'max_output_tokens')) {
-          throw new Error('Unsuccessful incomplete response');
+        // Every incomplete reason is accepted here; onEnd decides the outcome.
+        if (name === 'response.incomplete' && response.status !== 'incomplete') {
+          throw new Error('Invalid incomplete response status');
         }
       }
     };
@@ -178,6 +235,7 @@ export function collectResponsesStream(
     const onEnd = () => {
       let content: Array<Record<string, unknown>>;
       let usage: ReturnType<typeof translateResponsesUsage>;
+      let stopReason: string;
       try {
         // At EOF a held CR is a complete delimiter, not the start of CRLF.
         if (buffer.endsWith('\r')) {
@@ -186,7 +244,8 @@ export function collectResponsesStream(
         }
         // SSE dispatch requires a blank line; never treat truncated JSON as success.
         if (buffer || data.length || !response) throw new Error('Incomplete Responses stream');
-        content = collectOutputContent(response);
+        stopReason = terminalStopReason(terminalName, response);
+        content = collectOutputContent(response, resolveToolName);
         usage = translateResponsesUsage(response.usage);
       } catch (error: unknown) {
         fail(error instanceof ResponsesStreamError ? error : new ResponsesStreamError('invalid_response'));
@@ -201,7 +260,7 @@ export function collectResponsesStream(
         cleanup();
         resolve({
           id: `msg_${requestId}`, type: 'message', role: 'assistant', model, content,
-          stop_reason: responseStopReason(response, content),
+          stop_reason: stopReason,
           stop_sequence: null,
           usage,
         });

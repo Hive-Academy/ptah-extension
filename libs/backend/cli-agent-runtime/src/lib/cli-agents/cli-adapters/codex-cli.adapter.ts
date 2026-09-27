@@ -4,6 +4,11 @@
  *
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
+ *
+ * Path B (native Codex adapter, Codex owns the loop); see
+ * `.ptah/specs/TASK_2026_408/ownership.md` for how it differs from the
+ * translation proxy and the CLI workspace proxy. Main limit: no mid-turn steer
+ * or interrupt, and `listModels` returns the curated static list below.
  */
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';

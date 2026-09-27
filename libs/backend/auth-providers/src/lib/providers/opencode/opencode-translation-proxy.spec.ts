@@ -8,12 +8,24 @@ import {
   type OpenCodeProviderId,
 } from '@ptah-extension/shared';
 import { providerQuotaStore } from '../../auth/provider-quota.store';
+import { translateAnthropicToResponses } from '../../translation/responses-request-translator';
+import { guardResponsesToolNames } from '../../translation/responses-tool-names';
+import { TOOL_OUTPUT_IMAGE_PLACEHOLDER } from '../../translation/responses-tool-output-images';
+import type {
+  AnthropicContentBlock,
+  AnthropicMessagesRequest,
+} from '../../translation/openai-translation.types';
 import { OpenCodeTranslationProxy } from './opencode-translation-proxy';
 import type { IOpenCodeAuthService } from './opencode-provider.types';
 
 class TestProxy extends OpenCodeTranslationProxy {
   origin?: string;
   timeout = 600_000;
+  /** Lets a spec exercise the base 401 refresh-and-retry path. */
+  authRecovers = false;
+  protected override async onAuthFailure() {
+    return this.authRecovers || super.onAuthFailure();
+  }
   public override normalizeModelId(id: string) {
     return super.normalizeModelId(id);
   }
@@ -416,6 +428,119 @@ describe('OpenCodeTranslationProxy', () => {
       expect(requests).toHaveLength(0);
     },
   );
+
+  describe('Responses tool-result images', () => {
+    const PNG_1X1_B64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=';
+    const toolTurn = (
+      content: AnthropicContentBlock[],
+    ): AnthropicMessagesRequest => ({
+      model: 'gpt-5.6-luna',
+      max_tokens: 64,
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'call_1', name: 'screenshot', input: {} },
+          ],
+        },
+        { role: 'user', content },
+      ],
+    });
+    const imageRequest = toolTurn([
+      {
+        type: 'tool_result',
+        tool_use_id: 'call_1',
+        content: [
+          { type: 'text', text: 'captured' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: PNG_1X1_B64,
+            },
+          },
+        ],
+      },
+    ]);
+    const functionOutput = (raw: string) =>
+      (JSON.parse(raw).input as Array<Record<string, unknown>>).find(
+        (item) => item['type'] === 'function_call_output',
+      );
+
+    it.each(['opencode-zen', 'opencode-go'] as const)(
+      '%s GPT route sends an image tool_result as a placeholder string',
+      async (id) => {
+        const { p, url } = await proxy(id);
+        expect(p.resolveUpstreamProtocol('gpt-5.6-luna')).toBe('responses');
+        const result = await post(url, JSON.stringify(imageRequest));
+        expect(result.status).toBe(200);
+        expect(requests).toHaveLength(1);
+        expect(requests[0].path.endsWith('/responses')).toBe(true);
+        expect(functionOutput(requests[0].raw)).toEqual({
+          type: 'function_call_output',
+          call_id: 'call_1',
+          output: `captured\n${TOOL_OUTPUT_IMAGE_PLACEHOLDER}`,
+        });
+        expect(requests[0].raw).not.toContain('input_image');
+        expect(requests[0].raw).not.toContain(PNG_1X1_B64);
+      },
+    );
+
+    it.each(['opencode-zen', 'opencode-go'] as const)(
+      '%s sends a text-only tool_result byte-identical to the translator output',
+      async (id) => {
+        const { url } = await proxy(id);
+        const textRequest = toolTurn([
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: 'plain result',
+          },
+        ]);
+        expect((await post(url, JSON.stringify(textRequest))).status).toBe(200);
+        expect(requests[0].raw).toBe(
+          JSON.stringify(
+            guardResponsesToolNames(
+              translateAnthropicToResponses(textRequest, { modelPrefix: '' }),
+            ).request,
+          ),
+        );
+        expect(functionOutput(requests[0].raw)).toEqual({
+          type: 'function_call_output',
+          call_id: 'call_1',
+          output: 'plain result',
+        });
+      },
+    );
+
+    it.each(['opencode-zen', 'opencode-go'] as const)(
+      '%s resends the same placeholder string on the 401 refresh retry',
+      async (id) => {
+        let calls = 0;
+        respond = (_req, res) => {
+          calls += 1;
+          if (calls === 1) {
+            res.writeHead(401);
+            res.end('expired');
+            return;
+          }
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(responsesResponse));
+        };
+        const { p, url } = await proxy(id);
+        p.authRecovers = true;
+        expect((await post(url, JSON.stringify(imageRequest))).status).toBe(
+          200,
+        );
+        expect(requests).toHaveLength(2);
+        expect(requests[1].raw).toBe(requests[0].raw);
+        expect(requests[1].raw).toContain(TOOL_OUTPUT_IMAGE_PLACEHOLDER);
+        expect(requests[1].raw).not.toContain('input_image');
+      },
+    );
+  });
 
   it('normalizes native aliases without dropping extension fields', async () => {
     const { url } = await proxy('opencode-zen');

@@ -11,17 +11,24 @@ import type {
 } from '../provider-registry';
 
 /**
- * All models available through OpenAI Codex subscription.
- * Pricing is 0 since Codex subscription covers usage.
+ * Fallback model IDs for OpenAI Codex. Pricing is 0 since the subscription
+ * covers usage (and `seedStaticModelPricing` skips subscription providers).
  *
- * Model list kept in sync with SUPPORTED_MODELS in codex-cli.adapter.ts.
+ * This list is display and discovery-filter fallback only. It is NOT kept in
+ * sync with anything and is not a source of context windows: every
+ * `contextLength` is `0` (unknown). Real windows come only from the live
+ * `/models` catalog read by `CodexAuthService.listModels` (codex-auth.service.ts),
+ * recorded with `contextLengthSource: 'provider'`.
+ *
+ * `gpt-5.4` must stay first: `staticModels[0]` is the default-model fallback.
+ * Append new IDs at the end.
  */
 const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
   {
     id: 'gpt-5.4',
     name: 'GPT 5.4',
     description: 'Latest GPT -- advanced reasoning',
-    contextLength: 128000,
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -30,7 +37,7 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     id: 'gpt-5.3-codex',
     name: 'GPT 5.3 Codex',
     description: 'GPT 5.3 optimized for code (current default)',
-    contextLength: 128000,
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -39,7 +46,7 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     id: 'gpt-5.2-codex',
     name: 'GPT 5.2 Codex',
     description: 'GPT 5.2 optimized for code',
-    contextLength: 128000,
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -48,7 +55,7 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     id: 'gpt-5.2',
     name: 'GPT 5.2',
     description: 'GPT 5.2 -- balanced performance',
-    contextLength: 128000,
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -57,7 +64,7 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     id: 'gpt-5.1-codex-max',
     name: 'GPT 5.1 Codex Max',
     description: 'GPT 5.1 Codex -- maximum capability',
-    contextLength: 128000,
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -66,7 +73,25 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     id: 'gpt-5.1-codex-mini',
     name: 'GPT 5.1 Codex Mini',
     description: 'GPT 5.1 Codex -- lightweight and fast',
-    contextLength: 128000,
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-6-astra',
+    name: 'GPT 6 Astra',
+    description: 'GPT 6 Astra',
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.6-sol',
+    name: 'GPT 5.6 Sol',
+    description: 'GPT 5.6 Sol',
+    contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
     outputCostPerToken: 0,
