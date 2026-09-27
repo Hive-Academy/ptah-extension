@@ -2,5 +2,6 @@
   "checkout": {
     "error": "Checkout failed",
     "cancelled": "Checkout was cancelled"
-  }
+  },
+  "legacy.title": "A dotted key: an allowed-scope defect the pricing run points at"
 }

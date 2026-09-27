@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as ts from 'typescript';
+import { extractTemplateKeys } from './template-keys';
 import { extractTsKeys, parseTypeScriptFiles } from './ts-keys';
 
 const scanOf = (text: string) =>
@@ -44,12 +45,53 @@ describe('extractTsKeys', () => {
     ]);
   });
 
-  it('extracts inline component templates with their first line', () => {
+  it('extracts inline component templates with their file positions', () => {
     const text =
       "@Component({\n  selector: 'x',\n  template: `\n<p></p>`,\n})\nclass X {}";
     const scan = scanOf(text);
-    expect(scan.templates).toEqual([
-      { text: '\n<p></p>', firstLine: 3, firstOffset: text.indexOf('`') + 1 },
+    expect(scan.templates.map((t) => t.text)).toEqual(['\n<p></p>']);
+    const [template] = scan.templates;
+    const start = text.indexOf('`') + 1;
+    expect(template.offsetAt(0)).toBe(start);
+    expect(template.lineAt(template.offsetAt(0))).toBe(3);
+    expect(template.lineAt(template.offsetAt(1))).toBe(4);
+    expect(template.offsetAt(template.text.length)).toBe(text.lastIndexOf('`'));
+  });
+
+  it('maps an inline template with escape sequences exactly', () => {
+    const text = [
+      '@Component({',
+      String.raw`  template: '<p>\u00C9t\u00E9\n</p><b>{{ k | transloco }}</b>',`,
+      '})',
+      'class X {}',
+    ].join('\n');
+    const [template] = scanOf(text).templates;
+    expect(template.text).toBe('<p>Été\n</p><b>{{ k | transloco }}</b>');
+    const expression = template.text.indexOf('{{');
+    expect(template.offsetAt(expression)).toBe(text.indexOf('{{'));
+    // The escaped `\n` is not a line break in the file.
+    expect(template.lineAt(template.offsetAt(expression))).toBe(2);
+    expect(() => template.offsetAt(template.text.length + 1)).toThrow(
+      /outside the template/,
+    );
+  });
+
+  it('places markers and uses of an escaped inline template at their file offsets', () => {
+    const text = [
+      '@Component({',
+      String.raw`  template: '<p>\u00C9</p><!-- i18n-keys: a.b.c --><b>\u00A0{{ k | transloco }}</b>',`,
+      '})',
+      'class X {}',
+    ].join('\n');
+    const [template] = scanOf(text).templates;
+    const scan = extractTemplateKeys({ ...template, file: 'c.ts' });
+    expect(scan.markers).toHaveLength(1);
+    expect(scan.markers[0].covers).toEqual({
+      start: text.indexOf('<b>'),
+      end: text.indexOf('</b>') + '</b>'.length,
+    });
+    expect(scan.uses.map((u) => [u.offset, u.line])).toEqual([
+      [text.indexOf('k | transloco'), 2],
     ]);
   });
 

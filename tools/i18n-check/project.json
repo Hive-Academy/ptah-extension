@@ -12,6 +12,13 @@
         "cwd": "{workspaceRoot}"
       }
     },
+    "review-tables": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/review/review-tables.ts",
+        "cwd": "{workspaceRoot}"
+      }
+    },
     "test": {
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

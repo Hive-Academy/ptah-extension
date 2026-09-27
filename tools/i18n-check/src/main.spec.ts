@@ -106,6 +106,76 @@ describe('run', () => {
     ]);
   });
 
+  it('attaches markers around escape sequences in inline templates and reports file lines', async () => {
+    const source = [
+      '@Component({',
+      '  selector: "x",',
+      // Escapes right before the marker and right inside the covered element.
+      String.raw`  template: '<p>\u00C9t\u00E9</p><!-- i18n-keys: pricing.card.heading --><b>\u00A0{{ first | transloco }}</b>{{ loose | transloco }}',`,
+      '})',
+      'class X {}',
+      '@Component({',
+      // An escaped `\n` (no file line break) and `\\` before the marker.
+      String.raw`  template: '<p>a\nb\\</p><!-- i18n-keys: pricing.card.note --><em>{{ second | transloco }}</em><i>{{ third | transloco }}</i>',`,
+      '})',
+      'class Y {}',
+    ].join('\n');
+    write('libs/web/pricing/src/lib/escaped.component.ts', source);
+    expect((await run(options())).map(formatViolation)).toEqual([
+      'libs/web/pricing/src/lib/escaped.component.ts:3: [unannotated-computed-key] loose - cover it with an `i18n-keys:` marker or read it from a `*I18N_KEYS` constant (needs a key)',
+      'libs/web/pricing/src/lib/escaped.component.ts:7: [unannotated-computed-key] third - cover it with an `i18n-keys:` marker or read it from a `*I18N_KEYS` constant (needs a key)',
+    ]);
+  });
+
+  describe('allowed scope with structural violations', () => {
+    const CORE_EN = 'libs/web/core/src/lib/i18n/en.json';
+    const withCore = (): Options => ({ ...options(), allowScopes: ['core'] });
+    beforeEach(() => {
+      write(
+        'libs/web/pricing/src/lib/p.ts',
+        "export const t = translate('core.checkout.error');\n",
+      );
+    });
+
+    it('adds one line naming the allowed scope file', async () => {
+      write(
+        CORE_EN,
+        [
+          '{',
+          '  "checkout": {',
+          '    "error": "Failed",',
+          '    "a.b": "Dotted",',
+          '    "error": "Again",',
+          '    "empty": ""',
+          '  }',
+          '}',
+        ].join('\n'),
+      );
+      expect((await run(withCore())).map(formatViolation)).toEqual([
+        `${CORE_EN}:0: [allowed-scope-defect] - allowed scope "core" has 3 structural violation(s) (dotted-key, duplicate-key, invalid-value); keys read from it cannot be checked reliably here. Run that project's i18n-check`,
+      ]);
+    });
+
+    it('points at a top level that is not an object', async () => {
+      write(CORE_EN, '["not", "an", "object"]');
+      expect((await run(withCore())).map((v) => v.kind)).toEqual([
+        'allowed-scope-defect',
+      ]);
+    });
+
+    it('reports an unreadable file in full, without a second pointer line', async () => {
+      write(CORE_EN, '{ "checkout": ');
+      expect((await run(withCore())).map((v) => v.kind)).toEqual([
+        'parse-error',
+      ]);
+    });
+
+    it('adds nothing for a clean allowed scope', async () => {
+      write(CORE_EN, JSON.stringify({ checkout: { error: 'Failed' } }));
+      expect(await run(withCore())).toEqual([]);
+    });
+  });
+
   it('checks marker keys with the target of the covered call', async () => {
     write(
       'libs/web/pricing/src/lib/d.ts',

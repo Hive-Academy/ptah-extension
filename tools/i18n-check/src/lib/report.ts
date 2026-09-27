@@ -29,7 +29,9 @@ export type ViolationKind =
   | 'bare-marker'
   | 'not-a-group'
   | 'no-source-files'
-  | 'duplicate-key-constant';
+  | 'duplicate-key-constant'
+  | 'allowed-scope-defect'
+  | 'format-error';
 
 export interface Violation {
   /** Workspace-relative path with forward slashes. */
@@ -69,8 +71,11 @@ export function formatViolation(v: Violation): string {
   return `${v.file}:${v.line}: [${v.kind}]${key}${detail}`;
 }
 
-/** Code-point order, independent of the host locale. */
-function compareText(a: string, b: string): number {
+/**
+ * UTF-16 code-unit order, independent of the host locale. Every generated
+ * output sorts with it, so a run on any machine orders keys the same way.
+ */
+export function compareText(a: string, b: string): number {
   if (a === b) return 0;
   return a < b ? -1 : 1;
 }

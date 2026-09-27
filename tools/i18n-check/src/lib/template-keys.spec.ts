@@ -1,11 +1,20 @@
-import { extractTemplateKeys } from './template-keys';
+import { extractTemplateKeys, fileTemplateSource } from './template-keys';
 
+/** A template placed at `firstOffset` / `firstLine` of its file. */
 const scanOf = (
   text: string,
   file = 'x.html',
   firstLine = 1,
   firstOffset = 0,
-) => extractTemplateKeys({ text, file, firstLine, firstOffset });
+) => {
+  const alone = fileTemplateSource(text, file);
+  return extractTemplateKeys({
+    text,
+    file,
+    offsetAt: (index) => firstOffset + index,
+    lineAt: (offset) => firstLine - 1 + alone.lineAt(offset - firstOffset),
+  });
+};
 
 describe('extractTemplateKeys', () => {
   it('collects literal pipe keys from interpolations, bindings and control flow', () => {

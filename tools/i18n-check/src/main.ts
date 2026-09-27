@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
 import * as ts from 'typescript';
+import { UsageError, resolveProjectRoot, toRel } from './lib/cli';
 import { checkGlossaryAndArabic, loadGlossary } from './lib/glossary';
 import { coversOffset, type Marker } from './lib/markers';
 import {
@@ -34,7 +35,6 @@ import {
   type Violation,
 } from './lib/report';
 import {
-  SCOPE_MAP,
   defaultAllowedScopes,
   isKnownScope,
   literalKeyPattern,
@@ -43,6 +43,7 @@ import {
 } from './lib/scope-map';
 import {
   extractTemplateKeys,
+  fileTemplateSource,
   type KeyUse,
   type ScannedString,
   type TemplateSource,
@@ -67,10 +68,6 @@ export interface Options {
   scope: string;
   allowScopes: string[];
   glossary: string;
-}
-
-class UsageError extends Error {
-  override readonly name = 'UsageError';
 }
 
 const USAGE =
@@ -104,15 +101,7 @@ function parseArgs(argv: readonly string[]): Options {
   if (!projectRoot || !scope || !glossary) {
     throw new UsageError('--project-root, --scope and --glossary are required');
   }
-  if (!isKnownScope(scope)) {
-    throw new UsageError(`unknown scope "${scope}"`);
-  }
-  const normalisedRoot = projectRoot.replace(/\\/g, '/').replace(/\/+$/, '');
-  if (normalisedRoot !== SCOPE_MAP[scope].projectRoot) {
-    throw new UsageError(
-      `--project-root ${normalisedRoot} does not match scope "${scope}" (${SCOPE_MAP[scope].projectRoot})`,
-    );
-  }
+  const normalisedRoot = resolveProjectRoot(scope, projectRoot);
 
   const allowFlag = values.get('--allow-scope');
   const allowScopes =
@@ -137,10 +126,6 @@ function parseArgs(argv: readonly string[]): Options {
     allowScopes: [...new Set(allowScopes)].sort(),
     glossary,
   };
-}
-
-function toRel(workspaceRoot: string, absPath: string): string {
-  return path.relative(workspaceRoot, absPath).split(path.sep).join('/');
 }
 
 type Target = 'leaf' | 'object' | 'any';
@@ -227,7 +212,7 @@ function scanFile(
 ): void {
   if (absPath.endsWith('.html')) {
     const text = fs.readFileSync(absPath, 'utf8');
-    addTemplate({ text, file, firstLine: 1, firstOffset: 0 });
+    addTemplate(fileTemplateSource(text, file));
     return;
   }
 
@@ -351,6 +336,27 @@ class TargetMap<T> {
   }
 }
 
+/**
+ * One summary line for an allowed scope whose `en.json` was read but has
+ * structural violations (`dotted-key`, `duplicate-key`, `invalid-value`,
+ * `sole-default-key`); null when it has none.
+ */
+function allowedScopeDefect(
+  scope: string,
+  file: TranslationFile,
+  structural: readonly Violation[],
+): Violation | null {
+  if (structural.length === 0) return null;
+  const kinds = [...new Set(structural.map((v) => v.kind))].sort();
+  return {
+    file: file.file,
+    line: 0,
+    kind: 'allowed-scope-defect',
+    key: '',
+    detail: `allowed scope "${scope}" has ${structural.length} structural violation(s) (${kinds.join(', ')}); keys read from it cannot be checked reliably here. Run that project's i18n-check`,
+  };
+}
+
 export async function run(options: Options): Promise<Violation[]> {
   const violations: Violation[] = [];
   const push = (v: Violation | null): void => {
@@ -380,14 +386,20 @@ export async function run(options: Options): Promise<Violation[]> {
   violations.push(...checkPlaceholdersAndMarkup(en, ar));
   violations.push(...checkGlossaryAndArabic(en, ar, glossary));
 
-  // Allowed scopes: only whether their `en.json` can be read. Their content is
-  // checked by their own project's run.
+  // Allowed scopes: an unreadable `en.json` is reported in full. The rest of
+  // its content is checked by its own project's run, so a structural defect
+  // there (which can make a key here read as unknown) gets one pointer line.
   const scopes = new Map<string, TranslationFile>([[options.scope, en]]);
   for (const allowed of options.allowScopes) {
     const allowedEn = loadScope(allowed, 'en');
-    violations.push(
-      ...allowedEn.violations.filter(
-        (v) => v.kind === 'missing-file' || v.kind === 'parse-error',
+    const isUnreadable = (v: Violation): boolean =>
+      v.kind === 'missing-file' || v.kind === 'parse-error';
+    violations.push(...allowedEn.violations.filter(isUnreadable));
+    push(
+      allowedScopeDefect(
+        allowed,
+        allowedEn,
+        allowedEn.violations.filter((v) => !isUnreadable(v)),
       ),
     );
     scopes.set(allowed, allowedEn);

@@ -58,10 +58,41 @@ describe('glossary', () => {
 
   it('matches whole tokens only, case-sensitively', () => {
     expect(containsTerm('Built with Nx.', 'Nx')).toBe(true);
-    expect(containsTerm('مبني بـNx', 'Nx')).toBe(true);
     expect(containsTerm('Onyx', 'Nx')).toBe(false);
     expect(containsTerm('NxCloud', 'Nx')).toBe(false);
     expect(containsTerm('nx', 'Nx')).toBe(false);
+  });
+
+  it('treats Arabic letters, marks and digits as word characters, not Arabic punctuation', () => {
+    // Separated from the Arabic text: a whole token.
+    expect(containsTerm('مبني بـ Nx', 'Nx')).toBe(true);
+    expect(containsTerm('(Nx)', 'Nx')).toBe(true);
+    expect(containsTerm('Nx، ثم', 'Nx')).toBe(true);
+    expect(containsTerm('هل هو Nx؟', 'Nx')).toBe(true);
+    expect(containsTerm('Nx؛', 'Nx')).toBe(true);
+    // Glued to Arabic on either side: not a verbatim copy of the term.
+    expect(containsTerm('مبني بـNx', 'Nx')).toBe(false);
+    expect(containsTerm('ابNx', 'Nx')).toBe(false);
+    expect(containsTerm('Nxك', 'Nx')).toBe(false);
+    expect(containsTerm('Nxَ', 'Nx')).toBe(false);
+    expect(containsTerm('Nx٣', 'Nx')).toBe(false);
+  });
+
+  it('reports a glossary term glued to Arabic letters as missing', () => {
+    const glossary = glossaryOf(['Ptah']);
+    const en = loadTranslationFile(
+      write('en.json', '{ "a": "Use Ptah", "b": "Use Ptah" }'),
+      'en.json',
+      's',
+    );
+    const ar = loadTranslationFile(
+      write('ar.json', '{ "a": "استخدم بـPtah", "b": "استخدم Ptah،" }'),
+      'ar.json',
+      's',
+    );
+    expect(
+      checkGlossaryAndArabic(en, ar, glossary).map((v) => `${v.kind}:${v.key}`),
+    ).toEqual(['glossary-term-missing:s.a']);
   });
 
   it('treats values of only terms, placeholders, digits and punctuation as verbatim', () => {

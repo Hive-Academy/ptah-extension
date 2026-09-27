@@ -2,8 +2,11 @@
  * Do-not-translate glossary (6.2) and the real-Arabic rule (8.1).
  *
  * A glossary term matches only as a whole token: it may not be preceded or
- * followed by a Latin letter or digit, so `Nx` never matches inside a longer
- * Latin word. Matching is case-sensitive and verbatim.
+ * followed by a word character, so `Nx` never matches inside a longer word.
+ * Word characters are Latin letters and digits, and the letters, marks and
+ * digits of the Arabic block (U+0600-06FF), so a term glued to Arabic text
+ * (`بـNx`) is not a verbatim copy either. Arabic punctuation (`،` `؛` `؟`)
+ * is not a word character. Matching is case-sensitive and verbatim.
  */
 import * as fs from 'fs';
 import type { Violation } from './report';
@@ -73,9 +76,12 @@ export function loadGlossary(absPath: string, relPath: string): Glossary {
   return glossary;
 }
 
+/** A Latin letter or digit, or an Arabic-block letter, mark or digit. */
+const WORD_CHAR = String.raw`(?:[A-Za-z0-9]|(?=[؀-ۿ])[\p{L}\p{M}\p{N}])`;
+
 function termPattern(term: string): RegExp {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'g');
+  return new RegExp(`(?<!${WORD_CHAR})${escaped}(?!${WORD_CHAR})`, 'gu');
 }
 
 export function containsTerm(value: string, term: string): boolean {

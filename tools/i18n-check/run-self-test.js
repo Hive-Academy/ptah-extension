@@ -6,6 +6,10 @@
  * A run passes only if the checker exits 1, the output names every planted
  * violation, names none of the must-pass sites, and prints no violation that
  * was not planted (degradation-audit discipline, plan Component 2).
+ *
+ * It then runs `src/review/review-tables.ts --check` against the committed
+ * fixture tables in `__fixtures__/project/copy-review/`, which must be up to
+ * date (exit 0). Regenerate them with the same command without `--check`.
  */
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
@@ -15,6 +19,7 @@ const path = require('node:path');
 const tsNodeBin = require.resolve('ts-node/dist/bin.js');
 const tsconfig = path.join(__dirname, 'tsconfig.json');
 const main = path.join(__dirname, 'src', 'main.ts');
+const reviewTables = path.join(__dirname, 'src', 'review', 'review-tables.ts');
 const fixtureRoot = path.join(__dirname, '__fixtures__', 'project');
 
 const PRICING_TS = 'libs/web/pricing/src/lib/pricing-page.component.ts';
@@ -68,6 +73,12 @@ const RUNS = [
         file: PRICING_HTML,
         key: 'pricing.detached.html.path',
       },
+      // An allowed scope's own structural defect gets one pointer line.
+      {
+        kind: 'allowed-scope-defect',
+        file: 'libs/web/core/src/lib/i18n/en.json',
+        key: '',
+      },
     ],
     mustPass: [
       'core.checkout',
@@ -93,7 +104,7 @@ const RUNS = [
     ],
   },
   {
-    name: 'legal (sole-default-key, no-source-files)',
+    name: 'legal (sole-default-key, no-source-files, allowed-scope-defect)',
     args: ['--project-root', 'libs/web/legal', '--scope', 'legal'],
     expected: [
       {
@@ -108,6 +119,12 @@ const RUNS = [
       },
       // The legal fixture has no source files: nothing checked is a failure.
       { kind: 'no-source-files', file: 'libs/web/legal/src', key: '' },
+      // Legal reads `core` too, so it gets the same pointer line.
+      {
+        kind: 'allowed-scope-defect',
+        file: 'libs/web/core/src/lib/i18n/en.json',
+        key: '',
+      },
     ],
     mustPass: [],
   },
@@ -116,7 +133,8 @@ const RUNS = [
 // `file:line: [kind] key - detail` (see src/lib/report.ts formatViolation).
 const VIOLATION_RE = /^(\S+):(\d+): \[([a-z-]+)\](?: (?!- )(\S+))?/;
 
-function runOne(run) {
+/** Runs a tool entry point against the fixture tree; echoes its output. */
+function runTool(entry, args) {
   const result = spawnSync(
     process.execPath,
     [
@@ -124,17 +142,23 @@ function runOne(run) {
       '--transpile-only',
       '--project',
       tsconfig,
-      main,
+      entry,
       '--workspace-root',
       fixtureRoot,
       '--glossary',
       'glossary.json',
-      ...run.args,
+      ...args,
     ],
     { encoding: 'utf8' },
   );
   const output = `${result.stdout || ''}${result.stderr || ''}`;
   process.stderr.write(output);
+  return { status: result.status, output };
+}
+
+function runOne(run) {
+  const result = runTool(main, run.args);
+  const output = result.output;
 
   const failures = [];
   if (result.status !== 1) {
@@ -174,7 +198,38 @@ function runOne(run) {
   return failures;
 }
 
+/** The committed fixture review tables match a fresh generation. */
+function runReviewTablesCheck() {
+  const result = runTool(reviewTables, [
+    '--project-root',
+    'libs/web/pricing',
+    '--scope',
+    'pricing',
+    '--out',
+    'copy-review',
+    '--check',
+  ]);
+  const failures = [];
+  if (result.status !== 0) {
+    failures.push(`expected exit code 0, got ${result.status}`);
+  }
+  if (!/^review-tables \[pricing\]: OK /m.test(result.output)) {
+    failures.push('no OK line in the review-tables --check output');
+  }
+  return failures;
+}
+
 let failed = false;
+const reviewFailures = runReviewTablesCheck();
+if (reviewFailures.length === 0) {
+  console.error(
+    'i18n-check self-test PASS [review-tables --check]: committed fixture tables are up to date',
+  );
+} else {
+  failed = true;
+  console.error('i18n-check self-test FAIL [review-tables --check]:');
+  for (const f of reviewFailures) console.error(`  ${f}`);
+}
 for (const run of RUNS) {
   const failures = runOne(run);
   if (failures.length === 0) {

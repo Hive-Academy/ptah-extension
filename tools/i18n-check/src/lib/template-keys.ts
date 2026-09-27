@@ -65,10 +65,19 @@ export interface TemplateSource {
   text: string;
   /** Workspace-relative path used in reports. */
   file: string;
-  /** 1-based line on which the text begins (1 for an `.html` file). */
-  firstLine: number;
-  /** File offset at which the text begins (0 for an `.html` file). */
-  firstOffset: number;
+  /**
+   * File offset of the character at `index` in `text` (`text.length`: the
+   * end). Exact for an inline template with escape sequences too.
+   */
+  offsetAt(index: number): number;
+  /** 1-based file line of a file offset. */
+  lineAt(offset: number): number;
+}
+
+/** A whole `.html` file: text index and file offset coincide. */
+export function fileTemplateSource(text: string, file: string): TemplateSource {
+  const lineAt = lineLocator(text);
+  return { text, file, offsetAt: (index) => index, lineAt };
 }
 
 interface Span {
@@ -77,14 +86,14 @@ interface Span {
 }
 
 export function extractTemplateKeys(source: TemplateSource): TemplateScan {
-  const { text: template, file, firstOffset } = source;
+  const { text: template, file, offsetAt } = source;
   const scan: TemplateScan = {
     uses: [],
     strings: [],
     markers: [],
     violations: [],
   };
-  const lineAt = lineLocator(template, source.firstLine);
+  const lineAt = (index: number): number => source.lineAt(offsetAt(index));
   const parseError = (offset: number, detail: string): TemplateScan => {
     scan.violations.push({
       file,
@@ -137,7 +146,7 @@ export function extractTemplateKeys(source: TemplateSource): TemplateScan {
         scan.strings.push({
           file,
           line: lineAt(value.sourceSpan.start),
-          offset: firstOffset + value.sourceSpan.start,
+          offset: offsetAt(value.sourceSpan.start),
           value: value.value,
         });
       }
@@ -148,7 +157,7 @@ export function extractTemplateKeys(source: TemplateSource): TemplateScan {
       scan.strings.push({
         file,
         line: lineAt(value.sourceSpan.start.offset),
-        offset: firstOffset + value.sourceSpan.start.offset,
+        offset: offsetAt(value.sourceSpan.start.offset),
         value: value.value.trim(),
       });
     }
@@ -174,7 +183,7 @@ export function extractTemplateKeys(source: TemplateSource): TemplateScan {
       file,
       line: lineAt(span.start),
       covers: sibling
-        ? { start: firstOffset + sibling.start, end: firstOffset + sibling.end }
+        ? { start: offsetAt(sibling.start), end: offsetAt(sibling.end) }
         : null,
     });
   }
@@ -211,11 +220,8 @@ function nextSibling(comment: Span, nodes: readonly Span[]): Span | null {
   return next;
 }
 
-/** Maps a character offset in `text` to a 1-based line, starting at `firstLine`. */
-function lineLocator(
-  text: string,
-  firstLine: number,
-): (offset: number) => number {
+/** Maps a character offset in `text` to its 1-based line. */
+function lineLocator(text: string): (offset: number) => number {
   const newlines: number[] = [];
   for (let i = 0; i < text.length; i++) {
     if (text.charCodeAt(i) === 10) newlines.push(i);
@@ -228,7 +234,7 @@ function lineLocator(
       if (newlines[mid] < offset) low = mid + 1;
       else high = mid;
     }
-    return firstLine + low;
+    return 1 + low;
   };
 }
 
@@ -239,7 +245,7 @@ function useOf(
 ): KeyUse {
   const file = source.file;
   const line = lineAt(exp.sourceSpan.start);
-  const offset = source.firstOffset + exp.sourceSpan.start;
+  const offset = source.offsetAt(exp.sourceSpan.start);
   const inner = unwrap(exp);
   if (inner instanceof LiteralPrimitive && typeof inner.value === 'string') {
     return {

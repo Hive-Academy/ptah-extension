@@ -360,7 +360,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 2 | Depends on: Batch 3
 - Commit: `feat(scripts): add i18n review tables and ci i18n-check step`
 
-### Task 4.1: `review-tables` generator — IN_PROGRESS
+### Task 4.1: `review-tables` generator — IMPLEMENTED
 
 - Batch 3 review carry-over: (1) when an allowed scope's `en.json` loads but has structural violations
   (`dotted-key`, `duplicate-key`, `invalid-value`), the consumer's report adds one `allowed-scope-defect` line
@@ -378,7 +378,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: notes computed deterministically (glossary terms, placeholders, identical-to-English, legal notice).
 - Implementation details: add a `review-tables` invocation example to the tool's `project.json` or a README comment for lib executors.
 
-### Task 4.2: `nx.json` targetDefaults and CI step — IN_PROGRESS
+### Task 4.2: `nx.json` targetDefaults and CI step — IMPLEMENTED
 
 - Depends on: Task 4.1
 - Files: `$ROOT/nx.json`, `$ROOT/.github/workflows/ci.yml`
@@ -392,6 +392,30 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 
 - `node_modules/.bin/nx run i18n-check:self-test` passes; review-tables run on the fixture twice is identical and `--check` passes.
 - Reviewer: style (CI/YAML consistency) and logic (conditional branch).
+- Review round 1: code-style-review.md `## Batch 4` APPROVED (1 serious, 4 minor); code-logic-review.md `## Batch 4`
+  NEEDS_REVISION (1 blocking, 1 serious, 2 moderate, 2 minor). Team-leader verified on disk: self-test (3 stages)
+  PASS, test + eslint:lint pass. Both tasks stay IN_PROGRESS. Rework in this batch:
+  - Logic Blocking-1 (Task 4.1): `review-tables` refuses to generate (and `--check` fails) when a scope file has
+    ANY violation (dotted-key, duplicate-key, invalid-value, sole-default-key, parse), not only when unreadable;
+    the output names each violation. Spec or fixture plant for each kind.
+  - Logic Serious-1 (Task 4.2): `targetDefaults["i18n-check"].inputs` also covers the allowed scopes' translation
+    files a project reads (`ui`, `core`, and `app` for the landing app), for example
+    `{workspaceRoot}/libs/web/{ui,core}/src/lib/i18n/**/*` plus the app scope folder, taken from `scope-map.ts`.
+    This deviates from plan:352, which lists only three inputs: the plan text missed cross-scope reads.
+  - Style Serious (Task 4.1): extract `UsageError`, `toRel`, and `resolveProjectRoot(scope, projectRoot)` into
+    `tools/i18n-check/src/lib/cli.ts`, used by `main.ts` and `review-tables.ts`; the `main()` bootstrap stays
+    inline.
+  - Logic Moderates (Task 4.1): try/catch around Prettier `format()` in `formatMarkdown`, which reports the
+    scope/file and exits 1; a self-test fixture plant for `allowed-scope-defect`.
+  - Minors (Task 4.1): `parseArgs` exported and spec'd; `tableCell` also turns U+2028/U+2029 into `<br>`;
+    `allowedScopeDefect` receives the structural list directly; `LINE_TERMINATORS` uses `\u2028`/`\u2029` escapes.
+    Not actioned: a comment in `nx.json` (JSON has no comments; the rationale lives in the ci.yml comment). Carried to
+    Batch 5: `main.ts` (585 lines) — Batch 5 adds its rules under `src/lib/`, and moves `KeyResolver`/`TargetMap`
+    out of `main.ts` when it touches them.
+- Review round 2: code-logic-review.md `## Batch 4 — round 2` APPROVED (0/0/0; Blocking-1, Serious-1 and the style
+  Serious verified fixed, `lib/cli.ts` style-checked). Style APPROVED in round 1. Team-leader verified on disk: no
+  duplicated CLI code, no raw U+2028/2029, nx.json inputs match scope-map paths; self-test (3 stages), test,
+  eslint:lint, tsc and prettier are all clean.
 
 ## Batch 5: RTL and formatting rules (F2b, part 1) — PENDING
 
@@ -401,6 +425,8 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Rationale: AST rule work in the same tool.
 - Tasks: 2 | Depends on: Batch 4
 - Commit: `feat(scripts): add rtl and locale formatting rules to i18n-check`
+- Batch 4 style carry-over: new rules live under `tools/i18n-check/src/lib/`, not in `main.ts` (585 lines); move
+  `KeyResolver`/`TargetMap` out of `main.ts` into `src/lib/` when this batch touches them.
 
 ### Task 5.1: RTL pattern rule with island auto-exemption — PENDING
 

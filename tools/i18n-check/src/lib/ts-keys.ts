@@ -13,7 +13,8 @@
 import * as ts from 'typescript';
 import { tsMarkers, type Marker } from './markers';
 import type { Violation } from './report';
-import type { KeyUse, ScannedString } from './template-keys';
+import { decodeLiteral } from './literal-offsets';
+import type { KeyUse, ScannedString, TemplateSource } from './template-keys';
 
 const TRANSLATE_CALLS = new Set([
   'translate',
@@ -37,15 +38,11 @@ export interface KeyAlias {
   target: string;
 }
 
-export interface InlineTemplate {
-  text: string;
-  firstLine: number;
-  /**
-   * File offset of the first template character (just after the quote). A
-   * template using escape sequences maps offsets approximately.
-   */
-  firstOffset: number;
-}
+/**
+ * An inline `template:` with exact positions: every decoded character maps to
+ * the file offset of the source character or escape sequence it came from.
+ */
+export type InlineTemplate = Omit<TemplateSource, 'file'>;
 
 export interface TsScan {
   uses: KeyUse[];
@@ -144,11 +141,18 @@ export function extractTsKeys(source: ts.SourceFile, file: string): TsScan {
         ts.isStringLiteral(init) ||
         ts.isNoSubstitutionTemplateLiteral(init)
       ) {
-        scan.templates.push({
-          text: init.text,
-          firstLine: lineOf(init),
-          firstOffset: init.getStart(source) + 1,
-        });
+        const template = inlineTemplateOf(init, source);
+        if (typeof template === 'string') {
+          scan.violations.push({
+            file,
+            line: lineOf(init),
+            kind: 'parse-error',
+            key: '',
+            detail: `the escape sequences of this inline template could not be mapped to source positions (${template}); move the markup to an .html file`,
+          });
+        } else {
+          scan.templates.push(template);
+        }
       } else {
         scan.violations.push({
           file,
@@ -174,6 +178,43 @@ export function extractTsKeys(source: ts.SourceFile, file: string): TsScan {
   };
   visit(source);
   return scan;
+}
+
+/**
+ * Maps the literal's decoded text to file positions. Returns why it cannot
+ * when the decoding fails or does not reproduce the scanner's text, since
+ * positions would then be wrong.
+ */
+function inlineTemplateOf(
+  init: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral,
+  source: ts.SourceFile,
+): InlineTemplate | string {
+  const rawStart = init.getStart(source) + 1;
+  let decoded: ReturnType<typeof decodeLiteral>;
+  try {
+    decoded = decodeLiteral(
+      source.text.slice(rawStart, init.getEnd() - 1),
+      rawStart,
+    );
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  if (decoded.text !== init.text) {
+    return "the decoded text differs from the compiler's";
+  }
+  const { offsets } = decoded;
+  return {
+    text: init.text,
+    offsetAt: (index: number): number => {
+      const offset = offsets[index];
+      if (offset === undefined) {
+        throw new Error(`template index ${index} is outside the template`);
+      }
+      return offset;
+    },
+    lineAt: (offset: number): number =>
+      source.getLineAndCharacterOfPosition(offset).line + 1,
+  };
 }
 
 function collectKeyConst(
