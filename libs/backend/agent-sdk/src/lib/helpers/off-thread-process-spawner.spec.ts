@@ -561,6 +561,74 @@ describe('OffThreadProcessSpawner', () => {
         },
       );
     });
+
+    describe('an absolute go.exe (TASK_2026_559 Batch 37b1b, O2 §4.1)', () => {
+      // The go vet checker hands the spawner an absolute `…\go.exe` with a
+      // from-scratch env (no PATHEXT). The parser must pass it straight
+      // through: no cmd.exe, no `/d /s /c`, no verbatim arguments, so no
+      // shell ever sees the package arguments. `node.exe` stands in for the
+      // toolchain: it runs, and its "cannot find module" error names the first
+      // argument, which proves the argument array reached the child as given.
+      const itWin = process.platform === 'win32' ? it : it.skip;
+      let root = '';
+      let goExe = '';
+      let moduleDir = '';
+
+      beforeAll(() => {
+        if (process.platform !== 'win32') return;
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-go-exe-'));
+        const binDir = path.join(root, 'bin');
+        moduleDir = path.join(root, 'mod');
+        fs.mkdirSync(binDir);
+        fs.mkdirSync(path.join(moduleDir, 'a'), { recursive: true });
+        goExe = path.join(binDir, 'go.exe');
+        try {
+          fs.linkSync(process.execPath, goExe);
+        } catch {
+          // A hard link fails across volumes (EXDEV) or on a file system
+          // without links; a copy is the same executable, only slower to make.
+          // A copy that fails too throws, and the case fails loudly.
+          fs.copyFileSync(process.execPath, goExe);
+        }
+      });
+
+      afterAll(() => {
+        if (root) fs.rmSync(root, { recursive: true, force: true });
+      });
+
+      itWin(
+        'runs it with the same command and args, without cmd.exe',
+        async () => {
+          const child = spawner.spawnProcess({
+            command: goExe,
+            args: ['vet', '-json', './a'],
+            cwd: moduleDir,
+            env: {
+              PATH: path.dirname(goExe),
+              SystemRoot: process.env['SystemRoot'] ?? 'C:\\Windows',
+              GOFLAGS: '-mod=readonly -buildvcs=false',
+            },
+          });
+
+          const stderr = readAllFrom(child.stderr);
+          const code = await waitForClose(child);
+
+          const message = spawnMessages()[0];
+          expect(message?.['command']).toBe(goExe);
+          expect(message?.['args']).toEqual(['vet', '-json', './a']);
+          expect(String(message?.['command']).toLowerCase()).not.toContain(
+            'cmd.exe',
+          );
+          expect(message?.['args']).not.toEqual(
+            expect.arrayContaining(['/d', '/s', '/c']),
+          );
+          expect(message?.['windowsVerbatimArguments']).toBe(false);
+          // It ran: the stand-in exits non-zero naming its first argument.
+          expect(typeof code).toBe('number');
+          expect(await stderr).toContain(path.join(moduleDir, 'vet'));
+        },
+      );
+    });
   });
 
   describe('worker reuse (TASK_2026_437 C12)', () => {

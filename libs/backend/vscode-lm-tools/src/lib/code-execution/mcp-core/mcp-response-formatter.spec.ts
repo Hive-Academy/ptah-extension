@@ -19,6 +19,10 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { applyToolResultBudget } from './tool-result-budget';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -1360,6 +1364,393 @@ describe('mcp-response-formatter › diagnostics, lsp & tokens', () => {
       expect(at('REQ')).toBeLessThan(at('### Not checked'));
       expect(at('### Not checked')).toBeLessThan(at('### Sibling files'));
       expect(at('### Sibling files')).toBeLessThan(at('SIB'));
+    });
+  });
+
+  describe('go vet outcomes and checker limits (TASK_2026_559 Batch 37b1b)', () => {
+    const OFF_LINE =
+      '**Go vet:** Go files were syntax-checked only; `go vet` is off for this workspace. Enable it in Settings → Tools (desktop app) or run `ptah config go-vet on` in this workspace.';
+    /** A clean Tier 0 syntax answer for one Go file, as the provider sends it. */
+    const GO_SYNTAX = coverageWith({
+      supportedLanguages: ['go'],
+      analyzed: 1,
+      checks: 'syntax-only',
+      approximations: ['go:syntax-only'],
+    });
+
+    function payload(fields: Record<string, unknown>): Record<string, unknown> {
+      return {
+        status: 'available',
+        source: 'tree-sitter-syntax',
+        coverage: CLEAN_TYPE_CHECK,
+        diagnostics: [],
+        ...fields,
+      };
+    }
+
+    /** Every fixed reason code the checker and the provider can send. */
+    const REASONS = [
+      'no-go-binary',
+      'no-go-mod',
+      'no-go-files',
+      'unscoped',
+      'no-spawner',
+      'spawn-failed',
+      'timeout',
+      'too-large',
+      'cancelled',
+      'toolchain-mismatch',
+      'missing-modules',
+      'build-errors',
+      'analyzer-error',
+      'unparseable',
+      'cgo',
+      'other-module',
+      'omitted-by-cap',
+      'invalid-package-path',
+      'not-found',
+      'root-unresolvable',
+      'outside-root',
+      'build-constraints',
+      'ignored-name',
+      'unverifiable',
+      'checker-error',
+    ] as const;
+
+    it('FB: a payload with unmappedFindings: 2 and no diagnostics is not a clean answer', () => {
+      // Clean type-check coverage, nothing listed: before 37b1b this printed
+      // a bare "No issues found" although two findings exist.
+      const out = formatDiagnostics(payload({ unmappedFindings: 2 }));
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain('not a clean answer');
+      expect(out).toContain(
+        '**Coverage:** qualified — 2 checker findings could not be placed in the workspace (not listed).',
+      );
+    });
+
+    it('names unplaced go vet findings once, not again as a go vet limitation', () => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: {
+            status: 'checked',
+            outcome: 'findings',
+            reason: 'unmapped-findings',
+            checkedFiles: 1,
+          },
+          unmappedFindings: 1,
+        }),
+      );
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain(
+        '1 go vet finding could not be placed in the workspace (not listed)',
+      );
+      expect(out).not.toContain('go vet limitation (unmapped-findings)');
+      expect(out).toContain(
+        'Limitation: some findings could not be placed in the workspace.',
+      );
+    });
+
+    it('an unreadable unmappedFindings value fails closed', () => {
+      const out = formatDiagnostics(payload({ unmappedFindings: 'many' }));
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain(
+        'an unreported number of checker findings could not be placed',
+      );
+    });
+
+    it.each([true, 'yes'])(
+      'diagnosticsTruncated %p is a named limitation, never a clean answer',
+      (flag) => {
+        const out = formatDiagnostics(payload({ diagnosticsTruncated: flag }));
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain(
+          'diagnostics truncated: the checker listed only its first findings, more exist',
+        );
+      },
+    );
+
+    it('diagnosticsTruncated qualifies an answer that lists findings', () => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: { status: 'checked', outcome: 'findings', checkedFiles: 1 },
+          diagnosticsTruncated: true,
+          diagnostics: [
+            { file: '/r/a.go', line: 3, severity: 'warning', message: 'V' },
+          ],
+        }),
+      );
+      expect(out).toContain('**Warnings:** 1');
+      expect(out).toContain(
+        'diagnostics truncated: the go vet listed only its first findings, more exist',
+      );
+    });
+
+    it('consent off: the fixed §5.4 line, and the Coverage line names go vet not run', () => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: {
+            status: 'unchecked',
+            outcome: 'not-run',
+            reason: 'no-consent',
+            checkedFiles: 0,
+          },
+        }),
+      );
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain(OFF_LINE);
+      expect(out).toContain('go vet not run (no-consent)');
+      expect(out).toContain(
+        'syntax-only check (go): syntax errors only, not type-checked',
+      );
+    });
+
+    it.each([
+      ['go-changed', 'the Go toolchain changed'],
+      ['root-moved', 'the workspace folder moved'],
+      ['root-replaced', 'the workspace folder was replaced'],
+      [undefined, 'reason not reported'],
+      ['elsewhere', 'reason "elsewhere" not recognised'],
+    ])('stale consent (%p): its own line with the reason', (stale, words) => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: {
+            status: 'unchecked',
+            outcome: 'not-run',
+            reason: 'consent-stale',
+            ...(stale !== undefined ? { staleReason: stale } : {}),
+            checkedFiles: 0,
+          },
+        }),
+      );
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain(
+        `**Go vet:** Go files were syntax-checked only; \`go vet\` consent for this workspace is out of date (${words}). Re-enable it in Settings → Tools (desktop app) or run \`ptah config go-vet on\` in this workspace.`,
+      );
+      expect(out).toContain('go vet not run (consent-stale)');
+      expect(out).not.toContain('is off for this workspace');
+    });
+
+    it.each(
+      REASONS.flatMap((r) => [
+        [r, 'unchecked'] as const,
+        [r, 'failed'] as const,
+      ]),
+    )(
+      'reason %s (%s) is named in the Coverage line and in words; never clean',
+      (reason, status) => {
+        // A clean type-check coverage: only the go vet report qualifies it.
+        const out = formatDiagnostics(
+          payload({
+            goVet: {
+              status,
+              outcome: status === 'failed' ? 'failed' : 'not-run',
+              reason,
+              checkedFiles: 0,
+            },
+          }),
+        );
+        expect(out).not.toMatch(/No issues found/);
+        const what = status === 'failed' ? 'failed' : 'not run';
+        expect(out).toContain(`go vet ${what} (${reason})`);
+        expect(out).toMatch(
+          /\*\*Go vet:\*\* Go files were syntax-checked only; `go vet` (failed|did not run): \S/,
+        );
+        expect(out).not.toContain('not recognised');
+      },
+    );
+
+    it('an unrecognised reason code or a malformed report fails closed', () => {
+      const unknown = formatDiagnostics(
+        payload({
+          goVet: {
+            status: 'failed',
+            outcome: 'failed',
+            reason: 'gremlins',
+            checkedFiles: 0,
+          },
+        }),
+      );
+      expect(unknown).not.toMatch(/No issues found/);
+      expect(unknown).toContain(
+        'go vet failed (reason "gremlins" not recognised)',
+      );
+
+      for (const goVet of [
+        null,
+        'on',
+        { status: 'ran', outcome: 'ok', checkedFiles: 1 },
+        { status: 'checked', outcome: 'ok', checkedFiles: -1 },
+        { status: 'checked', outcome: 'ok', reason: 7, checkedFiles: 1 },
+      ]) {
+        const out = formatDiagnostics(payload({ goVet }));
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain(
+          'go vet report not recognised (Go files not claimed as vetted)',
+        );
+        expect(out).toContain('**Go vet:** report not recognised');
+      }
+    });
+
+    it('a checked run says go vet ran and is not a type check', () => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: { status: 'checked', outcome: 'ok', checkedFiles: 2 },
+        }),
+      );
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain(
+        '**Go vet:** Go files: syntax check plus `go vet` (2 files vetted); `go vet` is not a type check.',
+      );
+      expect(out).not.toMatch(/go vet[^.\n]*type-checked/i);
+      expect(out).not.toContain('go vet not run');
+    });
+
+    it('without goVet (the VS Code host) no go vet line is shown', () => {
+      const out = formatDiagnostics(payload({}));
+      expect(out).toContain('No issues found');
+      expect(out).not.toContain('Go vet');
+      expect(out).not.toContain('go-vet');
+    });
+
+    it('the compact coverage block stays within the Decision 21 bound', () => {
+      const out = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: {
+            status: 'failed',
+            outcome: 'failed',
+            reason: 'checker-error',
+            checkedFiles: 0,
+          },
+          unmappedFindings: 3,
+          diagnosticsTruncated: true,
+        }),
+      );
+      const compact = /`(\{"clean":[^`]*\})`/.exec(out)?.[1] ?? '';
+      expect(compact).not.toBe('');
+      expect(compact.length).toBeLessThanOrEqual(1_000);
+      // The checker limits are prose, not fields of the compact block.
+      expect(compact).not.toContain('goVet');
+    });
+
+    it('the go vet line and limits sit above every list, and above the unavailable reason', () => {
+      const vet = {
+        status: 'unchecked',
+        outcome: 'not-run',
+        reason: 'no-consent',
+        checkedFiles: 0,
+      };
+      const notChecked = [
+        {
+          language: 'go',
+          count: 1,
+          files: ['/r/req.go'],
+          reason: 'Syntax-checked only.',
+        },
+      ];
+      const scoped = formatDiagnostics(
+        payload({
+          coverage: GO_SYNTAX,
+          goVet: vet,
+          unmappedFindings: 2,
+          notChecked,
+          diagnostics: [
+            { file: '/r/req.go', line: 1, severity: 'error', message: 'REQ' },
+            { file: '/r/sib.go', line: 1, severity: 'error', message: 'SIB' },
+          ],
+          requestedFiles: ['/r/req.go'],
+        }),
+      );
+      const at = (out: string, s: string): number => {
+        const i = out.indexOf(s);
+        expect(i).toBeGreaterThanOrEqual(0);
+        return i;
+      };
+      expect(at(scoped, 'could not be placed')).toBeLessThan(
+        at(scoped, '**Go vet:**'),
+      );
+      expect(at(scoped, '**Go vet:**')).toBeLessThan(
+        at(scoped, '### Requested files'),
+      );
+      expect(at(scoped, '**Go vet:**')).toBeLessThan(
+        at(scoped, '### Not checked'),
+      );
+
+      const unavailable = formatDiagnostics(
+        payload({
+          status: 'unavailable',
+          reason: 'No requested file could be checked.',
+          coverage: GO_SYNTAX,
+          goVet: vet,
+          notChecked,
+        }),
+      );
+      expect(at(unavailable, OFF_LINE)).toBeLessThan(
+        at(unavailable, '**Reason:**'),
+      );
+      expect(at(unavailable, OFF_LINE)).toBeLessThan(
+        at(unavailable, '### Not checked'),
+      );
+    });
+
+    describe('through the result budget cut (diagnostics stay preformatted)', () => {
+      let spoolRoot: string;
+      beforeEach(() => {
+        spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fmt-go-vet-'));
+      });
+      afterEach(() => {
+        fs.rmSync(spoolRoot, { recursive: true, force: true });
+      });
+
+      it('a long answer keeps the go vet line, the limits and the verdict', async () => {
+        // 400 requested-file findings: listed in full, far past the budget.
+        const diagnostics = Array.from({ length: 400 }, (_, i) => ({
+          file: '/r/req.go',
+          line: i + 1,
+          severity: 'warning',
+          message: `vet finding number ${i} ${'x'.repeat(60)}`,
+        }));
+        const text = formatDiagnostics(
+          payload({
+            coverage: GO_SYNTAX,
+            goVet: {
+              status: 'unchecked',
+              outcome: 'not-run',
+              reason: 'consent-stale',
+              staleReason: 'go-changed',
+              checkedFiles: 0,
+            },
+            unmappedFindings: 4,
+            diagnosticsTruncated: true,
+            diagnostics,
+            requestedFiles: ['/r/req.go'],
+          }),
+        );
+        const outcome = await applyToolResultBudget({
+          text,
+          toolName: 'ptah_get_diagnostics',
+          requestId: 'go-vet-cut',
+          spoolRoot,
+        });
+        expect(outcome.truncated).toBe(true);
+        expect(outcome.reduced).toBe(false);
+        expect(outcome.text.length).toBeLessThan(text.length);
+        for (const kept of [
+          '**Coverage:** qualified',
+          'go vet not run (consent-stale)',
+          '4 go vet findings could not be placed in the workspace (not listed)',
+          'diagnostics truncated: the go vet listed only its first findings, more exist',
+          'out of date (the Go toolchain changed)',
+        ]) {
+          expect(outcome.text).toContain(kept);
+        }
+        expect(outcome.text).not.toContain('vet finding number 399');
+      });
     });
   });
 

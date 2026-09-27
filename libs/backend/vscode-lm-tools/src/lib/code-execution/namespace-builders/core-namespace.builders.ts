@@ -210,7 +210,8 @@ export function buildSearchNamespace(
  *
  * The provider's `coverage` and `notChecked` are forwarded on both arms
  * (TASK_2026_559 Batch 25b); a provider that reports no coverage gets
- * {@link providerDefinedCoverage}, never a clean one.
+ * {@link providerDefinedCoverage}, never a clean one. So are `goVet`,
+ * `unmappedFindings` and `diagnosticsTruncated` (Batch 37b).
  */
 export function buildDiagnosticsNamespace(
   diagnosticsProvider: IDiagnosticsProvider,
@@ -235,6 +236,17 @@ export function buildDiagnosticsNamespace(
       result.notChecked && result.notChecked.length > 0
         ? { notChecked: result.notChecked }
         : {};
+    // The go vet run and the checker limits (Batch 37b) ride along too: each
+    // one qualifies the answer in the formatter.
+    const checker = {
+      ...(result.goVet !== undefined ? { goVet: result.goVet } : {}),
+      ...(result.unmappedFindings !== undefined
+        ? { unmappedFindings: result.unmappedFindings }
+        : {}),
+      ...(result.diagnosticsTruncated === true
+        ? { diagnosticsTruncated: true }
+        : {}),
+    };
 
     if (result.status === 'unavailable') {
       return {
@@ -243,6 +255,7 @@ export function buildDiagnosticsNamespace(
         reason: result.reason,
         coverage,
         ...notChecked,
+        ...checker,
         diagnostics: [],
       };
     }
@@ -272,6 +285,7 @@ export function buildDiagnosticsNamespace(
       source: result.source,
       coverage,
       ...notChecked,
+      ...checker,
       diagnostics,
       ...(requestedFiles.length > 0 ? { requestedFiles } : {}),
     };

@@ -514,6 +514,11 @@ const OMITTED_FILES_NAMED_MAX = 20;
  * provider-defined, ...). The verdict and the compact coverage block sit
  * right under the totals, so the budget's cut of the tail never drops them
  * (the tool is `preformatted`: cut, never reduced).
+ *
+ * The checker fields (Batch 37b) qualify the verdict the same way: a `goVet`
+ * run that did not check, `unmappedFindings` and `diagnosticsTruncated` are
+ * named in the Coverage line, and a `**Go vet:**` line right under it says
+ * what happened to the Go files (O2 §5.4 consent-off and stale texts).
  */
 export function formatDiagnostics(payload: unknown): string {
   try {
@@ -524,10 +529,14 @@ export function formatDiagnostics(payload: unknown): string {
         reason?: string;
         coverage?: unknown;
         notChecked?: unknown;
+        goVet?: unknown;
+        unmappedFindings?: unknown;
+        diagnosticsTruncated?: unknown;
         diagnostics?: unknown[];
         requestedFiles?: unknown;
       };
-      const verdict = diagnosticsVerdict(p.coverage);
+      const limits = checkerLimits(p);
+      const verdict = diagnosticsVerdict(p.coverage, limits);
       const notChecked = notCheckedGroups(p.notChecked);
 
       if (p.status === 'unavailable') {
@@ -538,6 +547,7 @@ export function formatDiagnostics(payload: unknown): string {
           { h2: 'Diagnostics' },
           { p: `**Source:** ${p.source} — Unavailable (reason below).` },
           coverageBlock(verdict),
+          ...goVetBlocks(limits),
           ...notCheckedBlocks(notChecked),
           { p: `**Reason:** ${p.reason ?? 'none given.'}` },
         ]);
@@ -552,6 +562,7 @@ export function formatDiagnostics(payload: unknown): string {
             p: `**Source:** ${p.source}  \n${emptyVerdictLine(verdict)}`,
           },
           coverageBlock(verdict),
+          ...goVetBlocks(limits),
           ...notCheckedBlocks(notChecked),
           ...(isRequested
             ? [
@@ -573,12 +584,13 @@ export function formatDiagnostics(payload: unknown): string {
       return formatDiagnosticList(diagnostics, p.source, isRequested, {
         verdict,
         notChecked,
+        goVet: goVetBlocks(limits),
       });
     }
 
     if (Array.isArray(payload)) {
       // The legacy shape carries no coverage, so it is never a clean answer.
-      const verdict = diagnosticsVerdict(undefined);
+      const verdict = diagnosticsVerdict(undefined, NO_CHECKER_LIMITS);
       if (payload.length === 0)
         return json2md([
           { h2: 'Diagnostics' },
@@ -588,6 +600,7 @@ export function formatDiagnostics(payload: unknown): string {
       return formatDiagnosticList(payload, undefined, undefined, {
         verdict,
         notChecked: [],
+        goVet: [],
       });
     }
 
@@ -643,6 +656,8 @@ function formatDiagnosticList(
   answered: {
     readonly verdict: DiagnosticsVerdict;
     readonly notChecked: readonly NotCheckedGroup[];
+    /** The go vet line, if any; it follows the Coverage line. */
+    readonly goVet: ReadonlyArray<{ p: string }>;
   },
 ): string {
   const ranked: RankedDiagnostic[] = (
@@ -696,6 +711,7 @@ function formatDiagnosticList(
     // Right under the totals, before every list: a budget cut of the tail
     // never drops what the answer did not cover.
     coverageBlock(answered.verdict),
+    ...answered.goVet,
   ];
   // Unscoped, the not-checked groups are counts only and go next. Scoped,
   // they name requested files and follow the requested-file diagnostics, which
@@ -819,10 +835,16 @@ function asCoverage(value: unknown): LanguageCoverage | undefined {
     : undefined;
 }
 
-function diagnosticsVerdict(value: unknown): DiagnosticsVerdict {
+function diagnosticsVerdict(
+  value: unknown,
+  limits: CheckerLimits,
+): DiagnosticsVerdict {
   const received = asCoverage(value);
   if (received === undefined) {
-    return { bare: false, qualifiers: [COVERAGE_NOT_REPORTED] };
+    return {
+      bare: false,
+      qualifiers: [COVERAGE_NOT_REPORTED, ...checkerQualifiers(limits)],
+    };
   }
   // The payload crosses a boundary: a value outside a closed vocabulary is
   // one the clean-answer rule cannot judge, so it qualifies the answer and
@@ -841,6 +863,9 @@ function diagnosticsVerdict(value: unknown): DiagnosticsVerdict {
     qualifiers.push(reasonText(reason, coverage));
   }
   qualifiers.push(...approximationTexts(coverage));
+  // A go vet run that did not check, unplaced findings and a truncated list
+  // each qualify the answer, whatever the coverage counts say (Batch 37b).
+  qualifiers.push(...checkerQualifiers(limits));
   const typeCheckOnly =
     coverage.checks === undefined || coverage.checks === 'type-check';
   if (!typeCheckOnly && qualifiers.length === 0) {
@@ -1064,6 +1089,232 @@ function notCheckedBlocks(
     }
   }
   return [{ h3: 'Not checked' }, lines.join('\n') + '\n'];
+}
+
+/**
+ * The opt-in `go vet` run as the payload carries it (Batch 37b). The payload
+ * crosses a boundary, so every field is read from `unknown`; a report that
+ * does not have this shape is `'malformed'` and fails closed.
+ */
+interface GoVetView {
+  readonly status: 'checked' | 'unchecked' | 'failed';
+  readonly reason?: string;
+  readonly staleReason?: string;
+  readonly checkedFiles: number;
+}
+
+/**
+ * The checker fields of a payload. `unmapped` is the count of findings a
+ * checker could not place in the workspace (0 when none, `'unknown'` when
+ * the field is present but not a count); `truncated` is fail-closed: any
+ * present value other than `false` counts as truncated.
+ */
+interface CheckerLimits {
+  readonly goVet?: GoVetView | 'malformed';
+  readonly unmapped: number | 'unknown';
+  readonly truncated: boolean;
+}
+
+const NO_CHECKER_LIMITS: CheckerLimits = { unmapped: 0, truncated: false };
+
+const GO_VET_STATUSES: ReadonlySet<unknown> = new Set([
+  'checked',
+  'unchecked',
+  'failed',
+]);
+
+/**
+ * Each fixed go vet reason code (the checker's `GoVetReason`, plus the
+ * provider's `checker-error`) in words. A code outside this map is named as
+ * not recognised, never dropped.
+ */
+const GO_VET_REASON_TEXT: ReadonlyMap<string, string> = new Map([
+  ['no-consent', '`go vet` is off for this workspace'],
+  ['consent-stale', '`go vet` consent for this workspace is out of date'],
+  ['no-go-binary', 'no Go toolchain was found on PATH'],
+  [
+    'no-go-mod',
+    'no go.mod above the requested files (GOPATH mode is not vetted)',
+  ],
+  ['no-go-files', 'no requested Go file to vet'],
+  ['unscoped', '`go vet` runs only on requested files (pass `files`)'],
+  ['no-spawner', 'this host cannot start processes for it'],
+  ['spawn-failed', 'the go command could not be started'],
+  ['timeout', 'it timed out and a stop was requested'],
+  ['too-large', 'its output passed the size cap and a stop was requested'],
+  ['cancelled', 'the call was cancelled'],
+  ['toolchain-mismatch', 'go.mod needs a newer Go than the local toolchain'],
+  [
+    'missing-modules',
+    'required modules are not in the module cache (no network)',
+  ],
+  ['build-errors', 'the packages did not build'],
+  ['analyzer-error', 'an analyzer failed'],
+  ['unparseable', 'its output could not be read'],
+  ['cgo', 'cgo files are not built here'],
+  ['other-module', 'some files are in another Go module'],
+  ['omitted-by-cap', 'some packages were past the per-call package cap'],
+  ['invalid-package-path', 'a package directory could not be passed safely'],
+  ['not-found', 'a requested file does not exist'],
+  ['root-unresolvable', 'the workspace folder could not be resolved'],
+  ['outside-root', 'a file resolves outside this workspace'],
+  ['build-constraints', 'build constraints may exclude some files'],
+  ['ignored-name', 'the go command ignores some file names'],
+  ['unverifiable', 'some files could not be verified as analysed'],
+  ['unmapped-findings', 'some findings could not be placed in the workspace'],
+  ['checker-error', 'the go vet checker failed'],
+]);
+
+const GO_VET_STALE_TEXT: ReadonlyMap<string, string> = new Map([
+  ['root-moved', 'the workspace folder moved'],
+  ['root-replaced', 'the workspace folder was replaced'],
+  ['go-changed', 'the Go toolchain changed'],
+]);
+
+/** Where to turn `go vet` on (O2 §5.4). */
+const GO_VET_ENABLE_HINT =
+  'Settings → Tools (desktop app) or run `ptah config go-vet on` in this workspace.';
+
+/** The payload's checker fields, validated. */
+function checkerLimits(p: {
+  readonly goVet?: unknown;
+  readonly unmappedFindings?: unknown;
+  readonly diagnosticsTruncated?: unknown;
+}): CheckerLimits {
+  const unmapped =
+    p.unmappedFindings === undefined
+      ? 0
+      : typeof p.unmappedFindings === 'number' &&
+          Number.isInteger(p.unmappedFindings) &&
+          p.unmappedFindings >= 0
+        ? p.unmappedFindings
+        : 'unknown';
+  return {
+    ...(p.goVet !== undefined ? { goVet: goVetView(p.goVet) } : {}),
+    unmapped,
+    truncated:
+      p.diagnosticsTruncated !== undefined && p.diagnosticsTruncated !== false,
+  };
+}
+
+function goVetView(value: unknown): GoVetView | 'malformed' {
+  if (value === null || typeof value !== 'object') return 'malformed';
+  const r = value as Record<string, unknown>;
+  const status = r['status'];
+  const reason = r['reason'];
+  const staleReason = r['staleReason'];
+  const checkedFiles = r['checkedFiles'];
+  if (
+    !GO_VET_STATUSES.has(status) ||
+    (reason !== undefined && typeof reason !== 'string') ||
+    (staleReason !== undefined && typeof staleReason !== 'string') ||
+    typeof checkedFiles !== 'number' ||
+    !Number.isInteger(checkedFiles) ||
+    checkedFiles < 0
+  ) {
+    return 'malformed';
+  }
+  return {
+    status: status as GoVetView['status'],
+    ...(reason !== undefined ? { reason } : {}),
+    ...(staleReason !== undefined ? { staleReason } : {}),
+    checkedFiles,
+  };
+}
+
+/** A reason code as it appears in the Coverage line. */
+function goVetCode(reason: string | undefined): string {
+  if (reason === undefined) return 'no reason given';
+  return GO_VET_REASON_TEXT.has(reason)
+    ? reason
+    : `reason ${JSON.stringify(clip(reason, 40))} not recognised`;
+}
+
+/** A reason code in words. */
+function goVetReasonWords(reason: string | undefined): string {
+  if (reason === undefined) return 'no reason was given';
+  return (
+    GO_VET_REASON_TEXT.get(reason) ??
+    `reason ${JSON.stringify(clip(reason, 40))} not recognised`
+  );
+}
+
+/**
+ * The Coverage-line qualifiers of the checker fields: a go vet run that did
+ * not check (or checked with a limitation), findings that could not be
+ * placed, and a truncated list. Each one keeps the answer from being bare.
+ */
+function checkerQualifiers(limits: CheckerLimits): string[] {
+  const texts: string[] = [];
+  const vet = limits.goVet;
+  if (vet === 'malformed') {
+    texts.push('go vet report not recognised (Go files not claimed as vetted)');
+  } else if (vet !== undefined) {
+    if (vet.status !== 'checked') {
+      texts.push(
+        `go vet ${vet.status === 'failed' ? 'failed' : 'not run'} (${goVetCode(vet.reason)})`,
+      );
+    } else if (
+      vet.reason !== undefined &&
+      !(vet.reason === 'unmapped-findings' && limits.unmapped !== 0)
+    ) {
+      texts.push(`go vet limitation (${goVetCode(vet.reason)})`);
+    }
+  }
+  const checker = vet === undefined ? 'checker' : 'go vet';
+  if (limits.unmapped === 'unknown') {
+    texts.push(
+      `an unreported number of ${checker} findings could not be placed in the workspace (not listed)`,
+    );
+  } else if (limits.unmapped > 0) {
+    texts.push(
+      `${limits.unmapped} ${checker} finding${limits.unmapped === 1 ? '' : 's'} could not be placed in the workspace (not listed)`,
+    );
+  }
+  if (limits.truncated) {
+    texts.push(
+      `diagnostics truncated: the ${checker} listed only its first findings, more exist`,
+    );
+  }
+  return texts;
+}
+
+/**
+ * The `**Go vet:**` line (O2 §5.4): what happened to the Go files, in words.
+ * It sits right under the Coverage line, above every list. Only a host that
+ * attached the checker sends `goVet`, so VS Code never shows it.
+ */
+function goVetBlocks(limits: CheckerLimits): Array<{ p: string }> {
+  const vet = limits.goVet;
+  if (vet === undefined) return [];
+  return [{ p: `**Go vet:** ${goVetLine(vet)}` }];
+}
+
+function goVetLine(vet: GoVetView | 'malformed'): string {
+  if (vet === 'malformed') {
+    return 'report not recognised; Go files are not claimed as vetted.';
+  }
+  if (vet.reason === 'no-consent') {
+    return `Go files were syntax-checked only; \`go vet\` is off for this workspace. Enable it in ${GO_VET_ENABLE_HINT}`;
+  }
+  if (vet.reason === 'consent-stale') {
+    const why =
+      vet.staleReason === undefined
+        ? 'reason not reported'
+        : (GO_VET_STALE_TEXT.get(vet.staleReason) ??
+          `reason ${JSON.stringify(clip(vet.staleReason, 40))} not recognised`);
+    return `Go files were syntax-checked only; \`go vet\` consent for this workspace is out of date (${why}). Re-enable it in ${GO_VET_ENABLE_HINT}`;
+  }
+  if (vet.status === 'checked') {
+    const files = `${vet.checkedFiles} file${vet.checkedFiles === 1 ? '' : 's'}`;
+    const limitation =
+      vet.reason === undefined
+        ? ''
+        : ` Limitation: ${goVetReasonWords(vet.reason)}.`;
+    return `Go files: syntax check plus \`go vet\` (${files} vetted); \`go vet\` is not a type check.${limitation}`;
+  }
+  const what = vet.status === 'failed' ? 'failed' : 'did not run';
+  return `Go files were syntax-checked only; \`go vet\` ${what}: ${goVetReasonWords(vet.reason)}.`;
 }
 
 /**
