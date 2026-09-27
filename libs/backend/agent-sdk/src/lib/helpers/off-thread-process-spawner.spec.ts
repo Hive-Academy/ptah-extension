@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -8,7 +9,11 @@ import { Worker } from 'node:worker_threads';
 import crossSpawn from 'cross-spawn';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { LAUNCH_GUARD_REFUSED } from '@ptah-extension/platform-core';
+import type {
+  SpawnLaunchGuard,
+  SpawnedProcessHandle,
+} from '@ptah-extension/platform-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -21,6 +26,7 @@ import {
   type OffThreadSpawnHooks,
   type PtahSpawnedProcess,
 } from './off-thread-process-spawner';
+import { OFF_THREAD_SPAWNER_WORKER_SOURCE } from './off-thread-process-spawner-source';
 import {
   LIVE_WORKER_HARD_CAP,
   LIVE_WORKER_SOFT_CAP,
@@ -561,6 +567,74 @@ describe('OffThreadProcessSpawner', () => {
         },
       );
     });
+
+    describe('an absolute go.exe (TASK_2026_559 Batch 37b1b, O2 §4.1)', () => {
+      // The go vet checker hands the spawner an absolute `…\go.exe` with a
+      // from-scratch env (no PATHEXT). The parser must pass it straight
+      // through: no cmd.exe, no `/d /s /c`, no verbatim arguments, so no
+      // shell ever sees the package arguments. `node.exe` stands in for the
+      // toolchain: it runs, and its "cannot find module" error names the first
+      // argument, which proves the argument array reached the child as given.
+      const itWin = process.platform === 'win32' ? it : it.skip;
+      let root = '';
+      let goExe = '';
+      let moduleDir = '';
+
+      beforeAll(() => {
+        if (process.platform !== 'win32') return;
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-go-exe-'));
+        const binDir = path.join(root, 'bin');
+        moduleDir = path.join(root, 'mod');
+        fs.mkdirSync(binDir);
+        fs.mkdirSync(path.join(moduleDir, 'a'), { recursive: true });
+        goExe = path.join(binDir, 'go.exe');
+        try {
+          fs.linkSync(process.execPath, goExe);
+        } catch {
+          // A hard link fails across volumes (EXDEV) or on a file system
+          // without links; a copy is the same executable, only slower to make.
+          // A copy that fails too throws, and the case fails loudly.
+          fs.copyFileSync(process.execPath, goExe);
+        }
+      });
+
+      afterAll(() => {
+        if (root) fs.rmSync(root, { recursive: true, force: true });
+      });
+
+      itWin(
+        'runs it with the same command and args, without cmd.exe',
+        async () => {
+          const child = spawner.spawnProcess({
+            command: goExe,
+            args: ['vet', '-json', './a'],
+            cwd: moduleDir,
+            env: {
+              PATH: path.dirname(goExe),
+              SystemRoot: process.env['SystemRoot'] ?? 'C:\\Windows',
+              GOFLAGS: '-mod=readonly -buildvcs=false',
+            },
+          });
+
+          const stderr = readAllFrom(child.stderr);
+          const code = await waitForClose(child);
+
+          const message = spawnMessages()[0];
+          expect(message?.['command']).toBe(goExe);
+          expect(message?.['args']).toEqual(['vet', '-json', './a']);
+          expect(String(message?.['command']).toLowerCase()).not.toContain(
+            'cmd.exe',
+          );
+          expect(message?.['args']).not.toEqual(
+            expect.arrayContaining(['/d', '/s', '/c']),
+          );
+          expect(message?.['windowsVerbatimArguments']).toBe(false);
+          // It ran: the stand-in exits non-zero naming its first argument.
+          expect(typeof code).toBe('number');
+          expect(await stderr).toContain(path.join(moduleDir, 'vet'));
+        },
+      );
+    });
   });
 
   describe('worker reuse (TASK_2026_437 C12)', () => {
@@ -881,6 +955,155 @@ describe('OffThreadProcessSpawner', () => {
         'SIGKILL',
       );
       await expectWriteRejected(child);
+    });
+  });
+
+  describe('launchGuard (TASK_2026_559 Lane K closing review r2 finding 1)', () => {
+    let dir: string;
+    let consentFile: string;
+    let binary: string;
+
+    function sha256(file: string): string {
+      return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    }
+
+    /** Facts as the caller authorized them: consent bytes + binary identity. */
+    function guardNow(): SpawnLaunchGuard {
+      const stats = fs.statSync(binary);
+      return {
+        fileContents: [{ path: consentFile, sha256: sha256(consentFile) }],
+        fileIdentities: [
+          {
+            path: binary,
+            realpath: fs.realpathSync.native(binary),
+            size: stats.size,
+            mtimeMs: stats.mtimeMs,
+          },
+        ],
+      };
+    }
+
+    beforeEach(() => {
+      dir = fs.realpathSync.native(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-launch-guard-')),
+      );
+      consentFile = path.join(dir, 'consent.json');
+      fs.writeFileSync(consentFile, '{"v":1}');
+      binary = path.join(dir, 'tool.bin');
+      fs.writeFileSync(binary, 'identity');
+    });
+
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    function spawnGuarded(guard: SpawnLaunchGuard): SpawnedProcessHandle {
+      return spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write("ran")'],
+        env: { ...process.env },
+        launchGuard: guard,
+      });
+    }
+
+    function outcome(
+      child: SpawnedProcessHandle,
+    ): Promise<{ kind: 'error'; code?: string } | { kind: 'close' }> {
+      return new Promise((resolve) => {
+        child.once('error', (error) =>
+          resolve({
+            kind: 'error',
+            code: (error as Error & { code?: string }).code,
+          }),
+        );
+        child.once('close', () => resolve({ kind: 'close' }));
+      });
+    }
+
+    it('a guard that still holds spawns exactly as before', async () => {
+      const child = spawnGuarded(guardNow());
+
+      await expect(outcome(child)).resolves.toEqual({ kind: 'close' });
+      await expect(child.whenSpawned).resolves.toEqual(expect.any(Number));
+    });
+
+    it.each([
+      ['the consent file was deleted', () => fs.rmSync(consentFile)],
+      [
+        'the consent file was rewritten',
+        () => fs.writeFileSync(consentFile, '{"v":2}'),
+      ],
+      ['the binary changed', () => fs.appendFileSync(binary, ' replaced')],
+    ])(
+      'worker: %s after the decision → ELAUNCHGUARD, no child',
+      async (_label, change) => {
+        const guard = guardNow();
+        change();
+        const child = spawnGuarded(guard);
+
+        await expect(outcome(child)).resolves.toEqual({
+          kind: 'error',
+          code: LAUNCH_GUARD_REFUSED,
+        });
+        await expect(child.whenSpawned).resolves.toBeNull();
+      },
+    );
+
+    it('inline fallback: a guard that no longer holds throws ELAUNCHGUARD and creates no child', () => {
+      process.env['PTAH_SDK_INLINE_SPAWN'] = '1';
+      const guard = guardNow();
+      fs.rmSync(consentFile);
+
+      let thrown: unknown;
+      try {
+        spawnGuarded(guard);
+      } catch (error: unknown) {
+        thrown = error;
+      }
+      expect((thrown as { code?: string }).code).toBe(LAUNCH_GUARD_REFUSED);
+    });
+
+    it('the REAL worker re-checks at the instant of creation: a revoke landing while the spawn message is queued stops the launch', async () => {
+      // The reviewer's probe: the worker is held before its message loop, the
+      // spawn is posted, the consent is revoked, then the worker is released.
+      const gate = new Int32Array(new SharedArrayBuffer(4));
+      const worker = new Worker(
+        "const { workerData } = require('node:worker_threads');\n" +
+          'Atomics.wait(new Int32Array(workerData), 0, 0);\n' +
+          OFF_THREAD_SPAWNER_WORKER_SOURCE,
+        { eval: true, workerData: gate.buffer },
+      );
+      const messages: Array<Record<string, unknown>> = [];
+      const done = new Promise<void>((resolve) => {
+        worker.on('message', (message: Record<string, unknown>) => {
+          messages.push(message);
+          if (message['type'] === 'error' || message['type'] === 'exit') {
+            resolve();
+          }
+        });
+      });
+      try {
+        worker.postMessage({
+          type: 'spawn',
+          id: 1,
+          command: process.execPath,
+          args: ['-e', ''],
+          env: { ...process.env },
+          stderrMode: 'ignore',
+          launchGuard: guardNow(),
+        });
+        fs.rmSync(consentFile);
+        Atomics.store(gate, 0, 1);
+        Atomics.notify(gate, 0);
+        await done;
+
+        expect(messages.some((m) => m['type'] === 'spawned')).toBe(false);
+        expect(messages).toContainEqual(
+          expect.objectContaining({ type: 'error', code: 'ELAUNCHGUARD' }),
+        );
+      } finally {
+        await worker.terminate();
+      }
     });
   });
 

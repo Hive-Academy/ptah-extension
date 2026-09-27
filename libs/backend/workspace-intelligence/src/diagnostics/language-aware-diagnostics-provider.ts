@@ -22,6 +22,15 @@
  *   to pass `files`, other recognised languages `unsupported`.
  * - **Tier 0.** Nothing is spawned: the syntax check is an in-process parse
  *   (User Decision 19; `go vet` is a separate opt-in, Batch 37).
+ * - **`go vet` (Tier 1, opt-in; Batch 37b1a).** When the host attached a
+ *   {@link GoVetDiagnosticsChecker}, requested Go files are also handed to
+ *   it. It spawns only with the workspace's stored, current consent; every
+ *   other answer (off, stale, no toolchain, a failed or thrown run) keeps the
+ *   Tier 0 syntax result, names the Go files in `notChecked` with the
+ *   checker's fixed reason, and reports the run in `goVet`. Its findings are
+ *   warnings next to the syntax errors; `unmappedFindings` and
+ *   `diagnosticsTruncated` are forwarded. Vet is never a type check
+ *   (`GO_VET_COVERAGE`: `syntax-only`, `go:syntax-only`).
  *
  * Every answer carries `coverage` (Batch 22 contract, verdict first) and,
  * when files went unchecked, `notChecked`. A syntax-only check is never a
@@ -54,6 +63,7 @@ import type {
   CoverageChecks,
   CoverageFields,
   DiagnosticEntry,
+  DiagnosticsCoverageFields,
   DiagnosticsResult,
   DiagnosticsScope,
   FailureReason,
@@ -81,6 +91,10 @@ import {
 } from '../ast/tree-sitter.config';
 import type { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { parserFailureReason } from '../ast/parser-refusal';
+import {
+  GO_VET_COVERAGE,
+  type GoVetChecker,
+} from './external-checkers/go-vet-checker';
 
 /** Most files one scoped call syntax-checks; file 51 on is `omittedByCap`. */
 export const SYNTAX_FILE_CAP = 50;
@@ -165,6 +179,21 @@ function anyCaseExtensionPattern(extension: string): string {
 const CENSUS_GLOB = `**/*.{${recognisedSourceExtensions()
   .map((extension) => anyCaseExtensionPattern(extension.slice(1)))
   .join(',')}}`;
+
+/** The `go vet` call the provider makes; the host builds the checker. */
+export type GoVetDiagnosticsChecker = Pick<GoVetChecker, 'check'>;
+
+/** What one `go vet` call contributes to a scoped answer. */
+interface GoVetAnswer {
+  readonly report: NonNullable<DiagnosticsCoverageFields['goVet']>;
+  readonly diagnostics: readonly FileDiagnostics[];
+  readonly notChecked: readonly NotCheckedFiles[];
+  readonly unmappedFindings: number;
+  readonly diagnosticsTruncated: boolean;
+}
+
+const GO_VET_ERROR_TEXT =
+  'go vet failed unexpectedly, so no go vet result is claimed (syntax-checked only).';
 
 /** The parser calls the syntax check needs. */
 export type SyntaxParser = Pick<
@@ -379,12 +408,64 @@ function checksOf(
 
 function syntaxApproximations(
   languages: Iterable<SupportedLanguage>,
+  extra: readonly Approximation[] = [],
 ): Pick<CoverageFields, 'approximations' | 'approximationsOmitted'> {
-  const approximations: Approximation[] = [];
+  const approximations = new Set<Approximation>();
   for (const language of languages) {
-    approximations.push(`${language}:syntax-only`);
+    approximations.add(`${language}:syntax-only`);
   }
-  return limitApproximations(approximations);
+  for (const approximation of extra) approximations.add(approximation);
+  return limitApproximations([...approximations]);
+}
+
+/** The `go vet` fields of an answer; `unmappedFindings` only above 0. */
+function goVetFields(
+  vet: GoVetAnswer | undefined,
+): Pick<
+  DiagnosticsResult,
+  'goVet' | 'unmappedFindings' | 'diagnosticsTruncated'
+> {
+  if (vet === undefined) return {};
+  return {
+    goVet: vet.report,
+    ...(vet.unmappedFindings > 0
+      ? { unmappedFindings: vet.unmappedFindings }
+      : {}),
+    ...(vet.diagnosticsTruncated ? { diagnosticsTruncated: true } : {}),
+  };
+}
+
+function toSlash(file: string): string {
+  return file.replace(/\\/g, '/');
+}
+
+/**
+ * Syntax entries with the vet findings added to the same file's entry (one
+ * entry per file). Vet names files with the platform separator; they are
+ * written with `/` like every path of this provider. A finding vet reports in
+ * a file the cap omitted (a sibling in a vetted package) is left out: that
+ * file is `omittedByCap`, checked by nothing in this answer.
+ */
+function mergeByFile(
+  syntax: readonly FileDiagnostics[],
+  vet: readonly FileDiagnostics[],
+  isOmitted: (file: string) => boolean,
+): FileDiagnostics[] {
+  const byFile = new Map<string, FileDiagnostics>();
+  for (const entry of syntax) {
+    byFile.set(entry.file, {
+      file: entry.file,
+      diagnostics: [...entry.diagnostics],
+    });
+  }
+  for (const entry of vet) {
+    const file = toSlash(entry.file);
+    if (isOmitted(file)) continue;
+    const existing = byFile.get(file);
+    if (existing) existing.diagnostics.push(...entry.diagnostics);
+    else byFile.set(file, { file, diagnostics: [...entry.diagnostics] });
+  }
+  return [...byFile.values()];
 }
 
 /** Resolve on a later macrotask, so a long run of parses lets the loop breathe. */
@@ -428,13 +509,16 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
    * @param fs file reads and the census discovery.
    * @param parser the tree-sitter parser the syntax check runs on.
    * @param platform Node platform string for the root containment rule, so a
-   *   spec can drive the win32 case-fold on another OS. Hosts never pass it.
+   *   spec can drive the win32 case-fold on another OS. Hosts pass `undefined`.
+   * @param goVet the opt-in `go vet` checker, when the host attached one
+   *   (`registerTypeScriptDiagnosticsProvider`); absent, Go stays Tier 0.
    */
   constructor(
     private readonly typeScript: IDiagnosticsProvider,
     private readonly fs: IFileSystemProvider,
     private readonly parser: SyntaxParser,
     private readonly platform: NodeJS.Platform = process.platform,
+    private readonly goVet?: GoVetDiagnosticsChecker,
   ) {}
 
   async getDiagnostics(
@@ -595,10 +679,24 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     const omitted = syntaxFiles.slice(SYNTAX_FILE_CAP);
     // Both are observed from the start: a type check that rejects while the
     // parse runs (or after the parse rejects) is never an unhandled rejection.
-    const [syntax, typed] = await Promise.all([
+    // The vet run never rejects (`runGoVet`), so a checker failure cannot
+    // take the TypeScript or syntax results with it. Vet gets only the Go
+    // files the cap admitted: an `omittedByCap` file is checked by nothing
+    // (review r1 Moderate 1), so it never carries findings.
+    const [syntax, typed, vet] = await Promise.all([
       this.syntaxCheck(checked),
       typeCheck,
+      this.runGoVet(
+        workspaceRoot,
+        checked
+          .filter((entry) => entry.language === 'go')
+          .map((entry) => entry.file),
+      ),
     ]);
+    const vetChecked = vet?.report.checkedFiles ?? 0;
+    const omittedIds = new Set(
+      omitted.map((entry) => this.identity(entry.file)),
+    );
 
     const typeCheckRan = typed?.status === 'available';
     if (typed !== undefined && typed.status === 'unavailable') {
@@ -631,6 +729,7 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
         (failedByReason[failure.reason] ?? 0) + 1;
     }
     const syntaxAnalyzed = sumOf(syntax.analyzed);
+    const syntaxSide = syntaxAnalyzed + vetChecked;
     const coverage = withCoverageVerdict({
       supportedLanguages: DIAGNOSTICS_LANGUAGES,
       census: 'complete',
@@ -655,10 +754,15 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
           }
         : {}),
       ...(syntax.failures.length > 0 ? { failedByReason } : {}),
-      ...syntaxApproximations(syntax.analyzed.keys()),
-      ...optionalChecks(checksOf(typeCheckRan, syntaxAnalyzed > 0)),
+      ...syntaxApproximations(
+        syntax.analyzed.keys(),
+        vetChecked > 0 ? GO_VET_COVERAGE.approximations : [],
+      ),
+      // `go vet` counts on the syntax side: GO_VET_COVERAGE.checks.
+      ...optionalChecks(checksOf(typeCheckRan, syntaxSide > 0)),
     });
-    const groups = groupNotChecked(notChecked);
+    const groups = [...groupNotChecked(notChecked), ...(vet?.notChecked ?? [])];
+    const vetFields = goVetFields(vet);
 
     if (typed !== undefined && typed.status === 'unavailable') {
       // A requested TS/JS file went unchecked: the answer is not available,
@@ -673,15 +777,17 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
         coverage,
         groups,
         `${typed.reason} ${describeNotChecked(withoutTypeChecked(groups))}${syntaxNote}`,
+        vetFields,
       );
     }
-    if (!typeCheckRan && syntaxAnalyzed === 0) {
+    if (!typeCheckRan && syntaxSide === 0) {
       // Nothing requested could be checked: never an empty `available`.
       return unavailableWith(
         SYNTAX_SOURCE,
         coverage,
         groups,
         `No requested file could be checked. ${describeNotChecked(groups)}`.trim(),
+        vetFields,
       );
     }
     return {
@@ -694,11 +800,75 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
             : typed.source,
       coverage,
       ...(groups.length > 0 ? { notChecked: groups } : {}),
+      ...vetFields,
       diagnostics: [
         ...(typed?.status === 'available' ? typed.diagnostics : []),
-        ...syntax.diagnostics,
+        ...mergeByFile(syntax.diagnostics, vet?.diagnostics ?? [], (file) =>
+          omittedIds.has(this.identity(file)),
+        ),
       ],
     };
+  }
+
+  /**
+   * The `go vet` answer for the requested Go files, or `undefined` when no
+   * checker is attached or no Go file was requested. The checker reads the
+   * consent itself, right before any spawn. It never rejects: a throw
+   * becomes `failed/checker-error` with every Go file named.
+   */
+  private async runGoVet(
+    workspaceRoot: string,
+    goFiles: readonly string[],
+  ): Promise<GoVetAnswer | undefined> {
+    if (this.goVet === undefined || goFiles.length === 0) return undefined;
+    try {
+      const result = await this.goVet.check({ workspaceRoot, files: goFiles });
+      return {
+        report: {
+          status: result.status,
+          outcome: result.outcome,
+          ...(result.reason !== undefined ? { reason: result.reason } : {}),
+          ...(result.staleReason !== undefined
+            ? { staleReason: result.staleReason }
+            : {}),
+          checkedFiles: result.checkedFiles.length,
+        },
+        diagnostics: result.diagnostics,
+        // The checker names files with the platform separator; every path
+        // of this provider is written with `/`.
+        notChecked: result.notChecked.map((group) =>
+          group.files === undefined
+            ? group
+            : { ...group, files: group.files.map(toSlash) },
+        ),
+        unmappedFindings: result.unmappedFindings,
+        diagnosticsTruncated: result.diagnosticsTruncated,
+      };
+    } catch (error: unknown) {
+      // degradation-audit: reported — a checker that throws is `goVet`
+      // `failed/checker-error` and every requested Go file is named in
+      // `notChecked`; the Go files keep their syntax result and the other
+      // languages' results are untouched. The error text is not forwarded.
+      void error;
+      return {
+        report: {
+          status: 'failed',
+          outcome: 'failed',
+          reason: 'checker-error',
+          checkedFiles: 0,
+        },
+        diagnostics: [],
+        notChecked: groupNotChecked(
+          goFiles.map((file) => ({
+            file,
+            language: 'go',
+            reason: GO_VET_ERROR_TEXT,
+          })),
+        ),
+        unmappedFindings: 0,
+        diagnosticsTruncated: false,
+      };
+    }
   }
 
   private async getUnscoped(workspaceRoot: string): Promise<DiagnosticsResult> {
@@ -1064,12 +1234,14 @@ function unavailableWith(
   coverage: LanguageCoverage,
   notChecked: readonly NotCheckedFiles[],
   reason: string,
+  vetFields: ReturnType<typeof goVetFields> = {},
 ): DiagnosticsResult {
   return {
     status: 'unavailable',
     source,
     coverage,
     ...(notChecked.length > 0 ? { notChecked } : {}),
+    ...vetFields,
     reason,
   };
 }

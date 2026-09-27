@@ -885,6 +885,68 @@ describe('buildDiagnosticsNamespace', () => {
       expect('notChecked' in (await ns.getAll())).toBe(false);
     });
 
+    // Batch 37b1b: the go vet run and the checker limits reach the formatter
+    // on both arms; without them it could print a false clean answer.
+    it.each(['available', 'unavailable'] as const)(
+      'forwards goVet, unmappedFindings and diagnosticsTruncated on the %s arm; the answer is not clean',
+      async (status) => {
+        const goVet = {
+          status: 'checked',
+          outcome: 'findings',
+          reason: 'unmapped-findings',
+          checkedFiles: 1,
+        } as const;
+        const clean = withCoverageVerdict({
+          ...MIXED_UNSCOPED,
+          unchecked: 0,
+        });
+        const fields = {
+          coverage: clean,
+          goVet,
+          unmappedFindings: 2,
+          diagnosticsTruncated: true,
+        };
+        const result: DiagnosticsResult =
+          status === 'available'
+            ? {
+                status,
+                source: 'tree-sitter-syntax',
+                diagnostics: [],
+                ...fields,
+              }
+            : { status, source: 'tree-sitter-syntax', reason: 'x', ...fields };
+        const ns = buildDiagnosticsNamespace(
+          createDiagnosticsProvider(result),
+          createWorkspaceProviderMock(),
+        );
+
+        const payload = await ns.getAll();
+
+        expect(payload.goVet).toBe(goVet);
+        expect(payload.unmappedFindings).toBe(2);
+        expect(payload.diagnosticsTruncated).toBe(true);
+        const out = formatDiagnostics(payload);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain('2 go vet findings could not be placed');
+      },
+    );
+
+    it('leaves the checker fields out when the provider reports none', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock(),
+      );
+      const payload = await ns.getAll();
+      expect('goVet' in payload).toBe(false);
+      expect('unmappedFindings' in payload).toBe(false);
+      expect('diagnosticsTruncated' in payload).toBe(false);
+    });
+
     it.each(['available', 'unavailable'] as const)(
       'a provider with no coverage (the VS Code provider) is provider-defined on the %s arm, analyzed null, never clean',
       async (status) => {

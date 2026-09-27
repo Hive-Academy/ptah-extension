@@ -72,8 +72,10 @@ export async function killProcessTree(
     } catch {
       try {
         process.kill(pid, nextSignal);
-      } catch {
-        // Best effort: the process may already have exited.
+      } catch (error: unknown) {
+        // ESRCH: the process already exited, which is the goal. Anything else
+        // (EPERM) left it alive; the caller is told, as on win32.
+        if (!isEsrch(error)) onError?.(error);
       }
     }
   };

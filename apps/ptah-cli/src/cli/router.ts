@@ -378,6 +378,19 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  config
+    .command('go-vet <action>')
+    .description(
+      'show or change consent to run `go vet` in this workspace (status|on|off) via diagnostics:go-vet-consent-get/-set',
+    )
+    .action(async (action: string) => {
+      const exit = await configCmd.executeGoVet(
+        action,
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
   // -- ptah harness ----------------------------------------------------------
   // Backed by shared HarnessRpcHandlers (registered globally via
   // `registerAllRpcHandlers()`), so VS Code, Electron, and the CLI all

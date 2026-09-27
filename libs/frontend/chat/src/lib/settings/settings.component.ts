@@ -29,6 +29,7 @@ import { OutputStyleConfigComponent } from './output-style/output-style-config.c
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
+import { GoVetConsentConfigComponent } from './ptah-ai/go-vet-consent-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -74,6 +75,7 @@ import {
     AgentOrchestrationConfigComponent,
     WebSearchConfigComponent,
     VoiceConfigComponent,
+    GoVetConsentConfigComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',

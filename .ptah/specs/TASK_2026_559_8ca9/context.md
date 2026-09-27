@@ -70,6 +70,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 25. O2/O3 policy (user, 2026-09-27, after the O2/O3 revision): `go vet` consent ENDS when the resolved Go binary changes (a Go upgrade needs a new opt-in), as well as when the workspace folder moves or is replaced. For the vendored Kotlin grammar (Batch 30k) the signed GitHub build attestation (`gh attestation verify`) + the byte-identical npm copy + the ABI-14 load test are sufficient; the byte-for-byte rebuild recipe stays documented but does not block 30k.
 
+26. go vet revoke semantics (user, 2026-09-27, after the Lane K closing review r3): the launch guard re-checks consent and the Go binary identity immediately before process creation (c5cab17fe). The remaining microsecond window between the worker's final consent read and process creation is ACCEPTED and documented: a revoke applies to every launch whose final check happens after the revoke completes; a launch already past its final check counts as started before the revoke, like a running child (O2 already lets a started run finish, bounded by the 30 s timeout). No interprocess lock. An attacker who can write into the Go toolchain directory is outside the threat model. O2 §3 must record confirmToken, go-changed, the returned goBinary and this linearization.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

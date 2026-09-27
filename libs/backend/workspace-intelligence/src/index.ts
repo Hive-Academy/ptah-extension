@@ -149,3 +149,29 @@ export {
   LanguageAwareDiagnosticsProvider,
   type SyntaxParser,
 } from './diagnostics/language-aware-diagnostics-provider';
+// Batch 37a: the opt-in `go vet` checker; 37b wires it and the consent RPC.
+export {
+  GoVetChecker,
+  GO_VET_COVERAGE,
+  GO_VET_TIMEOUT_MS,
+  goVetReasonText,
+  type GoVetCheckRequest,
+  type GoVetCheckResult,
+  type GoVetCheckerDependencies,
+  type GoVetOutcome,
+  type GoVetReason,
+  type GoVetSkippedFile,
+} from './diagnostics/external-checkers/go-vet-checker';
+export {
+  GoVetConsentStore,
+  GO_VET_CONSENT_DIR,
+  type GoVetConsentRecord,
+  type GoVetConsentStaleReason,
+  type GoVetConsentState,
+} from './diagnostics/external-checkers/go-vet-consent-store';
+export {
+  resolveGoBinary,
+  isSameGoBinary,
+  type GoBinaryIdentity,
+  type ResolvedGoBinary,
+} from './diagnostics/external-checkers/go-binary-resolver';

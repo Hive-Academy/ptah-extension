@@ -66,6 +66,43 @@ export interface DiagnosticsCoverageFields {
   readonly coverage?: LanguageCoverage;
   /** The files this answer did not check, and why. Absent when none. */
   readonly notChecked?: readonly NotCheckedFiles[];
+  /**
+   * Findings a checker reported at positions it cannot place in the
+   * workspace (go vet after a `//line` directive, Batch 37b1a). Present only
+   * when above 0. Such an answer is never clean, whatever `diagnostics` and
+   * `coverage` say: those findings exist and are not listed.
+   */
+  readonly unmappedFindings?: number;
+  /**
+   * A checker listed only the first of its findings (go vet: 500). Present
+   * only when true; the listed diagnostics are then not all there are.
+   */
+  readonly diagnosticsTruncated?: boolean;
+  /**
+   * The opt-in `go vet` run behind this answer (Batches 37a/37b): present when
+   * the host attached the checker and Go files were requested. Its fixed
+   * codes say why Go files were only syntax-checked (consent off or stale,
+   * no toolchain, a failed run); `go vet` is never a type check.
+   */
+  readonly goVet?: GoVetRunReport;
+}
+
+/** How the opt-in `go vet` checker answered one call (fixed codes only). */
+export interface GoVetRunReport {
+  /** `checked` only after a clean vet exit with parseable output. */
+  readonly status: 'checked' | 'unchecked' | 'failed';
+  readonly outcome:
+    'ok' | 'findings' | 'timeout' | 'failed' | 'too-large' | 'not-run';
+  /**
+   * Fixed reason code: the checker's own (`no-consent`, `consent-stale`,
+   * `no-go-binary`, `unmapped-findings`, …), or `checker-error` when the
+   * checker itself threw. Absent on a plain successful run.
+   */
+  readonly reason?: string;
+  /** Why the stored consent no longer applies (User Decision 25). */
+  readonly staleReason?: 'root-moved' | 'root-replaced' | 'go-changed';
+  /** How many requested Go files vet covered. */
+  readonly checkedFiles: number;
 }
 
 export type DiagnosticsResult =

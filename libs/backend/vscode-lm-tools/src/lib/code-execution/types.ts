@@ -16,6 +16,7 @@ import type {
 import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
   Approximation,
+  DiagnosticsCoverageFields,
   LanguageCoverage,
   NotCheckedFiles,
   UnsupportedLanguageAnswer,
@@ -218,6 +219,14 @@ export interface DiagnosticsPayload {
   coverage: LanguageCoverage;
   /** The files the answer did not check, and why; absent when none. */
   notChecked?: readonly NotCheckedFiles[];
+  /**
+   * The provider's opt-in `go vet` run, its unplaced findings count and its
+   * truncation flag (Batch 37b), forwarded as given on both arms. The
+   * formatter names each as a limitation; none of them is ever a clean answer.
+   */
+  goVet?: DiagnosticsCoverageFields['goVet'];
+  unmappedFindings?: number;
+  diagnosticsTruncated?: boolean;
   diagnostics: DiagnosticInfo[];
   /**
    * The `files` scope of the call as absolute paths, relative entries resolved

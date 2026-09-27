@@ -138,10 +138,13 @@ export type { ITracer } from './interfaces/tracer.interface';
 export type {
   IProcessSpawner,
   ProcessSpawnRequest,
+  SpawnLaunchGuard,
   SpawnedProcessHandle,
   ProcessExitListener,
   ProcessErrorListener,
 } from './interfaces/process-spawner.interface';
+export { LAUNCH_GUARD_REFUSED } from './interfaces/process-spawner.interface';
+export { launchGuardRefusal } from './utils/launch-guard';
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type { IBootReadinessProvider } from './interfaces/boot-readiness.interface';
 export type {

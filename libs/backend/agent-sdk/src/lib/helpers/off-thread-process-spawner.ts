@@ -68,9 +68,14 @@ import {
   TOKENS,
   type DegradationReporter,
 } from '@ptah-extension/vscode-core';
+import {
+  LAUNCH_GUARD_REFUSED,
+  launchGuardRefusal,
+} from '@ptah-extension/platform-core';
 import type {
   IProcessSpawner,
   ProcessSpawnRequest,
+  SpawnLaunchGuard,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 import type {
@@ -140,6 +145,8 @@ interface SpawnPlan {
   readonly windowsHide: boolean;
   readonly windowsVerbatimArguments: boolean;
   readonly stderrMode: StderrMode;
+  /** Re-checked on the creating thread right before the child is created. */
+  readonly launchGuard?: SpawnLaunchGuard;
 }
 
 /** What `cross-spawn`'s parser returns. It is not in `@types/cross-spawn`. */
@@ -302,6 +309,9 @@ class WorkerBackedProcess
       detached: plan.detached,
       windowsHide: plan.windowsHide,
       windowsVerbatimArguments: plan.windowsVerbatimArguments,
+      ...(plan.launchGuard !== undefined
+        ? { launchGuard: plan.launchGuard }
+        : {}),
     });
 
     const signal = plan.signal;
@@ -722,6 +732,9 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
         windowsVerbatimArguments:
           parsed.options.windowsVerbatimArguments === true,
         stderrMode: 'stream',
+        ...(request.launchGuard !== undefined
+          ? { launchGuard: request.launchGuard }
+          : {}),
       },
       {},
     );
@@ -783,6 +796,15 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
     plan: SpawnPlan,
     hooks: OffThreadSpawnHooks,
   ): InlineProcess {
+    // Same instant-of-creation check the worker makes (launch-guard.ts).
+    const refusal = launchGuardRefusal(plan.launchGuard);
+    if (refusal !== null) {
+      const refused: SpawnFailure = new Error(
+        `launch guard refused the spawn (${refusal})`,
+      );
+      refused.code = LAUNCH_GUARD_REFUSED;
+      throw refused;
+    }
     const child = childProcess.spawn(plan.command, [...plan.args], {
       cwd: plan.cwd,
       env: plan.env,
