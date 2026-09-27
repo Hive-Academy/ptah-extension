@@ -67,13 +67,18 @@ export const RECOGNISED_LANGUAGE_IDS = [
 ] as const;
 export type RecognisedLanguageId = (typeof RECOGNISED_LANGUAGE_IDS)[number];
 
-/** Why a supported file failed analysis (keys of `failedByReason`). */
+/**
+ * Why a supported file failed analysis (keys of `failedByReason`).
+ * `unsupported-syntax`: the file parsed, but it uses a form the extractor
+ * cannot represent (e.g. `exports[key] = v`), so the answer may be incomplete.
+ */
 export const FAILURE_REASONS = [
   'read',
   'parse',
   'grammar-unavailable',
   'too-large',
   'timeout',
+  'unsupported-syntax',
 ] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];
 

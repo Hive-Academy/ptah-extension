@@ -1111,6 +1111,12 @@ export interface AstCodeInsights {
   errorNodeCountCapped: boolean;
   /** Serialized ahead of paths and lists so result budgets retain coverage. */
   coverage: import('@ptah-extension/platform-core').LanguageCoverage;
+  /**
+   * Export forms seen but not represented in `exports` (`line N: <source>`).
+   * Present only when non-empty; coverage then counts the file as failed with
+   * reason `unsupported-syntax`, so the answer is never clean.
+   */
+  unextractedExports?: string[];
 
   /** File that was analyzed */
   file: string;
@@ -1189,11 +1195,27 @@ export interface AstImportInfo {
  * Export information extracted from AST
  */
 export interface AstExportInfo {
-  /** Exported symbol name */
+  /**
+   * Exported name: a named default declaration keeps its name, any other
+   * default export is `default`, `export { a as b }` is `b`, `export *` is `*`.
+   */
   name: string;
 
-  /** Type of export (function, class, variable, type, interface, unknown) */
-  kind: 'function' | 'class' | 'variable' | 'type' | 'interface' | 'unknown';
+  /**
+   * Type of export. `unknown`: a binding exported without its declaration
+   * (`export { a }`, `export default a`); `namespace`: a TS namespace or
+   * `export * as ns`; `wildcard`: a plain `export *` (names live in `source`).
+   */
+  kind:
+    | 'function'
+    | 'class'
+    | 'variable'
+    | 'type'
+    | 'interface'
+    | 'enum'
+    | 'namespace'
+    | 'wildcard'
+    | 'unknown';
 
   /** Whether this is a default export */
   isDefault?: boolean;
@@ -1203,6 +1225,9 @@ export interface AstExportInfo {
 
   /** Source module if re-export */
   source?: string;
+
+  /** Local (or source-module) name when it differs from `name` */
+  localName?: string;
 }
 
 /**

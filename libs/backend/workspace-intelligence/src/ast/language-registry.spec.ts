@@ -149,8 +149,8 @@ const WORST_CASE: LanguageCoverage = {
   checks: 'provider-defined',
 };
 
-/** Measured length of `JSON.stringify(WORST_CASE)`; recorded in the Batch 22 report. */
-const MEASURED_WORST_CASE_CHARS = 965;
+/** Measured length of `JSON.stringify(WORST_CASE)`: 965 in the Batch 22 report, 994 since Batch 20.2q added the `unsupported-syntax` reason. */
+const MEASURED_WORST_CASE_CHARS = 994;
 
 describe('coverage size contract', () => {
   it('worst-case coverage <= 1,000 chars', () => {
@@ -162,9 +162,9 @@ describe('coverage size contract', () => {
     expect(JSON.stringify(WORST_CASE).length).toBe(MEASURED_WORST_CASE_CHARS);
   });
 
-  it('uses the full shape: 9 language keys, 5 reasons, 4 approximations', () => {
+  it('uses the full shape: 9 language keys, 6 reasons, 4 approximations', () => {
     expect(Object.keys(WORST_CASE.unsupportedByLanguage ?? {})).toHaveLength(9);
-    expect(Object.keys(WORST_CASE.failedByReason ?? {})).toHaveLength(5);
+    expect(Object.keys(WORST_CASE.failedByReason ?? {})).toHaveLength(6);
     expect(WORST_CASE.approximations).toHaveLength(4);
   });
 });

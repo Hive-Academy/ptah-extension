@@ -49,13 +49,14 @@ describe('closed vocabularies', () => {
     expect(longest).toBe(10);
   });
 
-  it('has the five failure reasons', () => {
+  it('has the six failure reasons', () => {
     expect([...FAILURE_REASONS]).toEqual([
       'read',
       'parse',
       'grammar-unavailable',
       'too-large',
       'timeout',
+      'unsupported-syntax',
     ]);
   });
 });

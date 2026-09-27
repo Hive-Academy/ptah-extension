@@ -81,13 +81,28 @@ export interface ImportInfo {
  */
 export interface ExportInfo {
   /**
-   * The name of the exported symbol.
+   * The name other modules import. A named declaration keeps its own name even
+   * when it is the default export (`export default function f` → `f`); an
+   * anonymous or expression default export is `default`; `export { a as b }`
+   * is `b`; `export * as ns` is `ns`; a plain `export *` is `*`.
    */
   name: string;
   /**
-   * The type of export (function, class, variable, type, interface).
+   * What the export is. `unknown` means the statement names a binding without
+   * declaring it (`export { a }`, `export default a`). `namespace` is a TS
+   * `namespace` or an `export * as ns`; `wildcard` is a plain `export *`,
+   * whose names are resolved in `source`, not here.
    */
-  kind: 'function' | 'class' | 'variable' | 'type' | 'interface' | 'unknown';
+  kind:
+    | 'function'
+    | 'class'
+    | 'variable'
+    | 'type'
+    | 'interface'
+    | 'enum'
+    | 'namespace'
+    | 'wildcard'
+    | 'unknown';
   /**
    * Whether this is a default export.
    */
@@ -100,6 +115,11 @@ export interface ExportInfo {
    * The source module if this is a re-export.
    */
   source?: string;
+  /**
+   * The local (or, for a re-export, the source module's) name when it differs
+   * from `name`: `a` for `export { a as b }` and for `export default a`.
+   */
+  localName?: string;
 }
 
 /**
@@ -131,4 +151,9 @@ export interface CodeInsights extends Partial<ParseQuality> {
    * An array of identified export statements.
    */
   exports?: ExportInfo[];
+  /**
+   * Export forms seen but not represented in `exports` (`line N: <source>`),
+   * e.g. `exports[key] = v`. Present means `exports` may be incomplete.
+   */
+  unextractedExports?: string[];
 }

@@ -11,6 +11,7 @@ import {
   AstAnalysisService,
   EXTENSION_LANGUAGE_MAP,
   classifyFileForCoverage,
+  extractExportsFromMatches,
   hasCapability,
   languageForExtension,
   supportedLanguagesFor,
@@ -88,11 +89,18 @@ export function buildAstNamespace(
         exports: [],
       };
       const parseStatus = insights.parseStatus ?? 'unknown';
+      const unextractedExports = result.value?.unextractedExports ?? [];
       return {
         parseStatus,
         errorNodeCount: insights.errorNodeCount ?? null,
         errorNodeCountCapped: insights.errorNodeCountCapped ?? false,
-        coverage: fileCoverage(absolutePath, 'parse', parseStatus),
+        coverage: fileCoverage(
+          absolutePath,
+          'parse',
+          parseStatus,
+          unextractedExports.length > 0,
+        ),
+        ...(unextractedExports.length > 0 ? { unextractedExports } : {}),
         file: filePath,
         language,
         functions: insights.functions as AstFunctionInfo[],
@@ -197,7 +205,7 @@ export function buildAstNamespace(
         throw new Error(result.error?.message ?? 'Export query failed');
       }
 
-      return extractExportsFromMatches(result.value ?? []);
+      return extractExportsFromMatches(result.value ?? []).exports;
     },
 
     getSupportedLanguages: (): string[] => {
@@ -208,21 +216,29 @@ export function buildAstNamespace(
   };
 }
 
-/** A single explicit file is a complete census, even when analysis is partial. */
+/**
+ * A single explicit file is a complete census, even when analysis is partial.
+ * A clean parse with export forms the extractor could not represent counts as
+ * failed (`unsupported-syntax`): the result is partial, never clean.
+ */
 function fileCoverage(
   filePath: string,
   capability: 'parse' | 'publicSymbols',
   parseStatus: AstCodeInsights['parseStatus'],
+  hasUnextractedExports = false,
 ): LanguageCoverage {
   const classification = classifyFileForCoverage(filePath, capability);
   const eligible = classification === 'eligible';
+  const unsupportedSyntax =
+    eligible && parseStatus === 'ok' && hasUnextractedExports;
   const language = languageForExtension(path.extname(filePath));
   return {
     supportedLanguages: supportedLanguagesFor(capability),
     census: 'complete',
-    analyzed: eligible && parseStatus === 'ok' ? 1 : 0,
+    analyzed: eligible && parseStatus === 'ok' && !unsupportedSyntax ? 1 : 0,
     unchecked: eligible && parseStatus === 'unknown' ? 1 : 0,
-    failed: eligible && parseStatus === 'recovered' ? 1 : 0,
+    failed:
+      (eligible && parseStatus === 'recovered') || unsupportedSyntax ? 1 : 0,
     unsupported: classification === 'unsupported' ? 1 : 0,
     unrecognised: classification === 'unrecognised' ? 1 : 0,
     nonSource: classification === 'nonSource' ? 1 : 0,
@@ -233,6 +249,9 @@ function fileCoverage(
       : {}),
     ...(eligible && parseStatus === 'recovered'
       ? { failedByReason: { parse: 1 } }
+      : {}),
+    ...(unsupportedSyntax
+      ? { failedByReason: { 'unsupported-syntax': 1 } }
       : {}),
   };
 }
@@ -503,69 +522,6 @@ function extractImportsFromMatches(matches: QueryMatch[]): AstImportInfo[] {
   }
 
   return imports;
-}
-
-/**
- * Extract export info from tree-sitter query matches
- */
-function extractExportsFromMatches(matches: QueryMatch[]): AstExportInfo[] {
-  const exports: AstExportInfo[] = [];
-  const seen = new Set<string>();
-
-  for (const match of matches) {
-    const captures = new Map<string, QueryCapture>();
-    for (const capture of match.captures) {
-      captures.set(capture.name, capture);
-    }
-
-    const isDefault = captures.has('export.is_default');
-    const funcName = captures.get('export.func_name');
-    const className = captures.get('export.class_name');
-    const varName = captures.get('export.var_name');
-    const namedExport = captures.get('export.named');
-    const reexportName = captures.get('reexport.name');
-    const reexportSource = captures.get('reexport.source');
-
-    let name: string | undefined;
-    let kind: AstExportInfo['kind'] = 'unknown';
-    let isReExport = false;
-    let source: string | undefined;
-
-    if (funcName) {
-      name = funcName.text;
-      kind = 'function';
-    } else if (className) {
-      name = className.text;
-      kind = 'class';
-    } else if (varName) {
-      name = varName.text;
-      kind = 'variable';
-    } else if (namedExport) {
-      name = namedExport.text;
-    } else if (reexportName) {
-      name = reexportName.text;
-      isReExport = true;
-      if (reexportSource) {
-        source = reexportSource.text.slice(1, -1);
-      }
-    }
-
-    if (name) {
-      const key = `${name}:${isDefault}:${source || ''}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        exports.push({
-          name,
-          kind,
-          isDefault: isDefault || undefined,
-          isReExport: isReExport || undefined,
-          source,
-        });
-      }
-    }
-  }
-
-  return exports;
 }
 
 /**

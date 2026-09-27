@@ -431,12 +431,19 @@ describe('buildAstNamespace — query methods', () => {
 
   it('queryExports identifies function/class kinds', async () => {
     const { deps, parser } = makeDeps();
+    // The shared decoder reads the `default` keyword from the statement node.
     parser.queryExports.mockResolvedValue(
       Result.ok([
         {
           captures: [
             { name: 'export.func_name', text: 'doIt' },
-            { name: 'export.is_default', text: 'default' },
+            {
+              name: 'export.statement',
+              text: 'export default function doIt() {}',
+              node: {
+                children: [{ type: 'export' }, { type: 'default' }],
+              },
+            },
           ],
         },
       ]),

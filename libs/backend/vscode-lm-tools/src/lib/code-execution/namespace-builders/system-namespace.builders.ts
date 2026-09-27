@@ -384,7 +384,7 @@ Used for persisting workflow state across sessions (planning, design, implementa
 - queryFunctions(file) - Extract all functions with name, parameters, startLine/endLine
 - queryClasses(file) - Extract all classes with name, startLine/endLine
 - queryImports(file) - Extract all imports with source module and imported symbols
-- queryExports(file) - Extract all exports with name and kind (class/variable/function)
+- queryExports(file) - Extract all exports with name, kind (function/class/variable/interface/type/enum/namespace/wildcard/unknown), isDefault, and source/localName for re-exports and aliases
 - getSupportedLanguages() - List supported languages (currently: javascript, typescript)
 
 Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.

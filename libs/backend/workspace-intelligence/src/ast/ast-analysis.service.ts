@@ -7,7 +7,6 @@ import {
   FunctionInfo,
   ClassInfo,
   ImportInfo,
-  ExportInfo,
 } from './ast-analysis.interfaces';
 import {
   TreeSitterParserService,
@@ -15,6 +14,7 @@ import {
   QueryCapture,
 } from './tree-sitter-parser.service';
 import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
+import { extractExportsFromMatches } from './export-extraction';
 
 /**
  * Node types for JavaScript/TypeScript AST analysis.
@@ -120,7 +120,7 @@ export class AstAnalysisService {
       const imports: ImportInfo[] = this.extractImportsFromMatches(
         map.get('imports') ?? [],
       );
-      const exports: ExportInfo[] = this.extractExportsFromMatches(
+      const { exports, unextracted } = extractExportsFromMatches(
         map.get('exports') ?? [],
       );
 
@@ -132,6 +132,7 @@ export class AstAnalysisService {
         classes,
         imports,
         exports: exports.length > 0 ? exports : undefined,
+        ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
       };
 
       this.logger.debug(
@@ -374,68 +375,6 @@ export class AstAnalysisService {
     }
 
     return imports;
-  }
-
-  /**
-   * Extracts ExportInfo from query matches.
-   */
-  private extractExportsFromMatches(matches: QueryMatch[]): ExportInfo[] {
-    const exports: ExportInfo[] = [];
-    const seen = new Set<string>();
-
-    for (const match of matches) {
-      const captures = new Map<string, QueryCapture>();
-      for (const capture of match.captures) {
-        captures.set(capture.name, capture);
-      }
-      const isDefault = captures.has('export.is_default');
-      const funcName = captures.get('export.func_name');
-      const className = captures.get('export.class_name');
-      const varName = captures.get('export.var_name');
-      const namedExport = captures.get('export.named');
-      const reexportName = captures.get('reexport.name');
-      const reexportSource = captures.get('reexport.source');
-
-      let name: string | undefined;
-      let kind: ExportInfo['kind'] = 'unknown';
-      let isReExport = false;
-      let source: string | undefined;
-
-      if (funcName) {
-        name = funcName.text;
-        kind = 'function';
-      } else if (className) {
-        name = className.text;
-        kind = 'class';
-      } else if (varName) {
-        name = varName.text;
-        kind = 'variable';
-      } else if (namedExport) {
-        name = namedExport.text;
-      } else if (reexportName) {
-        name = reexportName.text;
-        isReExport = true;
-        if (reexportSource) {
-          source = reexportSource.text.slice(1, -1); // Remove quotes
-        }
-      }
-
-      if (name) {
-        const key = `${name}:${isDefault}:${source || ''}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          exports.push({
-            name,
-            kind,
-            isDefault: isDefault || undefined,
-            isReExport: isReExport || undefined,
-            source,
-          });
-        }
-      }
-    }
-
-    return exports;
   }
 
   /**

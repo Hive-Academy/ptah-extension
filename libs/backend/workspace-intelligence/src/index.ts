@@ -93,6 +93,11 @@ export {
 export { AstAnalysisService } from './ast/ast-analysis.service';
 export { formatAstAnalysisResult } from './ast/ast-result-format';
 export {
+  extractExportsFromMatches,
+  exportSymbolNames,
+  type ExportExtraction,
+} from './ast/export-extraction';
+export {
   DependencyGraphService,
   type DependencyGraph,
   type FileNode,

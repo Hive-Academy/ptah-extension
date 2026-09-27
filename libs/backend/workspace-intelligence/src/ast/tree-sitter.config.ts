@@ -148,43 +148,187 @@ const JS_TS_IMPORT_QUERY = `
 `;
 
 /**
- * JavaScript/TypeScript export query
- * Captures: export statements including default and named exports
+ * JavaScript/TypeScript export query, decoded by `extractExportsFromMatches`
+ * (`export-extraction.ts`), which documents every capture name.
+ * Every declaration pattern also captures its whole statement as
+ * `@export.statement`: the decoder reads the `default` keyword and the
+ * re-export source from that node's children, so one pattern per form is
+ * enough and a re-exported specifier is never matched twice.
+ * Only node types present in BOTH grammars appear here; TypeScript-only
+ * declarations live in TS_EXPORT_QUERY_SUFFIX (the JavaScript grammar rejects
+ * a query naming a node type it does not have).
  */
 const JS_TS_EXPORT_QUERY = `
-; Default export: export default foo
+; export function f() {} / export function* g() {} / export default function f() {}
 (export_statement
-  "default" @export.is_default
-  value: (_) @export.value) @export.default_statement
+  declaration: [
+    (function_declaration name: (_) @export.func_name)
+    (generator_function_declaration name: (_) @export.func_name)
+  ]) @export.statement
 
-; Named exports: export { foo, bar }
+; export class C {} / export default class C {}
 (export_statement
-  (export_clause
-    (export_specifier
-      name: (identifier) @export.named))) @export.named_statement
+  declaration: (class_declaration name: (_) @export.class_name)) @export.statement
 
-; Export declarations: export function foo() {}
+; export const a = 1 / export let b / export var c
 (export_statement
-  declaration: (function_declaration
-    name: (identifier) @export.func_name)) @export.func_declaration
+  declaration: [
+    (lexical_declaration (variable_declarator name: (identifier) @export.var_name))
+    (variable_declaration (variable_declarator name: (identifier) @export.var_name))
+  ]) @export.statement
 
-; Export class: export class Foo {}
+; export const { a, b: c } = o / export const [x, y] = arr: the pattern's range
 (export_statement
-  declaration: (class_declaration
-    name: (_) @export.class_name)) @export.class_declaration
+  declaration: [
+    (lexical_declaration
+      (variable_declarator name: [(object_pattern) (array_pattern)] @export.binding_pattern))
+    (variable_declaration
+      (variable_declarator name: [(object_pattern) (array_pattern)] @export.binding_pattern))
+  ])
 
-; Export variable: export const foo = ...
-(export_statement
-  declaration: (lexical_declaration
-    (variable_declarator
-      name: (identifier) @export.var_name))) @export.var_declaration
+; Binding names inside any destructuring pattern, at any depth. The decoder keeps
+; only those inside an exported @export.binding_pattern range.
+(object_pattern (shorthand_property_identifier_pattern) @export.binding)
+(object_assignment_pattern left: (shorthand_property_identifier_pattern) @export.binding)
+(pair_pattern value: (identifier) @export.binding)
+(pair_pattern value: (assignment_pattern left: (identifier) @export.binding))
+(array_pattern (identifier) @export.binding)
+(array_pattern (assignment_pattern left: (identifier) @export.binding))
+(rest_pattern (identifier) @export.binding)
 
-; Re-exports: export { foo } from 'module'
+; export default <expression>: anonymous function/class, identifier, literal
 (export_statement
-  (export_clause
-    (export_specifier
-      name: (identifier) @reexport.name))
-  source: (string) @reexport.source) @reexport.statement
+  "default"
+  value: (_) @export.default_value) @export.statement
+
+; export { a, b as c } and the re-export form with a source module
+(export_statement
+  (export_clause (export_specifier) @export.specifier)) @export.statement
+
+; export * as ns (always has a source module)
+(export_statement
+  (namespace_export (_) @export.namespace_name)
+  source: (string) @export.source)
+
+; export * (plain wildcard re-export)
+(export_statement
+  "*"
+  source: (string) @export.wildcard_source)
+
+; CommonJS: module.exports = value
+(assignment_expression
+  left: (member_expression
+    object: (identifier) @_module
+    property: (property_identifier) @_exports) @export.commonjs_target
+  right: (_) @export.commonjs_value
+  (#eq? @_module "module")
+  (#eq? @_exports "exports"))
+
+; CommonJS: exports.name = value
+(assignment_expression
+  left: (member_expression
+    object: (identifier) @_exports
+    property: (property_identifier) @export.commonjs_name) @export.commonjs_target
+  right: (_) @export.commonjs_value
+  (#eq? @_exports "exports"))
+
+; CommonJS: module.exports.name = value
+(assignment_expression
+  left: (member_expression
+    object: (member_expression
+      object: (identifier) @_module
+      property: (property_identifier) @_exports)
+    property: (property_identifier) @export.commonjs_name) @export.commonjs_target
+  right: (_) @export.commonjs_value
+  (#eq? @_module "module")
+  (#eq? @_exports "exports"))
+
+; CommonJS: Object.defineProperty(exports, "name", ...)
+(call_expression
+  function: (member_expression
+    object: (identifier) @_object
+    property: (property_identifier) @_define)
+  arguments: (arguments
+    .
+    (identifier) @_exports
+    .
+    (string) @export.commonjs_defined_name)
+  (#eq? @_object "Object")
+  (#eq? @_define "defineProperty")
+  (#eq? @_exports "exports")) @export.commonjs_target
+
+; Every other mention of exports / module.exports. The decoder reports those
+; outside a decoded CommonJS form as unextracted, so the answer is never a
+; clean empty list for a module whose exports it could not read.
+((identifier) @export.commonjs_reference
+  (#eq? @export.commonjs_reference "exports"))
+((member_expression
+  object: (identifier) @_module
+  property: (property_identifier) @_exports) @export.commonjs_reference
+  (#eq? @_module "module")
+  (#eq? @_exports "exports"))
+`;
+
+/**
+ * TypeScript-only export declarations, appended to JS_TS_EXPORT_QUERY for the
+ * TypeScript entry only: interface, type alias, enum (incl. const enum),
+ * abstract class, overload signature, namespace, every `export declare`,
+ * `export =`, `export as namespace` and `export import`.
+ */
+const TS_EXPORT_QUERY_SUFFIX = `
+(export_statement
+  declaration: [
+    (function_signature name: (_) @export.func_name)
+    (abstract_class_declaration name: (_) @export.class_name)
+    (interface_declaration name: (_) @export.interface_name)
+    (type_alias_declaration name: (_) @export.type_name)
+    (enum_declaration name: (_) @export.enum_name)
+    (internal_module name: (_) @export.namespace_name)
+  ]) @export.statement
+
+; export declare ...
+(export_statement
+  declaration: (ambient_declaration [
+    (function_signature name: (_) @export.func_name)
+    (class_declaration name: (_) @export.class_name)
+    (abstract_class_declaration name: (_) @export.class_name)
+    (interface_declaration name: (_) @export.interface_name)
+    (type_alias_declaration name: (_) @export.type_name)
+    (enum_declaration name: (_) @export.enum_name)
+    (internal_module name: (_) @export.namespace_name)
+    (lexical_declaration (variable_declarator name: (identifier) @export.var_name))
+    (variable_declaration (variable_declarator name: (identifier) @export.var_name))
+  ])) @export.statement
+
+; export = value
+(export_statement
+  "="
+  (_) @export.assignment_value) @export.statement
+
+; export as namespace GlobalName (UMD global)
+(export_statement
+  "as"
+  "namespace"
+  (_) @export.global_namespace_name)
+
+; export import X = N.Y
+(export_statement
+  declaration: (import_alias
+    (identifier) @export.import_alias_name
+    [(nested_identifier) (identifier)] @export.import_alias_target)
+  (#not-eq? @export.import_alias_target "require"))
+
+; export import X = require(<module string>): this grammar ends the alias at "require" and
+; parses ('m') as the next statement (with a MISSING ";", so the parse is
+; reported as recovered); the pair is matched as siblings.
+((export_statement
+  declaration: (import_alias
+    (identifier) @export.import_alias_name
+    (identifier) @_require))
+  .
+  (expression_statement
+    (parenthesized_expression (string) @export.import_alias_source))
+  (#eq? @_require "require"))
 `;
 
 /**
@@ -374,7 +518,8 @@ const CSHARP_IMPORT_QUERY = `
  * Language-specific query configurations.
  * Function/import/export queries are shared across JS/TS. Class queries differ
  * because tree-sitter-typescript wraps the base class in an extends_clause node
- * that does not exist in tree-sitter-javascript. Python, Go and C# have no
+ * that does not exist in tree-sitter-javascript; TypeScript's export query adds
+ * the TS-only declaration suffix for the same reason. Python, Go and C# have no
  * export statements, so their exportQuery is empty (skipped by analyzeSource).
  */
 export const LANGUAGE_QUERIES_MAP: Readonly<
@@ -390,7 +535,7 @@ export const LANGUAGE_QUERIES_MAP: Readonly<
     functionQuery: JS_TS_FUNCTION_QUERY,
     classQuery: TS_CLASS_QUERY,
     importQuery: JS_TS_IMPORT_QUERY,
-    exportQuery: JS_TS_EXPORT_QUERY,
+    exportQuery: JS_TS_EXPORT_QUERY + TS_EXPORT_QUERY_SUFFIX,
   },
   python: {
     functionQuery: PYTHON_FUNCTION_QUERY,
