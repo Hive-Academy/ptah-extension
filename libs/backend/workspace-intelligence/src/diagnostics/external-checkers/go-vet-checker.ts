@@ -244,8 +244,10 @@ const REASON_TEXT: Readonly<Record<GoVetReason, string>> = {
   unscoped: 'go vet runs only on requested files: pass `files` to check them.',
   'no-spawner': 'go vet did not run: this host cannot start it yet.',
   'spawn-failed': 'go vet could not be started, so no result is claimed.',
-  timeout: `go vet ran out of time (${GO_VET_TIMEOUT_MS / 1000} s) and was stopped; no result is claimed.`,
-  'too-large': `go vet wrote more than ${CHECKER_MAX_OUTPUT_BYTES / (1024 * 1024)} MiB and was stopped; no result is claimed.`,
+  // "A stop was requested", never "stopped": the answer is returned before
+  // the process tree is confirmed gone (checker-runner.ts, Batch 37b1a).
+  timeout: `go vet ran out of time (${GO_VET_TIMEOUT_MS / 1000} s); a stop was requested and no result is claimed.`,
+  'too-large': `go vet wrote more than ${CHECKER_MAX_OUTPUT_BYTES / (1024 * 1024)} MiB; a stop was requested and no result is claimed.`,
   cancelled: 'The check was cancelled; no go vet result is claimed.',
   'toolchain-mismatch':
     'go vet did not check it: the module needs a newer Go than the installed toolchain (no toolchain is downloaded).',
@@ -613,7 +615,19 @@ export class GoVetChecker {
     }
 
     const goVersion = readGoVersion(binary.path);
-    const run = this.deps.run ?? ((req) => runChecker(req));
+    const run =
+      this.deps.run ??
+      ((req) =>
+        runChecker(req, {
+          // A failed tree kill is recorded as a fixed-text line; the error
+          // text itself may hold paths and is never logged.
+          onKillError: (error: unknown) => {
+            void error;
+            this.deps.logger.info('[Diagnostics] go vet stop failed', {
+              workspaceHash: workspaceHash(root),
+            });
+          },
+        }));
     const result = await run({
       spawner,
       command: binary.path,

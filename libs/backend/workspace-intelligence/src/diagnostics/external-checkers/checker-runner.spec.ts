@@ -10,12 +10,24 @@
 
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import { killProcessTree } from '@ptah-extension/platform-core';
 import type {
   IProcessSpawner,
   ProcessSpawnRequest,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 import { pickInheritedEnv, runChecker } from './checker-runner';
+
+// The default tree kill is `killProcessTree`; a double stands in so no real
+// `taskkill` or process-group signal is ever sent from this file.
+jest.mock('@ptah-extension/platform-core', () => ({
+  ...jest.requireActual('@ptah-extension/platform-core'),
+  killProcessTree: jest.fn(async () => undefined),
+}));
+
+const killProcessTreeMock = killProcessTree as jest.MockedFunction<
+  typeof killProcessTree
+>;
 
 class FakeHandle extends EventEmitter implements SpawnedProcessHandle {
   readonly stdin = null;
@@ -251,6 +263,59 @@ describe('runChecker', () => {
 
     expect(result.kind).toBe('timeout');
     expect(onKillError).toHaveBeenCalledTimes(1);
+  });
+
+  // Batch 37b1a (37a review r1 finding 4): cleanup failure is handled.
+  describe('when the tree kill fails', () => {
+    it('a rejecting terminator still kills the handle, exactly once', async () => {
+      const handle = new FakeHandle();
+      const onKillError = jest.fn();
+      const failure = new Error('taskkill failed');
+
+      const result = await runChecker(
+        { ...BASE, spawner: new FakeSpawner(handle), timeoutMs: 5 },
+        {
+          killTree: async () => {
+            throw failure;
+          },
+          onKillError,
+        },
+      );
+      await delay(10);
+
+      expect(result.kind).toBe('timeout');
+      expect(handle.kills).toEqual(['SIGKILL']);
+      expect(onKillError).toHaveBeenCalledTimes(1);
+      expect(onKillError).toHaveBeenCalledWith(failure);
+    });
+
+    it('the default helper reports its own failure to onKillError, and the handle is still killed', async () => {
+      const failure = new Error('taskkill exited 128');
+      killProcessTreeMock.mockImplementationOnce(
+        async (_pid, _signal, onError) => {
+          // What `killProcessTree` does on win32 when `taskkill` fails: it
+          // resolves, and only the callback learns of the failure.
+          onError?.(failure);
+        },
+      );
+      const handle = new FakeHandle();
+      const onKillError = jest.fn();
+
+      const result = await runChecker(
+        { ...BASE, spawner: new FakeSpawner(handle), timeoutMs: 5 },
+        { onKillError },
+      );
+      await delay(10);
+
+      expect(result.kind).toBe('timeout');
+      expect(killProcessTreeMock).toHaveBeenCalledWith(
+        4242,
+        'SIGKILL',
+        expect.any(Function),
+      );
+      expect(onKillError).toHaveBeenCalledWith(failure);
+      expect(handle.kills).toEqual(['SIGKILL']);
+    });
   });
 });
 

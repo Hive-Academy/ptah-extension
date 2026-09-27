@@ -154,4 +154,46 @@ describe('killProcessTree', () => {
 
     expect(kill).toHaveBeenCalledWith(-8083, 'SIGKILL');
   });
+
+  // TASK_2026_559 Batch 37b1a review r1 failure mode 2: a POSIX kill that
+  // leaves the process alive reaches `onError`, as a failed taskkill does.
+  it('reports a POSIX kill failure other than ESRCH to onError', async () => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+    const eperm = Object.assign(new Error('operation not permitted'), {
+      code: 'EPERM',
+    });
+    jest.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+      throw eperm;
+    });
+    const onError = jest.fn();
+
+    const reaped = killProcessTree(8084, 'SIGKILL', onError);
+    await jest.advanceTimersByTimeAsync(100);
+    await reaped;
+
+    expect(onError).toHaveBeenCalledWith(eperm);
+  });
+
+  it('does not report a POSIX process that already exited (ESRCH)', async () => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+    jest.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    });
+    const onError = jest.fn();
+
+    const reaped = killProcessTree(8085, 'SIGKILL', onError);
+    await jest.advanceTimersByTimeAsync(100);
+    await reaped;
+
+    expect(onError).not.toHaveBeenCalled();
+  });
 });

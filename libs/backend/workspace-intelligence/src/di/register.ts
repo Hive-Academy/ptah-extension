@@ -11,9 +11,16 @@ import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IPlatformInfo,
+  IProcessSpawner,
+  IStateStorage,
+} from '@ptah-extension/platform-core';
 import { TypeScriptDiagnosticsProvider } from '../diagnostics/type-script-diagnostics-provider';
 import { LanguageAwareDiagnosticsProvider } from '../diagnostics/language-aware-diagnostics-provider';
+import { GoVetChecker } from '../diagnostics/external-checkers/go-vet-checker';
+import { GoVetConsentStore } from '../diagnostics/external-checkers/go-vet-consent-store';
 import { PatternMatcherService } from '../file-indexing/pattern-matcher.service';
 import { IgnorePatternResolverService } from '../file-indexing/ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
@@ -82,14 +89,31 @@ import { configureArchitectureRules } from '../quality/rules/architecture-rules'
  * It lives here rather than in each composition root because the constructor
  * arguments and the ordering rule are this lib's own facts, and all three hosts
  * had their own copy of both.
+ *
+ * **`go vet` (Batch 37b1a, O2 §2 "DI timing").** A host that passes
+ * `getProcessSpawner` gets the opt-in `go vet` checker attached. The spawner
+ * is registered AFTER this call in both hosts, so it is a lazy getter, read at
+ * the first run (a throw there is `failed/no-spawner`). The consent store is
+ * built now over `WORKSPACE_STATE_STORAGE`, which both hosts register before
+ * this lib, with the user-data directory `PLATFORM_INFO.globalStoragePath`
+ * (equal to the `userDataPath` both hosts give their workspace storage:
+ * `registerPlatformElectronServices` / `registerPlatformCliServices` set it
+ * from the same option). Consent is denied by default: nothing spawns until
+ * the user grants it for the workspace, and the checker reads it before every
+ * spawn. A host that passes nothing keeps Go at the Tier 0 syntax check.
  */
 export function registerTypeScriptDiagnosticsProvider(
   container: DependencyContainer,
   logger: Logger,
+  options: { readonly getProcessSpawner?: () => IProcessSpawner } = {},
 ): void {
   const fileSystem = container.resolve<IFileSystemProvider>(
     PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
   );
+  const goVet =
+    options.getProcessSpawner === undefined
+      ? undefined
+      : createGoVetChecker(container, logger, options.getProcessSpawner);
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
     useValue: new LanguageAwareDiagnosticsProvider(
       new TypeScriptDiagnosticsProvider(fileSystem),
@@ -97,11 +121,30 @@ export function registerTypeScriptDiagnosticsProvider(
       container.resolve<TreeSitterParserService>(
         TOKENS.TREE_SITTER_PARSER_SERVICE,
       ),
+      undefined,
+      goVet,
     ),
   });
   logger.info(
-    '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with LanguageAwareDiagnosticsProvider (TypeScript compiler + syntax-only checks)',
+    goVet === undefined
+      ? '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with LanguageAwareDiagnosticsProvider (TypeScript compiler + syntax-only checks)'
+      : '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with LanguageAwareDiagnosticsProvider (TypeScript compiler + syntax-only checks + opt-in go vet)',
   );
+}
+
+function createGoVetChecker(
+  container: DependencyContainer,
+  logger: Logger,
+  getSpawner: () => IProcessSpawner,
+): GoVetChecker {
+  const userDataPath = container.resolve<IPlatformInfo>(
+    PLATFORM_TOKENS.PLATFORM_INFO,
+  ).globalStoragePath;
+  const consentStore = new GoVetConsentStore(
+    container.resolve<IStateStorage>(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE),
+    { userDataPath },
+  );
+  return new GoVetChecker({ consentStore, getSpawner, userDataPath, logger });
 }
 
 export function registerWorkspaceIntelligenceServices(

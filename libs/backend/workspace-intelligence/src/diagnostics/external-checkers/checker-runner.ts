@@ -17,8 +17,10 @@
  *
  * Every limit kills the whole process TREE: `killProcessTree` (taskkill /T on
  * win32, a process-group kill on POSIX, where the child is started
- * `detached` so it leads its own group), then the handle itself. The answer
- * is returned without waiting for the tree to die.
+ * `detached` so it leads its own group), then the handle itself, even when
+ * the tree kill failed. The answer is returned without waiting for the tree
+ * to die, so a limit answer means "a stop was requested", never "the process
+ * is gone"; a failed kill is reported to `onKillError`.
  *
  * Nothing here logs: paths and raw output stay with the caller, which decides
  * what (if anything) a fixed-text audit line may say.
@@ -93,16 +95,24 @@ function toBuffer(chunk: unknown): Buffer {
   return Buffer.from(String(chunk), 'utf8');
 }
 
-/** Kill the tree once the pid is known, then the handle itself. */
+/**
+ * Kill the tree once the pid is known, then the handle itself. The handle
+ * kill runs even when the tree kill rejects (Batch 37b1a, 37a review r1
+ * finding 4): a failed `taskkill` must not also skip the leader. A rejection
+ * still reaches the caller, which reports it to `onKillError`.
+ */
 async function killTreeOf(
   handle: SpawnedProcessHandle,
   killTree: (pid: number) => Promise<void>,
 ): Promise<void> {
-  const pid = handle.pid ?? (await handle.whenSpawned);
-  if (pid !== null && pid !== undefined) {
-    await killTree(pid);
+  try {
+    const pid = handle.pid ?? (await handle.whenSpawned);
+    if (pid !== null && pid !== undefined) {
+      await killTree(pid);
+    }
+  } finally {
+    handle.kill('SIGKILL');
   }
-  handle.kill('SIGKILL');
 }
 
 export function runChecker(
@@ -111,8 +121,12 @@ export function runChecker(
 ): Promise<CheckerRunResult> {
   const now = dependencies.now ?? Date.now;
   const platform = dependencies.platform ?? process.platform;
+  // `killProcessTree` swallows a failed `taskkill` unless it is given an
+  // error callback; passing the observer makes that failure visible.
   const killTree =
-    dependencies.killTree ?? ((pid: number) => killProcessTree(pid, 'SIGKILL'));
+    dependencies.killTree ??
+    ((pid: number) =>
+      killProcessTree(pid, 'SIGKILL', dependencies.onKillError));
   const maxOutputBytes = request.maxOutputBytes ?? CHECKER_MAX_OUTPUT_BYTES;
   const startedAt = now();
   const elapsed = (): number => Math.max(0, now() - startedAt);
