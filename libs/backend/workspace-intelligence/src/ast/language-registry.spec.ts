@@ -11,7 +11,9 @@
  * them, never silently):
  * - `tsx` has no extensions and no capability until Batch 29b.
  * - `publicSymbols` / `graphEdges` stay TS/JS only until Batches 33-36.
- * - `definitionFallback` gains C# in Batch 26b.
+ * - `definitionFallback` gained C# in Batch 26b (the Electron C# declaration
+ *   query is proven against the shipped grammar in
+ *   `apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`).
  * - The grammar the parser registers for each language equals
  *   `GRAMMAR_FILE_MAP` until Batch 29a2 makes the parser read the map.
  * - `.mjs/.cjs/.mts/.cts/.pyi/.pyw` are recognition-only (counted as
@@ -297,17 +299,25 @@ describe('language registry', () => {
     ['codeIndex', ['typescript', 'javascript', 'python', 'go', 'csharp']],
     ['publicSymbols', ['typescript', 'javascript']],
     ['graphEdges', ['typescript', 'javascript']],
-    ['definitionFallback', ['typescript', 'javascript', 'python', 'go']],
+    [
+      'definitionFallback',
+      ['typescript', 'javascript', 'python', 'go', 'csharp'],
+    ],
     ['syntaxDiagnostics', ['python', 'go', 'csharp']],
   ])('initial %s languages', (capability, expected) => {
     expect(supportedLanguagesFor(capability)).toEqual(expected);
   });
 
   it('draws TS/JS graph edges per file', () => {
-    expect(LANGUAGE_REGISTRY.typescript.capabilities.graphEdges).toEqual({
-      granularity: 'file',
-      referenceScopeComplete: true,
-    });
+    // Batch 26b r1 B2: the edges do not bound references (global scripts,
+    // re-exports, require, dynamic import, unmapped aliases), so TS/JS do not
+    // claim referenceScopeComplete and reference lookups never narrow on them.
+    for (const id of ['typescript', 'javascript'] as const) {
+      expect(LANGUAGE_REGISTRY[id].capabilities.graphEdges).toEqual({
+        granularity: 'file',
+        referenceScopeComplete: false,
+      });
+    }
   });
 
   it('has an entry for every language id and no capability without a grammar', () => {

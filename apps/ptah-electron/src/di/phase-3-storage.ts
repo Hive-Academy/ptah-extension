@@ -30,7 +30,6 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import type {
-  WorkspaceIndexerService,
   DependencyGraphService,
   AstAnalysisService,
   TreeSitterParserService,
@@ -168,9 +167,6 @@ export function registerPhase3Storage(
     const symbolReader = container.isRegistered(CODE_SYMBOL_READER_TOKEN)
       ? container.resolve<ICodeSymbolReader>(CODE_SYMBOL_READER_TOKEN)
       : undefined;
-    const indexerService = container.resolve<WorkspaceIndexerService>(
-      TOKENS.WORKSPACE_INDEXER_SERVICE,
-    );
     const fileSystemProvider = container.resolve<IFileSystemProvider>(
       PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
     );
@@ -189,7 +185,6 @@ export function registerPhase3Storage(
     container.register(IDE_CAPABILITIES_TOKEN, {
       useValue: new ElectronIDECapabilities(
         symbolReader,
-        indexerService,
         fileSystemProvider,
         workspaceProvider,
         editorProvider,
