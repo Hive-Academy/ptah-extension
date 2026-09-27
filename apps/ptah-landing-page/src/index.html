@@ -1,7 +1,29 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="operator">
+<!doctype html>
+<html lang="en" dir="ltr" data-theme="operator">
   <head>
     <meta charset="utf-8" />
+    <!-- Sets lang/dir (and the Arabic font) before first paint. Mirrors
+         resolveInitialLang; pre-paint-script.spec.ts keeps them in sync.
+         Hand-formatted to stay under 1 KB. -->
+    <!-- prettier-ignore -->
+    <script id="ptah-i18n-prepaint">
+      (function (d, r) {
+        var l = 'en', s, f;
+        try { s = localStorage.getItem('ptah.lang'); } catch (e) { /* storage blocked: detect */ }
+        if (['en', 'ar'].indexOf(s) > -1) l = s;
+        else if (typeof (f = (f = navigator.languages) && f[0]) == 'string' && /^ar/i.test(f)) l = 'ar';
+        r.lang = l;
+        r.dir = { en: 'ltr', ar: 'rtl' }[l];
+        if (l != 'ar' || d.getElementById('ptah-font-ar')) return;
+        f = d.createElement('link');
+        f.rel = 'preconnect'; f.href = 'https://fonts.gstatic.com'; f.crossOrigin = '';
+        d.head.appendChild(f);
+        f = d.createElement('link');
+        f.id = 'ptah-font-ar'; f.rel = 'stylesheet';
+        f.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap';
+        d.head.appendChild(f);
+      })(document, document.documentElement);
+    </script>
     <title>Ptah — It Knows Your Architecture. It Ships the SaaS.</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

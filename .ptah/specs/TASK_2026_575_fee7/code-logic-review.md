@@ -1533,3 +1533,300 @@ Implicit requirements not addressed: a code-level (not comment-only) guard again
 - Confidence: HIGH — every assertion above was checked against the actual `dist/ptah-landing-page/browser` build and the actual git diff, not inferred from the source alone; the compare-mode run, the self-test, the Jest suite and a hand-replay of the new deploy-workflow grep lines were all executed directly in this review.
 - Top risk: none blocking. The two Moderate/Failure-mode items (no per-file parse isolation; no enforced single-use `--update` guard) are both cheap to close later and neither affects the correctness of what Batch 6 actually ships — the six committed baselines are verified byte-for-text correct against the real unmodified build, and the compare run's only violation is the one the team-leader already documented and scoped out.
 - What a robust implementation would add: (1) wrap `snapshotPage`'s `parse5.parse()` call per route in a try/catch that emits a `parse-error` violation and continues, matching the rest of the tool's established contract; (2) a code-level (not comment-only) guard against `--update` silently overwriting a baseline once the "exactly once" window has passed — for example, refusing to run when `git status` shows the baseline directory as already clean/committed, or moving the enforcement into a CI check that the baseline files change only in a commit explicitly labelled to allow it; (3) a one-line comment in `deploy-landing.yml` acknowledging the `KEY_PATH` grep's lack of DOM/script awareness relative to `check-prerender.ts`, so a future investigator does not assume the two are equivalent.
+
+## Batch 9
+
+Scope: Batch 9 only (Tasks 9.1-9.5, uncommitted — `git status`/`git diff --stat` confirms the touched
+files match the batch's file lists exactly, plus the Batch 6 carry-over to `deploy-landing.yml`). Files
+read in full: `apps/ptah-landing-page/src/{index.html, main.ts, styles.css}`,
+`apps/ptah-landing-page/src/app/{app.config.ts, app.routes.ts, app.routes.spec.ts}`,
+`apps/ptah-landing-page/src/app/i18n/{landing-i18n.constants.ts, arabic-font.loader.ts,
+arabic-font.loader.spec.ts, app-stable-marker.ts, app-stable-marker.spec.ts, pre-paint-script.spec.ts,
+app.i18n-scope.ts, app.i18n-scope.spec.ts}`, `apps/ptah-landing-page/{tailwind.config.js, project.json}`,
+`.github/workflows/deploy-landing.yml`, `tools/i18n-check/src/prerender/check-prerender.ts` (+ spec),
+`libs/web/ui/src/lib/countdown-timer.component.ts`,
+`apps/ptah-landing-page/prerender-baseline/{home.json, pricing.json, README.md}`. Cross-read for the
+hydration/SSG contract: `libs/frontend/i18n/src/lib/{resolve-initial-lang.ts, i18n-scopes.resolver.ts,
+provide-i18n.ts, i18n.service.ts, lang.config.ts}` and its `CLAUDE.md`, plus
+`tools/i18n-check/src/lib/scope-map.ts` (`KNOWN_SCOPES`, `SCOPE_MAP`). `privacy.json`, `refund.json`,
+`terms-and-conditions.json` and `download.json` were diffed against `HEAD` and confirmed byte-identical
+(untouched, as Task 9.5 requires).
+
+Verification run (all executed directly in this review, not inferred):
+
+- `node_modules/.bin/nx run-many -t test -p ptah-landing-page --skip-nx-cache` → green (all suites pass).
+- `node_modules/.bin/nx run i18n-check:test --skip-nx-cache` → green, 16 suites / 239 tests.
+- `node_modules/.bin/nx build ptah-landing-page --stats-json` → succeeds, "Prerendered 6 static routes."
+  (budget warnings only, pre-existing and unrelated to i18n).
+- `node_modules/.bin/nx run ptah-landing-page:prerender-check` → `check-prerender: 6 routes match their
+baselines` (exit 0), against the **unchanged** baselines (A3 re-confirmed: zero key-path, drift or
+  `dir` violations).
+- A1 (browser half): inspected the real build output. `libs/{ui,panel-ui,core,landing,legal,pricing,auth,
+account,members,admin}/src/lib/i18n/{en,ar}.json` plus `apps/ptah-landing-page/src/app/i18n/{en,ar}.json`
+  are 11 scope pairs (22 files, all still `{}` at this point in the rollout — confirmed by
+  `find ... -path "*/i18n/en.json" -o -path "*/i18n/ar.json" | wc -l` = 22). `dist/ptah-landing-page/browser`
+  contains exactly 22 `chunk-*.js` files of 30 bytes each, content `var c={};export{c as default};`, and
+  `grep -rlF 'en.json' dist/ptah-landing-page/browser/*.js` finds nothing in `main-*.js` — the 22 dynamic
+  `import('./en.json')`/`import('./ar.json')` calls are each their own lazy chunk, not inlined into the
+  initial bundle. This is exactly the structural claim A1 needs at this stage (content-based
+  re-confirmation is explicitly deferred to Batch 15, plan:107-108, once `landing`'s JSON is filled).
+- Node one-off script comparing `home.json`/`pricing.json` against `git show HEAD:...` with the exact
+  formula the README states (`collapseWhitespace(old.text.replace(/\d{2}Days:\d{2}Hrs:\d{2}Min:\d{2}Sec/,
+''))`) → both `true`. `git diff` on the two baselines shows only the `text` field changed, `route`/`h1`
+  untouched, confirming Task 9.5's quality requirement (4) exactly.
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 2        |
+
+### Five logic questions
+
+1. **How does this fail silently?** `i18nScopesResolver` (`libs/frontend/i18n/src/lib/i18n-scopes.resolver.ts:38-47`,
+   reached for the first time by real navigation in this batch, via the resolver table in
+   `app.routes.ts:32-37,43,69-71,79,86,94-97,135-138,173-176`) swallows every ordinary scope-load failure
+   — a failed chunk `import()`, a rejected translation loader — and resolves navigation `true` regardless,
+   logging only to `console.error`. A visitor whose scope failed to load sees the page render with English
+   fallback text (via `I18nMissingHandler`, reviewed in Batch 2) and no visible error. This is a deliberate,
+   already-reviewed trade-off (never block navigation on a translation failure), not new to this batch, but
+   Batch 9 is where it starts affecting real users, so it is restated here as the honest answer to Q1. A
+   second, narrower path: `I18nService.init()` (`i18n.service.ts:80-96`), invoked from `provideI18n`'s
+   `provideAppInitializer` in `app.config.ts:46-49`, degrades a startup load failure to English and resolves
+   the initializer promise regardless — bootstrap never sees the failure, only the console does.
+2. **What user action produces unexpected behaviour?** A first-time visitor whose browser reports an
+   `ar`-prefixed language (including a false positive such as `arn`/`ars`, `resolve-initial-lang.ts:19-22`)
+   gets `dir="rtl"` and the Arabic webfont requested before first paint (`index.html:9-25`), purely from
+   `navigator.languages`, with no stored preference and no user-visible language control yet (the switcher
+   ships in Batch 11). Because every scope's `en.json`/`ar.json` is still `{}` at this point in the rollout,
+   that visitor sees an RTL-laid-out page with empty/fallback text until later batches fill content — not a
+   defect in this batch's own logic (the detection and font-loading code is correct and covered by the
+   35-case matrix in `pre-paint-script.spec.ts`), but a real, currently-live mid-rollout user experience
+   worth naming for QA/staging awareness, since this batch is the first to wire real navigation and DOM
+   effects to that detection.
+3. **What input data produces a wrong answer?** None found for the code in this batch. The pre-paint script
+   (`index.html:9-25`) and `resolveInitialLang` (`resolve-initial-lang.ts:24-31`) were checked case by case:
+   both use the identical case-sensitive exact match for a stored value (`['en','ar'].indexOf(s)` vs
+   `isSupportedLang`, `lang.config.ts:16-20`) and the identical case-insensitive prefix test for a browser
+   language (`/^ar/i` vs `.toLowerCase().startsWith('ar')`) — confirmed by running the actual inline script
+   from the real `index.html` against all 5×7 = 35 stored×language combinations in `pre-paint-script.spec.ts`
+   and asserting equality with `resolveInitialLang` and `LANG_DIRECTION` on every case (test run above,
+   green). `[lang='ar']` in `styles.css:81-101` matches correctly because `I18nService.apply()`
+   (`i18n.service.ts:244-250`) sets `root.lang`/`root.dir` as reflected IDL properties, which sync the
+   content attribute the CSS attribute selector reads.
+4. **What happens when a dependency fails?** Traced end to end: a rejected scope `import()` during route
+   navigation is caught by `i18nScopesResolver`'s `catchError` (see Q1) and never reaches the router or the
+   component tree as an error — this is the documented, already-reviewed contract, re-verified here as
+   correctly wired into real routes for the first time. `markAppStable` (`app-stable-marker.ts:16-22`,
+   called from `main.ts:6-8`) has no timeout fallback by design: if `ApplicationRef.whenStable()` never
+   resolves (A4, GSAP/Lenis rAF loops keeping the zone unstable — a known risk this task already tracks with
+   its own contingent remediation task), `data-app-stable` never appears and the e2e wait fails visibly
+   rather than passing on a fabricated signal — confirmed with a fake-timer test that advances 60s past a
+   never-resolving `whenStable()` and asserts the attribute is still absent
+   (`app-stable-marker.spec.ts:42-57`). `provideArabicFontLoader` (`arabic-font.loader.ts:26-37`) does
+   nothing if the font request itself fails (network down, CSP block) — the `<link>` is appended
+   unconditionally and its failure is invisible by design (`font-family` fallback in `tailwind.config.js:74-81`
+   absorbs it), matching plan:445 ("If the font request fails, the stack falls through to Noto Sans Arabic or
+   the system font").
+5. **What is missing that the requirements never mentioned?** (a) Task 9.4's quality requirement calls for
+   build-stats evidence of lazy-chunked scope JSON "for the browser and server builds" (plan:107,
+   `implementation-plan.md:107-108`), but `project.json:16` sets `outputMode: "static"`, so
+   `nx build ptah-landing-page` writes only `dist/ptah-landing-page/browser` plus the prerendered HTML — no
+   `dist/ptah-landing-page/server` directory is persisted to inspect. The browser half is fully proven (see
+   verification run above); the server half can only be inferred indirectly, from `prerender-check` passing
+   with correct English text and zero key-path leaks, which shows the server-side scope loader did not
+   inline garbage or a raw key path into the HTML, but does not by itself show the server bundle's `en.json`
+   was chunked rather than bundled inline (a bundled-but-still-correct outcome is possible and would look
+   identical from the HTML alone). See Moderate-1. (b) The plan's own Assumption A5 (structural `@if`
+   differences between the English prerender and an Arabic client render — the switcher's check icons and
+   the legal governing-language notice) is explicitly out of scope for this batch (Task 33.3) and this batch
+   introduces no structural language branching itself (`i18nScopesResolver`, `provideArabicFontLoader` and
+   `markAppStable` are all additive DOM/attribute effects, never conditional element structure), so the
+   NG05xx hydration-mismatch risk named in this review's brief does not yet have a code path to trigger in
+   Batch 9's own files — traced and confirmed rather than assumed (see Failure modes, "Hydration mismatch
+   risk (traced, not found)").
+
+### Failure modes
+
+#### Silent scope-load failure on route navigation (accepted, re-confirmed in real wiring)
+
+- Trigger: a route's scope chunk fails to load (network failure, CDN error, a bad deploy) once real users hit
+  the resolver table in `app.routes.ts` for the first time in this batch.
+- Symptom: the route still navigates; the page renders with English-fallback or empty text for that scope
+  (via `I18nMissingHandler`, Batch 2), no user-visible error.
+- Evidence: `libs/frontend/i18n/src/lib/i18n-scopes.resolver.ts:38-47`; wired to real navigation via
+  `apps/ptah-landing-page/src/app/app.routes.ts:43,69-71,79,86,94-97,135-138,173-176`.
+- Current handling: `console.error` only, tagged `[i18n:wiring]` for a genuine wiring mistake
+  (`I18nError`) versus untagged for an ordinary load failure — a deliberate, already-reviewed design
+  (Batch 2), not a regression.
+- Recommendation: unchanged from Batch 2's acceptance; no new action needed in this batch. Worth surfacing
+  to product/observability once the app ships real scope content, since a CDN blip would otherwise be
+  invisible outside server logs.
+
+#### A1 server-build evidence gap under `outputMode: "static"`
+
+- Trigger: none at runtime — this is a verification-evidence gap, not a functional defect. Running
+  `nx build ptah-landing-page --stats-json` (as Task 9.4 instructs) under the app's own
+  `outputMode: "static"` configuration.
+- Symptom: no `dist/ptah-landing-page/server` directory or server-side stats artifact is written to inspect,
+  so the "server builds" half of Task 9.4's quality requirement (plan:107, "esbuild pipeline bundles
+  `import('./en.json')`... into a lazy chunk for both the browser and server builds") cannot be directly
+  verified the way the browser half was (22 separate 30-byte chunks, confirmed above).
+- Evidence: `apps/ptah-landing-page/project.json:16` (`"outputMode": "static"`); confirmed empirically —
+  `find dist/ptah-landing-page -maxdepth 1 -type d` lists only `browser` after a full build.
+- Current handling: none; the batch's own verification note (batches.md, "Batch 9 verification", round 1)
+  does not call this out, and Task 9.4 is left `IN_PROGRESS` for a different reason (the countdown drift,
+  now fixed by Task 9.5) rather than this one.
+- Recommendation: either accept indirect proof (the successful English `prerender-check` run already shows
+  the server-side render is correct, which is the outcome that actually matters) and say so explicitly in
+  the Task 9.4 evidence note, or, if literal stats-based proof of server-side chunking is wanted, inspect the
+  build's intermediate/server bundle before the static-mode build step discards it (e.g., a scratch build
+  with `outputMode` temporarily unset), documented as a one-off check rather than a repeatable target. Not
+  blocking: A1's content-based re-confirmation is already explicitly deferred to Batch 15 (plan:107-108),
+  and nothing in this batch depends on the server-side chunking claim being true (the server always renders
+  English from the empty root translation plus `{}` scopes today, so a bundled-vs-chunked `{}` would behave
+  identically either way).
+
+#### Hydration mismatch risk (traced, not found)
+
+- Trigger (hypothetical, checked against this batch's actual code): an Arabic-detecting visitor's language
+  being applied before Angular's root component tree is created and hydration begins, so the first hydration
+  pass would expect Arabic text against a server-rendered English DOM.
+- Symptom (if it existed): Angular hydration errors (NG05xx) or discarded server DOM on first paint.
+- Evidence traced: `I18nService.apply()` (`i18n.service.ts:244-250`) is called from `init()`
+  (`i18n.service.ts:80-96`), itself invoked by `provideAppInitializer` (`provide-i18n.ts:53`), which **does**
+  run and resolve before Angular creates/hydrates the root component tree — so if `init()` detected `ar` for
+  a browser-language visitor and no stored preference, `I18nService.lang()` would already read `ar` by the
+  time hydration's first change-detection pass runs. Two things in this batch's own files keep this from
+  being a live defect today: (1) `apply()` only ever touches `document.documentElement` directly
+  (`root.lang`/`root.dir`), which sits **outside** Angular's view tree — hydration never tries to match
+  `<html>`'s attributes against server output, so no mismatch is possible there; (2) the plan's hydration
+  contract (implementation-plan.md:461-482, rule 2) forbids structural (`@if`/`@for`-shape) branching on
+  language in every component this batch touches or wires — `arabic-font.loader.ts`, `app-stable-marker.ts`
+  and the resolver are all additive effects with no template, and the countdown component's
+  `data-prerender-volatile` host (`countdown-timer.component.ts:25`) is unrelated to language. A **text
+  content** mismatch (an interpolated `| transloco` binding reading Arabic while the server DOM holds
+  English) is not itself an NG05xx hydration error — Angular's normal change-detection update simply
+  rewrites the DOM node's text on the first CD pass, which is standard reactive behaviour, not a hydration
+  fault. The genuine structural-branch risk (the language switcher's check icons, the legal
+  governing-language notice) is explicitly named by the plan as Assumption A5 and deferred to Task 33.3; none
+  of that template code exists yet in the tree.
+- Current handling: n/a — no defect found; documented here per this review's brief so the reasoning is
+  auditable rather than asserted.
+- Recommendation: none for this batch. When Task 33.3 lands, re-run this trace against the switcher and
+  legal-notice templates specifically, since those are the only place the reasoning above changes.
+
+### Blocking issues
+
+None found.
+
+### Serious issues
+
+None found.
+
+### Moderate and minor issues
+
+- Moderate-1: A1's "server builds" evidence is not directly producible under `outputMode: "static"` (see
+  Failure modes above). `apps/ptah-landing-page/project.json:16`; `implementation-plan.md:107-108`.
+- Minor: `app.routes.ts:100-129`'s extensive inline JSDoc for the `/members` route (pre-existing, untouched
+  by this batch except for the added `resolve` block at `:134-138`) is unrelated to this batch's own change
+  and was left as-is, correctly — noted only because it made locating the batch's actual diff inside that
+  route object slower during review; no action needed.
+
+### Data flow
+
+1. Server request for a prerendered route → `I18nService.detectLang()` short-circuits to `DEFAULT_LANG`
+   (`i18n.service.ts:140-146`, `!this.isBrowser`) → `init()` loads English scopes only → `apply('en')` sets
+   `<html lang dir>` server-side (matches the static `index.html:2` default). **OK.**
+2. Browser first paint, before any script executes → static `<html lang="en" dir="ltr">` from `index.html:2`
+   is what a no-JS visitor keeps permanently (3.5). **OK**, confirmed by `pre-paint-script.spec.ts`'s
+   "leaves static English attributes" test.
+3. Browser first paint, `#ptah-i18n-prepaint` runs synchronously (`index.html:9-25`) → reads storage
+   (try/catch) → falls back to `navigator.languages` prefix test → sets `<html lang/dir>` and, for `ar`,
+   appends the font `<link>` — all before Angular's bundle has even started loading. **OK**, matches
+   `resolveInitialLang` exactly per the 35-case spec matrix.
+4. Angular bootstrap: `AuthInitializerService.initialize()` and `I18nService.init()` run as app initializers
+   (`app.config.ts:36-49`) → `init()` re-runs the _same_ detection (`resolveInitialLang`, browser-side this
+   time) against the _same_ storage/`navigator.languages` inputs the pre-paint script just read → loads the
+   global scopes (`APP_I18N_SCOPE`, `UI_I18N_SCOPE`, `CORE_I18N_SCOPE`) for that language plus English →
+   `apply(lang)` re-sets `<html lang/dir>` (idempotent re-application of the same values the pre-paint script
+   already set, in the ordinary case) and `provideArabicFontLoader`'s root `effect` additionally ensures the
+   font link exists (`arabic-font.loader.ts:32-34`) — a no-op when the pre-paint script already added it
+   (`ensureArabicFontLink`'s `getElementById` guard, `:40`). **OK.**
+5. Bootstrap resolves → root component created → hydration reconciles against the server-rendered (always
+   English) DOM inside `<app-root>` → `bootstrapApplication(...).then((appRef) => markAppStable(appRef,
+document))` (`main.ts:6-8`) awaits `appRef.whenStable()` before marking `data-app-stable="true"`. **OK**,
+   with the caveat traced in "Hydration mismatch risk" above (no defect found, but the reasoning is
+   load-bearing on the "no structural language branching yet" fact, which will change in Task 33.3).
+6. Per-route navigation → `i18nScopesResolver` registers and loads that route's scope(s) for the active
+   language and English before the router completes navigation (`i18n-scopes.resolver.ts:31-49`,
+   `i18n.service.ts:121-126`) → `SeoService` (a later batch) will read the English values after the
+   resolver, per plan:442. **OK** for this batch's own scope (resolver wiring); `SeoService`'s consumption is
+   out of scope (Batch 10).
+7. `nx build` → prerender → `check-prerender` walks the six routes' parsed DOM, skipping
+   `[data-prerender-volatile]` (the countdown) uniformly across text, heading and key-path extraction →
+   compares against the two edited baselines (`home.json`, `pricing.json`, countdown segment removed per the
+   documented formula) and the four untouched ones. **OK**, re-run directly in this review, exit 0.
+
+### Requirements fulfilment
+
+| Requirement                                                                                | Status   | Gap                                                                                                                   |
+| ------------------------------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| Resolver table exactly as plan:409-418, members/admin via dynamic `import()`               | COMPLETE | none — verified against every route in `app.routes.ts`                                                                |
+| `.ltr-island` without `display` (plan:33-35)                                               | COMPLETE | none — `styles.css:71-75`                                                                                             |
+| Remove `extract-i18n`; add `prerender-check` (`dependsOn: ["build"]`); no `i18n-check` yet | COMPLETE | none — `project.json`                                                                                                 |
+| `app.routes.spec.ts` must not import `app.routes`                                          | COMPLETE | none — uses `readFileSync`/source-slicing throughout                                                                  |
+| Pre-paint script: literals, position, size, sync with `resolveInitialLang`                 | COMPLETE | none — 35-case matrix passes                                                                                          |
+| Arabic font loader: browser-only, idempotent, no request for `en`                          | COMPLETE | none — spec covers server no-op, single append, existing-link reuse                                                   |
+| `markAppStable`: honest, no timeout fallback                                               | COMPLETE | none — fake-timer test proves no fallback                                                                             |
+| Task 9.5: shared `isSkipped`, `data-prerender-volatile` on both countdown branches, specs  | COMPLETE | none — host metadata covers both `@if`/`@else` branches; specs cover text-join and key-path-in-volatile-subtree cases |
+| Task 9.5: baselines edited by the stated formula only, other four untouched                | COMPLETE | none — reproduced the formula programmatically against `git show HEAD:...`, both `true`                               |
+| Task 9.5: README documents the one-time edit                                               | COMPLETE | none                                                                                                                  |
+| Task 9.4: build + prerender-check pass against unchanged baselines                         | COMPLETE | none — re-run in this review                                                                                          |
+| Task 9.4: A1 evidence for browser **and** server builds                                    | PARTIAL  | server-side evidence not directly producible under `outputMode: "static"` (Moderate-1)                                |
+| Batch 6 carry-over: `deploy-landing.yml` comment + `HEADLINE` escaping                     | COMPLETE | none — both present exactly as specified                                                                              |
+
+Implicit requirements not addressed: none found beyond Moderate-1.
+
+### Edge cases
+
+| Case                                                                 | Handled | How                                                                                            | Concern                                               |
+| -------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Stored language invalid/absent, browser language absent/multi-valued | YES     | 35-case matrix (5 stored × 7 language shapes) in `pre-paint-script.spec.ts`                    | none                                                  |
+| Storage throws (private mode)                                        | YES     | try/catch in both the script and `LangPreferenceStore`; both fall through to detection         | none                                                  |
+| JS disabled                                                          | YES     | static English `lang`/`dir` on `<html>` persists forever                                       | none                                                  |
+| Font link already present (pre-paint added it)                       | YES     | `getElementById` guard in both the script and `ensureArabicFontLink`                           | none                                                  |
+| Repeated language switches (font link)                               | YES     | idempotent append, spec covers `ar→en→ar`                                                      | none                                                  |
+| App never becomes stable                                             | YES     | no timeout fallback; attribute never appears, proven with fake timers                          | none (by design — visible failure, not a silent pass) |
+| Countdown ticking vs expired branch, both prerendered/baselined      | YES     | `data-prerender-volatile` host attribute covers both `@if`/`@else` branches uniformly          | none                                                  |
+| Key path rendered inside the volatile countdown subtree              | YES     | not reported (documented choice: the host only ever renders digits and fixed labels)           | none — explicit, reasoned, and specced                |
+| Second `--update` capture drifting a baseline                        | NO      | policy-only, pre-existing gap from Batch 6, not touched by this batch                          | pre-existing, not a Batch 9 regression                |
+| Scope chunk-load failure on a real route navigation                  | YES     | resolver never blocks navigation; falls back to English/empty via `I18nMissingHandler`         | accepted design; no visible error to the user (Q1)    |
+| A1 server-build chunking evidence                                    | PARTIAL | browser build empirically confirmed (22×30-byte chunks); server build not directly inspectable | Moderate-1                                            |
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH — every load-bearing claim was checked against the real build output, the real test run,
+  or a direct trace through the actual source (not inferred from documentation alone): `nx build` +
+  `prerender-check` were re-run against the unchanged baselines, the 22 lazy i18n-scope chunks were counted
+  and their content inspected, the baseline-edit formula was reproduced programmatically against `git show
+HEAD:...`, and the SSG/hydration contract (the review's own stated top concern) was traced through
+  `provideAppInitializer` → `I18nService.apply()` → `document.documentElement` to confirm hydration never
+  touches `<html>` attributes, with the one live structural-branching risk (A5) confirmed absent from this
+  batch's own files and correctly deferred by the plan to Task 33.3.
+- Top risk: none blocking or serious. The one real gap (Moderate-1) is a verification-evidence shortfall
+  under `outputMode: "static"`, not a functional defect — the behaviour it would have proven (server-side
+  scope JSON is lazy-chunked, not bundled) is not depended on by anything else in this batch, since every
+  scope is still `{}` and the server always renders English regardless.
+- What a robust implementation would add: (1) a documented decision on Task 9.4's A1 evidence note about
+  what "for the browser and server builds" means under `outputMode: "static"` (accept the indirect proof, or
+  perform a one-off scratch build with server output retained); (2) when Task 33.3 lands the switcher and the
+  legal governing-language notice, re-run the hydration-mismatch trace above specifically against those two
+  structural branches, since they are the only place this batch's "no structural language branching yet"
+  reasoning stops applying.

@@ -63,6 +63,31 @@ describe('extractVisibleText (the shared normalisation)', () => {
     expect(bodyText(body)).toBe('abc');
   });
 
+  it('skips a [data-prerender-volatile] subtree, whatever it renders', () => {
+    // The countdown host: ticking cells before the deadline, a fixed label
+    // after it. Neither is baselined.
+    const ticking =
+      '<p>Offer closes Sep 30</p>' +
+      '<ptah-countdown-timer data-prerender-volatile="">' +
+      '<div><span>03</span><span>Days</span>:<span>07</span><span>Hrs</span></div>' +
+      '</ptah-countdown-timer>' +
+      '<p>Apply</p>';
+    const expired = ticking.replace(
+      /<div>.*<\/div>/,
+      '<div>Applications closing</div>',
+    );
+    expect(bodyText(ticking)).toBe('Offer closes Sep 30Apply');
+    expect(bodyText(expired)).toBe('Offer closes Sep 30Apply');
+  });
+
+  it('joins the text on both sides of a volatile subtree with no separator', () => {
+    expect(bodyText('a<span data-prerender-volatile>1</span>b')).toBe('ab');
+    // Whitespace outside the subtree is kept (collapsed), as for any element.
+    expect(bodyText('a <span data-prerender-volatile>1</span>\n b')).toBe(
+      'a b',
+    );
+  });
+
   it('extracts body text only (head <title> is not included)', () => {
     expect(bodyText('<p>x</p>')).toBe('x');
   });
@@ -86,6 +111,28 @@ describe('snapshotPage assertions input', () => {
       'landing.hero.title',
       'panelUi.nav.group-1',
     ]);
+  });
+
+  it('does not report a key path inside a volatile subtree (one shared skip)', () => {
+    // Chosen on purpose: every walk uses the same skip, so capture, compare,
+    // headings and key paths never disagree about what a page contains. The
+    // only volatile host (the countdown) renders numbers and fixed labels, and
+    // a key path anywhere else is still reported.
+    const snap = snapshotPage(
+      page(
+        '<div data-prerender-volatile><p>ui.countdown.days</p></div>' +
+          '<p>ui.countdown.hours</p>',
+      ),
+    );
+    expect(snap.keyPaths).toEqual(['ui.countdown.hours']);
+  });
+
+  it('ignores headings inside a volatile subtree', () => {
+    const snap = snapshotPage(
+      page('<div data-prerender-volatile><h1></h1></div><h1>Real</h1>'),
+    );
+    expect(snap.emptyHeadings).toEqual([]);
+    expect(snap.h1).toBe('Real');
   });
 
   it('lists empty h1 and h2 elements, including whitespace-only ones', () => {
@@ -236,7 +283,11 @@ describe('checkPrerender', () => {
 
   it('passes when a price is later wrapped in an island (no-separator join)', () => {
     writeDist('lang="en" dir="ltr"', {
-      home: pages['home'].replace('<span class="ltr-island">$29</span>', '$29'),
+      home: pages['home'].replace(
+        '<span class="ltr-island">$29</span>',
+        // A function, so "$29" is literal text, not a replacement pattern.
+        () => '$29',
+      ),
     });
     checkPrerender(options({ update: true }));
     writeDist('lang="en" dir="ltr"');

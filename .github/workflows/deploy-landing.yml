@@ -58,10 +58,8 @@ jobs:
       # dir="ltr">, each route's known English headline, and no raw translation
       # key path rendered as text. The full-text comparison against the
       # committed baselines is tools/i18n-check/src/prerender/check-prerender.ts.
-      # NOTE: the dir="ltr" grep only holds once the i18n app wiring renders
-      # <html dir> (TASK_2026_575 Batch 9). The pre-i18n build has no dir
-      # attribute, so a deploy from this commit alone fails that grep; the
-      # task merges as one branch, with the wiring included.
+      # The dir="ltr" grep holds since the i18n app wiring (TASK_2026_575
+      # Batch 9) renders <html lang="en" dir="ltr"> statically in index.html.
       - name: Assert prerendered content
         run: |
           set -euo pipefail
@@ -81,6 +79,10 @@ jobs:
           )
           # A text node that is a key path of a known i18n scope (anchored on
           # the scope names, because ">ptah.live<" is real copy).
+          # NOT DOM-aware: this greps raw bytes, so text inside <script> or
+          # JSON-LD blocks can match falsely. On a failure here, trust
+          # tools/i18n-check/src/prerender/check-prerender.ts, which walks the
+          # parsed DOM and skips script/style/template content.
           KEY_PATH='>[[:space:]]*(app|ui|core|landing|legal|pricing|auth|account|members|admin|panelUi)\.[A-Za-z0-9_.-]+[[:space:]]*<'
 
           for route in "index.html" "download/index.html" "pricing/index.html" \
@@ -89,7 +91,9 @@ jobs:
             grep -qi "<h1" "$DIST/$route" || fail "$route has no <h1> (empty prerender?)"
             grep -Eq '<html[^>]*\blang="en"' "$DIST/$route" || fail "$route <html> is not lang=\"en\""
             grep -Eq '<html[^>]*\bdir="ltr"' "$DIST/$route" || fail "$route <html> is not dir=\"ltr\""
-            grep -Eq "<h1[^>]*>[[:space:]]*${HEADLINE[$route]}" "$DIST/$route" \
+            # Headlines are copy, not patterns: escape ERE metacharacters.
+            headline_re=$(printf '%s' "${HEADLINE[$route]}" | sed 's/[][\.*^$+?(){}|]/\\&/g')
+            grep -Eq "<h1[^>]*>[[:space:]]*${headline_re}" "$DIST/$route" \
               || fail "$route <h1> does not start with \"${HEADLINE[$route]}\""
             if grep -Eq "$KEY_PATH" "$DIST/$route"; then
               fail "$route renders a translation key path: $(grep -Eo "$KEY_PATH" "$DIST/$route" | head -1)"

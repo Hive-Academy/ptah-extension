@@ -11,7 +11,11 @@
  * (`extractVisibleText`), used both to capture a baseline and to compare
  * against it:
  *   1. walk the subtree in document order, skipping comment nodes and
- *      `script`, `style`, `template` and `[data-i18n-switcher]` subtrees;
+ *      `script`, `style`, `template`, `[data-i18n-switcher]` and
+ *      `[data-prerender-volatile]` subtrees (the last marks build-time values
+ *      that are not copy, such as the live countdown, so they are never
+ *      baselined); the same skip applies to the text, the h1/h2 and the
+ *      key-path walks;
  *   2. take text-node values (parse5 decodes entities);
  *   3. concatenate them with no separator, across element boundaries, so a
  *      new wrapper element adds no text (`<span>$29</span>/mo` is `$29/mo`);
@@ -103,7 +107,15 @@ const VALUE_FLAGS = ['--dist', '--baseline', '--workspace-root'];
 
 const SKIPPED_TAGS = new Set(['script', 'style', 'template']);
 
-const SWITCHER_ATTR = 'data-i18n-switcher';
+/**
+ * Subtrees excluded from every walk: the language switcher (its labels are
+ * the same in both languages) and volatile build-time output that is not copy
+ * (for example the countdown, whose value depends on the build time).
+ */
+const SKIPPED_ATTRS: readonly string[] = [
+  'data-i18n-switcher',
+  'data-prerender-volatile',
+];
 
 /**
  * A text node that is nothing but a key path of a known scope (the 3.5
@@ -129,7 +141,7 @@ function isTextNode(node: Node): node is DefaultTreeAdapterTypes.TextNode {
 function isSkipped(element: Element): boolean {
   return (
     SKIPPED_TAGS.has(element.tagName) ||
-    element.attrs.some((attr) => attr.name === SWITCHER_ATTR)
+    element.attrs.some((attr) => SKIPPED_ATTRS.includes(attr.name))
   );
 }
 
@@ -139,8 +151,9 @@ function childrenOf(node: Node): readonly Node[] {
 
 /**
  * Raw text-node values under `root`, in document order, skipping comments
- * and `script`/`style`/`template`/`[data-i18n-switcher]` subtrees. Comment
- * nodes carry no text value, so they fall out of the walk.
+ * and `script`/`style`/`template`/`[data-i18n-switcher]`/
+ * `[data-prerender-volatile]` subtrees. Comment nodes carry no text value, so
+ * they fall out of the walk.
  */
 function visibleTextNodes(root: Node): string[] {
   const values: string[] = [];
@@ -359,11 +372,10 @@ export function parseArgs(argv: readonly string[]): PrerenderOptions {
     if (!VALUE_FLAGS.includes(flag)) {
       throw new UsageError(`unknown argument "${flag}"`);
     }
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith('--')) {
+    if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) {
       throw new UsageError(`${flag} needs a value`);
     }
-    values.set(flag, value);
+    values.set(flag, argv[i + 1]);
     i += 1;
   }
   const dist = values.get('--dist');

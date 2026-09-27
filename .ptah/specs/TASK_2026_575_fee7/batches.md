@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 8/33
+Total tasks: 77 | Batches: 33 (+1 contingent, see end) | Complete: 8/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -668,11 +668,11 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Fallback executor: backend-developer
 - Execution mode: sequential
 - Rationale: cross-file app wiring with an SSG contract; needs design judgement.
-- Tasks: 4 | Depends on: Batches 6, 8
+- Tasks: 5 | Depends on: Batches 6, 8
 - Commit: `feat(landing): wire i18n provider, route resolvers and pre-paint script`
 - Batch 6 carry-over (deploy-landing.yml, one comment and one escape): see "Batch 6 verification", review round 1.
 
-### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — IN_PROGRESS
+### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — IMPLEMENTED
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/{app.config.ts,app.routes.ts}`, `$ROOT/apps/ptah-landing-page/src/app/i18n/landing-i18n.constants.ts`, `$ROOT/apps/ptah-landing-page/src/styles.css`, `$ROOT/apps/ptah-landing-page/tailwind.config.js`, `$ROOT/apps/ptah-landing-page/project.json`
 - Plan reference: implementation-plan.md:402-437; design-spec.md §3.3 (:623), §3.6 (:689)
@@ -681,7 +681,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: `app.routes.spec.ts` must not import `app.routes` (jest NOTE block).
 - Implementation details: `sans` stack `['Inter','IBM Plex Sans Arabic','Noto Sans Arabic','system-ui','-apple-system','sans-serif']`.
 
-### Task 9.2: Pre-paint inline script and jsdom sync spec — IN_PROGRESS
+### Task 9.2: Pre-paint inline script and jsdom sync spec — IMPLEMENTED
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/index.html`, `$ROOT/apps/ptah-landing-page/src/app/i18n/pre-paint-script.spec.ts`
@@ -691,7 +691,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: script inert without JS; static attributes stay English.
 - Implementation details: literals `'ptah.lang'`, `['en','ar']`, direction map, font id/href.
 
-### Task 9.3: Arabic font loader and app-stable marker — IN_PROGRESS
+### Task 9.3: Arabic font loader and app-stable marker — IMPLEMENTED
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{arabic-font.loader.ts,arabic-font.loader.spec.ts,app-stable-marker.ts,app-stable-marker.spec.ts}`, `$ROOT/apps/ptah-landing-page/src/main.ts`
@@ -701,7 +701,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A4 detection depends on this marker being honest (no timeout fallback that sets it anyway).
 - Implementation details: none beyond the above.
 
-### Task 9.4: Build, A1 and A3 evidence — IN_PROGRESS
+### Task 9.4: Build, A1 and A3 evidence — IMPLEMENTED
 
 - Depends on: Tasks 9.1-9.3
 - Files: none created (evidence only)
@@ -711,10 +711,54 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: if A1 fails, apply the TS-wrapper fallback (plan:109) in the scope files and report it.
 - Implementation details: none.
 
+### Task 9.5: Mask the live countdown in the prerender check (Batch 6 defect) — IMPLEMENTED
+
+- Added by team-leader in Batch 9 round 1. Cause: the Batch 6 baselines captured the build-time value of
+  `libs/web/ui/src/lib/countdown-timer.component.ts:92` (`signal(Date.now())`), so `prerender-check` drifts on
+  every build (home char 9268, pricing char 335). A countdown value is not copy (requirement 3.5 preserves copy).
+  The countdown ends Sep 30 2026, after which it renders `Applications closing` instead of the cells, so a
+  digits-only regex mask would break again; the whole host subtree is skipped instead.
+- Files: `$ROOT/tools/i18n-check/src/prerender/check-prerender.ts` + `check-prerender.spec.ts`,
+  `$ROOT/libs/web/ui/src/lib/countdown-timer.component.ts`,
+  `$ROOT/apps/ptah-landing-page/prerender-baseline/{home,pricing}.json` (+ a README there, see below)
+- Depends on: Tasks 9.1-9.4
+- Quality requirements: (1) `data-prerender-volatile` is a second skip attribute inside the ONE shared
+  `isSkipped` (applies to text, h1/h2 and key-path walks alike; capture and compare stay identical); doc comment
+  at the top of the file updated. (2) The countdown host carries it via `host` metadata next to `ngSkipHydration`,
+  so it covers both the ticking and the expired branch; nothing else in the component changes. (3) Specs: a
+  volatile subtree's text is excluded; text on either side joins exactly as the no-separator rule says; a key
+  path inside a volatile subtree is NOT reported (document why this is acceptable: the host renders only numbers
+  and fixed labels) — or, if the executor prefers, is still reported; state the choice. (4) Baselines are NOT
+  regenerated with `--update`. For each of home/pricing the new `text` must equal
+  `collapseWhitespace(old.text.replace(/\d{2}Days:\d{2}Hrs:\d{2}Min:\d{2}Sec/, ''))` and `h1`/`route` are
+  unchanged; prove it with a one-off node script (not committed) whose output is in the report. The other four
+  baselines are byte-identical. `git diff` on the baselines shows only the countdown segment removed.
+  (5) Document the one-time edit in `apps/ptah-landing-page/prerender-baseline/README.md` (baselines are JSON, so
+  no in-file header): source commit 70b712f8, what was removed and why, and that `--update` stays forbidden
+  except for an approved English copy change. Prettier-clean.
+- Validation notes: if the compare of the current build still differs anywhere outside the countdown segment
+  (e.g. whitespace around the removed node), STOP and report the exact diff instead of adjusting the baseline;
+  that would mean the change is not copy-neutral.
+
 ### Batch 9 verification
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p ptah-landing-page` passes; build and `prerender-check` pass.
 - Reviewer: logic (SSG contract, pre-paint equivalence).
+- Round 1 (executor report): Tasks 9.1-9.3 and the Batch 6 carry-over verified on disk by the team-leader
+  (resolver table, providers, `markAppStable` has no timeout fallback, font loader browser-only and idempotent,
+  pre-paint script inline with try/catch, no TODO/STUB markers). Task 9.4 failed: `prerender-check` exits 1 on
+  the live countdown (Batch 6 defect, not a copy change, so not a user decision). Task 9.5 added; 9.4 re-runs
+  after it. A3 is partly proven only (scope JSON is `{}` until lib batches fill it; accepted, re-proven from
+  Batch 10 on).
+- Round 2 (rework, Task 9.5): verified on disk by the team-leader. `SKIPPED_ATTRS` is used only in the shared
+  `isSkipped`; the countdown `host` gained only the attribute; an independent node check confirms
+  home/pricing `text` equals the formula with `route`/`h1` unchanged, and the other four baselines are untouched;
+  README documents the edit. Executor: build prerendered 6 routes, `prerender-check` exit 0, i18n-check 239 tests,
+  self-test, degradation-audit, SonarJS 0. SonarJS-driven Batch 6 edits (`parseArgs` bounds check, spec replacer
+  function) are behaviour-neutral.
+- Logic review round 1: APPROVED (0 blocking, 0 serious, 1 moderate, 1 minor). Moderate-1 (A1 server half not
+  directly inspectable under `outputMode: "static"`): accepted as inferred from the green prerender; closed in
+  Batch 15 (A1 re-confirmation line). Minor (pre-existing `/members` JSDoc): no action.
 
 ## Batch 10: Key-based SeoService and core service messages (CORE) — PENDING
 
@@ -964,6 +1008,10 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck,i18n-check -p web-landing`; `prerender-check`; `review-tables --check`.
 - A1 re-confirmation: a unique `landing` en value appears in a lazy browser chunk, not in `main-*.js`.
+  Batch 9 carry-over (logic review Moderate-1): `outputMode: "static"` keeps no server dist, so the server
+  half of A1 was accepted as inferred in Batch 9. Close it here: the same unique value must also appear in the
+  prerendered `dist/ptah-landing-page/browser/index.html` (proves the server resolved the scope chunk) with
+  `prerender-check` green; report both.
 - Reviewer: visual and logic.
 
 ## Batch 16: Legal, terms page and notice (LEG-1) — PENDING

@@ -71,7 +71,14 @@ module.exports = {
         'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: [
+          'Inter',
+          'IBM Plex Sans Arabic',
+          'Noto Sans Arabic',
+          'system-ui',
+          '-apple-system',
+          'sans-serif',
+        ],
         mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'monospace'],
         // 'display' (Cinzel) REMOVED — do not carry it forward.
       },

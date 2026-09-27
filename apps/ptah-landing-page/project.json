@@ -86,10 +86,12 @@
       },
       "defaultConfiguration": "development"
     },
-    "extract-i18n": {
-      "executor": "@angular/build:extract-i18n",
+    "prerender-check": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
       "options": {
-        "buildTarget": "ptah-landing-page:build"
+        "command": "node_modules/.bin/ts-node --transpile-only --project tools/i18n-check/tsconfig.json tools/i18n-check/src/prerender/check-prerender.ts --dist dist/ptah-landing-page/browser --baseline apps/ptah-landing-page/prerender-baseline",
+        "cwd": "{workspaceRoot}"
       }
     },
     "lint": {

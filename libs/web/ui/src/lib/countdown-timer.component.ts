@@ -22,7 +22,7 @@ import {
 @Component({
   selector: 'ptah-countdown-timer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { ngSkipHydration: 'true' },
+  host: { ngSkipHydration: 'true', 'data-prerender-volatile': '' },
   template: `
     @if (expired()) {
       <div
