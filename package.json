@@ -108,6 +108,7 @@
     "@fullcalendar/angular": "^7.0.2",
     "@hive-academy/angular-gsap": "^1.1.0",
     "@huggingface/transformers": "3.8.1",
+    "@jsverse/transloco": "8.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/common": "^12.0.3",
     "@nestjs/config": "^12.0.0",

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 74 | Batches: 33 (+1 contingent, see end) | Complete: 0/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 0/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -23,6 +23,12 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
   Trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and
   `Claude-Session: https://claude.ai/code/session_01PnRXJnJhgYDMeYGwFS2UTD`.
 - Executors never run git and never edit `task.md` or `batches.md`.
+- Every batch touching TS also runs `node_modules/.bin/nx run degradation-audit:lint` (the pre-commit hook runs
+  `nx affected -t lint`, which includes it). A swallowed `catch` needs a
+  `// degradation-audit: optional-capability|reported - <reason>` marker; never raise `baseline.json`.
+- Lockfile writes use `npx npm@11` (repo engines: node 24.x / npm 11). The container npm 10.9.7 strips `libc`
+  fields and rewrites package-lock.json; any batch that changes dependencies runs
+  `npx npm@11 install --package-lock-only --ignore-scripts` and the team-leader checks the lock diff is scoped.
 - Lib sub-units that do not yet own the lib's `i18n-check` target (LND-1, LEG-1, MEM-1a..MEM-2, ADM-1a..ADM-3b)
   verify with lint/test/typecheck (+ `prerender-check` where the lib renders a prerendered route); the lib's last
   sub-unit adds the target and must exit 0 for the whole lib.
@@ -59,19 +65,19 @@ Assumptions:
   assumes it serves `pricing/index.html` for `/pricing` — unverified; checked in Task 33.1.
 - The existing English e2e (7.5) needs its backend `globalSetup` — may not start in this container; Task 33.4.
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| Dependencies not installed; `npm ci` may fail behind the proxy | HIGH | Task 1.1 establishes the install first; proxy notes in `/root/.ccr/README.md` |
-| N13: lib-spec recipe omits `core`; the throwing testing handler breaks error-path specs | MEDIUM | Task 2.3 (recipe always includes global scopes); every lib batch uses it |
-| N14: `provideI18nTesting` holds one language per scope; SEO and nav specs need `en` + `ar` | MEDIUM | Task 2.3 (per-language translations shape), before CORE (Batch 10) depends on it |
-| N12: `document.fonts.check` passes when no Arabic face is registered | LOW | Task 33.1 uses `document.fonts.load(...)` length > 0 and asserts `#ptah-font-ar` exists |
-| A4 app never stable (GSAP/Lenis in zone) | HIGH | English control first (Task 33.2); on failure activate contingent TASK_2026_576 batch (user decided at Gate 2) |
-| Prerendered text drifts from baselines | HIGH | Baselines captured once (Task 6.3) before any template edit; `prerender-check` closes Batches 9, 10, 11, 13-18 |
-| Missed strings at scale (~141 components) | MEDIUM | Per-lib `i18n-check` reference rule; reviewer greps for literal template text |
-| `rtl:` variants misfire inside `dir="ltr"` islands | MEDIUM | Checker rule (Task 5.1); lib batches use physical utilities inside islands |
-| Playwright browsers absent in container | MEDIUM | Task 33.1 installs chromium via `npx playwright install chromium`; if blocked, report environment blocker with evidence |
-| Nx cache ripple from new `tsconfig.base.json` aliases | LOW | Accepted (plan:879); `resolveJsonModule` stays per project |
-| Commitlint has no `i18n` scope | LOW | Scopes fixed in Execution defaults |
+| Risk                                                                                       | Severity | Mitigation                                                                                                              |
+| ------------------------------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Dependencies not installed; `npm ci` may fail behind the proxy                             | HIGH     | Task 1.1 establishes the install first; proxy notes in `/root/.ccr/README.md`                                           |
+| N13: lib-spec recipe omits `core`; the throwing testing handler breaks error-path specs    | MEDIUM   | Task 2.3 (recipe always includes global scopes); every lib batch uses it                                                |
+| N14: `provideI18nTesting` holds one language per scope; SEO and nav specs need `en` + `ar` | MEDIUM   | Task 2.3 (per-language translations shape), before CORE (Batch 10) depends on it                                        |
+| N12: `document.fonts.check` passes when no Arabic face is registered                       | LOW      | Task 33.1 uses `document.fonts.load(...)` length > 0 and asserts `#ptah-font-ar` exists                                 |
+| A4 app never stable (GSAP/Lenis in zone)                                                   | HIGH     | English control first (Task 33.2); on failure activate contingent TASK_2026_576 batch (user decided at Gate 2)          |
+| Prerendered text drifts from baselines                                                     | HIGH     | Baselines captured once (Task 6.3) before any template edit; `prerender-check` closes Batches 9, 10, 11, 13-18          |
+| Missed strings at scale (~141 components)                                                  | MEDIUM   | Per-lib `i18n-check` reference rule; reviewer greps for literal template text                                           |
+| `rtl:` variants misfire inside `dir="ltr"` islands                                         | MEDIUM   | Checker rule (Task 5.1); lib batches use physical utilities inside islands                                              |
+| Playwright browsers absent in container                                                    | MEDIUM   | Task 33.1 installs chromium via `npx playwright install chromium`; if blocked, report environment blocker with evidence |
+| Nx cache ripple from new `tsconfig.base.json` aliases                                      | LOW      | Accepted (plan:879); `resolveJsonModule` stays per project                                                              |
+| Commitlint has no `i18n` scope                                                             | LOW      | Scopes fixed in Execution defaults                                                                                      |
 
 Edge cases:
 
@@ -103,7 +109,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 4 | Depends on: none
 - Commit: `feat(shared): add i18n library core and transloco dependency`
 
-### Task 1.1: Establish a working install and add Transloco — IN_PROGRESS
+### Task 1.1: Establish a working install and add Transloco — IMPLEMENTED
 
 - Files: `$ROOT/package.json`, `$ROOT/package-lock.json`
 - Plan reference: implementation-plan.md:247-250, :273
@@ -112,7 +118,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: do not upgrade unrelated packages; if `npm ci` fails, report the exact error rather than deleting the lockfile.
 - Implementation details: `npm ci` then `npm install --save-exact @jsverse/transloco@8.4.0`; confirm `@jsverse/utils@1.0.0-beta.5` is locked (accepted pin).
 
-### Task 1.2: Scaffold `@ptah-extension/i18n` project — IN_PROGRESS
+### Task 1.2: Scaffold `@ptah-extension/i18n` project — IMPLEMENTED
 
 - Depends on: Task 1.1
 - Files: `$ROOT/libs/frontend/i18n/{project.json,package.json,CLAUDE.md,eslint.config.mjs,jest.config.ts,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json}`, `$ROOT/libs/frontend/i18n/src/{index.ts,test-setup.ts}`, `$ROOT/tsconfig.base.json`
@@ -122,7 +128,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: zero workspace imports (1.2).
 - Implementation details: barrel with grouped explicit exports (<150 lines), filled as units land.
 
-### Task 1.3: Pure language data, detection and persistence — IN_PROGRESS
+### Task 1.3: Pure language data, detection and persistence — IMPLEMENTED
 
 - Depends on: Task 1.2
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{lang.config.ts,resolve-initial-lang.ts,lang-preference.store.ts}` + specs
@@ -132,7 +138,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: specs cover stored `ar`, `navigator ['ar-EG']`, invalid `'xx'`, throwing getter and setter.
 - Implementation details: `SUPPORTED_LANGS`, `LANG_DIRECTION`, `ANGULAR_LOCALE`, `INTL_LOCALE` (`ar-u-nu-latn`), `LANG_NATIVE_NAME`.
 
-### Task 1.4: `I18nMessage` and `defineI18nScope` — IN_PROGRESS
+### Task 1.4: `I18nMessage` and `defineI18nScope` — IMPLEMENTED
 
 - Depends on: Task 1.2
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{i18n-message.ts,i18n-scope.ts}` + spec
@@ -148,6 +154,16 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p @ptah-extension/i18n` passes.
 - `git diff package.json` shows only the transloco addition.
 - Reviewer: logic (library behaviour, storage edge cases).
+- Review result: code-logic-review.md, APPROVED (0 blocking, 0 serious, 1 moderate). Moderate-1 (plain `Error` at
+  the library boundary, CONVENTIONS.md §7) and two minor notes (`ar*` prefix trade-off undocumented; dev-only scope
+  guard) are carried into Task 2.0, before Batch 2 adds more code that throws errors, not fixed in Batch 1.
+- Commit gate (pre-commit `nx affected -t lint`): FAILED on `degradation-audit:lint`.
+  `libs/frontend/i18n/src/lib/lang-preference.store.ts:30 [catch-return-sentinel]`, libs/frontend/i18n 1 site vs
+  baseline 0. Returned to the executor as rework on Task 1.3: add a `// degradation-audit: optional-capability - <reason>`
+  marker inside or directly above that `catch` (form: `tools/degradation-audit/check-degradation.ts:26-56`, example
+  `libs/frontend/markdown/src/lib/file-link-target.ts:133`). The behaviour stays the same, the baseline is not
+  raised, and `nx run degradation-audit:lint` must exit 0.
+  Resolved: marker added at `lang-preference.store.ts:31-32`; the audit exits 0 (nothing under libs/frontend/i18n).
 
 ## Batch 2: i18n library runtime, pipes and testing entry (F1, part 2) — PENDING
 
@@ -155,10 +171,30 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Fallback executor: frontend-developer
 - Execution mode: sequential
 - Rationale: tightly coupled DI wiring in one library; N13/N14 must be settled here.
-- Tasks: 4 | Depends on: Batch 1
+- Tasks: 5 | Depends on: Batch 1
 - Commit: `feat(shared): add i18n service, resolver, pipes and testing provider`
 
+### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — PENDING
+
+- Files: `$ROOT/libs/frontend/i18n/src/lib/i18n.error.ts` + spec, `$ROOT/libs/frontend/i18n/src/lib/i18n-scope.ts`,
+  `$ROOT/libs/frontend/i18n/src/lib/resolve-initial-lang.ts` (+ spec), `$ROOT/libs/frontend/i18n/CLAUDE.md`,
+  `$ROOT/libs/frontend/i18n/src/index.ts`
+- Plan reference: code-logic-review.md "Moderate-1" and "Verdict"; `$ROOT/CONVENTIONS.md:97-100`
+- Pattern to follow: `$ROOT/libs/backend/agent-sdk/src/lib/errors/sdk.error.ts` (root error shape)
+- Quality requirements: `I18nError extends Error` (sets `name`); both throw sites in `i18n-scope.ts` (invalid scope
+  name at :44-46, bad loader result at :90-92) throw it, message text unchanged; exported from the barrel; specs assert
+  `instanceof I18nError` at both sites. Every error Batch 2 throws itself (duplicate-scope dev error, testing
+  missing-key throw) uses `I18nError` or a subclass. Errors that come from outside the library, such as a rejected
+  `import()`, are passed on unchanged.
+- Validation notes: do NOT change the detection rule (plan 3.3 is the single source of truth, mirrored by the
+  pre-paint script). Instead add a code comment to `resolveInitialLang` stating that any `ar*` prefix (including
+  non-Arabic tags such as `arn`) is intentionally treated as Arabic, and a spec that pins that behaviour. Add one line
+  to the lib `CLAUDE.md` saying the scope-name guard runs in dev mode only and does not validate input at runtime.
+- Implementation details: one small file; barrel stays grouped under a new "Errors" heading.
+
 ### Task 2.1: `I18nService` and `i18nScopesResolver` — PENDING
+
+- Depends on: Task 2.0
 
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{i18n.service.ts,i18n-scopes.resolver.ts}` + specs
 - Plan reference: implementation-plan.md:211-222, :256-260, :97
@@ -200,6 +236,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 ### Batch 2 verification
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p @ptah-extension/i18n` passes.
+- Task 2.0: no `throw new Error(` remains under `libs/frontend/i18n/src/lib` (non-spec files).
 - 1.2: `node_modules/.bin/nx graph --file=<scratch>.json` shows `@ptah-extension/i18n` with an empty workspace-dependency list (evidence quoted in the report).
 - Reviewer: logic (DI ordering, missing-handler semantics, N13/N14 shape).
 
