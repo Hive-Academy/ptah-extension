@@ -2,10 +2,16 @@
 
 TASK_2026_575_fee7 · Gate 1.7 · ui-ux-designer
 
-Revision 1 (see `../design-spec.md` §6 "Review responses" for the full
-disposition of review round 1's B1-B6/N1-N15). The headline fix: this
-prototype is now fully self-contained — no CDN dependency at all — after
-round 1's screenshots turned out not to reflect the design (see B1 below).
+Revision 2, final round under the revise cap (see `../design-spec.md` §6
+"Review responses (revision 1)" for B1-B6/N1-N15, and §7 "Review responses
+(revision 2)" for B7/N16-N21). Round 1's headline fix: this prototype is
+fully self-contained — no CDN dependency at all. Round 2's headline fix: the
+member/admin panel header's 375px wrap fix is now normative in
+`../design-spec.md` §2.4 itself (round 1 had fixed it only here, in the
+prototype), and both the spec's markup and this prototype now wrap the
+*outer* header, not just its control cluster, plus a longer-title
+admin-shell header is included and captured — the case most likely to
+re-break the fix.
 
 Static HTML prototype: `tailwind-build.css` is a real, offline-compiled
 Tailwind 3.4.18 + DaisyUI 4.12.24 stylesheet built from the exact color
@@ -34,7 +40,8 @@ and is hidden before every captured screenshot.
 | --- | --- |
 | A · Public header — desktop | Header language switcher (disclosure-menu skin, §2.2 of the spec), anchored with the logical `start-0` (so it flips sides automatically, fix for N1), `role="menu"`/`role="menuitemradio"`, checkmark on the current option, each option's own `lang`/`dir`. Use the "Open header language menu" prototype control (or click the trigger) to see it open. |
 | A2 · Mobile menu — language row | `role="group"`/`role="menuitemradio"` segmented two-button toggle for the mobile overlay (§2.3, fix for B3's ARIA structure). |
-| B · Member/admin shell — shared panel-layout header | The panel-skin segmented switcher (§2.4) placed once in the shared `panel-layout.html` header, now projected *after* the shell's own topbar content so it sits directly next to `MemberThemeToggle` (fix for N3). Visible check icon on the selected segment (fix for N12), `base-content` focus ring (fix for B4), `EN`/`AR` visible with a native-language `aria-label` (fix for B2/N11). The topbar wraps onto two rows at narrow widths rather than overflowing (a genuine mobile-width fit issue the added switcher exposed — fixed here, not just in the spec). Use the Dark/Light prototype control to see `operator-member` vs. `operator-member-light`. |
+| B · Member/admin shell — shared panel-layout header | The panel-skin segmented switcher (§2.4) placed once in the shared `panel-layout.html` header, now projected *after* the shell's own topbar content so it sits directly next to `MemberThemeToggle` (fix for N3). Visible check icon on the selected segment (fix for N12), the literal `focus-visible:outline-base-content` utility as the focus ring (fix for B4/N17), `EN`/`AR` visible with a native-language `aria-label` (fix for B2/N11). At 375px the whole `<header>` wraps onto two clean rows — title/badge on row one, controls on row two, no clipping, no mid-word title wrap — and this is now a normative rule in the spec itself (fix for B7), not only a prototype-only patch. Use the Dark/Light prototype control to see `operator-member` vs. `operator-member-light`. |
+| B2 · Admin shell — longer title, no theme toggle | A second representative header directly below B, same shared markup, `operator-admin` theme: "Admin Dashboard" (longer than "Ptah Builders") + a `Restricted` warning badge + no theme toggle. Added for B7 — the review asked specifically for this case, since a longer title is the one most likely to re-break the wrap fix. Captured separately at 375px in both languages (`admin-header-375-en.png`, `admin-header-375-ar.png`). |
 | C · Landing hero | A representative animated/CTA section: `ArrowRight`/`ArrowLeft`-style icons flip via `rtl:scale-x-[-1]` (§3.2); the centred decorative blur (`left-1/2 -translate-x-1/2`) does **not** move — an `rtl-exempt` centring pair (§3.1). |
 | D · Pricing card | USD amount and the year/month numeral stay Western-numeral and LTR (`.ltr-island`) in both languages; only the surrounding words translate (§5.3 of the requirements, §3.7 of the spec). The Arabic "Cohort 4" badge in section B and this card's digits now use Western numerals throughout, consistent with §3.7's recommendation (fix for N10 — the previous revision's Arabic-Indic badge digit contradicted its own recommendation). |
 | E · CLI block | `.ltr-island` on a `font-mono` code block inside an RTL page (§3.3) — stays left-aligned and LTR while the paragraph above it flows RTL. |
@@ -58,18 +65,31 @@ All 8 combinations are included (2 × 2 × 2), plus two more (fix for B1's
 
 — both cropped to the header region, header language menu open, showing the
 `start-0` anchoring flip (left-anchored in EN, right-anchored in AR) and the
-checkmark on the current option.
+checkmark on the current option. Section A (the public header these crop)
+is unchanged in revision 2, so these two were not regenerated this round —
+they still accurately depict it.
+
+Plus, new in revision 2 (fix for B7's "add a 375px shot of the admin
+shell"):
+
+- `screenshots/admin-header-375-en.png`
+- `screenshots/admin-header-375-ar.png`
+
+— both cropped to the admin-shell demo header (section B2), 375px, showing
+the longer "Admin Dashboard" title + `Restricted` badge fitting on one line
+and the controls row wrapping cleanly beneath it, in both directions.
 
 Screenshots were rendered with Playwright (Chromium,
 `/opt/pw-browsers/chromium-1194`, launched with no proxy/network flags —
-none are needed any more), full-page, viewport widths 375 and 1440, via a
-one-off script that loads `index.html`, calls the page's own
-`window.__proto.applyLang()` / `applyMode()` / `openHeaderMenu()` (the same
-functions the control bar's buttons call), and captures a PNG at each
-combination. Every one of the 10 PNGs was re-opened and visually confirmed
-by eye after the B1 fix — real fonts, real Tailwind/DaisyUI layout, correct
-mirroring, no clipping at 375px, no giant unstyled icons — not just
-regenerated and assumed correct.
+none are needed any more). Revision 2 regenerated only the screenshots whose
+content actually changed: all 8 `full-*.png` (section B's markup changed,
+and section B2 is new, so every full-page shot at every width/language/mode
+combination includes it) plus the 2 new `admin-header-375-*.png` crops;
+`header-menu-open-*-1440.png` was left as-is since section A did not change.
+Every regenerated PNG was re-opened and visually confirmed by eye — real
+fonts, real Tailwind/DaisyUI layout, correct mirroring, no clipping or
+wrapping at 375px in either shell — not just regenerated and assumed
+correct.
 
 ## Arabic copy status
 
@@ -120,12 +140,9 @@ summary".
 - Icons are inline SVG paths approximating the real `lucide-angular` icon set
   (`Globe`, `ChevronDown`, `Check`, `ArrowRight`, `Download`, `Sun`/`Moon`,
   `Menu`), not the library itself.
-- `focus-ring-panel`'s outline colors in `tokens.css` are literal per-theme
-  hex values (matching §2.5a's measured figures) rather than a reference to
-  a `--bc` custom property, because the standalone compiled build does not
-  expose one; the real Angular component uses a genuine Tailwind color
-  utility (`focus-visible:outline-base-content`) that resolves the same way
-  automatically per theme.
+- The panel skin's focus ring is now the literal `focus-visible:outline-base-content`
+  Tailwind utility (fix for N17, revision 2) — matching `design-spec.md`'s
+  normative markup exactly, with no custom class left in `tokens.css` for it.
 
 ## Rebuilding after an HTML change
 

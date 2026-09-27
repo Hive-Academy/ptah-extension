@@ -136,13 +136,23 @@
   <section id="sec-member" data-theme="operator-member" class="border-t" style="border-color:var(--border-hairline)">
     <p class="section-label px-4 pt-6 text-[11px] uppercase tracking-wider text-amber-400/70" data-en="B · Member/admin shell — shared panel-layout header" data-ar="B · واجهة الأعضاء/الإدارة — الترويسة المشتركة"></p>
 
-    <header class="mt-3 flex items-center justify-between gap-3 border-b px-4 py-3 lg:px-6 bg-base-200" style="border-color:var(--border-hairline)">
-      <div class="flex items-center gap-3">
-        <button type="button" class="lg:hidden p-2 rounded" aria-label="Open menu">
+    <!--
+      B7 fix: this header is `flex-wrap` at the outer level (not just the
+      right-hand control cluster) — see design-spec.md §2.4a for the
+      normative rule. `min-w-0` on the left cluster + `truncate` on the
+      `<h1>` keep the title on one line (it shrinks with an ellipsis rather
+      than wrapping word-by-word), and the badge is `shrink-0
+      whitespace-nowrap` so it never breaks across two lines either. Round 1
+      only fixed the right-hand cluster's own internal wrap, which was not
+      enough on its own — the outer header still squeezed the title.
+    -->
+    <header class="mt-3 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 lg:px-6 bg-base-200" style="border-color:var(--border-hairline)">
+      <div class="flex min-w-0 items-center gap-3">
+        <button type="button" class="lg:hidden shrink-0 p-2 rounded" aria-label="Open menu">
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
-        <h1 class="text-xl font-bold" data-en="Ptah Builders" data-ar="Ptah Builders"></h1>
-        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full text-primary-content bg-primary" data-en="Cohort 4" data-ar="الدفعة 4"></span>
+        <h1 class="truncate text-xl font-bold" data-en="Ptah Builders" data-ar="Ptah Builders"></h1>
+        <span class="shrink-0 whitespace-nowrap text-[11px] font-semibold px-2 py-0.5 rounded-full text-primary-content bg-primary" data-en="Cohort 4" data-ar="الدفعة 4"></span>
       </div>
 
       <!--
@@ -180,17 +190,60 @@
           never color-only (non-text contrast, WCAG 1.4.11).
           B3 fix: real roving-tabindex radiogroup, implemented in the script
           below (`initRovingRadioGroup`) — reads the computed `direction` of
-          the group and explicitly inverts ArrowLeft/ArrowRight, rather than
-          asserting this happens automatically.
+          the group and explicitly inverts ArrowLeft/ArrowRight (now also
+          ArrowUp/ArrowDown, fix for N18) rather than asserting this happens
+          automatically.
+          N17 fix: focus ring is the literal Tailwind utility
+          `focus-visible:outline-base-content`, not a made-up
+          `focus-ring-panel` class — this is a REAL, generated utility (the
+          real project's DaisyUI config registers `base-content` as a theme
+          color, and Tailwind auto-generates `outline-*`/`focus-visible:*`
+          variants for every registered color; confirmed against this
+          prototype's own `tailwind-build.css`), so it sits in Tailwind's
+          utilities layer, which already beats `.btn-primary`'s
+          component-layer `outline-color` — no separate custom class needed.
         -->
         <div role="radiogroup" aria-label="Language" id="panel-lang-group"
           class="panel-lang inline-flex rounded-lg border p-0.5" style="border-color:var(--border-hairline); background:var(--base-200)">
           <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang"
             aria-label="EN — Language: English"
-            class="panel-lang-en btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel">EN</button>
+            class="panel-lang-en btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2">EN</button>
           <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang"
             aria-label="AR — اللغة: العربية"
-            class="panel-lang-ar btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel">AR</button>
+            class="panel-lang-ar btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2">AR</button>
+        </div>
+      </div>
+    </header>
+
+    <!--
+      B7 fix: an admin-shell representative header — same shared
+      `panel-layout.html` markup, `operator-admin` theme, a longer title
+      ("Admin Dashboard"), a `badge-warning` "Restricted" badge instead of
+      the member cohort badge, and NO theme toggle (the admin shell is
+      dark-only — `admin-layout.html` never renders `MemberThemeToggle`).
+      Captured separately at 375px (`admin-header-375.png`) per the review's
+      request, since a longer title is exactly the case most likely to
+      re-break the wrap fix above.
+    -->
+    <header data-theme="operator-admin" id="admin-header" class="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 lg:px-6 bg-base-200" style="border-color:var(--border-hairline)">
+      <div class="flex min-w-0 items-center gap-3">
+        <button type="button" class="lg:hidden shrink-0 p-2 rounded" aria-label="Open menu">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1 class="truncate text-xl font-bold" data-en="Admin Dashboard" data-ar="لوحة تحكم المشرف"></h1>
+        <span class="shrink-0 whitespace-nowrap text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:#eab308; color:#08090c" data-en="Restricted" data-ar="مقيّد"></span>
+      </div>
+      <div class="flex flex-wrap items-center justify-end gap-2 text-sm text-base-content-muted">
+        <span class="hidden sm:inline" data-en="Signed in as" data-ar="تم تسجيل الدخول باسم"></span>
+        <span class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none">abdallah@miramarstaffing.com</span>
+        <div role="radiogroup" aria-label="Language" id="admin-lang-group"
+          class="panel-lang inline-flex rounded-lg border p-0.5" style="border-color:var(--border-hairline); background:var(--base-200)">
+          <button type="button" role="radio" lang="en" dir="ltr" data-set-lang="en" data-checked="lang"
+            aria-label="EN — Language: English"
+            class="panel-lang-en btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2">EN</button>
+          <button type="button" role="radio" lang="ar" dir="rtl" data-set-lang="ar" data-checked="lang"
+            aria-label="AR — اللغة: العربية"
+            class="panel-lang-ar btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2">AR</button>
         </div>
       </div>
     </header>
@@ -321,7 +374,7 @@ $ ptah session start --repo .
       }
     });
     // Roving tabindex must be recomputed every time selection changes.
-    setRovingTabIndex(document.getElementById('panel-lang-group'));
+    rovingGroups.forEach(setRovingTabIndex);
 
     document.querySelectorAll('.dir-arrow').forEach(function (svg) {
       svg.style.transform = lang === 'ar' ? 'scaleX(-1)' : 'none';
@@ -412,8 +465,14 @@ $ ptah session start --repo .
   // ---- Panel (segmented) skin: a real ARIA `radiogroup` — roving tabindex
   // (one tab stop, on the checked radio) plus explicit Arrow-key handling
   // that reads the group's OWN computed `direction` and inverts
-  // ArrowLeft/ArrowRight accordingly. This is the concrete implementation
-  // B3 asked for in place of the "browser-native, automatic" claim.
+  // ArrowLeft/ArrowRight accordingly. ArrowUp/ArrowDown (fix for N18 — APG
+  // radio groups move on both axes) are direction-independent: Down always
+  // moves to the next radio, Up to the previous, regardless of `dir`. This
+  // is the concrete implementation B3 asked for in place of the
+  // "browser-native, automatic" claim. Both the member/admin shell's own
+  // radiogroup (`#panel-lang-group`) and the admin-shell demo header's
+  // (`#admin-lang-group`) share this same function.
+  var rovingGroups = [];
   function setRovingTabIndex(group) {
     var radios = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]'));
     radios.forEach(function (r) {
@@ -421,6 +480,7 @@ $ ptah session start --repo .
     });
   }
   function initRovingRadioGroup(group) {
+    rovingGroups.push(group);
     setRovingTabIndex(group);
     group.addEventListener('keydown', function (e) {
       var radios = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]'));
@@ -428,6 +488,8 @@ $ ptah session start --repo .
       var delta = 0;
       if (e.key === 'ArrowRight') { delta = isRtl ? -1 : 1; }
       else if (e.key === 'ArrowLeft') { delta = isRtl ? 1 : -1; }
+      else if (e.key === 'ArrowDown') { delta = 1; }
+      else if (e.key === 'ArrowUp') { delta = -1; }
       else { return; }
       e.preventDefault();
       var idx = radios.indexOf(document.activeElement);
@@ -441,6 +503,7 @@ $ ptah session start --repo .
     btn.addEventListener('click', function () { applyLang(this.getAttribute('data-set-lang')); });
   });
   initRovingRadioGroup(document.getElementById('panel-lang-group'));
+  initRovingRadioGroup(document.getElementById('admin-lang-group'));
 
   document.querySelectorAll('.lang-ctl').forEach(function (b) {
     b.addEventListener('click', function () { applyLang(this.getAttribute('data-lang')); });

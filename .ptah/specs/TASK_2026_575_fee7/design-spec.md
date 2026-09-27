@@ -2,9 +2,12 @@
 
 TASK_2026_575_fee7 · Gate 1.7 · ui-ux-designer
 
-Revision: 1. This revision addresses `design-spec-review.md` round 1
-(REVISE: B1-B6 blocking, N1-N15 non-blocking). See "Review responses
-(revision 1)" near the end for the full disposition of every finding.
+Revision: 2. Revision 1 addressed `design-spec-review.md` round 1 (REVISE:
+B1-B6 blocking, N1-N15 non-blocking). This revision addresses round 2
+(REVISE: B7 blocking, N16-N21 non-blocking — this is the final round under
+the revise cap). See "Review responses (revision 1)" and "Review responses
+(revision 2)" near the end for the full disposition of every finding from
+both rounds.
 
 Scope: the EN/AR language switcher (public header, member shell, admin shell)
 and the RTL (Arabic) visual treatment for `ptah-landing-page`. Requirements
@@ -248,8 +251,9 @@ start/end alignment does, automatically, via `dir` (§3).
 ### 2.4 Member shell + admin shell — shared, single implementation
 
 **Placement decision: add `LanguageSwitch` (panel skin) directly inside
-`panel-layout.html`'s own header markup**, immediately **before**
-`<ng-content select="[panelTopBar]" />`, not inside each shell's own
+`panel-layout.html`'s own header markup**, immediately **after**
+`<ng-content select="[panelTopBar]" />` (see the N3 fix a few paragraphs
+below for why "after," not "before"), not inside each shell's own
 `panelTopBar` projection. `panel-layout.html` is the one file both
 `member-layout.html` and `admin-layout.html` render through (confirmed:
 both project into the same `<header>` → same `panelTopBar` slot in
@@ -263,14 +267,82 @@ invites ("Gate 1.7 prototype may move it … into the shared
 `panel-layout.ts` gains no new `@Input()` for this — `LanguageSwitch` reads
 the shared i18n signal directly (same pattern `MemberThemeToggle` uses for
 `MemberThemeService`). Fix for N3: it is projected **after**
-`<ng-content select="[panelTopBar]" />`, not before it:
+`<ng-content select="[panelTopBar]" />`, not before it.
+
+**Fix for B7 — this is now the full normative `panel-layout.html` `<header>`,
+not just the topbar-control `<div>` in isolation**, because the two cannot
+be specified separately without reproducing the exact 375px overflow the
+Gate 1.7 prototype found and fixed. Round 1 of this spec fixed the overflow
+only in `prototype/index.html`, and §6's B1 response described that fix in
+prose, but the *normative* markup below — the actual page-code contract an
+implementer follows — still showed the unfixed, non-wrapping div. That was
+the gap B7 named: a developer following this section alone would reproduce
+the bug the designer had already found and fixed one file over.
 
 ```html
-<div class="flex items-center gap-2 text-sm text-base-content-muted">
-  <ng-content select="[panelTopBar]" />
-  <ptah-language-switch />
-</div>
+<header
+  class="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-hairline bg-base-200 px-4 py-3 lg:px-6"
+>
+  <div class="flex min-w-0 items-center gap-3">
+    <label
+      [for]="drawerId()"
+      class="btn btn-ghost btn-sm shrink-0 lg:hidden"
+      [attr.aria-label]="menuLabel()"
+    >
+      <!-- existing hamburger icon, unchanged -->
+    </label>
+    <h1 class="truncate text-xl font-bold lg:text-2xl">{{ title() }}</h1>
+    @if (badgeLabel(); as badge) {
+      <span class="badge badge-sm shrink-0 whitespace-nowrap" [class]="badgeClass()">{{ badge }}</span>
+    }
+  </div>
+
+  <div class="flex flex-wrap items-center justify-end gap-2 text-sm text-base-content-muted">
+    <ng-content select="[panelTopBar]" />
+    <ptah-language-switch />
+  </div>
+</header>
 ```
+
+Three additions beyond `panel-layout.html`'s existing markup, all normative,
+all required to add the switcher without regressing the shell at 375px
+(the width the requirement's own 4.5 screenshot gate names):
+
+- `flex-wrap` on the **outer** `<header>`, not only on the right-hand
+  control cluster. Wrapping only the right-hand `<div>` (what round 1
+  actually shipped, in the prototype only) was not enough on its own — the
+  header itself still refused to wrap, so the right cluster's own minimum
+  width
+  (whichever of its items is widest before it can wrap internally) still
+  squeezed the left cluster inline, and the title wrapped mid-word instead
+  ("Ptah" / "Builders" on separate lines — visible in round 1's own
+  screenshots). Wrapping the *outer* header instead gives each cluster its
+  own row when both cannot fit on one, which is what actually fixes it.
+- `min-w-0` on the left cluster + `truncate` on `<h1>`, so a long title
+  (e.g. admin's "Admin Dashboard," longer than member's "Ptah Builders")
+  shrinks to an ellipsis on one line instead of wrapping. `shrink-0
+  whitespace-nowrap` on the badge, so `badge-warning "Restricted"` (admin)
+  or `badge-primary "Cohort N"` (member) never breaks across two lines
+  either — both were observed doing so in round 1's own 375px prototype
+  screenshots before this fix.
+- The member and admin projections into `[panelTopBar]` each carry a long
+  `font-mono` email. Give the email span a bounded, truncating width below
+  `sm` in both `member-layout.html:22` and `admin-layout.html:21` (the
+  `aria`-visible content is unaffected — a `title` attribute or the
+  existing visible text still carries the full address for anyone who
+  needs it):
+  ```html
+  <span class="font-mono text-xs ltr-island truncate max-w-[7rem] sm:max-w-none">{{ email }}</span>
+  ```
+
+Verified at 375px in both languages, in the prototype, for **both** shells
+(fix for B7's second ask): `prototype/screenshots/full-{en,ar}-{dark,light}-375.png`
+shows the member shell's "Ptah Builders" + `Cohort 4` header now rendering
+on two clean rows with no wrapping or clipping, and the new
+`prototype/screenshots/admin-header-375-{en,ar}.png` crops show the
+admin shell's longer "Admin Dashboard" title + `Restricted` badge (no theme
+toggle) doing the same — the longer title was exactly the case most likely
+to re-break the fix, and it does not.
 
 With the switch placed *before* `ng-content` (the earlier draft), the
 rendered member-shell order is `[Lang][Signed in as][email][ThemeToggle]` —
@@ -299,7 +371,7 @@ own `btn-sm`):
     [attr.aria-checked]="activeLang() === 'en'"
     [attr.aria-label]="'EN — ' + ('common.language' | transloco) + ': English'"
     [tabIndex]="activeLang() === 'en' ? 0 : -1"
-    class="btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel"
+    class="btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2"
     [ngClass]="activeLang() === 'en' ? 'btn-primary' : 'btn-ghost text-base-content-muted hover:bg-surface-high hover:text-base-content'"
     (click)="setLanguage('en')">
     EN
@@ -309,7 +381,7 @@ own `btn-sm`):
     [attr.aria-checked]="activeLang() === 'ar'"
     [attr.aria-label]="'AR — ' + ('common.language' | transloco) + ': العربية'"
     [tabIndex]="activeLang() === 'ar' ? 0 : -1"
-    class="btn btn-sm rounded-md border-0 gap-1 font-medium focus-ring-panel"
+    class="btn btn-sm rounded-md border-0 gap-1 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2"
     [ngClass]="activeLang() === 'ar' ? 'btn-primary' : 'btn-ghost text-base-content-muted hover:bg-surface-high hover:text-base-content'"
     (click)="setLanguage('ar')">
     AR
@@ -328,16 +400,29 @@ Three fixes from round 1 land in this snippet together:
   `AR —`), which simultaneously satisfies N11's WCAG 2.5.3 Label-in-Name
   requirement. This is the "keep `EN`/`AR` visible with `aria-label`" option
   the review offered as an acceptable fix.
-- **B4 / N12** (focus ring contrast + color-only state): `focus-ring-panel`
-  replaces `focus-visible:outline-amber-400` — see §2.5a for the measured
-  numbers (amber-400 is 1.68:1 against `operator-member-light`'s white
-  header, below the 3:1 WCAG 1.4.11 floor; `base-content` is ≥13:1 in every
-  panel theme). The selected segment also now renders a small check icon
-  (`w-3 h-3`, matching the header skin's own check), so "which one is
-  selected" is never carried by fill color alone — `bg-primary` on white is
-  only 2.04:1 as a filled-shape boundary, below 3:1 non-text contrast; the
-  check icon (drawn at text-level contrast against `primary-content`, not
-  as a fill boundary) and `aria-checked` carry the state instead.
+- **B4 / N12** (focus ring contrast + color-only state):
+  `focus-visible:outline-base-content` replaces `focus-visible:outline-amber-400`
+  — see §2.5a for the measured numbers (amber-400 is 1.68:1 against
+  `operator-member-light`'s white header, below the 3:1 WCAG 1.4.11 floor;
+  `base-content` is ≥13:1 in every panel theme). Fix for N17: this is the
+  **literal Tailwind utility**, not a custom `focus-ring-panel` class — the
+  real project's DaisyUI config registers `base-content` as a theme color,
+  and Tailwind generates `outline-*`/`focus-visible:*` variants for every
+  registered color automatically (confirmed by compiling this exact
+  `tailwind.config.js` shape and checking the output for
+  `.focus-visible\:outline-base-content`), so this utility genuinely exists
+  and needs no new class definition anywhere. Using the real utility also
+  matters for cascade safety: it lives in Tailwind's utilities layer, which
+  is guaranteed to come after (and beat) DaisyUI's `.btn-primary`
+  component-layer `outline-color` — a hand-rolled custom class risks
+  landing in the wrong layer and losing to `.btn-primary` depending on where
+  it is defined, silently bringing back the 1.68:1 failure. The selected
+  segment also now renders a small check icon (`w-3 h-3`, matching the
+  header skin's own check), so "which one is selected" is never carried by
+  fill color alone — `bg-primary` on white is only 2.04:1 as a filled-shape
+  boundary, below 3:1 non-text contrast; the check icon (drawn at
+  text-level contrast against `primary-content`, not as a fill boundary)
+  and `aria-checked` carry the state instead.
 - Roving `tabIndex` (`0` on the checked radio, `-1` on the other) is set
   directly in the template here, with the keyboard behavior in §2.6.
 
@@ -347,7 +432,7 @@ Three fixes from round 1 land in this snippet together:
 | --- | --- | --- |
 | Default (inactive option) | `text-white/70` | `btn-ghost text-base-content-muted` |
 | Hover | `hover:text-white hover:bg-white/5` | `hover:bg-surface-high hover:text-base-content` |
-| Focus-visible | `focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2` (trigger + each menu item — dark `ink`/`slate` backgrounds only, so amber-400 is safe here) | `focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2` (`focus-ring-panel`, fix for B4 — **not** `outline-amber-400`, which fails 3:1 on `operator-member-light`; see §2.5a) |
+| Focus-visible | `focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2` (trigger + each menu item — dark `ink`/`slate` backgrounds only, so amber-400 is safe here) | `focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2` — the literal utility (fix for B4/N17 — **not** `outline-amber-400`, which fails 3:1 on `operator-member-light`, and not a custom class name; see §2.5a and §2.4) |
 | Active/pressed (mouse-down) | native button `:active` (browser default; no custom class, matching sibling menus) | native button `:active` |
 | Current/selected | trigger: `text-amber-500`; item: `text-amber-500` + `CheckIcon` + `aria-checked="true"` | `btn-primary` + small `CheckIcon` (fix for N12 — state is not color-only) + `aria-checked="true"` |
 
@@ -420,7 +505,13 @@ header skin never renders on a light surface.
     page's tab order, per the standard radio-group pattern.
   - **Arrow keys**: a `(keydown)` handler on the group reads
     `getComputedStyle(group).direction` (or, in the component, the
-    injected active-direction signal) and explicitly inverts the mapping:
+    injected active-direction signal) and explicitly inverts
+    `ArrowLeft`/`ArrowRight`. Fix for N18: `ArrowUp`/`ArrowDown` are also
+    handled — the APG radio-group pattern moves on both axes, and round 0
+    of this spec already listed them before round 1 dropped them by
+    mistake. Up/Down are direction-independent (Down always moves to the
+    next radio, Up to the previous, regardless of `dir`), since vertical
+    order has no reading-direction ambiguity the way horizontal order does:
 
     ```ts
     public onGroupKeydown(e: KeyboardEvent): void {
@@ -428,6 +519,8 @@ header skin never renders on a light surface.
       let delta = 0;
       if (e.key === 'ArrowRight') { delta = isRtl ? -1 : 1; }
       else if (e.key === 'ArrowLeft') { delta = isRtl ? 1 : -1; }
+      else if (e.key === 'ArrowDown') { delta = 1; }
+      else if (e.key === 'ArrowUp') { delta = -1; }
       else { return; }
       e.preventDefault();
       const next = delta > 0 ? 'ar' : 'en'; // 2-item group: the other option
@@ -445,6 +538,16 @@ header skin never renders on a light surface.
     APG radio-group pattern and `MemberThemeToggle`'s own single-click
     semantics (no separate "confirm" step). `Space`/`Enter` on the focused
     radio applies it too, for pointer-then-keyboard parity.
+  - **Known, pre-existing scope boundary (noted per N18):** the header
+    (menu) skin above stays Tab-order-only with no arrow-key support at
+    all — that matches `Product`/`Community`/`User`, none of which support
+    arrow keys today either (§2.2/§2.6). This spec does not fix that for
+    the three existing menus (out of scope: they are not part of this
+    task), and does not add it to the language menu either, so the four
+    menus stay consistent with each other. Recorded here as a real
+    accessibility follow-up the architect/team-leader may want to ticket
+    separately for `NavigationComponent`'s whole disclosure-menu family,
+    not something this revision silently drops.
 - Neither skin ever announces the raw key path (matches 2.2.5 of the
   requirements for translation fallback in general).
 
@@ -498,20 +601,21 @@ fixes the **policy**, not the line-by-line diff.
 
 Mirror (`scale-x-[-1]` via a `rtl:` variant, or swap to the icon's
 already-mirrored Lucide counterpart where one exists) **only
-direction-bearing icons**. Fix for N8: the earlier list omitted several
-icon families the codebase actually uses, misclassified one rotated
-instance, and its usage counts did not reproduce — this revision states the
-exact grep and re-verifies every count.
+direction-bearing icons**. Fix for N8 (round 0) and N20/N16 (round 1): the
+earlier list omitted some icon families, wrongly listed two names that
+are not actually `lucide-angular` icons in this codebase, misclassified
+one rotated instance, and its usage counts did not reproduce. This
+revision states the exact grep and re-verifies every count against it.
 
 | Icon (lucide-angular) | Where used | Mirror? |
 | --- | --- | --- |
-| `ArrowRight` / `ArrowLeft` / `ChevronRight` / `ChevronLeft` | "next/back", "learn more →" style affordances and disclosure indicators (66 combined matches for the word-boundary pattern `ArrowRight\|ArrowLeft\|ChevronRight\|ChevronLeft` across `.ts` files under `libs/web`, counting every match, not distinct files) | **Yes** — swap meaning: e.g. an `ArrowRight` in LTR becomes visually `ArrowLeft` in RTL. Implement as `rtl:scale-x-[-1]` on the rendered `<lucide-angular>` rather than conditionally swapping the `[img]` binding — one line, no template branching, pure horizontal flip, glyph stays crisp. |
+| `ArrowRight` / `ArrowLeft` / `ChevronRight` / `ChevronLeft` | "next/back", "learn more →" style affordances and disclosure indicators (**38** combined matches — fix for N20: `grep -rowE 'ArrowRight\|ArrowLeft\|ChevronRight\|ChevronLeft' libs/web --include=*.ts \| wc -l`, re-run and verified at 38, not the earlier draft's 66) | **Yes** — swap meaning: e.g. an `ArrowRight` in LTR becomes visually `ArrowLeft` in RTL. Implement as `rtl:scale-x-[-1]` on the rendered `<lucide-angular>` rather than conditionally swapping the `[img]` binding — one line, no template branching, pure horizontal flip, glyph stays crisp. |
 | `LogOut` (4 usages) | user-menu / logout affordances | **Yes** — conventionally mirrored alongside other "exit/leave" direction icons, even though the icon itself is a door-and-arrow pictogram; treat it as direction-bearing for consistency with `ArrowRight`-style "forward" icons it is usually paired next to. |
-| `Send` (28 usages), `Reply` (13 usages) | composer/reply actions across `libs/web/members` (community) and `libs/web/admin` | **Yes** — both are directional "paper airplane toward the reader" / "arrow back into a thread" pictograms whose implied direction is reading-direction-relative; mirror with the same `rtl:scale-x-[-1]` technique. |
-| `ExternalLink` (12 usages) | outbound-link affordances | **No** — the arrow points up-and-out of a box, a "leaves this page" pictogram independent of reading direction (the corner it exits from is a fixed visual convention, not a left/right reading cue); do not mirror. |
+| `ExternalLink` (**10** usages — fix for N20: `grep -rowE 'ExternalLink' libs/web --include=*.ts \| wc -l`, corrected from 12) | outbound-link affordances | **No** — the arrow points up-and-out of a box, a "leaves this page" pictogram independent of reading direction (the corner it exits from is a fixed visual convention, not a left/right reading cue); do not mirror. |
 | `Download` | primary CTA icon | No — an arrow-into-a-tray pictogram, not a direction-of-reading icon. |
 | `ChevronDown` (general use), `User`, `Users`, `Menu`/`X`, `MessagesSquare`, `Globe`, `Check`, `Sun`/`Moon` | nav, switcher, theme toggle | No — none encode reading direction. |
-| **Exception**: `ChevronDown` rotated `-rotate-90` in `panel-layout.html:95` (the collapsed-group disclosure indicator) | sidebar nav group headers | **Yes, this one instance only.** A `ChevronDown` rotated -90° no longer points down — it points toward the group's collapsed content, i.e. toward reading-start — so unlike every *other* `ChevronDown` in the app, this specific rotated use **is** direction-bearing and must mirror. Fix: `rtl:rotate-90` alongside the existing `[class.-rotate-90]="isCollapsed(...)"`, so the two rotations combine to the mirrored angle under RTL instead of cancelling out. This is the one explicit exception to "never mirror `ChevronDown`" and is called out here precisely so it is not missed. |
+| **Exception**: `ChevronDown` rotated `-rotate-90` in `panel-layout.html:95` (the collapsed-group disclosure indicator) | sidebar nav group headers | **Yes, this one instance only — fix for N16.** A `ChevronDown` rotated -90° no longer points down — it points toward the group's collapsed content, i.e. toward reading-start — so unlike every *other* `ChevronDown` in the app, this specific rotated use **is** direction-bearing and must mirror. The earlier fix (`rtl:rotate-90` added as a second static class) was wrong: both classes write the same `--tw-rotate` custom property, so `rtl:rotate-90` would simply overwrite `-rotate-90` **whenever the page is RTL, including the expanded state**, which has no `-rotate-90` to begin with — the expanded chevron would then point sideways instead of down. The two classes never "combine"; the correct fix is a **conditional** binding, not a static `rtl:` variant: `[class.rtl:rotate-90]="isCollapsed(group.label)"` placed next to the existing `[class.-rotate-90]="isCollapsed(group.label)"` (`panel-layout.html:95`), so the mirrored rotation only ever applies together with the collapsed state, never on its own. |
+| Removed in this revision (fix for N20): `Send`/`Reply`, listed in round 0 as mirror-candidate icons. Verified against the codebase: neither is a `lucide-angular` import anywhere in `libs/web` — every match is plain button/label copy text ("Send Message", "Reply"), not an icon component. There is nothing to mirror because there is no icon; if a `Send`/`Reply` icon is introduced later, it should be evaluated against this table's reasoning (a "paper airplane toward the reader" pictogram would mirror) at that time. | — | — |
 | Literal `→`/`←` text-arrow characters (found in admin templates, e.g. `needs-attention-queue.ts`, `data-table.ts`) | inline "view all →" style affordances written as characters, not icon components | **Flag for conversion, not a CSS mirror.** A literal arrow character baked into a translatable string cannot be selectively flipped by CSS without wrapping it in its own element, and a translator cannot know whether to keep it, drop it or mirror it. Recommendation for the developer/architect: extract these into the same icon-component pattern as everywhere else (an `ArrowRight`/`ChevronRight` icon, not a character in the string), so they fall under the `rtl:scale-x-[-1]` rule above like every other directional icon, and so the translation key holds no embedded directionality. |
 | Ptah logo (`ptah-icon.png`) | header, structured data | Never — brand mark, fixed orientation in both directions (4.2 explicit). |
 | Discord/GitHub/Reddit/LinkedIn brand SVGs | community menu | Never — third-party brand marks. |
@@ -683,15 +787,33 @@ to `styles.css`, metrics only, per the font-stack fix above):
   1.5) to **1.75** under `[lang="ar"]` — Arabic's diacritics and taller
   ascenders/descenders need more vertical room at the same font-size than
   Latin text does; 1.5 reads visibly cramped.
-- **Weight mapping (fix for N7):** IBM Plex Sans Arabic ships 400-700, with
-  no 800 cut, but the hero headline uses `font-extrabold` (800). Rather than
-  let the browser synthesize a bolder weight from 700 — synthetic bold
-  distorts Arabic's connected letterforms far more visibly than it does
-  Latin — map extrabold down to the heaviest real Arabic weight:
-  `[lang='ar'] .font-extrabold { font-weight: 700; }`. Latin text inside the
-  same element is unaffected (Inter does render true 800), so this rule
-  targets the Arabic-rendered glyphs' actual weight while the class's
-  effect on any Latin run stays as authored.
+- **Weight mapping (fix for N7, corrected again for N19):** IBM Plex Sans
+  Arabic ships 400-700, with no 800 cut, but the hero headline uses
+  `font-extrabold` (800). Rather than let the browser synthesize a bolder
+  weight from 700 — synthetic bold distorts Arabic's connected letterforms
+  far more visibly than it does Latin — the earlier fix,
+  `[lang='ar'] .font-extrabold { font-weight: 700; }`, is **wrong**: setting
+  `font-weight` on the *element* changes the requested weight for **every**
+  character inside it, Latin included, so a Latin brand/product term inline
+  in the same Arabic-language heading (e.g. "SaaS" in the hero) would drop
+  from Inter's true 800 to 700 as well — the earlier claim that "Latin text
+  inside the same element is unaffected" was incorrect, because `font-weight`
+  does not distinguish which characters resolved to which font-family.
+  The correct fix targets **synthesis**, not the requested weight:
+  ```css
+  [lang='ar'] {
+    font-synthesis-weight: none;
+  }
+  ```
+  This tells the browser never to fake a bold weight when the requested
+  weight has no matching real face — so an 800 request against IBM Plex
+  Sans Arabic's 400-700 range resolves to the nearest **real** weight (700)
+  for Arabic glyphs with no synthesis, while a Latin run in the same
+  element still requests 800 and Inter actually has a true 800 face, so it
+  renders at real 800, completely unaffected. No `font-weight` override is
+  needed at all — `font-synthesis-weight: none` is sufficient on its own,
+  and it is strictly safer than a `font-weight` override because it can
+  never touch a script that already has the weight it asked for.
 - `font-mono` (JetBrains Mono) never changes — code/CLI text stays Latin/
   mono in both languages per 3.3/do-not-translate (6.1).
 
@@ -820,9 +942,9 @@ Open Questions below as still awaiting the user's answer.
 | Panel switcher styling | `member-theme-toggle.ts` (`btn btn-sm`, `border-hairline`, `bg-base-200`, `surface-high`, `base-content-muted`) |
 | Panel switcher shared placement | `panel-layout.html`'s single `<header>`, confirmed rendered by both `member-layout.html:21` and `admin-layout.html:19` via the same `panelTopBar` slot |
 | `btn-primary` contrast for "current" state | `operator-admin`/`operator-member`/`operator-member-light` theme definitions, `primary` + `primary-content`, `apps/ptah-landing-page/tailwind.config.js` |
-| Arabic font weights (400/500/600/700) | Matches the Inter weight set already loaded in `index.html` |
+| Arabic font weights (400/500/600/700) | Fix for N21: four weights, one short of Inter's five (400-800) — IBM Plex Sans Arabic has no 800 cut, which is exactly why §3.6 needs the `font-synthesis-weight: none` rule (N19) rather than "matches Inter's weight set" |
 | `.ltr-island` mechanism | New, additive utility in `apps/ptah-landing-page/src/styles.css`, layered on top of existing `font-mono` usage |
-| Icon mirroring candidates | word-boundary grep of `ArrowRight\|ArrowLeft\|ChevronRight\|ChevronLeft` across every `.ts` under `libs/web` (66 combined matches — this is a match count, not a file count, which is the reproducible unit; see §3.2) |
+| Icon mirroring candidates | `grep -rowE 'ArrowRight\|ArrowLeft\|ChevronRight\|ChevronLeft' libs/web --include=*.ts \| wc -l` → **38** (fix for N20, corrected from the earlier 66); `ExternalLink` → **10** (corrected from 12); see §3.2 |
 | Per-section RTL calls | `grep` of `slideLeft\|slideRight\|x:\|xPercent\|scaleX\|transformOrigin\|ScrollTrigger\|overflow-x` across all 19 non-spec `.ts` files under `libs/web/landing/src/lib` + the 3 named sibling components (see §3.5) |
 | Panel focus-ring color (`base-content`, not `amber-400`) | Computed WCAG contrast against `apps/ptah-landing-page/tailwind.config.js`'s literal theme hex values — §2.5a |
 | Legal notice card styling | `terms-page.component.ts:45-56` (`bg-white/[0.03] border border-white/[0.06] rounded-2xl backdrop-blur-sm`, identical in `privacy-page.component.ts`/`refund-page.component.ts`) |
@@ -899,3 +1021,46 @@ N1-N15 non-blocking), and where it is resolved.
 
 Both `[DECISION]` items (numbering system, legal governing-language notice)
 remain the user's to make at Gate 1.7, unchanged by this revision.
+
+---
+
+## 7. Review responses (revision 2)
+
+Round 2 (final round under the revise cap) verdict: REVISE, 1 new blocking
+finding (B7), 6 new non-blocking (N16-N21). All of round 1's B1-B6/N1-N15
+were confirmed resolved by the round-2 reviewer (§6 above stands unchanged).
+
+### Blocking
+
+- **B7** (the 375px panel-header wrap/truncation fix existed only in the
+  prototype, not in `design-spec.md`'s own normative markup): fixed — §2.4
+  now gives the full `panel-layout.html` `<header>` markup, including
+  `flex-wrap` on the outer header (not only the control cluster),
+  `min-w-0`/`truncate` on the title, `shrink-0 whitespace-nowrap` on the
+  badge, and the email-truncation class for both `member-layout.html` and
+  `admin-layout.html`'s projections — the same fix the prototype already
+  had, now stated as the page-code contract an implementer actually
+  follows. The prototype itself was also improved to match (the outer
+  `<header>` element, not just its right-hand `<div>`, now carries
+  `flex-wrap`, plus `min-w-0`/`truncate`/`shrink-0 whitespace-nowrap`),
+  fixing the three-row/wrapped-title rendering the review's own screenshot
+  inspection caught. A second, admin-shell representative header
+  ("Admin Dashboard" / `Restricted` badge / no theme toggle) was added to
+  the prototype and captured at 375px in both languages
+  (`admin-header-375-en.png`, `admin-header-375-ar.png`), per the review's
+  explicit request for exactly that case.
+
+### Non-blocking
+
+| # | Disposition |
+| --- | --- |
+| N16 | Fixed — §3.2's rotated-`ChevronDown` fix changed from a static `rtl:rotate-90` class (which the review correctly showed would apply even in the expanded state, pointing the chevron sideways instead of down) to a conditional `[class.rtl:rotate-90]="isCollapsed(group.label)"` binding, so the mirrored rotation only ever applies together with the collapsed state. |
+| N17 | Fixed — every occurrence of the made-up `focus-ring-panel` class in §2.4's normative markup (and in the states table, §2.5) is now the literal, real Tailwind utility `focus-visible:outline-base-content`, confirmed to actually generate (compiled and checked against a throwaway `tailwind.config.js` shaped like the real one) and to sit in the utilities layer, which beats DaisyUI's `.btn-primary` component-layer `outline-color` by cascade order — no custom class, no layer-ordering risk. The prototype's matching `.focus-ring-panel` CSS rule was removed from `tokens.css` and its two `panel-lang-*` buttons now carry the same literal utility classes the spec specifies. |
+| N18 | Fixed — §2.6's panel-skin keydown handler now also handles `ArrowUp`/`ArrowDown` (direction-independent: Down = next, Up = previous), restoring what round 0 of this spec listed before round 1 dropped it. A note now explicitly records that the header (menu) skin's lack of arrow-key support is pre-existing, shared by all four of `NavigationComponent`'s disclosure menus, and out of this task's scope to fix — flagged as a separate follow-up rather than silently left unaddressed. The prototype's `initRovingRadioGroup()` gained the same two key cases and now also drives the new admin-shell radiogroup. |
+| N19 | Fixed — §3.6's weight-mapping rule changed from `[lang='ar'] .font-extrabold { font-weight: 700 }` (which the review correctly showed also drops Latin runs in the same element, e.g. "SaaS," from Inter's true 800 to 700) to `[lang='ar'] { font-synthesis-weight: none }`, which affects only the browser's synthetic-bold fallback and leaves any real, available weight — Arabic's real 700 or Latin's real 800 — untouched. The earlier "Latin text … is unaffected" claim is removed, since it was the bug, not a true statement about the old rule. `tokens.css` carries the same corrected rule. |
+| N20 | Fixed — §3.2 and §5 now cite the reviewer's own reproduced counts: 38 (not 66) for the `ArrowRight`/`ArrowLeft`/`ChevronRight`/`ChevronLeft` grep, 10 (not 12) for `ExternalLink`. The `Send`/`Reply` row is removed entirely — the review confirmed neither is a `lucide-angular` icon anywhere in the codebase (every match is button/label copy text), so round 0's N8 had wrongly listed them as icons in the first place; a one-line note replaces the row, saying they should be evaluated if such icons are ever introduced. |
+| N21 | Fixed — §5's traceability row for the Arabic font weights no longer says "matches the Inter weight set" (it doesn't: four weights vs. Inter's five), and instead points at exactly why that gap is the reason §3.6 needs the `font-synthesis-weight` rule (N19) rather than a straight weight match. |
+
+This is the final round under the revise cap. Both `[DECISION]` items
+(numbering system, legal governing-language notice) remain the user's to
+make at Gate 1.7, unchanged by this revision.
