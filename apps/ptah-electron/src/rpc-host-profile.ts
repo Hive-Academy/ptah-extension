@@ -39,6 +39,9 @@ export function createElectronRpcHostProfile(
       fileViewer: true,
       commandExecution: true,
       appUpdater: true,
+      // Serves the `go vet` consent RPC; `phase-2-libraries.ts` attaches the
+      // checker it governs. Consent itself is off until the user grants it.
+      goVetDiagnostics: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,
