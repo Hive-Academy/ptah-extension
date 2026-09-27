@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 77 | Batches: 33 (+1 contingent, see end) | Complete: 8/33
+Total tasks: 77 | Batches: 33 (+1 contingent, see end) | Complete: 9/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -59,8 +59,8 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
 - Findings policy used so far: blocking/serious are fixed in the batch; moderate/minor are fixed in the batch when
   they touch the same files, otherwise carried into a named later task with the evidence. Every carry-over is
   written into that task's text.
-- Open carry-overs: Batch 9 header (Batch 6 review: `deploy-landing.yml` KEY_PATH "not DOM-aware" comment and
-  HEADLINE ERE escaping). No others are open.
+- Open carry-overs: Batch 15 A1 re-confirmation line (Batch 9 logic review Moderate-1: prove the server half of
+  A1 from the prerendered HTML). No others are open.
 - Testing recipe for lib batches: scope specs use `loadScopeTranslations` from `@ptah-extension/i18n/testing`;
   component specs use `provideI18nTesting` with the global scopes (`ui`, `core`, plus `app` for app specs),
   documented in `libs/frontend/i18n/CLAUDE.md`.
@@ -662,7 +662,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   reworded, and one extra edit accepted by the reviewer (`progress-meter.spec.ts:116` sort comparator, a SonarJS
   finding). 12-project lint/test/typecheck passed uncached; typed SonarJS found 0 problems on 28 changed `.ts` files.
 
-## Batch 9: App wiring, pre-paint, font and stable marker (F4) — IN_PROGRESS
+## Batch 9: App wiring, pre-paint, font and stable marker (F4) — COMPLETE (78cb10c0)
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -672,7 +672,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Commit: `feat(landing): wire i18n provider, route resolvers and pre-paint script`
 - Batch 6 carry-over (deploy-landing.yml, one comment and one escape): see "Batch 6 verification", review round 1.
 
-### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — IMPLEMENTED
+### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — COMPLETE
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/{app.config.ts,app.routes.ts}`, `$ROOT/apps/ptah-landing-page/src/app/i18n/landing-i18n.constants.ts`, `$ROOT/apps/ptah-landing-page/src/styles.css`, `$ROOT/apps/ptah-landing-page/tailwind.config.js`, `$ROOT/apps/ptah-landing-page/project.json`
 - Plan reference: implementation-plan.md:402-437; design-spec.md §3.3 (:623), §3.6 (:689)
@@ -681,7 +681,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: `app.routes.spec.ts` must not import `app.routes` (jest NOTE block).
 - Implementation details: `sans` stack `['Inter','IBM Plex Sans Arabic','Noto Sans Arabic','system-ui','-apple-system','sans-serif']`.
 
-### Task 9.2: Pre-paint inline script and jsdom sync spec — IMPLEMENTED
+### Task 9.2: Pre-paint inline script and jsdom sync spec — COMPLETE
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/index.html`, `$ROOT/apps/ptah-landing-page/src/app/i18n/pre-paint-script.spec.ts`
@@ -691,7 +691,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: script inert without JS; static attributes stay English.
 - Implementation details: literals `'ptah.lang'`, `['en','ar']`, direction map, font id/href.
 
-### Task 9.3: Arabic font loader and app-stable marker — IMPLEMENTED
+### Task 9.3: Arabic font loader and app-stable marker — COMPLETE
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{arabic-font.loader.ts,arabic-font.loader.spec.ts,app-stable-marker.ts,app-stable-marker.spec.ts}`, `$ROOT/apps/ptah-landing-page/src/main.ts`
@@ -701,7 +701,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A4 detection depends on this marker being honest (no timeout fallback that sets it anyway).
 - Implementation details: none beyond the above.
 
-### Task 9.4: Build, A1 and A3 evidence — IMPLEMENTED
+### Task 9.4: Build, A1 and A3 evidence — COMPLETE
 
 - Depends on: Tasks 9.1-9.3
 - Files: none created (evidence only)
@@ -711,7 +711,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: if A1 fails, apply the TS-wrapper fallback (plan:109) in the scope files and report it.
 - Implementation details: none.
 
-### Task 9.5: Mask the live countdown in the prerender check (Batch 6 defect) — IMPLEMENTED
+### Task 9.5: Mask the live countdown in the prerender check (Batch 6 defect) — COMPLETE
 
 - Added by team-leader in Batch 9 round 1. Cause: the Batch 6 baselines captured the build-time value of
   `libs/web/ui/src/lib/countdown-timer.component.ts:92` (`signal(Date.now())`), so `prerender-check` drifts on
@@ -760,7 +760,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   directly inspectable under `outputMode: "static"`): accepted as inferred from the green prerender; closed in
   Batch 15 (A1 re-confirmation line). Minor (pre-existing `/members` JSDoc): no action.
 
-## Batch 10: Key-based SeoService and core service messages (CORE) — PENDING
+## Batch 10: Key-based SeoService and core service messages (CORE) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -769,7 +769,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 9
 - Commit: `feat(web-core): make seo service key-based and core messages translatable`
 
-### Task 10.1: Key-based `SeoService` — PENDING
+### Task 10.1: Key-based `SeoService` — IN_PROGRESS
 
 - Files: `$ROOT/libs/web/core/src/lib/services/seo.service.ts`, `$ROOT/libs/web/core/src/lib/services/seo.service.spec.ts`
 - Plan reference: implementation-plan.md:532-550
@@ -778,7 +778,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: SSG head stays English.
 - Implementation details: none beyond the above.
 
-### Task 10.2: `core` service messages as `I18nMessage` — PENDING
+### Task 10.2: `core` service messages as `I18nMessage` — IN_PROGRESS
 
 - Depends on: Task 10.1
 - Files: `$ROOT/libs/web/core/src/lib/services/{paddle-checkout.service.ts,github-release*.ts and other message-producing services}`, `$ROOT/libs/web/core/src/lib/i18n/{en.json,ar.json}`, `$ROOT/libs/web/core/project.json`
@@ -788,7 +788,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: consumers in other projects (download page, pricing grid) must still compile — update only their bindings to `msg.key | transloco: msg.params` with `i18n-keys: core.<area>.*` markers if types change; report every consumer touched.
 - Implementation details: none beyond the above.
 
-### Task 10.3: Update the 6 `setPage` callers and their SEO keys — PENDING
+### Task 10.3: Update the 6 `setPage` callers and their SEO keys — IN_PROGRESS
 
 - Depends on: Task 10.1
 - Files: `$ROOT/libs/web/landing/src/lib/landing-page.component.ts`, `$ROOT/libs/web/pricing/src/lib/pricing-page.component.ts`, `$ROOT/libs/web/legal/src/lib/{terms-page,privacy-page,refund-page}.component.ts`, `$ROOT/apps/ptah-landing-page/src/app/pages/download/download-page.component.ts`, and the `en.json`/`ar.json` of `landing`, `legal`, `pricing`, `app`
