@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 11/33
+Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 12/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -40,6 +40,15 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
   new terms; Batch 32 appends them and regenerates every copy-review table (the team-leader does not write code).
 - Arabic sign-off (8.3) is a merge gate for the user, not a batch gate. Every lib batch must produce
   `copy-review/<scope>.md` via `review-tables` and pass `--check`.
+- Icon mirroring mechanism (decided Batch 12 round 1; supersedes design-spec §3.2's "`rtl:scale-x-[-1]` on the
+  rendered `<lucide-angular>`"): lucide-angular copies the host's static classes onto its inner `<svg>`, so a
+  transform on the host is applied twice and cancels (visual-review.md `## Batch 12`, finding 2). The ONE
+  mechanism for every direction-bearing icon in this task is a wrapper element:
+  `<span class="inline-flex shrink-0 rtl:scale-x-[-1]" aria-hidden="true"><lucide-angular ... /></span>`
+  (size, colour and hover-translate classes stay on `<lucide-angular>`; only the mirror goes on the wrapper).
+  Never put `rtl:scale-x-*` / `rtl:-scale-x-*` in a `<lucide-angular>` class list. Bound classes
+  (`[class.x]="..."`) on the host are not copied and keep working (panel-layout chevron). Every batch that
+  touches icons proves it with `rg -U '<lucide-angular[^>]*rtl:-?scale-x' libs/web` returning nothing.
 - Orchestrator user item (non-blocking, plan:725): before the first admin copy-review table (Batch 25) is sent to
   the user, ask whether admin copy needs a full read or a spot-check. Implementation is not blocked on it.
 
@@ -889,7 +898,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   (provideI18nTesting, required because SessionCalendar now injects I18nService).
 - Glossary candidates for Task 32.1: Builders, Claude Agent SDK, Meet, Discord, Reddit, LinkedIn.
 
-## Batch 12: Panel switcher and panel shell (PANEL) — IN_PROGRESS
+## Batch 12: Panel switcher and panel shell (PANEL) — COMPLETE (901b752c)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (rerun frontend-developer)
@@ -898,7 +907,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 11
 - Commit: `feat(web-panel-ui): add panel language switch and rtl panel shell`
 
-### Task 12.1: `LanguageSwitch` radiogroup — IN_PROGRESS
+### Task 12.1: `LanguageSwitch` radiogroup — COMPLETE
 
 - Files: `$ROOT/libs/web/panel-ui/src/lib/language-switch/{language-switch.ts,language-switch.spec.ts}`
 - Plan reference: implementation-plan.md:638-644, :652-656; design-spec.md §2.4 (:251), §2.6 (:459)
@@ -907,7 +916,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: none.
 - Implementation details: reads `I18nService.direction()`.
 
-### Task 12.2: `panel-layout` header markup, chevron, collapse re-key — IN_PROGRESS
+### Task 12.2: `panel-layout` header markup, chevron, collapse re-key — COMPLETE
 
 - Depends on: Task 12.1
 - Files: `$ROOT/libs/web/panel-ui/src/lib/panel-layout/{panel-layout.html,panel-layout.ts}`, new/updated `panel-layout.spec.ts`
@@ -917,7 +926,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: inputs arrive translated (rule 4) — panel-ui never translates `title`/nav labels.
 - Implementation details: none.
 
-### Task 12.3: Remaining panel-ui strings, formatting site, target, copy review — IN_PROGRESS
+### Task 12.3: Remaining panel-ui strings, formatting site, target, copy review — COMPLETE
 
 - Depends on: Task 12.2
 - Files: `$ROOT/libs/web/panel-ui/src/lib/{empty-state,detail-drawer,selection-toolbar,stat-tile,status-badge,tag-chip,thread-row}/**`, `$ROOT/libs/web/panel-ui/src/lib/i18n/{en,ar}.json`, `$ROOT/libs/web/panel-ui/project.json`, `copy-review/panelUi.md`
@@ -931,8 +940,41 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck,i18n-check -p web-panel-ui`; `review-tables --check`.
 - Reviewer: visual and logic.
+- Round 1: logic APPROVED 7/10 (M1-M4 + 1 minor, `## Batch 12` in code-logic-review.md); visual NEEDS_REVISION
+  6/10 (`## Batch 12` in visual-review.md, `screenshots/batch-12/`). Batch stays IN_PROGRESS.
+- Round 1 decisions:
+  - V2 serious, systemic: `rtl:scale-x-[-1]` on `<lucide-angular>` cancels itself. Fix with the wrapper mechanism
+    now recorded in Execution defaults: `stat-tile.html:27` and the two Batch 11 LogOut icons in
+    `libs/web/ui/src/lib/navigation.component.ts:536,687` (retrofit of committed c492f08e, allowed in this batch).
+    Add spec assertions that the mirror class sits on the wrapper and not on `lucide-angular`.
+  - V1 visual-breaking: §2.4 B7 email truncation (`truncate max-w-[7rem] sm:max-w-none`) is pulled INTO this
+    batch: `libs/web/members/src/lib/member-layout/member-layout.html:22`,
+    `libs/web/admin/src/lib/admin-layout/admin-layout.html:21` (class-only, the other half of the normative rule
+    this batch implements). Tasks 21.1 and 25.1 must not undo it.
+  - M1: keep index keying (Task 12.2 requirement: labels are translated so cannot be keys) but make the contract
+    written: JSDoc on the `navGroups` input (group order is stable; a flat group, if any, is last) and a spec case
+    with a trailing flat group proving collapse state survives a language switch.
+  - M2: add a LanguageSwitch spec for a rejected `setLanguage`: checked state stays on the previous language,
+    focus stays on the group, no unhandled rejection (handle it in code if it is not handled).
+  - M3: kept (plan:648 sanctions `Intl.NumberFormat`; owner informed; revisit only if the owner objects).
+  - M4: remove the duplicated plural ternaries in `selection-toolbar.html:10-13` and `thread-row.html:29-33,38-42`
+    by one shared helper in `libs/web/panel-ui/src/lib/i18n/` (not exported from the barrel) used by both.
+  - Minor: add a detail-drawer spec assertion for the RTL offset classes.
+  - Visual info (needs-attention-queue ChevronRight unmirrored): carried to Batch 25 (admin overview), using the
+    wrapper mechanism.
+- Round 2 reviewers: visual (V1 at 320/375 with a long email, V2 same-node dir toggle on stat-tile and nav
+  LogOut, en+ar, dark+light) and logic (M1, M2, M4, minor).
+- Rounds 2-3: visual APPROVED 9/10 (`## Batch 12 — round 2`, `screenshots/visual-batch-12-r2/`); logic APPROVED 9/10
+  (`## Batch 12 — round 3 (final)`; round 3 added `[title]="email"` on both top-bar email spans + N23 tests).
+  Verified on disk: wrapper mirror in stat-tile.html and navigation.component.ts, `rg` guard empty, B7 classes at
+  member-layout.html:25 / admin-layout.html:23, `plural.ts` + spec, degradation-audit marker at
+  language-switch.ts:122. Team-leader re-ran `nx run-many -t test,typecheck,i18n-check -p web-panel-ui,web-ui`:
+  pass. Pre-commit hook passed. Commit includes the Batch 11 navigation retrofit, 24 out-of-batch consumer specs
+  in web-admin/web-members and `libs/web/members/jest.config.cts`.
+- Remaining informational items: M3 formatting (owner informed, kept); index-keyed collapse contract documented
+  and tested. needs-attention-queue ChevronRight carried to Batch 25.
 
-## Batch 13: Download page (APP) — PENDING
+## Batch 13: Download page (APP) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none
@@ -941,7 +983,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 12
 - Commit: `feat(landing): translate download page and add app i18n-check`
 
-### Task 13.1: Download page strings, RTL, formatting — PENDING
+### Task 13.1: Download page strings, RTL, formatting — IN_PROGRESS
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/pages/download/download-page.component.ts` (+ spec if present), `$ROOT/apps/ptah-landing-page/src/app/i18n/{en,ar}.json`
 - Plan reference: implementation-plan.md:822, :503, :474-480
@@ -950,7 +992,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: verbatim English values.
 - Implementation details: none.
 
-### Task 13.2: App `i18n-check` target and copy review — PENDING
+### Task 13.2: App `i18n-check` target and copy review — IN_PROGRESS
 
 - Depends on: Task 13.1
 - Files: `$ROOT/apps/ptah-landing-page/project.json`, `copy-review/app.md`
@@ -1230,6 +1272,8 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 2 | Depends on: Batch 20
 - Commit: `feat(web-members): translate member shell, hub and small areas`
 
+- Note: the member-layout email truncation (§2.4 B7) was done in Batch 12; keep it.
+
 ### Task 21.1: `member-layout` and nav keys — PENDING
 
 - Files: `$ROOT/libs/web/members/src/lib/member-layout/**`, `$ROOT/libs/web/members/src/lib/member-nav.config.ts`, `$ROOT/libs/web/members/src/lib/members.routes.ts` (verify only), members JSON
@@ -1341,6 +1385,9 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Rationale: shell wiring first.
 - Tasks: 2 | Depends on: Batch 24
 - Commit: `feat(web-admin): translate admin shell, list, detail and overview`
+
+- Carry-over (Batch 12 visual review): `needs-attention-queue` ChevronRight is unmirrored in RTL; fix with the
+  Execution-defaults wrapper mechanism. The admin-layout email truncation (§2.4 B7) was done in Batch 12; keep it.
 
 ### Task 25.1: `admin-layout`, nav keys, `admin-models.config.ts`, routes check — PENDING
 
