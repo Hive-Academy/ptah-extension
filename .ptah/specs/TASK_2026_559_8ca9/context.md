@@ -68,6 +68,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 24. Faster review bar (user, 2026-09-27, replaces the Decision 17 revise cycle from Batch 21r/26a onward): ONE review round per batch. The author fixes that review's findings, and the fixes are verified by the NEXT batch's review in the same lane (rolled forward), not by a dedicated re-review. Moderate/Minor findings may be carried into the next batch instead of a fix round. Test-only batches get one review. Run independent batches in parallel lanes (≤ 3 CLI lanes). A Blocking finding that the rolled-forward review still finds open goes to the user. The last batch of a lane gets one closing review of its rolled-forward fixes.
 
+25. O2/O3 policy (user, 2026-09-27, after the O2/O3 revision): `go vet` consent ENDS when the resolved Go binary changes (a Go upgrade needs a new opt-in), as well as when the workspace folder moves or is replaced. For the vendored Kotlin grammar (Batch 30k) the signed GitHub build attestation (`gh attestation verify`) + the byte-identical npm copy + the ABI-14 load test are sufficient; the byte-for-byte rebuild recipe stays documented but does not block 30k.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.
