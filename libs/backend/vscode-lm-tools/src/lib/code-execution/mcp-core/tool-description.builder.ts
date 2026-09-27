@@ -5,6 +5,10 @@
  * These descriptions help Claude understand all available capabilities.
  */
 
+import {
+  supportedLanguagesFor,
+  type LanguageCapability,
+} from '@ptah-extension/workspace-intelligence';
 import { MCPToolDefinition } from '../types';
 import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
@@ -24,6 +28,18 @@ import {
   TASK_STATUSES,
   TASK_TYPES,
 } from '@ptah-extension/shared';
+
+/**
+ * The languages a language-bound tool covers, read from the language registry
+ * (TASK_2026_559 Batch 24c), in registry order: `typescript, javascript, …`.
+ * Descriptions never hand-list languages, so a grammar batch that grants a
+ * capability updates every description that depends on it, and a description
+ * can never claim more than the tool's own `coverage.supportedLanguages`.
+ */
+export function languagesNote(capability: LanguageCapability): string {
+  const languages = supportedLanguagesFor(capability);
+  return languages.length > 0 ? languages.join(', ') : 'none';
+}
 
 // ---------------------------------------------------------------------------
 // Task specs (TASK_2026_179, step 17) — ALWAYS-ON core tools
@@ -402,14 +418,18 @@ export function buildSearchFilesTool(): MCPToolDefinition {
 }
 
 /**
- * Build the ptah_get_diagnostics tool definition
- * Runtime-agnostic TypeScript/JS diagnostics with honest available/unavailable status
+ * Build the ptah_get_diagnostics tool definition.
+ * Host-dependent mechanism: `vscode.languages.getDiagnostics()` in the
+ * extension; in the desktop app and the CLI the language-aware provider
+ * (TypeScript compiler + registry `syntaxDiagnostics` syntax-only checks).
  */
 export function buildGetDiagnosticsTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_diagnostics',
     description:
-      'Get TypeScript/JavaScript errors and warnings from the workspace diagnostics provider. Returns an honest available/unavailable result with source, status, and flattened diagnostics. Each diagnostic includes file path, line number, severity, and message. PASS `files` WITH THE FILES YOU CHANGED: on a large monorepo an unscoped call type-checks every project and can exceed the call timeout, while a scoped one checks only the projects owning those files and returns in seconds.',
+      "Get errors and warnings. In the VS Code extension they come from the editor's language services; in the desktop app and CLI from the TypeScript compiler (TS/JS) plus a syntax-only check of scoped " +
+      languagesNote('syntaxDiagnostics') +
+      ' files. Returns an honest available/unavailable result with source, status, coverage and diagnostics (file, line, severity, message). PASS `files` WITH THE FILES YOU CHANGED: an unscoped call type-checks every project and can exceed the call timeout; a scoped one returns in seconds.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -441,7 +461,9 @@ export function buildLspReferencesTool(): MCPToolDefinition {
   return {
     name: 'ptah_lsp_references',
     description:
-      "Find all references to a symbol at a specific file position. In the VS Code extension this uses VS Code's language server: more accurate than Grep for finding usages — handles renames, re-exports, and type references. In the desktop app it is a name-based scan (word-boundary matches outside strings and comments, limited to importing files once the dependency graph is built), so same-named symbols can appear and aliased imports are missed. Essential before refactoring.",
+      "Find all references to a symbol at a specific file position. In the VS Code extension this uses VS Code's language server: more accurate than Grep for finding usages — handles renames, re-exports, and type references. In the desktop app it is a name-based scan (word-boundary matches outside strings and comments, limited to importing files once the " +
+      languagesNote('graphEdges') +
+      ' dependency graph is built), so same-named symbols can appear and aliased imports are missed. Essential before refactoring.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -474,7 +496,9 @@ export function buildLspDefinitionsTool(): MCPToolDefinition {
   return {
     name: 'ptah_lsp_definitions',
     description:
-      "Go to definition for a symbol at a specific file position. Returns the source location where the symbol is defined. In the VS Code extension this uses VS Code's language server and works across files, through re-exports, and into node_modules. In the desktop app it is name-based: the workspace symbol index, then the cursor file's own declarations and its relative imports; it can return several same-named candidates, and package, path-alias or re-exported symbols may return no location. Without a symbol-index match, lookups from or into .tsx files return no location.",
+      "Go to definition for a symbol at a specific file position. Returns the source location where the symbol is defined. In the VS Code extension this uses VS Code's language server and works across files, through re-exports, and into node_modules. In the desktop app it is name-based: the workspace symbol index, then the cursor file's own declarations and its relative imports (" +
+      languagesNote('definitionFallback') +
+      '); it can return several same-named candidates, and package, path-alias or re-exported symbols may return no location. Without a symbol-index match, lookups from or into .tsx files return no location.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1662,7 +1686,11 @@ export function buildAstAnalyzeTool(): MCPToolDefinition {
   return {
     name: 'ptah_ast_analyze',
     description:
-      'Analyze a JavaScript/TypeScript file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use this before reading a file to understand its shape and decide what to read. Prefer an absolute file path; when multiple workspaces are open, either pass an absolute path or set workspaceRoot so a relative path resolves against the intended workspace.',
+      'Analyze a source file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Languages: ' +
+      languagesNote('parse') +
+      '; exports only for ' +
+      languagesNote('publicSymbols') +
+      '. Use it before reading a file. Prefer an absolute file path; when multiple workspaces are open, either pass an absolute path or set workspaceRoot so a relative path resolves against the intended workspace.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1691,7 +1719,9 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
   return {
     name: 'ptah_context_enrich_file',
     description:
-      "Generate a .d.ts-style structural summary of a declaration-only TypeScript or JavaScript file — imports, exports, functions and overloads, classes with members, interfaces, types, enums, namespaces and variables initialised with functions or literals, with function bodies and large pure-data literal values omitted — usually a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation. Summaries are produced only for declaration-only files; any other file returns mode 'full' with the whole content (empty for 'read-failed') and a `reason`: 'unsupported-language' (not TS/JS, or .tsx), 'parse-failed' (syntax errors or unparseable syntax), 'unsupported-declarations' (not declaration-only: top-level statements or calls, CommonJS/global exports, prototype or Object.defineProperty/assign writes, initialisers that are not functions or literals, or large literals that are not pure data), 'no-declarations', 'summary-not-smaller' (the summary costs no fewer tokens, e.g. a .d.ts file) or 'read-failed'.",
+      'Generate a .d.ts-style structural summary of a declaration-only ' +
+      languagesNote('enrichSummary') +
+      " file (not .tsx) — imports, exports, functions and overloads, classes with members, interfaces, types, enums, namespaces and variables initialised with functions or literals, with function bodies and large pure-data literal values omitted — usually a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation. Summaries are produced only for declaration-only files; any other file returns mode 'full' with the whole content (empty for 'read-failed') and a `reason`: 'unsupported-language' (another language, or .tsx), 'parse-failed' (syntax errors or unparseable syntax), 'unsupported-declarations' (not declaration-only: top-level statements or calls, CommonJS/global exports, prototype or Object.defineProperty/assign writes, initialisers that are not functions or literals, or large literals that are not pure data), 'no-declarations', 'summary-not-smaller' (the summary costs no fewer tokens, e.g. a .d.ts file) or 'read-failed'.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1701,7 +1731,7 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
         },
         language: {
           type: 'string',
-          enum: ['typescript', 'javascript'],
+          enum: [...supportedLanguagesFor('enrichSummary')],
           description:
             'Optional; inferred from the file extension when omitted (.ts/.mts/.cts → typescript, .js/.jsx/.mjs/.cjs → javascript; .tsx is not summarised). An explicit value overrides the extension.',
         },
@@ -1717,7 +1747,16 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
  * dropped files on a very large workspace).
  */
 const INCOMPLETE_GRAPH_NOTE =
-  'On very large workspaces the graph covers only part of the source files: the result then has incomplete: true with graphedFiles and discoveredFiles, and a missing file or empty list is not conclusive.';
+  'On very large workspaces the graph is partial: the result then has incomplete: true with graphedFiles and discoveredFiles, and a missing file or empty list is not conclusive.';
+
+/**
+ * Which files the import graph holds (registry `graphEdges`), and what any
+ * other file (another language, `.mjs`, non-source) gets instead of an empty
+ * list (`unsupportedGraphLanguage`).
+ */
+const GRAPH_LANGUAGES_NOTE =
+  `Graph languages: ${languagesNote('graphEdges')}; ` +
+  'other files return status "unsupported-language".';
 
 /**
  * Build the ptah_get_dependents tool definition
@@ -1728,6 +1767,8 @@ export function buildGetDependentsTool(): MCPToolDefinition {
     name: 'ptah_get_dependents',
     description:
       'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. The first call starts building the workspace import graph in the background; later calls answer from cache. While it builds (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs. A failed build returns status "failed"; calling again rebuilds. ' +
+      GRAPH_LANGUAGES_NOTE +
+      ' ' +
       INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
@@ -1752,6 +1793,8 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
     name: 'ptah_get_dependencies',
     description:
       'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. The first call starts building the workspace import graph in the background; later calls answer from cache. While it builds (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs. A failed build returns status "failed"; calling again rebuilds. ' +
+      GRAPH_LANGUAGES_NOTE +
+      ' ' +
       INCOMPLETE_GRAPH_NOTE,
     inputSchema: {
       type: 'object',
@@ -1778,19 +1821,23 @@ export function buildGetDependenciesTool(): MCPToolDefinition {
  * reading rule (omitted = 0, null = unknown).
  */
 const COVERAGE_LEGEND =
-  '`coverage` comes first: `clean` plus up to 3 `reasons`. A clean block holds only `analyzed`; otherwise an omitted count is 0 and null is unknown. A reason ending in `?` is unknown (null, never 0); `truncated` = census cut short, `stale` = last index run incomplete, `updating` = a write in progress. A count of 999999 means that many or more.';
+  '`coverage` first: `clean`; if clean, only `analyzed`; else up to 3 `reasons`, omitted counts=0, null=unknown. `?`=unknown; `truncated`=census cut; `stale`=last run partial; `updating`=writing; 999999=at least.';
 
 /**
  * Build the ptah_code_search_symbols tool definition
- * Hybrid BM25 + vector search over the indexed workspace symbol table
+ * Hybrid BM25 + vector search over the SQLite code index (Batch 24c: named
+ * apart from the graph export index behind ptah_get_symbol_index)
  */
 export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_search_symbols',
     description:
-      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score, plus `index` { symbolCount, indexAgeMs, reindexStarted, reindexInFlight }: an empty or day-old index starts a background reindex, so 0 hits with a stale `index` means "not indexed yet", not "not found". ' +
-      COVERAGE_LEGEND +
-      ' NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
+      'Search SQLite code index (BM25+vector); beats Grep. Functions/classes/methods: ' +
+      languagesNote('codeIndex') +
+      '; exported interfaces/types/enums/variables/namespaces/export-clause names (`export`): ' +
+      languagesNote('publicSymbols') +
+      '. Export lists: ptah_get_symbol_index (graph export index). Hits: path/kind/name/score; index: symbolCount/indexAgeMs/reindexStarted/reindexInFlight. Empty/>24h index: background reindex; stale 0 hits inconclusive. "index unavailable": ptah_search_files/Grep. ' +
+      COVERAGE_LEGEND,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1823,9 +1870,10 @@ export function buildCodeReindexTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_reindex',
     description:
-      'Refresh the code symbol index that ptah_code_search_symbols reads. Use it when a search returns no useful hits and its `index` shows an empty or old index. Without filePath it starts a full workspace reindex in the background and returns at once with { started, symbolCount, indexAgeMs, reindexInFlight } — search again once it finishes. With filePath it reindexes that one file and returns its own `coverage` (a recovered or unknown parse is not clean) and stats, or status "unsupported-language" for a language the index lacks. ' +
-      COVERAGE_LEGEND +
-      ' Returns an error result on runtimes without the symbol index (e.g. VS Code).',
+      'Refresh the SQLite code index (ptah_code_search_symbols) after empty/old searches. Omit filePath: background full run, returns {started,symbolCount,indexAgeMs,reindexInFlight}; search when done. filePath: own coverage/stats; unsupported-language outside ' +
+      languagesNote('codeIndex') +
+      '. No index: error. ' +
+      COVERAGE_LEGEND,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1924,8 +1972,10 @@ export function buildGetSymbolIndexTool(): MCPToolDefinition {
   return {
     name: 'ptah_get_symbol_index',
     description:
-      'List the exported symbols per file in the workspace import graph, one page at a time, ordered by path. Use to find where a symbol is exported from, or to map the public surface of a directory: narrow with pathPrefix. Returns { count, total, offset, nextOffset?, files }; pass nextOffset as offset for the next page (absent on the last page). ' +
-      `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file holding all its symbols) or symbolsFileError. ` +
+      'List exported symbols per file from the graph export index (' +
+      languagesNote('graphEdges') +
+      ' files; not the SQLite code index of ptah_code_search_symbols), one page at a time, ordered by path. Use to find where a symbol is exported from or map the exports of a directory (narrow with pathPrefix). Returns { count, total, offset, nextOffset?, files }; pass nextOffset as offset for the next page (absent on the last page). ' +
+      `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file of all its symbols) or symbolsFileError. ` +
       INCOMPLETE_GRAPH_NOTE +
       ' While the graph builds in the background (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs.',
     inputSchema: {

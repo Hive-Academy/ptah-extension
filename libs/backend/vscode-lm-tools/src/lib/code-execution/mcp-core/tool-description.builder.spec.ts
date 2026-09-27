@@ -1,13 +1,19 @@
+// The builder reads the language registry from the workspace-intelligence
+// barrel, whose DI-decorated services need the reflect polyfill at load.
+import 'reflect-metadata';
 import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
   buildAgentReadTool,
   buildAgentReportTool,
   buildAgentSpawnTool,
+  buildAstAnalyzeTool,
   buildCodeReindexTool,
   buildCodeSearchSymbolsTool,
+  buildContextEnrichFileTool,
   buildGetDependenciesTool,
   buildGetDependentsTool,
+  buildGetDiagnosticsTool,
   buildGetSymbolIndexTool,
   buildLspDefinitionsTool,
   buildLspReferencesTool,
@@ -19,6 +25,11 @@ import {
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import {
+  supportedLanguagesFor,
+  type LanguageCapability,
+} from '@ptah-extension/workspace-intelligence';
+import type { MCPToolDefinition } from '../types';
 
 /** The description budget the execute_code guard applies (the only size assertion). */
 const DESCRIPTION_CHAR_BUDGET = 1_000;
@@ -397,13 +408,265 @@ describe('code index tools — coverage legend', () => {
     ['ptah_code_reindex', buildCodeReindexTool],
   ])('%s states the compact reading rule', (_name, build) => {
     const { description } = build();
-    expect(description).toContain('A clean block holds only `analyzed`');
-    expect(description).toContain('an omitted count is 0 and null is unknown');
+    expect(description).toContain('if clean, only `analyzed`');
+    expect(description).toContain('omitted counts=0, null=unknown');
   });
 
   it('ptah_code_reindex says a single file returns its own coverage', () => {
     expect(buildCodeReindexTool().description).toContain(
-      'returns its own `coverage`',
+      'filePath: own coverage/stats',
     );
+  });
+});
+
+/**
+ * TASK_2026_559 Batch 24c: every language-bound tool states the languages it
+ * covers, and that list is the registry's (`supportedLanguagesFor`), never a
+ * hand-kept one. Each row names where the list sits in the description; the
+ * captured list must EQUAL the registry list for that capability, in order.
+ */
+describe('Batch 24c — description language list equals registry', () => {
+  const ROWS: ReadonlyArray<
+    readonly [string, () => MCPToolDefinition, RegExp, LanguageCapability]
+  > = [
+    [
+      'ptah_ast_analyze',
+      buildAstAnalyzeTool,
+      /Languages: ([a-z, ]+);/,
+      'parse',
+    ],
+    [
+      'ptah_ast_analyze',
+      buildAstAnalyzeTool,
+      /exports only for ([a-z, ]+)\./,
+      'publicSymbols',
+    ],
+    [
+      'ptah_context_enrich_file',
+      buildContextEnrichFileTool,
+      /declaration-only ([a-z, ]+) file/,
+      'enrichSummary',
+    ],
+    [
+      'ptah_code_search_symbols',
+      buildCodeSearchSymbolsTool,
+      /Functions\/classes\/methods: ([a-z, ]+);/,
+      'codeIndex',
+    ],
+    [
+      'ptah_code_search_symbols',
+      buildCodeSearchSymbolsTool,
+      /export-clause names \(`export`\): ([a-z, ]+)\./,
+      'publicSymbols',
+    ],
+    [
+      'ptah_code_reindex',
+      buildCodeReindexTool,
+      /unsupported-language outside ([a-z, ]+)\./,
+      'codeIndex',
+    ],
+    [
+      'ptah_get_dependents',
+      buildGetDependentsTool,
+      /Graph languages: ([a-z, ]+);/,
+      'graphEdges',
+    ],
+    [
+      'ptah_get_dependencies',
+      buildGetDependenciesTool,
+      /Graph languages: ([a-z, ]+);/,
+      'graphEdges',
+    ],
+    [
+      'ptah_get_symbol_index',
+      buildGetSymbolIndexTool,
+      /graph export index \(([a-z, ]+) files/,
+      'graphEdges',
+    ],
+    [
+      'ptah_lsp_definitions',
+      buildLspDefinitionsTool,
+      /relative imports \(([a-z, ]+)\)/,
+      'definitionFallback',
+    ],
+    [
+      'ptah_lsp_references',
+      buildLspReferencesTool,
+      /once the ([a-z, ]+) dependency graph is built/,
+      'graphEdges',
+    ],
+    [
+      'ptah_get_diagnostics',
+      buildGetDiagnosticsTool,
+      /syntax-only check of scoped ([a-z, ]+) files/,
+      'syntaxDiagnostics',
+    ],
+  ];
+
+  it.each(ROWS)(
+    '%s: the list at its marker equals the registry list',
+    (_name, build, marker, capability) => {
+      const match = marker.exec(build().description);
+      expect(match?.[1]?.split(', ')).toEqual([
+        ...supportedLanguagesFor(capability),
+      ]);
+    },
+  );
+
+  it('ptah_context_enrich_file takes exactly the registry languages as its language enum', () => {
+    const properties = buildContextEnrichFileTool().inputSchema
+      .properties as Record<string, { enum?: string[] }>;
+    expect(properties['language'].enum).toEqual([
+      ...supportedLanguagesFor('enrichSummary'),
+    ]);
+  });
+
+  it('no language-bound description keeps the old hand-written TS/JS-only claims', () => {
+    expect(buildAstAnalyzeTool().description).not.toContain(
+      'JavaScript/TypeScript file',
+    );
+    expect(buildGetDiagnosticsTool().description).not.toContain(
+      'Get TypeScript/JavaScript errors',
+    );
+    expect(buildContextEnrichFileTool().description).not.toContain('not TS/JS');
+  });
+
+  it('follows the registry: a capability granted to a new language appears without editing the builder', () => {
+    jest.isolateModules(() => {
+      jest.doMock('@ptah-extension/workspace-intelligence', () => {
+        const actual = jest.requireActual<
+          typeof import('@ptah-extension/workspace-intelligence')
+        >('@ptah-extension/workspace-intelligence');
+        return {
+          ...actual,
+          supportedLanguagesFor: (capability: LanguageCapability) =>
+            capability === 'codeIndex'
+              ? ['typescript', 'kotlin']
+              : actual.supportedLanguagesFor(capability),
+        };
+      });
+      const isolated = jest.requireActual<
+        typeof import('./tool-description.builder')
+      >('./tool-description.builder');
+      expect(isolated.buildCodeSearchSymbolsTool().description).toContain(
+        'Functions/classes/methods: typescript, kotlin;',
+      );
+      expect(isolated.buildCodeReindexTool().description).toContain(
+        'unsupported-language outside typescript, kotlin.',
+      );
+    });
+    jest.dontMock('@ptah-extension/workspace-intelligence');
+  });
+});
+
+// Batch 24c: the two symbol stores are named apart, and so are the hosts.
+describe('Batch 24c — index and host mechanisms are named', () => {
+  it('the code index tools name the SQLite code index and point exports at the graph export index', () => {
+    const search = buildCodeSearchSymbolsTool().description;
+    expect(search).toContain('SQLite code index');
+    expect(search).toContain(
+      'Export lists: ptah_get_symbol_index (graph export index)',
+    );
+    expect(buildCodeReindexTool().description).toContain(
+      'Refresh the SQLite code index (ptah_code_search_symbols)',
+    );
+  });
+
+  // Batch 24d indexes every export kind; the description lists them all.
+  it('ptah_code_search_symbols lists every kind the code index holds', () => {
+    const description = buildCodeSearchSymbolsTool().description;
+    expect(description).toContain('Functions/classes/methods: ');
+    expect(description).toContain(
+      'exported interfaces/types/enums/variables/namespaces/export-clause names (`export`)',
+    );
+    expect(description).not.toContain('(functions, classes, methods)');
+  });
+
+  it('ptah_get_symbol_index names the graph export index and says it is not the SQLite code index', () => {
+    const description = buildGetSymbolIndexTool().description;
+    expect(description).toContain('graph export index');
+    expect(description).toContain(
+      'not the SQLite code index of ptah_code_search_symbols',
+    );
+  });
+
+  it('ptah_get_diagnostics names the VS Code and the desktop/CLI mechanisms', () => {
+    const description = buildGetDiagnosticsTool().description;
+    expect(description).toContain(
+      "In the VS Code extension they come from the editor's language services",
+    );
+    expect(description).toContain(
+      'in the desktop app and CLI from the TypeScript compiler (TS/JS)',
+    );
+    expect(description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+  });
+
+  it('the graph tools say what a file outside the graph languages returns', () => {
+    for (const build of [buildGetDependentsTool, buildGetDependenciesTool]) {
+      expect(build().description).toContain(
+        'other files return status "unsupported-language"',
+      );
+    }
+  });
+});
+
+/**
+ * Batch 24c fix round (review r1, ruling R2): both code index descriptions
+ * are back within their pre-24b budgets (702 / 536, pinned in the sweep).
+ * The shortened texts must still carry every required content item; each is
+ * asserted as a meaning-bearing fragment, so a later trim that drops one
+ * fails instead of passing silently.
+ */
+describe('Batch 24c fix round — shortened code index descriptions keep their required content', () => {
+  const LEGEND_ITEMS = [
+    '`coverage` first', // coverage leads the result
+    '`clean`',
+    'if clean, only `analyzed`', // compact clean form (22c)
+    'up to 3 `reasons`',
+    'omitted counts=0, null=unknown', // compact reading rule (22c)
+    '`?`=unknown',
+    '`truncated`=census cut',
+    '`stale`=last run partial',
+    '`updating`=writing',
+    '999999=at least', // saturation
+  ];
+
+  it('ptah_code_search_symbols keeps every required item within 702 chars', () => {
+    const { description } = buildCodeSearchSymbolsTool();
+    const required = [
+      'SQLite code index', // which store it searches
+      'BM25+vector', // how it ranks
+      'beats Grep', // when to prefer it
+      `Functions/classes/methods: ${supportedLanguagesFor('codeIndex').join(', ')};`,
+      // Batch 24d kinds, with the languages whose exports are extracted.
+      'exported interfaces/types/enums/variables/namespaces/export-clause names (`export`): ' +
+        `${supportedLanguagesFor('publicSymbols').join(', ')}.`,
+      'ptah_get_symbol_index (graph export index)', // the other store
+      'Hits: path/kind/name/score',
+      'index: symbolCount/indexAgeMs/reindexStarted/reindexInFlight',
+      'Empty/>24h index: background reindex',
+      'stale 0 hits inconclusive',
+      '"index unavailable": ptah_search_files/Grep', // runtimes without SQLite
+      ...LEGEND_ITEMS,
+    ];
+    expect(required.filter((item) => !description.includes(item))).toEqual([]);
+    expect(description.length).toBeLessThanOrEqual(702);
+  });
+
+  it('ptah_code_reindex keeps every required item within 536 chars', () => {
+    const { description } = buildCodeReindexTool();
+    const required = [
+      'Refresh the SQLite code index (ptah_code_search_symbols)',
+      'after empty/old searches', // when to use it
+      'Omit filePath: background full run',
+      'returns {started,symbolCount,indexAgeMs,reindexInFlight}',
+      'search when done',
+      'filePath: own coverage/stats', // single-file result
+      `unsupported-language outside ${supportedLanguagesFor('codeIndex').join(', ')}.`,
+      'No index: error.', // runtimes without SQLite
+      ...LEGEND_ITEMS,
+    ];
+    expect(required.filter((item) => !description.includes(item))).toEqual([]);
+    expect(description.length).toBeLessThanOrEqual(536);
   });
 });

@@ -1,3 +1,6 @@
+// tool-description.builder reads the language registry (Batch 24c) from the
+// workspace-intelligence barrel, whose DI services need the reflect polyfill.
+import 'reflect-metadata';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import { buildAgentSpawnTool } from './tool-description.builder';
 import { getToolResultBudget } from './tool-result-budget';

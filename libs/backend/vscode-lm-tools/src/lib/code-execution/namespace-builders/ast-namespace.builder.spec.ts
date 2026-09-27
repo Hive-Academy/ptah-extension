@@ -10,6 +10,9 @@
  *   - error path — service returning `isErr()` surfaces as a thrown Error
  *   - getSupportedLanguages — returns the de-duplicated EXTENSION_LANGUAGE_MAP
  *     values
+ *   - Batch 24c: parse and the three structural queries lead with parse
+ *     status and coverage, proven on the REAL parser with a JSX `.tsx` file
+ *     (the TypeScript grammar has no JSX, so it recovers)
  */
 
 // Use the real registry for capability/coverage assertions and stub service
@@ -31,7 +34,41 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   AstAnalysisService: class {},
 }));
 
+// Real grammars for the Batch 24c real-parser specs: the shims
+// `ast-analyze-result.spec.ts` documents (the lib-wide wasm-bundle-dir stub
+// throws on purpose, and web-tree-sitter must load grammars from bytes).
+jest.mock('wasm-bundle-dir', () => {
+  const nodePath = require('path');
+  const grammarDir = nodePath.join(
+    nodePath.dirname(require.resolve('@vscode/tree-sitter-wasm/package.json')),
+    'wasm',
+  );
+  const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  return {
+    BUNDLE_DIR: grammarDir,
+    resolveWasmPath: (filename: string) =>
+      filename.startsWith('web-tree-sitter')
+        ? nodePath.join(runtimeDir, filename)
+        : nodePath.join(grammarDir, filename),
+  };
+});
+
+jest.mock('web-tree-sitter', () => {
+  const actual =
+    jest.requireActual<typeof import('web-tree-sitter')>('web-tree-sitter');
+  const nodeFs = require('fs');
+  const loadFromPathOrBuffer = actual.Language.load.bind(actual.Language);
+  actual.Language.load = (input: string | Uint8Array) =>
+    loadFromPathOrBuffer(
+      typeof input === 'string'
+        ? new Uint8Array(nodeFs.readFileSync(input))
+        : input,
+    );
+  return actual;
+});
+
 import { Result } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   AstAnalysisService,
   TreeSitterParserService,
@@ -47,6 +84,7 @@ import {
   buildAstNamespace,
   type AstNamespaceDependencies,
 } from './ast-namespace.builder';
+import type { AstNamespace } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,9 +92,7 @@ import {
 
 interface ParserMock {
   parse: jest.Mock;
-  queryFunctions: jest.Mock;
-  queryClasses: jest.Mock;
-  queryImports: jest.Mock;
+  queryMulti: jest.Mock;
   queryExports: jest.Mock;
 }
 
@@ -76,11 +112,45 @@ interface WsMock {
 function createParser(): ParserMock {
   return {
     parse: jest.fn(),
-    queryFunctions: jest.fn(),
-    queryClasses: jest.fn(),
-    queryImports: jest.fn(),
+    queryMulti: jest.fn(),
     queryExports: jest.fn(),
   };
+}
+
+type ParseQualityFields = {
+  parseStatus?: 'ok' | 'recovered';
+  errorNodeCount?: number;
+  errorNodeCountCapped?: boolean;
+};
+
+const CLEAN_PARSE: ParseQualityFields = {
+  parseStatus: 'ok',
+  errorNodeCount: 0,
+  errorNodeCountCapped: false,
+};
+
+/**
+ * `queryMulti` answering every requested query with `matches`, carrying
+ * `quality` the way the real service attaches it to its result map.
+ */
+function answerQueryMulti(
+  parser: ParserMock,
+  matches: unknown[],
+  quality: ParseQualityFields = CLEAN_PARSE,
+): void {
+  parser.queryMulti.mockImplementation(
+    async (
+      _content: string,
+      _language: string,
+      queries: Array<{ key: string }>,
+    ) =>
+      Result.ok(
+        Object.assign(
+          new Map(queries.map((query) => [query.key, matches])),
+          quality,
+        ),
+      ),
+  );
 }
 
 function makeDeps(): {
@@ -349,6 +419,7 @@ describe('buildAstNamespace — parse', () => {
   it('simplifies the AST and reports nodeCount including children', async () => {
     const { deps, parser } = makeDeps();
     parser.parse.mockResolvedValue(Result.ok(fakeNode));
+    answerQueryMulti(parser, []);
 
     const result = await buildAstNamespace(deps).parse('src/a.ts');
     expect(result.language).toBe('typescript');
@@ -372,83 +443,77 @@ describe('buildAstNamespace — parse', () => {
 describe('buildAstNamespace — query methods', () => {
   it('queryFunctions extracts name + params + line range from captures', async () => {
     const { deps, parser } = makeDeps();
-    parser.queryFunctions.mockResolvedValue(
-      Result.ok([
-        {
-          captures: [
-            {
-              name: 'function.name',
-              text: 'myFunc',
-              startPosition: { row: 2 },
-            },
-            {
-              name: 'function.params',
-              text: '(a, b: number)',
-              startPosition: { row: 2 },
-            },
-            {
-              name: 'function.declaration',
-              text: 'full',
-              startPosition: { row: 2 },
-              endPosition: { row: 7 },
-            },
-          ],
-        },
-      ]),
-    );
+    answerQueryMulti(parser, [
+      {
+        captures: [
+          {
+            name: 'function.name',
+            text: 'myFunc',
+            startPosition: { row: 2 },
+          },
+          {
+            name: 'function.params',
+            text: '(a, b: number)',
+            startPosition: { row: 2 },
+          },
+          {
+            name: 'function.declaration',
+            text: 'full',
+            startPosition: { row: 2 },
+            endPosition: { row: 7 },
+          },
+        ],
+      },
+    ]);
 
     const out = await buildAstNamespace(deps).queryFunctions('src/a.ts');
-    expect(out).toEqual([
+    expect(out.functions).toEqual([
       { name: 'myFunc', parameters: ['a', 'b'], startLine: 2, endLine: 7 },
     ]);
   });
 
   it('queryClasses dedupes by name+startLine and extracts endLine', async () => {
     const { deps, parser } = makeDeps();
-    parser.queryClasses.mockResolvedValue(
-      Result.ok([
-        {
-          captures: [
-            { name: 'class.name', text: 'C' },
-            {
-              name: 'class.declaration',
-              startPosition: { row: 1 },
-              endPosition: { row: 9 },
-            },
-          ],
-        },
-        {
-          captures: [
-            { name: 'class.name', text: 'C' },
-            {
-              name: 'class.declaration',
-              startPosition: { row: 1 },
-              endPosition: { row: 9 },
-            },
-          ],
-        },
-      ]),
-    );
+    answerQueryMulti(parser, [
+      {
+        captures: [
+          { name: 'class.name', text: 'C' },
+          {
+            name: 'class.declaration',
+            startPosition: { row: 1 },
+            endPosition: { row: 9 },
+          },
+        ],
+      },
+      {
+        captures: [
+          { name: 'class.name', text: 'C' },
+          {
+            name: 'class.declaration',
+            startPosition: { row: 1 },
+            endPosition: { row: 9 },
+          },
+        ],
+      },
+    ]);
 
     const out = await buildAstNamespace(deps).queryClasses('src/a.ts');
-    expect(out).toEqual([{ name: 'C', startLine: 1, endLine: 9 }]);
+    expect(out.classes).toEqual([{ name: 'C', startLine: 1, endLine: 9 }]);
   });
 
   it('queryImports strips quotes around source and dedupes', async () => {
     const { deps, parser } = makeDeps();
-    parser.queryImports.mockResolvedValue(
-      Result.ok([
-        {
-          captures: [
-            { name: 'import.source', text: '"lodash"' },
-            { name: 'import.default', text: '_' },
-          ],
-        },
-      ]),
-    );
+    answerQueryMulti(parser, [
+      {
+        captures: [
+          { name: 'import.source', text: '"lodash"' },
+          { name: 'import.default', text: '_' },
+        ],
+      },
+    ]);
 
     const out = await buildAstNamespace(deps).queryImports('src/a.ts');
-    expect(out).toEqual([
+    expect(out.imports).toEqual([
       {
         source: 'lodash',
         importedSymbols: ['_'],
@@ -488,7 +553,7 @@ describe('buildAstNamespace — query methods', () => {
 
   it('query methods surface Result.err as thrown errors', async () => {
     const { deps, parser } = makeDeps();
-    parser.queryFunctions.mockResolvedValue(Result.err(new Error('bad')));
+    parser.queryMulti.mockResolvedValue(Result.err(new Error('bad')));
     await expect(
       buildAstNamespace(deps).queryFunctions('src/a.ts'),
     ).rejects.toThrow(/bad/);
@@ -506,5 +571,202 @@ describe('buildAstNamespace — getSupportedLanguages', () => {
     expect(Array.isArray(langs)).toBe(true);
     expect(langs).toEqual(Array.from(new Set(langs))); // de-duplicated
     expect(langs).toEqual(expect.arrayContaining(['typescript', 'javascript']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 24c (24a r1 M2): parse honesty on parse and the structural queries
+// ---------------------------------------------------------------------------
+
+type ParsingOperation =
+  'parse' | 'queryFunctions' | 'queryClasses' | 'queryImports';
+
+const PARSING_OPERATIONS: readonly ParsingOperation[] = [
+  'parse',
+  'queryFunctions',
+  'queryClasses',
+  'queryImports',
+];
+
+/** The list field each operation returns after its honesty fields. */
+const LIST_FIELD: Record<ParsingOperation, string> = {
+  parse: 'ast',
+  queryFunctions: 'functions',
+  queryClasses: 'classes',
+  queryImports: 'imports',
+};
+
+function runOperation(
+  ns: AstNamespace,
+  operation: ParsingOperation,
+  file: string,
+): Promise<object> {
+  return ns[operation](file);
+}
+
+describe('buildAstNamespace — 24c parse honesty (stubbed parser)', () => {
+  const tree = {
+    type: 'program',
+    text: 'program',
+    startPosition: { row: 0, column: 0 },
+    endPosition: { row: 1, column: 0 },
+    children: [],
+  };
+
+  it.each(PARSING_OPERATIONS)(
+    '%s reports a recovered parse as failed coverage, ahead of the file and list',
+    async (operation) => {
+      const { deps, parser } = makeDeps();
+      parser.parse.mockResolvedValue(Result.ok(tree));
+      answerQueryMulti(parser, [], {
+        parseStatus: 'recovered',
+        errorNodeCount: 3,
+        errorNodeCountCapped: false,
+      });
+      const out = await runOperation(
+        buildAstNamespace(deps),
+        operation,
+        'src/a.ts',
+      );
+      expect(out).toMatchObject({
+        parseStatus: 'recovered',
+        errorNodeCount: 3,
+        coverage: { census: 'complete', analyzed: 0, failed: 1 },
+      });
+      const coverage = Reflect.get(out, 'coverage') as LanguageCoverage;
+      expect(isCleanAnswer(coverage)).toBe(false);
+      const keys = Object.keys(out);
+      expect(keys.indexOf('coverage')).toBeLessThan(keys.indexOf('file'));
+      expect(keys.indexOf('file')).toBeLessThan(
+        keys.indexOf(LIST_FIELD[operation]),
+      );
+    },
+  );
+
+  it.each(PARSING_OPERATIONS)(
+    '%s reports missing parser metadata as unknown, never clean',
+    async (operation) => {
+      const { deps, parser } = makeDeps();
+      parser.parse.mockResolvedValue(Result.ok(tree));
+      answerQueryMulti(parser, [], {});
+      const out = await runOperation(
+        buildAstNamespace(deps),
+        operation,
+        'src/a.ts',
+      );
+      expect(out).toMatchObject({
+        parseStatus: 'unknown',
+        errorNodeCount: null,
+        coverage: { unchecked: 1, analyzed: 0 },
+      });
+      const coverage = Reflect.get(out, 'coverage') as LanguageCoverage;
+      expect(isCleanAnswer(coverage)).toBe(false);
+    },
+  );
+
+  it.each(PARSING_OPERATIONS)(
+    '%s reports a clean parse as clean',
+    async (operation) => {
+      const { deps, parser } = makeDeps();
+      parser.parse.mockResolvedValue(Result.ok(tree));
+      answerQueryMulti(parser, []);
+      const out = await runOperation(
+        buildAstNamespace(deps),
+        operation,
+        'src/a.ts',
+      );
+      expect(out).toMatchObject({ parseStatus: 'ok', file: 'src/a.ts' });
+      const coverage = Reflect.get(out, 'coverage') as LanguageCoverage;
+      expect(isCleanAnswer(coverage)).toBe(true);
+    },
+  );
+
+  it('runs each structural query on the same parse that reports its quality', async () => {
+    const { deps, parser } = makeDeps();
+    answerQueryMulti(parser, []);
+    await buildAstNamespace(deps).queryClasses('src/a.ts');
+    expect(parser.queryMulti).toHaveBeenCalledTimes(1);
+    const [, language, queries] = parser.queryMulti.mock.calls[0] as [
+      string,
+      string,
+      Array<{ key: string; queryString: string }>,
+    ];
+    expect(language).toBe('typescript');
+    expect(queries).toHaveLength(1);
+    expect(queries[0].queryString).toContain('class');
+  });
+});
+
+function silentLogger(): Logger {
+  return {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  } as unknown as Logger;
+}
+
+/** Valid TSX: the bundled TypeScript grammar has no JSX, so it recovers. */
+const JSX_TSX_SOURCE = [
+  "import { render } from './render';",
+  '',
+  'export class Card {',
+  '  title = "card";',
+  '}',
+  '',
+  'export function View(props: { name: string }) {',
+  '  return <div className="view">{props.name}</div>;',
+  '}',
+  '',
+].join('\n');
+
+describe('buildAstNamespace — 24c parse honesty (REAL parser, .tsx with JSX)', () => {
+  const actual = jest.requireActual<
+    typeof import('@ptah-extension/workspace-intelligence')
+  >('@ptah-extension/workspace-intelligence');
+  let parser: InstanceType<typeof actual.TreeSitterParserService>;
+  let ns: AstNamespace;
+
+  beforeAll(async () => {
+    parser = new actual.TreeSitterParserService(silentLogger());
+    const init = await parser.initialize();
+    if (init.isErr()) {
+      throw init.error ?? new Error('tree-sitter initialisation failed');
+    }
+    ns = buildAstNamespace({
+      treeSitterParser: parser,
+      astAnalysis: new actual.AstAnalysisService(silentLogger(), parser),
+      fileSystemProvider: {
+        stat: async () => ({ type: FileType.File }),
+        readFile: async () => JSX_TSX_SOURCE,
+      } as unknown as IFileSystemProvider,
+      workspaceProvider: {
+        getWorkspaceRoot: () => 'D:/ws',
+      } as unknown as IWorkspaceProvider,
+    });
+    // Loading the WASM grammars exceeds Jest's 5 s default under parallel load.
+  }, 60_000);
+
+  afterAll(() => {
+    parser?.dispose();
+  });
+
+  it.each(PARSING_OPERATIONS)(
+    '%s reports recovered, not a clean-looking result',
+    async (operation) => {
+      const out = await runOperation(ns, operation, 'src/view.tsx');
+      expect(out).toMatchObject({
+        parseStatus: 'recovered',
+        coverage: { failed: 1, analyzed: 0 },
+      });
+      expect(Reflect.get(out, 'errorNodeCount')).toBeGreaterThan(0);
+      const coverage = Reflect.get(out, 'coverage') as LanguageCoverage;
+      expect(isCleanAnswer(coverage)).toBe(false);
+    },
+  );
+
+  it('analyze agrees with the four operations on the same file', async () => {
+    const out = await ns.analyze('src/view.tsx');
+    expect(out.parseStatus).toBe('recovered');
   });
 });

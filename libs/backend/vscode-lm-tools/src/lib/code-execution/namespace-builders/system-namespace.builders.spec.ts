@@ -354,3 +354,36 @@ describe('buildHelpMethod', () => {
     expect(out).toMatch(/workspace/);
   });
 });
+
+// TASK_2026_559 Batch 24c (26a finding R26A-m1): execute_code help lists the
+// LSP report methods, and the ast topic states the parse-status contract its
+// parsing operations now return.
+describe('HELP_DOCS — Batch 24c', () => {
+  it('ide.lsp lists getDefinitionReport and getReferencesReport with the report shape', () => {
+    const doc = HELP_DOCS['ide.lsp'];
+    expect(doc).toContain('getDefinitionReport(file, line, col)');
+    expect(doc).toContain('getReferencesReport(file, line, col)');
+    expect(doc).toContain(
+      '{ locations, mechanism, language, languageSupported,',
+    );
+    for (const mechanism of [
+      "'provider-defined'",
+      "'symbol-index'",
+      "'declaration-scan'",
+      "'graph-scoped-scan'",
+      "'text-scan'",
+      "'none'",
+    ]) {
+      expect(doc).toContain(mechanism);
+    }
+  });
+
+  it('ast states that parse and the structural queries lead with parse status', () => {
+    const doc = HELP_DOCS['ast'];
+    expect(doc).toContain(
+      'queryFunctions(file) - { ...parse status, file, language, functions }',
+    );
+    expect(doc).toContain("parseStatus 'ok' | 'recovered' | 'unknown'");
+    expect(doc).not.toContain('currently: javascript, typescript');
+  });
+});

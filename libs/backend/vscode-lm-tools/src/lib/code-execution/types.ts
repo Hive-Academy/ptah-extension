@@ -1156,23 +1156,23 @@ export interface AstNamespace {
   /**
    * Query functions from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of function definitions
+   * @returns Parse status and coverage, then the function definitions
    */
-  queryFunctions: (filePath: string) => Promise<AstFunctionInfo[]>;
+  queryFunctions: (filePath: string) => Promise<AstFunctionsResult>;
 
   /**
    * Query classes from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of class definitions
+   * @returns Parse status and coverage, then the class definitions
    */
-  queryClasses: (filePath: string) => Promise<AstClassInfo[]>;
+  queryClasses: (filePath: string) => Promise<AstClassesResult>;
 
   /**
    * Query imports from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of import statements
+   * @returns Parse status and coverage, then the import statements
    */
-  queryImports: (filePath: string) => Promise<AstImportInfo[]>;
+  queryImports: (filePath: string) => Promise<AstImportsResult>;
 
   /**
    * Query exports from a file
@@ -1189,9 +1189,12 @@ export interface AstNamespace {
 }
 
 /**
- * Complete code insights from AST analysis
+ * Parse honesty every `ptah.ast` operation that parses a file reports first
+ * (`analyze` since Batch 24a; `parse`, `queryFunctions`, `queryClasses` and
+ * `queryImports` since Batch 24c), so a recovered parse never reads as a
+ * complete answer.
  */
-export interface AstCodeInsights {
+export interface AstParseHonesty {
   /** Recovery is a partial answer; unknown means parser metadata was absent. */
   parseStatus: 'ok' | 'recovered' | 'unknown';
   /** Bounded ERROR/MISSING tally; null when the original parse was not observed. */
@@ -1199,6 +1202,33 @@ export interface AstCodeInsights {
   errorNodeCountCapped: boolean;
   /** Serialized ahead of paths and lists so result budgets retain coverage. */
   coverage: LanguageCoverage;
+}
+
+/** `ptah.ast.queryFunctions` result: parse honesty, then the functions. */
+export interface AstFunctionsResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  functions: AstFunctionInfo[];
+}
+
+/** `ptah.ast.queryClasses` result: parse honesty, then the classes. */
+export interface AstClassesResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  classes: AstClassInfo[];
+}
+
+/** `ptah.ast.queryImports` result: parse honesty, then the imports. */
+export interface AstImportsResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  imports: AstImportInfo[];
+}
+
+/**
+ * Complete code insights from AST analysis
+ */
+export interface AstCodeInsights extends AstParseHonesty {
   /**
    * Export forms seen but not represented in `exports` (`line N: <source>`).
    * Present only when non-empty; coverage then counts the file as failed with
@@ -1321,7 +1351,7 @@ export interface AstExportInfo {
 /**
  * Result of parsing a file to AST
  */
-export interface AstParseResult {
+export interface AstParseResult extends AstParseHonesty {
   /** File that was parsed */
   file: string;
 

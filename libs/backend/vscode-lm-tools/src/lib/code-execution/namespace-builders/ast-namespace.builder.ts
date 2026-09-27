@@ -10,6 +10,7 @@ import {
   TreeSitterParserService,
   AstAnalysisService,
   EXTENSION_LANGUAGE_MAP,
+  LANGUAGE_QUERIES_MAP,
   classifyFileForCoverage,
   extractExportsFromMatches,
   hasCapability,
@@ -17,6 +18,7 @@ import {
   supportedLanguagesFor,
   type SupportedLanguage,
   type GenericAstNode,
+  type ParseQuality,
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
@@ -33,11 +35,15 @@ import type {
 import {
   AstNamespace,
   AstCodeInsights,
+  AstParseHonesty,
   AstParseResult,
   AstNode,
   AstFunctionInfo,
+  AstFunctionsResult,
   AstClassInfo,
+  AstClassesResult,
   AstImportInfo,
+  AstImportsResult,
   AstExportInfo,
 } from '../types';
 
@@ -92,18 +98,9 @@ export function buildAstNamespace(
         imports: [],
         exports: [],
       };
-      const parseStatus = insights.parseStatus ?? 'unknown';
       const unextractedExports = result.value?.unextractedExports ?? [];
       return {
-        parseStatus,
-        errorNodeCount: insights.errorNodeCount ?? null,
-        errorNodeCountCapped: insights.errorNodeCountCapped ?? false,
-        coverage: fileCoverage(
-          absolutePath,
-          'parse',
-          parseStatus,
-          unextractedExports.length > 0,
-        ),
+        ...parseHonesty(absolutePath, insights, unextractedExports.length > 0),
         ...(unextractedExports.length > 0 ? { unextractedExports } : {}),
         file: filePath,
         language,
@@ -115,7 +112,7 @@ export function buildAstNamespace(
     },
 
     parse: async (filePath: string, maxDepth = 10): Promise<AstParseResult> => {
-      const { content, language } = await readFileForAst(
+      const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
         workspaceProvider,
@@ -131,9 +128,19 @@ export function buildAstNamespace(
       if (!ast) {
         throw new Error('AST parsing returned no result');
       }
+      // The generic tree drops tree-sitter's MISSING flag, so its quality is
+      // read from a parse that keeps it (no query runs on that parse).
+      const { quality } = await queryWithQuality(
+        treeSitterParser,
+        content,
+        language,
+        '',
+        'AST parsing failed',
+      );
       const { node: simplifiedAst, count } = simplifyAstNode(ast, 0, maxDepth);
 
       return {
+        ...parseHonesty(absolutePath, quality),
         file: filePath,
         language,
         ast: simplifiedAst,
@@ -141,52 +148,73 @@ export function buildAstNamespace(
       };
     },
 
-    queryFunctions: async (filePath: string): Promise<AstFunctionInfo[]> => {
-      const { content, language } = await readFileForAst(
+    queryFunctions: async (filePath: string): Promise<AstFunctionsResult> => {
+      const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
         workspaceProvider,
       );
 
-      const result = await treeSitterParser.queryFunctions(content, language);
+      const { quality, matches } = await queryWithQuality(
+        treeSitterParser,
+        content,
+        language,
+        LANGUAGE_QUERIES_MAP[language].functionQuery,
+        'Function query failed',
+      );
 
-      if (result.isErr()) {
-        throw new Error(result.error?.message ?? 'Function query failed');
-      }
-
-      return extractFunctionsFromMatches(result.value ?? []);
+      return {
+        ...parseHonesty(absolutePath, quality),
+        file: filePath,
+        language,
+        functions: extractFunctionsFromMatches(matches),
+      };
     },
 
-    queryClasses: async (filePath: string): Promise<AstClassInfo[]> => {
-      const { content, language } = await readFileForAst(
+    queryClasses: async (filePath: string): Promise<AstClassesResult> => {
+      const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
         workspaceProvider,
       );
 
-      const result = await treeSitterParser.queryClasses(content, language);
+      const { quality, matches } = await queryWithQuality(
+        treeSitterParser,
+        content,
+        language,
+        LANGUAGE_QUERIES_MAP[language].classQuery,
+        'Class query failed',
+      );
 
-      if (result.isErr()) {
-        throw new Error(result.error?.message ?? 'Class query failed');
-      }
-
-      return extractClassesFromMatches(result.value ?? []);
+      return {
+        ...parseHonesty(absolutePath, quality),
+        file: filePath,
+        language,
+        classes: extractClassesFromMatches(matches),
+      };
     },
 
-    queryImports: async (filePath: string): Promise<AstImportInfo[]> => {
-      const { content, language } = await readFileForAst(
+    queryImports: async (filePath: string): Promise<AstImportsResult> => {
+      const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
         workspaceProvider,
       );
 
-      const result = await treeSitterParser.queryImports(content, language);
+      const { quality, matches } = await queryWithQuality(
+        treeSitterParser,
+        content,
+        language,
+        LANGUAGE_QUERIES_MAP[language].importQuery,
+        'Import query failed',
+      );
 
-      if (result.isErr()) {
-        throw new Error(result.error?.message ?? 'Import query failed');
-      }
-
-      return extractImportsFromMatches(result.value ?? []);
+      return {
+        ...parseHonesty(absolutePath, quality),
+        file: filePath,
+        language,
+        imports: extractImportsFromMatches(matches),
+      };
     },
 
     queryExports: async (filePath: string): Promise<AstExportInfo[]> => {
@@ -217,6 +245,59 @@ export function buildAstNamespace(
         (v, i, a) => a.indexOf(v) === i,
       );
     },
+  };
+}
+
+const QUERY_KEY = 'matches';
+
+/**
+ * Run one query over ONE parse that also reports the parse quality
+ * (`queryMulti`), so the matches and the quality describe the same tree. An
+ * empty `queryString` (a language without that query) runs no query and
+ * still reports the quality.
+ */
+async function queryWithQuality(
+  treeSitterParser: TreeSitterParserService,
+  content: string,
+  language: SupportedLanguage,
+  queryString: string,
+  failureMessage: string,
+): Promise<{ quality: Partial<ParseQuality>; matches: QueryMatch[] }> {
+  const result = await treeSitterParser.queryMulti(
+    content,
+    language,
+    queryString ? [{ key: QUERY_KEY, queryString }] : [],
+  );
+  if (result.isErr()) {
+    throw new Error(result.error?.message ?? failureMessage);
+  }
+  const results = result.value;
+  return {
+    quality: results ?? {},
+    matches: results?.get(QUERY_KEY) ?? [],
+  };
+}
+
+/**
+ * The parse honesty fields every parsing operation leads with. Missing parser
+ * metadata is `unknown`, never `ok`, so it cannot read as a clean parse.
+ */
+function parseHonesty(
+  absolutePath: string,
+  quality: Partial<ParseQuality>,
+  hasUnextractedExports = false,
+): AstParseHonesty {
+  const parseStatus = quality.parseStatus ?? 'unknown';
+  return {
+    parseStatus,
+    errorNodeCount: quality.errorNodeCount ?? null,
+    errorNodeCountCapped: quality.errorNodeCountCapped ?? false,
+    coverage: fileCoverage(
+      absolutePath,
+      'parse',
+      parseStatus,
+      hasUnextractedExports,
+    ),
   };
 }
 

@@ -2093,10 +2093,12 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_report: 799,
       ptah_harness_install_mcp_server: 780,
       ptah_get_dependents: 722,
-      // Re-pinned at the Lane H merge (ruling R2): Batch 24b rewrote the
-      // description (measured 972 chars; was 702). Measured + 5%; Batch 24c
-      // owns its final size.
-      ptah_code_search_symbols: 1021,
+      // Pre-24b budget restored (Batch 24c fix round, review r1 on ruling
+      // R2): the shortened text measures 699 chars (2026-09-27) and still
+      // carries every required item (coverage legend, both registry lists,
+      // the Batch 24d kinds, the code-index / export-index distinction),
+      // asserted item by item in tool-description.builder.spec.ts.
+      ptah_code_search_symbols: 702,
       ptah_get_dependencies: 689,
       ptah_dashboard_propose_spec: 671,
       ptah_lsp_definitions: 639,
@@ -2104,10 +2106,10 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_message: 591,
       execute_code: 567,
       ptah_agent_read: 553,
-      // Re-pinned at the Lane H merge (ruling R2): Batch 24b rewrote the
-      // description (measured 949 chars; was 536). Measured + 5%; Batch 24c
-      // owns its final size.
-      ptah_code_reindex: 997,
+      // Pre-24b budget restored (Batch 24c fix round, review r1 on ruling
+      // R2): measured 524 chars (2026-09-27) with every required item kept
+      // (asserted item by item in tool-description.builder.spec.ts).
+      ptah_code_reindex: 536,
       ptah_get_diagnostics: 535,
       ptah_lsp_references: 529,
       ptah_web_search: 506,

@@ -250,13 +250,23 @@ Use ptah.help('ide.lsp'), ptah.help('ide.editor'), etc. for method details.`,
 
   'ide.lsp': `ptah.ide.lsp - Language Server Protocol
 
-- getDefinition(file, line, col) - Go to definition
-- getReferences(file, line, col) - Find all references
+- getDefinitionReport(file, line, col) - Go to definition, saying how it was
+    answered: { locations, mechanism, language, languageSupported,
+    approximations, truncated? }. mechanism is 'provider-defined' (VS Code's
+    language server), 'symbol-index', 'declaration-scan', 'graph-scoped-scan',
+    'text-scan' (desktop app, name-based) or 'none' (nothing was searched).
+    Prefer it to getDefinition: an empty locations list means "none found" only
+    when mechanism is not 'none' and nothing in the report qualifies it.
+- getReferencesReport(file, line, col) - Find all references, as the same report.
+- getDefinition(file, line, col) - Go to definition (locations only)
+- getReferences(file, line, col) - Find all references (locations only)
 - getHover(file, line, col) - Get type info and docs
 - getTypeDefinition(file, line, col) - Go to type definition
 - getSignatureHelp(file, line, col) - Function signatures
 
-All methods use 0-based line/column. Returns [] if unavailable.`,
+All methods use 0-based line/column. The locations-only methods return [] when
+unavailable, which is indistinguishable from "none found"; the report methods
+are not.`,
 
   'ide.editor': `ptah.ide.editor - Editor State
 
@@ -380,12 +390,18 @@ Used for persisting workflow state across sessions (planning, design, implementa
   ast: `ptah.ast - Code Structure Analysis (Tree-Sitter)
 
 - analyze(file) - Full structural analysis: functions, classes, imports, exports with line ranges
-- parse(file) - Raw tree-sitter AST with node tree {type, text, start, end, children}
-- queryFunctions(file) - Extract all functions with name, parameters, startLine/endLine
-- queryClasses(file) - Extract all classes with name, startLine/endLine
-- queryImports(file) - Extract all imports with source module and imported symbols
-- queryExports(file) - Extract all exports with name, kind (function/class/variable/interface/type/enum/namespace/wildcard/unknown), isDefault, and source/localName for re-exports and aliases
-- getSupportedLanguages() - List supported languages (currently: javascript, typescript)
+- parse(file) - Raw tree-sitter AST: { ...parse status, file, language, ast, nodeCount },
+    ast = {type, text, start, end, children}
+- queryFunctions(file) - { ...parse status, file, language, functions }: name, parameters, startLine/endLine
+- queryClasses(file) - { ...parse status, file, language, classes }: name, startLine/endLine
+- queryImports(file) - { ...parse status, file, language, imports }: source module and imported symbols
+- queryExports(file) - Array of exports with name, kind (function/class/variable/interface/type/enum/namespace/wildcard/unknown), isDefault, and source/localName for re-exports and aliases
+- getSupportedLanguages() - The languages this host parses
+
+Parse status (analyze, parse and the three structural queries) comes first:
+parseStatus 'ok' | 'recovered' | 'unknown', errorNodeCount, errorNodeCountCapped
+and coverage. 'recovered' means tree-sitter parsed around syntax errors (or
+syntax the grammar lacks, such as JSX in .tsx): the lists may be partial.
 
 Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.
 Prefer ptah.ast over reading full files when you only need structural information (40-60% token savings).`,
