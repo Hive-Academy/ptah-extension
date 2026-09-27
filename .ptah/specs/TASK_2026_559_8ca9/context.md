@@ -64,6 +64,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 22. Batch 20.2 post-cap (user, 2026-09-27, after the r4-postcap review returned REVISE 6/10 with R4-02 Blocking — `export =` / `export import X = …` answered as clean-empty — and R4-01 Serious — text-split export aliases corrupt with comments/quotes): one narrow fix + one final independent review. Decode export specifiers from AST nodes (not text); support `export =` and `export import X = …`, or at minimum report them as not clean with a reason. Commit if the final review approves; otherwise commit with its defects recorded as known issues and carried into Batch 24d.
 
+23. Batch 23b post-cap (user, 2026-09-27, after the r4-postcap review returned REVISE 6/10 with R4-B1 Blocking — a nonexistent root answered as a complete clean empty graph because root ENOENT was silently exempted — and R4-S1 Serious — escaped `[`/`]`/`(`/`)` glob components return [] only with a limit in both real adapters): one narrow fix + one final independent review. A missing or unreadable ROOT is never clean (unknown with a reason); escaped glob components match identically with and without a limit (same matcher). Commit if the final review approves; otherwise commit with its defects recorded as known issues carried into Batch 25a.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

@@ -66,7 +66,9 @@ threshold compaction + entry-time capping + session rotation; not `clear_tool_us
   dwell in `no-activity-watchdog.ts arm()`; auto/manual dedup; `IContextUsagePort` with provenance; keep the curator
   PreCompact reactor; telemetry. Fork/resume rollback only after E4. Dependency: TASK_2026_408 owns mapping
   `response.failed` / `response.incomplete` in `responses-stream-translator.ts` (ignored today → truncated stream), a
-  possible cause of the 406 Codex-path compaction stall; check its state before designing the Codex path
+  possible cause of the 406 Codex-path compaction stall; check its state before designing the Codex path. Update
+  (2026-09-27, TASK_2026_408 session): 408 phase 1 (context overflow + response.failed / response.incomplete
+  mapping) is in PR #602 — design the Codex compaction path on top of it
 - A9. Wave 0 as settings (user request 2026-09-26: "make those settings the user can easily set from our UI and we
   write them down to those files"). New Ptah settings with a UI for the Codex budgets — auto-compact tokens (tokaudit
   0.1, default suggestion 120000) and tool-output token limit (0.2, suggestion 2500), optionally reasoning effort and

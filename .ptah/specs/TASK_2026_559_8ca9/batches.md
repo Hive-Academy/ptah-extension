@@ -2,6 +2,12 @@
 
 Total tasks: 111 | Batches: 60 | Complete: 32/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is COMPLETE with known issues R5-01..R5-03 carried to Batch 24d (User Decision 22). Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 5 complete — 28a, 28b, 22, 23a, 24a)
 
+Counter as of 2026-09-27 handoff (verified with git at task-branch HEAD ec6ad9bc8): COMPLETE on the task branch 32/60
+(unchanged). COMMITTED on Lane H only, not merged, not counted: 4 — 24r, 24b, 23b, 22c (54e9c4b08, efea46119,
+41ed73395, eec17be89; 23a's 4af7d3eba is already merged). UNCOMMITTED: Batch 21 (Lane A, IN_PROGRESS), Batch 21p
+(Lane A, implemented + reviewed), Batch 25a (Lane H, implemented, unreviewed). Unplanned batches 20.2p/20.2q/21p/21q/24r/22c
+are not in the 60. See "RESUME POINT" below.
+
 Amended 2026-09-25 (User Decision 7): Batch 2 → 2a-2f (reducer pipeline), Task 20.3 added, Task 21.1 extended.
 Order: 1, 2a, 2b, 2c, 2d, 2e, 2f, 3, 4, 5, ..., 21.
 
@@ -2149,27 +2155,80 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ---
 
-## Parallel lanes (User Decision 17) — status 2026-09-26
+## RESUME POINT (2026-09-27, session handoff)
 
-| Lane | Worktree                                | Batches                                                                                    | State                                                 |
-| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21                                              | 11, 11b, 16, 17, 18, 15, 13, 20.2 COMPLETE; next 21   |
-| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                  |
-| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                      |
-| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                           |
-| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22, 23a merged (130b9453d); now 23b round 2, then 22c |
-| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | done (24a merged de6f56118)                           |
-| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                |
-| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                   |
-| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                    |
-| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                      |
-| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3               |
-| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                |
+Verified on disk at handoff: task branch `fix/task-559-mcp-tool-contract` HEAD ec6ad9bc8 (Batches 1-19, 11b,
+20.1/20.2/20.2p/20.2q/20.3, 22, 23a, 24a, 28a, 28b COMPLETE). Lanes B, C, D, I, P fully merged (no commits ahead).
+`git log --oneline fix/task-559-mcp-tool-contract..fix/task-559-lane-h` = 4 commits, committed on Lane H ONLY, not
+merged: 54e9c4b08 (24r), efea46119 (24b), 41ed73395 (23b), eec17be89 (22c). (23a's 4af7d3eba is already an
+ancestor of the task branch — merged 130b9453d.)
+
+Uncommitted work (do not lose; the pre-commit hook stashes and restores unstaged `libs/` changes):
+
+- Lane A (this worktree): Batch 21 — new `mcp-contract.sweep.spec.ts`, `mcp-mandate-manifest.spec.ts` (revision
+  round 2 done: 57 tests, 6 intentionally failing — they expose a product defect: the stdio agent handlers apply no
+  result budget except `agent_read`); Batch 21p — `browser_content` HTML extractor path in `tool-result-budget.ts`,
+  `protocol-dispatcher.ts` (+ `protocol-dispatcher.spec.ts`); reviewed in r2, no defect. Reviews:
+  `reviews/batch-21-code-logic-review-r1.md` (REVISE 3), `reviews/batch-21-code-logic-review-r2.md` (REVISE 4).
+  Reports: `batch-21-executor-report.md`, `batch-21p-executor-report.md`. Untracked and never staged:
+  `research/diagnostics-worktree-repro.ts`, `code-logic-review.md`.
+- Lane H (`task-559-lane-h`): Batch 25a — diagnostics contract + `LanguageAwareDiagnosticsProvider` + carried
+  R5-B1/R5-M1 fixes (platform-core, platform-cli, platform-electron, workspace-intelligence); report
+  `batch-25a-executor-report.md` in the lane's task folder. Not reviewed. The author says 25a merges together with 25b.
+
+Reviewer CLI sessions (Codex) to resume; if resume fails in a new session, spawn fresh with the context restated:
+Batch 21 reviewer 01a0e07a-ef19-7cb0-a0bf-a911f6d10a51; Lane H graph/diagnostics reviewer
+01a0df19-7fdf-70d0-88b4-d4acfc2fa47d; Lane H contract/index reviewer 01a0df86-4fd3-7ab1-9e37-e51cd1d7fcc8.
+
+1. Next steps Lane A
+   a. New product batch **21q — stdio agent tool handlers apply the result budget**. The 6 failing Batch 21 sweep
+   tests are its fails-before. Executor: backend-developer. Do not weaken the tests.
+   b. Batch 21 + 21p + 21q review r3 (Codex, cross-side). Batch 21 has used 2 revise rounds, so a REVISE leads to
+   one bounded correction + a post-cap review, then ask the user.
+   c. Team-leader commits 21p, 21q, 21 (separate commits, in that order).
+2. Next steps Lane H
+   a. Batch 25a Codex review r1 — it carries R5-B1/R5-M1 from User Decision 23; verify both with the r5 probes.
+   b. Batch 25b.
+   c. Commit 25a + 25b.
+3. Merge Lane H into the task branch AFTER Lane A's Batch 21 commit: combine the two platform-core coverage changes
+   (24r `clean` + `reasons`, 22c compact serializer, and 20.2q's `unsupported-syntax` reason); re-measure the 22c
+   size pins and the Batch 20.2 SIZE benchmarks; convert every test named "pending Batch 24r: …" into a real test —
+   today `workspace-intelligence/src/testing/mcp-contract/mcp-contract.bench.spec.ts:416` (`it.todo`) and
+   `vscode-lm-tools/.../mcp-core/mcp-contract.sweep.spec.ts:1582`; full scoped verification of every touched project.
+4. Then the remaining language batches in dependency order (check each entry's "Depends on"): 24d (carries
+   R5-01..03 from Decision 22), 24c (incl. the 24a M2 ast sub-operation honesty), 26a, 26b, 27 (polyglot harness,
+   needs 21 merged), 28 done, 29a1 → 29a2 → 29b, 30, 31, 30k (O3 provenance gate), 32a-c, 33-35, 36a-c (required
+   by Decision 19 Q4), 37a (O2 consent gate) / 37b (split three ways per the o2 doc), 38 completion gate. Then
+   Mode 3 completion, rebase onto main, PR.
+5. Standing rules: User Decisions 1-23 in context.md; review bar = cross-side review, 2 revise rounds, bounded
+   correction + post-cap review, then ask the user; ≤ 3 CLI lanes at once; commit only in quiet windows (the stash
+   stack is shared across worktrees); no `--no-verify`; degradation audit TOTAL 300; validate-deps `from "<word>"`
+   rule; specs spool into `mkdtemp` roots; known flakes: Electron stress bundle, entry/worker-host watcher timeouts,
+   vscode-lm-tools real-port HTTP spec, rpc-handlers harness-skill-selection (because of `%TEMP%/.ptah`),
+   platform-core perf smoke under load; the user has not deleted `%TEMP%\.ptah`.
+
+## Parallel lanes (User Decision 17) — status 2026-09-27 (handoff)
+
+| Lane | Worktree                                | Batches                                                                                    | State                                                                                         |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| A    | `task-559-mcp-tool-contract` (this one) | 11 → 11b → 16 → 17 → 18 → 15 → 13 → 20.2 → 21 (+21p, 21q)                                  | through 20.2 COMPLETE; 21 IN_PROGRESS, 21p uncommitted; 21q next                              |
+| B    | `.claude-worktrees/task-559-lane-b`     | 12 → 14                                                                                    | done (12, 14 merged)                                                                          |
+| C    | `.claude-worktrees/task-559-lane-c`     | 19                                                                                         | done (19 merged)                                                                              |
+| D    | `.claude-worktrees/task-559-lane-d`     | 20.1, 20.3 (20a)                                                                           | done (20a merged 1c2ad2f92)                                                                   |
+| H    | `.claude-worktrees/task-559-lane-h`     | 22 → 23a → 24a ‖13‖ 24b → 23b → 25a → 25b → 26a ‖21‖ 24c ‖29a2‖ 29b ‖32b‖ 32c ‖37a+27‖ 37b | 22, 23a merged; 24r, 24b, 23b, 22c committed on lane, not merged; 25a uncommitted, unreviewed |
+| I    | `.claude-worktrees/task-559-lane-i`     | 24a                                                                                        | done (24a merged de6f56118)                                                                   |
+| P    | `.claude-worktrees/task-559-lane-p`     | 28a → 28b                                                                                  | done (28a, 28b merged)                                                                        |
+| E    | `.claude-worktrees/task-559-lane-e`     | 26b                                                                                        | waits for 26a merge                                                                           |
+| K    | `.claude-worktrees/task-559-lane-k`     | 37a                                                                                        | waits for O2 amendment + 25a merge                                                            |
+| T    | `.claude-worktrees/task-559-lane-t`     | 27, 38                                                                                     | 27 waits for 26b, 24c, Lane A 21                                                              |
+| G    | `.claude-worktrees/task-559-lane-g`     | 29a1 → 29a2, then 30 → 31 → 30k                                                            | 29a1 waits for 27 + 28a; 30k also on O3                                                       |
+| G2   | `.claude-worktrees/task-559-lane-g2`    | 32a → 32b → 33 → 34 → 35 → 36a → 36b → 36c                                                 | 32a waits for 29b + 30                                                                        |
 
 Language support (Decisions 18-19): approved plan `implementation-plan-languages.md`; Batches 22-38 are in the
 section "Language support (User Decisions 18-19) — Batches 22-38" below, with lane authors/reviewers, gates and the
 decomposition notes D1-D10. Lane A's 13 is COMPLETE (7d92f9f77) and 20.2 is COMPLETE with known issues carried to 24d (01f3daa8b, f926423a2,
-ac441f780; User Decision 22); Lane A next runs 21 in this worktree. Lane H (2026-09-27): 23b round 2, then 22c.
+ac441f780; User Decision 22); Lane A is on 21 (see RESUME POINT above). Lane H: 24r, 24b, 23b, 22c committed on
+the lane, 25a uncommitted (see RESUME POINT above; the remainder of this paragraph is the 2026-09-26 record).
 **22, 23a (H)** are merged (96f9a5553, 130b9453d; 23a under User Decision 20); Lane H's branch is fast-forwarded to
 this branch's tip and runs next **24b → 23b → 25a → 25b → 26a**. **24a (I)** is merged (de6f56118; its
 `AstCodeInsights` hunk in `types.ts` merged cleanly with 13). **P** is done (28a merged e3578b2ca, 28b merged 44336de6a).
@@ -2824,7 +2883,14 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 
 ---
 
-## Batch 21: Regression harness H2 — dispatcher contract sweep and mandate manifest — PENDING
+## Batch 21: Regression harness H2 — dispatcher contract sweep and mandate manifest — IN_PROGRESS
+
+- State 2026-09-27: revision round 2 done (57 tests; 6 intentionally failing, exposing the stdio agent-handler
+  budget defect → Batch 21q); r3 review pending; uncommitted. Reviews r1 REVISE 3, r2 REVISE 4 (2 revise rounds used).
+- Batch 21p (unplanned; `browser_content` HTML extractor path in `tool-result-budget.ts` / `protocol-dispatcher.ts`):
+  IMPLEMENTED, reviewed in r2 without defect, uncommitted. Report `batch-21p-executor-report.md`.
+- Batch 21q (unplanned, next): stdio agent tool handlers apply the result budget — PENDING; fails-before = the 6
+  failing sweep tests; backend-developer.
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: backend-developer
@@ -2835,7 +2901,7 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 - Test hygiene (added after Batch 13): every spec that makes the budget layer spool injects a `mkdtemp` spool root and
   removes it in `afterEach`; no spec writes into `os.tmpdir()/.ptah` or the repo's `.ptah`
 
-### Task 21.1: Budget and size sweep over `tools/list` — PENDING
+### Task 21.1: Budget and size sweep over `tools/list` — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-contract.sweep.spec.ts` (new)
 - Plan reference: research/cross-cutting.md:271-273, :289-291
@@ -2845,7 +2911,7 @@ getToolResultBudget(name))`, so the 150-task fixture yields 19 whole summary row
 - Implementation details: table-driven
 - Extension (User Decision 7, reduced output): for every tool, the oversized fake payload is driven in each shape the tool can return (JSON, log text, Markdown, HTML where the tool returns page content). Assert: returned tokens ≤ the declared token budget; the trailer names a reducer (`preformatted` tools: `none`) and a spool path; the spool file is byte-equal to the raw payload; and a planted marker (an error line in logs, a heading in Markdown, a key/value in JSON, the article title in HTML) survives in the returned text. `ptah_get_diagnostics` is asserted NOT to be reduced (its Batch 1 requested-file entries survive verbatim up to the cut)
 
-### Task 21.2: Mandate manifest — PENDING
+### Task 21.2: Mandate manifest — IN_PROGRESS
 
 - Files: `<WT>/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-mandate-manifest.spec.ts` (new)
 - Depends on: Task 21.1
@@ -3093,6 +3159,8 @@ Edge cases (carried by the named task):
 
 ## Batch 23a: Graph accounting, bounds, atomic publish — COMPLETE with known issues carried to 23b (lane commit 4af7d3eba, merged 130b9453d)
 
+- Batch 24r (unplanned; coverage verdicts `clean` + `reasons` survive reduction): COMMITTED on Lane H, not merged (54e9c4b08)
+
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
 - Execution mode: sequential
@@ -3193,7 +3261,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 24b: Code index live coverage — PENDING
+## Batch 24b: Code index live coverage — COMMITTED on Lane H, not merged (efea46119)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3229,7 +3297,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 23b: Graph tools answer honestly; bounded discovery — PENDING
+## Batch 23b: Graph tools answer honestly; bounded discovery — COMMITTED on Lane H, not merged (41ed73395; R5-B1/R5-M1 carried to 25a, User Decision 23)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3275,7 +3343,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 25a: Diagnostics contract + language-aware provider — PENDING
+## Batch 25a: Diagnostics contract + language-aware provider — implemented on Lane H, unreviewed, uncommitted
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3302,6 +3370,16 @@ Edge cases (carried by the named task):
 - Quality requirements: scoped TS/JS → TS provider (`analyzed:null`, type-check); other grammar languages → syntax check ≤ 50 files (51+ `omittedByCap`), ≤ 1 MiB/file, ≤ 20 ERROR/MISSING per file; unscoped → no syntax scan, syntax-capable files `unchecked` with "pass files", others `unsupported`; census from the graph build if present else one bounded `discoverSourceFiles`, cached per root and dropped by `invalidate`; no tsconfig → `unavailable` with coverage
 - Validation notes: edge cases 51 files → 1 omitted; unscoped Python → `unchecked`. Batch 19 lanes and `withBudget` behaviour untouched. WI barrel export only if needed (D8)
 - Implementation details: nothing spawned (Tier 0)
+
+### Batch 25a carried acceptance criteria (User Decision 23)
+
+- R5-B1 (from `reviews/batch-23b-code-logic-review-r5-final.md` in Lane H, pre-existing): an UNLIMITED `findFiles`
+  bypasses the 23b root validation — `indexWorkspace` (and any unlimited caller) with a missing/unreadable root
+  returns a successful zero-file result. Apply the same root check to the unlimited path in both adapters (CLI,
+  Electron) and make the census unknown/never clean. Spec: the r5 probe (fails before)
+- R5-M1: a root renamed between `stat` and `opendir` suppresses the root ENOENT and publishes a clean graph — treat a
+  root-level ENOENT during the walk as a root failure (unknown, never clean). Spec: the r5 rename-race probe
+- The 25a review verifies both with the r5 probes
 
 ### Batch 25a verification
 
@@ -3419,7 +3497,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 22c: Compact coverage block — PENDING (added 2026-09-27, User Decision 21)
+## Batch 22c: Compact coverage block — COMMITTED on Lane H, not merged (eec17be89) (added 2026-09-27, User Decision 21)
 
 - Recommended executor: backend-developer (sub-agent), Lane H after Batch 23b; review: Codex CLI lane
 - Rationale: the coverage block (Batch 22 / 24r, up to ~1,000 chars) made small `get_dependents` answers larger than a
