@@ -1,0 +1,32 @@
+# Task Context - TASK_2026_575_fee7
+
+## User Request
+"can you check our angular setup in our electron and landing page, as i basically want to make it bilingual with english and arabic as well, whats the best library as of Sep 2026 to use that support latest angular and best nx workspace practices for having per app/lib configurations"
+
+Follow-up: "yeah lets do so, you can see there is a skills for orchestration on that repo can you follow the same workflow defined there to follow our flow. lets start with the landing page as its easier than the electron application"
+
+## Task Type
+FEATURE
+
+## Complexity
+Complex
+
+## Strategy
+FEATURE, Full depth: project-manager → [designer → prototype → Gate 1.7 for the language switcher + RTL treatment] → software-architect → team-leader → QA.
+No separate research phase: library choice already settled in conversation (see below).
+
+## CLI Lanes
+Gate 0.1: no `ptah_agent_*` tools exist in this cloud session, so no CLI lanes are spawnable. Lanes disabled; every cross-side review runs same-side (subagent) with this recorded reason.
+
+## Conversation Summary
+Pre-work findings (orchestrator, read-only):
+- Angular 22.1.7, Nx 23.2.1, TypeScript 6.0.3, Tailwind 3.4 + DaisyUI 4.
+- `ptah-landing-page`: `@angular/build:application`, `outputMode: "static"`, SSG prerender of 6 marketing routes (`app.routes.server.ts`), rest client-rendered. Libs in `libs/web/*` tagged `scope:web`. `<html lang="en">` hard-coded. Fonts Inter + JetBrains Mono (no Arabic glyphs).
+- Electron renderer = `ptah-extension-webview` bundle (also the VS Code webview), loaded via `loadFile` (file://). Out of scope for this task; the shared i18n lib must be reusable by it later.
+- No i18n library in use today; only generator-default `extract-i18n` targets.
+- Library decision: `@jsverse/transloco` (8.4.0, peer `@angular/core >=16`) — runtime switching, per-lib scopes (Nx-friendly), signals API, SSR/prerender support, keys-manager tooling. Rejected: `@angular/localize` (per-locale builds; bad for the shared webview bundle), `@ngx-translate/core` 18 (no scopes).
+
+Gate 0 decisions (user, via AskUserQuestion):
+1. URL strategy: **client-side toggle only** — same URLs, language chosen in the browser and remembered locally. No `/ar/` routes, no hreflang. Prerendered HTML stays English.
+2. Scope: **whole landing app** — marketing, legal, auth (login/signup), account/profile, sessions, contact and admin screens, plus shared header/footer, across `apps/ptah-landing-page` and `libs/web/*`.
+3. Arabic copy: **agents draft, user reviews** before merge.
