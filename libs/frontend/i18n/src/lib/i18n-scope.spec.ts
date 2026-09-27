@@ -1,9 +1,6 @@
 import * as angularCore from '@angular/core';
-import {
-  defineI18nScope,
-  scopeInlineLoader,
-  scopeLoadPath,
-} from './i18n-scope';
+import { defineI18nScope, scopeLoadPath } from './i18n-scope';
+import { I18nError } from './i18n.error';
 
 jest.mock('@angular/core', () => ({
   ...jest.requireActual<typeof angularCore>('@angular/core'),
@@ -50,9 +47,9 @@ describe('defineI18nScope', () => {
         en: () => Promise.resolve(value),
         ar: () => Promise.resolve({}),
       });
-      await expect(scope.loader['en']()).rejects.toThrow(
-        '[i18n] Loader for "broken/en"',
-      );
+      const failure = scope.loader['en']();
+      await expect(failure).rejects.toBeInstanceOf(I18nError);
+      await expect(failure).rejects.toThrow('[i18n] Loader for "broken/en"');
     },
   );
 
@@ -61,18 +58,22 @@ describe('defineI18nScope', () => {
       en: () => Promise.reject(new Error('chunk failed')),
       ar: () => Promise.resolve({}),
     });
-    await expect(scope.loader['en']()).rejects.toThrow('chunk failed');
+    const failure = scope.loader['en']();
+    await expect(failure).rejects.toThrow('chunk failed');
+    // Not the library's own error: the loader's rejection passes through as is.
+    await expect(failure).rejects.not.toBeInstanceOf(I18nError);
   });
 
   it.each(['Pricing', 'panel-ui', 'panel_ui', 'ui2', 'a.b', 'a/b', ''])(
     'throws in dev mode for the malformed name %p',
     (name) => {
-      expect(() =>
+      const define = () =>
         defineI18nScope(name, {
           en: () => Promise.resolve({}),
           ar: () => Promise.resolve({}),
-        }),
-      ).toThrow(`[i18n] Invalid scope name "${name}"`);
+        });
+      expect(define).toThrow(I18nError);
+      expect(define).toThrow(`[i18n] Invalid scope name "${name}"`);
     },
   );
 
@@ -96,15 +97,5 @@ describe('scope load paths', () => {
   it('builds the Transloco `scope/lang` path', () => {
     expect(scopeLoadPath(scope, 'en')).toBe('pricing/en');
     expect(scopeLoadPath(scope, 'ar')).toBe('pricing/ar');
-  });
-
-  it('re-keys the loaders by load path, reusing the same functions', () => {
-    const inlineLoader = scopeInlineLoader(scope);
-    expect(Object.keys(inlineLoader).sort()).toEqual([
-      'pricing/ar',
-      'pricing/en',
-    ]);
-    expect(inlineLoader['pricing/en']).toBe(scope.loader['en']);
-    expect(inlineLoader['pricing/ar']).toBe(scope.loader['ar']);
   });
 });

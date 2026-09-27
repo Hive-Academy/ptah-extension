@@ -15,6 +15,11 @@ export interface InitialLangInput {
  * 1. A valid stored preference wins.
  * 2. Otherwise a first browser language starting with `ar` selects Arabic.
  * 3. Otherwise English.
+ *
+ * Rule 2 is a plain prefix test on purpose: any tag starting with `ar`,
+ * including non-Arabic languages such as `arn` (Mapudungun) or `ars`, is
+ * treated as Arabic. The pre-paint script mirrors this exact test, so it stays
+ * a prefix match rather than a BCP 47 primary-subtag parse.
  */
 export function resolveInitialLang(input: InitialLangInput): SupportedLang {
   if (isSupportedLang(input.stored)) return input.stored;

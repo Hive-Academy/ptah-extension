@@ -17,6 +17,12 @@ describe('resolveInitialLang', () => {
     expect(resolveInitialLang({ stored: null, languages: ['AR'] })).toBe('ar');
   });
 
+  it('treats every `ar*` tag as Arabic, including non-Arabic ones (intentional)', () => {
+    for (const tag of ['arn', 'arn-CL', 'ars', 'ar']) {
+      expect(resolveInitialLang({ stored: null, languages: [tag] })).toBe('ar');
+    }
+  });
+
   it('ignores an invalid stored value and falls through to detection', () => {
     expect(resolveInitialLang({ stored: 'xx', languages: ['ar-EG'] })).toBe(
       'ar',

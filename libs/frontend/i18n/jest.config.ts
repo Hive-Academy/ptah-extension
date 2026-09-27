@@ -13,9 +13,12 @@ export default {
     ],
   },
   // `@jsverse/utils` (a Transloco dependency) ships `"type": "module"` with
-  // plain `.js` files, so the default `.mjs`-only exception would leave it
-  // untransformed and Jest would choke on its bare `import`.
-  transformIgnorePatterns: ['node_modules/(?!(?:.*\\.mjs$|@jsverse))'],
+  // plain `.js` files, and so does `@angular/common/locales/*` (registered by
+  // `provideI18n`), so the default `.mjs`-only exception would leave them
+  // untransformed and Jest would choke on their bare `import`/`export`.
+  transformIgnorePatterns: [
+    'node_modules/(?!(?:.*\\.mjs$|@jsverse|@angular/common/locales))',
+  ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

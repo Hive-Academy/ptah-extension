@@ -4,6 +4,7 @@ import type {
   ProviderScope,
   Translation,
 } from '@jsverse/transloco';
+import { I18nError } from './i18n.error';
 import { SUPPORTED_LANGS, type SupportedLang } from './lang.config';
 
 /**
@@ -33,15 +34,17 @@ const SCOPE_NAME_PATTERN = /^[a-z][A-Za-z]*$/;
  * Declares a project's scope, typically as
  * `defineI18nScope('pricing', { en: () => import('./en.json'), ar: () => import('./ar.json') })`.
  *
- * In dev mode a malformed scope name throws, so the mistake surfaces on the
- * first run rather than as a silently mis-keyed scope.
+ * In dev mode a malformed scope name throws an `I18nError`, so the mistake
+ * surfaces on the first run rather than as a silently mis-keyed scope. The
+ * guard is dev-only: scope names are developer-authored constants, not runtime
+ * input, and production builds do not validate them.
  */
 export function defineI18nScope(
   scope: string,
   loaders: I18nScopeLoaders,
 ): I18nScope {
   if (isDevMode() && !SCOPE_NAME_PATTERN.test(scope)) {
-    throw new Error(
+    throw new I18nError(
       `[i18n] Invalid scope name "${scope}": it must match ${SCOPE_NAME_PATTERN} (camelCase, letters only).`,
     );
   }
@@ -64,22 +67,9 @@ export function scopeLoadPath(scope: I18nScope, lang: SupportedLang): string {
 }
 
 /**
- * `scope.loader` re-keyed by load path. `TranslocoService.load(path, { inlineLoader })`
- * looks loaders up by the full `scope/lang` path; only `provideTranslocoScope`
- * prefixes them itself, and this library never uses that.
- */
-export function scopeInlineLoader(scope: I18nScope): InlineLoader {
-  const inlineLoader: InlineLoader = {};
-  for (const lang of SUPPORTED_LANGS) {
-    inlineLoader[scopeLoadPath(scope, lang)] = scope.loader[lang];
-  }
-  return inlineLoader;
-}
-
-/**
  * A loader resolves to a JSON module (`{ default: {...} }`, which Transloco
  * unwraps) or to a plain translation object. Anything else is a broken loader,
- * reported as a load failure instead of being handed to Transloco.
+ * reported as a load failure (`I18nError`) instead of being handed to Transloco.
  */
 function toTranslation(
   result: unknown,
@@ -87,7 +77,7 @@ function toTranslation(
   lang: SupportedLang,
 ): Translation {
   if (isTranslation(result)) return result;
-  throw new Error(
+  throw new I18nError(
     `[i18n] Loader for "${scope}/${lang}" resolved to ${result === null ? 'null' : typeof result}, expected a translation object.`,
   );
 }

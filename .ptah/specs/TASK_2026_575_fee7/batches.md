@@ -65,19 +65,21 @@ Assumptions:
   assumes it serves `pricing/index.html` for `/pricing` — unverified; checked in Task 33.1.
 - The existing English e2e (7.5) needs its backend `globalSetup` — may not start in this container; Task 33.4.
 
-| Risk                                                                                       | Severity | Mitigation                                                                                                              |
-| ------------------------------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Dependencies not installed; `npm ci` may fail behind the proxy                             | HIGH     | Task 1.1 establishes the install first; proxy notes in `/root/.ccr/README.md`                                           |
-| N13: lib-spec recipe omits `core`; the throwing testing handler breaks error-path specs    | MEDIUM   | Task 2.3 (recipe always includes global scopes); every lib batch uses it                                                |
-| N14: `provideI18nTesting` holds one language per scope; SEO and nav specs need `en` + `ar` | MEDIUM   | Task 2.3 (per-language translations shape), before CORE (Batch 10) depends on it                                        |
-| N12: `document.fonts.check` passes when no Arabic face is registered                       | LOW      | Task 33.1 uses `document.fonts.load(...)` length > 0 and asserts `#ptah-font-ar` exists                                 |
-| A4 app never stable (GSAP/Lenis in zone)                                                   | HIGH     | English control first (Task 33.2); on failure activate contingent TASK_2026_576 batch (user decided at Gate 2)          |
-| Prerendered text drifts from baselines                                                     | HIGH     | Baselines captured once (Task 6.3) before any template edit; `prerender-check` closes Batches 9, 10, 11, 13-18          |
-| Missed strings at scale (~141 components)                                                  | MEDIUM   | Per-lib `i18n-check` reference rule; reviewer greps for literal template text                                           |
-| `rtl:` variants misfire inside `dir="ltr"` islands                                         | MEDIUM   | Checker rule (Task 5.1); lib batches use physical utilities inside islands                                              |
-| Playwright browsers absent in container                                                    | MEDIUM   | Task 33.1 installs chromium via `npx playwright install chromium`; if blocked, report environment blocker with evidence |
-| Nx cache ripple from new `tsconfig.base.json` aliases                                      | LOW      | Accepted (plan:879); `resolveJsonModule` stays per project                                                              |
-| Commitlint has no `i18n` scope                                                             | LOW      | Scopes fixed in Execution defaults                                                                                      |
+| Risk                                                                                                                                 | Severity | Mitigation                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependencies not installed; `npm ci` may fail behind the proxy                                                                       | HIGH     | Task 1.1 establishes the install first; proxy notes in `/root/.ccr/README.md`                                                                              |
+| N13: lib-spec recipe omits `core`; the throwing testing handler breaks error-path specs                                              | MEDIUM   | Task 2.3 (recipe always includes global scopes); every lib batch uses it                                                                                   |
+| N14: `provideI18nTesting` holds one language per scope; SEO and nav specs need `en` + `ar`                                           | MEDIUM   | Task 2.3 (per-language translations shape), before CORE (Batch 10) depends on it                                                                           |
+| N12: `document.fonts.check` passes when no Arabic face is registered                                                                 | LOW      | Task 33.1 uses `document.fonts.load(...)` length > 0 and asserts `#ptah-font-ar` exists                                                                    |
+| A4 app never stable (GSAP/Lenis in zone)                                                                                             | HIGH     | English control first (Task 33.2); on failure activate contingent TASK_2026_576 batch (user decided at Gate 2)                                             |
+| Prerendered text drifts from baselines                                                                                               | HIGH     | Baselines captured once (Task 6.3) before any template edit; `prerender-check` closes Batches 9, 10, 11, 13-18                                             |
+| Missed strings at scale (~141 components)                                                                                            | MEDIUM   | Per-lib `i18n-check` reference rule; reviewer greps for literal template text                                                                              |
+| `rtl:` variants misfire inside `dir="ltr"` islands                                                                                   | MEDIUM   | Checker rule (Task 5.1); lib batches use physical utilities inside islands                                                                                 |
+| Playwright browsers absent in container                                                                                              | MEDIUM   | Task 33.1 installs chromium via `npx playwright install chromium`; if blocked, report environment blocker with evidence                                    |
+| Nx cache ripple from new `tsconfig.base.json` aliases                                                                                | LOW      | Accepted (plan:879); `resolveJsonModule` stays per project                                                                                                 |
+| Commitlint has no `i18n` scope                                                                                                       | LOW      | Scopes fixed in Execution defaults                                                                                                                         |
+| Consumer Jest configs cannot load `@angular/common/locales/ar` (untransformed ESM) once specs use `provideI18nTesting`               | MEDIUM   | Tasks 7.1, 7.2, 8.1, 8.2 add `@angular/common/locales` next to `@jsverse` in every touched `jest.config.cts` / the app `jest.config.ts` (found in Batch 2) |
+| Under `provideI18nTesting`, a mistyped key rendered through the `transloco` pipe fails at TestBed teardown, not at `detectChanges()` | LOW      | Batch 2 deviation 2; documented in the lib `CLAUDE.md`; lib batches rely on the teardown failure                                                           |
 
 Edge cases:
 
@@ -174,7 +176,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 5 | Depends on: Batch 1
 - Commit: `feat(shared): add i18n service, resolver, pipes and testing provider`
 
-### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — IN_PROGRESS
+### Task 2.0: `I18nError` root error class (Batch 1 review carry-over, Moderate-1) — IMPLEMENTED
 
 - Files: `$ROOT/libs/frontend/i18n/src/lib/i18n.error.ts` + spec, `$ROOT/libs/frontend/i18n/src/lib/i18n-scope.ts`,
   `$ROOT/libs/frontend/i18n/src/lib/resolve-initial-lang.ts` (+ spec), `$ROOT/libs/frontend/i18n/CLAUDE.md`,
@@ -192,7 +194,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   to the lib `CLAUDE.md` saying the scope-name guard runs in dev mode only and does not validate input at runtime.
 - Implementation details: one small file; barrel stays grouped under a new "Errors" heading.
 
-### Task 2.1: `I18nService` and `i18nScopesResolver` — IN_PROGRESS
+### Task 2.1: `I18nService` and `i18nScopesResolver` — IMPLEMENTED
 
 - Depends on: Task 2.0
 
@@ -203,7 +205,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: late scope loads never re-render (`emitChange: false`) — loads must finish before render/switch. Duplicate scope name with a different loader is a dev error.
 - Implementation details: registry keyed by scope name; `documentElement.lang/dir` via `DOCUMENT`; resolver spec loads a scope with no `HttpClient` provided (1.4).
 
-### Task 2.2: `provideI18n` and `I18nMissingHandler` — IN_PROGRESS
+### Task 2.2: `provideI18n` and `I18nMissingHandler` — IMPLEMENTED
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/{provide-i18n.ts,i18n-missing.handler.ts}` + specs
@@ -213,7 +215,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: resolve `TranslocoService` lazily from `Injector` with a re-entrancy guard.
 - Implementation details: `EmptyRootLoader` returns `{}`; `registerLocaleData(localeAr,'ar')` in an environment initializer; `provideAppInitializer(() => inject(I18nService).init())`.
 
-### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — IN_PROGRESS
+### Task 2.3: `provideI18nTesting` (resolves review N13 and N14) — IMPLEMENTED
 
 - Depends on: Task 2.2
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts,provide-i18n-testing.ts}` + spec
@@ -223,7 +225,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: spec proves a `lang: 'ar'` setup can translate the same key in `ar` and in `en` (the CORE SEO spec depends on it).
 - Implementation details: `I18nService` seeded with `lang`; locale registration included; renders synchronously.
 
-### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — IN_PROGRESS
+### Task 2.4: `i18nDate` / `i18nNumber` pipes and barrel completion — IMPLEMENTED
 
 - Depends on: Task 2.1
 - Files: `$ROOT/libs/frontend/i18n/src/lib/pipes/{i18n-date.pipe.ts,i18n-number.pipe.ts}` + specs, `$ROOT/libs/frontend/i18n/src/index.ts`
@@ -234,6 +236,43 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Implementation details: barrel re-exports `TranslocoPipe` and `translateSignal` so consumers never import `@jsverse/transloco`.
 
 ### Batch 2 verification
+
+- Review round 1 (code-logic-review.md `## Batch 2`): NEEDS_REVISION, 0 blocking, 1 serious, 2 moderate, 1 minor.
+  Rework assigned to the same executor, all in this batch (none deferred):
+  - Serious-1 (Task 2.1): a failed `scope/lang` load is cached by Transloco's `shareReplay(1)` and never retried.
+    Required outcome: the next `setLanguage` / `loadScopes` / `init` English retry for a previously failed pair calls
+    the scope loader again and recovers once the loader succeeds. Only public Transloco API; no access to private
+    `cache` / `failedLangs`; no cache-busting path suffixes. Preferred shape: `I18nService` runs scope loaders itself
+    (one immediate retry, as `failedRetries: 1` did; concurrent calls share one in-flight promise; a failure is not
+    remembered), unwraps a JSON module's `default` as Transloco's `resolveLoader` does, and stores the result with
+    `transloco.setTranslation(translation, scopeLoadPath(scope, lang), { emitChange: false })`, the same call as
+    Transloco's own `handleSuccess`. Delete `scopeInlineLoader` if nothing uses it any more.
+  - Moderate-1 (Task 2.1): the resolver keeps resolving `true` (plan:256-260), but an `I18nError` (wiring mistake)
+    is logged with its own distinct tag, separate from ordinary load failures; spec through the resolver.
+  - Moderate-2 (Task 2.1): spec that `init()` recovers when English fails on the first attempt and succeeds on the
+    retry; comment on the ordering `retryEnglish()` relies on (or remove the dependency).
+  - Minor (Task 2.3): lib `CLAUDE.md` notes that only the first missing key is reported at teardown.
+  - Pass condition: a spec with a loader that fails once and then succeeds shows `setLanguage` false, then true,
+    with the loader called again; the same for a revisited resolver route.
+  - Rework verified on disk by team-leader: scope loads run through `I18nService.loadScope` (in-flight sharing,
+    loaded-path set, failures not remembered, `setTranslation(..., { emitChange: false })`); `scopeInlineLoader`
+    removed; `[i18n:wiring]` tag in the resolver; 12 suites / 112 tests, audit exit 0. Awaiting review round 2.
+- Review round 2: NEEDS_REVISION, 0 blocking, 1 serious (new), 0 moderate; round-1 items fixed 4/4.
+  Serious-2 (Task 2.1, narrow rework, last automatic round before the user is asked):
+  `unwrapJsonModule` (`i18n.service.ts:257-261`) unwraps any object with a truthy `default`, which drops sibling
+  keys of a real translation that has a top-level `default` namespace. Chosen fix: unwrap only when the result is a
+  JSON module namespace. That means `default` is a plain non-array object and every other own key of the result is
+  a named export mirroring it (`result[k] === result.default[k]`); otherwise use the result as is. A "sole key" test
+  alone is rejected: esbuild and TS interop namespaces also carry the mirrored named exports. Regression specs:
+  (a) a loader returning `{ default: {label}, theme: {label} }` keeps both namespaces; (b) a real
+  `import('./__fixtures__/*.json')` still unwraps; (c) a mirrored namespace shape `{ default: X, ...X }` unwraps;
+  (d) a key three levels deep resolves as `scope.a.b.c` after `setTranslation` (reviewer's load-path check).
+  No other changes.
+- Review round 3: APPROVED (0 blocking, 0 serious, 1 moderate). Serious-2 fixed (`unwrapJsonModule` wrapper check,
+  specs a-d, 12 suites / 116 tests). Residual Moderate: a scope file whose ONLY top-level key is `default` is
+  indistinguishable from a module wrapper and loses the `default.` prefix. No further Batch 2 rework. Carried
+  forward to Tasks 3.2/3.3: the i18n-check tool rejects such a file, which enforces the constraint at build time
+  instead of guessing at runtime, and the lib `CLAUDE.md` states it.
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p @ptah-extension/i18n` passes.
 - Task 2.0: no `throw new Error(` remains under `libs/frontend/i18n/src/lib` (non-spec files).
@@ -266,6 +305,10 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Pattern to follow: `$ROOT/tools/degradation-audit/check-degradation.ts`
 - Quality requirements: `--allow-scope` semantics (default `ui,core`; `ui` none; `core` passes `ui`); ownership by first key segment via `scope-map.ts`; `i18n-keys:` markers resolved per owning scope; `*I18N_KEYS`/`*I18nKeys` const rule; `i18n-ignore:` marker; every violation reported with file:line:key, exit 1; parse failures are failures; deterministic order.
 - Validation notes: literal-scan regex anchored on the project's own scope; `>ptah.live<` must not match.
+- Batch 2 carry-over (review round 3, Moderate): a translation file whose only top-level key is `default` is a
+  violation (`sole-default-key`, file path reported). `I18nService` cannot tell it from a JSON module wrapper
+  (`libs/frontend/i18n/src/lib/i18n.service.ts` `unwrapJsonModule`). Also add one sentence stating this
+  constraint to `$ROOT/libs/frontend/i18n/CLAUDE.md`.
 - Implementation details: `@angular/compiler` `parseTemplate` for `.html` and inline `template:`; `typescript` API for `translate(`, `.translate(`, `translateSignal(`, `translateObjectSignal(`.
 
 ### Task 3.3: Self-test fixture with F2a planted violations — PENDING
@@ -274,7 +317,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Files: `$ROOT/tools/i18n-check/run-self-test.js`, `$ROOT/tools/i18n-check/__fixtures__/project/**`
 - Plan reference: implementation-plan.md:337-341
 - Pattern to follow: `$ROOT/tools/di-lint/run-self-test.js`
-- Quality requirements: plants `en` key missing from `ar`, unknown key, unannotated computed key, foreign-scope `landing.x` in a `pricing` fixture; a valid `core.*` reference must PASS; self-test passes only if exit 1, every planted violation named, no must-pass line named.
+- Quality requirements: plants `en` key missing from `ar`, unknown key, unannotated computed key, foreign-scope `landing.x` in a `pricing` fixture, a translation file whose only top-level key is `default` (Batch 2 carry-over); a valid `core.*` reference must PASS; self-test passes only if exit 1, every planted violation named, no must-pass line named.
 - Validation notes: fixture is data, not a real project (no `project.json` that Nx would pick up).
 - Implementation details: none beyond the above.
 
@@ -407,7 +450,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{en.json,ar.json,app.i18n-scope.ts}`, `$ROOT/libs/web/{ui,core}/src/lib/i18n/{en.json,ar.json,<lib>.i18n-scope.ts}`; MODIFY each project's `src/index.ts` (libs only), `tsconfig.json`, Jest config
 - Plan reference: implementation-plan.md:368-400
 - Pattern to follow: `$ROOT/libs/web/ui/tsconfig.json`, `$ROOT/libs/web/ui/jest.config.cts`, `$ROOT/libs/web/core/src/index.ts`
-- Quality requirements: `defineI18nScope('<scope>', { en: () => import('./en.json'), ar: () => import('./ar.json') })`; `resolveJsonModule` per project; `@jsverse` in `transformIgnorePatterns`.
+- Quality requirements: `defineI18nScope('<scope>', { en: () => import('./en.json'), ar: () => import('./ar.json') })`; `resolveJsonModule` per project; `@jsverse` AND `@angular/common/locales` in `transformIgnorePatterns` (Batch 2 finding: `provideI18nRuntime` registers `@angular/common/locales/ar`, untransformed ESM).
 - Validation notes: A2 — a spec (or existing spec run) must import a scope file; report the result.
 - Implementation details: JSON files start as `{}`.
 
