@@ -337,9 +337,10 @@ export class GoVetConsentConfigComponent {
     } catch {
       // The RPC layer resolves failures as results; a throw is a broken
       // transport and gets the same fixed message.
-      if (!isCurrent()) return;
-      this.consent.set(null);
-      this.errorMessage.set(LOAD_ERROR);
+      if (isCurrent()) {
+        this.consent.set(null);
+        this.errorMessage.set(LOAD_ERROR);
+      }
     } finally {
       if (seq === this.getSeq) {
         this.loading.set(false);
