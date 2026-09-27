@@ -5,25 +5,43 @@
  *   can take.
  * - `i18n-ignore: <reason>` silences a literal-scan false positive. It never
  *   silences a `transloco` pipe or a `translate(` argument.
+ * - `rtl-exempt: <reason>` passes a physical-direction match of the RTL rule
+ *   (`rtl-patterns.ts`).
+ * - `i18n-format-exempt: <reason>` passes a locale-formatting match of the
+ *   formatting rule (`format-patterns.ts`).
  *
  * A marker attaches by syntax, not by line count, so Prettier's wrapping
  * never detaches it:
  * - a template comment (`<!-- i18n-keys: … -->`) covers the full source span
  *   of its next sibling node (see `template-keys.ts`);
  * - a TS comment on its own line covers the full span of the node it leads:
- *   the next statement, class member, object property or argument.
- * A marker with nothing after it covers nothing, but its keys are still
- * validated.
+ *   the next statement, class member, object property or argument;
+ * - a CSS comment covers the next declaration or rule (see `rtl-patterns.ts`).
+ * A marker that attaches to nothing (a trailing comment, or the last comment
+ * of a block) is a `detached-marker` violation, never a silent no-op; an
+ * `i18n-keys:` marker's keys are still validated.
  */
 import * as ts from 'typescript';
+import type { Violation } from './report';
+
+export type MarkerKind = 'keys' | 'ignore' | 'rtl-exempt' | 'format-exempt';
+
+/** The marker kinds that need a reason, with the text that introduces them. */
+export const REASON_MARKERS: Readonly<
+  Record<Exclude<MarkerKind, 'keys'>, string>
+> = {
+  ignore: 'i18n-ignore:',
+  'rtl-exempt': 'rtl-exempt:',
+  'format-exempt': 'i18n-format-exempt:',
+};
 
 export interface Marker {
-  kind: 'keys' | 'ignore';
+  kind: MarkerKind;
   file: string;
   line: number;
   /** `keys`: listed keys (`core.a.b`) and prefixes (`core.checkout.*`). */
   tokens: string[];
-  /** `ignore`: the stated reason, '' when missing. */
+  /** Every kind but `keys`: the stated reason, '' when missing. */
   reason: string;
   /** File offsets `[start, end)` the marker covers, or null when it attaches to nothing. */
   covers: { start: number; end: number } | null;
@@ -32,7 +50,14 @@ export interface Marker {
 export type MarkerBody = Pick<Marker, 'kind' | 'tokens' | 'reason'>;
 
 const KEYS_RE = /i18n-keys:(.*?)(?:-->|\*\/|$)/s;
-const IGNORE_RE = /i18n-ignore:(.*?)(?:-->|\*\/|$)/s;
+const REASON_RES = Object.entries(REASON_MARKERS).map(
+  ([kind, prefix]) =>
+    [
+      kind as Exclude<MarkerKind, 'keys'>,
+      // `rtl-exempt:` must not match inside another marker name.
+      new RegExp(`(?<![\\w-])${prefix}(.*?)(?:-->|\\*\\/|$)`, 's'),
+    ] as const,
+);
 
 /** Reads the marker in one comment's text, or null when it holds none. */
 export function parseMarkerComment(text: string): MarkerBody | null {
@@ -44,11 +69,28 @@ export function parseMarkerComment(text: string): MarkerBody | null {
       .filter((t) => t !== '');
     return { kind: 'keys', tokens, reason: '' };
   }
-  const ignore = IGNORE_RE.exec(text);
-  if (ignore) {
-    return { kind: 'ignore', tokens: [], reason: ignore[1].trim() };
+  for (const [kind, re] of REASON_RES) {
+    const match = re.exec(text);
+    if (match) return { kind, tokens: [], reason: match[1].trim() };
   }
   return null;
+}
+
+/** The label a report uses for a marker kind (`i18n-keys:`, `rtl-exempt:`, …). */
+export function markerLabel(kind: MarkerKind): string {
+  return kind === 'keys' ? 'i18n-keys:' : REASON_MARKERS[kind];
+}
+
+/** A violation for a marker that covers nothing, or null when it attaches. */
+export function detachedMarker(marker: Marker): Violation | null {
+  if (marker.covers !== null) return null;
+  return {
+    file: marker.file,
+    line: marker.line,
+    kind: 'detached-marker',
+    key: '',
+    detail: `this ${markerLabel(marker.kind)} marker attaches to nothing; put the marker on its own line directly above the code`,
+  };
 }
 
 export function coversOffset(marker: Marker, offset: number): boolean {
@@ -89,6 +131,16 @@ export function tsMarkers(source: ts.SourceFile, file: string): Marker[] {
   };
   visit(source);
   visit(source.endOfFileToken);
+  // Comments that lead only a token (such as the last comment before a
+  // block's closing brace) are found through every child token. They lead no
+  // node, so they attach to nothing and are reported as detached.
+  const find = (node: ts.Node): void => {
+    for (const range of ts.getLeadingCommentRanges(text, node.pos) ?? []) {
+      if (!comments.has(range.pos)) comments.set(range.pos, range);
+    }
+    for (const child of node.getChildren(source)) find(child);
+  };
+  find(source);
 
   const markers: Marker[] = [];
   for (const range of [...comments.values()].sort((a, b) => a.pos - b.pos)) {

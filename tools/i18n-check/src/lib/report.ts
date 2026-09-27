@@ -31,7 +31,13 @@ export type ViolationKind =
   | 'no-source-files'
   | 'duplicate-key-constant'
   | 'allowed-scope-defect'
-  | 'format-error';
+  | 'format-error'
+  | 'rtl-physical'
+  | 'rtl-variant-in-island'
+  | 'locale-format-pipe'
+  | 'locale-format-call'
+  | 'intl-without-locale'
+  | 'detached-marker';
 
 export interface Violation {
   /** Workspace-relative path with forward slashes. */
@@ -42,6 +48,16 @@ export interface Violation {
   /** The translation key concerned, or '' when none applies. */
   key: string;
   detail: string;
+}
+
+/**
+ * A rule match at an exact file offset, before markers are applied: the RTL
+ * and formatting rules report these, and `main.ts` drops the ones an
+ * `exemptBy` marker covers (null: no marker can exempt it).
+ */
+export interface SiteViolation extends Violation {
+  offset: number;
+  exemptBy: 'rtl-exempt' | 'format-exempt' | null;
 }
 
 export function compareViolations(a: Violation, b: Violation): number {

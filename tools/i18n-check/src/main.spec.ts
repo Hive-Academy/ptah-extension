@@ -66,7 +66,7 @@ describe('run', () => {
 
   it('reports a project with no source files instead of passing', async () => {
     expect(await report()).toEqual([
-      'libs/web/pricing/src:0: [no-source-files] - no .ts or .html source file found under the project src',
+      'libs/web/pricing/src:0: [no-source-files] - no .ts, .html or .css source file found under the project src',
     ]);
   });
 
@@ -173,6 +173,118 @@ describe('run', () => {
     it('adds nothing for a clean allowed scope', async () => {
       write(CORE_EN, JSON.stringify({ checkout: { error: 'Failed' } }));
       expect(await run(withCore())).toEqual([]);
+    });
+  });
+
+  describe('RTL and formatting rules', () => {
+    it('reports matches in .ts, .html and .css sources', async () => {
+      write(
+        'libs/web/pricing/src/lib/a.component.html',
+        '<p class="ml-4">{{ d | date }}</p>\n',
+      );
+      write(
+        'libs/web/pricing/src/lib/b.ts',
+        'export const f = (d: Date) => d.toLocaleDateString();\n',
+      );
+      write('libs/web/pricing/src/lib/c.css', '.a { right: 0; }\n');
+      expect(
+        (await run(options())).map(
+          (v) => `${v.file}:${v.line}:${v.kind}:${v.key}`,
+        ),
+      ).toEqual([
+        'libs/web/pricing/src/lib/a.component.html:1:locale-format-pipe:date',
+        'libs/web/pricing/src/lib/a.component.html:1:rtl-physical:ml-4',
+        'libs/web/pricing/src/lib/b.ts:1:locale-format-call:toLocaleDateString',
+        'libs/web/pricing/src/lib/c.css:1:rtl-physical:right',
+      ]);
+    });
+
+    it('drops a match only for a covering marker of its own kind with a reason', async () => {
+      write(
+        'libs/web/pricing/src/lib/a.component.html',
+        [
+          '<!-- rtl-exempt: decorative -->',
+          '<p class="ml-4">{{ d | date }}</p>',
+          '<!-- i18n-format-exempt: fixed English audit date -->',
+          '<p class="mr-2">{{ d | date }}</p>',
+          '<!-- rtl-exempt: -->',
+          '<p class="pl-2"></p>',
+          '<!-- rtl-exempt: an island variant is never exempt -->',
+          '<p dir="ltr" class="rtl:rotate-180"></p>',
+        ].join('\n'),
+      );
+      write(
+        'libs/web/pricing/src/lib/b.ts',
+        [
+          'export const tz =',
+          '  // i18n-format-exempt: time zone read, not formatting',
+          '  Intl.DateTimeFormat().resolvedOptions().timeZone;',
+          '// rtl-exempt: data-driven diagram position',
+          'export const stage = { left: 50 };',
+          'export const other = { left: 20 };',
+        ].join('\n'),
+      );
+      expect(
+        (await run(options())).map(
+          (v) => `${v.file}:${v.line}:${v.kind}:${v.key}`,
+        ),
+      ).toEqual([
+        'libs/web/pricing/src/lib/a.component.html:2:locale-format-pipe:date',
+        'libs/web/pricing/src/lib/a.component.html:4:rtl-physical:mr-2',
+        'libs/web/pricing/src/lib/a.component.html:5:bare-marker:',
+        'libs/web/pricing/src/lib/a.component.html:6:rtl-physical:pl-2',
+        'libs/web/pricing/src/lib/a.component.html:8:rtl-variant-in-island:rtl:rotate-180',
+        'libs/web/pricing/src/lib/b.ts:6:rtl-physical:left',
+      ]);
+    });
+
+    it('reports a marker of any kind that attaches to nothing', async () => {
+      write(
+        'libs/web/pricing/src/lib/a.ts',
+        [
+          'export const a = { left: 0 }; // rtl-exempt: trailing on the line',
+          "export const b = translate('pricing.card.heading'); // i18n-keys: pricing.card.note",
+          'export class C {',
+          '  readonly x = 1;',
+          '  // i18n-ignore: last comment of the class body',
+          '}',
+        ].join('\n'),
+      );
+      write(
+        'libs/web/pricing/src/lib/b.css',
+        '.a {\n  left: 0;\n  /* rtl-exempt: end of the block */\n}\n',
+      );
+      write(
+        'libs/web/pricing/src/lib/c.component.html',
+        [
+          '<div>',
+          '  <p>{{ d | date }}</p>',
+          '  <!-- i18n-format-exempt: trails its element, last in the div -->',
+          '</div>',
+        ].join('\n'),
+      );
+      const hint =
+        'attaches to nothing; put the marker on its own line directly above the code';
+      expect(await report()).toEqual([
+        `libs/web/pricing/src/lib/a.ts:1: [detached-marker] - this rtl-exempt: marker ${hint}`,
+        'libs/web/pricing/src/lib/a.ts:1: [rtl-physical] left - physical CSS property; use inset-inline-start, or add `rtl-exempt: <reason>`',
+        `libs/web/pricing/src/lib/a.ts:2: [detached-marker] - this i18n-keys: marker ${hint}`,
+        `libs/web/pricing/src/lib/a.ts:5: [detached-marker] - this i18n-ignore: marker ${hint}`,
+        'libs/web/pricing/src/lib/b.css:2: [rtl-physical] left - physical CSS property `left: 0`; use inset-inline-start, or add `rtl-exempt: <reason>`',
+        `libs/web/pricing/src/lib/b.css:3: [detached-marker] - this rtl-exempt: marker ${hint}`,
+        'libs/web/pricing/src/lib/c.component.html:2: [locale-format-pipe] date - formats with the render locale, not the active language; use the i18nDate / i18nNumber pipes from @ptah-extension/i18n, or add `i18n-format-exempt: <reason>`',
+        `libs/web/pricing/src/lib/c.component.html:3: [detached-marker] - this i18n-format-exempt: marker ${hint}`,
+      ]);
+    });
+
+    it('names the marker in a bare-marker detail', async () => {
+      write(
+        'libs/web/pricing/src/lib/c.css',
+        '/* rtl-exempt: */\n.a { color: red; }\n',
+      );
+      expect(await report()).toEqual([
+        'libs/web/pricing/src/lib/c.css:1: [bare-marker] - rtl-exempt: needs a reason',
+      ]);
     });
   });
 

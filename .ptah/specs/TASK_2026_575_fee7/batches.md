@@ -431,7 +431,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   `src/lib/markers.ts` (Batch 3 Serious-2), which covers the next sibling node or statement span, instead of
   line-based matching. "Before the containing start tag" in Task 5.1 is satisfied by that attachment.
 
-### Task 5.1: RTL pattern rule with island auto-exemption — IN_PROGRESS
+### Task 5.1: RTL pattern rule with island auto-exemption — IMPLEMENTED
 
 - Files: `$ROOT/tools/i18n-check/src/lib/rtl-patterns.ts` + spec, `$ROOT/tools/i18n-check/src/main.ts`
 - Plan reference: implementation-plan.md:302-312, :59
@@ -440,7 +440,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: Tailwind `rtl:` matches inside islands (verified, plan:59).
 - Implementation details: `.ts`, `.html`, `.css` inputs.
 
-### Task 5.2: AST formatting rule and F2b fixtures — IN_PROGRESS
+### Task 5.2: AST formatting rule and F2b fixtures — IMPLEMENTED
 
 - Depends on: Task 5.1
 - Files: `$ROOT/tools/i18n-check/src/lib/format-patterns.ts` + spec, `$ROOT/tools/i18n-check/__fixtures__/project/**`, `$ROOT/tools/i18n-check/run-self-test.js`
@@ -454,6 +454,26 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 
 - `node_modules/.bin/nx run i18n-check:self-test` and `node_modules/.bin/nx run-many -t test -p i18n-check` pass.
 - Reviewer: logic.
+- Review round 1 (code-logic-review.md `## Batch 5`): NEEDS_REVISION, 0 blocking, 1 serious, 2 moderate, 1 minor.
+  Team-leader verified on disk: all listed files exist; self-test (3 stages), test and eslint:lint pass; main.ts
+  536 lines; KeyResolver/TargetMap moved. Both tasks stay IN_PROGRESS. Rework in this batch:
+  - Serious-1 (Task 5.1, `rtl-patterns.ts:181-230`): the `rtl:` pairing bypass applies only to the families where
+    the plan offers pairing (`translate-x`, `gradient`, `origin`; `space-x` keeps its `reverse` handling). `ml-4
+rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `border-l/r`, `float-*`
+    equivalents still FAIL (regression spec plus one fixture plant).
+  - Moderate-1 (Tasks 5.1/5.2, `markers.ts`): a marker that attaches to nothing (for example trailing on the same
+    line, or at the end of a CSS block) is reported as `detached-marker` with a fix hint ("put the marker on its
+    own line directly above the code"), for every marker kind (`i18n-keys`, `i18n-ignore`, `rtl-exempt`,
+    `i18n-format-exempt`). It is never a silent no-op. This keeps the Batch 3 AST attachment model and supersedes
+    "same line" in Task 5.1's wording. Self-test expectations are updated for existing detached plants.
+  - Moderate-2 (Task 5.1): CSS `margin`/`padding`/`inset` shorthand with four values whose right and left differ is
+    `rtl-physical`; three-value and symmetric forms pass. Spec.
+    Not actioned: `.css` files carry no island context (by design, a standalone stylesheet has no DOM).
+- Review round 2: APPROVED (all round-1 findings verified fixed live, 0 new). Team-leader verified on disk: self-test
+  (3 stages), test, eslint:lint and tsc are clean; the plants are at rtl-format.component.html:10, .ts:46 and .css:21.
+  `prettier --check` fails only on the intentionally unparsable Batch 3 fixture `broken.component.html`. Nothing
+  gates on it (lint-staged formats ts/js/json/md only). The `.prettierignore` entry the executor proposed is carried
+  to Task 6.1, because the team-leader does not write repository files.
 
 ## Batch 6: Prerender check, baseline capture and deploy gate (F2b, part 2) — PENDING
 

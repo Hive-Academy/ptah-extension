@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { extractTemplateKeys } from './template-keys';
+import { extractTemplateKeys, parseTemplateSource } from './template-keys';
 import { extractTsKeys, parseTypeScriptFiles } from './ts-keys';
 
 const scanOf = (text: string) =>
@@ -84,7 +84,10 @@ describe('extractTsKeys', () => {
       'class X {}',
     ].join('\n');
     const [template] = scanOf(text).templates;
-    const scan = extractTemplateKeys({ ...template, file: 'c.ts' });
+    const source = { ...template, file: 'c.ts' };
+    const { tree } = parseTemplateSource(source);
+    if (!tree) throw new Error('the inline template did not parse');
+    const scan = extractTemplateKeys(source, tree);
     expect(scan.markers).toHaveLength(1);
     expect(scan.markers[0].covers).toEqual({
       start: text.indexOf('<b>'),

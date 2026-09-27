@@ -135,13 +135,16 @@ export function extractTsKeys(source: ts.SourceFile, file: string): TsScan {
       }
     }
 
-    if (ts.isPropertyAssignment(node) && isComponentTemplate(node)) {
+    if (
+      ts.isPropertyAssignment(node) &&
+      componentMetadataName(node) === 'template'
+    ) {
       const init = node.initializer;
       if (
         ts.isStringLiteral(init) ||
         ts.isNoSubstitutionTemplateLiteral(init)
       ) {
-        const template = inlineTemplateOf(init, source);
+        const template = inlineSourceOf(init, source);
         if (typeof template === 'string') {
           scan.violations.push({
             file,
@@ -181,11 +184,11 @@ export function extractTsKeys(source: ts.SourceFile, file: string): TsScan {
 }
 
 /**
- * Maps the literal's decoded text to file positions. Returns why it cannot
- * when the decoding fails or does not reproduce the scanner's text, since
- * positions would then be wrong.
+ * Maps the literal's decoded text to file positions (an inline template, or
+ * an inline `styles` entry). Returns why it cannot when the decoding fails or
+ * does not reproduce the scanner's text, since positions would then be wrong.
  */
-function inlineTemplateOf(
+export function inlineSourceOf(
   init: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral,
   source: ts.SourceFile,
 ): InlineTemplate | string {
@@ -356,16 +359,22 @@ function calleeName(callee: ts.Expression): string | null {
   return null;
 }
 
-/** `template:` inside the object passed to `@Component(...)`. */
-function isComponentTemplate(node: ts.PropertyAssignment): boolean {
-  if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name))
-    return false;
-  if (node.name.text !== 'template') return false;
-  const objectLiteral = node.parent;
-  const call = objectLiteral.parent;
-  return (
+/**
+ * The property name when `node` sits in the object passed to
+ * `@Component(...)` (`template`, `styles`, …), otherwise null. Needs parent
+ * pointers.
+ */
+export function componentMetadataName(
+  node: ts.PropertyAssignment,
+): string | null {
+  if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) {
+    return null;
+  }
+  const call = node.parent.parent;
+  const isComponent =
+    call !== undefined &&
     ts.isCallExpression(call) &&
     calleeName(call.expression) === 'Component' &&
-    ts.isDecorator(call.parent)
-  );
+    ts.isDecorator(call.parent);
+  return isComponent ? node.name.text : null;
 }

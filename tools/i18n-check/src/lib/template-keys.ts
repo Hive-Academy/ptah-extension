@@ -7,8 +7,11 @@
  * expressions, ICUs) is reached without naming each node type, including node
  * types a later compiler version adds.
  *
- * Template comments holding `i18n-keys:` / `i18n-ignore:` markers cover the
- * full source span of their next sibling node (see `markers.ts`).
+ * Template comments holding markers (`i18n-keys:`, `i18n-ignore:`,
+ * `rtl-exempt:`, `i18n-format-exempt:`) cover the full source span of their
+ * next sibling node (see `markers.ts`). The template is parsed once, by
+ * `parseTemplateSource`, and the tree is shared with the RTL and formatting
+ * rules.
  */
 import {
   AST,
@@ -57,7 +60,6 @@ export interface TemplateScan {
   uses: KeyUse[];
   strings: ScannedString[];
   markers: Marker[];
-  violations: Violation[];
 }
 
 /** Where a template's text sits inside its file. */
@@ -85,45 +87,69 @@ interface Span {
   end: number;
 }
 
-export function extractTemplateKeys(source: TemplateSource): TemplateScan {
-  const { text: template, file, offsetAt } = source;
-  const scan: TemplateScan = {
-    uses: [],
-    strings: [],
-    markers: [],
-    violations: [],
-  };
-  const lineAt = (index: number): number => source.lineAt(offsetAt(index));
-  const parseError = (offset: number, detail: string): TemplateScan => {
-    scan.violations.push({
-      file,
-      line: lineAt(offset),
-      kind: 'parse-error',
-      key: '',
-      detail,
-    });
-    return scan;
-  };
+/** The parsed nodes and comments of one template. */
+export type TemplateTree = Pick<
+  ReturnType<typeof parseTemplate>,
+  'nodes' | 'commentNodes'
+>;
+
+/**
+ * Parses a template once for every template rule. A parse that throws or
+ * reports errors is a failure of this one file, returned as violations; the
+ * scan goes on with the other files.
+ */
+export function parseTemplateSource(
+  source: TemplateSource,
+):
+  | { tree: TemplateTree; violations: [] }
+  | { tree: null; violations: Violation[] } {
+  const lineAt = (index: number): number =>
+    source.lineAt(source.offsetAt(index));
+  const parseError = (index: number, detail: string): Violation => ({
+    file: source.file,
+    line: lineAt(index),
+    kind: 'parse-error',
+    key: '',
+    detail,
+  });
 
   let parsed: ReturnType<typeof parseTemplate>;
   try {
-    parsed = parseTemplate(template, file, {
-      preserveWhitespaces: false,
+    parsed = parseTemplate(source.text, source.file, {
+      // Collapsing whitespace rewrites text before its interpolations are
+      // parsed, which shifts their spans; keep the source text as written.
+      preserveWhitespaces: true,
       collectCommentNodes: true,
     });
   } catch (error: unknown) {
-    // A throwing parse is a failure of this one file; the scan goes on.
-    return parseError(
-      0,
-      `template parser threw: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return {
+      tree: null,
+      violations: [
+        parseError(
+          0,
+          `template parser threw: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      ],
+    };
   }
   if (parsed.errors && parsed.errors.length > 0) {
-    for (const error of parsed.errors) {
-      parseError(error.span.start.offset, error.msg.split('\n')[0]);
-    }
-    return scan;
+    return {
+      tree: null,
+      violations: parsed.errors.map((error) =>
+        parseError(error.span.start.offset, error.msg.split('\n')[0]),
+      ),
+    };
   }
+  return { tree: parsed, violations: [] };
+}
+
+export function extractTemplateKeys(
+  source: TemplateSource,
+  parsed: TemplateTree,
+): TemplateScan {
+  const { file, offsetAt } = source;
+  const scan: TemplateScan = { uses: [], strings: [], markers: [] };
+  const lineAt = (index: number): number => source.lineAt(offsetAt(index));
 
   const nodeSpans: Span[] = [];
   const seen = new WeakSet<object>();
@@ -132,7 +158,10 @@ export function extractTemplateKeys(source: TemplateSource): TemplateScan {
     seen.add(value);
 
     const nodeSpan = (value as { sourceSpan?: unknown }).sourceSpan;
-    if (nodeSpan instanceof ParseSourceSpan) {
+    // Whitespace between nodes is not a sibling a marker attaches to.
+    const isBlankText =
+      value instanceof TmplAstText && value.value.trim() === '';
+    if (nodeSpan instanceof ParseSourceSpan && !isBlankText) {
       nodeSpans.push({
         start: nodeSpan.start.offset,
         end: nodeSpan.end.offset,
@@ -221,7 +250,7 @@ function nextSibling(comment: Span, nodes: readonly Span[]): Span | null {
 }
 
 /** Maps a character offset in `text` to its 1-based line. */
-function lineLocator(text: string): (offset: number) => number {
+export function lineLocator(text: string): (offset: number) => number {
   const newlines: number[] = [];
   for (let i = 0; i < text.length; i++) {
     if (text.charCodeAt(i) === 10) newlines.push(i);

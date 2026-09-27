@@ -1,4 +1,9 @@
-import { extractTemplateKeys, fileTemplateSource } from './template-keys';
+import {
+  extractTemplateKeys,
+  fileTemplateSource,
+  parseTemplateSource,
+  type TemplateSource,
+} from './template-keys';
 
 /** A template placed at `firstOffset` / `firstLine` of its file. */
 const scanOf = (
@@ -8,12 +13,16 @@ const scanOf = (
   firstOffset = 0,
 ) => {
   const alone = fileTemplateSource(text, file);
-  return extractTemplateKeys({
+  const source: TemplateSource = {
     text,
     file,
     offsetAt: (index) => firstOffset + index,
     lineAt: (offset) => firstLine - 1 + alone.lineAt(offset - firstOffset),
-  });
+  };
+  const { tree, violations } = parseTemplateSource(source);
+  return tree
+    ? { ...extractTemplateKeys(source, tree), violations }
+    : { uses: [], strings: [], markers: [], violations };
 };
 
 describe('extractTemplateKeys', () => {

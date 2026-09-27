@@ -24,10 +24,13 @@ const fixtureRoot = path.join(__dirname, '__fixtures__', 'project');
 
 const PRICING_TS = 'libs/web/pricing/src/lib/pricing-page.component.ts';
 const PRICING_HTML = 'libs/web/pricing/src/lib/pricing-card.component.html';
+const RTL_TS = 'libs/web/pricing/src/lib/rtl-format.component.ts';
+const RTL_HTML = 'libs/web/pricing/src/lib/rtl-format.component.html';
+const RTL_CSS = 'libs/web/pricing/src/lib/rtl-format.component.css';
 
 const RUNS = [
   {
-    name: 'pricing (F2a plants)',
+    name: 'pricing (F2a and F2b plants)',
     args: ['--project-root', 'libs/web/pricing', '--scope', 'pricing'],
     expected: [
       {
@@ -79,6 +82,28 @@ const RUNS = [
         file: 'libs/web/core/src/lib/i18n/en.json',
         key: '',
       },
+      // F2b: RTL patterns (4.1) and locale formatting (5.1).
+      { kind: 'rtl-physical', file: RTL_HTML, key: 'ml-4' },
+      { kind: 'locale-format-pipe', file: RTL_HTML, key: 'date' },
+      { kind: 'rtl-variant-in-island', file: RTL_HTML, key: 'rtl:rotate-180' },
+      { kind: 'rtl-physical', file: RTL_TS, key: 'margin-left' },
+      { kind: 'rtl-physical', file: RTL_TS, key: 'left' },
+      {
+        kind: 'locale-format-call',
+        file: RTL_TS,
+        key: 'toLocaleDateString',
+      },
+      {
+        kind: 'intl-without-locale',
+        file: RTL_TS,
+        key: 'Intl.RelativeTimeFormat',
+      },
+      { kind: 'rtl-physical', file: RTL_CSS, key: 'margin-left' },
+      // Review round 1: rtl: pairing only for translate-x / gradient /
+      // origin, four-value shorthands, and markers that attach to nothing.
+      { kind: 'rtl-physical', file: RTL_HTML, key: 'ml-6' },
+      { kind: 'rtl-physical', file: RTL_CSS, key: 'padding' },
+      { kind: 'detached-marker', file: RTL_TS, key: '' },
     ],
     mustPass: [
       'core.checkout',
@@ -101,6 +126,22 @@ const RUNS = [
       'checkoutNotice',
       'pricing.doc.sample.path',
       'pricing.sample.key.path',
+      // F2b: island physical utilities, centring pairs, exempt sites, the
+      // `number | Date` union and an intlLocale() formatter. Every other
+      // leak is caught as an unplanted violation.
+      'left-0',
+      'left-1/2',
+      'translate-x-1/2',
+      'pr-6',
+      'ml-1',
+      '] currency',
+      'paddingRight',
+      'Intl.DateTimeFormat',
+      'Moment',
+      'translate-x-1',
+      'rtl:mr-8',
+      '] margin -',
+      '] inset',
     ],
   },
   {

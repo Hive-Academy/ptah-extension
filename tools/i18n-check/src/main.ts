@@ -6,9 +6,11 @@
  *           --glossary <file> [--workspace-root <dir>]
  *
  * Rules: parity (7.1), key references and computed keys (7.2), placeholder and
- * markup parity, glossary (6.2), real Arabic (8.1), and `sole-default-key`
+ * markup parity, glossary (6.2), real Arabic (8.1), `sole-default-key`
  * (a translation file whose only top-level key is `default` cannot be told
- * apart from a JSON module wrapper by `I18nService`).
+ * apart from a JSON module wrapper by `I18nService`), RTL patterns (4.1,
+ * `lib/rtl-patterns.ts`) and locale formatting (5.1, `lib/format-patterns.ts`).
+ * Sources are the project's `.ts`, `.html` and `.css` files.
  *
  * Every violation is printed as `file:line: [kind] key - detail`, sorted, and
  * the run exits 1. A file that fails to parse is a violation, never skipped.
@@ -27,23 +29,36 @@ import * as path from 'path';
 import fg from 'fast-glob';
 import * as ts from 'typescript';
 import { UsageError, resolveProjectRoot, toRel } from './lib/cli';
+import {
+  formatTemplateFindings,
+  formatTsFindings,
+} from './lib/format-patterns';
 import { checkGlossaryAndArabic, loadGlossary } from './lib/glossary';
-import { coversOffset, type Marker } from './lib/markers';
+import { KeyResolver, TargetMap } from './lib/key-resolver';
+import {
+  REASON_MARKERS,
+  coversOffset,
+  detachedMarker,
+  type Marker,
+} from './lib/markers';
 import {
   formatViolation,
   normaliseViolations,
+  type SiteViolation,
   type Violation,
 } from './lib/report';
+import { rtlCssFindings } from './lib/rtl-patterns';
+import { rtlTemplateFindings, rtlTsFindings } from './lib/rtl-sources';
 import {
   defaultAllowedScopes,
   isKnownScope,
   literalKeyPattern,
-  owningScope,
   scopeI18nDir,
 } from './lib/scope-map';
 import {
   extractTemplateKeys,
   fileTemplateSource,
+  parseTemplateSource,
   type KeyUse,
   type ScannedString,
   type TemplateSource,
@@ -128,8 +143,6 @@ function parseArgs(argv: readonly string[]): Options {
   };
 }
 
-type Target = 'leaf' | 'object' | 'any';
-
 interface ProjectScan {
   uses: KeyUse[];
   strings: ScannedString[];
@@ -137,13 +150,15 @@ interface ProjectScan {
   aliases: KeyAlias[];
   markers: Marker[];
   violations: Violation[];
+  /** RTL and formatting matches, before exemption markers are applied. */
+  sites: SiteViolation[];
 }
 
 async function scanProject(options: Options): Promise<ProjectScan> {
   const srcRel = `${options.projectRoot}/src`;
   const srcRoot = path.join(options.workspaceRoot, srcRel);
   const files = (
-    await fg(['**/*.ts', '**/*.html'], {
+    await fg(['**/*.ts', '**/*.html', '**/*.css'], {
       cwd: srcRoot,
       absolute: true,
       ignore: [
@@ -162,6 +177,7 @@ async function scanProject(options: Options): Promise<ProjectScan> {
     aliases: [],
     markers: [],
     violations: [],
+    sites: [],
   };
   if (files.length === 0) {
     // Nothing checked is not the same as clean (a wrong or emptied root).
@@ -170,17 +186,23 @@ async function scanProject(options: Options): Promise<ProjectScan> {
       line: 0,
       kind: 'no-source-files',
       key: '',
-      detail: 'no .ts or .html source file found under the project src',
+      detail: 'no .ts, .html or .css source file found under the project src',
     });
     return scan;
   }
 
   const addTemplate = (template: TemplateSource): void => {
-    const result = extractTemplateKeys(template);
+    const { tree, violations } = parseTemplateSource(template);
+    scan.violations.push(...violations);
+    if (!tree) return;
+    const result = extractTemplateKeys(template, tree);
     scan.uses.push(...result.uses);
     scan.strings.push(...result.strings);
     scan.markers.push(...result.markers);
-    scan.violations.push(...result.violations);
+    scan.sites.push(
+      ...rtlTemplateFindings(template, tree),
+      ...formatTemplateFindings(template, tree),
+    );
   };
 
   const parsedTs = parseTypeScriptFiles(files.filter((f) => f.endsWith('.ts')));
@@ -213,6 +235,13 @@ function scanFile(
   if (absPath.endsWith('.html')) {
     const text = fs.readFileSync(absPath, 'utf8');
     addTemplate(fileTemplateSource(text, file));
+    return;
+  }
+  if (absPath.endsWith('.css')) {
+    const text = fs.readFileSync(absPath, 'utf8');
+    const css = rtlCssFindings(fileTemplateSource(text, file));
+    scan.sites.push(...css.violations);
+    scan.markers.push(...css.markers);
     return;
   }
 
@@ -252,88 +281,9 @@ function scanFile(
   for (const inline of tsScan.templates) {
     addTemplate({ ...inline, file });
   }
-}
-
-/** Resolves keys against the owning scope's `en.json`, enforcing allowed scopes. */
-class KeyResolver {
-  constructor(
-    private readonly scopes: ReadonlyMap<string, TranslationFile>,
-    private readonly ownScope: string,
-  ) {}
-
-  /** Null when the key is fine for `target`, otherwise the violation to report. */
-  check(
-    key: string,
-    target: Target,
-    file: string,
-    line: number,
-  ): Violation | null {
-    const scope = owningScope(key);
-    const translations = this.scopes.get(scope);
-    if (!translations) {
-      return {
-        file,
-        line,
-        kind: 'foreign-scope',
-        key,
-        detail: `scope "${scope}" is neither the project scope "${this.ownScope}" nor an allowed scope`,
-      };
-    }
-    // An unreadable file is already a violation; its keys cannot be judged.
-    if (!translations.loaded) return null;
-    const isLeaf = translations.entries.has(key);
-    const isGroup = (translations.namespaces.get(key) ?? 0) > 0;
-    if (target === 'leaf' && isLeaf) return null;
-    if (target === 'object' && isGroup) return null;
-    if (target === 'any' && (isLeaf || isGroup)) return null;
-    if (target === 'object' && isLeaf) {
-      return {
-        file,
-        line,
-        kind: 'not-a-group',
-        key,
-        detail: `translateObjectSignal needs a non-empty group, but this is a single key in ${translations.file}`,
-      };
-    }
-    return {
-      file,
-      line,
-      kind: 'unknown-key',
-      key,
-      detail: `not ${target === 'object' ? 'a non-empty group' : 'a key'} in ${translations.file}`,
-    };
-  }
-
-  /** `prefix.*` must name a non-empty group in its owning scope. */
-  checkPrefix(prefix: string, file: string, line: number): Violation | null {
-    const problem = this.check(prefix, 'object', file, line);
-    if (problem && problem.kind !== 'foreign-scope') {
-      return {
-        ...problem,
-        kind: 'unknown-key',
-        key: `${prefix}.*`,
-        detail: `${prefix} is not a non-empty group`,
-      };
-    }
-    return problem;
-  }
-}
-
-/** Collects, per marker or key constant, the targets of the uses that read it. */
-class TargetMap<T> {
-  private readonly map = new Map<T, Set<Target>>();
-
-  add(item: T, target: Target): void {
-    const set = this.map.get(item) ?? new Set<Target>();
-    set.add(target);
-    this.map.set(item, set);
-  }
-
-  /** The recorded targets, or `any` when nothing reads the item. */
-  of(item: T): Target[] {
-    const set = this.map.get(item);
-    return set ? [...set].sort() : ['any'];
-  }
+  const rtl = rtlTsFindings(parsed.source, file);
+  scan.sites.push(...rtl.violations, ...formatTsFindings(parsed.source, file));
+  scan.markers.push(...rtl.markers);
 }
 
 /**
@@ -468,17 +418,19 @@ export async function run(options: Options): Promise<Violation[]> {
     }
   }
 
-  // Markers: every `i18n-keys:` token is checked with the target of each use
-  // the marker covers (`any` when it covers none).
+  // Markers: a marker must attach to code. Every `i18n-keys:` token is
+  // checked with the target of each use the marker covers (`any` when it
+  // covers none). Every other marker kind needs a reason.
   for (const marker of scan.markers) {
-    if (marker.kind === 'ignore') {
+    push(detachedMarker(marker));
+    if (marker.kind !== 'keys') {
       if (marker.reason === '') {
         push({
           file: marker.file,
           line: marker.line,
           kind: 'bare-marker',
           key: '',
-          detail: 'i18n-ignore: needs a reason',
+          detail: `${REASON_MARKERS[marker.kind]} needs a reason`,
         });
       }
       continue;
@@ -534,6 +486,23 @@ export async function run(options: Options): Promise<Violation[]> {
       (m) => m.file === s.file && coversOffset(m, s.offset),
     );
     if (!ignored) push(resolver.check(s.value, 'any', s.file, s.line));
+  }
+
+  // RTL and formatting matches, unless a marker of the matching kind (with a
+  // reason) covers the site. `exemptBy: null` matches take no marker.
+  const exemptions = scan.markers.filter(
+    (m) => m.kind !== 'keys' && m.kind !== 'ignore' && m.reason !== '',
+  );
+  for (const { offset, exemptBy, ...violation } of scan.sites) {
+    const exempt =
+      exemptBy !== null &&
+      exemptions.some(
+        (m) =>
+          m.kind === exemptBy &&
+          m.file === violation.file &&
+          coversOffset(m, offset),
+      );
+    if (!exempt) push(violation);
   }
 
   return normaliseViolations(violations);
