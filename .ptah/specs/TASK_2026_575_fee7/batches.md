@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 7/33
+Total tasks: 76 | Batches: 33 (+1 contingent, see end) | Complete: 8/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -598,7 +598,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   uncached) and the typed SonarJS check found 0 problems on the 15 changed `.ts` files. A2 confirmed in all five.
   Minor (the `unwrap()` spec helper is copied into 5 specs) carried to Task 8.0, before Batch 8 would grow it to 11.
 
-## Batch 8: Scope scaffolding, feature projects (F3, part 2) — IN_PROGRESS
+## Batch 8: Scope scaffolding, feature projects (F3, part 2) — COMPLETE (f08554e5)
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -607,7 +607,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 7
 - Commit: `feat(landing): scaffold i18n scopes for feature libraries`
 
-### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — IMPLEMENTED
+### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — COMPLETE
 
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts, expect-scope-loads.ts}` + spec; the five Batch 7 specs
   (`apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts`,
@@ -620,7 +620,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: keep `@ptah-extension/i18n/testing` free of Jest globals if a test runner type is not already
   used there; the helper returns data and the spec asserts.
 
-### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — IMPLEMENTED
+### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — COMPLETE
 
 - Files: `$ROOT/libs/web/{legal,pricing,auth,account}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
 - Plan reference: implementation-plan.md:368-400
@@ -629,7 +629,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: none.
 - Implementation details: none beyond the above.
 
-### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — IMPLEMENTED
+### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — COMPLETE
 
 - Depends on: Task 8.1
 - Files: `$ROOT/libs/web/{members,admin}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
@@ -662,7 +662,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   reworded, and one extra edit accepted by the reviewer (`progress-meter.spec.ts:116` sort comparator, a SonarJS
   finding). 12-project lint/test/typecheck passed uncached; typed SonarJS found 0 problems on 28 changed `.ts` files.
 
-## Batch 9: App wiring, pre-paint, font and stable marker (F4) — PENDING
+## Batch 9: App wiring, pre-paint, font and stable marker (F4) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -672,7 +672,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Commit: `feat(landing): wire i18n provider, route resolvers and pre-paint script`
 - Batch 6 carry-over (deploy-landing.yml, one comment and one escape): see "Batch 6 verification", review round 1.
 
-### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — PENDING
+### Task 9.1: Providers, resolvers, constants, styles, Tailwind stack, project targets — IN_PROGRESS
 
 - Files: `$ROOT/apps/ptah-landing-page/src/app/{app.config.ts,app.routes.ts}`, `$ROOT/apps/ptah-landing-page/src/app/i18n/landing-i18n.constants.ts`, `$ROOT/apps/ptah-landing-page/src/styles.css`, `$ROOT/apps/ptah-landing-page/tailwind.config.js`, `$ROOT/apps/ptah-landing-page/project.json`
 - Plan reference: implementation-plan.md:402-437; design-spec.md §3.3 (:623), §3.6 (:689)
@@ -681,7 +681,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: `app.routes.spec.ts` must not import `app.routes` (jest NOTE block).
 - Implementation details: `sans` stack `['Inter','IBM Plex Sans Arabic','Noto Sans Arabic','system-ui','-apple-system','sans-serif']`.
 
-### Task 9.2: Pre-paint inline script and jsdom sync spec — PENDING
+### Task 9.2: Pre-paint inline script and jsdom sync spec — IN_PROGRESS
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/index.html`, `$ROOT/apps/ptah-landing-page/src/app/i18n/pre-paint-script.spec.ts`
@@ -691,7 +691,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: script inert without JS; static attributes stay English.
 - Implementation details: literals `'ptah.lang'`, `['en','ar']`, direction map, font id/href.
 
-### Task 9.3: Arabic font loader and app-stable marker — PENDING
+### Task 9.3: Arabic font loader and app-stable marker — IN_PROGRESS
 
 - Depends on: Task 9.1
 - Files: `$ROOT/apps/ptah-landing-page/src/app/i18n/{arabic-font.loader.ts,arabic-font.loader.spec.ts,app-stable-marker.ts,app-stable-marker.spec.ts}`, `$ROOT/apps/ptah-landing-page/src/main.ts`
@@ -701,7 +701,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A4 detection depends on this marker being honest (no timeout fallback that sets it anyway).
 - Implementation details: none beyond the above.
 
-### Task 9.4: Build, A1 and A3 evidence — PENDING
+### Task 9.4: Build, A1 and A3 evidence — IN_PROGRESS
 
 - Depends on: Tasks 9.1-9.3
 - Files: none created (evidence only)
