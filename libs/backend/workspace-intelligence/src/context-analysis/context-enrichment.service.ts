@@ -18,6 +18,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { SupportedLanguage } from '../ast/ast.types';
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import { parserFailureReason } from '../ast/parser-refusal';
 import { TokenCounterService } from '../services/token-counter.service';
 import { FileSystemService } from '../services/file-system.service';
 import {
@@ -45,6 +46,9 @@ export interface StructuralSummaryResult {
    * - `parse-failed`: the parse failed or needed error recovery (an ERROR or
    *   MISSING node, e.g. JSX parsed with the TypeScript grammar), so a
    *   summary could omit declarations;
+   * - `grammar-unavailable`: the parser refused before parsing because the
+   *   language's grammar (or the parser runtime) could not load on this host;
+   * - `too-large`: the parser refused a source over 1 MiB before parsing;
    * - `unsupported-declarations`: the file is not declaration-only: a
    *   top-level statement other than an import/export or a declaration, an
    *   initialiser that is not a function or a literal, code that runs while
@@ -61,6 +65,8 @@ export interface StructuralSummaryResult {
   reason?:
     | 'unsupported-language'
     | 'parse-failed'
+    | 'grammar-unavailable'
+    | 'too-large'
     | 'unsupported-declarations'
     | 'no-declarations'
     | 'summary-not-smaller'
@@ -162,10 +168,16 @@ export class ContextEnrichmentService {
       ...DECLARATION_SUMMARY_QUERIES,
     ]);
     if (matchesResult.isErr() || !matchesResult.value) {
+      // A parser refusal keeps its own reason; anything else is a parse failure.
+      const failure = parserFailureReason(matchesResult.error);
+      const reason: FullContentReason =
+        failure === 'grammar-unavailable' || failure === 'too-large'
+          ? failure
+          : 'parse-failed';
       this.logger.warn(
-        'ContextEnrichmentService.generateStructuralSummary() - Parse failed; returning full content (reason: parse-failed)',
+        `ContextEnrichmentService.generateStructuralSummary() - Parse failed; returning full content (reason: ${reason})`,
       );
-      return this.createFullContentResult(content, 'parse-failed');
+      return this.createFullContentResult(content, reason);
     }
 
     const summary = summariseDeclarations(

@@ -100,8 +100,11 @@ export class AstAnalysisService {
         this.logger.error(
           `AstAnalysisService.analyzeSource() - queryMulti failed for ${logPath}: ${errorMessage}`,
         );
+        // `cause` keeps a parser refusal readable (`parserFailureReason`).
         return Result.err(
-          new Error(`AST analysis failed for ${logPath}: ${errorMessage}`),
+          new Error(`AST analysis failed for ${logPath}: ${errorMessage}`, {
+            cause: multiResult.error,
+          }),
         );
       }
 

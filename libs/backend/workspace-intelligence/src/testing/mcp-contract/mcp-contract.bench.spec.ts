@@ -596,8 +596,22 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
       return { graph, builtGraph };
     }
 
+    /**
+     * The fixture graph, built ONCE for the tests that read it. Each build
+     * parses every fixture file with the real grammar; rebuilding it inside
+     * each of these tests put a full WASM parse run under Jest's default
+     * 5 s per-test timeout, which timed out when three projects' suites
+     * shared the machine (Batch 29a2 review r1). The build is the same, the
+     * assertions are unchanged, and the file's CPU budget in `afterAll` still
+     * bounds the work.
+     */
+    let fixtureGraph: Awaited<ReturnType<typeof buildRealGraph>>;
+    beforeAll(async () => {
+      fixtureGraph = await buildRealGraph();
+    }, 60_000);
+
     it('all 6 known files parse as graph nodes (fails fast, before any recall check silently skips a missing one)', async () => {
-      const { builtGraph } = await buildRealGraph();
+      const { builtGraph } = fixtureGraph;
       for (const filePath of graphFileSet()) {
         expect(builtGraph.nodes.has(filePath)).toBe(true);
       }
@@ -605,7 +619,7 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
     });
 
     it('a fully relative, fully resolvable fixture graph reports complete coverage with exact resolution counts (unconditional, not "else clean")', async () => {
-      const { graph } = await buildRealGraph();
+      const { graph } = fixtureGraph;
       const languages = graph.getCoverageReport(fixture.root)?.languages;
       expect(languages).toBeDefined();
       expect(languages!.census).toBe('complete');
@@ -657,10 +671,12 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
         context: 'partial',
       });
       expect(languages!.approximations).toContain('resolver-context-partial');
-    });
+      // Its own build (one extra file): a hang guard, not the budget, which
+      // is the file's CPU bound in `afterAll`.
+    }, 30_000);
 
     it('recalls every known dependent (all knownEdges, including the Decision-21 hub fan-in)', async () => {
-      const { graph } = await buildRealGraph();
+      const { graph } = fixtureGraph;
 
       expect(fixture.knownEdges.length).toBeGreaterThanOrEqual(4);
       // RECALL only. SIZE for `ptah_get_dependents` is measured separately,
@@ -677,7 +693,7 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
     });
 
     it('User Decision 21: the real ptah_get_dependents MCP text for a realistic-fan-in hub (>= 10 dependents) is smaller (tokens, unaltered paths) than a fair native grep', async () => {
-      const { graph } = await buildRealGraph();
+      const { graph } = fixtureGraph;
       const graphFiles = graphFileSet();
 
       const hubEdges = fixture.knownEdges.filter((e) =>
@@ -726,7 +742,7 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
     });
 
     it('the real ptah_get_symbol_index text recalls EVERY known symbol (all kinds, Batch 20.2q) EXACTLY per file, and is smaller (tokens) than a native grep for export lines', async () => {
-      const { graph, builtGraph } = await buildRealGraph();
+      const { graph, builtGraph } = fixtureGraph;
       const graphFiles = graphFileSet();
       const symbolIndex = graph.getSymbolIndex(fixture.root);
 

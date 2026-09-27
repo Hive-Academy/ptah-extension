@@ -55,7 +55,9 @@ jest.mock('web-tree-sitter', () => {
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { Result } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { Language } from 'web-tree-sitter';
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import { MAX_PARSE_BYTES } from '../ast/parser-refusal';
 import type { FileSystemService } from '../services/file-system.service';
 import type { TokenCounterService } from '../services/token-counter.service';
 import { ContextEnrichmentService } from './context-enrichment.service';
@@ -911,6 +913,57 @@ describe('ContextEnrichmentService.generateStructuralSummary', () => {
       expect(logged).toContain('parse-failed');
       expect(logged).not.toContain('/secret/path');
       expect(logged).not.toContain(FILE);
+    });
+
+    it("returns full content with reason 'too-large' when the parser refuses a source over 1 MiB (R29a2-02)", async () => {
+      const source = 'export const answer = 42;\n'.repeat(
+        Math.ceil((MAX_PARSE_BYTES + 1) / 26),
+      );
+
+      const { service, logger } = makeService();
+      const out = await service.generateStructuralSummary(
+        FILE,
+        'typescript',
+        source,
+      );
+
+      expect(out.mode).toBe('full');
+      expect(out.reason).toBe('too-large');
+      expect(out.content).toBe(source);
+      expect(logger.warn.mock.calls.flat().join('\n')).toContain('too-large');
+    });
+
+    it("returns full content with reason 'grammar-unavailable' when the grammar cannot load (R29a2-02)", async () => {
+      // A fresh parser: the shared one has the TypeScript grammar latched.
+      const isolated = new TreeSitterParserService(
+        makeLogger() as unknown as Logger,
+      );
+      const load = jest
+        .spyOn(Language, 'load')
+        .mockRejectedValueOnce(new Error('corrupt grammar'));
+      const service = new ContextEnrichmentService(
+        isolated,
+        {
+          countTokens: jest.fn(async (text: string) => text.length),
+        } as unknown as TokenCounterService,
+        {
+          readFile: jest.fn().mockResolvedValue(SOURCE),
+        } as unknown as FileSystemService,
+        makeLogger() as unknown as Logger,
+        {
+          getWorkspaceRoot: jest.fn().mockReturnValue('/ws'),
+        } as unknown as IWorkspaceProvider,
+      );
+      try {
+        const out = await service.generateStructuralSummary(FILE, 'typescript');
+
+        expect(out.mode).toBe('full');
+        expect(out.reason).toBe('grammar-unavailable');
+        expect(out.content).toBe(SOURCE);
+      } finally {
+        load.mockRestore();
+        isolated.dispose();
+      }
     });
 
     it("returns an empty full result with reason 'read-failed' when the file cannot be read", async () => {

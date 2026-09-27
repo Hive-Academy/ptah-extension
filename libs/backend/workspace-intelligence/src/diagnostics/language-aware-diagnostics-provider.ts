@@ -80,6 +80,7 @@ import {
   type SupportedLanguage,
 } from '../ast/tree-sitter.config';
 import type { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
+import { parserFailureReason } from '../ast/parser-refusal';
 
 /** Most files one scoped call syntax-checks; file 51 on is `omittedByCap`. */
 export const SYNTAX_FILE_CAP = 50;
@@ -854,7 +855,8 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
       { key: 'missing', queryString: '(MISSING) @missing' },
     ]);
     const results = parsed.isErr() ? undefined : parsed.value;
-    if (!results) return { reason: 'parse' };
+    // A grammar that failed to load is `grammar-unavailable` for its language only.
+    if (!results) return { reason: parserFailureReason(parsed.error) };
 
     const found = [
       ...(results.get('error') ?? []).flatMap((match) =>

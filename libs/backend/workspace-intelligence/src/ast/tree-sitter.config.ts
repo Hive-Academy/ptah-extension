@@ -22,9 +22,9 @@ export const EXTENSION_LANGUAGE_MAP: Readonly<
 /**
  * WASM grammar file loaded for each parsed language (bundled by
  * `scripts/copy-wasm.js`). `language-registry.ts` reads the same modules for
- * `grammarFile`. `TreeSitterParserService.initialize()` still names the same
- * files inline; `language-registry.spec.ts` pins the two lists equal until
- * lazy per-language loading (Batch 29a2) reads this map directly.
+ * `grammarFile`. `TreeSitterParserService` loads each language's file from
+ * this map on first use (Batch 29a2); `grammar-manifest.spec.ts` pins it to
+ * the manifest's active grammar rows.
  */
 export const GRAMMAR_FILE_MAP: Readonly<Record<SupportedLanguage, string>> =
   Object.fromEntries(

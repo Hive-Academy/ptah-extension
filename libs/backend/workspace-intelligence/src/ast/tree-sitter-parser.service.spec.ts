@@ -76,6 +76,11 @@ jest.mock('web-tree-sitter', () => {
 const webTreeSitter = require('web-tree-sitter');
 
 import { TreeSitterParserService } from './tree-sitter-parser.service';
+import {
+  MAX_PARSE_BYTES,
+  ParserRefusalError,
+  parserFailureReason,
+} from './parser-refusal';
 
 describe('TreeSitterParserService', () => {
   let service: TreeSitterParserService;
@@ -281,6 +286,250 @@ describe('TreeSitterParserService', () => {
       const result = await service.parse('const x = 1;', 'typescript');
 
       expect(result.isErr()).toBe(true);
+    });
+  });
+
+  describe('29a2 lazy isolated grammar loading', () => {
+    const loadedFiles = (): string[] =>
+      webTreeSitter.Language.load.mock.calls.map(([grammarPath]: [string]) =>
+        grammarPath.slice(grammarPath.lastIndexOf('/') + 1),
+      );
+
+    it('initialize() loads the runtime only; no grammar is read', async () => {
+      const result = await service.initialize();
+
+      expect(result.isOk()).toBe(true);
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(1);
+      expect(webTreeSitter.Language.load).not.toHaveBeenCalled();
+    });
+
+    it('loads only the grammar of the language that is used', async () => {
+      await service.queryMulti('const x = 1;', 'typescript', []);
+      await service.queryMulti('const y = 2;', 'typescript', []);
+
+      expect(loadedFiles()).toEqual(['tree-sitter-typescript.wasm']);
+    });
+
+    it('concurrent first uses of a language share one load and one parser', async () => {
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          service.queryMulti('x = 1', 'python', []),
+        ),
+      );
+
+      expect(results.every((result) => result.isOk())).toBe(true);
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(1);
+      expect(loadedFiles()).toEqual(['tree-sitter-python.wasm']);
+      expect(webTreeSitter.Parser).toHaveBeenCalledTimes(1);
+      expect(mockParserInstance.setLanguage).toHaveBeenCalledTimes(1);
+    });
+
+    it('FB: a failing grammar does not disable the others', async () => {
+      webTreeSitter.Language.load.mockImplementation((grammarPath: string) =>
+        grammarPath.endsWith('tree-sitter-c-sharp.wasm')
+          ? Promise.reject(new Error('corrupt grammar'))
+          : Promise.resolve(mockLanguageInstance),
+      );
+
+      const csharp = await service.queryMulti('class A {}', 'csharp', []);
+      const typescript = await service.queryMulti(
+        'const x = 1;',
+        'typescript',
+        [],
+      );
+      const python = await service.parse('x = 1', 'python');
+
+      expect(csharp.isErr()).toBe(true);
+      expect(csharp.error).toBeInstanceOf(ParserRefusalError);
+      expect(parserFailureReason(csharp.error)).toBe('grammar-unavailable');
+      expect(csharp.error?.message).toContain('csharp');
+      expect(typescript.isOk()).toBe(true);
+      expect(typescript.value).toMatchObject({ parseStatus: 'ok' });
+      expect(python.isOk()).toBe(true);
+    });
+
+    it('a failed grammar stays failed for its language without re-reading it', async () => {
+      webTreeSitter.Language.load.mockRejectedValue(
+        new Error('corrupt grammar'),
+      );
+
+      const first = await service.queryMulti('package main', 'go', []);
+      const second = await service.query(
+        'package main',
+        'go',
+        '(source_file) @s',
+      );
+
+      expect(parserFailureReason(first.error)).toBe('grammar-unavailable');
+      expect(parserFailureReason(second.error)).toBe('grammar-unavailable');
+      expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(1);
+    });
+
+    it('a runtime failure is not latched: the next call retries it', async () => {
+      webTreeSitter.Parser.init.mockRejectedValueOnce(new Error('WASM boom'));
+
+      const failed = await service.queryMulti('const x = 1;', 'typescript', []);
+      const retried = await service.queryMulti(
+        'const x = 1;',
+        'typescript',
+        [],
+      );
+
+      expect(parserFailureReason(failed.error)).toBe('grammar-unavailable');
+      expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(1);
+      expect(retried.isOk()).toBe(true);
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a source over 1 MiB as too-large before loading anything', async () => {
+      const oversize = 'a'.repeat(MAX_PARSE_BYTES + 1);
+
+      const results = [
+        await service.parse(oversize, 'typescript'),
+        await service.query(oversize, 'typescript', '(program) @p'),
+        await service.queryMulti(oversize, 'typescript', []),
+        await service.parseAndCache('/f.ts', oversize, 'typescript'),
+      ];
+
+      for (const result of results) {
+        expect(result.isErr()).toBe(true);
+        expect(parserFailureReason(result.error)).toBe('too-large');
+      }
+      expect(webTreeSitter.Parser.init).not.toHaveBeenCalled();
+      expect(webTreeSitter.Language.load).not.toHaveBeenCalled();
+      expect(mockParserInstance.parse).not.toHaveBeenCalled();
+    });
+
+    it('measures the limit in UTF-8 bytes, and exactly 1 MiB is accepted', async () => {
+      // 2 bytes per character: under the limit in characters, over it in bytes.
+      const multibyte = 'é'.repeat(MAX_PARSE_BYTES / 2 + 1);
+      expect(multibyte.length).toBeLessThan(MAX_PARSE_BYTES);
+
+      const refused = await service.queryMulti(multibyte, 'python', []);
+      const atLimit = await service.queryMulti(
+        'a'.repeat(MAX_PARSE_BYTES),
+        'python',
+        [],
+      );
+
+      expect(parserFailureReason(refused.error)).toBe('too-large');
+      expect(atLimit.isOk()).toBe(true);
+    });
+
+    it('a too-large incremental re-parse drops the stale cached tree', async () => {
+      const delta = {
+        startIndex: 0,
+        oldEndIndex: 0,
+        newEndIndex: 1,
+        startPosition: { row: 0, column: 0 },
+        oldEndPosition: { row: 0, column: 0 },
+        newEndPosition: { row: 0, column: 1 },
+      };
+      await service.parseAndCache('/f.ts', 'const x = 1;', 'typescript');
+      mockTreeInstance.delete.mockClear();
+
+      const refused = await service.parseIncremental(
+        '/f.ts',
+        'a'.repeat(MAX_PARSE_BYTES + 1),
+        'typescript',
+        delta,
+      );
+
+      expect(parserFailureReason(refused.error)).toBe('too-large');
+      expect(mockTreeInstance.delete).toHaveBeenCalledTimes(1);
+      expect(mockTreeInstance.edit).not.toHaveBeenCalled();
+    });
+
+    it('a grammar load that finishes after dispose() frees its parser', async () => {
+      let finishLoad: (language: unknown) => void = () => undefined;
+      webTreeSitter.Language.load.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishLoad = resolve;
+        }),
+      );
+
+      const pending = service.parse('const x = 1;', 'typescript');
+      await new Promise((resolve) => setImmediate(resolve));
+      service.dispose();
+      mockParserInstance.delete.mockClear();
+      finishLoad(mockLanguageInstance);
+      const result = await pending;
+
+      expect(result.isErr()).toBe(true);
+      expect(mockParserInstance.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('R29a2-01: a parse waiting on the runtime when dispose() runs never loads or keeps a parser', async () => {
+      let finishInit: () => void = () => undefined;
+      webTreeSitter.Parser.init.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finishInit = resolve;
+        }),
+      );
+
+      const pending = service.parse('const x = 1;', 'typescript');
+      await new Promise((resolve) => setImmediate(resolve));
+      service.dispose();
+      finishInit();
+      const result = await pending;
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('disposed');
+      expect(webTreeSitter.Language.load).not.toHaveBeenCalled();
+      expect(webTreeSitter.Parser).not.toHaveBeenCalled();
+      expect(mockParserInstance.parse).not.toHaveBeenCalled();
+    });
+
+    it('R29a2-01: a pre-dispose runtime failure does not clear the newer initialization latch', async () => {
+      let failA: (error: Error) => void = () => undefined;
+      let finishB: () => void = () => undefined;
+      webTreeSitter.Parser.init
+        .mockReturnValueOnce(
+          new Promise<void>((_, reject) => {
+            failA = reject;
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise<void>((resolve) => {
+            finishB = resolve;
+          }),
+        );
+
+      const initA = service.initialize();
+      service.dispose();
+      const initB = service.initialize();
+      failA(new Error('stale runtime failure'));
+      expect((await initA).isErr()).toBe(true);
+      const follower = service.initialize();
+      finishB();
+
+      expect((await initB).isOk()).toBe(true);
+      expect((await follower).isOk()).toBe(true);
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(2);
+    });
+
+    it('R29a2-01: the service reinitializes and parses normally after dispose()', async () => {
+      expect((await service.parse('const x = 1;', 'typescript')).isOk()).toBe(
+        true,
+      );
+      service.dispose();
+
+      const again = await service.parse('const y = 2;', 'typescript');
+
+      expect(again.isOk()).toBe(true);
+      expect(webTreeSitter.Parser.init).toHaveBeenCalledTimes(2);
+      expect(webTreeSitter.Language.load).toHaveBeenCalledTimes(2);
+    });
+
+    it('parserFailureReason reads a refusal through re-wrapping causes', () => {
+      const refusal = new ParserRefusalError('too-large', 'big');
+      const wrapped = new Error('AST analysis failed', {
+        cause: new Error('outer', { cause: refusal }),
+      });
+
+      expect(parserFailureReason(wrapped)).toBe('too-large');
+      expect(parserFailureReason(new Error('syntax'))).toBe('parse');
+      expect(parserFailureReason(undefined)).toBe('parse');
     });
   });
 });

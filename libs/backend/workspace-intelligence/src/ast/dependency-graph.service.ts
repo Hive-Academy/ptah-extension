@@ -19,6 +19,7 @@ import {
   CodeInsights,
 } from './ast-analysis.interfaces';
 import { AstAnalysisService } from './ast-analysis.service';
+import { parserFailureReason } from './parser-refusal';
 import { FileSystemService } from '../services/file-system.service';
 import {
   GRAPH_EDGE_CAP,
@@ -642,7 +643,7 @@ export class DependencyGraphService {
       this.logger.debug(
         `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
       );
-      recordFailure('parse');
+      recordFailure(parserFailureReason(analysisResult.error));
       return;
     }
 

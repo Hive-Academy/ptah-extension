@@ -22,6 +22,7 @@ import {
   type SymbolChunkInsert,
 } from '@ptah-extension/memory-contracts';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
+import { parserFailureReason } from '../ast/parser-refusal';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
 import type { SupportedLanguage } from '../ast/ast.types';
 import type { CodeInsights, ExportInfo } from '../ast/ast-analysis.interfaces';
@@ -1007,7 +1008,7 @@ export class CodeSymbolIndexer {
         symbolsIndexed: 0,
         errors: 1,
         durationMs: Date.now() - startMs,
-        outcome: failure('parse'),
+        outcome: failure(parserFailureReason(result.error)),
       };
     }
     const insights = result.value;
