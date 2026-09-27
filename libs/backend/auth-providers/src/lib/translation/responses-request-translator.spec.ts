@@ -477,6 +477,28 @@ describe('translateAnthropicToResponses (end-to-end round-trip)', () => {
       });
     });
 
+    it('treats a URL image source with an allowed media_type as unresolvable', () => {
+      const urlImage = {
+        type: 'image',
+        source: {
+          type: 'url',
+          media_type: 'image/png',
+          url: 'https://example.test/a.png',
+        },
+      } as unknown as AnthropicImageBlock;
+      const out = translateAnthropicToResponses(toolResultRequest([urlImage]));
+      expect(out.input[0]).toEqual({
+        type: 'function_call_output',
+        call_id: 'img_call',
+        output: [
+          {
+            type: 'input_text',
+            text: '[image omitted: unsupported media type]',
+          },
+        ],
+      });
+    });
+
     it('prefixes Error: on the first part when it is text', () => {
       const out = translateAnthropicToResponses(
         toolResultRequest([{ type: 'text', text: 'boom' }, png], true),

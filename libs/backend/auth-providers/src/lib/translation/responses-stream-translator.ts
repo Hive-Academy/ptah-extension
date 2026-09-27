@@ -355,9 +355,9 @@ export class ResponsesStreamTranslator {
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);
-    } catch (error: unknown) {
-      // Malformed frames are skipped; a missing terminal is reported at EOF.
-      void error;
+    } catch {
+      // degradation-audit: reported - a malformed frame is skipped; if it was
+      // the terminal event, terminateTruncated reports the missing terminal at EOF.
       return [];
     }
     if (!isRecord(parsed)) return [];

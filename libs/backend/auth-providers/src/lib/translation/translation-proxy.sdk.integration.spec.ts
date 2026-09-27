@@ -486,20 +486,6 @@ interface ChildRunResult {
   readonly queryError: string | null;
 }
 
-/**
- * ASYNC by necessity, not preference: `spawnSync` blocks Node's event loop
- * for its entire duration, and BOTH the mock upstream and the real
- * `CodexTranslationProxy` are in-process `http.Server`s in THIS same
- * process. A blocked event loop means neither server can ever accept the
- * CLI subprocess's TCP connections, so `spawnSync` here deadlocks on any
- * scenario that requires a live request/response round trip — reproduced
- * directly: the CLI prints its `system init` message (no I/O needed) and
- * then hangs forever, because its very next step is a connection our own
- * process can never accept while frozen inside `spawnSync`. Do not revert to
- * `spawnSync` for this reason, however tempting for the parallel with
- * `ptah-cli-registry-auto-compact-argv.spec.ts` (that spec never has an
- * in-process server on the other end of the child's traffic).
- */
 /** Every live process id with its parent, from the OS process table. */
 function processTable(): Promise<Array<{ pid: number; ppid: number }>> {
   const [file, args] =
@@ -566,13 +552,6 @@ function isAlive(pid: number): boolean {
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/**
- * Kill a process tree within TREE_KILL_TIMEOUT_MS. Resolves with the error, or
- * undefined on success. On Windows `taskkill` runs with an execFile timeout, so
- * Node terminates `taskkill` itself when the bound expires and nothing outlives
- * cleanup. Elsewhere killProcessTree signals the group; a bound that expires is
- * reported as an error, never as success.
- */
 /** Mirrors `resolveTaskkill` in platform-core process-tree-reaper.ts (not exported). */
 function systemTaskkill(): string | undefined {
   const systemRoot = process.env['SystemRoot'] ?? process.env['windir'];
@@ -581,6 +560,13 @@ function systemTaskkill(): string | undefined {
     : undefined;
 }
 
+/**
+ * Kill a process tree within TREE_KILL_TIMEOUT_MS. Resolves with the error, or
+ * undefined on success. On Windows `taskkill` runs with an execFile timeout, so
+ * Node terminates `taskkill` itself when the bound expires and nothing outlives
+ * cleanup. Elsewhere killProcessTree signals the group; a bound that expires is
+ * reported as an error, never as success.
+ */
 async function boundedTreeKill(pid: number): Promise<unknown> {
   if (process.platform === 'win32') {
     // Never a bare `taskkill`: PATH lookup could run an interposed binary.
@@ -662,6 +648,20 @@ async function killChildTree(
   }
 }
 
+/**
+ * ASYNC by necessity, not preference: `spawnSync` blocks Node's event loop
+ * for its entire duration, and BOTH the mock upstream and the real
+ * `CodexTranslationProxy` are in-process `http.Server`s in THIS same
+ * process. A blocked event loop means neither server can ever accept the
+ * CLI subprocess's TCP connections, so `spawnSync` here deadlocks on any
+ * scenario that requires a live request/response round trip — reproduced
+ * directly: the CLI prints its `system init` message (no I/O needed) and
+ * then hangs forever, because its very next step is a connection our own
+ * process can never accept while frozen inside `spawnSync`. Do not revert to
+ * `spawnSync` for this reason, however tempting for the parallel with
+ * `ptah-cli-registry-auto-compact-argv.spec.ts` (that spec never has an
+ * in-process server on the other end of the child's traffic).
+ */
 function runChild(
   cwd: string,
   env: NodeJS.ProcessEnv,

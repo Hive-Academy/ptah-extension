@@ -410,10 +410,13 @@ function translateToolResultToFunctionCallOutput(
       if (block.type === 'text') {
         parts.push({ type: 'input_text', text: block.text });
       } else if (block.type === 'image') {
-        const resolved = resolveImageMediaType(
-          block.source.media_type,
-          block.source.data,
-        );
+        // The Messages envelope is passthrough, so a `url` (or other) source can
+        // arrive despite the type; it has no base64 data to embed.
+        const { source } = block;
+        const resolved =
+          source.type === 'base64' && typeof source.data === 'string'
+            ? resolveImageMediaType(source.media_type, source.data)
+            : null;
         parts.push(
           resolved === null
             ? {

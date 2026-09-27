@@ -178,6 +178,8 @@ export function isCompleteToolArguments(args: unknown): boolean {
   try {
     return isRecord(JSON.parse(args));
   } catch {
+    // degradation-audit: reported - unparseable arguments are the answer, not a
+    // failure; classifyResponsesTerminal turns `false` into upstream_incomplete.
     return false;
   }
 }
@@ -195,6 +197,8 @@ export function classifyUpstreamHttpError(
   try {
     body = JSON.parse(rawBody);
   } catch {
+    // degradation-audit: reported - a non-JSON body is not an overflow;
+    // `undefined` sends the caller down its existing upstream-error response.
     return undefined;
   }
   if (!isRecord(body)) return undefined;
