@@ -9,10 +9,57 @@
 | Author execution side | Claude Code subagent |
 | Reviewer | independent document reviewer (subagent) |
 | Reviewer execution side | Claude Code subagent. This is a same-side review because no CLI lanes (`ptah_agent_*` tools) are available in this cloud session. |
-| Reviewed revision | 0 |
-| Rounds completed | 0 |
-| Verdict | **REVISE** |
-| Unresolved items | B1, B2, B3, B4 (blocking); N1 to N11 (non-blocking) |
+| Reviewed revision | 1 (round 0 reviewed revision 0) |
+| Rounds completed | 1 |
+| Verdict | **APPROVED** (round 1). Round 0 was REVISE. |
+| Unresolved items | No blocking items. B1-B4 and N1-N11 are resolved. New non-blocking N12 and N13 are open, and I recommend the software-architect handle them. |
+
+## Round 1 recheck (revision 1)
+
+The line numbers below refer to `task-description.md` revision 1.
+
+| Finding | Status | Evidence in revision 1 |
+| --- | --- | --- |
+| B1 | Resolved | Two new criteria and a reworded question:<ul><li>8.2 (line 187): a regenerable per-scope side-by-side table plus the glossary.</li><li>8.3 (line 188): merge is blocked without the user's sign-off for each scope, "admin included".</li><li>Open question 3 (line 225) now asks only about review depth and states that "sign-off is still required".</li></ul>Gate 0 decision 3 is now enforced. |
+| B2 | Resolved | 3.6 (lines 117-124) picks option (b): each scope resolves before the first client render. The English-in-RTL window is limited to first paint through hydration, and the NFR (line 194) names that exception, so the contradiction is gone. The test is now concrete: `addInitScript` with a first-`requestAnimationFrame` `dir` capture, an `NG05xx` console check, and an Arabic `h1`. See N13 for one test detail. |
+| B3 | Resolved | 7.3 (line 176) requires a named `ci.yml` step, and the criterion is that the CI job fails. I confirmed the cited lines `ci.yml:182` and `:192`. Keeping CI lint out of scope (line 59) is stated with a reason, which is acceptable. |
+| B4 | Resolved | 3.5 (line 116) requires a text diff against a baseline from `main`, a key-path regex check, a check for empty `h1`/`h2`, a committed script, and an extended `deploy-landing.yml:59-77` step. I confirmed that step range. A HIGH/HIGH risk row is added (line 213). |
+| N1 | Resolved | 4.1 (lines 134-139): the wording is now "converted or `rtl-exempt:`", raw CSS and data-driven positions are covered, the missing utilities are added, centring pairs are allowed, and the pattern must be committed. |
+| N2 | Resolved | New risk row at line 214, with the architect as owner. |
+| N3 | Resolved | 1.2 (line 88) now uses the project graph. `platform:angular` is optional, and the `type:util` consequence is stated (line 74). |
+| N4 | Resolved | "Must not contain" gains an inline-script dependency (line 83), and new criterion 1.6 (line 92) requires one source of truth or a sync test. |
+| N5 | Resolved | 8.1 (line 186) allows per-lib or batched PRs, and each one must stand on its own. |
+| N6 | Resolved | 3.7 (line 125) covers the runtime title and description, and OG, Twitter and canonical tags stay English. See the new N12, which the current code affects. |
+| N7 | Resolved | 7.2 (lines 172-175) sets a policy for computed keys, and an unannotated computed key fails the check. |
+| N8 | Resolved | New risk row at line 215, with an owner. |
+| N9 | Resolved | New risk row at line 216: the pre-paint step preloads the Arabic font. |
+| N10 | Resolved | Scope (lines 43-47) names the shells. I confirmed that `libs/web/ui/src/lib/navigation.component.ts`, `libs/web/members/src/lib/member-layout/member-layout.ts` (with `member-theme-toggle.ts` beside it), `libs/web/admin/src/lib/admin-layout/admin-layout.ts` and `libs/web/panel-ui/src/lib/panel-layout/panel-layout.ts` all exist. |
+| N11 | Resolved | 3.6 (line 117) covers stored preference and first-visit detection, and the Playwright test runs both cases (line 121). |
+
+### New findings (round 1)
+
+**N12. Non-blocking. 3.7's "og:\* stays English" conflicts with the current `SeoService` fallback.**
+- Location: `task-description.md:125`
+- `seo.service.ts:37` sets `ogDescription = config.ogDescription ?? config.description`, and lines 43-44 then write `og:title` and `og:description` from those values.
+- As a result, translating the description or title at runtime also makes the OG and Twitter tags Arabic, unless every page passes an explicit English `ogDescription`/`ogTitle` or `SeoService` changes.
+- This matters little in practice, because crawlers see only the prerendered English. The architect should still state which of the two approaches applies, so that 3.7 can be tested.
+
+**N13. Non-blocking. 3.6's "after `ApplicationRef` reports stable" cannot be observed directly from Playwright in the production build.**
+- Location: `task-description.md:124`
+- `app.config.ts` provides `provideZoneChangeDetection` but not `provideProtractorTestingSupport`, so `window.getAllAngularTestabilities` is not available.
+- The architect should define an observable signal instead, for example a `data-i18n-ready` or `data-hydrated` attribute that the app sets on `<html>` once hydration is stable, or an explicit wait strategy.
+
+### Feasibility spot-checks for claims new in revision 1
+
+- The mechanism in 3.6 is feasible:
+  - The landing app has no CSP, so an inline pre-paint script is allowed.
+  - `<html>` sits outside `<app-root>`.
+  - Text bindings whose node structure matches the server render do not trigger `NG0500`-family mismatches. Resolving scopes before the first client render keeps the structure identical.
+  - The initial navigation already gates hydration, so a blocking scope load fits there.
+- The `deploy-landing.yml` comment at lines 55-58 already expects copy-specific greps to be tightened, which is consistent with the 3.5 extension.
+- `apps/ptah-landing-page-e2e` exists with `playwright.config.ts`, as 7.5 assumes.
+
+The remainder of this file is the round 0 review of revision 0, kept for history.
 
 ## 1. Trace: user requests and Gate 0 decisions mapped to the artifact
 
