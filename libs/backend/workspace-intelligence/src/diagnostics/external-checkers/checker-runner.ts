@@ -13,7 +13,9 @@
  *   slow to start counts against it);
  * - `too-large` — stdout + stderr passed the byte cap;
  * - `cancelled` — the caller's `AbortSignal` fired;
- * - `spawn-failed` — the spawner threw or the child reported `error`.
+ * - `spawn-failed` — the spawner threw or the child reported `error`;
+ * - `refused` — the request's `launchGuard` no longer held on the thread that
+ *   creates the process, so no child was created (closing review r2).
  *
  * Every limit kills the whole process TREE: `killProcessTree` (taskkill /T on
  * win32, a process-group kill on POSIX, where the child is started
@@ -26,9 +28,13 @@
  * what (if anything) a fixed-text audit line may say.
  */
 
-import { killProcessTree } from '@ptah-extension/platform-core';
+import {
+  LAUNCH_GUARD_REFUSED,
+  killProcessTree,
+} from '@ptah-extension/platform-core';
 import type {
   IProcessSpawner,
+  SpawnLaunchGuard,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 import { readEnvVariable } from './go-binary-resolver';
@@ -47,6 +53,11 @@ export interface CheckerRunRequest {
   readonly timeoutMs: number;
   readonly maxOutputBytes?: number;
   readonly signal?: AbortSignal;
+  /**
+   * File facts the spawner re-checks on the creating thread immediately
+   * before the child is created; a failed check is `refused`, no child.
+   */
+  readonly launchGuard?: SpawnLaunchGuard;
 }
 
 export type CheckerRunResult =
@@ -59,7 +70,8 @@ export type CheckerRunResult =
       readonly durationMs: number;
     }
   | {
-      readonly kind: 'timeout' | 'too-large' | 'cancelled' | 'spawn-failed';
+      readonly kind:
+        'timeout' | 'too-large' | 'cancelled' | 'spawn-failed' | 'refused';
       readonly durationMs: number;
     };
 
@@ -93,6 +105,15 @@ export function pickInheritedEnv(
 function toBuffer(chunk: unknown): Buffer {
   if (Buffer.isBuffer(chunk)) return chunk;
   return Buffer.from(String(chunk), 'utf8');
+}
+
+/** Did the spawner refuse because a launch guard no longer held? */
+function isGuardRefusal(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === LAUNCH_GUARD_REFUSED
+  );
 }
 
 /**
@@ -141,6 +162,7 @@ export function runChecker(
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let handle: SpawnedProcessHandle | undefined;
+    let spawnError: unknown;
 
     const onAbort = (): void => terminate('cancelled');
 
@@ -153,7 +175,7 @@ export function runChecker(
     }
 
     function terminate(
-      kind: 'timeout' | 'too-large' | 'cancelled' | 'spawn-failed',
+      kind: 'timeout' | 'too-large' | 'cancelled' | 'spawn-failed' | 'refused',
     ): void {
       if (settled) return;
       finish({ kind, durationMs: elapsed() });
@@ -190,20 +212,26 @@ export function runChecker(
         env: { ...request.env },
         // POSIX: lead a process group so the tree kill reaches descendants.
         detached: platform !== 'win32',
+        ...(request.launchGuard !== undefined
+          ? { launchGuard: request.launchGuard }
+          : {}),
       });
     } catch (error: unknown) {
-      // The spawner refused (bad command, no thread): reported below as its
-      // own kind, which the caller turns into a fixed-text failure.
-      void error;
+      // The spawner refused (bad command, no thread, or a launch guard that
+      // failed inline): reported below as its own kind, which the caller
+      // turns into a fixed-text answer.
+      spawnError = error;
     }
     if (handle === undefined) {
-      terminate('spawn-failed');
+      terminate(isGuardRefusal(spawnError) ? 'refused' : 'spawn-failed');
       return;
     }
 
     handle.stdout?.on('data', collect(stdout));
     handle.stderr?.on('data', collect(stderr));
-    handle.once('error', () => terminate('spawn-failed'));
+    handle.once('error', (error) =>
+      terminate(isGuardRefusal(error) ? 'refused' : 'spawn-failed'),
+    );
     handle.once('close', (code, signal) => {
       finish({
         kind: 'exited',

@@ -54,6 +54,7 @@ import type {
   CoverageChecks,
   FileDiagnostics,
   IProcessSpawner,
+  SpawnLaunchGuard,
   NotCheckedFiles,
 } from '@ptah-extension/platform-core';
 import {
@@ -163,7 +164,8 @@ export type GoVetReason =
   | 'unverifiable'
   | 'not-go-source'
   | 'documentation-package'
-  | 'unmapped-findings';
+  | 'unmapped-findings'
+  | 'launch-refused';
 
 export interface GoVetCheckRequest {
   readonly workspaceRoot: string;
@@ -280,6 +282,8 @@ const REASON_TEXT: Readonly<Record<GoVetReason, string>> = {
     'go vet does not analyse it: the go command reads only files ending in lower-case ".go".',
   'documentation-package':
     'go vet does not analyse it: the go command ignores files in "package documentation".',
+  'launch-refused':
+    'go vet did not run: the workspace folder, its go.mod directory or the Go toolchain changed between the consent check and the launch.',
   'unmapped-findings':
     'go vet reported findings in its package at positions outside the workspace (for example a //line directive); they cannot be shown, so the file is not claimed clean.',
 };
@@ -598,9 +602,11 @@ export class GoVetChecker {
       return notRun('no-go-binary', withVetted('no-go-binary'));
     }
 
-    // The one consent read of this run: after binary resolution, right
-    // before the spawn, never cached, so a revoke stops the next run. The
-    // run's cwd is inside the real root this consent binds (planPackages).
+    // The consent read of this run: after binary resolution, never cached.
+    // The run's cwd is inside the real root this consent binds
+    // (planPackages). The spawner may create the process later, on another
+    // thread, so what this read authorized is also handed to it as a launch
+    // guard (below) and re-checked there at the instant of creation.
     const consent = this.deps.consentStore.read(root, binary);
     if (consent.state !== 'on') {
       const reason: GoVetReason =
@@ -634,6 +640,28 @@ export class GoVetChecker {
             });
           },
         }));
+    // Closing review r2 finding 1: the exact consent bytes judged `on`, the
+    // approved binary (the only path spawned) and the root / module
+    // directory identities must all still hold on the creating thread.
+    const launchGuard: SpawnLaunchGuard = {
+      fileContents: [
+        { path: consent.recordFile, sha256: consent.recordSha256 },
+      ],
+      fileIdentities: [
+        {
+          path: binary.path,
+          realpath: binary.path,
+          size: binary.size,
+          mtimeMs: binary.mtimeMs,
+        },
+        {
+          path: root,
+          realpath: consent.record.rootRealpath,
+          devIno: consent.record.rootId,
+        },
+        { path: moduleDir, realpath: moduleDir },
+      ],
+    };
     const result = await run({
       spawner,
       command: binary.path,
@@ -643,7 +671,34 @@ export class GoVetChecker {
       timeoutMs: this.deps.timeoutMs ?? GO_VET_TIMEOUT_MS,
       maxOutputBytes: this.deps.maxOutputBytes ?? CHECKER_MAX_OUTPUT_BYTES,
       signal: request.signal,
+      launchGuard,
     });
+
+    if (result.kind === 'refused') {
+      // Nothing ran. Say why from what holds NOW: consent revoked, consent
+      // stale (e.g. the binary changed), or the folder changed under it.
+      const now = this.deps.consentStore.read(
+        root,
+        (this.deps.resolveGo ?? resolveGoBinary)({
+          workspaceRoot: root,
+          env: parentEnv,
+          userDataPath: this.deps.userDataPath,
+          platform: this.platform,
+        }),
+      );
+      const reason: GoVetReason =
+        now.state === 'off'
+          ? 'no-consent'
+          : now.state === 'stale'
+            ? 'consent-stale'
+            : 'launch-refused';
+      audit('not-run', packages, reason);
+      return notRun(
+        reason,
+        withVetted(reason),
+        now.state === 'stale' ? now.reason : undefined,
+      );
+    }
 
     if (result.kind !== 'exited') {
       const outcome: GoVetOutcome =

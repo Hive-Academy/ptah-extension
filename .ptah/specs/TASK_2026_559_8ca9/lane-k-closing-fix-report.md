@@ -157,3 +157,112 @@ filesystem-identity contract through the launch remains a trust-model item for B
   not read; the user re-enables once.
 - The RPC contract gains `confirmToken` (GET, and SET when enabling), the SET error `go-changed`, and `goBinary` on SET
   success. O2 §3 should record these changes.
+
+## Revoke-race fix
+
+Review: `reviews/lane-k-closing-review-r2.md`, finding 1 (Blocking). The checker read consent before it queued the
+launch (`go-vet-checker.ts:604`), and the off-thread worker created the process later without checking again. A revoke
+that completed while the spawn message was still queued was followed by a real child process (the reviewer recorded
+PID 13416). Base: HEAD 9df0d81e4. No git commands were run.
+
+### Design: a launch guard re-checked on the thread that creates the process
+
+A callback cannot cross the worker boundary, so the checker sends the facts its authorization rests on as data. The
+spawner re-reads them synchronously on the creating thread and, in the same turn, either spawns or refuses. This
+removes the queue gap.
+
+- **Port** (`libs/backend/platform-core/src/interfaces/process-spawner.interface.ts:39`, `:80`):
+  - `ProcessSpawnRequest` gains an optional `launchGuard: SpawnLaunchGuard`. It carries `fileContents` (exact SHA-256
+    of a file's bytes) and `fileIdentities` (canonical path, plus optional `size`, `mtimeMs` and `devIno`).
+  - A refused spawn reports `error.code` `LAUNCH_GUARD_REFUSED` (`'ELAUNCHGUARD'`) and creates no child.
+  - The port states that an implementation must honour the guard or refuse the request.
+  - Callers that send no guard behave exactly as before, so the spawner is not weakened for other callers.
+- **Evaluator** (`libs/backend/platform-core/src/utils/launch-guard.ts`, new; `launchGuardRefusal`): any read failure is
+  a refusal. On win32, canonical paths are compared case-insensitively.
+- **Worker** (`libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner-source.ts:196`, `:238`): a JavaScript
+  twin of the evaluator runs in `startChild` immediately before `spawn`. On refusal the worker posts
+  `error{code:'ELAUNCHGUARD'}` and ends stdout/stderr; no child is created.
+- **Spawner** (`libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.ts`):
+  - `spawnProcess` forwards the guard (`:736`) and the worker message carries it (`:313`).
+  - The inline fallback (`PTAH_SDK_INLINE_SPAWN`, or past the hard cap) checks the guard right before
+    `childProcess.spawn` and throws `ELAUNCHGUARD` (`:800`).
+- **Runner** (`…/external-checkers/checker-runner.ts`): passes `launchGuard` through. An `ELAUNCHGUARD` error, whether
+  thrown or emitted, becomes the new result kind `refused` (`isGuardRefusal`, `:111`, `:226`, `:233`).
+- **Store** (`…/go-vet-consent-store.ts:200`): an `on` answer now carries `recordFile` and the SHA-256 of the exact
+  bytes that were judged.
+- **Checker** (`…/go-vet-checker.ts:646`, `:674`, `:677`):
+  - The guard binds four facts: the consent record's bytes; the verified binary (canonical path, size, mtime), which is
+    also the only command ever spawned; the root's real path and `dev:ino` from the record; and the canonical module
+    directory used as the working directory.
+  - On `refused` the checker re-reads consent against the binary resolved now and reports `unchecked` / `not-run` with
+    `no-consent`, `consent-stale` (with its reason, e.g. `go-changed`) or the new `launch-refused` (the folder or
+    `go.mod` directory changed). It never reports clean and never credits files.
+- **Binary-swap variant:** closed by the same mechanism, because the binary's identity is re-verified at creation.
+
+**Residual (stated, not claimed fixed).**
+
+- A metadata check at the moment of creation still leaves the stat→`CreateProcess` interval. It is not an OS-level
+  execution-identity guarantee against a writer of the toolchain's own directory, as the reviewer notes.
+- Ordering between processes is last-commit-wins at the instant of launch; there is no interprocess lease. A revoke
+  that completes before the worker consumes the message now always stops the launch. A revoke that lands after the
+  child exists does not kill it, as O2 allows; the run is still bounded by its 30 s timeout.
+
+### Regression specs
+
+- `libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-vet-checker.spec.ts:1095`: uses a delayed
+  "worker" that applies the platform-core guard check at creation, with a real consent file and a real binary file.
+  - Normal path: the process is created once, the command is the verified path, and the answer is `checked`.
+  - **Revoke after the launch was queued**: no process is created; `unchecked/no-consent`.
+  - **Binary changed after the launch was queued**: no process is created; `unchecked/consent-stale/go-changed`.
+  - The guard carries exactly the four facts above.
+- `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.spec.ts:961`, against the real
+  `OffThreadProcessSpawner`:
+  - A guard that still holds spawns.
+  - Deleting the consent file, rewriting it, or changing the binary after the decision gives `ELAUNCHGUARD`, with
+    `whenSpawned` resolving `null`.
+  - The inline fallback throws `ELAUNCHGUARD`.
+  - The **real worker program**, held by a barrier before its message loop, receives the spawn; consent is then
+    revoked and the worker released: no `spawned` message, only `error{code:'ELAUNCHGUARD'}`. This is the reviewer's
+    probe, made a spec.
+
+### FB evidence
+
+| Evidence                                                                                  | Before the fix                                             | After the fix                                                                                       |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Reviewer probe `%TEMP%/lane-k-r2-worker-probe.cjs` (real worker program, barrier), revoke | real child **PID 13416** after the revoke (review r2)      | `pidAfter: null`, `unchecked`, `no-consent`                                                         |
+| Same probe, binary changed                                                                | not reproduced by the reviewer (timed out)                  | `pidAfter: null`, `unchecked`, `consent-stale`                                                      |
+| Mutation: the worker skips the guard (`const refusal = null`)                             | spawner "launchGuard" specs: **4 failed** / 6               | restored: 6 passed                                                                                  |
+| Mutation: the checker sends no guard (the pre-fix checker)                                | checker "closing review r2" specs: **3 failed** / 4         | restored: 4 passed                                                                                  |
+
+The probe replaces `@ptah-extension/platform-core` with a partial stub that has no `LAUNCH_GUARD_REFUSED`. The
+decisive evidence is therefore `pidAfter: null` (no child), not the reason string.
+
+### Verification
+
+- `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence
+  @ptah-extension/agent-sdk @ptah-extension/platform-core --skip-nx-cache` → "Successfully ran targets test, lint,
+  typecheck for 3 projects".
+  - platform-core: 997 passed, 4 todo.
+  - agent-sdk: 2,191 passed, 3 skipped.
+  - workspace-intelligence: 1,788 passed, 10 skipped.
+  - Lint: 0 errors; no warnings in the changed files.
+- The platform-core port change reaches the hosts: `nx run-many -t=typecheck -p ptah-cli ptah-electron
+  @ptah-extension/rpc-handlers --skip-nx-cache` succeeded for all 3. The rpc-handlers consent suite passes 25/25.
+- `nx run ptah-electron:validate-deps --skip-nx-cache` → "All external imports are covered".
+- `nx run degradation-audit:lint --skip-nx-cache` → "TOTAL 300"; agent-sdk 4, platform-core 7 and
+  workspace-intelligence 1, each equal to baseline.
+- Prettier was run only on files changed in this round.
+
+### Every changed path (this round)
+
+- `libs/backend/platform-core/src/interfaces/process-spawner.interface.ts`
+- `libs/backend/platform-core/src/utils/launch-guard.ts` (new)
+- `libs/backend/platform-core/src/index.ts`
+- `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner-source.ts`
+- `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.ts`
+- `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.spec.ts`
+- `libs/backend/workspace-intelligence/src/diagnostics/external-checkers/checker-runner.ts`
+- `libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-vet-consent-store.ts`
+- `libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-vet-checker.ts`
+- `libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-vet-checker.spec.ts`
+- `.ptah/specs/TASK_2026_559_8ca9/lane-k-closing-fix-report.md` (this section)

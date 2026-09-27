@@ -63,7 +63,18 @@ export type GoVetConsentStaleReason =
 
 export type GoVetConsentState =
   | { readonly state: 'off' }
-  | { readonly state: 'on'; readonly record: GoVetConsentRecord }
+  | {
+      readonly state: 'on';
+      readonly record: GoVetConsentRecord;
+      /**
+       * The record file and the SHA-256 of the exact bytes judged `on`: the
+       * spawner re-checks both on the thread that creates the process, so a
+       * revoke or re-grant after this read stops the launch (closing review
+       * r2 finding 1).
+       */
+      readonly recordFile: string;
+      readonly recordSha256: string;
+    }
   | { readonly state: 'stale'; readonly reason: GoVetConsentStaleReason };
 
 /** The root facts a record binds; injectable for the specs. */
@@ -174,11 +185,20 @@ export class GoVetConsentStore {
   ): GoVetConsentState {
     try {
       if (!this.isRegistered(workspaceRoot)) return OFF;
+      const recordFile = this.recordFile(workspaceRoot);
+      const bytes = fs.readFileSync(recordFile);
       const record = parseGoVetConsentRecord(
-        JSON.parse(fs.readFileSync(this.recordFile(workspaceRoot), 'utf8')),
+        JSON.parse(bytes.toString('utf8')),
       );
       if (record === null) return OFF;
-      return this.judge(workspaceRoot, record, currentGoBinary);
+      const judged = this.judge(workspaceRoot, record, currentGoBinary);
+      if (judged !== null) return judged;
+      return {
+        state: 'on',
+        record,
+        recordFile,
+        recordSha256: createHash('sha256').update(bytes).digest('hex'),
+      };
     } catch (error: unknown) {
       // Consent fails closed: no record file, an unreadable or malformed one,
       // a store that is not ready, or any other throw means go vet does not
@@ -309,7 +329,7 @@ export class GoVetConsentStore {
     workspaceRoot: string,
     record: GoVetConsentRecord,
     currentGoBinary: GoBinaryIdentity | null,
-  ): GoVetConsentState {
+  ): Exclude<GoVetConsentState, { state: 'on' }> | null {
     const realpath = this.fileSystem.realpath(workspaceRoot);
     const samePath =
       this.platform === 'win32'
@@ -326,7 +346,7 @@ export class GoVetConsentStore {
     ) {
       return { state: 'stale', reason: 'go-changed' };
     }
-    return { state: 'on', record };
+    return null;
   }
 
   /**

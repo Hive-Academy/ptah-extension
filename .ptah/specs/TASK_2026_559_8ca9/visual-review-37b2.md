@@ -176,6 +176,27 @@ Fix findings 1–3 (badge contrast, error-text contrast, toggle target size) or 
 are accepted as pre-existing design-system debt shared with other cards; findings 4 and the minor notes do not
 block merge.
 
+## Re-check (after consent hardening)
+
+Commit `9df0d81e4` added `confirmToken` (GET/SET round-trip) and a new `go-changed` SET error; no template/CSS
+changed beyond the `SET_ERROR_TEXT` map gaining that entry. Re-created the same temporary harness in
+`task-559-lane-k` only (`harness-go-vet.{main.ts,html}` + temp `build-harness-TEMP`/`serve-harness-TEMP` in
+`project.json`, all reverted; `git status --porcelain apps/ptah-extension-webview` → empty), touching nothing
+else while another agent worked on backend files in the same worktree. Screenshots:
+`.ptah/specs/TASK_2026_559_8ca9/screenshots/37b2/r3/` (12 files), dark+light × 1280/800: off, confirm ("Confirm
+to enable"), on, the new `go-changed` SET error, `workspace-changed` SET error, and stale (`go-changed` reason).
+
+- Badge/status text contrast: unchanged from r2, re-measured 13.76:1 (dark) / 14.92:1 (light) on off/confirm/on/
+  stale.
+- New error chips: `go-changed` 12.85:1 dark / 12.90:1 light; `workspace-changed` 12.85:1 dark — same
+  `border-error/50 bg-error/10` + `text-base-content` treatment as the other SET errors, both well over 4.5:1,
+  and both wrap cleanly at 800px with no overflow (`04`, `06`, `10`).
+- Toggle hit area: 32×24 px, unchanged, at both breakpoints and both themes (`01`, `05`, `09`).
+- Badge/toggle agreement during confirm still holds ("Confirm to enable" + on-position switch, `02`, `09`).
+
+**Verdict: APPROVED — no regression.** All r2 guarantees hold after the hardening commit; the two new error
+strings inherit the same accessible chip pattern and wrap correctly.
+
 ## Re-review (after visual fix round)
 
 Same worktree/rules as the original review: no source edited, no git commands run. Re-created the identical

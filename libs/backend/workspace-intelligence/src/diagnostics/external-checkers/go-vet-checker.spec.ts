@@ -16,6 +16,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { PassThrough } from 'stream';
+import {
+  LAUNCH_GUARD_REFUSED,
+  launchGuardRefusal,
+} from '@ptah-extension/platform-core';
 import type {
   IProcessSpawner,
   IStateStorage,
@@ -24,7 +28,7 @@ import type {
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 import { runChecker } from './checker-runner';
-import type { ResolvedGoBinary } from './go-binary-resolver';
+import { resolveGoBinary, type ResolvedGoBinary } from './go-binary-resolver';
 import { GoVetConsentStore } from './go-vet-consent-store';
 import { hasFilenameConstraint, scanGoHeader } from './go-file-membership';
 import {
@@ -1085,5 +1089,177 @@ describe('splitVetOutput', () => {
     expect(splitVetOutput('{"s":"}{"}\n').objects).toEqual([{ s: '}{' }]);
     expect(splitVetOutput('go: downloading x\n').stray).toBe(true);
     expect(splitVetOutput('{"unterminated": 1').stray).toBe(true);
+  });
+});
+
+describe('GoVetChecker — closing review r2: the launch re-checks consent and binary on the creating thread', () => {
+  /**
+   * A spawner whose "worker" creates the process only when released, and
+   * then applies the platform-core launch-guard check first — the same check
+   * the real worker and the inline fallback make at the instant of creation.
+   */
+  class DelayedGuardedSpawner implements IProcessSpawner {
+    readonly requests: ProcessSpawnRequest[] = [];
+    created = 0;
+    private release: (() => void) | undefined;
+    readonly queued: Promise<void>;
+    private markQueued: () => void = () => undefined;
+
+    constructor() {
+      this.queued = new Promise((resolve) => (this.markQueued = resolve));
+    }
+
+    spawnProcess(request: ProcessSpawnRequest): SpawnedProcessHandle {
+      this.requests.push(request);
+      const handle = new FakeHandle();
+      const gate = new Promise<void>((resolve) => (this.release = resolve));
+      void gate.then(() => {
+        if (launchGuardRefusal(request.launchGuard) !== null) {
+          const refused = Object.assign(new Error('refused'), {
+            code: LAUNCH_GUARD_REFUSED,
+          });
+          handle.emit('error', refused);
+          return;
+        }
+        this.created++;
+        handle.emit('close', 0, null);
+      });
+      this.markQueued();
+      return handle;
+    }
+
+    releaseWorker(): void {
+      this.release?.();
+    }
+  }
+
+  function realGoSetup(): {
+    root: string;
+    file: string;
+    goBinary: string;
+    checker: GoVetChecker;
+    store: GoVetConsentStore;
+    spawner: DelayedGuardedSpawner;
+  } {
+    const { root, a } = goModule();
+    const binDir = tempDir('ptah-govet-bin-');
+    const goBinary = path.join(
+      binDir,
+      process.platform === 'win32' ? 'go.exe' : 'go',
+    );
+    fs.writeFileSync(goBinary, 'not a real toolchain');
+    fs.chmodSync(goBinary, 0o755);
+    const userData = tempDir('ptah-govet-userdata-');
+    const scoped = new ScopedStorage();
+    scoped.register(root);
+    const store = new GoVetConsentStore(scoped, { userDataPath: userData });
+    const spawner = new DelayedGuardedSpawner();
+    const checker = new GoVetChecker({
+      consentStore: store,
+      getSpawner: () => spawner,
+      userDataPath: userData,
+      logger: { info: jest.fn() },
+      env: () => ({ PATH: binDir }),
+      run: (request) => runChecker(request, { killTree: jest.fn() }),
+    });
+    return { root, file: a, goBinary, checker, store, spawner };
+  }
+
+  function resolveNow(root: string, goBinary: string): ResolvedGoBinary {
+    const resolved = resolveGoBinary({
+      workspaceRoot: root,
+      env: { PATH: path.dirname(goBinary) },
+    });
+    if (resolved === null) throw new Error('fixture binary not resolved');
+    return resolved;
+  }
+
+  it('normal path: the guard holds, the process is created once, and the answer is checked', async () => {
+    const { root, file, goBinary, checker, store, spawner } = realGoSetup();
+    await store.grant(root, resolveNow(root, goBinary));
+
+    const pending = checker.check({ workspaceRoot: root, files: [file] });
+    await spawner.queued;
+    spawner.releaseWorker();
+    const result = await pending;
+
+    expect(spawner.created).toBe(1);
+    expect(spawner.requests[0].command).toBe(resolveNow(root, goBinary).path);
+    expect(result.status).toBe('checked');
+  });
+
+  it('revoke after the launch was queued → no process is created; unchecked/no-consent, never clean', async () => {
+    const { root, file, goBinary, checker, store, spawner } = realGoSetup();
+    await store.grant(root, resolveNow(root, goBinary));
+
+    const pending = checker.check({ workspaceRoot: root, files: [file] });
+    await spawner.queued;
+    await store.revoke(root);
+    spawner.releaseWorker();
+    const result = await pending;
+
+    expect(spawner.created).toBe(0);
+    expect(result).toMatchObject({
+      status: 'unchecked',
+      outcome: 'not-run',
+      reason: 'no-consent',
+      checkedFiles: [],
+      diagnostics: [],
+    });
+  });
+
+  it('binary changed after the launch was queued → no process is created; unchecked/consent-stale (go-changed)', async () => {
+    const { root, file, goBinary, checker, store, spawner } = realGoSetup();
+    await store.grant(root, resolveNow(root, goBinary));
+
+    const pending = checker.check({ workspaceRoot: root, files: [file] });
+    await spawner.queued;
+    fs.appendFileSync(goBinary, ' swapped');
+    spawner.releaseWorker();
+    const result = await pending;
+
+    expect(spawner.created).toBe(0);
+    expect(result).toMatchObject({
+      status: 'unchecked',
+      reason: 'consent-stale',
+      staleReason: 'go-changed',
+      checkedFiles: [],
+    });
+  });
+
+  it('the guard binds the exact consent bytes, the verified binary, the root and the module directory', async () => {
+    const { root, file, goBinary, checker, store, spawner } = realGoSetup();
+    const accepted = resolveNow(root, goBinary);
+    await store.grant(root, accepted);
+
+    const pending = checker.check({ workspaceRoot: root, files: [file] });
+    await spawner.queued;
+    spawner.releaseWorker();
+    await pending;
+
+    const guard = spawner.requests[0].launchGuard;
+    expect(guard?.fileContents).toEqual([
+      {
+        path: expect.any(String),
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+    ]);
+    expect(guard?.fileIdentities).toEqual([
+      {
+        path: accepted.path,
+        realpath: accepted.path,
+        size: accepted.size,
+        mtimeMs: accepted.mtimeMs,
+      },
+      {
+        path: path.resolve(root),
+        realpath: fs.realpathSync.native(root),
+        devIno: expect.anything(),
+      },
+      {
+        path: fs.realpathSync.native(root),
+        realpath: fs.realpathSync.native(root),
+      },
+    ]);
   });
 });

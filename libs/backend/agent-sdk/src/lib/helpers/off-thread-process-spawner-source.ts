@@ -36,7 +36,8 @@
  * Protocol (see `off-thread-process-spawner.ts` for the typed mirror). Every
  * message in both directions carries the `id` of the lease it belongs to:
  *   host -> worker: { type: 'spawn', id, command, args, cwd, env, stderrMode,
- *                     detached, windowsHide, windowsVerbatimArguments }
+ *                     detached, windowsHide, windowsVerbatimArguments,
+ *                     launchGuard? }
  *                 | { type: 'stdin', id, chunk: Uint8Array }
  *                 | { type: 'stdin-end', id }
  *                 | { type: 'kill', id, signal }
@@ -82,6 +83,15 @@
  * own enumerable extras reliably, so the error is flattened into a plain object
  * here and rebuilt on the host.
  *
+ * **`launchGuard` is checked HERE, immediately before `spawn`** (TASK_2026_559
+ * Lane K, closing review r2 finding 1). The host decided to launch on another
+ * thread, possibly long before this message is consumed; a caller whose
+ * authorization rests on files (a consent record, the approved binary's
+ * identity) sends those facts, and this thread re-reads them synchronously and
+ * spawns in the same turn, or refuses with an `error` whose `code` is
+ * `ELAUNCHGUARD` and creates no child. `launchGuardRefusal` below is a twin of
+ * `platform-core/src/utils/launch-guard.ts`; the spec drives both.
+ *
  * **`stdout-end` is posted exactly once per child, from either source.** A
  * successful run ends it when the pipe closes; a failed spawn (ENOENT) never
  * emits `exit` at all and its stdio stream is destroyed rather than ended, so
@@ -92,6 +102,8 @@
 export const OFF_THREAD_SPAWNER_WORKER_SOURCE = String.raw`
 const { parentPort } = require('node:worker_threads');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
 
 if (!parentPort) {
   throw new Error('off-thread spawner worker started without a parentPort');
@@ -174,8 +186,66 @@ function killChild(state, signal) {
   }
 }
 
+function samePath(a, b) {
+  return process.platform === 'win32'
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
+}
+
+// Twin of platform-core's launchGuardRefusal: null when every fact holds.
+function launchGuardRefusal(guard) {
+  if (!guard) return null;
+  try {
+    const contents = guard.fileContents || [];
+    for (let i = 0; i < contents.length; i++) {
+      const digest = crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(contents[i].path))
+        .digest('hex');
+      if (digest !== contents[i].sha256) return 'content';
+    }
+    const identities = guard.fileIdentities || [];
+    for (let i = 0; i < identities.length; i++) {
+      const expected = identities[i];
+      if (!samePath(fs.realpathSync.native(expected.path), expected.realpath)) {
+        return 'identity';
+      }
+      const stats = fs.statSync(expected.path);
+      if (expected.size !== undefined && stats.size !== expected.size) {
+        return 'identity';
+      }
+      if (expected.mtimeMs !== undefined && stats.mtimeMs !== expected.mtimeMs) {
+        return 'identity';
+      }
+      if (expected.devIno !== undefined && expected.devIno !== null) {
+        const big = fs.statSync(expected.path, { bigint: true });
+        if (
+          big.ino !== BigInt(0) &&
+          String(big.dev) + ':' + String(big.ino) !== expected.devIno
+        ) {
+          return 'identity';
+        }
+      }
+    }
+    return null;
+  } catch (err) {
+    return 'unreadable';
+  }
+}
+
 function startChild(state, message) {
   const stderrMode = message.stderrMode || 'ignore';
+  const refusal = launchGuardRefusal(message.launchGuard);
+  if (refusal !== null) {
+    send(state, {
+      type: 'error',
+      message: 'launch guard refused the spawn (' + refusal + ')',
+      code: 'ELAUNCHGUARD',
+    });
+    endStdoutOnce(state);
+    endStderrOnce(state);
+    return;
+  }
   let child;
   try {
     child = spawn(message.command, message.args, {
