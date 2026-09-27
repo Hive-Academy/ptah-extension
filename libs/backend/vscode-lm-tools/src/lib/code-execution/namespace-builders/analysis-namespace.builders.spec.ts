@@ -14,12 +14,48 @@
 
 import 'reflect-metadata';
 
+// Real grammars for the Batch 29b real-dispatcher enrich specs at the end of
+// this file: the lib-wide wasm-bundle-dir stub throws on purpose, and
+// web-tree-sitter must load grammars from bytes (the shims
+// `code-outliner.adapter.spec.ts` documents).
+jest.mock('wasm-bundle-dir', () => {
+  const nodePath = require('path');
+  const grammarDir = nodePath.join(
+    nodePath.dirname(require.resolve('@vscode/tree-sitter-wasm/package.json')),
+    'wasm',
+  );
+  const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  return {
+    BUNDLE_DIR: grammarDir,
+    resolveWasmPath: (filename: string) =>
+      filename.startsWith('web-tree-sitter')
+        ? nodePath.join(runtimeDir, filename)
+        : nodePath.join(grammarDir, filename),
+  };
+});
+
+jest.mock('web-tree-sitter', () => {
+  const actual =
+    jest.requireActual<typeof import('web-tree-sitter')>('web-tree-sitter');
+  const nodeFs = require('fs');
+  const loadFromPathOrBuffer = actual.Language.load.bind(actual.Language);
+  actual.Language.load = (input: string | Uint8Array) =>
+    loadFromPathOrBuffer(
+      typeof input === 'string'
+        ? new Uint8Array(nodeFs.readFileSync(input))
+        : input,
+    );
+  return actual;
+});
+
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
   DEFAULT_WORKSPACE_EXCLUDES,
   DependencyGraphService,
+  ContextEnrichmentService as RealContextEnrichmentService,
+  TreeSitterParserService,
   type AstAnalysisService,
   type ContextSizeOptimizerService,
   type MonorepoDetectorService,
@@ -42,7 +78,11 @@ import {
   type IFileSystemProvider,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import type { SymbolIndexPage } from '../types';
+import type { MCPRequest, PtahAPI, SymbolIndexPage } from '../types';
+import {
+  handleMCPRequest,
+  type ProtocolHandlerDependencies,
+} from '../mcp-core/protocol-dispatcher';
 
 import {
   GRAPH_CENSUS_LIMIT,
@@ -294,6 +334,8 @@ describe('buildContextNamespace', () => {
       ['src/a.spec.ts', 'typescript'],
       ['src/types.D.TS', 'typescript'],
       ['src/Legacy.MJS', 'javascript'],
+      ['src/App.tsx', 'tsx'],
+      ['src/App.TSX', 'tsx'],
     ])('infers %s → %s when no language is given', async (file, expected) => {
       await expect(forwardedLanguage(file)).resolves.toBe(expected);
     });
@@ -302,8 +344,6 @@ describe('buildContextNamespace', () => {
       ['src/a.py'],
       ['src/a.go'],
       ['src/a.cs'],
-      ['src/App.tsx'],
-      ['src/App.TSX'],
       ['README.md'],
       ['Makefile'],
       ['.eslintrc'],
@@ -324,19 +364,26 @@ describe('buildContextNamespace', () => {
       );
     });
 
-    it('forwards an explicit typescript for a .tsx file (the service refuses a JSX parse)', async () => {
+    it('forwards an explicit typescript for a .tsx file (the service then refuses a JSX parse)', async () => {
       await expect(
         forwardedLanguage('src/App.tsx', 'typescript'),
       ).resolves.toBe('typescript');
     });
 
+    it('explicit tsx and the .tsx inference agree', async () => {
+      await expect(forwardedLanguage('src/a.tsx', 'tsx')).resolves.toBe('tsx');
+      await expect(forwardedLanguage('src/a.tsx')).resolves.toBe('tsx');
+      // An explicit summary language wins over the extension, tsx included.
+      await expect(forwardedLanguage('src/a.mts', 'tsx')).resolves.toBe('tsx');
+    });
+
     it('ignores an unsupported explicit value and infers from the extension', async () => {
-      await expect(forwardedLanguage('src/a.mts', 'tsx')).resolves.toBe(
+      await expect(forwardedLanguage('src/a.mts', 'python')).resolves.toBe(
         'typescript',
       );
       await expect(
-        forwardedLanguage('src/a.tsx', 'tsx'),
-      ).resolves.toBeUndefined();
+        forwardedLanguage('src/a.tsx', 'typescriptreact'),
+      ).resolves.toBe('tsx');
       await expect(
         forwardedLanguage('src/a.py', 'python'),
       ).resolves.toBeUndefined();
@@ -369,8 +416,7 @@ describe('buildContextNamespace', () => {
         mode: 'structural',
       });
       await expect(ns.enrichFile('src/a.tsx')).resolves.toMatchObject({
-        mode: 'full',
-        reason: 'unsupported-language',
+        mode: 'structural',
       });
       await expect(ns.enrichFile('src/a.py')).resolves.toMatchObject({
         mode: 'full',
@@ -681,7 +727,7 @@ describe('buildDependencyNamespace', () => {
       clean: false,
       census: 'unknown',
       analyzed: null,
-      supportedLanguages: ['typescript', 'javascript'],
+      supportedLanguages: ['typescript', 'javascript', 'tsx'],
     });
     expect(out.coverage.reasons[0]).toBe('census?');
   });
@@ -802,7 +848,7 @@ describe('buildDependencyNamespace', () => {
       expect(answer).toEqual({
         status: 'unsupported-language',
         language,
-        supportedLanguages: ['typescript', 'javascript'],
+        supportedLanguages: ['typescript', 'javascript', 'tsx'],
         message: expect.stringContaining(subject),
       });
       expect(answer?.message).toContain(
@@ -1587,4 +1633,129 @@ describe('buildDependencyNamespace', () => {
     });
     await expect(buildDependencyNamespace(deps).isBuilt()).resolves.toBe(false);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 29b: `ptah_context_enrich_file` on a `.tsx` file through the REAL
+// dispatcher (`handleMCPRequest`), the real `buildContextNamespace`, the real
+// `ContextEnrichmentService` and the real TSX grammar. Only the file read and
+// the token counter are stubbed.
+// ---------------------------------------------------------------------------
+
+describe('ptah_context_enrich_file on .tsx through the real dispatcher (Batch 29b)', () => {
+  const ROOT = 'D:/ws-29b';
+  const LONG_BODY = Array.from(
+    { length: 12 },
+    (_, i) => `  const step${i} = props.count * ${i} + offset${i};`,
+  ).join('\n');
+  const FILES: Record<string, string> = {
+    'src/Badge.tsx': [
+      'export interface BadgeProps {',
+      '  count: number;',
+      '}',
+      `export function Badge(props: BadgeProps) {\n${LONG_BODY}\n  return <span className="badge">{step11}</span>;\n}`,
+      '',
+    ].join('\n'),
+    'src/main.tsx': [
+      'export const root = <Badge count={1} />;',
+      'mount(root);',
+      '',
+    ].join('\n'),
+  };
+
+  const silent = (): Logger =>
+    ({
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    }) as unknown as Logger;
+
+  const parser = new TreeSitterParserService(silent());
+  afterAll(() => parser.dispose());
+
+  function dispatcherDeps(): ProtocolHandlerDependencies {
+    const workspaceProvider = { getWorkspaceRoot: () => ROOT };
+    const enrichment = new RealContextEnrichmentService(
+      parser,
+      {
+        countTokens: async (text: string) => text.length,
+      } as unknown as TokenCounterService,
+      {
+        readFile: async (file: string) => {
+          const relative = path.relative(ROOT, file).split(path.sep).join('/');
+          const content = FILES[relative];
+          if (content === undefined) throw new Error('no such file');
+          return content;
+        },
+      } as unknown as FileSystemService,
+      silent(),
+      workspaceProvider as unknown as IWorkspaceProvider,
+    );
+    const context = buildContextNamespace({
+      ...makeMocks(),
+      contextEnrichment: enrichment,
+      workspaceProvider: workspaceProvider as unknown as IWorkspaceProvider,
+    });
+    return {
+      ptahAPI: { context } as unknown as PtahAPI,
+      permissionPromptService:
+        {} as ProtocolHandlerDependencies['permissionPromptService'],
+      logger: silent(),
+    };
+  }
+
+  async function enrich(
+    file: string,
+    language?: string,
+  ): Promise<Record<string, unknown>> {
+    const request: MCPRequest = {
+      jsonrpc: '2.0',
+      id: `29b-${file}-${language ?? 'inferred'}`,
+      method: 'tools/call',
+      params: {
+        name: 'ptah_context_enrich_file',
+        arguments: language === undefined ? { file } : { file, language },
+      },
+    };
+    const res = await handleMCPRequest(request, dispatcherDeps());
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    expect(result.isError).not.toBe(true);
+    return JSON.parse(result.content[0].text) as Record<string, unknown>;
+  }
+
+  it('a TSX declaration file summarises (no unsupported-language refusal)', async () => {
+    const out = await enrich('src/Badge.tsx');
+
+    expect(out['mode']).toBe('structural');
+    expect(out).not.toHaveProperty('reason');
+    expect(out['content']).toContain('export interface BadgeProps {');
+    expect(out['content']).toContain(
+      'export function Badge(props: BadgeProps);',
+    );
+    expect(out['content']).not.toContain('<span');
+  }, 60_000);
+
+  it('explicit tsx and the inferred language give the same answer', async () => {
+    const [inferred, explicit] = [
+      await enrich('src/Badge.tsx'),
+      await enrich('src/Badge.tsx', 'tsx'),
+    ];
+    expect(explicit).toEqual(inferred);
+  }, 60_000);
+
+  it('a TSX file that runs JSX at load time falls back with its reason', async () => {
+    const out = await enrich('src/main.tsx');
+
+    expect(out).toMatchObject({
+      mode: 'full',
+      reason: 'unsupported-declarations',
+      content: FILES['src/main.tsx'],
+    });
+    const keys = Object.keys(out);
+    expect(keys[keys.length - 1]).toBe('content');
+  }, 60_000);
 });

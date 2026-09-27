@@ -74,6 +74,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import {
   DEFAULT_WORKSPACE_EXCLUDES,
+  EXTENSION_LANGUAGE_MAP,
   LANGUAGE_REGISTRY,
   extensionHasCapability,
   languageForExtension,
@@ -245,10 +246,7 @@ const DECLARATION_QUERIES: Partial<Record<SupportedLanguage, string>> = {
  * parse error in the file).
  */
 type DeclarationScan =
-  | { line: number; column: number }
-  | null
-  | 'unsupported'
-  | 'uncertain';
+  { line: number; column: number } | null | 'unsupported' | 'uncertain';
 
 /** Module file to read: the reported (lexical) path and its canonical path. */
 interface ModuleFile {
@@ -273,8 +271,13 @@ const IDENTIFIER_RE = /[A-Za-z0-9_$]/;
  * against the shipped grammars.
  */
 const COMMENT_STRING_QUERIES: Partial<Record<SupportedLanguage, string>> = {
-  typescript: '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
-  javascript: '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
+  typescript:
+    '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
+  javascript:
+    '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
+  // JSX text is not a string or comment node in the TSX grammar, so quote- or
+  // comment-shaped JSX text around `{expr}` never hides a reference.
+  tsx: '[(comment) @x (string) @x (template_string (string_fragment) @x)]',
   python: '[(comment) @x (string (string_content) @x)]',
   go: '[(comment) @x (interpreted_string_literal) @x (raw_string_literal) @x]',
   csharp:
@@ -951,10 +954,13 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       if (!(error instanceof IncompleteFileSearchError)) {
         // Discovery failed outright: nothing could be scanned, which the
         // report discloses as `truncated` (never a clean "Found: 0").
-        this.logger.warn('[ElectronIDECapabilities] Reference discovery failed', {
-          identifier,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        this.logger.warn(
+          '[ElectronIDECapabilities] Reference discovery failed',
+          {
+            identifier,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
         return { locations: [], truncated: true };
       }
       // Part of the tree could not be read: scan what was found, disclosed.
@@ -1249,44 +1255,44 @@ function parseDeclarationLine(text: string): number | null {
 
 /**
  * Language for the index-free declaration scan, or null (an unresolved
- * answer) when no grammar can parse the file reliably. The packaged
- * TypeScript grammar has no JSX, so valid JSX in a .tsx file parses as ERROR;
- * .tsx is therefore always unresolved here rather than resolved only when the
- * file happens to contain no JSX. Resolving .tsx needs a packaged TSX grammar.
+ * answer) when this scan has no declaration query for it. `.tsx` parses with
+ * its own TSX grammar (Batch 29b) but has no declaration query here, so it
+ * stays unresolved, matching the registry (`definitionFallback` is not
+ * claimed for tsx).
  */
 function declarationLanguage(filePath: string): SupportedLanguage | null {
-  return path.posix.extname(filePath).toLowerCase() === '.tsx'
-    ? null
-    : extToLanguage(filePath);
+  const language = extToLanguage(filePath);
+  return language !== null && DECLARATION_QUERIES[language] !== undefined
+    ? language
+    : null;
 }
 
 /**
- * Map a file path to a Tree-sitter SupportedLanguage, or null when the language
- * has no grammar wired (matches the symbol indexer's coverage).
+ * ESM/CJS module-flavour suffixes the shared extension map does not list;
+ * each parses with the grammar of its base extension.
+ */
+const MODULE_FLAVOUR_BASE: Readonly<Record<string, string>> = {
+  '.mts': '.ts',
+  '.cts': '.ts',
+  '.mjs': '.js',
+  '.cjs': '.js',
+};
+
+/**
+ * Map a file path to the Tree-sitter language its grammar is selected by, or
+ * null when no grammar is wired. Reads the shared `EXTENSION_LANGUAGE_MAP`
+ * (the same map the parser, the code index and the graph use), so `.tsx`
+ * selects the TSX grammar and the comment/string filter never runs a grammar
+ * that misreads JSX (Batch 29b r1 R29b-01).
  */
 function extToLanguage(filePath: string): SupportedLanguage | null {
-  const ext = path.posix.extname(filePath).toLowerCase();
-  switch (ext) {
-    case '.ts':
-    case '.tsx':
-    case '.mts':
-    case '.cts':
-      return 'typescript';
-    case '.js':
-    case '.jsx':
-    case '.mjs':
-    case '.cjs':
-      return 'javascript';
-    case '.py':
-      return 'python';
-    case '.go':
-      return 'go';
-    case '.cs':
-    case '.csx':
-      return 'csharp';
-    default:
-      return null;
-  }
+  const extension = path.posix.extname(filePath).toLowerCase();
+  const key = Object.hasOwn(MODULE_FLAVOUR_BASE, extension)
+    ? MODULE_FLAVOUR_BASE[extension]
+    : extension;
+  return Object.hasOwn(EXTENSION_LANGUAGE_MAP, key)
+    ? EXTENSION_LANGUAGE_MAP[key]
+    : null;
 }
 
 /** Lower-case extension (leading dot) of a forward-slash path. */
@@ -1326,7 +1332,7 @@ function mechanismCoversFile(
       return extensionHasCapability(extension, 'codeIndex');
     case 'declaration-scan': {
       // The registry claim and the query that implements it must both hold;
-      // `.tsx` has the claim through TypeScript but no reliable grammar here.
+      // `.tsx` has no declaration query here (no registry claim either).
       const language = declarationLanguage(cursorPath);
       return (
         extensionHasCapability(extension, 'definitionFallback') &&

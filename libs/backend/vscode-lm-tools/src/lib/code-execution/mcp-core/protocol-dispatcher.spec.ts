@@ -2293,7 +2293,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         expect(body).toEqual({
           status: 'unsupported-language',
           language,
-          supportedLanguages: ['typescript', 'javascript'],
+          supportedLanguages: ['typescript', 'javascript', 'tsx'],
           message: expect.stringContaining('Graph languages'),
           file,
         });

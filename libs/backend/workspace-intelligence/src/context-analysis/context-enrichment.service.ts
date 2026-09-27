@@ -19,6 +19,7 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { SupportedLanguage } from '../ast/ast.types';
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { parserFailureReason } from '../ast/parser-refusal';
+import { hasCapability } from '../ast/language-registry';
 import { TokenCounterService } from '../services/token-counter.service';
 import { FileSystemService } from '../services/file-system.service';
 import {
@@ -41,8 +42,9 @@ export interface StructuralSummaryResult {
    * Why a `mode: 'full'` result was returned instead of a summary; absent on
    * `mode: 'structural'`. Distinguishes "no summary was attempted" from "a
    * summary was attempted and failed":
-   * - `unsupported-language`: the language is not TypeScript/JavaScript (or
-   *   none was given), so no parse was attempted;
+   * - `unsupported-language`: the registry grants the language no
+   *   `enrichSummary` (only TypeScript, JavaScript and TSX have it), or none
+   *   was given, so no parse was attempted;
    * - `parse-failed`: the parse failed or needed error recovery (an ERROR or
    *   MISSING node, e.g. JSX parsed with the TypeScript grammar), so a
    *   summary could omit declarations;
@@ -111,13 +113,13 @@ export class ContextEnrichmentService {
    *
    * Reads the file (or uses provided content), parses it once, and produces a
    * .d.ts-style declaration summary. Returns the full content with a `reason`
-   * instead whenever the summary could drop API: a language other than
-   * TypeScript/JavaScript, a failed or error-recovered parse, a file that is
-   * not declaration-only, nothing to summarise, or a summary that costs no
-   * fewer tokens than the file.
+   * instead whenever the summary could drop API: a language without the
+   * registry's `enrichSummary` capability, a failed or error-recovered parse,
+   * a file that is not declaration-only, nothing to summarise, or a summary
+   * that costs no fewer tokens than the file.
    *
    * @param filePath - Absolute path to the source file
-   * @param language - The file's language; only 'typescript' and 'javascript' are summarised
+   * @param language - The file's language; only languages granted `enrichSummary` ('typescript', 'javascript', 'tsx') are summarised
    * @param fullContent - Optional pre-read file content to avoid redundant I/O
    * @returns Structural summary result with token metrics
    */
@@ -158,9 +160,9 @@ export class ContextEnrichmentService {
         content: emptyHeader,
       };
     }
-    if (language !== 'typescript' && language !== 'javascript') {
+    if (language === undefined || !hasCapability(language, 'enrichSummary')) {
       this.logger.debug(
-        'ContextEnrichmentService.generateStructuralSummary() - Not TypeScript/JavaScript; returning full content (reason: unsupported-language)',
+        'ContextEnrichmentService.generateStructuralSummary() - Language without a structural summary; returning full content (reason: unsupported-language)',
       );
       return this.createFullContentResult(content, 'unsupported-language');
     }

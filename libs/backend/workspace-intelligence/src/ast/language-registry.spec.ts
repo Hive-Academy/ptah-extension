@@ -9,7 +9,9 @@
  *
  * Later-batch expectations pinned here (update them in the batch that changes
  * them, never silently):
- * - `tsx` has no extensions and no capability until Batch 29b.
+ * - `tsx` has its own grammar since Batch 29b (parse, outline, enrichSummary,
+ *   codeIndex; publicSymbols and file graph edges through the TypeScript
+ *   queries; no Electron definition fallback).
  * - `publicSymbols` / `graphEdges` stay TS/JS only until Batches 33-36.
  * - `definitionFallback` gained C# in Batch 26b (the Electron C# declaration
  *   query is proven against the shipped grammar in
@@ -314,12 +316,15 @@ describe('language registry', () => {
   });
 
   it.each<[LanguageCapability, string[]]>([
-    ['parse', ['typescript', 'javascript', 'python', 'go', 'csharp']],
-    ['outline', ['typescript', 'javascript', 'python', 'go', 'csharp']],
-    ['enrichSummary', ['typescript', 'javascript']],
-    ['codeIndex', ['typescript', 'javascript', 'python', 'go', 'csharp']],
-    ['publicSymbols', ['typescript', 'javascript']],
-    ['graphEdges', ['typescript', 'javascript']],
+    ['parse', ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp']],
+    ['outline', ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp']],
+    ['enrichSummary', ['typescript', 'javascript', 'tsx']],
+    [
+      'codeIndex',
+      ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp'],
+    ],
+    ['publicSymbols', ['typescript', 'javascript', 'tsx']],
+    ['graphEdges', ['typescript', 'javascript', 'tsx']],
     [
       'definitionFallback',
       ['typescript', 'javascript', 'python', 'go', 'csharp'],
@@ -329,11 +334,11 @@ describe('language registry', () => {
     expect(supportedLanguagesFor(capability)).toEqual(expected);
   });
 
-  it('draws TS/JS graph edges per file', () => {
+  it('draws TS/JS/TSX graph edges per file', () => {
     // Batch 26b r1 B2: the edges do not bound references (global scripts,
     // re-exports, require, dynamic import, unmapped aliases), so TS/JS do not
     // claim referenceScopeComplete and reference lookups never narrow on them.
-    for (const id of ['typescript', 'javascript'] as const) {
+    for (const id of ['typescript', 'javascript', 'tsx'] as const) {
       expect(LANGUAGE_REGISTRY[id].capabilities.graphEdges).toEqual({
         granularity: 'file',
         referenceScopeComplete: false,
@@ -374,10 +379,12 @@ describe('language registry', () => {
     }
   });
 
-  it('keeps .tsx on the typescript grammar until Batch 29b', () => {
-    expect(languageForExtension('.tsx')).toBe('typescript');
-    expect(LANGUAGE_REGISTRY.tsx.extensions).toEqual([]);
-    expect(LANGUAGE_REGISTRY.tsx.grammarFile).toBeNull();
+  it('gives .tsx its own tsx grammar (Batch 29b)', () => {
+    expect(languageForExtension('.tsx')).toBe('tsx');
+    expect(languageForExtension('.ts')).toBe('typescript');
+    expect(LANGUAGE_REGISTRY.tsx.extensions).toEqual(['.tsx']);
+    expect(LANGUAGE_REGISTRY.tsx.grammarFile).toBe('tree-sitter-tsx.wasm');
+    expect(LANGUAGE_REGISTRY.typescript.extensions).toEqual(['.ts']);
   });
 
   it('maps .c and .h to cpp (no separate c id)', () => {

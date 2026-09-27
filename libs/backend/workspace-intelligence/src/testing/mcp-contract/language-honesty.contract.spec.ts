@@ -17,7 +17,7 @@
  *    can check to a function that actually calls the real tool path and
  *    throws (a real `expect`) if the honesty property does not hold. A new
  *    test asserts every fragment-activated, locally-owned key has an entry
- *    here AND runs it; `CHECKED_ELSEWHERE` names the three keys proved in
+ *    here AND runs it; `CHECKED_ELSEWHERE` names the keys proved in
  *    `MCP/mcp-core/mcp-language-coverage.spec.ts` instead (layering: that
  *    project may import this one, not the reverse), and that file's own
  *    completeness test closes the loop across both registries.
@@ -329,6 +329,8 @@ const CHECKED_ELSEWHERE: ReadonlySet<string> = new Set([
   'honesty:ptah_get_diagnostics',
   'honesty:ptah_lsp_definitions',
   'honesty:ptah_lsp_references',
+  // Batch 29b: the outliner (`code-outliner.adapter.ts`) lives in vscode-lm-tools.
+  'outline:tsx',
 ]);
 
 function realFileSystem(): FileSystemService {
@@ -407,7 +409,166 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
   'syntaxDiagnostics:python': async () => syntaxDiagnosticsHonesty('python'),
   'syntaxDiagnostics:go': async () => syntaxDiagnosticsHonesty('go'),
   'syntaxDiagnostics:csharp': async () => syntaxDiagnosticsHonesty('csharp'),
+
+  'parse:tsx': async () => tsxParseHonesty(),
+  'codeIndex:tsx': async () => tsxCodeIndexHonesty(),
+  'enrichSummary:tsx': async () => tsxEnrichHonesty(),
 };
+
+/**
+ * Batch 29b: TSX with JSX — valid TSX the TypeScript grammar can only recover
+ * from. Relative imports only (validate-deps scans spec text).
+ */
+const TSX_COMPONENT = [
+  "import { useTheme } from './theme';",
+  'export interface BadgeProps {',
+  '  count: number;',
+  '}',
+  'export function Badge(props: BadgeProps) {',
+  ...Array.from(
+    { length: 12 },
+    (_, i) => `  const step${i} = props.count * ${i} + useTheme().offset${i};`,
+  ),
+  '  return <span className="badge">{step11}</span>;',
+  '}',
+  'export const Card = ({ title }: { title: string }) => <h2>{title}</h2>;',
+  '',
+].join('\n');
+
+/** `parse:tsx`: a clean TSX parse, where the TypeScript grammar recovers. */
+async function tsxParseHonesty(): Promise<void> {
+  const asTsx = await analysis.analyzeSource(
+    TSX_COMPONENT,
+    'tsx',
+    '/ws/Badge.tsx',
+  );
+  if (asTsx.isErr()) throw asTsx.error ?? new Error('tsx parse failed');
+  const insights = asTsx.unwrap();
+  if (insights.parseStatus !== 'ok') {
+    throw new Error(
+      `TSX with JSX did not parse cleanly: ${insights.parseStatus}`,
+    );
+  }
+  const names = insights.functions.map((f) => f.name);
+  if (!names.includes('Badge') || !names.includes('Card')) {
+    throw new Error(`TSX components not found: ${JSON.stringify(names)}`);
+  }
+  // Contrast: the same text under the TypeScript grammar is not clean, so
+  // the ok above comes from the TSX grammar, not from a check that always
+  // passes.
+  const asTs = await analysis.analyzeSource(
+    TSX_COMPONENT,
+    'typescript',
+    '/ws/Badge.tsx',
+  );
+  if (asTs.isErr() || asTs.unwrap().parseStatus === 'ok') {
+    throw new Error(
+      'the TypeScript grammar parsed JSX cleanly (contrast failed)',
+    );
+  }
+}
+
+/** `codeIndex:tsx`: the real indexer stores the components and counts the file analysed. */
+async function tsxCodeIndexHonesty(): Promise<void> {
+  const root = '/ws-29b-index';
+  const file = `${root}/src/Badge.tsx`;
+  const names: string[] = [];
+  const sink: ISymbolSink = {
+    deleteSymbolsForFile: () => 0,
+    insertSymbols: async (chunks: readonly SymbolChunkInsert[]) => {
+      for (const c of chunks) {
+        if (c.symbolName !== undefined) names.push(c.symbolName);
+      }
+    },
+  };
+  const discovery = {
+    indexWorkspaceStream: () =>
+      (async function* () {
+        yield {
+          path: file,
+          relativePath: 'src/Badge.tsx',
+          type: 'source',
+          size: 100,
+        };
+      })(),
+  } as unknown as WorkspaceIndexerService;
+  const fileSystem = {
+    readFile: async (p: string) => {
+      if (p !== file) throw new Error(`no such file: ${p}`);
+      return TSX_COMPONENT;
+    },
+  } as unknown as IFileSystemProvider;
+
+  const indexer = new CodeSymbolIndexer(
+    silentLogger(),
+    analysis,
+    discovery,
+    fileSystem,
+    sink,
+  );
+  await indexer.indexWorkspace(root, { userInitiated: true });
+
+  if (!names.includes('Badge') || !names.includes('Card')) {
+    throw new Error(
+      `TSX components were not indexed: ${JSON.stringify(names)}`,
+    );
+  }
+  const coverage = indexer.getCoverage(root);
+  if (
+    !coverage ||
+    coverage.analyzed !== 1 ||
+    coverage.unsupported !== 0 ||
+    coverage.failed !== 0
+  ) {
+    throw new Error(
+      `expected the .tsx file analysed, not unsupported or failed: ${JSON.stringify(coverage)}`,
+    );
+  }
+}
+
+/** `enrichSummary:tsx`: a declaration-only `.tsx` file summarises; JSX at load time falls back. */
+async function tsxEnrichHonesty(): Promise<void> {
+  const service = new ContextEnrichmentService(
+    parser,
+    { countTokens: async (t: string) => t.length } as unknown as never,
+    { readFile: jest.fn() } as unknown as FileSystemService,
+    silentLogger(),
+    { getWorkspaceRoot: () => '/ws' } as unknown as never,
+  );
+  const summary = await service.generateStructuralSummary(
+    '/ws/src/Badge.tsx',
+    'tsx',
+    TSX_COMPONENT,
+  );
+  if (summary.mode !== 'structural') {
+    throw new Error(
+      `a declaration-only .tsx file was not summarised: ${summary.reason}`,
+    );
+  }
+  if (
+    !summary.content.includes('export function Badge(props: BadgeProps);') ||
+    summary.content.includes('<span')
+  ) {
+    throw new Error(`unexpected TSX summary: ${summary.content}`);
+  }
+  // Contrast: load-time JSX is not declaration-only, so the full content
+  // comes back with its reason (Decision 13 refusal kept).
+  const runtime = 'export const root = <Badge count={1} />;\nmount(root);\n';
+  const fallback = await service.generateStructuralSummary(
+    '/ws/src/main.tsx',
+    'tsx',
+    runtime,
+  );
+  if (
+    fallback.mode !== 'full' ||
+    fallback.reason !== 'unsupported-declarations' ||
+    fallback.content !== runtime
+  ) {
+    throw new Error(
+      `load-time JSX was not refused with its reason: ${JSON.stringify(fallback)}`,
+    );
+  }
+}
 
 /**
  * Real `DependencyGraphService` + REAL `AstAnalysisService`/tree-sitter (not

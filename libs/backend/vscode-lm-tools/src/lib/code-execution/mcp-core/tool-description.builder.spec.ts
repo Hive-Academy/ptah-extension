@@ -521,6 +521,22 @@ describe('Batch 24c — description language list equals registry', () => {
     ]);
   });
 
+  it('ptah_context_enrich_file tells callers .tsx is summarised as tsx (Batch 29b r1 R29b-03)', () => {
+    const tool = buildContextEnrichFileTool();
+    const language = (
+      tool.inputSchema.properties as Record<string, { description?: string }>
+    )['language'].description;
+
+    expect(supportedLanguagesFor('enrichSummary')).toContain('tsx');
+    expect(tool.description).not.toMatch(/not \.tsx|or \.tsx\)/);
+    expect(language).not.toContain('.tsx is not summarised');
+    expect(language).toContain('.tsx → tsx');
+    // The refusals a TSX file can still get stay described: not
+    // declaration-only (load-time JSX, top-level calls) and parse failures.
+    expect(tool.description).toContain("'unsupported-declarations'");
+    expect(tool.description).toContain("'parse-failed'");
+  });
+
   it('no language-bound description keeps the old hand-written TS/JS-only claims', () => {
     expect(buildAstAnalyzeTool().description).not.toContain(
       'JavaScript/TypeScript file',

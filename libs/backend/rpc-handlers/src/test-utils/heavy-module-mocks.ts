@@ -88,5 +88,11 @@ export function workspaceIntelligenceMock(): Record<string, unknown> {
     FileRelevanceScorerService: class {},
     ContextSizeOptimizerService: class {},
     ContextEnrichmentService: class {},
+    // Language-registry reads that vscode-lm-tools makes at module load (the
+    // graph discovery glob in `analysis-namespace.builders.ts`, the
+    // registry-generated tool descriptions in `tool-description.builder.ts`),
+    // which the handler barrel reaches.
+    recognisedSourceExtensions: () => ['.ts'],
+    supportedLanguagesFor: () => ['typescript'],
   };
 }

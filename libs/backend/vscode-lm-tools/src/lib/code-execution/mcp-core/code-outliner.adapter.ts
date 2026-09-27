@@ -18,9 +18,10 @@
  * errs or throws (a VS Code host without the WASM grammars fails
  * `initialize()`), or a parse containing an ERROR or MISSING node — error
  * recovery can stretch a body node over code that is not in it, and hiding
- * real declarations is worse than no outline. `.tsx`/`.jsx` map to the plain
- * TS/JS grammars (`EXTENSION_LANGUAGE_MAP`), so a file with JSX parses with
- * errors and is refused.
+ * real declarations is worse than no outline. `.tsx` has its own grammar
+ * (TypeScript plus JSX, Batch 29b) and `.jsx` parses with the JavaScript
+ * grammar, which has JSX; JSX forced onto the TypeScript grammar still parses
+ * with errors and is refused.
  *
  * Omittable spans hold only body content, so an omitted line never carries a
  * signature or other code:
@@ -65,16 +66,9 @@ const JS_TS_BODIES = `
 (method_definition body: (_) @body)
 `;
 
-/**
- * Per-grammar outline queries. Every node and field name was checked against
- * the grammars `TreeSitterParserService` loads (@vscode/tree-sitter-wasm); a
- * name the grammar lacks makes `queryMulti` fail, and the spec compiles each
- * set against its real grammar.
- */
-const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
-  typescript: {
-    bodies: JS_TS_BODIES,
-    declarations: `
+const TS_OUTLINE_QUERIES: OutlineQueries = {
+  bodies: JS_TS_BODIES,
+  declarations: `
 (function_declaration name: (_) @name) @decl
 (generator_function_declaration name: (_) @name) @decl
 (function_signature name: (_) @name) @decl
@@ -90,7 +84,18 @@ const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
 (public_field_definition name: (_) @name) @decl
 (variable_declarator name: (identifier) @name) @decl
 `,
-  },
+};
+
+/**
+ * Per-grammar outline queries. Every node and field name was checked against
+ * the grammars `TreeSitterParserService` loads (@vscode/tree-sitter-wasm); a
+ * name the grammar lacks makes `queryMulti` fail, and the spec compiles each
+ * set against its real grammar. The TSX grammar is the TypeScript grammar
+ * plus JSX, so it takes the TypeScript set unchanged.
+ */
+const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
+  typescript: TS_OUTLINE_QUERIES,
+  tsx: TS_OUTLINE_QUERIES,
   javascript: {
     bodies: JS_TS_BODIES,
     declarations: `

@@ -20,7 +20,6 @@ import {
   exportSymbolNames,
   resolveEnrichLanguage,
   DEFAULT_WORKSPACE_EXCLUDES,
-  EXTENSION_LANGUAGE_MAP,
   classifyFileForCoverage,
   languageForExtension,
   recognisedSourceExtensions,
@@ -106,6 +105,8 @@ function isAbsoluteFileArg(filePath: string): boolean {
 // TASK_2026_559 Batch 20 r1 defect 5): the production MCP path and the Task
 // 20.2 regression bench call the exact same function, so a regression here is
 // caught by the bench without a test-local reimplementation drifting from it.
+// It reads the registry's `enrichSummary` capability, so `.tsx` infers `tsx`
+// (its own grammar since Batch 29b) instead of being refused.
 
 /**
  * Build context optimization namespace

@@ -590,8 +590,11 @@ export class WorkspaceAnalyzerService implements IDisposable {
   async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
     try {
       const content = await this.fileSystemService.readFile(filePath);
-      const language: SupportedLanguage =
-        filePath.endsWith('.ts') || filePath.endsWith('.tsx')
+      // `.tsx` has its own grammar (Batch 29b): the TypeScript grammar
+      // misreads JSX.
+      const language: SupportedLanguage = filePath.endsWith('.tsx')
+        ? 'tsx'
+        : filePath.endsWith('.ts')
           ? 'typescript'
           : 'javascript';
 

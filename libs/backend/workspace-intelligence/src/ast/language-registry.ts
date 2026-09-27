@@ -83,14 +83,12 @@ export interface LanguageRegistryEntry {
 }
 
 /**
- * Extensions of languages with no grammar yet. `tsx` has none on purpose:
- * `.tsx` parses with the TypeScript grammar (`typescript.language.ts`) until
- * Batch 29b gives it its own grammar. `.c`/`.h` belong to `cpp` (Decision 19).
+ * Extensions of languages with no grammar yet. `.c`/`.h` belong to `cpp`
+ * (Decision 19).
  */
 const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
   Record<Exclude<LanguageId, SupportedLanguage>, readonly string[]>
 > = {
-  tsx: [],
   java: ['.java'],
   kotlin: ['.kt', '.kts'],
   rust: ['.rs'],

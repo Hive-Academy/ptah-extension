@@ -18,9 +18,10 @@ export interface LanguageQueries {
  * them from the grammar and the export query, so a module cannot claim either
  * without the parser having it. Where each declared value is implemented:
  * - outline: `OUTLINE_QUERIES` in vscode-lm-tools `code-outliner.adapter.ts`
- *   (all five parsed languages).
- * - enrichSummary: `ContextEnrichmentService` gate (TS/JS only).
- * - codeIndex: `CodeSymbolIndexer` `DEFAULT_EXTENSIONS` (all five).
+ *   (every parsed language).
+ * - enrichSummary: `ContextEnrichmentService` gate, which reads this
+ *   capability (TS/JS/TSX: the declaration summary's node names).
+ * - codeIndex: `CodeSymbolIndexer` (every parsed language).
  * - graphEdges: `DependencyGraphService` resolves relative TS/JS imports to
  *   files; other languages get no edges until Batches 33-36.
  * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;

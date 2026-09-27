@@ -11,14 +11,25 @@
  */
 
 import * as path from 'node:path';
-import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
+import {
+  EXTENSION_LANGUAGE_MAP,
+  GRAMMAR_FILE_MAP,
+} from '../ast/tree-sitter.config';
 import type { SupportedLanguage } from '../ast/ast.types';
+import { hasCapability } from '../ast/language-registry';
 
-/** Languages `ContextEnrichmentService` renders as a .d.ts-style summary. */
-export type EnrichLanguage = 'typescript' | 'javascript';
+/**
+ * A language `ContextEnrichmentService` renders as a .d.ts-style summary: one
+ * the registry grants `enrichSummary` (typescript, javascript, tsx).
+ */
+export type EnrichLanguage = SupportedLanguage;
 
 function isEnrichLanguage(value: unknown): value is EnrichLanguage {
-  return value === 'typescript' || value === 'javascript';
+  return (
+    typeof value === 'string' &&
+    Object.hasOwn(GRAMMAR_FILE_MAP, value) &&
+    hasCapability(value as SupportedLanguage, 'enrichSummary')
+  );
 }
 
 /**
@@ -33,19 +44,11 @@ const MODULE_EXTENSION_BASE: Readonly<Record<string, string>> = {
 };
 
 /**
- * `.tsx` maps to typescript in `EXTENSION_LANGUAGE_MAP`, but no loaded grammar
- * parses TypeScript with JSX: the TypeScript grammar rejects JSX, so the parse
- * needs error recovery and the summary would be refused anyway. `.jsx` is
- * fine: the JavaScript grammar parses JSX.
- */
-const TSX_EXTENSION = '.tsx';
-
-/**
- * The language to summarise `filePath` as. An explicit supported `language`
- * wins, even when it contradicts the extension. Otherwise (omitted or not a
- * supported value) it is inferred from the last extension, case-insensitively,
- * through `EXTENSION_LANGUAGE_MAP` (`.jsx` → javascript, `.spec.ts`/`.D.TS` →
- * typescript). `.tsx` (no JSX-capable TypeScript grammar is loaded), a
+ * The language to summarise `filePath` as. An explicit summary `language`
+ * (one the registry grants `enrichSummary`) wins, even when it contradicts the
+ * extension. Otherwise (omitted or not a summary language) it is inferred from
+ * the last extension, case-insensitively, through `EXTENSION_LANGUAGE_MAP`
+ * (`.jsx` → javascript, `.tsx` → tsx, `.spec.ts`/`.D.TS` → typescript). A
  * language the summary cannot render (python, go, csharp) or a file without an
  * extension gives `undefined`, which the service answers with full content and
  * `reason: 'unsupported-language'`.
@@ -58,14 +61,11 @@ export function resolveEnrichLanguage(
     return language;
   }
   const extension = path.extname(filePath).toLowerCase();
-  if (extension === TSX_EXTENSION) {
-    return undefined;
-  }
   const key = Object.hasOwn(MODULE_EXTENSION_BASE, extension)
     ? MODULE_EXTENSION_BASE[extension]
     : extension;
   const inferred = Object.hasOwn(EXTENSION_LANGUAGE_MAP, key)
-    ? (EXTENSION_LANGUAGE_MAP as Record<string, SupportedLanguage>)[key]
+    ? EXTENSION_LANGUAGE_MAP[key]
     : undefined;
   return isEnrichLanguage(inferred) ? inferred : undefined;
 }

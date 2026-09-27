@@ -149,6 +149,13 @@ export interface ApplyToolResultBudgetInput {
    * HTML); wins over {@link TOOL_CONTENT_HINTS} and over sniffing.
    */
   readonly hint?: ContentKind;
+  /**
+   * Language of the text when it is source code (a language id or extension,
+   * e.g. `tsx`, `.py`), known to the caller from the tool's own input, never
+   * guessed from the producer. The code reducer needs it to call `outliner`;
+   * without it source takes the log fallback (Batch 29b r1 R29b-02).
+   */
+  readonly languageHint?: string;
   readonly outliner?: CodeOutliner;
   /** Receives one line when a reducer throws or the budget step fails. */
   readonly output?: IOutputChannel;
@@ -308,6 +315,7 @@ async function budgetText(
           ? TOOL_CONTENT_HINTS[input.toolName]
           : undefined),
       preserveKeys: PRESERVED_RESULT_KEYS,
+      languageHint: input.languageHint,
       outliner: input.outliner,
       output: input.output,
     });

@@ -822,7 +822,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(report?.languages).toEqual({
       clean: true,
       reasons: [],
-      supportedLanguages: ['typescript', 'javascript'],
+      supportedLanguages: ['typescript', 'javascript', 'tsx'],
       census: 'complete',
       analyzed: 2,
       unchecked: 0,

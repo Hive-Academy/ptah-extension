@@ -1,8 +1,8 @@
 /**
- * TypeScript language module. `.tsx` parses with this grammar until Batch 29b
- * gives it its own. Function, import and export queries are JavaScript's
- * (`javascript.language.ts`); TypeScript adds its own class query and the
- * TS-only export suffix.
+ * TypeScript language module. `.tsx` has its own grammar (`tsx.language.ts`,
+ * Batch 29b), which reuses these queries. Function, import and export queries
+ * are JavaScript's (`javascript.language.ts`); TypeScript adds its own class
+ * query and the TS-only export suffix.
  */
 import type { LanguageModule } from './types';
 import {
@@ -97,7 +97,7 @@ const TS_EXPORT_QUERY_SUFFIX = `
 
 export const TYPESCRIPT_LANGUAGE: LanguageModule = {
   id: 'typescript',
-  extensions: ['.ts', '.tsx'],
+  extensions: ['.ts'],
   recognitionOnlyExtensions: ['.mts', '.cts'],
   grammarFile: 'tree-sitter-typescript.wasm',
   queries: {

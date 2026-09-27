@@ -48,6 +48,40 @@
  */
 
 import 'reflect-metadata';
+
+// Real grammars for `outline:tsx` (Batch 29b): the lib-wide wasm-bundle-dir
+// stub throws on purpose, and web-tree-sitter must load grammars from bytes
+// (the shims `code-outliner.adapter.spec.ts` documents).
+jest.mock('wasm-bundle-dir', () => {
+  const nodePath = require('path');
+  const grammarDir = nodePath.join(
+    nodePath.dirname(require.resolve('@vscode/tree-sitter-wasm/package.json')),
+    'wasm',
+  );
+  const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  return {
+    BUNDLE_DIR: grammarDir,
+    resolveWasmPath: (filename: string) =>
+      filename.startsWith('web-tree-sitter')
+        ? nodePath.join(runtimeDir, filename)
+        : nodePath.join(grammarDir, filename),
+  };
+});
+
+jest.mock('web-tree-sitter', () => {
+  const actual =
+    jest.requireActual<typeof import('web-tree-sitter')>('web-tree-sitter');
+  const nodeFs = require('fs');
+  const loadFromPathOrBuffer = actual.Language.load.bind(actual.Language);
+  actual.Language.load = (input: string | Uint8Array) =>
+    loadFromPathOrBuffer(
+      typeof input === 'string'
+        ? new Uint8Array(nodeFs.readFileSync(input))
+        : input,
+    );
+  return actual;
+});
+
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -68,6 +102,8 @@ import {
   type LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { TreeSitterParserService } from '@ptah-extension/workspace-intelligence';
+import { TreeSitterCodeOutliner } from './code-outliner.adapter';
 
 const CLEAN_TYPE_CHECK_FIELDS: CoverageFields = {
   supportedLanguages: ['typescript', 'javascript', 'tsx', 'python'],
@@ -258,11 +294,219 @@ function lspHonesty(
   };
 }
 
+/**
+ * `outline:tsx` (Batch 29b): the real outliner over the real TSX grammar
+ * outlines a JSX component instead of refusing, and the same text forced onto
+ * the TypeScript grammar is still refused (contrast: the outline comes from
+ * the TSX grammar, not from a refusal rule that stopped firing).
+ */
+async function tsxOutlineHonesty(): Promise<void> {
+  const parser = new TreeSitterParserService({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  } as unknown as Logger);
+  try {
+    const outliner = new TreeSitterCodeOutliner(parser);
+    const source = [
+      'export function Badge(props: { count: number }) {',
+      '  const label = `${props.count}`;',
+      '  return <span className="badge">{label}</span>;',
+      '}',
+      '',
+    ].join('\n');
+    const outline = await outliner.outline(source, '.tsx', 'Badge');
+    if (outline === null) {
+      throw new Error('the .tsx outline was refused');
+    }
+    if (
+      JSON.stringify(outline.omittable) !==
+        JSON.stringify([{ startLine: 1, endLine: 2 }]) ||
+      JSON.stringify(outline.focus) !==
+        JSON.stringify([{ startLine: 0, endLine: 3 }])
+    ) {
+      throw new Error(`unexpected .tsx outline: ${JSON.stringify(outline)}`);
+    }
+    if ((await outliner.outline(source, 'typescript')) !== null) {
+      throw new Error(
+        'JSX under the TypeScript grammar was outlined (contrast failed)',
+      );
+    }
+    // Batch 29b r1 R29b-02: the served path, not only the adapter. An
+    // over-budget TSX string returned by `execute_code` with its declared
+    // `resultLanguage` reaches this outliner through the real dispatcher and
+    // budget, and keeps every declaration (the middle one included).
+    const served = await executeTsxThroughDispatcher(parser, 'tsx');
+    if (served.reducer !== 'code-outline') {
+      throw new Error(
+        `the dispatcher did not outline the .tsx result: reducer ${served.reducer}`,
+      );
+    }
+    for (const name of TSX_COMPONENT_NAMES) {
+      if (!served.text.includes(`export function ${name}(`)) {
+        throw new Error(`the served outline lost ${name}`);
+      }
+    }
+  } finally {
+    parser.dispose();
+  }
+}
+
+/** Three JSX components whose bodies together are well over the 2,000-token budget. */
+const TSX_COMPONENT_NAMES = [
+  'FirstDeclaration',
+  'MiddleDeclaration',
+  'LastDeclaration',
+] as const;
+
+function largeTsxModule(): string {
+  const out: string[] = [];
+  for (const name of TSX_COMPONENT_NAMES) {
+    out.push(`export function ${name}(props: { rows: string[] }) {`);
+    for (let i = 0; i < 80; i++) {
+      out.push(
+        `  const row${i} = props.rows[${i}] ?? ${JSON.stringify(`${name}-${i}`)}.padEnd(${i + 20});`,
+      );
+    }
+    out.push(
+      '  return <ul>{props.rows.map((r) => <li key={r}>{r}</li>)}</ul>;',
+      '}',
+      '',
+    );
+  }
+  return out.join('\n');
+}
+
+interface ServedTsx {
+  readonly text: string;
+  readonly reducer: string | undefined;
+  readonly spooled: string | undefined;
+  readonly raw: string;
+}
+
+/**
+ * `execute_code` returning a large TSX module through the REAL
+ * `handleMCPRequest` with a real `TreeSitterCodeOutliner` on the deps (as the
+ * HTTP server wires it) and a temporary spool root under the OS temp dir.
+ */
+async function executeTsxThroughDispatcher(
+  parser: TreeSitterParserService,
+  resultLanguage: string | undefined,
+): Promise<ServedTsx> {
+  const raw = largeTsxModule();
+  const spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-29b-outline-'));
+  try {
+    const deps: ProtocolHandlerDependencies = {
+      ptahAPI: {} as PtahAPI,
+      permissionPromptService:
+        {} as ProtocolHandlerDependencies['permissionPromptService'],
+      logger: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger,
+      workspaceProvider: {
+        getWorkspaceFolders: () => [spoolRoot],
+      } as unknown as ProtocolHandlerDependencies['workspaceProvider'],
+      codeOutliner: new TreeSitterCodeOutliner(parser),
+    };
+    const args: Record<string, unknown> = {
+      code: `return ${JSON.stringify(raw)};`,
+    };
+    if (resultLanguage !== undefined) args['resultLanguage'] = resultLanguage;
+    const res = await handleMCPRequest(
+      {
+        jsonrpc: '2.0',
+        id: `29b-outline-${resultLanguage ?? 'none'}`,
+        method: 'tools/call',
+        params: { name: 'execute_code', arguments: args },
+      },
+      deps,
+    );
+    const text = (res.result as { content: Array<{ text: string }> }).content[0]
+      .text;
+    const trailer =
+      /\[reduced: (\S+?)(?: — [^\]]*?)? — showing \d+ of \d+ tokens — full output: ([^\]]+)\]$/.exec(
+        text,
+      );
+    const locator = trailer?.[2]?.trim();
+    const spooled =
+      locator === undefined
+        ? undefined
+        : fs.readFileSync(
+            path.isAbsolute(locator) ? locator : path.join(spoolRoot, locator),
+            'utf8',
+          );
+    return { text, reducer: trailer?.[1], spooled, raw };
+  } finally {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  }
+}
+
+describe('outline:tsx through the real dispatcher (Batch 29b r1 R29b-02)', () => {
+  let parser: TreeSitterParserService;
+  beforeAll(() => {
+    parser = new TreeSitterParserService({
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    } as unknown as Logger);
+  });
+  afterAll(() => parser.dispose());
+
+  it('execute_code with resultLanguage "tsx" is outlined, keeps the middle declaration and spools the raw text byte-equal', async () => {
+    const served = await executeTsxThroughDispatcher(parser, 'tsx');
+
+    expect(served.reducer).toBe('code-outline');
+    for (const name of TSX_COMPONENT_NAMES) {
+      expect(served.text).toContain(`export function ${name}(`);
+    }
+    expect(served.spooled).toBe(served.raw);
+  }, 60_000);
+
+  it('without a declared language the same result is not outlined (contrast: the hint is what reaches the outliner)', async () => {
+    const served = await executeTsxThroughDispatcher(parser, undefined);
+
+    expect(served.reducer).not.toBe('code-outline');
+    expect(served.spooled).toBe(served.raw);
+  }, 60_000);
+
+  it('rejects a resultLanguage that is not a short non-empty string', async () => {
+    const res = await handleMCPRequest(
+      {
+        jsonrpc: '2.0',
+        id: '29b-bad-language',
+        method: 'tools/call',
+        params: {
+          name: 'execute_code',
+          arguments: { code: 'return 1;', resultLanguage: 42 },
+        },
+      },
+      {
+        ptahAPI: {} as PtahAPI,
+        permissionPromptService:
+          {} as ProtocolHandlerDependencies['permissionPromptService'],
+        logger: {
+          debug: jest.fn(),
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+        } as unknown as Logger,
+      },
+    );
+    expect(res.error?.code).toBe(-32602);
+  });
+});
+
 /** Proved here (not workspace-intelligence): layering, see file header. */
 const CHECKED_ELSEWHERE_KEYS = [
   'honesty:ptah_get_diagnostics',
   'honesty:ptah_lsp_definitions',
   'honesty:ptah_lsp_references',
+  'outline:tsx',
 ] as const;
 
 const MCP_HONESTY_CHECKS: Readonly<
@@ -271,14 +515,16 @@ const MCP_HONESTY_CHECKS: Readonly<
   'honesty:ptah_get_diagnostics': diagnosticsHonesty,
   'honesty:ptah_lsp_definitions': lspHonesty(formatLspDefinitions),
   'honesty:ptah_lsp_references': lspHonesty(formatLspReferences),
+  'outline:tsx': tsxOutlineHonesty,
 };
 
-describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's three keys)", () => {
+describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)", () => {
   it.each(Object.entries(MCP_HONESTY_CHECKS))(
     'executes and proves the honesty property for %s',
     async (_key, check) => {
       await check();
     },
+    60_000,
   );
 
   it("CHECKED_ELSEWHERE_KEYS matches workspace-intelligence's own CHECKED_ELSEWHERE literal (kept in sync by hand; both listed in the executor report)", () => {
@@ -289,6 +535,7 @@ describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's three 
       'honesty:ptah_get_diagnostics',
       'honesty:ptah_lsp_definitions',
       'honesty:ptah_lsp_references',
+      'outline:tsx',
     ]);
   });
 });

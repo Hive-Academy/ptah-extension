@@ -209,6 +209,32 @@ const CS_SOURCE = lines(
   '}', // 18
 );
 
+const TSX_SOURCE = lines(
+  'export interface Props {', // 0
+  '  title: string;', // 1
+  '  count: number;', // 2
+  '}', // 3
+  '', // 4
+  'export function Badge(props: Props) {', // 5
+  '  const text = `${props.title}: ${props.count}`;', // 6
+  '  return <span className="badge">{text}</span>;', // 7
+  '}', // 8
+  'export const Card = ({ title }: Props) => {', // 9
+  '  return (', // 10
+  '    <>', // 11
+  '      <h2>{title}</h2>', // 12
+  '      <hr />', // 13
+  '    </>', // 14
+  '  );', // 15
+  '};', // 16
+  'export class Legacy {', // 17
+  '  render() {', // 18
+  '    return <div>{this.label}</div>;', // 19
+  '  }', // 20
+  '  label = "x";', // 21
+  '}', // 22
+);
+
 /**
  * A 300+-line TypeScript module: an interface, a type, twelve exported metric
  * functions, an exported service class and an exported arrow formatter.
@@ -367,6 +393,24 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ]);
     });
 
+    it('tsx outline not refused: JSX components get body spans and focus (Batch 29b)', async () => {
+      for (const hint of ['.tsx', 'tsx', 'src/App.tsx']) {
+        const outline = await outliner.outline(TSX_SOURCE, hint, 'Card');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 6, endLine: 7 },
+          { startLine: 10, endLine: 15 },
+          { startLine: 19, endLine: 19 },
+        ]);
+        expect(outline?.focus).toEqual([{ startLine: 9, endLine: 16 }]);
+      }
+      const props = await outliner.outline(TSX_SOURCE, '.tsx', 'Props');
+      expect(props?.focus).toEqual([{ startLine: 0, endLine: 3 }]);
+    });
+
     it('reports no focus spans when no focus symbol is requested', async () => {
       const outline = await outliner.outline(TS_SOURCE, 'typescript');
       expect(outline?.focus).toEqual([]);
@@ -516,14 +560,14 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       await expect(outliner.outline(broken, 'typescript')).resolves.toBeNull();
     });
 
-    it('returns null for JSX under the plain TypeScript grammar (.tsx)', async () => {
+    it('still returns null for JSX forced onto the plain TypeScript grammar', async () => {
       const tsx = lines(
         'export const App = () => {',
         '  const label = "hi";',
         '  return <div className="x">{label}</div>;',
         '};',
       );
-      await expect(outliner.outline(tsx, '.tsx')).resolves.toBeNull();
+      await expect(outliner.outline(tsx, 'typescript')).resolves.toBeNull();
     });
 
     it.each([
@@ -551,6 +595,9 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ['ts', 'typescript'],
       ['src/lib/a.ts', 'typescript'],
       ['.jsx', 'javascript'],
+      ['tsx', 'tsx'],
+      ['.tsx', 'tsx'],
+      ['src/App.TSX', 'tsx'],
       ['py', 'python'],
       ['.cs', 'csharp'],
       ['go', 'go'],

@@ -477,6 +477,7 @@ describe('CodeSymbolIndexer', () => {
     const CODE_INDEX_LANGUAGES = [
       'typescript',
       'javascript',
+      'tsx',
       'python',
       'go',
       'csharp',

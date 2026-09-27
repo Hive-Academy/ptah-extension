@@ -323,6 +323,11 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
             'Execution timeout in milliseconds (default: 15000, max: 30000)',
           default: 15000,
         },
+        resultLanguage: {
+          type: 'string',
+          description:
+            'Language of a returned source string (e.g. "tsx", ".py"): an over-budget result is outlined, not cut',
+        },
       },
       required: ['code'],
     },
@@ -1721,7 +1726,7 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
     description:
       'Generate a .d.ts-style structural summary of a declaration-only ' +
       languagesNote('enrichSummary') +
-      " file (not .tsx) — imports, exports, functions and overloads, classes with members, interfaces, types, enums, namespaces and variables initialised with functions or literals, with function bodies and large pure-data literal values omitted — usually a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation. Summaries are produced only for declaration-only files; any other file returns mode 'full' with the whole content (empty for 'read-failed') and a `reason`: 'unsupported-language' (another language, or .tsx), 'parse-failed' (syntax errors or unparseable syntax), 'grammar-unavailable', 'too-large' (over 1 MiB), 'unsupported-declarations' (not declaration-only: top-level statements or calls, CommonJS/global exports, prototype or Object.defineProperty/assign writes, initialisers that are not functions or literals, or large literals that are not pure data), 'no-declarations', 'summary-not-smaller' (the summary costs no fewer tokens, e.g. a .d.ts file) or 'read-failed'.",
+      " file — imports, exports, functions and overloads, classes with members, interfaces, types, enums, namespaces and variables initialised with functions or literals, with function bodies and large pure-data literal values omitted — usually a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation. Summaries are produced only for declaration-only files; any other file returns mode 'full' with the whole content (empty for 'read-failed') and a `reason`: 'unsupported-language' (another language), 'parse-failed' (syntax errors or unparseable syntax), 'grammar-unavailable', 'too-large' (over 1 MiB), 'unsupported-declarations' (not declaration-only: top-level statements or calls such as JSX rendered at load time, CommonJS/global exports, prototype or Object.defineProperty/assign writes, initialisers that are not functions or literals, or large literals that are not pure data), 'no-declarations', 'summary-not-smaller' (the summary costs no fewer tokens, e.g. a .d.ts file) or 'read-failed'.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1733,7 +1738,7 @@ export function buildContextEnrichFileTool(): MCPToolDefinition {
           type: 'string',
           enum: [...supportedLanguagesFor('enrichSummary')],
           description:
-            'Optional; inferred from the file extension when omitted (.ts/.mts/.cts → typescript, .js/.jsx/.mjs/.cjs → javascript; .tsx is not summarised). An explicit value overrides the extension.',
+            'Optional; inferred from the file extension when omitted (.ts/.mts/.cts → typescript, .tsx → tsx, .js/.jsx/.mjs/.cjs → javascript). An explicit value overrides the extension.',
         },
       },
       required: ['file'],
@@ -1832,7 +1837,7 @@ export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
   return {
     name: 'ptah_code_search_symbols',
     description:
-      'Search SQLite code index (BM25+vector); beats Grep. Functions/classes/methods: ' +
+      'SQLite code index (BM25+vector); beats Grep. Functions/classes/methods: ' +
       languagesNote('codeIndex') +
       '; exported interfaces/types/enums/variables/namespaces/export-clause names (`export`): ' +
       languagesNote('publicSymbols') +

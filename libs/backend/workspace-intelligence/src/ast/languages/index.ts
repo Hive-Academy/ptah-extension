@@ -3,6 +3,7 @@ import { CSHARP_LANGUAGE } from './csharp.language';
 import { GO_LANGUAGE } from './go.language';
 import { JAVASCRIPT_LANGUAGE } from './javascript.language';
 import { PYTHON_LANGUAGE } from './python.language';
+import { TSX_LANGUAGE } from './tsx.language';
 import { TYPESCRIPT_LANGUAGE } from './typescript.language';
 import type { LanguageModule } from './types';
 
@@ -16,6 +17,7 @@ export const LANGUAGE_MODULES: Readonly<
 > = {
   javascript: JAVASCRIPT_LANGUAGE,
   typescript: TYPESCRIPT_LANGUAGE,
+  tsx: TSX_LANGUAGE,
   python: PYTHON_LANGUAGE,
   go: GO_LANGUAGE,
   csharp: CSHARP_LANGUAGE,

@@ -3079,8 +3079,15 @@ async function createToolSuccessResponse(
   text: string,
   deps: ProtocolHandlerDependencies,
   hint?: ContentKind,
+  languageHint?: string,
 ): Promise<MCPResponse> {
-  const budgeted = await budgetToolText(request, text, deps, hint);
+  const budgeted = await budgetToolText(
+    request,
+    text,
+    deps,
+    hint,
+    languageHint,
+  );
   runObserver(() =>
     deps.onToolResult?.(request.id.toString(), budgeted.text, false),
   );
@@ -3109,6 +3116,7 @@ async function budgetToolText(
   text: string,
   deps: ProtocolHandlerDependencies,
   hint?: ContentKind,
+  languageHint?: string,
 ): Promise<BudgetTelemetry> {
   const toolName = toolNameOf(request);
   const tokens = tokensWithinBudget(text, getToolResultBudget(toolName));
@@ -3127,6 +3135,7 @@ async function budgetToolText(
     requestId: request.id,
     spoolRoot: await resolveSpoolRoot(deps),
     hint,
+    languageHint,
     outliner: deps.codeOutliner,
     output: budgetOutputChannel(deps.logger),
   });
@@ -3339,6 +3348,9 @@ function runObserver(observe: () => void): void {
   }
 }
 
+/** Longest accepted `execute_code` `resultLanguage` (an id or extension). */
+const MAX_RESULT_LANGUAGE_CHARS = 32;
+
 /**
  * Handle execute_code tool call
  *
@@ -3350,14 +3362,32 @@ async function handleExecuteCodeCall(
   params: ExecuteCodeParams,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
-  const { code, timeout = 15000 } = params;
+  const { code, timeout = 15000, resultLanguage } = params;
   const { ptahAPI, logger } = deps;
   const actualTimeout = Math.min(timeout, 30000);
+  const declaredLanguage =
+    typeof resultLanguage === 'string' ? resultLanguage.trim() : undefined;
+  if (
+    resultLanguage !== undefined &&
+    (declaredLanguage === undefined ||
+      declaredLanguage.length === 0 ||
+      declaredLanguage.length > MAX_RESULT_LANGUAGE_CHARS)
+  ) {
+    return createErrorResponse(
+      request.id,
+      -32602,
+      `Invalid params: execute_code "resultLanguage" must be a non-empty string of at most ${MAX_RESULT_LANGUAGE_CHARS} chars (a language id or file extension, e.g. "tsx" or ".py")`,
+    );
+  }
 
   let textResult: string;
+  let returnedSource = false;
   try {
     const result = await executeCode(code, actualTimeout, { ptahAPI, logger });
     textResult = serializeResult(result);
+    // Only a string result can be the source text the caller declared; an
+    // object is serialised JSON, whatever the caller said.
+    returnedSource = typeof result === 'string';
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
@@ -3385,8 +3415,20 @@ async function handleExecuteCodeCall(
   }
   // Budgeted like every other text result: `serializeResult`'s own 50 KB cap
   // is far above the default budget, so without this an `execute_code` result
-  // was the one text path that could still flood the context.
-  return await createToolSuccessResponse(request, textResult, deps);
+  // was the one text path that could still flood the context. A string result
+  // the caller declared as source (`resultLanguage`) is reduced as code with
+  // that language, so an over-budget file reaches the outliner (Batch 29b r1
+  // R29b-02); the language is the caller's declaration about the returned
+  // text, never inferred from the executed code.
+  return returnedSource && declaredLanguage !== undefined
+    ? await createToolSuccessResponse(
+        request,
+        textResult,
+        deps,
+        'code',
+        declaredLanguage,
+      )
+    : await createToolSuccessResponse(request, textResult, deps);
 }
 
 /**

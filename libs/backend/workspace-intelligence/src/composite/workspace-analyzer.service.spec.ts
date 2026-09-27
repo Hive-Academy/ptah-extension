@@ -132,7 +132,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       );
     });
 
-    it('should detect language from file extension (TypeScript .tsx)', async () => {
+    it('selects the TSX grammar for a .tsx file (Batch 29b r1)', async () => {
       // Arrange
       const filePath = 'D:\\test\\component.tsx';
       const fileContent = 'const Component = () => <div>Hello</div>;';
@@ -148,7 +148,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       // Assert
       expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
         fileContent,
-        'typescript',
+        'tsx',
         filePath,
       );
     });

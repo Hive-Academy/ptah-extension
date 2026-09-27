@@ -91,11 +91,12 @@ jest.mock('@ptah-extension/workspace-intelligence', () => {
   return { ...actual, LANGUAGE_REGISTRY: registry };
 });
 
-/** Grant TS/JS `referenceScopeComplete` for the tests of one describe. */
+/** Grant TS/JS/TSX `referenceScopeComplete` for the tests of one describe. */
 function withTsScopeCompleteClaim(): void {
   beforeEach(() => {
     mockScopeComplete.add('typescript');
     mockScopeComplete.add('javascript');
+    mockScopeComplete.add('tsx');
   });
   afterEach(() => mockScopeComplete.clear());
 }
@@ -1344,7 +1345,10 @@ describe('ElectronIDECapabilities', () => {
       { file: DECL, line: 0, column: 16 },
       { file: CONSUMER, line: 0, column: 0 },
     ];
-    const TEXT_SCAN_HITS = [...SCOPED_HITS, { file: PY_USER, line: 0, column: 0 }];
+    const TEXT_SCAN_HITS = [
+      ...SCOPED_HITS,
+      { file: PY_USER, line: 0, column: 0 },
+    ];
 
     /** A TS declaration with one graph dependent and one Python user. */
     function tsScenario(
@@ -1424,7 +1428,10 @@ describe('ElectronIDECapabilities', () => {
       it.each<[string, LanguageCoverage | undefined, string[]]>([
         [
           'a TS declaration imported by a Python file (Python is graph-unsupported)',
-          graphCoverage({ unsupported: 1, unsupportedByLanguage: { python: 1 } }),
+          graphCoverage({
+            unsupported: 1,
+            unsupportedByLanguage: { python: 1 },
+          }),
           [],
         ],
         [
@@ -1591,7 +1598,10 @@ describe('ElectronIDECapabilities', () => {
           }),
           indexer: streamingIndexer([widget, shop]),
           depGraph: builtGraph(
-            graphCoverage({ unsupported: 2, unsupportedByLanguage: { java: 2 } }),
+            graphCoverage({
+              unsupported: 2,
+              unsupportedByLanguage: { java: 2 },
+            }),
           ),
         });
 
@@ -1670,7 +1680,7 @@ describe('ElectronIDECapabilities', () => {
 
         await expect(defsReport(cap, view, 0, 13)).resolves.toMatchObject({
           mechanism: 'declaration-scan',
-          language: 'typescript',
+          language: 'tsx',
           languageSupported: false,
           locations: [],
         });
@@ -1753,7 +1763,12 @@ describe('ElectronIDECapabilities', () => {
       ].join('\n');
 
       it.each([
-        ['a record struct in a file-scoped namespace', 2, 21, { line: 2, column: 21 }],
+        [
+          'a record struct in a file-scoped namespace',
+          2,
+          21,
+          { line: 2, column: 21 },
+        ],
         ['a delegate', 3, 21, { line: 3, column: 21 }],
         ['a class', 4, 13, { line: 4, column: 13 }],
       ])(
@@ -1775,15 +1790,20 @@ describe('ElectronIDECapabilities', () => {
         ['a declaration inside a comment', 1, 9],
       ])('does not answer with %s', async (_case, line, col) => {
         const cap = buildCs({ [SCOPED_CS]: SCOPED_SOURCE });
-        await expect(defsReport(cap, SCOPED_CS, line, col)).resolves.toMatchObject(
-          { locations: [], mechanism: 'declaration-scan', truncated: true },
-        );
+        await expect(
+          defsReport(cap, SCOPED_CS, line, col),
+        ).resolves.toMatchObject({
+          locations: [],
+          mechanism: 'declaration-scan',
+          truncated: true,
+        });
       });
 
       it('finds a type in nested block namespaces', async () => {
         const file = 'C:/repo/cs/Deep.cs';
         const cap = buildCs({
-          [file]: 'namespace A\n{\n    namespace B\n    {\n        interface IDeep { }\n    }\n}\n',
+          [file]:
+            'namespace A\n{\n    namespace B\n    {\n        interface IDeep { }\n    }\n}\n',
         });
         await expect(defsReport(cap, file, 4, 18)).resolves.toMatchObject({
           locations: [{ file, line: 4, column: 18 }],
@@ -1802,7 +1822,8 @@ describe('ElectronIDECapabilities', () => {
       it('r1 B1: a same-namespace type in another file is a bounded (truncated) empty answer', async () => {
         const billing = 'C:/repo/cs/Billing.cs';
         const cap = buildCs({
-          [billing]: 'namespace Acme\n{\n    class Biller { Invoice Make() => null; }\n}\n',
+          [billing]:
+            'namespace Acme\n{\n    class Biller { Invoice Make() => null; }\n}\n',
         });
         await expect(defsReport(cap, billing, 2, 19)).resolves.toEqual({
           locations: [],
@@ -1818,7 +1839,8 @@ describe('ElectronIDECapabilities', () => {
         const invoice = 'C:/repo/cs/Invoice.cs';
         const billing = 'C:/repo/cs/Billing.cs';
         const files = {
-          [invoice]: 'namespace Acme.Billing\n{\n    public class Invoice { }\n}\n',
+          [invoice]:
+            'namespace Acme.Billing\n{\n    public class Invoice { }\n}\n',
           [billing]: [
             'namespace Acme.Billing',
             '{',
@@ -1958,7 +1980,11 @@ describe('ElectronIDECapabilities', () => {
       }
 
       function hitAt(file: string, name: string, line: number) {
-        return { ...indexHit(file, name, line), workspaceRoot: 'x', text: `function ${name} in f:${line}-${line + 1}` };
+        return {
+          ...indexHit(file, name, line),
+          workspaceRoot: 'x',
+          text: `function ${name} in f:${line}-${line + 1}`,
+        };
       }
 
       describe('B1: uncertain declaration scans are never an unqualified zero', () => {
@@ -2022,7 +2048,12 @@ describe('ElectronIDECapabilities', () => {
           const graph = realGraph();
           await graph.buildGraph([a, b], root);
           expect(graph.getCoverageReport(root)?.languages.clean).toBe(true);
-          const cap = buildReal(root, graph, [a, b], readerWith(hitAt(a, 'Foo', 0)));
+          const cap = buildReal(
+            root,
+            graph,
+            [a, b],
+            readerWith(hitAt(a, 'Foo', 0)),
+          );
 
           const report = await refsReport(cap, a, 0, 9);
 
@@ -2036,6 +2067,7 @@ describe('ElectronIDECapabilities', () => {
         it('control: a clean real graph with the claim narrows to its dependents', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2044,7 +2076,12 @@ describe('ElectronIDECapabilities', () => {
           const [a, b, c] = [`${root}/a.ts`, `${root}/b.ts`, `${root}/c.ts`];
           const graph = realGraph();
           await graph.buildGraph([a, b, c], root);
-          const cap = buildReal(root, graph, [a, b, c], readerWith(hitAt(a, 'Foo', 0)));
+          const cap = buildReal(
+            root,
+            graph,
+            [a, b, c],
+            readerWith(hitAt(a, 'Foo', 0)),
+          );
 
           const report = await refsReport(cap, a, 0, 16);
 
@@ -2059,6 +2096,7 @@ describe('ElectronIDECapabilities', () => {
         it('B3: an invalidation during the index lookup does not narrow on the old certificate', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2077,12 +2115,17 @@ describe('ElectronIDECapabilities', () => {
           const report = await refsReport(cap, a, 0, 16);
 
           expect(report.mechanism).toBe('text-scan');
-          expect(report.locations).toContainEqual({ file: b, line: 1, column: 0 });
+          expect(report.locations).toContainEqual({
+            file: b,
+            line: 1,
+            column: 0,
+          });
         });
 
         it('B3: an invalidation during the scoped reads falls back to a text scan', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2108,12 +2151,17 @@ describe('ElectronIDECapabilities', () => {
 
           expect(fired).toBe(true);
           expect(report.mechanism).toBe('text-scan');
-          expect(report.locations).toContainEqual({ file: b, line: 1, column: 0 });
+          expect(report.locations).toContainEqual({
+            file: b,
+            line: 1,
+            column: 0,
+          });
         });
 
         it('B4: a nested root graph never stands in for the certified parent graph', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const root = await writeWorkspace({
             'pkg/decl.ts': 'export function Foo() {}\n',
             'use.ts': `import { Foo } ${FROM} './pkg/decl';\nFoo();\n`,
@@ -2123,12 +2171,21 @@ describe('ElectronIDECapabilities', () => {
           await graph.buildGraph([decl, use], root);
           await graph.buildGraph([decl], `${root}/pkg`);
           expect(graph.getCoverageReport(root)?.languages.clean).toBe(true);
-          const cap = buildReal(root, graph, [decl, use], readerWith(hitAt(decl, 'Foo', 0)));
+          const cap = buildReal(
+            root,
+            graph,
+            [decl, use],
+            readerWith(hitAt(decl, 'Foo', 0)),
+          );
 
           const report = await refsReport(cap, decl, 0, 16);
 
           expect(report.mechanism).toBe('text-scan');
-          expect(report.locations).toContainEqual({ file: use, line: 1, column: 0 });
+          expect(report.locations).toContainEqual({
+            file: use,
+            line: 1,
+            column: 0,
+          });
         });
       });
 
@@ -2136,6 +2193,7 @@ describe('ElectronIDECapabilities', () => {
         it('an unreadable file in the certified scope makes the scoped answer truncated', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const indexer = streamingIndexer([DECL, CONSUMER, PY_USER]);
           const { cap } = build({
             reader: readerWith(indexHit(DECL, 'doThing', 0)),
@@ -2290,8 +2348,18 @@ describe('ElectronIDECapabilities', () => {
 
       describe('B6: interpolated expressions are references, literal text is not', () => {
         it.each([
-          ['TypeScript template', 'C:/repo/src/t.ts', 'const s = `Foo ${Foo()} x`;', 17],
-          ['JavaScript template', 'C:/repo/src/t.js', 'const s = `Foo ${Foo()} x`;', 17],
+          [
+            'TypeScript template',
+            'C:/repo/src/t.ts',
+            'const s = `Foo ${Foo()} x`;',
+            17,
+          ],
+          [
+            'JavaScript template',
+            'C:/repo/src/t.js',
+            'const s = `Foo ${Foo()} x`;',
+            17,
+          ],
           ['Python f-string', 'C:/repo/py/t.py', 's = f"Foo {Foo()} x"', 11],
         ])('%s', async (_case, file, text, column) => {
           const decl = 'C:/repo/src/decl.ts';
@@ -2306,6 +2374,57 @@ describe('ElectronIDECapabilities', () => {
           expect(report.locations).toEqual([
             { file: decl, line: 0, column: 16 },
             { file, line: 0, column },
+          ]);
+        });
+      });
+
+      describe('Batch 29b r1 R29b-01: .tsx references are filtered with the TSX grammar', () => {
+        const app = 'C:/repo/src/App.tsx';
+
+        it.each([
+          ['quoted JSX text', '<div>"{needle}"</div>'],
+          ['line-comment-shaped JSX text', '<div>// {needle}</div>'],
+          ['block-comment-shaped JSX text', '<div>/* {needle} */</div>'],
+        ])('keeps a JSX expression reference inside %s', async (_case, jsx) => {
+          const use = `export function App() { return ${jsx}; }`;
+          const { cap } = build({
+            fs: memoryFs({ [app]: `export const needle = 1;\n${use}\n` }),
+            indexer: streamingIndexer([app]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, app, 0, 14);
+
+          expect(report.language).toBe('tsx');
+          expect(report.locations).toEqual([
+            { file: app, line: 0, column: 13 },
+            { file: app, line: 1, column: use.indexOf('needle') },
+          ]);
+        });
+
+        it('still excludes real comments and strings in a .tsx file (contrast)', async () => {
+          const source = [
+            'export const needle = 1;',
+            '// needle in a comment',
+            "const s = 'needle in a string';",
+            'export const App = () => <b>{needle}</b>;',
+            '',
+          ].join('\n');
+          const { cap } = build({
+            fs: memoryFs({ [app]: source }),
+            indexer: streamingIndexer([app]),
+            treeSitter: parser as unknown as TreeSitter,
+          });
+
+          const report = await refsReport(cap, app, 0, 14);
+
+          expect(report.locations).toEqual([
+            { file: app, line: 0, column: 13 },
+            {
+              file: app,
+              line: 3,
+              column: 'export const App = () => <b>{'.length,
+            },
           ]);
         });
       });
@@ -2387,16 +2506,22 @@ describe('ElectronIDECapabilities', () => {
 
           const report = await defsReport(cap, CONSUMER, 0, 0);
 
-          expect(report.locations).toEqual([{ file: CONSUMER, line: 0, column: 0 }]);
+          expect(report.locations).toEqual([
+            { file: CONSUMER, line: 0, column: 0 },
+          ]);
           expect(report.truncated).toBeUndefined();
         });
 
         it('never narrows on an incomplete candidate set', async () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
+          mockScopeComplete.add('tsx');
           const indexer = streamingIndexer([DECL, CONSUMER, PY_USER]);
           const { cap } = build({
-            reader: readerWith(indexHit(DECL, 'doThing', 0), ...fullPage.slice(1)),
+            reader: readerWith(
+              indexHit(DECL, 'doThing', 0),
+              ...fullPage.slice(1),
+            ),
             fs: memoryFs(TS_FILES),
             indexer,
             depGraph: builtGraph(graphCoverage(), { [DECL]: [CONSUMER] }),

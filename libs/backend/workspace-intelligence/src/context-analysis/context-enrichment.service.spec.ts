@@ -58,6 +58,8 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { Language } from 'web-tree-sitter';
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { MAX_PARSE_BYTES } from '../ast/parser-refusal';
+import type { SupportedLanguage } from '../ast/ast.types';
+import { resolveEnrichLanguage } from './enrich-language';
 import type { FileSystemService } from '../services/file-system.service';
 import type { TokenCounterService } from '../services/token-counter.service';
 import { ContextEnrichmentService } from './context-enrichment.service';
@@ -115,7 +117,7 @@ function makeService() {
 /** Summarise `source` as `language` through the real parser and the service. */
 function summarise(
   source: string,
-  language: 'typescript' | 'javascript',
+  language: SupportedLanguage | undefined,
   file = FILE,
 ) {
   return makeService().service.generateStructuralSummary(
@@ -344,6 +346,71 @@ describe('ContextEnrichmentService.generateStructuralSummary', () => {
         originalTokenCount: source.length,
         reductionPercentage: 0,
         content: source,
+      });
+    });
+
+    describe('TSX (Batch 29b: the TSX grammar)', () => {
+      const TSX_FILE = '/ws/src/App.tsx';
+      const TSX_DECLARATIONS = [
+        "import { useTheme } from './theme';",
+        '',
+        'export interface ButtonProps {',
+        '  label: string;',
+        '}',
+        `export function Button(props: ButtonProps) {\n${LONG_BODY}\n  return <button className="b">{props.label}</button>;\n}`,
+        `export const Card = ({ title }: { title: string }) => {\n${LONG_BODY}\n  return (\n    <>\n      <h2>{title}</h2>\n    </>\n  );\n};`,
+        '',
+      ].join('\n');
+
+      it('tsx declaration file summarises', async () => {
+        const out = await summarise(TSX_DECLARATIONS, 'tsx', TSX_FILE);
+
+        expect(out.mode).toBe('structural');
+        expect(out).not.toHaveProperty('reason');
+        for (const kept of [
+          "import { useTheme } from './theme';",
+          'export interface ButtonProps {',
+          'export function Button(props: ButtonProps);',
+          'export const Card = ({ title }: { title: string }) => { … };',
+        ]) {
+          expect(out.content).toContain(kept);
+        }
+        expect(out.content).not.toMatch(/helperValue|<button|<h2>/);
+        expect(out.tokenCount).toBeLessThan(out.originalTokenCount);
+      });
+
+      it('falls back with its reason when the TSX file runs JSX at load time', async () => {
+        const source = [
+          "import { render } from './render';",
+          'export const element = <App title="x" />;',
+          'render(<App title="y" />, document.getElementById(\'root\'));',
+          '',
+        ].join('\n');
+
+        const out = await summarise(source, 'tsx', TSX_FILE);
+
+        expect(out).toEqual({
+          mode: 'full',
+          reason: 'unsupported-declarations',
+          tokenCount: source.length,
+          originalTokenCount: source.length,
+          reductionPercentage: 0,
+          content: source,
+        });
+      });
+
+      it('explicit and inferred language agree for a .tsx file', async () => {
+        const inferred = resolveEnrichLanguage(TSX_FILE);
+        const explicit = resolveEnrichLanguage(TSX_FILE, 'tsx');
+        expect(inferred).toBe('tsx');
+        expect(explicit).toBe('tsx');
+
+        const [byInference, byExplicit] = await Promise.all([
+          summarise(TSX_DECLARATIONS, inferred, TSX_FILE),
+          summarise(TSX_DECLARATIONS, explicit, TSX_FILE),
+        ]);
+        expect(byExplicit).toEqual(byInference);
+        expect(byInference.mode).toBe('structural');
       });
     });
 

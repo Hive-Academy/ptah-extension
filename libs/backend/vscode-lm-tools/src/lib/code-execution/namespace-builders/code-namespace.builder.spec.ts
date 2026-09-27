@@ -580,6 +580,7 @@ describe('buildCodeNamespace.searchSymbols — index freshness', () => {
 const CODE_INDEX_LANGUAGES = [
   'typescript',
   'javascript',
+  'tsx',
   'python',
   'go',
   'csharp',
