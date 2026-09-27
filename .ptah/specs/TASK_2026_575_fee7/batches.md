@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 3/33
+Total tasks: 75 | Batches: 33 (+1 contingent, see end) | Complete: 4/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -351,7 +351,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   reran self-test (both runs PASS), test, eslint:lint, tsc and prettier --check: all clean. New Moderate (inline
   template offsets are approximate after an escape sequence, `ts-keys.ts:43-47,150`) carried to Task 4.1.
 
-## Batch 4: Review tables, Nx target defaults and CI step (F2a, part 2) — IN_PROGRESS
+## Batch 4: Review tables, Nx target defaults and CI step (F2a, part 2) — COMPLETE (bfb3e7b4)
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -360,7 +360,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Tasks: 2 | Depends on: Batch 3
 - Commit: `feat(scripts): add i18n review tables and ci i18n-check step`
 
-### Task 4.1: `review-tables` generator — IMPLEMENTED
+### Task 4.1: `review-tables` generator — COMPLETE
 
 - Batch 3 review carry-over: (1) when an allowed scope's `en.json` loads but has structural violations
   (`dotted-key`, `duplicate-key`, `invalid-value`), the consumer's report adds one `allowed-scope-defect` line
@@ -378,7 +378,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: notes computed deterministically (glossary terms, placeholders, identical-to-English, legal notice).
 - Implementation details: add a `review-tables` invocation example to the tool's `project.json` or a README comment for lib executors.
 
-### Task 4.2: `nx.json` targetDefaults and CI step — IMPLEMENTED
+### Task 4.2: `nx.json` targetDefaults and CI step — COMPLETE
 
 - Depends on: Task 4.1
 - Files: `$ROOT/nx.json`, `$ROOT/.github/workflows/ci.yml`
@@ -417,7 +417,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
   duplicated CLI code, no raw U+2028/2029, nx.json inputs match scope-map paths; self-test (3 stages), test,
   eslint:lint, tsc and prettier are all clean.
 
-## Batch 5: RTL and formatting rules (F2b, part 1) — PENDING
+## Batch 5: RTL and formatting rules (F2b, part 1) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: devops-engineer
@@ -427,8 +427,11 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Commit: `feat(scripts): add rtl and locale formatting rules to i18n-check`
 - Batch 4 style carry-over: new rules live under `tools/i18n-check/src/lib/`, not in `main.ts` (585 lines); move
   `KeyResolver`/`TargetMap` out of `main.ts` into `src/lib/` when this batch touches them.
+- Consistency note (team-leader): `rtl-exempt:` and `i18n-format-exempt:` markers reuse the AST-bound attachment in
+  `src/lib/markers.ts` (Batch 3 Serious-2), which covers the next sibling node or statement span, instead of
+  line-based matching. "Before the containing start tag" in Task 5.1 is satisfied by that attachment.
 
-### Task 5.1: RTL pattern rule with island auto-exemption — PENDING
+### Task 5.1: RTL pattern rule with island auto-exemption — IN_PROGRESS
 
 - Files: `$ROOT/tools/i18n-check/src/lib/rtl-patterns.ts` + spec, `$ROOT/tools/i18n-check/src/main.ts`
 - Plan reference: implementation-plan.md:302-312, :59
@@ -437,7 +440,7 @@ of `apps/ptah-extension-webview` untouched. Write path to trace at Mode 3: `loca
 - Validation notes: Tailwind `rtl:` matches inside islands (verified, plan:59).
 - Implementation details: `.ts`, `.html`, `.css` inputs.
 
-### Task 5.2: AST formatting rule and F2b fixtures — PENDING
+### Task 5.2: AST formatting rule and F2b fixtures — IN_PROGRESS
 
 - Depends on: Task 5.1
 - Files: `$ROOT/tools/i18n-check/src/lib/format-patterns.ts` + spec, `$ROOT/tools/i18n-check/__fixtures__/project/**`, `$ROOT/tools/i18n-check/run-self-test.js`
