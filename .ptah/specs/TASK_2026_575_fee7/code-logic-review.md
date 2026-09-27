@@ -1830,3 +1830,309 @@ HEAD:...`, and the SSG/hydration contract (the review's own stated top concern) 
   legal governing-language notice, re-run the hydration-mismatch trace above specifically against those two
   structural branches, since they are the only place this batch's "no structural language branching yet"
   reasoning stops applying.
+
+## Batch 10
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 3        |
+
+### Scope examined
+
+Read in full: `libs/web/core/src/lib/services/seo.service.ts` (+ new `seo.service.spec.ts`),
+`paddle-checkout.service.ts`, `github-release.service.ts` (+ new `github-release.service.spec.ts`),
+`subscription-state.service.ts`, `sse-events.service.ts`, `libs/web/core/src/lib/i18n/{en,ar}.json`,
+`libs/web/core/project.json` (new `i18n-check` target); all 6 `setPage` callers
+(`landing-page.component.ts`, `pricing-page.component.ts`, `terms/privacy/refund-page.component.ts`,
+`download-page.component.ts`) and the `en`/`ar` scope files of `app`, `landing`, `legal`, `pricing`;
+`pricing-grid.component.ts` (the one other consumer of the new `I18nMessage`-shaped signals);
+`apps/ptah-landing-page/src/app/app.routes.ts` and `app.config.ts` (resolver/global-scope ordering);
+`copy-review/core.md`. Traced but not re-read line by line: `sessions-grid.component.ts`,
+`profile-page.component.ts`, `navigation.component.ts` (checked only for stray reads of the changed
+signals).
+
+Verification run and evidence: `nx run-many -t test -p web-core web-pricing ptah-landing-page
+--skip-nx-cache` (3/3 green); `nx run web-core:i18n-check` → `i18n-check [core]: OK`; `review-tables
+--check` for `core` → `OK`, no drift; `nx run-many -t lint,typecheck -p web-core web-landing web-pricing
+web-legal ptah-landing-page --skip-nx-cache` (all green); `nx run degradation-audit:lint` →
+`libs/web/core: 3 ok (baseline 3)` (0 new unsuppressed sites); the typed SonarJS bug-rule eslint check
+against every changed `.ts` file in this batch (0 problems); `nx run ptah-landing-page:prerender-check`
+→ `check-prerender: 6 routes match their baselines` (a real production build, not a cached one). I also
+grepped the built `dist/ptah-landing-page/browser/{index,pricing,download}/index.html` directly and
+confirmed `<title>`, `description`, all 5 `og:*` and 3 `twitter:*` tags are present, English, and byte-for-
+byte the same strings that were removed as literals from the corresponding `.component.ts` files.
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+
+- `SeoService.applyLocalized`/`english` (`seo.service.ts:89-101`) call `I18nService.translate`, whose prod
+  behaviour (Batch 2, `I18nMissingHandler`) is to return `''` for a key missing from the active language,
+  never the key and never a thrown error. If a caller's key doesn't exist yet (typo, or a scope not
+  actually loaded when `setPage` runs), the page silently gets a blank `<title>` and empty meta description
+  — no console error, no visible break in the component tree. This batch's own keys all exist and are all
+  scope-resolved before use (see Q3), so it is not triggered here, but the service itself has no guard
+  against it (by design, per the missing-handler contract) — worth a one-line note if a future caller adds
+  a key without also adding the review-table/i18n-check step, since `i18n-check`'s key-reference rule is the
+  only thing standing between a typo and a silent blank tag.
+- `checkoutBlockedMessage` (`paddle-checkout.service.ts:538-556`) turns _any_ truthy `response.message`
+  into `core.common.serverMessage` with the raw backend text as `params.text`, without checking that the
+  backend actually sent a non-empty, non-whitespace string. An API that starts returning
+  `message: " "` (space) instead of omitting the field would silently show a single blank space to the
+  user in the "blocked" banner instead of falling through to the `existingPlan`/generic branches, which are
+  the more informative fallbacks. Narrow, low-likelihood (requires a backend regression), not exercised by
+  any spec (see Failure modes).
+- `SSEEventsService.getTicket` (`sse-events.service.ts:276-291`) now returns `null` on _any_ HTTP failure
+  from `POST /auth/stream/ticket` — not only 401. A 500, a network drop, or a CORS failure all collapse
+  into the same `core.realtime.authRequired` ("Authentication required. Please log in first.") message in
+  `connect()` (`sse-events.service.ts:213-218`). A logged-in user whose ticket request merely timed out is
+  told to log in again — misleading, though not a data-loss or success-looking failure (the UI does show an
+  error state, `connectionState = 'error'`, just the wrong one).
+
+#### 2. What user action produces unexpected behaviour?
+
+- Switching language while a page's `SeoConfig` has not yet been set (i.e. before any `setPage` call has
+  run once, app-wide) does nothing — verified by the spec `'touches nothing on a language switch before
+any page is set'` (`seo.service.spec.ts:160-169`) and confirmed correct: `SeoService` is `providedIn:
+'root'` and is only ever injected from inside a page component's constructor immediately before that
+  same constructor calls `setPage` (`grep` confirms no other injection site), so in the running app this
+  branch is only reachable for the instant between the service's own construction and the `setPage` call
+  in the same synchronous constructor — never observable by a user.
+- Switching language exactly while `document.title` no callback observes: intentional and correct —
+  `og:*`/`twitter:*`/canonical are never re-applied on a language switch (`seo.service.ts:55-59` only
+  re-triggers `applyLocalized`, not the og/twitter block in `setPage`), matching the stated contract
+  ("og/twitter always English... title/description follow active lang").
+- Retrying a blocked Paddle checkout after the backend's `existingPlan` value is empty/undefined string
+  falls through correctly to `core.checkout.activeSubscriptionExists` (verified by reading the `if
+(response.existingPlan)` branch) — the empty-string edge case is handled the same way `response.message`
+  is (see Q1), by the same truthy check, so behaviour here is unchanged from before this batch.
+
+#### 3. What input data produces a wrong answer?
+
+- Ordering dependency: `SeoService.applyLocalized`/`english` will resolve to `''` if the calling page's
+  scope isn't loaded before `setPage` runs. I traced this for every one of the 6 callers:
+  - `landing.seo.*`, `pricing.seo.*`, `legal.seo.*` are behind their route's `resolve: { i18n:
+i18nScopesResolver(...) }` in `app.routes.ts:43,68-72,154-166`, which Angular's router guarantees
+    completes before the route activates (and thus before the page component — and its constructor —
+    exists). Correct.
+  - `app.seo.download.*` has **no** resolver (`app.routes.ts:57-63`, comment at :24-30 explains why); it
+    relies on `app` being a `globalScope` in `provideI18n` (`app.config.ts:46-49`), whose loader is awaited
+    by `provideAppInitializer(() => inject(I18nService).init())` (Batch 2), which Angular's bootstrap
+    process must finish before the router performs its first navigation. Confirmed correct by tracing the
+    initializer chain and by the passing `prerender-check` (the download route's title/og tags render with
+    real English text in the built HTML, not blank strings — see Verification).
+  - `core.*` keys used by `pricing-grid.component.ts` and `download-page.component.ts` (`msg.key |
+transloco: msg.params`) are likewise covered by `core` being a `globalScope`.
+  - No caller's key resolves to `''` in the build output I inspected.
+- `checkoutBlockedMessage`'s params for `core.checkout.activePlanExists` interpolate
+  `response.existingPlan` verbatim as `{{ plan }}` with no allow-list/enum check against the plan names the
+  backend is contractually expected to send. A backend change to plan naming shows up untranslated (English
+  plan name inside an otherwise-localized Arabic sentence) — acceptable per the "server text isn't
+  localised" contract stated in the code comment (`paddle-checkout.service.ts:539-542`), not a defect.
+- `core.checkout.config.tokenMismatch`'s params (`environment`, `prefix`) are literal `'sandbox'|
+'production'` / `'test_'|'live_'` strings from the client's own config, not user or server input — no
+  injection surface, and Angular's `{{ }}` interpolation in the consuming templates is text-only (no
+  `innerHTML`), so `core.common.serverMessage`'s raw `response.message` passthrough cannot inject markup
+  even though it is unsanitised/unvalidated text.
+
+#### 4. What happens when a dependency fails?
+
+- Paddle SDK load failure, checkout-not-ready, checkout timeout, and Paddle config validation failures all
+  now route through `I18nMessage` keys instead of hardcoded strings — traced each of the 7 `_error.set(...)`
+  / `_validationError.set(...)` call sites in `paddle-checkout.service.ts` against `core.checkout.*` in both
+  `en.json`/`ar.json`; all 7 keys exist in both languages (confirmed independently by `i18n-check`'s key-
+  reference rule passing).
+- GitHub API failure: `github-release.service.ts:59-68` still branches on `err.status === 403` for
+  rate-limiting vs. a generic failure, now mapped to `core.releases.rateLimited` /
+  `core.releases.loadFailed`. Correct, key parity confirmed.
+- SSE ticket-fetch failure: previously threw a plain `Error` that `connect()`'s `catch` turned into a fixed
+  English string; now `getTicket` returns `null` and `connect()` explicitly checks for it
+  (`sse-events.service.ts:213-218`) before ever reaching the `try`'s `catch`. I grepped the whole repo for
+  other callers of the (private) `getTicket` — none exist outside `connect()` — so there is no caller still
+  relying on the old throw-based contract. The `// degradation-audit: reported` marker on the swallowed
+  `catch` (`sse-events.service.ts:286-288`) is present and the degradation-audit baseline for `libs/web/
+core` is unchanged (3 ok / baseline 3), so this was correctly accounted for rather than silently raising
+  the baseline.
+- `SubscriptionStateService`'s HTTP failure path (`subscription-state.service.ts:176-181`) sets
+  `core.subscription.loadFailed` and unconditionally clears loading/marks fetched — unchanged control flow
+  from before this batch, only the error payload's shape changed.
+
+#### 5. What is missing that the requirements never mentioned?
+
+- No spec file exists for `paddle-checkout.service.ts` or `sse-events.service.ts` at all (not before this
+  batch, not added by it) — see Failure modes / Moderate-1. Batch 10's task list only names
+  `seo.service.spec.ts` and (pre-existing) `github-release.service.spec.ts` as files to touch, so this is
+  not a violation of the batch's own scope, but it means the two most consequential new logic changes in
+  this batch — `checkoutBlockedMessage`'s 3-way precedence and the SSE null-ticket path — ship with zero
+  automated verification of their own; only the passing `nx test` (of everything _else_ in `web-core`) and
+  my manual trace stand behind them.
+- The plan's Preserve list requires "`og:*`/`twitter:*`/canonical tags in English" to survive — verified
+  directly against the built HTML (see Verification), not only inferred from the spec.
+- Nothing in this batch touches `SubscriptionStateService.error`'s only consumer count: I confirmed by grep
+  that no component currently reads `subscriptionService.error()` at all (it's set but never displayed
+  anywhere in the codebase). Not a batch defect — pre-existing dead state — but worth naming since it means
+  the `I18nMessage` conversion on that one signal is currently unobservable to any test or user.
+
+### Failure modes
+
+#### Silent blank SEO tag from an unresolved key
+
+- Trigger: a future page component calls `SeoService.setPage` with a `titleKey`/`descriptionKey` whose
+  owning scope has not been loaded (resolver missing, or scope typo).
+- Symptom: `<title>` and meta description silently render as `''` — no console error, no failed request,
+  no test failure unless a spec explicitly asserts non-empty text.
+- Evidence: `seo.service.ts:90-94` (`this.i18n.translate(config.titleKey)`, no fallback/assertion);
+  `I18nMissingHandler`'s prod contract (Batch 2) returns `''` for a key missing in every loaded language.
+- Current handling: none inside `SeoService` itself; the only backstop is `i18n-check`'s key-reference rule
+  at build time, which this batch's own keys pass.
+- Recommendation: none required for this batch (all 6 callers verified correctly ordered against their
+  resolvers/global scopes), but worth a one-line `SeoService` doc comment (it already documents the
+  `--allow-scope` deviation) noting that `setPage` assumes the caller's scope is already loaded, since nothing
+  enforces that at the type level.
+
+#### Untested checkout-blocked precedence and SSE ticket-null path
+
+- Trigger: any of `response.message` truthy / `response.existingPlan` truthy / neither, going through
+  `checkoutBlockedMessage`; or `getTicket()` failing for any of several distinct backend failure modes
+  (401, 500, network) in `SSEEventsService.connect`.
+- Symptom: none currently — the logic reads correctly on inspection (traced above), but there is no
+  automated test that would catch a regression in either branch order or in the null-vs-throw contract
+  change if either is touched again later.
+- Evidence: `paddle-checkout.service.ts:538-556` (function `checkoutBlockedMessage`, no spec file for the
+  containing service exists anywhere under `libs/web/core/src/lib/services/`);
+  `sse-events.service.ts:213-218,276-291` (same — no spec file for `SSEEventsService` exists).
+- Current handling: none; relies on the reviewer's manual trace and the passing `web-core` test suite
+  (which contains zero assertions touching either file).
+- Recommendation: not a blocker for this batch (pre-existing gap, not introduced or worsened in scope by
+  it — the previous string-based error signals were equally untested), but flagging it as the batch's one
+  real residual risk: it is exactly the kind of branching logic (precedence order, a new `null` sentinel
+  replacing a thrown `Error`) that a future refactor could silently invert without any test failing.
+
+#### Generic `core.realtime.connectFailed` collapses distinct SSE failure causes
+
+- Trigger: any exception inside `connect()`'s `try` block _other than_ a null ticket (e.g. `new
+EventSource(...)` throwing, or a synchronous error in `setupEventListeners`).
+- Symptom: the user sees the generic "Failed to connect" (`core.realtime.connectFailed`) regardless of the
+  actual cause; the previous code had the same generic fallback for non-`Error` throws but preserved
+  `error.message` for `Error` instances (`error instanceof Error ? error.message : 'Failed to connect'`) —
+  that per-error detail is now discarded in favour of always using the fixed key.
+- Evidence: `sse-events.service.ts:242-246` (old) vs `sse-events.service.ts:242-246` (new, the diff shown
+  under Verification).
+- Current handling: the real error is still `console.error`'d (`sse-events.service.ts:243`), so it is not
+  lost for debugging — only the user-facing detail is now generic.
+- Recommendation: acceptable and arguably required by this batch's own constraint (a signal typed
+  `I18nMessage` cannot carry an arbitrary untranslated runtime string without breaking the "translatable,
+  not raw text" contract the whole batch establishes) — not a regression to fix, just recorded as an
+  intentional trade-off since the task description asked me to check for it.
+
+## Blocking issues
+
+None found.
+
+## Serious issues
+
+None found.
+
+## Moderate and minor issues
+
+### Moderate-1: No spec coverage for `PaddleCheckoutService` or `SSEEventsService`
+
+- File: `libs/web/core/src/lib/services/paddle-checkout.service.ts`, `libs/web/core/src/lib/services/
+sse-events.service.ts` (no corresponding `.spec.ts` exists for either)
+- See "Failure modes — Untested checkout-blocked precedence and SSE ticket-null path" above for the full
+  argument. Pre-existing gap, not newly introduced, but this batch adds the most branching-sensitive logic
+  either file has had (a 3-way message precedence function; a thrown-to-null contract change) without
+  adding tests. Carrying this forward rather than blocking on it, since it is outside this batch's declared
+  file list (`batches.md:784` only names `paddle-checkout.service.ts` under "and other message-producing
+  services", with no spec requirement stated).
+
+### Minor
+
+- `seo.service.ts:87` doc comment says "A switch re-applies them" for title/description; worth one more
+  clause stating the assumption that the caller's scope must already be loaded (see Failure modes above) —
+  cosmetic, not a functional gap.
+- `sse-events.service.ts:87-88` reformatted `ConnectionState` from a multi-line union to one line — a pure
+  style change with no logic effect, noted here only because it appeared in the diff; route to
+  `code-style-review.md` if not already covered there.
+
+## Data flow
+
+1. Page component constructor → `inject(SeoService).setPage(config)` — synchronous, runs during Angular's
+   component construction (SSR/SSG-safe). OK.
+2. `setPage` computes English `ogTitle`/`ogDescription` via `this.english(key)` →
+   `i18n.translate(key, {}, DEFAULT_LANG)` — always resolves the English scope regardless of active
+   language. OK, confirmed in the build output for `ar`-irrelevant (server always renders `en`) and in the
+   spec `'writes the title and description in Arabic and og/twitter in English'`.
+3. `applyLocalized(config)` → `Title.setTitle` / `Meta.updateTag('description', ...)` in the **active**
+   language. OK — depends on the calling scope already being loaded (traced per-caller above; no gap
+   found).
+4. `setCanonical`, then the 5 `og:*`/2 `twitter:*` `Meta.updateTag` calls, then `this.page = config` is
+   stored last. OK — storing `this.page` after all synchronous writes means a concurrent read of `this.page`
+   (there is none; single-threaded JS) is a non-issue, but it does mean the root `effect` (registered in the
+   constructor, reading `this.page`) cannot see a config until `setPage` has fully returned — correct, since
+   the effect's own first flush is scheduled asynchronously by Angular regardless.
+5. Root `effect(() => { this.i18n.lang(); if (this.page) this.applyLocalized(this.page); })` — re-runs only
+   `applyLocalized`, never the og/twitter block or canonical — OK, matches the "og/twitter always English"
+   contract; verified against the spec `'re-applies only the title and description after a language
+switch'`.
+6. Backend/service error signals (`_error`, `_validationError`, `error`, `errorMessage`) now carry
+   `I18nMessage` instead of `string`; every consuming template updated in lockstep
+   (`pricing-grid.component.ts:86-99,139-150`, `download-page.component.ts:77-83`) to
+   `msg.key | transloco: msg.params`, each guarded by an `i18n-keys:` marker naming the owning `core.*`
+   group. OK — `i18n-check` independently confirms these markers resolve and no orphaned key exists.
+
+## Requirements fulfilment
+
+| Requirement                                                                        | Status   | Gap                                                                                                              |
+| ---------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| Key-based `SeoService`, old literal fields removed, synchronous `setPage`          | COMPLETE | none                                                                                                             |
+| og/twitter always English via `translate(key, {}, 'en')`                           | COMPLETE | none                                                                                                             |
+| title/description follow active lang via a root `effect`                           | COMPLETE | none                                                                                                             |
+| `core` service messages as `I18nMessage`                                           | COMPLETE | none                                                                                                             |
+| `activePlanExists` with `{ plan }`; server message via `core.common.serverMessage` | COMPLETE | none                                                                                                             |
+| `web-core` `i18n-check` target with `--allow-scope ui,app,landing,legal,pricing`   | COMPLETE | none                                                                                                             |
+| `copy-review/core.md` generated                                                    | COMPLETE | none (regenerated live, `--check` clean)                                                                         |
+| 6 `setPage` callers updated, only `setPage` blocks changed                         | COMPLETE | none                                                                                                             |
+| English values verbatim                                                            | COMPLETE | confirmed by diff against the removed literals, all identical                                                    |
+| `pricing` also carries `ogTitle`/`ogDescription`                                   | COMPLETE | none                                                                                                             |
+| Prerender title/meta unchanged                                                     | COMPLETE | confirmed by a real build + `prerender-check`, not only by baseline diff                                         |
+| Consumers in other projects (download page, pricing grid) still compile            | COMPLETE | confirmed by `lint`/`typecheck` on all 5 affected projects; no other stray consumer of the changed signals found |
+
+Implicit requirements not addressed: automated test coverage for `PaddleCheckoutService`'s new message-
+precedence function and `SSEEventsService`'s null-ticket contract (Moderate-1) — not stated as a Batch 10
+acceptance criterion, carried forward as observed gap rather than as a violation.
+
+## Edge cases
+
+| Case                                                               | Handled        | How                                                                                                     | Concern                                                                       |
+| ------------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Language switch before any `setPage` call                          | YES            | `if (this.page)` guard in the effect                                                                    | none — unreachable in the running app per the single-injection-site trace     |
+| Repeated `setPage` calls (route revisit) reuse one canonical link  | YES            | `setCanonical` queries for an existing `link[rel=canonical]` first                                      | none                                                                          |
+| `og:image` only set when provided                                  | YES            | `if (config.ogImage)` guard                                                                             | none                                                                          |
+| Empty/whitespace backend `message` in `checkoutBlockedMessage`     | NO             | truthy check only, same as the pre-batch code                                                           | see Q1 — pre-existing, not worsened                                           |
+| SSE ticket request failing for a reason other than "not logged in" | NO (collapsed) | all failures → `core.realtime.authRequired`/`connectFailed`                                             | see Failure modes — user-facing detail lost, cause still logged               |
+| Route navigation racing a language switch mid-transition           | YES (narrow)   | `this.page` always reflects the last completed `setPage`; effect re-applies whichever config is current | theoretical flicker window, not user-observable in practice                   |
+| Scope not yet loaded when `setPage` runs                           | YES            | every caller's scope is resolver- or global-scope-gated (traced per caller)                             | none found in this batch; no enforcement at the type level for future callers |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH — every claim was checked against a real, uncached build (`prerender-check` ran a full
+  production build, not a cached one), the grepped built HTML's actual tag content, a full re-run of every
+  verification command the batch specifies (`test`, `i18n-check`, `lint`, `typecheck`,
+  `degradation-audit:lint`, the typed SonarJS check, `review-tables --check`), and a direct trace of every
+  one of the 6 `setPage` call sites against the router's resolver configuration and `app.config.ts`'s
+  global-scope wiring, not inferred from the plan's description of that ordering.
+- Top risk: none blocking or serious. The one real gap (Moderate-1) is missing test coverage for two
+  services' new branching logic, not a functional defect — I traced both by hand and found the logic
+  correct against its stated contract.
+- What a robust implementation would add: (1) a spec for `PaddleCheckoutService.checkoutBlockedMessage`
+  covering all three precedence branches plus the empty-string `message` edge case; (2) a spec for
+  `SSEEventsService.connect`/`getTicket` covering the null-ticket path and at least one non-401 failure
+  distinguishing test; (3) a one-line `SeoService` doc-comment stating the "caller's scope must already be
+  loaded" assumption explicitly, since nothing enforces it at the type level for a future seventh caller.

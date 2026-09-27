@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 77 | Batches: 33 (+1 contingent, see end) | Complete: 9/33
+Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 10/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -60,7 +60,8 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
   they touch the same files, otherwise carried into a named later task with the evidence. Every carry-over is
   written into that task's text.
 - Open carry-overs: Batch 15 A1 re-confirmation line (Batch 9 logic review Moderate-1: prove the server half of
-  A1 from the prerendered HTML). No others are open.
+  A1 from the prerendered HTML); Task 32.3 (Batch 10 logic review moderate: specs for PaddleCheckoutService and
+  SSEEventsService). Glossary candidates accumulate in Task 32.1.
 - Testing recipe for lib batches: scope specs use `loadScopeTranslations` from `@ptah-extension/i18n/testing`;
   component specs use `provideI18nTesting` with the global scopes (`ui`, `core`, plus `app` for app specs),
   documented in `libs/frontend/i18n/CLAUDE.md`.
@@ -760,7 +761,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   directly inspectable under `outputMode: "static"`): accepted as inferred from the green prerender; closed in
   Batch 15 (A1 re-confirmation line). Minor (pre-existing `/members` JSDoc): no action.
 
-## Batch 10: Key-based SeoService and core service messages (CORE) — IN_PROGRESS
+## Batch 10: Key-based SeoService and core service messages (CORE) — COMPLETE (6a5585d1)
 
 - Recommended executor: frontend-developer
 - Fallback executor: backend-developer
@@ -769,7 +770,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 9
 - Commit: `feat(web-core): make seo service key-based and core messages translatable`
 
-### Task 10.1: Key-based `SeoService` — IN_PROGRESS
+### Task 10.1: Key-based `SeoService` — COMPLETE
 
 - Files: `$ROOT/libs/web/core/src/lib/services/seo.service.ts`, `$ROOT/libs/web/core/src/lib/services/seo.service.spec.ts`
 - Plan reference: implementation-plan.md:532-550
@@ -778,7 +779,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: SSG head stays English.
 - Implementation details: none beyond the above.
 
-### Task 10.2: `core` service messages as `I18nMessage` — IN_PROGRESS
+### Task 10.2: `core` service messages as `I18nMessage` — COMPLETE
 
 - Depends on: Task 10.1
 - Files: `$ROOT/libs/web/core/src/lib/services/{paddle-checkout.service.ts,github-release*.ts and other message-producing services}`, `$ROOT/libs/web/core/src/lib/i18n/{en.json,ar.json}`, `$ROOT/libs/web/core/project.json`
@@ -788,7 +789,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: consumers in other projects (download page, pricing grid) must still compile — update only their bindings to `msg.key | transloco: msg.params` with `i18n-keys: core.<area>.*` markers if types change; report every consumer touched.
 - Implementation details: none beyond the above.
 
-### Task 10.3: Update the 6 `setPage` callers and their SEO keys — IN_PROGRESS
+### Task 10.3: Update the 6 `setPage` callers and their SEO keys — COMPLETE
 
 - Depends on: Task 10.1
 - Files: `$ROOT/libs/web/landing/src/lib/landing-page.component.ts`, `$ROOT/libs/web/pricing/src/lib/pricing-page.component.ts`, `$ROOT/libs/web/legal/src/lib/{terms-page,privacy-page,refund-page}.component.ts`, `$ROOT/apps/ptah-landing-page/src/app/pages/download/download-page.component.ts`, and the `en.json`/`ar.json` of `landing`, `legal`, `pricing`, `app`
@@ -803,8 +804,21 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p web-core web-landing web-pricing web-legal ptah-landing-page` and `node_modules/.bin/nx run web-core:i18n-check` pass.
 - `node_modules/.bin/nx run ptah-landing-page:prerender-check` passes; `review-tables --check` clean for `core`.
 - Reviewer: logic (SEO semantics, message contract).
+- Round 1 (executor report): verified on disk by the team-leader. `SeoConfig` is key-only (no literal fields, no
+  dual API); `setPage` synchronous, og/twitter via `translate(key, {}, DEFAULT_LANG)`, root `effect` re-applies
+  title/description; `i18n-keys` markers present; all 6 `setPage` callers use `titleKey`. Paddle/releases/
+  subscription/realtime errors are `I18nMessage | null` with `core.*` keys; `checkoutBlockedMessage` wraps server
+  text as `core.common.serverMessage`; SSE `getTicket` returns `string | null` with a `degradation-audit: reported`
+  marker. `web-core:i18n-check` target added (`--allow-scope ui,app,landing,legal,pricing`, per the Gate SR
+  decision). New specs: seo (7), github-release (3). Consumers touched outside core: download page, pricing grid.
+  Executor evidence: head tags identical vs HEAD on 6 routes, run-many lint/test/typecheck on 5 projects,
+  i18n-check, prerender-check, review-tables `core --check`, degradation-audit, SonarJS 0. No TODO/STUB markers.
+- Logic review round 1: APPROVED (0 blocking, 0 serious, 1 moderate, 3 failure modes accepted). Moderate
+  (PaddleCheckoutService / SSEEventsService have no specs, pre-existing gap): carried to Task 32.3. Out of scope,
+  no action: initial bundle +2.3 kB (budget warning pre-existing). `SESSION_TOPICS` / `FEATURE_DISPLAY_MAP` stay
+  for the account batch. Glossary candidates recorded in Task 32.1.
 
-## Batch 11: Header language switcher and `ui` strings (UI) — PENDING
+## Batch 11: Header language switcher and `ui` strings (UI) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (rerun frontend-developer)
@@ -813,7 +827,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 10
 - Commit: `feat(web-ui): add header language switcher and translate ui chrome`
 
-### Task 11.1: Switcher in `NavigationComponent` (desktop + mobile) — PENDING
+### Task 11.1: Switcher in `NavigationComponent` (desktop + mobile) — IN_PROGRESS
 
 - Files: `$ROOT/libs/web/ui/src/lib/navigation.component.ts`, its spec
 - Plan reference: implementation-plan.md:552-571; design-spec.md §2.2 (:98), §2.3 (:212), §2.5-2.7 (:429-570); `prototype/index.html`
@@ -822,7 +836,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A5 — check icon branch; prefer `[class.invisible]` if hydration warns.
 - Implementation details: key `ui.common.language`.
 
-### Task 11.2: Remaining `ui` strings, formatting and RTL conversion — PENDING
+### Task 11.2: Remaining `ui` strings, formatting and RTL conversion — IN_PROGRESS
 
 - Depends on: Task 11.1
 - Files: `$ROOT/libs/web/ui/src/lib/{footer.component.ts,countdown-timer.component.ts,console/**,session-calendar/**}`, `$ROOT/libs/web/ui/src/lib/i18n/{en,ar}.json`
@@ -832,7 +846,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: prerendered routes render `ui` chrome.
 - Implementation details: none beyond the above.
 
-### Task 11.3: `i18n-check` target and copy review — PENDING
+### Task 11.3: `i18n-check` target and copy review — IN_PROGRESS
 
 - Depends on: Task 11.2
 - Files: `$ROOT/libs/web/ui/project.json`, `$ROOT/.ptah/specs/TASK_2026_575_fee7/copy-review/ui.md`
@@ -1478,7 +1492,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Fallback executor: devops-engineer
 - Execution mode: sequential
 - Rationale: plan:726 assigns glossary appends to the team-leader; the team-leader does not write code, so it is a batch fed by the lib reports.
-- Tasks: 2 | Depends on: Batch 31
+- Tasks: 3 | Depends on: Batch 31
 - Commit: `chore(scripts): extend i18n glossary and regenerate copy review tables`
 
 ### Task 32.1: Append reported glossary terms — PENDING
@@ -1487,6 +1501,8 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Plan reference: implementation-plan.md:726, :365
 - Pattern to follow: existing entries
 - Quality requirements: the team-leader passes the collected term list in the prompt; no term may break a check.
+- Collected glossary candidates (append as lib batches report them): Batch 10 — Paddle, Windows, macOS, Linux,
+  SaaS, PRD, Cron, GitHub, SDK.
 - Validation notes: if the list is empty, the batch is reduced to Task 32.2.
 - Implementation details: none.
 
@@ -1498,6 +1514,17 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Pattern to follow: n/a
 - Quality requirements: `node_modules/.bin/nx run-many -t i18n-check -p ptah-landing-page web-ui web-panel-ui web-core web-landing web-legal web-pricing web-auth web-account web-members web-admin` exits 0; `review-tables --check` clean for all 11.
 - Validation notes: do not create `SIGNOFF.md` (user and team-leader owned).
+
+### Task 32.3: Specs for `PaddleCheckoutService` and `SSEEventsService` messages — PENDING
+
+- Carry-over from the Batch 10 logic review (moderate): both services have no spec, so the message contract has no
+  automated coverage.
+- Files: `$ROOT/libs/web/core/src/lib/services/{paddle-checkout.service.spec.ts,sse-events.service.spec.ts}` (new)
+- Pattern to follow: `$ROOT/libs/web/core/src/lib/services/github-release.service.spec.ts`
+- Quality requirements: `checkoutBlockedMessage` precedence (server message -> `core.common.serverMessage {text}`;
+  else existing plan -> `core.checkout.activePlanExists {plan}`; else `core.checkout.activeSubscriptionExists`);
+  SSE null-ticket path sets `core.realtime.authRequired` and does not open a connection; no production code change.
+- Verification: `node_modules/.bin/nx run-many -t lint,test,typecheck -p web-core`; SonarJS 0 on the two specs.
 - Implementation details: none.
 
 ### Batch 32 verification
