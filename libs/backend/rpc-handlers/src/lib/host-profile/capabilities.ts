@@ -62,6 +62,11 @@ export const RPC_CAPABILITIES = [
   'commandExecution',
   /** Host ships a self-updating application shell. */
   'appUpdater',
+  /**
+   * Host keeps per-workspace state and can ask the user for the opt-in
+   * `go vet` consent (`diagnostics:go-vet-consent-*`). Off in VS Code.
+   */
+  'goVetDiagnostics',
 ] as const;
 
 export type Capability = (typeof RPC_CAPABILITIES)[number];

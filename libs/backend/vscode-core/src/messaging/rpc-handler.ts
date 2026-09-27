@@ -88,6 +88,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'boot:', // Boot readiness probe (getReadiness) — the renderer's first read
   'peerSession:', // Other Claude Code sessions on this machine (list, send)
   'surface:', // TASK_2026_538 surface state RPC
+  'diagnostics:', // Per-workspace `go vet` consent (go-vet-consent-get, go-vet-consent-set)
 ] as const;
 
 export const RPC_SLOW_WARN_MS_ENV = 'PTAH_RPC_SLOW_WARN_MS';

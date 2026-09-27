@@ -113,6 +113,20 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
   ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+  // Language-registry reads `vscode-lm-tools` evaluates at module load
+  // (Batch 24c); same shapes as `ast/language-registry.ts`, narrowed to the
+  // TypeScript family.
+  recognisedSourceExtensions: (): readonly string[] => [
+    '.ts',
+    '.tsx',
+    '.js',
+    '.jsx',
+  ],
+  supportedLanguagesFor: (): readonly string[] => [
+    'typescript',
+    'javascript',
+    'tsx',
+  ],
 }));
 
 import type { DependencyContainer } from 'tsyringe';

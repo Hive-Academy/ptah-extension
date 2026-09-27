@@ -73,6 +73,7 @@ import {
   WizardGenerationRpcHandlers,
   WorkspaceRpcHandlers,
 } from '../handlers';
+import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-rpc.handlers';
 
 /**
  * Structural shape every RPC handler class satisfies. tsyringe's
@@ -397,6 +398,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: UpdateRpcHandlers.METHODS,
     requires: ['appUpdater'],
     handler: UpdateRpcHandlers,
+  },
+  {
+    // Per-workspace `go vet` consent (O2 §3). Needs host-owned per-workspace
+    // state and a surface that shows the user the root; VS Code has neither
+    // for this, so its profile leaves the capability off.
+    key: 'diagnosticsConsent',
+    methods: DiagnosticsConsentRpcHandlers.METHODS,
+    requires: ['goVetDiagnostics'],
+    handler: DiagnosticsConsentRpcHandlers,
   },
 
   // --- host-owned (unification pending) -------------------------------------

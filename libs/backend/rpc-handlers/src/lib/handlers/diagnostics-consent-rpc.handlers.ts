@@ -1,0 +1,295 @@
+/**
+ * Diagnostics consent RPC handlers — the per-workspace opt-in for `go vet`
+ * (TASK_2026_559 Batch 37b1c; O2 §3, §6; User Decisions 19 and 25).
+ *
+ *   - `diagnostics:go-vet-consent-get` — the active workspace, its consent
+ *     state (`off` | `on` | `stale` + reason) and the Go binary on display.
+ *   - `diagnostics:go-vet-consent-set` — grant or revoke for the ACTIVE root.
+ *
+ * Consent lives in host-owned per-workspace state through the workspace
+ * intelligence `GoVetConsentStore`; no repository file is read or written.
+ * The caller's `workspaceRoot` is a comparison token only (the root it last
+ * showed the user): when it no longer names the active root the call refuses
+ * with `workspace-changed` before anything is written or cleared. Success is
+ * reported only after the new state is read back, and only then is the fixed
+ * audit line written.
+ *
+ * Host gating is data: the manifest entry requires `goVetDiagnostics`, which
+ * only the Electron and CLI profiles enable. Refusals are the fixed codes of
+ * `DiagnosticsGoVetConsentSetError`; no error text reaches the caller or the
+ * log.
+ */
+
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
+import { inject, injectable } from 'tsyringe';
+import { z } from 'zod';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  isWorkspaceScopedStateStorage,
+} from '@ptah-extension/platform-core';
+import type {
+  IPlatformInfo,
+  IStateStorage,
+  IWorkspaceLifecycleProvider,
+  IWorkspaceProvider,
+  IWorkspaceScopedStateStorage,
+} from '@ptah-extension/platform-core';
+import {
+  GO_VET_CONSENT_KEY,
+  GoVetConsentStore,
+  resolveGoBinary,
+  type GoBinaryIdentity,
+} from '@ptah-extension/workspace-intelligence';
+import type {
+  DiagnosticsGoVetConsentGetParams,
+  DiagnosticsGoVetConsentGetResult,
+  DiagnosticsGoVetConsentSetError,
+  DiagnosticsGoVetConsentSetParams,
+  DiagnosticsGoVetConsentSetResult,
+  RpcMethodName,
+} from '@ptah-extension/shared';
+
+/** Upper bound on the displayed-root token; a longer value is not a path. */
+const MAX_ROOT_LENGTH = 4096;
+
+const GoVetConsentGetParamsSchema = z.object({}).strict();
+
+const GoVetConsentSetParamsSchema = z
+  .object({
+    enabled: z.boolean(),
+    workspaceRoot: z.string().min(1).max(MAX_ROOT_LENGTH),
+    source: z.enum(['settings-ui', 'cli']),
+  })
+  .strict();
+
+/** The active workspace as the host registered it. */
+interface ActiveRoot {
+  /** The registered storage key: the path consent is written under. */
+  readonly root: string;
+  /** That root's own storage, for the revoke read-back. */
+  readonly storage: IStateStorage;
+}
+
+function refuse(
+  error: DiagnosticsGoVetConsentSetError,
+): DiagnosticsGoVetConsentSetResult {
+  return { success: false, error };
+}
+
+@injectable()
+export class DiagnosticsConsentRpcHandlers {
+  static readonly METHODS = [
+    'diagnostics:go-vet-consent-get',
+    'diagnostics:go-vet-consent-set',
+  ] as const satisfies readonly RpcMethodName[];
+
+  private readonly consentStore: GoVetConsentStore;
+  private readonly userDataPath: string;
+  /** SET calls run one at a time, so each read-back sees its own write. */
+  private setChain: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER)
+    private readonly workspaceLifecycle: IWorkspaceLifecycleProvider,
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private readonly workspaceState: IStateStorage,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    platformInfo: IPlatformInfo,
+  ) {
+    // The same user-data directory the checker's store uses
+    // (`registerTypeScriptDiagnosticsProvider`), so both judge one record.
+    this.userDataPath = platformInfo.globalStoragePath;
+    this.consentStore = new GoVetConsentStore(workspaceState, {
+      userDataPath: this.userDataPath,
+    });
+  }
+
+  register(): void {
+    this.rpcHandler.registerMethod<
+      DiagnosticsGoVetConsentGetParams,
+      DiagnosticsGoVetConsentGetResult
+    >('diagnostics:go-vet-consent-get', async (params: unknown) =>
+      this.getConsent(params),
+    );
+    this.rpcHandler.registerMethod<
+      DiagnosticsGoVetConsentSetParams,
+      DiagnosticsGoVetConsentSetResult
+    >('diagnostics:go-vet-consent-set', async (params: unknown) => {
+      const next = this.setChain.then(
+        () => this.setConsent(params),
+        () => this.setConsent(params),
+      );
+      this.setChain = next;
+      return next;
+    });
+  }
+
+  private getConsent(params: unknown): DiagnosticsGoVetConsentGetResult {
+    if (!GoVetConsentGetParamsSchema.safeParse(params ?? {}).success) {
+      throw new Error('invalid-params');
+    }
+    if (!isWorkspaceScopedStateStorage(this.workspaceState)) {
+      return { supported: false, workspace: null, state: 'off' };
+    }
+    const active = this.activeRoot(this.workspaceState);
+    if (active === null) {
+      return { supported: true, workspace: null, state: 'off' };
+    }
+    const binary = this.currentGoBinary(active.root);
+    const consent = this.consentStore.read(active.root, binary);
+    const workspace = { root: active.root };
+    if (consent.state === 'on') {
+      return {
+        supported: true,
+        workspace,
+        state: 'on',
+        goBinary: consent.record.goBinary.path,
+      };
+    }
+    return {
+      supported: true,
+      workspace,
+      state: consent.state,
+      ...(consent.state === 'stale' ? { staleReason: consent.reason } : {}),
+      ...(binary !== null ? { goBinary: binary.path } : {}),
+    };
+  }
+
+  /** O2 §3 check order 1-7; every refusal happens before any write. */
+  private async setConsent(
+    params: unknown,
+  ): Promise<DiagnosticsGoVetConsentSetResult> {
+    const parsed = GoVetConsentSetParamsSchema.safeParse(params);
+    if (!parsed.success) return refuse('invalid-params');
+    const { enabled, workspaceRoot, source } = parsed.data;
+
+    if (!isWorkspaceScopedStateStorage(this.workspaceState)) {
+      return refuse('unsupported');
+    }
+    const active = this.activeRoot(this.workspaceState);
+    if (active === null) return refuse('no-workspace');
+    // Stale-UI guard: the caller value is compared, never written to.
+    if (!this.samePath(workspaceRoot, active.root)) {
+      return refuse('workspace-changed');
+    }
+
+    let binary: GoBinaryIdentity | null = null;
+    if (enabled) {
+      binary = this.currentGoBinary(active.root);
+      if (binary === null) return refuse('no-go-binary');
+    }
+
+    try {
+      if (binary !== null) {
+        await this.consentStore.grant(active.root, binary);
+      } else {
+        await this.consentStore.revoke(active.root);
+      }
+    } catch (error: unknown) {
+      // The refusal `persist-failed` is the caller's answer. The error text
+      // may hold paths, so only the fixed line below is logged.
+      void error;
+      this.logger.warn('[Diagnostics] go vet consent write failed', {
+        workspaceHash: workspaceHash(active.root),
+        enabled,
+      });
+      return refuse('persist-failed');
+    }
+
+    if (!this.readBackMatches(active, enabled, binary)) {
+      this.logger.warn('[Diagnostics] go vet consent read-back mismatch', {
+        workspaceHash: workspaceHash(active.root),
+        enabled,
+      });
+      return refuse('persist-failed');
+    }
+
+    this.logger.info('[Diagnostics] go vet consent changed', {
+      workspaceHash: workspaceHash(active.root),
+      enabled,
+      source,
+    });
+    return { success: true, state: enabled ? 'on' : 'off' };
+  }
+
+  /**
+   * Grant: the store must now judge the root `on` against the binary just
+   * recorded. Revoke: the key must be gone from the root's own storage, and
+   * the store must judge it `off` (a failed read also answers `off`, so the
+   * key check is what proves the deletion).
+   */
+  private readBackMatches(
+    active: ActiveRoot,
+    enabled: boolean,
+    binary: GoBinaryIdentity | null,
+  ): boolean {
+    if (enabled) {
+      return this.consentStore.read(active.root, binary).state === 'on';
+    }
+    return (
+      active.storage.get(GO_VET_CONSENT_KEY) === undefined &&
+      !active.storage.keys().includes(GO_VET_CONSENT_KEY) &&
+      this.consentStore.read(active.root, this.currentGoBinary(active.root))
+        .state === 'off'
+    );
+  }
+
+  /**
+   * The host's active root (`lifecycle.getActiveFolder() ??
+   * getWorkspaceRoot()`, the expression both hosts use for their active
+   * workspace source), matched to a registered storage key: exact
+   * `path.resolve` spelling, then on win32 a case-folded match. A root with
+   * no registered storage is `null`; there is no fallback to another scope.
+   */
+  private activeRoot(storage: IWorkspaceScopedStateStorage): ActiveRoot | null {
+    const active =
+      this.workspaceLifecycle.getActiveFolder() ??
+      this.workspaceProvider.getWorkspaceRoot();
+    if (active === undefined || active.length === 0) return null;
+    const wanted = path.resolve(active);
+    const exact = storage.getStorageForWorkspace(wanted);
+    if (exact !== undefined) return { root: wanted, storage: exact };
+    if (process.platform !== 'win32') return null;
+    const registered = storage
+      .getAllWorkspacePaths()
+      .find((candidate) => this.samePath(candidate, wanted));
+    if (registered === undefined) return null;
+    const folded = storage.getStorageForWorkspace(registered);
+    return folded === undefined ? null : { root: registered, storage: folded };
+  }
+
+  private samePath(a: string, b: string): boolean {
+    const left = path.resolve(a);
+    const right = path.resolve(b);
+    return process.platform === 'win32'
+      ? left.toLowerCase() === right.toLowerCase()
+      : left === right;
+  }
+
+  /** The binary the checker would run for `root` now (O2 §4.1), or `null`. */
+  private currentGoBinary(root: string): GoBinaryIdentity | null {
+    const resolved = resolveGoBinary({
+      workspaceRoot: root,
+      env: process.env,
+      userDataPath: this.userDataPath,
+    });
+    return resolved === null
+      ? null
+      : { path: resolved.path, size: resolved.size, mtimeMs: resolved.mtimeMs };
+  }
+}
+
+/** O2 §6: the root is logged only as a 16-hex sha256 of its resolved path. */
+function workspaceHash(root: string): string {
+  return createHash('sha256')
+    .update(path.resolve(root))
+    .digest('hex')
+    .slice(0, 16);
+}
