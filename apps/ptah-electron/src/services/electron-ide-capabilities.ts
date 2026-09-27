@@ -37,8 +37,10 @@
  *       (2) drop matches that fall inside comments and literal string text
  *           via Tree-sitter (interpolated expressions are kept).
  *     Otherwise it runs a bounded scan of every recognised source file
- *     (`text-scan`). Every cap and every skipped file (unreadable, over
- *     1 MiB, unreadable tree part) is reported as `truncated`.
+ *     (`text-scan`) outside the default vendor excludes and the workspace
+ *     ignore files. Every cap and every skipped file (unreadable, over 1 MiB,
+ *     unreadable tree part) is reported as `truncated`; an ignored file is
+ *     out of scope, not skipped.
  *   - getDefinitionReport / getReferencesReport: the same lookups, reporting
  *     the mechanism that answered (`symbol-index`, `declaration-scan`,
  *     `graph-scoped-scan`, `text-scan`), the registry language of the queried
@@ -47,7 +49,7 @@
  *     root), or whose analysis failed (parse or query failure, unreadable
  *     import target), is an error there, never an empty answer. An empty
  *     declaration scan is `truncated` (it reads at most two files); a full
- *     symbol-index page with no confident pick is `truncated` too.
+ *     symbol-index page is `truncated` too, whatever the pick.
  *   - getHover: surface the matched symbol's index entry text.
  *   - getSignatureHelp: unsupported name-based — returns null.
  *
@@ -77,6 +79,7 @@ import {
   languageForExtension,
   recognisedSourceExtensions,
   type DependencyGraphService,
+  type IgnorePatternResolverService,
   type AstAnalysisService,
   type TreeSitterParserService,
   type SupportedLanguage,
@@ -359,6 +362,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
   constructor(
     private readonly symbolReader: ICodeSymbolReader | undefined,
     private readonly fs: IFileSystemProvider,
+    private readonly ignoreResolver: IgnorePatternResolverService,
     private readonly workspaceProvider: IWorkspaceProvider,
     private readonly editorProvider: IEditorProvider,
     private readonly dependencyGraph: DependencyGraphService,
@@ -489,7 +493,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
         cursorPath,
         indexed.locations,
         'symbol-index',
-        indexed.incomplete,
+        indexed.saturated,
       );
     }
     const fallback = await this.declarationsWithoutIndex(
@@ -516,31 +520,26 @@ export class ElectronIDECapabilities implements IIDECapabilities {
    *   - a declaration in the cursor file itself wins;
    *   - otherwise the declaration in the module the cursor file imports the
    *     identifier from wins;
-   *   - otherwise all exact-name candidates are returned (no confident pick),
-   *     `incomplete` when the index page was full (more may exist).
-   * `saturated` reports the full page whatever the pick (narrowing needs every
-   * declaration). Empty when the index has no candidate (or no reader).
+   *   - otherwise all exact-name candidates are returned (no pick).
+   * `saturated` (the index page was full, more may exist) is carried through
+   * EVERY path: a local or imported-file pick narrows by file, not by unique
+   * binding, and a full page may have cut off more same-named declarations
+   * in that very file (closing review R26B-C-M1). Empty when the index has no
+   * candidate (or no reader).
    */
   private async indexedDeclarations(
     cursorPath: string,
     cursorContent: string,
     identifier: string,
-  ): Promise<{
-    locations: Location[];
-    incomplete: boolean;
-    saturated: boolean;
-  }> {
-    const { locations: candidates, saturated } =
-      await this.indexCandidates(identifier);
-    const all = { locations: candidates, incomplete: saturated, saturated };
+  ): Promise<IndexCandidates> {
+    const all = await this.indexCandidates(identifier);
+    const { locations: candidates, saturated } = all;
     if (candidates.length === 0) return all;
 
     const cursorNorm = this.normalize(cursorPath) as string;
     const local = candidates.filter((c) => c.file === cursorNorm);
-    if (local.length > 0) {
-      return { locations: local, incomplete: false, saturated };
-    }
-    if (candidates.length === 1 && !saturated) return all;
+    if (local.length > 0) return { locations: local, saturated };
+    if (candidates.length === 1) return all;
 
     const importedModule = await this.resolveImportedModule(
       cursorPath,
@@ -551,9 +550,7 @@ export class ElectronIDECapabilities implements IIDECapabilities {
       const matched = candidates.filter((c) =>
         fileMatchesModule(c.file, importedModule),
       );
-      if (matched.length > 0) {
-        return { locations: matched, incomplete: false, saturated };
-      }
+      if (matched.length > 0) return { locations: matched, saturated };
     }
 
     return all;
@@ -929,20 +926,24 @@ export class ElectronIDECapabilities implements IIDECapabilities {
    * Bounded scan of every recognised source file, used whenever the
    * narrowing gate does not hold. Discovery is itself bounded (one past
    * MAX_FILES_SCANNED, r1 M3) and applies the default vendor and build
-   * excludes. `truncated` when discovery stopped at the bound, could not read
-   * part of the tree, or failed, or when the scan left files unread.
+   * excludes plus the workspace ignore files (closing review R26B-C-M2), so
+   * an ignored generated tree cannot use up the caps before source. A file
+   * skipped by ignore rules is out of scope, not a truncation. `truncated`
+   * when discovery stopped at the bound, could not read part of the tree, or
+   * failed, or when the scan left files unread.
    */
   private async textScan(
     workspaceFolder: string,
     identifier: string,
   ): Promise<{ locations: Location[]; truncated: boolean }> {
     const pattern = `{${SCAN_EXTENSIONS.map((ext) => `**/*${ext}`).join(',')}}`;
+    const ignore = await this.workspaceIgnore(workspaceFolder);
     let found: readonly string[];
     let discoveryIncomplete = false;
     try {
       found = await this.fs.findFiles(
         pattern,
-        [...DEFAULT_WORKSPACE_EXCLUDES],
+        [...DEFAULT_WORKSPACE_EXCLUDES, ...ignore.walkExcludes],
         MAX_FILES_SCANNED + 1,
         workspaceFolder,
       );
@@ -962,7 +963,8 @@ export class ElectronIDECapabilities implements IIDECapabilities {
     }
     const files = found
       .slice(0, MAX_FILES_SCANNED)
-      .map((file) => this.toAbsolute(workspaceFolder, file));
+      .map((file) => this.toAbsolute(workspaceFolder, file))
+      .filter((file) => !ignore.isIgnored(file));
     const scan = await this.scanFiles(files, identifier);
     return {
       locations: scan.locations,
@@ -970,6 +972,48 @@ export class ElectronIDECapabilities implements IIDECapabilities {
         scan.truncated ||
         discoveryIncomplete ||
         found.length > MAX_FILES_SCANNED,
+    };
+  }
+
+  /**
+   * The workspace ignore rules, the same ones the indexer stream applied
+   * before the fix round (`IgnorePatternResolverService`):
+   *   - `isIgnored`: the exact decision (last match wins, negations), applied
+   *     to every discovered file;
+   *   - `walkExcludes`: the ignore patterns passed into the bounded walk
+   *     itself (the `ContextService.getEffectiveExcludes` precedent), so an
+   *     ignored tree never spends the discovery bound. Left empty when any
+   *     pattern is a negation: a walk exclude cannot re-include a file, and
+   *     dropping a re-included source file would be a silent omission.
+   * Unreadable ignore files mean no ignore rules (more files scanned, never
+   * fewer).
+   */
+  private async workspaceIgnore(workspaceFolder: string): Promise<{
+    isIgnored: (file: string) => boolean;
+    walkExcludes: string[];
+  }> {
+    let ignoreFiles: Awaited<
+      ReturnType<IgnorePatternResolverService['parseWorkspaceIgnoreFiles']>
+    >;
+    try {
+      ignoreFiles =
+        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[ElectronIDECapabilities] Workspace ignore files could not be read; scanning without them',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return { isIgnored: () => false, walkExcludes: [] };
+    }
+    const patterns = ignoreFiles.flatMap((file) => file.patterns);
+    return {
+      isIgnored: this.ignoreResolver.compileMatcher(
+        ignoreFiles,
+        workspaceFolder,
+      ),
+      walkExcludes: patterns.some((p) => p.isNegation)
+        ? []
+        : patterns.map((p) => p.pattern),
     };
   }
 

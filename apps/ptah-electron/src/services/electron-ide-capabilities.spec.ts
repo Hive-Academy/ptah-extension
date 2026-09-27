@@ -13,6 +13,7 @@ import {
 import {
   AstAnalysisService,
   DependencyGraphService,
+  IgnorePatternResolverService,
   TreeSitterParserService,
 } from '@ptah-extension/workspace-intelligence';
 import { ElectronIDECapabilities } from './electron-ide-capabilities';
@@ -225,8 +226,14 @@ function build(overrides: {
   ast?: Ast;
   treeSitter?: TreeSitter;
   realpath?: (p: string) => Promise<string>;
+  ignoreResolver?: unknown;
 }) {
   const reader = overrides.reader;
+  // Default: no workspace ignore files.
+  const ignoreResolver = overrides.ignoreResolver ?? {
+    parseWorkspaceIgnoreFiles: jest.fn(async () => []),
+    compileMatcher: jest.fn(() => () => false),
+  };
   const indexer = overrides.indexer ?? {
     findFiles: jest.fn(() => streamOf([])),
   };
@@ -259,6 +266,7 @@ function build(overrides: {
   const cap = new ElectronIDECapabilities(
     reader as never,
     fs as never,
+    ignoreResolver as never,
     workspace as never,
     editor as never,
     depGraph as never,
@@ -2203,6 +2211,83 @@ describe('ElectronIDECapabilities', () => {
         });
       });
 
+      describe('closing R26B-C-M2: workspace ignore files bound the text scan', () => {
+        const decl = 'C:/repo/src/decl.ts';
+        const generated = 'C:/repo/aaa-generated/client.ts';
+        const use = 'C:/repo/zsrc/use.ts';
+
+        /** The real resolver over an in-memory root `.gitignore`. */
+        function realIgnore(gitignore: string): IgnorePatternResolverService {
+          return new IgnorePatternResolverService(
+            {
+              exists: jest.fn(
+                async (p: string) =>
+                  p.replace(/\\/g, '/') === 'C:/repo/.gitignore',
+              ),
+              readFile: jest.fn(async () => gitignore),
+            } as never,
+            {} as never,
+          );
+        }
+
+        it('an ignored generated tree cannot use up the match cap before source, and is no truncation', async () => {
+          // The discovery mock returns the ignored file too (as an adapter
+          // that did not prune it would): the exact matcher must drop it.
+          const indexer = streamingIndexer([generated, decl, use]);
+          const { cap } = build({
+            fs: memoryFs({
+              [decl]: 'export function Foo() {}',
+              [generated]: 'Foo '.repeat(501),
+              [use]: 'Foo();',
+            }),
+            indexer,
+            ignoreResolver: realIgnore('aaa-generated/\n'),
+          });
+
+          const report = await refsReport(cap, decl, 0, 16);
+
+          expect(report.locations).toEqual([
+            { file: decl, line: 0, column: 16 },
+            { file: use, line: 0, column: 0 },
+          ]);
+          expect(report.truncated).toBeUndefined();
+          // The ignored tree is also pruned inside the bounded walk.
+          expect(indexer.findFiles).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.arrayContaining(['**/node_modules/**', 'aaa-generated/**']),
+            8001,
+            'C:/repo',
+          );
+        });
+
+        it('a negated pattern re-includes a file, so the walk is not pruned by its directory', async () => {
+          const keep = 'C:/repo/gen/keep.ts';
+          const other = 'C:/repo/gen/other.ts';
+          const indexer = streamingIndexer([decl, keep, other]);
+          const { cap } = build({
+            fs: memoryFs({
+              [decl]: 'export function Foo() {}',
+              [keep]: 'Foo();',
+              [other]: 'Foo();',
+            }),
+            indexer,
+            ignoreResolver: realIgnore('gen/\n!gen/keep.ts\n'),
+          });
+
+          const report = await refsReport(cap, decl, 0, 16);
+
+          expect(report.locations).toEqual([
+            { file: decl, line: 0, column: 16 },
+            { file: keep, line: 0, column: 0 },
+          ]);
+          const [, excludes] = indexer.findFiles.mock.calls[0] as [
+            string,
+            string[],
+          ];
+          expect(excludes).not.toContain('gen/**');
+        });
+      });
+
       describe('B6: interpolated expressions are references, literal text is not', () => {
         it.each([
           ['TypeScript template', 'C:/repo/src/t.ts', 'const s = `Foo ${Foo()} x`;', 17],
@@ -2243,9 +2328,60 @@ describe('ElectronIDECapabilities', () => {
           expect(report.truncated).toBe(true);
         });
 
-        it('keeps a confident local pick unqualified', async () => {
+        it('closing R26B-C-M1: a saturated page of same-file (local) candidates stays truncated', async () => {
+          // 25 same-named declarations in the cursor file: more may be cut off.
+          const sameFile = Array.from({ length: 25 }, (_, i) =>
+            indexHit(CONSUMER, 'doThing', i * 3),
+          );
           const { cap } = build({
-            reader: readerWith(indexHit(CONSUMER, 'doThing', 0), ...fullPage.slice(1)),
+            reader: readerWith(...sameFile),
+            fs: memoryFs({ [CONSUMER]: 'doThing();' }),
+          });
+
+          const report = await defsReport(cap, CONSUMER, 0, 0);
+
+          expect(report.locations).toHaveLength(25);
+          expect(report.locations.every((l) => l.file === CONSUMER)).toBe(true);
+          expect(report.truncated).toBe(true);
+        });
+
+        it('closing R26B-C-M1: a saturated page picked through the imported file stays truncated', async () => {
+          const imported = 'C:/repo/src/foo.ts';
+          const page = [
+            indexHit(imported, 'doThing', 0),
+            indexHit(imported, 'doThing', 9),
+            ...fullPage.slice(2),
+          ];
+          const { cap } = build({
+            reader: readerWith(...page),
+            fs: memoryFs({ [CONSUMER]: 'doThing();' }),
+            ast: {
+              analyzeSource: jest.fn(async () =>
+                ok({
+                  imports: [{ source: './foo', importedSymbols: ['doThing'] }],
+                  exports: [],
+                  functions: [],
+                  classes: [],
+                }),
+              ),
+            },
+          });
+
+          const report = await defsReport(cap, CONSUMER, 0, 0);
+
+          expect(report.locations).toEqual([
+            { file: imported, line: 0, column: 0 },
+            { file: imported, line: 9, column: 0 },
+          ]);
+          expect(report.truncated).toBe(true);
+        });
+
+        it('keeps a local pick from a page that was not full unqualified', async () => {
+          const { cap } = build({
+            reader: readerWith(
+              indexHit(CONSUMER, 'doThing', 0),
+              ...fullPage.slice(1, 10),
+            ),
             fs: memoryFs({ [CONSUMER]: 'doThing();' }),
           });
 

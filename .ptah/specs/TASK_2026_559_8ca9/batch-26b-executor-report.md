@@ -260,3 +260,52 @@ indexer by feeding the spec's `findFiles` mock through `indexWorkspaceStream`. T
   scripts, re-exports, `require`, dynamic `import()` and aliases. `DependencyGraphService` does not add edges for
   re-exports today, and that also affects `ptah_get_dependents` answers (their coverage does not say so). This is a
   candidate for 32b.
+
+## Follow-up (closing review)
+
+This round fixes both open Moderates from `reviews/batch-26b-code-logic-review-r2-closing.md`. The re-export graph edge
+is carried to 32b and is not touched here.
+
+### R26B-C-M1 — a saturated page lost `truncated` on a local or imported-file pick
+
+- `indexedDeclarations` in `electron-ide-capabilities.ts` now returns `IndexCandidates` (`locations`, `saturated`) on
+  every path: all candidates, the local pick, and the imported-file pick. The separate `incomplete` flag is gone.
+- A pick narrows by file, not by unique binding, so a full page stays `truncated` whatever the pick. `definitionLookup`
+  passes `indexed.saturated` as `truncated`.
+- Specs:
+  - 25 same-file candidates → truncated;
+  - a saturated page picked through `./foo` → 2 locations, truncated;
+  - a local pick from a page that is not full stays unqualified. This replaces the earlier "confident local pick"
+    assumption.
+
+### R26B-C-M2 — the text scan ignored `.gitignore`
+
+- The text scan uses `IgnorePatternResolverService` again. This is the mechanism the indexer stream used before the fix
+  round. It is a new constructor dependency after `fs`, wired in `apps/ptah-electron/src/di/phase-3-storage.ts`
+  through `TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE`.
+- `workspaceIgnore()` gives the scan two things:
+  - `isIgnored`: `compileMatcher`, the exact last-match-wins decision including negations. It is applied to every
+    discovered file.
+  - `walkExcludes`: the ignore patterns, passed into the bounded `findFiles` walk next to `DEFAULT_WORKSPACE_EXCLUDES`.
+    This follows the `ContextService.getEffectiveExcludes` precedent, so an ignored tree does not use up the 8,001-path
+    discovery bound.
+- When any pattern is a negation, `walkExcludes` stays empty and only the exact filter applies. A walk exclude cannot
+  re-include a file, so pruning there would silently drop re-included source.
+- An ignored file is out of scope, not a truncation. If the ignore files cannot be read, the scan runs without ignore
+  rules, which reads more files, never fewer.
+- The r1 guarantees still hold: bounded discovery, disclosure of `IncompleteFileSearchError` and of skipped files, and
+  the caps.
+- Specs:
+  - the reviewer's scenario: `.gitignore` `aaa-generated/` with a generated `client.ts` holding 501 occurrences, plus
+    `zsrc/use.ts`. Only source hits come back, with no `truncated`, and the walk excludes contain `aaa-generated/**`;
+  - negation: `gen/` + `!gen/keep.ts` returns `keep.ts`, drops `other.ts`, and does not prune `gen/**` in the walk.
+
+### FB evidence and verification
+
+- FB: the fix-round source was swapped back in, with a test-only extra constructor parameter. **4 failed**, exactly the
+  four new specs; the other 97 passed. The file was restored and checked with `cmp`. After the fix: **101 passed**.
+- `nx run-many -t=test,lint,typecheck -p ptah-electron @ptah-extension/workspace-intelligence --skip-nx-cache` →
+  success for 2 projects.
+- `nx run-many -t=typecheck -p ptah-cli ptah-electron` → success.
+- `ptah-electron:validate-deps` → "All external imports are covered".
+- `degradation-audit:lint` → TOTAL 300. ptah-electron 4 (baseline 4), workspace-intelligence 1 (baseline 1).

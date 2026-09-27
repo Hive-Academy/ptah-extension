@@ -31,6 +31,7 @@ import {
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import type {
   DependencyGraphService,
+  IgnorePatternResolverService,
   AstAnalysisService,
   TreeSitterParserService,
 } from '@ptah-extension/workspace-intelligence';
@@ -170,6 +171,9 @@ export function registerPhase3Storage(
     const fileSystemProvider = container.resolve<IFileSystemProvider>(
       PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
     );
+    const ignoreResolver = container.resolve<IgnorePatternResolverService>(
+      TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
+    );
     const editorProvider = container.resolve<IEditorProvider>(
       PLATFORM_TOKENS.EDITOR_PROVIDER,
     );
@@ -186,6 +190,7 @@ export function registerPhase3Storage(
       useValue: new ElectronIDECapabilities(
         symbolReader,
         fileSystemProvider,
+        ignoreResolver,
         workspaceProvider,
         editorProvider,
         dependencyGraph,
