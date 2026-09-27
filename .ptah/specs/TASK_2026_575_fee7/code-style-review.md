@@ -1,5 +1,378 @@
 # Code Style Review — `TASK_2026_575_fee7`
 
+## Batch 8 — round 2
+
+### Summary
+
+| Metric          | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| Overall score   | 9/10                                                                   |
+| Assessment      | APPROVED                                                               |
+| Blocking issues | 0                                                                      |
+| Serious issues  | 0                                                                      |
+| Moderate issues | 0                                                                      |
+| Minor issues    | 0                                                                      |
+| Files reviewed  | round-1's 41, plus the extra Sonar fix to `progress-meter.spec.ts:116` |
+
+Scope: verification of the three round-1 carry-overs plus the executor's
+extra Sonar fix. All checked directly on disk against the working tree, not
+taken from the executor's report.
+
+### Findings verified
+
+1. **Serious (naming vs behaviour) — FIXED.** `expect-scope-loads.ts`/`.spec.ts`
+   are gone (`git status` shows no such paths, tracked or untracked);
+   `libs/frontend/i18n/src/testing/load-scope-translations.ts` replaces it
+   with the same 11-line body under a verb-first name that now matches the
+   library's own convention (`loadScope`/`loadScopes`,
+   `i18n.service.ts:121,209`). `grep -rn expectScopeLoads libs apps` returns
+   nothing — no alias, no leftover reference, no stale doc mention.
+   `testing/index.ts:6` exports the renamed symbol in the same place;
+   `CLAUDE.md`'s "Specs" section (the canonical recipe) and its layout
+   diagram both now say `loadScopeTranslations`, and the JSDoc on
+   `unwrapJsonModule` (`i18n.service.ts:257-261`) was updated in lockstep to
+   name the new helper. `grep -rl "loadScopeTranslations(" apps/.../i18n
+libs/web/*/src/lib/i18n` finds all 11 call sites (the five Batch 7 specs
+   plus the six Batch 8 specs); none still reads the old name. The spec file
+   itself (`load-scope-translations.spec.ts`) renamed its `describe` block
+   and every call site consistently — no partial rename anywhere.
+
+2. **Moderate (stale barrel comment) — FIXED.**
+   `progress-meter.spec.ts:200-202` now reads: "`libs/web/members/src/index.ts`
+   stays narrow: everything it exports must be usable inside the app's
+   `import()` callback (`MEMBER_ROUTES` and the translation scopes), never a
+   member component like this one." This states the barrel's actual current
+   contract (matching `libs/web/members/src/index.ts:1-14`'s own updated
+   intent comment from round 1) instead of the pre-Batch-8 "exports
+   `MEMBER_ROUTES` and nothing else" claim. The assertion itself
+   (`expect(barrel).not.toContain('progress-meter')`) is untouched, so no
+   behavioural risk from the edit — this was a comment-only fix to a comment-only
+   problem, correctly scoped.
+
+3. **Minor (spec coverage narrower than its docstring) — FIXED, and slightly
+   exceeds what was asked.** `load-scope-translations.spec.ts` now has 5
+   `it` blocks: the two round-1 cases (unwraps a real scope; unwraps a module
+   wrapper while keeping a real `default` section) plus three rejection
+   cases — `ar` resolves to a non-translation, `en` resolves to a
+   non-translation (new; the round-1 gap), and a loader that genuinely
+   rejects (`Promise.reject(chunkError)`, asserted with
+   `.rejects.toBe(chunkError)`, confirming the raw rejection propagates
+   unchanged through `Promise.all`, not wrapped or swallowed). This closes
+   the exact gap the round-1 minor named — the docstring's "a loader that
+   rejects rejects this call" claim is now backed by a case that rejects via
+   an actual promise rejection, not only via a value that fails the
+   `I18nError` unwrap.
+
+### Extra edit: `declarations.sort()` → `declarations.sort((a, b) => a.localeCompare(b))`
+
+- File: `libs/web/members/src/lib/learning/components/progress-meter.spec.ts:116`
+- Not part of round 1's carry-over; the executor's own report attributes it
+  to the SonarJS gate (`batches.md`'s "Execution defaults": no `.sort()`
+  without a comparator).
+- Judged acceptable. `declarations` (`:112-114`) is
+  `[...source.matchAll(/public readonly (\w+) = input/g)].map((m) => m[1])` —
+  every element is a lowercase-ASCII property identifier matched from
+  `\w+` on a TS source file (`completed`, `label`, `total`, `unit` are the
+  only values this regex can ever produce for this component). For that
+  input set `localeCompare` and the default UTF-16 comparator produce the
+  identical order, so the expected array (`:117-120`) needed no change and
+  none was made. The fix is minimal, in-scope for what it touches (one line,
+  the comparator only), and does not weaken or change the test's assertion —
+  it only makes the sort's ordering explicit instead of relying on the
+  default coercion-based comparator, which is what the gate exists to catch.
+  This is a legitimate, narrowly-scoped incidental fix, not scope creep: it
+  touches a line the batch's own executor was already editing in this same
+  file for the round-1 minor, in service of a repository-wide gate every
+  batch must pass (`batches.md`'s "Execution defaults" — the SonarJS
+  reliability gate), not a stylistic preference introduced on its own
+  initiative.
+
+### File-by-file (delta from round 1)
+
+- `libs/frontend/i18n/src/testing/load-scope-translations.ts` + spec: 6/10 → 9/10.
+- `libs/frontend/i18n/src/lib/i18n.service.ts`, `testing/index.ts`, `CLAUDE.md`: 9/10 → 9/10 (already clean; JSDoc/recipe text updated for the rename, same shape).
+- Six new scopes (`legal`, `pricing`, `auth`, `account`, `members`, `admin`): 8/10 → 9/10 (the members-barrel-comment moderate is closed; nothing else in this group changed).
+
+### Pattern compliance (delta from round 1)
+
+| Repository rule or nearby convention                               | Status             | Evidence                                                           |
+| ------------------------------------------------------------------ | ------------------ | ------------------------------------------------------------------ |
+| `expect*`-named testing helper asserts internally (repo precedent) | N/A (renamed away) | `load-scope-translations.ts:13-23`, no `expect*` name in this file |
+| A file describing another file's contract stays accurate           | PASS               | `progress-meter.spec.ts:200-202`                                   |
+| `.sort()` always has an explicit comparator (SonarJS gate)         | PASS               | `progress-meter.spec.ts:116`                                       |
+
+## Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Key concern: none remaining from round 1; all three findings verified fixed
+  directly on disk, not only via the executor's report.
+- What a 10/10 version would do differently: nothing further — round 2 closes
+  every round-1 item at the scope it was raised, with no new drift
+  introduced.
+
+## Batch 8
+
+### Summary
+
+| Metric          | Value                                                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overall score   | 7/10                                                                                                                                                                |
+| Assessment      | NEEDS_REVISION                                                                                                                                                      |
+| Blocking issues | 0                                                                                                                                                                   |
+| Serious issues  | 1                                                                                                                                                                   |
+| Moderate issues | 1                                                                                                                                                                   |
+| Minor issues    | 1                                                                                                                                                                   |
+| Files reviewed  | 41 (2 new + spec in `libs/frontend/i18n/src/testing`, 3 modified there, 24 new scope files across 6 libs, 12 modified `index.ts`/`tsconfig.json`/`jest.config.cts`) |
+
+Scope: Task 8.0 (`expectScopeLoads` helper and the five Batch 7 spec
+conversions) and Tasks 8.1-8.2 (scopes for `legal`, `pricing`, `auth`,
+`account`, `members`, `admin`, plus `MEMBERS_I18N_SCOPES`/
+`ADMIN_I18N_SCOPES`). Read in full: `expect-scope-loads.ts` + spec,
+`i18n.service.ts` (the `unwrapJsonModule` export), `testing/index.ts`,
+`CLAUDE.md`, every new `en.json`/`ar.json`/`<name>.i18n-scope.ts`/
+`<name>.i18n-scope.spec.ts`, every touched `index.ts`/`tsconfig.json`/
+`jest.config.cts`, `members/src/index.ts` at `HEAD` vs working tree, and
+`libs/web/members/src/lib/learning/components/progress-meter.spec.ts`
+(untouched by this batch, but its assertion's own comment is examined against
+the barrel this batch changed). Compared against `implementation-plan.md:409-421`
+(the resolver table that requires `MEMBERS_I18N_SCOPES`/`ADMIN_I18N_SCOPES` to
+be reachable only inside a dynamic `import()` callback) and against
+`libs/shared/src/testing/path/expect-normalized-path.ts`, the repository's one
+other `expect*`-named testing helper. Verified by grep: no remaining local
+`unwrap()` copies anywhere under `apps/ptah-landing-page/src/app/i18n` or
+`libs/web/*/src/lib/i18n` (all five Batch 7 specs and all six new specs use
+`expectScopeLoads`). Not run myself: `nx run-many -t lint,test,typecheck`
+(delegated to Batch 8's own verification step per `batches.md:622`).
+
+### Five style questions
+
+#### 1. What breaks when requirements change in six months?
+
+`libs/frontend/i18n/src/testing/expect-scope-loads.ts:13-23` is named for what
+Jest convention says a helper starting with `expect` does — assert and throw —
+but it only loads and returns data (`Promise<Record<SupportedLang,
+Translation>>`); every call site still wraps it in a real `expect(...)`
+(`expect(await expectScopeLoads(SCOPE)).toEqual({ en, ar })`, e.g.
+`libs/web/legal/src/lib/i18n/legal.i18n-scope.spec.ts:12-14`). Six months from
+now, someone adding a seventh scope spec, or reusing this helper in a
+non-scope test, will read `expectScopeLoads(x)` on its own line and expect it
+to assert by itself — the repository has exactly this convention already,
+at `libs/shared/src/testing/path/expect-normalized-path.ts:39-41`
+(`expectNormalizedPath` calls `expect().toBe()` internally and returns
+`void`). The mismatch is silent (no compile error, no runtime failure) until
+someone drops the outer `expect(...)`, at which point a rejected loader or a
+wrong translation shape is swallowed as an unawaited/unchecked promise instead
+of failing the test loudly. See Serious issue below.
+
+#### 2. What would a new team member misread?
+
+`libs/web/members/src/lib/learning/components/progress-meter.spec.ts:200`
+still reads `// \`libs/web/members/src/index.ts\` exports MEMBER_ROUTES and
+nothing else.`This batch made that comment false: the barrel now also
+exports`MEMBERS_I18N_SCOPE`/`MEMBERS_I18N_SCOPES`
+(`libs/web/members/src/index.ts:26-29`, working tree). The assertion below it
+(`expect(barrel).not.toContain('progress-meter')`) still passes, so nothing
+breaks today, but a reader hitting that comment while investigating the
+barrel's contract is told something the same batch just made untrue. See
+Moderate issue below.
+
+#### 3. What does this cost to maintain?
+
+Very little net cost — this batch is the Batch 7 carry-over doing exactly what
+it promised: one helper (`expect-scope-loads.ts`, 23 lines) replaces six
+identical 5-line `unwrap()` copies (five deleted from the Batch 7 specs, one
+avoided in each of the six new Batch 8 specs), and it reuses
+`unwrapJsonModule` instead of re-implementing the wrapper rule a seventh time.
+The two outstanding costs are narrow: the naming mismatch above (a one-line
+JSDoc plus a call-site convention now diverges from the repository's own
+sibling), and the stale barrel comment (one line, already drifted).
+
+#### 4. Where is this inconsistent with the rest of the repository?
+
+- `expectScopeLoads`'s name is inconsistent with this repository's own
+  `expect*` naming precedent (`expect-normalized-path.ts`) — see the Serious
+  issue. Everywhere else in this same library, an async operation that
+  performs work and returns a value is named for the verb it performs
+  (`loadScope`/`loadScopes` in `i18n.service.ts:121,209`, `resolveInitialLang`,
+  `defineI18nScope`), never `expect*`.
+- Everything else in this batch is consistent with Batch 7 and with the
+  library's own established shape: `unwrapJsonModule` is exported from
+  `i18n.service.ts` but deliberately left out of the root barrel
+  (`src/index.ts`) and documented as "library-internal" — this mirrors the
+  existing precedent that `testing/provide-i18n-testing.ts` already imports
+  directly from `../lib/*` files rather than through the barrel
+  (`provide-i18n-testing.ts:17-19`); nothing new is introduced here. The six
+  new eager libs' barrels (`legal`, `pricing`, `auth`, `account`) each append
+  one `export * from './lib/i18n/<name>.i18n-scope';` line, matching the
+  `export *` shape every one of those barrels already uses for every other
+  symbol. The `tsconfig.json`/`jest.config.cts` edits across all six libs are
+  byte-identical in shape to Batch 7's (`resolveJsonModule: true`; `@jsverse`
+  and `@angular/common/locales` added to `transformIgnorePatterns`, with a
+  comment explaining why, worded per-file to fit each config's existing
+  comment).
+- `members`/`admin` intentionally break from the "`export *`" pattern the
+  other four libs use, exporting named symbols instead
+  (`libs/web/members/src/index.ts:26-29`,
+  `libs/web/admin/src/index.ts:2` uses `export *` but only two symbols exist
+  behind it). That divergence is required, not accidental: both libs are
+  lazy-loaded, and `@nx/enforce-module-boundaries` forbids any file in this
+  workspace from statically importing a lazily-loaded lib's barrel
+  (`libs/web/members/src/index.ts:9-17`, working tree, restates the rule this
+  batch had to extend). The plan requires `MEMBERS_I18N_SCOPES`/
+  `ADMIN_I18N_SCOPES` to be reached only inside a dynamic `import().then(...)`
+  callback (`implementation-plan.md:416-417`), and the rewritten barrel
+  comment states exactly that constraint and updates the "MUST STAY ONE
+  SYMBOL" claim to "every export must be consumable inside an `import()`
+  callback" — this is a correct, plan-required narrowing of the original
+  intent (confirmed against `git show HEAD:libs/web/members/src/index.ts`),
+  not a weakening of the lazy-loading boundary: nothing here becomes
+  statically importable, and no component, service or other runtime code is
+  newly exposed. Not a finding.
+
+#### 5. What would you have done differently, and why is that better rather than merely other?
+
+Name the helper `loadScopeTranslations` (or `resolveScopeTranslations`) to
+match `loadScope`/`loadScopes` in the same library, and drop `expect` from
+the name entirely — or, if the "read like `expect`" ergonomics at the call
+site are wanted, make it actually assert (mirroring
+`expectNormalizedPath`): `expectScopeLoads(scope, { en, ar })` performing the
+`toEqual` internally and returning `void`, with the loader-rejection case
+covered by `await expect(expectScopeLoads(...)).rejects.toBeInstanceOf(...)`
+exactly as today. Either fix removes the same latent risk: a call site that
+drops the outer `expect(...)` currently compiles and runs silently instead of
+failing.
+
+### Serious issues
+
+### `expectScopeLoads` is named as an assertion but only returns data
+
+- File: `libs/frontend/i18n/src/testing/expect-scope-loads.ts:6-23`
+- Problem: the repository already has one `expect*`-prefixed testing helper —
+  `libs/shared/src/testing/path/expect-normalized-path.ts:39-41` — and it
+  calls `expect(...)` internally and returns `void`. `expectScopeLoads`
+  breaks that local convention: it performs no assertion, returns
+  `Promise<Record<SupportedLang, Translation>>`, and depends on every caller
+  remembering to wrap it in its own `expect(...)` (which all 11 current call
+  sites do, e.g. `libs/web/admin/src/lib/i18n/admin.i18n-scope.spec.ts` via
+  the same pattern as `legal.i18n-scope.spec.ts:12-14`).
+- Tradeoff: nothing breaks today because every existing call site wraps the
+  result correctly, but the name actively misleads a future author into
+  treating a bare `expectScopeLoads(scope)` call (with no outer `expect`) as
+  a complete, self-checking assertion — Jest would not fail such a test even
+  though nothing was verified, and TypeScript gives no signal either, since a
+  dropped `expect(...)` around an awaited call is a silently discarded
+  promise result, not a type error.
+- Recommendation: rename to a verb that matches the library's own convention
+  (`loadScopeTranslations`), or change the function to assert internally like
+  its repository sibling. See style question 5 for both options in detail.
+
+### Moderate issues
+
+### Stale barrel-contents comment left by this batch's own change
+
+- File: `libs/web/members/src/lib/learning/components/progress-meter.spec.ts:200`
+- Problem: this batch changed the exact file the comment describes
+  (`libs/web/members/src/index.ts`, adding `MEMBERS_I18N_SCOPE`/
+  `MEMBERS_I18N_SCOPES` exports) but did not update the comment in this
+  sibling spec that asserts against that same barrel's contents.
+- Impact: the assertion (`not.toContain('progress-meter')`) still passes, so
+  there is no test regression, but the comment now states something false
+  about the barrel's surface, which a future reader auditing `§5.3 — it is
+PRIVATE` would take at face value.
+- Fix: reword the comment to state the actual current constraint (the barrel
+  is narrow and everything in it must be consumable inside the lazy-loaded
+  lib's `import()` callback — `libs/web/members/src/index.ts:1-14`
+  already has the exact wording to draw from), or drop the file-contents
+  claim from the comment and keep only "the panel's private internals,
+  including `progress-meter`, are not exported."
+
+### Minor issues
+
+- `libs/frontend/i18n/src/testing/expect-scope-loads.spec.ts:32-39`: the
+  "rejects when a loader fails" case only exercises `ar` rejecting via
+  `Promise.resolve(null)` (a non-object result, not an actual promise
+  rejection) reaching `unwrapJsonModule`'s `I18nError` throw path inside
+  `isPlainObject`; it never exercises an `en`-side failure or a genuinely
+  rejected loader promise (`Promise.reject(...)`), both of which
+  `Promise.all` in `expect-scope-loads.ts:16-21` also has to propagate
+  correctly. Low cost since the `Promise.all` behaviour is standard, but the
+  spec's own docstring implies broader coverage ("a loader that rejects
+  rejects this call") than the single case tests.
+
+## File-by-file
+
+### `libs/frontend/i18n/src/testing/expect-scope-loads.ts` + spec
+
+Score 6/10 — 0 blocking, 1 serious, 1 minor. Correct, small, and reuses
+`unwrapJsonModule` rather than duplicating the wrapper rule; the naming
+mismatch against the repository's own `expect*` convention
+(`expect-normalized-path.ts`) is the whole deduction.
+
+### `libs/frontend/i18n/src/lib/i18n.service.ts`, `src/testing/index.ts`, `CLAUDE.md`
+
+Score 9/10 — 0/0/0. `unwrapJsonModule` is exported with a doc comment stating
+it is deliberately kept out of the barrel and why; `testing/index.ts` adds one
+export line in the same grouped style as the rest of the file; `CLAUDE.md`'s
+layout diagram and "Specs" section are both updated to match, including the
+canonical `expect(await expectScopeLoads(...)).toEqual(...)` recipe.
+
+### Five Batch 7 spec conversions (`app`, `ui`, `core`, `panel-ui`, `landing`)
+
+Score 9/10 — 0/0/0. Each drops its local `unwrap()` and the `it.each` table in
+favour of one `expectScopeLoads` call, identically shaped across all five
+files; nothing else in any of the five specs changed.
+
+### Six new scopes (`legal`, `pricing`, `auth`, `account`, `members`, `admin`)
+
+Score 8/10 — 0 blocking, 0 serious, 1 moderate (the members barrel-comment
+drift lands here because the scope wiring is what caused it), 0 further
+minor. Every scope file, spec, `tsconfig.json` and `jest.config.cts` matches
+the Batch 7 pattern exactly; the `members`/`admin` barrel divergence into
+named/`export *`-of-two-symbols exports is correct and plan-required
+(`implementation-plan.md:416-417`), and its rewritten intent comment is
+accurate for the file it lives in — the drift is only in the _other_ spec
+file that quoted the old contract.
+
+## Pattern compliance
+
+| Repository rule or nearby convention                                            | Status | Evidence                                                                                    |
+| ------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| `expect*`-named testing helper asserts internally (repo precedent)              | FAIL   | `expect-scope-loads.ts:13-23` vs `expect-normalized-path.ts:39-41`                          |
+| Local `unwrap()` copies replaced everywhere, none left behind                   | PASS   | grep across `apps/**/i18n`, `libs/web/*/src/lib/i18n` — zero matches                        |
+| New scope file shape matches Batch 7 (`defineI18nScope`, `en`/`ar` `import()`)  | PASS   | e.g. `libs/web/account/src/lib/i18n/account.i18n-scope.ts:1-6`                              |
+| `tsconfig.json` / `jest.config.cts` edits match Batch 7's shape and rationale   | PASS   | `libs/web/{legal,pricing,auth,account,members,admin}/{tsconfig.json,jest.config.cts}` diffs |
+| Lazy-loaded lib barrel exports stay consumable only inside `import()`           | PASS   | `libs/web/members/src/index.ts:1-14`, `implementation-plan.md:416-417`                      |
+| A file describing another file's contract stays accurate when that file changes | FAIL   | `progress-meter.spec.ts:200` vs `members/src/index.ts` (working tree)                       |
+| `unwrapJsonModule` export documents why it bypasses the barrel                  | PASS   | `i18n.service.ts:257-261`                                                                   |
+
+## Maintenance debt
+
+- Introduced: one shared testing helper (`expectScopeLoads`, 23 lines) and its
+  spec (40 lines); six new scope units following an established shape; one
+  exported low-level function (`unwrapJsonModule`) with a documented,
+  deliberately narrow reach.
+- Retired: six independent `unwrap()` copies (5 deleted from Batch 7 specs,
+  one avoided per new Batch 8 spec) — net duplication removed, exactly the
+  Batch 7 carry-over's purpose.
+- Net: reduction in duplication, offset by one small naming debt
+  (`expectScopeLoads`) and one small documentation-drift debt
+  (`progress-meter.spec.ts:200`), both cheap to close before merge.
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: HIGH
+- Key concern: `expectScopeLoads` reads, by this repository's own established
+  `expect*` convention, as a self-asserting helper; it is not one, and that
+  gap is currently masked only by every call site happening to wrap it
+  correctly.
+- What a 10/10 version would do differently: rename `expectScopeLoads` to a
+  verb consistent with `loadScope`/`loadScopes` (or make it assert
+  internally, matching `expectNormalizedPath`); update
+  `progress-meter.spec.ts:200`'s comment to state the barrel's current,
+  narrower contract instead of the pre-Batch-8 one.
+
 ## Batch 4
 
 ## Summary

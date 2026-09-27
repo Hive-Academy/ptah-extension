@@ -254,8 +254,12 @@ function withEnglish(lang: SupportedLang): SupportedLang[] {
   return lang === DEFAULT_LANG ? [lang] : [lang, DEFAULT_LANG];
 }
 
-/** A JSON module's `default` when `result` is a module wrapper, else `result`. */
-function unwrapJsonModule(result: Translation): Translation {
+/**
+ * A JSON module's `default` when `result` is a module wrapper, else `result`.
+ * Library-internal (not in the barrel); `loadScopeTranslations` in the testing
+ * entry reuses it so specs unwrap exactly as the runtime does.
+ */
+export function unwrapJsonModule(result: Translation): Translation {
   // Only a module wrapper is unwrapped. Bundlers and TypeScript repeat each
   // JSON key beside `default` (`{ default: X, ...X }`), so a wrapper is a plain
   // object `default` whose siblings are the same values. A translation with a

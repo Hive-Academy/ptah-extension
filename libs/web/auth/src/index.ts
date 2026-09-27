@@ -10,3 +10,4 @@ export * from './lib/config/auth-animation.configs';
 export * from './lib/models/auth.types';
 export * from './lib/services/auth-api.service';
 export * from './lib/utils/auth-validation.utils';
+export * from './lib/i18n/auth.i18n-scope';

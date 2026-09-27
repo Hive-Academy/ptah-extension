@@ -43,6 +43,28 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
 - Orchestrator user item (non-blocking, plan:725): before the first admin copy-review table (Batch 25) is sent to
   the user, ask whether admin copy needs a full read or a spot-check. Implementation is not blocked on it.
 
+## Handover notes for a fresh team-leader instance
+
+- Read this file first; it is the whole state. Each batch header carries its commit SHA once COMPLETE, and each
+  "Batch N verification" block records review rounds, what was verified on disk, and every decision on findings.
+- Staging: always `git add -- <explicit paths>` for the batch; other agents may have unrelated edits in the tree.
+  Never use `git add -A`, and never bypass the pre-commit hook. The hook formats staged `.ts/.js/.json/.md`
+  (including this file) and runs `nx affected -t lint` (which includes `degradation-audit:lint`). If the hook fails,
+  the batch goes back to the executor (as happened in Batch 1).
+- After each code commit: a separate `docs(task-specs): record TASK_2026_575 batch N completion` commit marks the
+  batch COMPLETE with its SHA and sets the next batch IN_PROGRESS; then push to `origin claude/sleepy-turing-pdzxlm`.
+- Review files: `code-logic-review.md` appends sections at the end; `code-style-review.md` has had newer sections
+  prepended at the TOP (Batch 8). Search by `## Batch N` heading, not position.
+- Revise cap: after 3 review rounds without APPROVED, the orchestrator escalates to the user.
+- Findings policy used so far: blocking/serious are fixed in the batch; moderate/minor are fixed in the batch when
+  they touch the same files, otherwise carried into a named later task with the evidence. Every carry-over is
+  written into that task's text.
+- Open carry-overs: Batch 9 header (Batch 6 review: `deploy-landing.yml` KEY_PATH "not DOM-aware" comment and
+  HEADLINE ERE escaping). No others are open.
+- Testing recipe for lib batches: scope specs use `loadScopeTranslations` from `@ptah-extension/i18n/testing`;
+  component specs use `provideI18nTesting` with the global scopes (`ui`, `core`, plus `app` for app specs),
+  documented in `libs/frontend/i18n/CLAUDE.md`.
+
 ## Plan validation
 
 Status: PASSED WITH RISKS
@@ -585,7 +607,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 7
 - Commit: `feat(landing): scaffold i18n scopes for feature libraries`
 
-### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — IN_PROGRESS
+### Task 8.0: Shared scope-spec helper (Batch 7 style carry-over) — IMPLEMENTED
 
 - Files: `$ROOT/libs/frontend/i18n/src/testing/{index.ts, expect-scope-loads.ts}` + spec; the five Batch 7 specs
   (`apps/ptah-landing-page/src/app/i18n/app.i18n-scope.spec.ts`,
@@ -598,7 +620,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: keep `@ptah-extension/i18n/testing` free of Jest globals if a test runner type is not already
   used there; the helper returns data and the spec asserts.
 
-### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — IN_PROGRESS
+### Task 8.1: Scopes for `legal`, `pricing`, `auth`, `account` — IMPLEMENTED
 
 - Files: `$ROOT/libs/web/{legal,pricing,auth,account}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
 - Plan reference: implementation-plan.md:368-400
@@ -607,7 +629,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: none.
 - Implementation details: none beyond the above.
 
-### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — IN_PROGRESS
+### Task 8.2: Scopes for `members`, `admin` plus aggregate exports — IMPLEMENTED
 
 - Depends on: Task 8.1
 - Files: `$ROOT/libs/web/{members,admin}/src/lib/i18n/*`, their `src/index.ts`, `tsconfig.json`, `jest.config.cts`
@@ -621,6 +643,24 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck -p web-legal web-pricing web-auth web-account web-members web-admin` passes.
 - Reviewer: style.
+- Review round 1 (code-style-review.md `## Batch 8`, at the top of that file): NEEDS_REVISION, 0 blocking,
+  1 serious, 1 moderate, 1 minor. Team-leader verified on disk: the helper exists and is exported only from
+  `@ptah-extension/i18n/testing` (`unwrapJsonModule` is not in the public barrel); six new scopes plus
+  `MEMBERS_I18N_SCOPES`/`ADMIN_I18N_SCOPES`; no `unwrap()` copies remain in any spec. Task 8.1 IMPLEMENTED; Tasks
+  8.0 and 8.2 stay IN_PROGRESS. Rework in this batch:
+  - Serious (Task 8.0): rename `expectScopeLoads` to `loadScopeTranslations` (file
+    `load-scope-translations.ts` + spec). It returns data and asserts nothing, so it must not carry the `expect*`
+    prefix, which this repo uses for self-asserting helpers (`libs/shared/src/testing/path/expect-normalized-path.ts`).
+    Update the testing barrel, CLAUDE.md and all 11 call sites; no alias under the old name.
+  - Moderate (Task 8.2): `libs/web/members/src/lib/learning/components/progress-meter.spec.ts:200` comment says the
+    barrel "exports MEMBER_ROUTES and nothing else". Reword it to the barrel's current contract (narrow; every
+    export usable inside an `import()` callback). The assertion is unchanged.
+  - Minor (Task 8.0): the helper spec also covers an `en`-side failure and a genuinely rejected loader
+    (`Promise.reject`).
+- Review round 2 (`## Batch 8 — round 2`, top of code-style-review.md): APPROVED, 0 findings. Team-leader verified on
+  disk: `load-scope-translations.ts` + spec (5 tests), no `expectScopeLoads` left anywhere, progress-meter comment
+  reworded, and one extra edit accepted by the reviewer (`progress-meter.spec.ts:116` sort comparator, a SonarJS
+  finding). 12-project lint/test/typecheck passed uncached; typed SonarJS found 0 problems on 28 changed `.ts` files.
 
 ## Batch 9: App wiring, pre-paint, font and stable marker (F4) — PENDING
 

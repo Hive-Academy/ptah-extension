@@ -12,7 +12,12 @@ module.exports = {
       },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$)'],
+  // `@jsverse/*` (Transloco, behind `@ptah-extension/i18n`) and
+  // `@angular/common/locales/*` (registered by the i18n runtime) ship plain
+  // `.js` ESM, which the default `.mjs`-only exception leaves untransformed.
+  transformIgnorePatterns: [
+    'node_modules/(?!(?:.*\\.mjs$|@jsverse|@angular/common/locales))',
+  ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

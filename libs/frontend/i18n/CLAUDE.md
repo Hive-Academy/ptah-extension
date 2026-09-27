@@ -96,6 +96,10 @@ TestBed.configureTestingModule({
   fails the test at TestBed teardown, because the pipe translates inside an RxJS
   subscription. Only the first missing key of a test is reported there; fix it
   and rerun to see the next.
+- A project's `<name>.i18n-scope.spec.ts` checks its loaders with
+  `expect(await loadScopeTranslations(SCOPE)).toEqual({ en, ar })`: the helper
+  runs every language loader and unwraps each JSON module by the runtime's rule.
+  It returns data and asserts nothing; the spec asserts.
 - Jest configs of consuming projects must transform `@jsverse` and
   `@angular/common/locales` (see this lib's `jest.config.ts`).
 
@@ -118,7 +122,8 @@ src/
 │   ├── provide-i18n.ts          # provideI18n + the shared Transloco runtime
 │   └── pipes/                   # i18nDate, i18nNumber
 └── testing/
-    └── provide-i18n-testing.ts  # provideI18nTesting
+    ├── provide-i18n-testing.ts     # provideI18nTesting
+    └── load-scope-translations.ts  # loadScopeTranslations (scope loader specs)
 ```
 
 Tasks: `.ptah/specs/TASK_2026_575_fee7/implementation-plan.md`, Component 1.

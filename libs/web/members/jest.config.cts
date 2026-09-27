@@ -29,8 +29,12 @@ module.exports = {
   // the renderer. Mocking it would leave NFR-S2's single-chokepoint claim
   // asserted only against source text and never against the path a browser
   // actually takes.
+  //
+  // `@jsverse/*` (Transloco, behind `@ptah-extension/i18n`) and
+  // `@angular/common/locales/*` (registered by the i18n runtime) ship plain
+  // `.js` ESM for the same reason as `marked`.
   transformIgnorePatterns: [
-    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown))',
+    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown|@jsverse|@angular/common/locales))',
   ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
