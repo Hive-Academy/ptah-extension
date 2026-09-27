@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_fee7
 
-Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 10/33
+Total tasks: 78 | Batches: 33 (+1 contingent, see end) | Complete: 11/33
 
 Root: `/home/user/ptah-extension` (abbreviated `$ROOT` below; every path is absolute under it).
 Task folder: `$ROOT/.ptah/specs/TASK_2026_575_fee7`. Plan: `implementation-plan.md` rev 1 (Gate 2 approved).
@@ -61,7 +61,7 @@ Branch: `claude/sleepy-turing-pdzxlm`. One commit per batch, by the team-leader,
   written into that task's text.
 - Open carry-overs: Batch 15 A1 re-confirmation line (Batch 9 logic review Moderate-1: prove the server half of
   A1 from the prerendered HTML); Task 32.3 (Batch 10 logic review moderate: specs for PaddleCheckoutService and
-  SSEEventsService). Glossary candidates accumulate in Task 32.1.
+  SSEEventsService; Batch 11 round 2 moderate: surface `arLocale.error()` in session-calendar.ts). Glossary candidates accumulate in Task 32.1.
 - Testing recipe for lib batches: scope specs use `loadScopeTranslations` from `@ptah-extension/i18n/testing`;
   component specs use `provideI18nTesting` with the global scopes (`ui`, `core`, plus `app` for app specs),
   documented in `libs/frontend/i18n/CLAUDE.md`.
@@ -818,7 +818,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   no action: initial bundle +2.3 kB (budget warning pre-existing). `SESSION_TOPICS` / `FEATURE_DISPLAY_MAP` stay
   for the account batch. Glossary candidates recorded in Task 32.1.
 
-## Batch 11: Header language switcher and `ui` strings (UI) — IN_PROGRESS
+## Batch 11: Header language switcher and `ui` strings (UI) — COMPLETE (c492f08e)
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (rerun frontend-developer)
@@ -827,7 +827,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 10
 - Commit: `feat(web-ui): add header language switcher and translate ui chrome`
 
-### Task 11.1: Switcher in `NavigationComponent` (desktop + mobile) — IN_PROGRESS
+### Task 11.1: Switcher in `NavigationComponent` (desktop + mobile) — COMPLETE
 
 - Files: `$ROOT/libs/web/ui/src/lib/navigation.component.ts`, its spec
 - Plan reference: implementation-plan.md:552-571; design-spec.md §2.2 (:98), §2.3 (:212), §2.5-2.7 (:429-570); `prototype/index.html`
@@ -836,7 +836,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: A5 — check icon branch; prefer `[class.invisible]` if hydration warns.
 - Implementation details: key `ui.common.language`.
 
-### Task 11.2: Remaining `ui` strings, formatting and RTL conversion — IN_PROGRESS
+### Task 11.2: Remaining `ui` strings, formatting and RTL conversion — COMPLETE
 
 - Depends on: Task 11.1
 - Files: `$ROOT/libs/web/ui/src/lib/{footer.component.ts,countdown-timer.component.ts,console/**,session-calendar/**}`, `$ROOT/libs/web/ui/src/lib/i18n/{en,ar}.json`
@@ -846,7 +846,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: prerendered routes render `ui` chrome.
 - Implementation details: none beyond the above.
 
-### Task 11.3: `i18n-check` target and copy review — IN_PROGRESS
+### Task 11.3: `i18n-check` target and copy review — COMPLETE
 
 - Depends on: Task 11.2
 - Files: `$ROOT/libs/web/ui/project.json`, `$ROOT/.ptah/specs/TASK_2026_575_fee7/copy-review/ui.md`
@@ -860,8 +860,36 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 
 - `node_modules/.bin/nx run-many -t lint,test,typecheck,i18n-check -p web-ui`; `prerender-check`; `review-tables --check` for `ui`.
 - Reviewer: visual (switcher vs prototype, dark + light) and logic.
+- Round 1 (executor report verified by orchestrator summary; files not yet committed): logic APPROVED (0 blocking,
+  0 serious, M1 static `fullcalendar/locales/ar` import at `session-calendar.ts:31`, M2 no specs for footer and
+  countdown); visual REJECTED 5/10 (`## Batch 11` in visual-review.md, `screenshots/visual-batch-11/`).
+- Round 1 decisions (all fixed in this batch, same files; nothing carried):
+  - V1 visual-breaking: desktop row collapses at ~768-800px in en and ar (logo 0px, CTA clipped,
+    `navigation.component.ts:77-101,337-408,430-443`). Keep the switcher at `md` (design-spec §2.2 defines desktop
+    as >= md with the switcher inside the `hidden md:flex` row), fix the row instead: logo link and CTA
+    `shrink-0`, nav labels/CTA `whitespace-nowrap`, link cluster `min-w-0`, tighter gap at md (`md:gap-3 lg:gap-6`
+    or equivalent). No text or key changes; prerendered English text stays identical.
+  - V3 moderate: Arabic 1024px cramped, CTA wraps — same root cause, closed by V1 fixes; must be proven at 1024.
+  - V2 serious: countdown cells read seconds->days in RTL (`countdown-timer.component.ts:37-38`). Wrap the cell
+    row in an LTR island (`dir="ltr"` on the row container) so days->seconds reads left to right in both
+    languages; the heading/labels outside stay translated.
+  - M1: load the Arabic FullCalendar locale lazily (`import('fullcalendar/locales/ar')` only when
+    `i18n.lang() === 'ar'`), per the lazy-per-language pattern.
+  - M2: add `footer.component.spec.ts` and `countdown-timer.component.spec.ts` (provideI18nTesting, `ui` scope).
+- Round 2 reviewers: visual (V1-V3, width sweep 767/768/800/900/1024/1200, en+ar, dark+light) and logic (M1, M2).
+- Round 2: visual APPROVED 9/10 (V1-V3 resolved; 16px sweep 768-1100 en/ar, countdown LTR at 375/1366,
+  `screenshots/visual-batch-11-r2/`); logic APPROVED (M1, M2 fixed). Verified on disk: `shrink-0`/`min-w-0` in
+  `navigation.component.ts:90,120,434,451`, `dir="ltr"` at `countdown-timer.component.ts:40`, lazy `resource()` at
+  `session-calendar.ts:154-156,212`, new footer/countdown specs; `nx run-many -t test,typecheck,i18n-check -p web-ui`
+  re-run by team-leader: pass. Pre-commit hook passed.
+- Round 2 new moderate (session-calendar.ts never reads `arLocale.error()`, so a locale chunk failure is silent;
+  UX falls back to English and self-heals): carried to Task 32.3. Minor (brief English-label window on first
+  switch): accepted, documented trade-off.
+- Out-of-batch file included: `libs/web/admin/src/lib/builders/sessions/sessions-list.spec.ts`
+  (provideI18nTesting, required because SessionCalendar now injects I18nService).
+- Glossary candidates for Task 32.1: Builders, Claude Agent SDK, Meet, Discord, Reddit, LinkedIn.
 
-## Batch 12: Panel switcher and panel shell (PANEL) — PENDING
+## Batch 12: Panel switcher and panel shell (PANEL) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: none (rerun frontend-developer)
@@ -870,7 +898,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Tasks: 3 | Depends on: Batch 11
 - Commit: `feat(web-panel-ui): add panel language switch and rtl panel shell`
 
-### Task 12.1: `LanguageSwitch` radiogroup — PENDING
+### Task 12.1: `LanguageSwitch` radiogroup — IN_PROGRESS
 
 - Files: `$ROOT/libs/web/panel-ui/src/lib/language-switch/{language-switch.ts,language-switch.spec.ts}`
 - Plan reference: implementation-plan.md:638-644, :652-656; design-spec.md §2.4 (:251), §2.6 (:459)
@@ -879,7 +907,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: none.
 - Implementation details: reads `I18nService.direction()`.
 
-### Task 12.2: `panel-layout` header markup, chevron, collapse re-key — PENDING
+### Task 12.2: `panel-layout` header markup, chevron, collapse re-key — IN_PROGRESS
 
 - Depends on: Task 12.1
 - Files: `$ROOT/libs/web/panel-ui/src/lib/panel-layout/{panel-layout.html,panel-layout.ts}`, new/updated `panel-layout.spec.ts`
@@ -889,7 +917,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Validation notes: inputs arrive translated (rule 4) — panel-ui never translates `title`/nav labels.
 - Implementation details: none.
 
-### Task 12.3: Remaining panel-ui strings, formatting site, target, copy review — PENDING
+### Task 12.3: Remaining panel-ui strings, formatting site, target, copy review — IN_PROGRESS
 
 - Depends on: Task 12.2
 - Files: `$ROOT/libs/web/panel-ui/src/lib/{empty-state,detail-drawer,selection-toolbar,stat-tile,status-badge,tag-chip,thread-row}/**`, `$ROOT/libs/web/panel-ui/src/lib/i18n/{en,ar}.json`, `$ROOT/libs/web/panel-ui/project.json`, `copy-review/panelUi.md`
@@ -1502,7 +1530,7 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
 - Pattern to follow: existing entries
 - Quality requirements: the team-leader passes the collected term list in the prompt; no term may break a check.
 - Collected glossary candidates (append as lib batches report them): Batch 10 — Paddle, Windows, macOS, Linux,
-  SaaS, PRD, Cron, GitHub, SDK.
+  SaaS, PRD, Cron, GitHub, SDK. Batch 11 — Builders, Claude Agent SDK, Meet, Discord, Reddit, LinkedIn.
 - Validation notes: if the list is empty, the batch is reduced to Task 32.2.
 - Implementation details: none.
 
@@ -1526,6 +1554,11 @@ rtl:mr-8` and the `pl-*`, `left-*`/`right-*`, `rounded-*`, `text-left/right`, `b
   SSE null-ticket path sets `core.realtime.authRequired` and does not open a connection; no production code change.
 - Verification: `node_modules/.bin/nx run-many -t lint,test,typecheck -p web-core`; SonarJS 0 on the two specs.
 - Implementation details: none.
+- Second carry-over (Batch 11 round 2 logic review, moderate): `$ROOT/libs/web/ui/src/lib/session-calendar/session-calendar.ts`
+  never reads `arLocale.error()` (the lazy `resource()` at :154-156), so a failed locale chunk load is silent. Add
+  a `console.warn`-level log (or the repo's logger) when the resource errors, keeping the English fallback, plus a
+  spec case in `session-calendar.spec.ts`. This is the one production change allowed in this task; verify with
+  `node_modules/.bin/nx run-many -t lint,test,typecheck -p web-ui` as well.
 
 ### Batch 32 verification
 
