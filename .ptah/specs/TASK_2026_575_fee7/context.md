@@ -37,3 +37,5 @@ Gate 0 decisions (user, via AskUserQuestion):
   - Numbering system: Western 0-9 everywhere, dates included (`ar-u-nu-latn`).
   - Legal pages: Arabic-only "English version governs" notice on terms/privacy/refund (design-spec §3.8).
   - Orchestrator replaced the user's real email in prototype/index.html with `member@example.com` and re-rendered the 10 affected screenshots (content-only change, no design change).
+- Gate 2: user answered the A4 question with "lets file a new task for it and inlcude it in the same pr", raising no changes to implementation-plan.md revision 1 (review: implementation-plan-review.md, round 1, APPROVED, same-side; open non-blocking N12–N14 carried to team-leader). Treated as Gate 2 approval, stated back to the user at that point.
+  - A4 remediation → TASK_2026_576_54d7 (status backlog, contingent). If the E2E English control run fails on stability, the team-leader activates TASK_2026_576 on this same branch/PR instead of asking again; if it passes, TASK_2026_576 is cancelled with evidence.
