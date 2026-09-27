@@ -85,7 +85,7 @@ function generate300LineTsSource(): {
     ' */',
   );
   lines.push(
-    `import { AuthSessionService, verifySessionValidity } ${FROM} '../../libs/shared-core/src/auth-session';`,
+    `import { AuthSessionService, verifySessionValidity } ${FROM} '../../../libs/shared-core/src/auth-session';`,
   );
   lines.push('');
 
@@ -239,6 +239,11 @@ function generate300LineTsSource(): {
     lines.push(
       `/** Helper routine number ${helperIndex} for metric transformation */`,
     );
+    symbols.push({
+      name: `transformMetricStep${helperIndex}`,
+      kind: 'function',
+      line: lines.length + 1,
+    });
     lines.push(
       `export function transformMetricStep${helperIndex}(rawStepValue: number): number {`,
     );
@@ -590,7 +595,7 @@ export function generateMcpContractFixturePlan(
     '/**',
     ' * Main application web controller.',
     ' */',
-    `import { AuthSessionService, verifySessionValidity } ${FROM} '../../libs/shared-core/src/auth-session';`,
+    `import { AuthSessionService, verifySessionValidity } ${FROM} '../../../libs/shared-core/src/auth-session';`,
     '',
   ];
   knownSymbols.push({
@@ -656,19 +661,66 @@ export function generateMcpContractFixturePlan(
     importedSymbols: ['AuthSessionService', 'verifySessionValidity'],
   });
 
+  // 6b. Hub module with real fan-in (User Decision 21): a target with >= 10
+  // real dependents, so the `ptah_get_dependents` SIZE guard is measured on
+  // a realistic fan-in instead of this fixture's otherwise-tiny (<=2)
+  // dependent counts, where JSON envelope overhead against a fair grep
+  // baseline is not a meaningful comparison either way.
+  const hubRel = 'libs/shared-core/src/hub.ts';
+  const hubAbs = abs(...hubRel.split('/'));
+  knownSymbols.push({
+    name: 'hubHelper',
+    kind: 'function',
+    file: hubRel,
+    absolutePath: hubAbs,
+    line: 4,
+  });
+  write(
+    hubRel,
+    [
+      '/**',
+      ' * Hub module with many real dependents (fixture fan-in target).',
+      ' */',
+      'export function hubHelper(): string {',
+      "  return 'hub';",
+      '}',
+      '',
+    ].join('\n'),
+  );
+
+  const HUB_DEPENDENT_COUNT = 12;
+
   // 7. 500-file flat directory
   for (let i = 0; i < flatFileCount; i++) {
     const padded = String(i).padStart(3, '0');
     const flatFileRel = `flat-directory/flat-entry-${padded}.ts`;
+    const flatFileAbs = abs(...flatFileRel.split('/'));
     const randVal = Math.floor(rng() * 1_000_000);
+    const isHubDependent = i < HUB_DEPENDENT_COUNT;
     const flatCode = [
+      ...(isHubDependent
+        ? [`import { hubHelper } ${FROM} '../libs/shared-core/src/hub';`]
+        : []),
       `export const flatConstantValue${padded} = "item-payload-${padded}-${randVal}";`,
       `export function getFlatItemNumber${padded}(): number {`,
       `  return ${randVal};`,
       `}`,
+      ...(isHubDependent
+        ? [`export const usesHub${padded} = hubHelper();`]
+        : []),
       '',
     ].join('\n');
     write(flatFileRel, flatCode);
+
+    if (isHubDependent) {
+      knownEdges.push({
+        from: flatFileRel,
+        to: hubRel,
+        fromPath: flatFileAbs,
+        toPath: hubAbs,
+        importedSymbols: ['hubHelper'],
+      });
+    }
   }
 
   return {

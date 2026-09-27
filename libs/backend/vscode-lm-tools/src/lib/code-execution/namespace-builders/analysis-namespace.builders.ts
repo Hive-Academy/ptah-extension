@@ -17,7 +17,8 @@ import {
   WorkspaceAnalyzerService,
   ContextEnrichmentService,
   DependencyGraphService,
-  EXTENSION_LANGUAGE_MAP,
+  exportSymbolNames,
+  resolveEnrichLanguage,
   type StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -80,61 +81,12 @@ function isAbsoluteFileArg(filePath: string): boolean {
   );
 }
 
-/** Languages `ContextEnrichmentService` renders as a .d.ts-style summary. */
-type EnrichLanguage = 'typescript' | 'javascript';
-
-function isEnrichLanguage(value: unknown): value is EnrichLanguage {
-  return value === 'typescript' || value === 'javascript';
-}
-
-/**
- * ESM/CJS module-flavour extensions `EXTENSION_LANGUAGE_MAP` does not list;
- * each parses with the grammar of its base extension.
- */
-const MODULE_EXTENSION_BASE: Readonly<Record<string, string>> = {
-  '.mts': '.ts',
-  '.cts': '.ts',
-  '.mjs': '.js',
-  '.cjs': '.js',
-};
-
-/**
- * `.tsx` maps to typescript in `EXTENSION_LANGUAGE_MAP`, but no loaded grammar
- * parses TypeScript with JSX: the TypeScript grammar rejects JSX, so the parse
- * needs error recovery and the summary would be refused anyway. `.jsx` is
- * fine: the JavaScript grammar parses JSX.
- */
-const TSX_EXTENSION = '.tsx';
-
-/**
- * The language to summarise `filePath` as. An explicit supported `language`
- * wins, even when it contradicts the extension. Otherwise (omitted or not a
- * supported value) it is inferred from the last extension, case-insensitively,
- * through `EXTENSION_LANGUAGE_MAP` (`.jsx` → javascript, `.spec.ts`/`.D.TS` →
- * typescript). `.tsx` (no JSX-capable TypeScript grammar is loaded), a
- * language the summary cannot render (python, go, csharp) or a file without an
- * extension gives `undefined`, which the service answers with full content and
- * `reason: 'unsupported-language'`.
- */
-function resolveEnrichLanguage(
-  filePath: string,
-  language: string | undefined,
-): EnrichLanguage | undefined {
-  if (isEnrichLanguage(language)) {
-    return language;
-  }
-  const extension = path.extname(filePath).toLowerCase();
-  if (extension === TSX_EXTENSION) {
-    return undefined;
-  }
-  const key = Object.hasOwn(MODULE_EXTENSION_BASE, extension)
-    ? MODULE_EXTENSION_BASE[extension]
-    : extension;
-  const inferred = Object.hasOwn(EXTENSION_LANGUAGE_MAP, key)
-    ? EXTENSION_LANGUAGE_MAP[key]
-    : undefined;
-  return isEnrichLanguage(inferred) ? inferred : undefined;
-}
+// `resolveEnrichLanguage` (extension -> language inference for
+// `ContextEnrichmentService.generateStructuralSummary`) now lives in
+// `@ptah-extension/workspace-intelligence` (`context-analysis/enrich-language.ts`,
+// TASK_2026_559 Batch 20 r1 defect 5): the production MCP path and the Task
+// 20.2 regression bench call the exact same function, so a regression here is
+// caught by the bench without a test-local reimplementation drifting from it.
 
 /**
  * Build context optimization namespace
@@ -392,7 +344,7 @@ export function buildDependencyNamespace(
       for (const [file, exports] of index) {
         result.push({
           file,
-          symbols: exports.map((e) => e.name),
+          symbols: exportSymbolNames(exports),
         });
       }
       return result;

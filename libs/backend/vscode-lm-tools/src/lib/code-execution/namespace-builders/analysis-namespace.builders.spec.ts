@@ -12,13 +12,23 @@
  * degrade contract.
  */
 
-// The SUT reads `EXTENSION_LANGUAGE_MAP` as a value from
-// `@ptah-extension/workspace-intelligence`, whose barrel transitively loads
-// `vscode-core` → `vscode`. Replace the module at the boundary with the
-// map's real entries (the service classes are used as types only), the same
-// pattern as `ast-namespace.builder.spec.ts`.
-jest.mock('@ptah-extension/workspace-intelligence', () => ({
-  EXTENSION_LANGUAGE_MAP: {
+// The SUT reads `EXTENSION_LANGUAGE_MAP` and `resolveEnrichLanguage` as
+// values from `@ptah-extension/workspace-intelligence`, whose barrel
+// transitively loads `vscode-core` → `vscode`. Replace the module at the
+// boundary with the map's real entries and a same-algorithm reimplementation
+// of `resolveEnrichLanguage` (the service classes are used as types only),
+// the same pattern as `ast-namespace.builder.spec.ts`. A `require()` of the
+// real module by relative path is not used here: `@nx/enforce-module-
+// boundaries` treats that as a second, inconsistent import style for the
+// same library across the project and fails every OTHER static import of
+// `@ptah-extension/workspace-intelligence` in this project as a result. The
+// authoritative "exercises the real production inference" guard for TASK_
+// 2026_559 Batch 20 r1 defect 5 is the Task 20.2 bench
+// (`mcp-contract.bench.spec.ts`, in workspace-intelligence), which imports
+// the real, unmocked `resolveEnrichLanguage`. This copy only has to match the
+// wiring/delegation this spec actually tests.
+jest.mock('@ptah-extension/workspace-intelligence', () => {
+  const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
     '.js': 'javascript',
     '.jsx': 'javascript',
     '.ts': 'typescript',
@@ -27,8 +37,35 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
     '.go': 'go',
     '.cs': 'csharp',
     '.csx': 'csharp',
-  },
-}));
+  };
+  const MODULE_EXTENSION_BASE: Record<string, string> = {
+    '.mts': '.ts',
+    '.cts': '.ts',
+    '.mjs': '.js',
+    '.cjs': '.js',
+  };
+  const isEnrichLanguage = (v: unknown): v is 'typescript' | 'javascript' =>
+    v === 'typescript' || v === 'javascript';
+  const resolveEnrichLanguage = (
+    filePath: string,
+    language?: string,
+  ): 'typescript' | 'javascript' | undefined => {
+    if (isEnrichLanguage(language)) return language;
+    const dot = filePath.lastIndexOf('.');
+    const extension = (dot === -1 ? '' : filePath.slice(dot)).toLowerCase();
+    if (extension === '.tsx') return undefined;
+    const key = Object.hasOwn(MODULE_EXTENSION_BASE, extension)
+      ? MODULE_EXTENSION_BASE[extension]
+      : extension;
+    const inferred = EXTENSION_LANGUAGE_MAP[key];
+    return isEnrichLanguage(inferred) ? inferred : undefined;
+  };
+  // The real symbol-index naming: a type-only module, cheap to load for real.
+  const { exportSymbolNames } = jest.requireActual<
+    typeof import('@ptah-extension/workspace-intelligence')
+  >('../../../../../workspace-intelligence/src/ast/export-extraction');
+  return { EXTENSION_LANGUAGE_MAP, resolveEnrichLanguage, exportSymbolNames };
+});
 
 import * as path from 'path';
 
@@ -767,6 +804,28 @@ describe('buildDependencyNamespace', () => {
 
     const out = await buildDependencyNamespace(deps).getSymbolIndex();
     expect(out).toEqual([{ file: 'a.ts', symbols: ['foo', 'bar'] }]);
+  });
+
+  it('getSymbolIndex lists a merged name once and each wildcard re-export by source', async () => {
+    const deps = makeMocks();
+    deps._dependencyGraph.getSymbolIndex.mockReturnValue(
+      new Map([
+        [
+          'index.ts',
+          [
+            { name: 'M', kind: 'interface' },
+            { name: 'M', kind: 'namespace' },
+            { name: '*', kind: 'wildcard', isReExport: true, source: './a' },
+            { name: '*', kind: 'wildcard', isReExport: true, source: './b' },
+          ],
+        ],
+      ]),
+    );
+
+    const out = await buildDependencyNamespace(deps).getSymbolIndex();
+    expect(out).toEqual([
+      { file: 'index.ts', symbols: ['M', '* from ./a', '* from ./b'] },
+    ]);
   });
 
   describe('getSymbolIndex paging (TASK_2026_559 Batch 9)', () => {

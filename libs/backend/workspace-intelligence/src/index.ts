@@ -80,6 +80,10 @@ export {
   type StructuralSummaryResult,
 } from './context-analysis/context-enrichment.service';
 export {
+  resolveEnrichLanguage,
+  type EnrichLanguage,
+} from './context-analysis/enrich-language';
+export {
   WorkspaceAnalyzerService,
   type WorkspaceInfo,
   type ContextRecommendations,

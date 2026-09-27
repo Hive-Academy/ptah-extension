@@ -168,6 +168,91 @@ describe('createMcpContractFixture', () => {
     }
   });
 
+  /**
+   * r1 defect 3: the previous check only confirmed the target's basename
+   * occurred as a substring of the importing file — a specifier that is one
+   * `..` short of the real depth (resolving to a sibling directory that
+   * happens to share the target's tail) would still pass that check. This
+   * independently resolves the ACTUAL specifier text with POSIX relative-path
+   * arithmetic (no dependency on `DependencyGraphService`) and requires it to
+   * land exactly on `edge.toPath`, on disk.
+   */
+  it('every knownEdge specifier independently resolves on disk to its declared toPath', () => {
+    const FROM_SPECIFIER_RE = /\bfrom\s+['"]([^'"]+)['"]/g;
+    expect(fixture.knownEdges.length).toBeGreaterThanOrEqual(4);
+
+    for (const edge of fixture.knownEdges) {
+      const fromContent = fs.readFileSync(edge.fromPath, 'utf8');
+      const fromDir = path.posix.dirname(
+        edge.fromPath.split(path.sep).join('/'),
+      );
+      const toPathPosix = edge.toPath.split(path.sep).join('/');
+
+      const specifiers = [...fromContent.matchAll(FROM_SPECIFIER_RE)].map(
+        (m) => m[1],
+      );
+      expect(specifiers.length).toBeGreaterThan(0);
+
+      const resolved = specifiers
+        .filter((s) => s.startsWith('.'))
+        .map((s) => {
+          const joined = path.posix.normalize(path.posix.join(fromDir, s));
+          for (const ext of ['', '.ts', '.tsx']) {
+            const candidate = `${joined}${ext}`;
+            if (fs.existsSync(candidate)) {
+              return candidate;
+            }
+          }
+          return joined;
+        });
+
+      expect(resolved).toContain(toPathPosix);
+    }
+  });
+
+  /**
+   * r2 defect R2-01: 35 of the 300-line file's generated
+   * `transformMetricStepN` helpers were real exported declarations the
+   * fixture never recorded in `knownSymbols` — a downstream recall check
+   * built from `knownSymbols` could not catch their loss. This independently
+   * censuses every top-level `export` declaration in each source file the
+   * fixture tracks symbols for, with its own regex (not
+   * `DependencyGraphService`/`AstAnalysisService`), and requires
+   * `knownSymbols` to name exactly that set, per file.
+   *
+   * Scoped to the 6 named source files (`token-utils.ts`, `auth-session.ts`,
+   * `navigation-bar.tsx`, `client-layout.tsx`, `main-controller.ts`,
+   * `data-processor.service.ts`) — the fixture's declared symbol-census
+   * surface. The 500-file `flat-directory` is bulk graph-size padding, not
+   * part of the known-symbol contract: Task 20.1's own spec above already
+   * censuses it separately (file count, seed determinism), and the r2
+   * evidence itself only concerns the 300-line file's declarations.
+   */
+  it('knownSymbols exactly matches an independent regex census of every top-level export, per tracked source file', () => {
+    const EXPORT_DECL_RE =
+      /^export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type)\s+(\w+)|^export\s+const\s+(\w+)/gm;
+    const trackedFiles = [
+      ...new Set(fixture.knownSymbols.map((s) => s.absolutePath)),
+    ];
+    expect(trackedFiles.length).toBeGreaterThanOrEqual(6);
+
+    for (const absolutePath of trackedFiles) {
+      const content = fs.readFileSync(absolutePath, 'utf8');
+      const census = new Set<string>();
+      let match: RegExpExecArray | null;
+      EXPORT_DECL_RE.lastIndex = 0;
+      while ((match = EXPORT_DECL_RE.exec(content))) {
+        census.add(match[1] ?? match[2]);
+      }
+      const known = new Set(
+        fixture.knownSymbols
+          .filter((s) => s.absolutePath === absolutePath)
+          .map((s) => s.name),
+      );
+      expect(known).toEqual(census);
+    }
+  });
+
   it('removes the root directory completely upon cleanup', () => {
     const minimalFixture = createMcpContractFixture({ flatFileCount: 0 });
     expect(fs.existsSync(minimalFixture.root)).toBe(true);
