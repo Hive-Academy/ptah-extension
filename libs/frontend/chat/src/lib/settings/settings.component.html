@@ -189,6 +189,8 @@
 
       @if (isElectron) {
         <ptah-voice-config />
+        <!-- go vet consent: Electron only (capability goVetDiagnostics) -->
+        <ptah-go-vet-consent-config />
       }
     }
   </div>
