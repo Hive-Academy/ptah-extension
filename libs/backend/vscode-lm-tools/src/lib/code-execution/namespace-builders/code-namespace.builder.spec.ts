@@ -585,6 +585,7 @@ const CODE_INDEX_LANGUAGES = [
   'go',
   'csharp',
   'java',
+  'kotlin',
   'rust',
   'php',
   'ruby',
@@ -605,7 +606,7 @@ function coverageOf(over: Partial<CoverageFields> = {}): LanguageCoverage {
     nonSource: null,
     excluded: null,
     omittedByCap: 0,
-    unsupportedByLanguage: { kotlin: 3 },
+    unsupportedByLanguage: { swift: 3 },
     ...over,
   });
 }
@@ -816,14 +817,14 @@ describe('buildCodeNamespace — live coverage (Batch 24b)', () => {
     const ns = buildCodeNamespace(freshnessDeps(reader, double));
 
     const result = await ns.searchSymbols('login', {
-      filePath: 'src/Main.kt',
+      filePath: 'src/Main.swift',
     });
 
     expect(result).toEqual({
       status: 'unsupported-language',
-      language: 'kotlin',
+      language: 'swift',
       supportedLanguages: CODE_INDEX_LANGUAGES,
-      message: expect.stringContaining('kotlin'),
+      message: expect.stringContaining('swift'),
     });
     expect(reader.searchSymbols).not.toHaveBeenCalled();
     expect(reader.getIndexFreshness).not.toHaveBeenCalled();
@@ -848,15 +849,15 @@ describe('buildCodeNamespace — live coverage (Batch 24b)', () => {
     expect(result.coverage).toBeDefined();
   });
 
-  it('kt reindex is not filesScanned 1: unsupported-language, no delete, no count', async () => {
+  it('swift reindex is not filesScanned 1: unsupported-language, no delete, no count', async () => {
     const double = makeLiveIndexer();
     const ns = buildCodeNamespace(freshnessDeps(makeReader(EMPTY), double));
 
-    const result = await ns.reindex({ filePath: '/ws/src/Main.kt' });
+    const result = await ns.reindex({ filePath: '/ws/src/Main.swift' });
 
     expect(result).toMatchObject({
       status: 'unsupported-language',
-      language: 'kotlin',
+      language: 'swift',
       supportedLanguages: CODE_INDEX_LANGUAGES,
     });
     expect(result).not.toHaveProperty('filesScanned');

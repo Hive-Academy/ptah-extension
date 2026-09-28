@@ -4006,7 +4006,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 30k: Kotlin grammar (vendored, required) — PENDING
+## Batch 30k: Kotlin grammar (vendored, required) — COMPLETE (fixes verified by the Lane A closing review)
 
 - Recommended executor: Antigravity CLI lane, Lane G (G1)
 - Fallback executor: backend-developer (sub-agent)
@@ -4039,6 +4039,25 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes; `node scripts/copy-wasm.js --self-test` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - Provenance re-checked by the reviewer; FB evidence; the Claude reviewer approves
+
+### Batch 30k review history (User Decision 24)
+
+- Author: backend-developer subagent. Reviewer: Codex (Lane A session), cross-side.
+- r1 (`reviews/batch-30k-code-logic-review-r1.md`): REVISE 6/10 — R30K-01 Serious (packed verifiers accepted a
+  same-length corrupted Kotlin WASM), R30K-02 Serious (valid Kotlin served as a syntax error without disclosure),
+  R30K-03 Moderate (a block comment hid a Kotlin import). Provenance re-checked independently (SHA-256, npm
+  integrity, `gh attestation verify`, ABI 14) — Decision 25 gate met. The same review verified the Batch 31 fix
+  round: R31-01..05 (incl. R30-02, R30-03 and the compactCoverage change, worst case 994) all CLOSED.
+- One fix round (report "## Fix round (review r1)"): packed verifiers hash the WASM via `copy-wasm.js
+--list-vendored`; unlocated Kotlin recoveries report "not validated" with the new approximation
+  `kotlin:grammar-limit` (platform-core change); comment-safe Kotlin import extraction. The Lane A closing review
+  verifies them.
+- Team-leader verification (2026-09-28): workspace-intelligence, vscode-lm-tools, platform-core, ptah-electron
+  test/lint/typecheck pass except the known protocol-dispatcher "slow empty build" flake (passed alone 298/298);
+  ptah-cli typecheck, copy-wasm and the three packed-verifier self-tests, validate-deps pass; audit TOTAL 300;
+  description pins unchanged (671/702, 522/536).
+- Carried to Batch 38 / follow-up: Electron `.kt` reference search counts comment/string matches (pre-existing);
+  the Nx `ptah-cli:copy-wasm` target lacks the manifest and `assets/tree-sitter/**` as cache inputs.
 
 ---
 
@@ -4176,7 +4195,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 34: C# + Java graphs — PENDING
+## Batch 34: C# + Java graphs — PENDING (User Decision 27: Task 34.1 C# only; Task 34.2 Java DEFERRED to a follow-up task)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4212,7 +4231,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 35: Rust graph — PENDING
+## Batch 35: Rust graph — DEFERRED (User Decision 27, follow-up task)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4238,7 +4257,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 36a: PHP graph (required, Decision 19) — PENDING
+## Batch 36a: PHP graph (required, Decision 19) — DEFERRED (User Decision 27, follow-up task)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4264,7 +4283,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 36b: Ruby graph (required) — PENDING
+## Batch 36b: Ruby graph (required) — DEFERRED (User Decision 27, follow-up task)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4290,7 +4309,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 36c: C/C++ graph (required; proven on `.c`/`.h`) — PENDING
+## Batch 36c: C/C++ graph (required; proven on `.c`/`.h`) — DEFERRED (User Decision 27, follow-up task)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4575,7 +4594,10 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Execution mode: sequential
 - Rationale: fails until every enumerated required key is active and every mandatory batch has landed
 - Review: Codex CLI lane
-- Tasks: 1 | Depends on: Batch 21 (21.1, 21.2), 27, 28b, 29b, 30, 30k, 31, 33, 34, 35, 36a, 36b, 36c, 37b (all required)
+- Tasks: 1 | Depends on: Batch 21 (21.1, 21.2), 27, 28b, 29b, 30, 30k, 31, 33, 34 (34.1 C# only), 37b (all required).
+  User Decision 27: 34.2 (Java graph), 35, 36a, 36b, 36c are DEFERRED to a follow-up task — the gate's required
+  keys drop the java/rust/php/ruby/cpp graph keys and instead assert those languages are disclosed as unsupported
+  by ptah_get_dependents / ptah_get_dependencies (never a clean empty answer)
 
 ### Task 38.1: Activated keys == required keys, exactly — PENDING
 

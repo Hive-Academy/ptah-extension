@@ -4,6 +4,7 @@ import { CSHARP_LANGUAGE } from './csharp.language';
 import { GO_LANGUAGE } from './go.language';
 import { JAVA_LANGUAGE } from './java.language';
 import { JAVASCRIPT_LANGUAGE } from './javascript.language';
+import { KOTLIN_LANGUAGE } from './kotlin.language';
 import { PHP_LANGUAGE } from './php.language';
 import { PYTHON_LANGUAGE } from './python.language';
 import { RUBY_LANGUAGE } from './ruby.language';
@@ -31,4 +32,5 @@ export const LANGUAGE_MODULES: Readonly<
   php: PHP_LANGUAGE,
   ruby: RUBY_LANGUAGE,
   cpp: CPP_LANGUAGE,
+  kotlin: KOTLIN_LANGUAGE,
 };

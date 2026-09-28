@@ -24,6 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
@@ -63,6 +64,46 @@ if (
 const REQUIRED_WASM = manifest.assets
   .filter((row) => row.active)
   .map((row) => `wasm/${row.filename}`);
+/**
+ * A vendored grammar is not re-checked against an installed package at pack
+ * time, so its packed bytes must equal the reviewed artefact: the manifest's
+ * SHA-256 and byte count (Batch 30k r1 R30K-01).
+ */
+const VENDORED_WASM = new Map(
+  manifest.assets
+    .filter((row) => row.active && row.source?.kind === 'vendored')
+    .map((row) => {
+      if (
+        !/^[a-f0-9]{64}$/.test(row.source.sha256 ?? '') ||
+        !Number.isSafeInteger(row.bytes) ||
+        row.bytes <= 0
+      ) {
+        throw new Error('Invalid grammar manifest');
+      }
+      return [
+        `wasm/${row.filename}`,
+        { sha256: row.source.sha256, bytes: row.bytes, path: row.source.path },
+      ];
+    }),
+);
+/**
+ * A vendored grammar ships its licence notice as `wasm/LICENSE.<id>`
+ * (`scripts/copy-wasm.js`), byte-identical to the reviewed text.
+ */
+const REQUIRED_LICENCES = manifest.assets
+  .filter((row) => row.active && row.source?.kind === 'vendored')
+  .map((row) => {
+    if (
+      !/^[a-z0-9-]+$/.test(row.id) ||
+      !/^[a-f0-9]{64}$/.test(row.source.licenceSha256 ?? '')
+    ) {
+      throw new Error('Invalid grammar manifest');
+    }
+    return {
+      entry: `wasm/LICENSE.${row.id}`,
+      sha256: row.source.licenceSha256,
+    };
+  });
 
 /** Recursively collect every app.asar under dist/release (win/linux/mac layouts). */
 function findAsars(dir, found) {
@@ -96,21 +137,54 @@ function verifyAsar(asarPath) {
       problems.push(`${wasm} is missing from the asar`);
       continue;
     }
-    let size;
+    let bytes;
     try {
-      size = asar.extractFile(asarPath, wasm).length;
+      bytes = asar.extractFile(asarPath, wasm);
     } catch (err) {
       problems.push(
         `${wasm} could not be read: ${err instanceof Error ? err.message : String(err)}`,
       );
       continue;
     }
+    const size = bytes.length;
+    const expected = VENDORED_WASM.get(wasm);
     if (size === 0) {
       problems.push(`${wasm} is present but empty (0 bytes)`);
+    } else if (
+      expected !== undefined &&
+      (size !== expected.bytes ||
+        crypto.createHash('sha256').update(bytes).digest('hex') !==
+          expected.sha256)
+    ) {
+      problems.push(`${wasm} does not match the reviewed vendored grammar`);
     } else {
       console.log(
         `[verify] OK  ${rel} → ${wasm} (${(size / 1024).toFixed(1)} KB)`,
       );
+    }
+  }
+  for (const { entry, sha256 } of REQUIRED_LICENCES) {
+    if (!listed.has(entry)) {
+      problems.push(`${entry} is missing from the asar`);
+      continue;
+    }
+    let bytes;
+    try {
+      bytes = asar.extractFile(asarPath, entry);
+    } catch (err) {
+      problems.push(
+        `${entry} could not be read: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
+    if (bytes.length === 0) {
+      problems.push(`${entry} is present but empty (0 bytes)`);
+    } else if (
+      crypto.createHash('sha256').update(bytes).digest('hex') !== sha256
+    ) {
+      problems.push(`${entry} does not match the reviewed licence text`);
+    } else {
+      console.log(`[verify] OK  ${rel} → ${entry} (licence)`);
     }
   }
   return problems;
@@ -161,8 +235,23 @@ async function selfTest() {
   try {
     const fixture = path.join(dir, 'fixture');
     fs.mkdirSync(path.join(fixture, 'wasm'), { recursive: true });
+    // A vendored grammar must be its reviewed bytes; any other asset is a stand-in.
+    const fixtureBytes = (wasm) =>
+      VENDORED_WASM.has(wasm)
+        ? fs.readFileSync(path.join(ROOT, VENDORED_WASM.get(wasm).path))
+        : Buffer.from('fixture');
     for (const wasm of REQUIRED_WASM)
-      fs.writeFileSync(path.join(fixture, wasm), 'fixture');
+      fs.writeFileSync(path.join(fixture, wasm), fixtureBytes(wasm));
+    const vendoredLicence = (entry) =>
+      fs.readFileSync(
+        path.join(
+          ROOT,
+          manifest.assets.find((row) => `wasm/LICENSE.${row.id}` === entry)
+            .source.licenceFile,
+        ),
+      );
+    for (const { entry } of REQUIRED_LICENCES)
+      fs.writeFileSync(path.join(fixture, entry), vendoredLicence(entry));
     let index = 0;
     async function pack() {
       const archive = path.join(dir, `${index++}.asar`);
@@ -178,14 +267,37 @@ async function selfTest() {
       assert.deepEqual(await pack(), [
         `${wasm} is present but empty (0 bytes)`,
       ]);
-      fs.writeFileSync(file, 'fixture');
+      fs.writeFileSync(file, fixtureBytes(wasm));
     }
+    // Same length, first byte flipped: a corrupted vendored grammar fails.
+    for (const wasm of VENDORED_WASM.keys()) {
+      const file = path.join(fixture, wasm);
+      const changed = fixtureBytes(wasm);
+      changed[0] ^= 0xff;
+      fs.writeFileSync(file, changed);
+      assert.deepEqual(await pack(), [
+        `${wasm} does not match the reviewed vendored grammar`,
+      ]);
+      fs.writeFileSync(file, fixtureBytes(wasm));
+    }
+    for (const { entry } of REQUIRED_LICENCES) {
+      const file = path.join(fixture, entry);
+      const original = fs.readFileSync(file);
+      fs.unlinkSync(file);
+      assert.deepEqual(await pack(), [`${entry} is missing from the asar`]);
+      fs.writeFileSync(file, Buffer.concat([original, Buffer.from(' ')]));
+      assert.deepEqual(await pack(), [
+        `${entry} does not match the reviewed licence text`,
+      ]);
+      fs.writeFileSync(file, original);
+    }
+    assert.deepEqual(await pack(), []);
   } finally {
     asar.uncacheAll();
     fs.rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `Electron WASM self-test PASS: complete archive; ${REQUIRED_WASM.length} missing and ${REQUIRED_WASM.length} empty asset negatives`,
+    `Electron WASM self-test PASS: complete archive; ${REQUIRED_WASM.length} missing and ${REQUIRED_WASM.length} empty asset negatives; ${VENDORED_WASM.size} changed vendored WASM negatives; ${REQUIRED_LICENCES.length} missing and ${REQUIRED_LICENCES.length} changed licence negatives`,
   );
 }
 

@@ -482,6 +482,7 @@ describe('CodeSymbolIndexer', () => {
       'go',
       'csharp',
       'java',
+      'kotlin',
       'rust',
       'php',
       'ruby',
@@ -614,7 +615,7 @@ describe('CodeSymbolIndexer', () => {
         '/workspace/src/unreadable.py',
         '/workspace/src/broken.go',
         { path: '/workspace/src/huge.cs', size: 2 * 1024 * 1024 },
-        '/workspace/src/Main.kt',
+        '/workspace/lib/main.dart',
         '/workspace/ios/App.swift',
         '/workspace/src/a.spec.ts',
       ]);
@@ -648,7 +649,7 @@ describe('CodeSymbolIndexer', () => {
         nonSource: null,
         excluded: null,
         omittedByCap: 0,
-        unsupportedByLanguage: { kotlin: 1, swift: 1 },
+        unsupportedByLanguage: { dart: 1, swift: 1 },
         failedByReason: { read: 1, parse: 1, 'too-large': 1 },
       });
       // The over-size file is counted, never read.
@@ -660,7 +661,7 @@ describe('CodeSymbolIndexer', () => {
         expect.arrayContaining([
           '**/*.ts',
           '**/*.csx',
-          '**/*.kt',
+          '**/*.dart',
           '**/*.swift',
         ]),
       );

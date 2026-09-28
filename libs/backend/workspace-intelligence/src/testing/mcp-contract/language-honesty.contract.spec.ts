@@ -92,12 +92,20 @@ jest.mock('../../ast/wasm-bundle-dir', () => {
     'wasm',
   );
   const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  // Batch 30k: the Kotlin grammar is vendored in the repository.
+  // A repository asset, not a module: resolved from this file, not imported.
+  const kotlinWasm = nodePath.join(
+    __dirname,
+    '../../../../../../assets/tree-sitter/tree-sitter-kotlin.wasm',
+  );
   return {
     BUNDLE_DIR: grammarDir,
     resolveWasmPath: (filename: string) =>
       filename.startsWith('web-tree-sitter')
         ? nodePath.join(runtimeDir, filename)
-        : nodePath.join(grammarDir, filename),
+        : filename === 'tree-sitter-kotlin.wasm'
+          ? kotlinWasm
+          : nodePath.join(grammarDir, filename),
   };
 });
 
@@ -349,6 +357,8 @@ const CHECKED_ELSEWHERE: ReadonlySet<string> = new Set([
   'outline:php',
   'outline:ruby',
   'outline:cpp',
+  // Batch 30k: same outliner, vendored Kotlin grammar.
+  'outline:kotlin',
 ]);
 
 function realFileSystem(): FileSystemService {
@@ -481,6 +491,12 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
     });
   },
 
+  // Batch 30k: the vendored Kotlin grammar.
+  'parse:kotlin': async () => grammarParseHonesty(KOTLIN_HONESTY),
+  'codeIndex:kotlin': async () =>
+    codeIndexHonesty({ root: '/ws-30k-kotlin-index', ...KOTLIN_HONESTY }),
+  'syntaxDiagnostics:kotlin': async () => syntaxDiagnosticsHonesty('kotlin'),
+
   // Batch 37b (Task 37b3.2): go vet is never a type-check claim.
   'typeCheck:go': async () => goVetTypeCheckHonesty(),
 };
@@ -598,6 +614,37 @@ const RUBY_HONESTY: GrammarHonestySource = {
   ].join('\n'),
   names: ['Widget', 'render', 'Panel'],
   broken: 'def broken(a\n  1 +\nend\n',
+};
+
+/**
+ * Batch 30k: Kotlin with an overload, the same member name in a second
+ * class, and an object. Class bodies close on their own line (the grammar
+ * needs error recovery otherwise; see `kotlin.language.ts`).
+ */
+const KOTLIN_HONESTY: GrammarHonestySource = {
+  language: 'kotlin',
+  relativePath: 'src/main/kotlin/app/Widget.kt',
+  source: [
+    'package app',
+    '',
+    'class Widget(private val label: String) {',
+    '    fun render(): String = "<$label>"',
+    // An overload: its own row (R30-02).
+    '    fun render(prefix: String): String = prefix + render()',
+    '}',
+    '',
+    'class Other {',
+    // The same member name in another class: its own row (R30-02).
+    '    fun render(): Int = 1',
+    '}',
+    '',
+    'object Registry {',
+    '    fun register(widget: Widget) = widget.render()',
+    '}',
+    '',
+  ].join('\n'),
+  names: ['Widget', 'render', 'Registry', 'register'],
+  broken: 'fun broken( {\n    val x = \n}\n',
 };
 
 /** Valid C the C++ grammar rejects: `new` is a C++ keyword. */
@@ -764,7 +811,7 @@ async function tsxParseHonesty(): Promise<void> {
 
 /**
  * `codeIndex:<lang>` (tsx since 29b, java/rust since 30, php/ruby/cpp since
- * 31): the real indexer stores the file's declarations and counts the file
+ * 31, kotlin since 30k):the real indexer stores the file's declarations and counts the file
  * analysed, not unsupported or failed. When `approximations` is given, the
  * coverage names exactly those (Batch 31: `c:parsed-as-cpp` for C only).
  */
@@ -1168,7 +1215,15 @@ async function symbolIndexerHonesty(): Promise<void> {
  */
 async function syntaxDiagnosticsHonesty(
   language:
-    'python' | 'go' | 'csharp' | 'java' | 'rust' | 'php' | 'ruby' | 'cpp',
+    | 'python'
+    | 'go'
+    | 'csharp'
+    | 'java'
+    | 'rust'
+    | 'php'
+    | 'ruby'
+    | 'cpp'
+    | 'kotlin',
   override?: { readonly rel: string; readonly content: string },
 ): Promise<void> {
   const BROKEN: Record<typeof language, { rel: string; content: string }> = {
@@ -1200,6 +1255,10 @@ async function syntaxDiagnosticsHonesty(
     cpp: {
       rel: 'src/bad.cpp',
       content: 'int f( { int x = ; }\n',
+    },
+    kotlin: {
+      rel: 'src/main/kotlin/Bad.kt',
+      content: 'fun f( {\n    val x = \n}\n',
     },
   };
   const { rel, content } = override ?? BROKEN[language];
@@ -1270,6 +1329,16 @@ async function syntaxDiagnosticsHonesty(
     if (!coverage?.approximations?.includes(`${language}:syntax-only`)) {
       throw new Error(
         `coverage did not disclose ${language}:syntax-only: ${JSON.stringify(coverage)}`,
+      );
+    }
+    // Batch 30k r1 R30K-02: every Kotlin syntax answer names the grammar's
+    // known limit (valid one-line class bodies need error recovery).
+    if (
+      language === 'kotlin' &&
+      !coverage.approximations.includes('kotlin:grammar-limit')
+    ) {
+      throw new Error(
+        `a Kotlin syntax answer did not disclose kotlin:grammar-limit: ${JSON.stringify(coverage)}`,
       );
     }
     if (coverage.approximations.includes('c:parsed-as-cpp') !== cSource) {
@@ -1610,7 +1679,7 @@ describe('language-honesty matrix — registry/classifier grants (r1-hardened)',
         if (activated.has(key)) continue;
         const [, capability, language] = m;
         const build = REPRESENTATIVE_FILE[language];
-        if (!build) continue; // tsx/kotlin: no dedicated single-language fixture file yet
+        if (!build) continue; // tsx: no dedicated single-language fixture file yet
         const { file, cleanup } = build();
         cleanups.push(cleanup);
         const classification = classifyFileForCoverage(

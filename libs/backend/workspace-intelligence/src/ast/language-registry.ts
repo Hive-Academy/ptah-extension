@@ -24,9 +24,9 @@
  *   outliner in vscode-lm-tools, the enrichment gate, the code-symbol indexer,
  *   the Electron definition fallback), so each language module declares them
  *   (`capabilities`); `languages/types.ts` cites where each is implemented.
- * - Languages with no grammar yet keep an entry with their extensions and no
- *   capability, so a `.kt` file counts as `unsupported` under `kotlin`
- *   instead of disappearing. Grammar batches (29b-31, 30k) turn them on.
+ * - Every registry language is parsed since Batch 30k. Source languages
+ *   with no grammar (Swift, Elixir, ...) are recognised languages: counted
+ *   as `unsupported` under their name, never analysed.
  */
 import {
   LANGUAGE_IDS,
@@ -34,9 +34,9 @@ import {
   type LanguageId,
   type RecognisedLanguageId,
 } from '@ptah-extension/platform-core';
-import type { SupportedLanguage } from './ast.types';
 import { LANGUAGE_MODULES } from './languages';
 import { C_EXTENSIONS_PARSED_AS_CPP } from './languages/cpp.language';
+import type { LanguageModule } from './languages/types';
 
 /** How a language's dependency edges are drawn. */
 export interface GraphEdgesCapability {
@@ -83,12 +83,13 @@ export interface LanguageRegistryEntry {
   readonly capabilities: LanguageCapabilities;
 }
 
-/** Extensions of languages with no grammar yet. */
-const UNPARSED_LANGUAGE_EXTENSIONS: Readonly<
-  Record<Exclude<LanguageId, SupportedLanguage>, readonly string[]>
-> = {
-  kotlin: ['.kt', '.kts'],
-};
+/**
+ * Every registry language has a grammar since Batch 30k (Kotlin was the last
+ * one). This assignment fails to compile if a `LanguageId` is ever added
+ * without a module, so no language can lose its extensions silently.
+ */
+const PARSED_LANGUAGE_MODULES: Readonly<Record<LanguageId, LanguageModule>> =
+  LANGUAGE_MODULES;
 
 /** Source languages recognised for `unsupportedByLanguage`, never analysed. */
 const RECOGNISED_LANGUAGE_EXTENSIONS: Readonly<
@@ -105,32 +106,8 @@ const RECOGNISED_LANGUAGE_EXTENSIONS: Readonly<
   r: ['.r'],
 };
 
-const NO_CAPABILITIES: LanguageCapabilities = {
-  parse: false,
-  outline: false,
-  enrichSummary: false,
-  codeIndex: false,
-  publicSymbols: false,
-  graphEdges: null,
-  definitionFallback: false,
-  syntaxDiagnostics: false,
-};
-
-function isParsedLanguage(id: LanguageId): id is SupportedLanguage {
-  return Object.hasOwn(LANGUAGE_MODULES, id);
-}
-
 function buildEntry(id: LanguageId): LanguageRegistryEntry {
-  if (!isParsedLanguage(id)) {
-    return {
-      id,
-      extensions: UNPARSED_LANGUAGE_EXTENSIONS[id],
-      recognitionOnlyExtensions: [],
-      grammarFile: null,
-      capabilities: NO_CAPABILITIES,
-    };
-  }
-  const language = LANGUAGE_MODULES[id];
+  const language = PARSED_LANGUAGE_MODULES[id];
   return {
     id,
     extensions: language.extensions,

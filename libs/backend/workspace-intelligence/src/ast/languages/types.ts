@@ -28,7 +28,7 @@ export interface LanguageQueries {
  *   C# since Batch 26b, proven against the shipped grammar by the Electron
  *   capability spec).
  * - syntaxDiagnostics: py/go/cs (plan initial value), java/rust (Batch 30),
- *   php/ruby/cpp (Batch 31); the TS compiler already covers TS/JS. Consumed by the language-aware
+ *   php/ruby/cpp (Batch 31), kotlin (Batch 30k); the TS compiler already covers TS/JS. Consumed by the language-aware
  *   diagnostics provider (25a), which parses with the language's grammar.
  */
 export type DeclaredLanguageCapabilities = Omit<

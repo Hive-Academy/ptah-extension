@@ -94,6 +94,10 @@ import {
 import type { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { parserFailureReason } from '../ast/parser-refusal';
 import {
+  KOTLIN_GRAMMAR_LIMIT,
+  KOTLIN_UNLOCATED_RECOVERY_TEXT,
+} from '../ast/languages/kotlin.language';
+import {
   GO_VET_COVERAGE,
   type GoVetChecker,
 } from './external-checkers/go-vet-checker';
@@ -287,6 +291,8 @@ interface SyntaxFailure {
   readonly file: string;
   readonly language: SupportedLanguage;
   readonly reason: FailureReason;
+  /** A `notChecked` reason more specific than `FAILURE_TEXT[reason]`. */
+  readonly detail?: string;
 }
 
 /** What the syntax check of one scoped call produced. */
@@ -714,7 +720,7 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
       notChecked.push({
         file: failure.file,
         language: failure.language,
-        reason: FAILURE_TEXT[failure.reason],
+        reason: failure.detail ?? FAILURE_TEXT[failure.reason],
       });
     }
     for (const entry of omitted) {
@@ -739,6 +745,13 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     const parsedCSource = checked.some(
       (entry) => isCParsedAsCpp(entry.file) && !failedFiles.has(entry.file),
     );
+    // Every Kotlin file the grammar judged (a located error, a clean parse, or
+    // a recovery reported as not validated) rests on its known limit.
+    const judgedKotlin =
+      syntax.analyzed.has('kotlin') ||
+      syntax.failures.some(
+        (entry) => entry.detail === KOTLIN_UNLOCATED_RECOVERY_TEXT,
+      );
     const coverage = withCoverageVerdict({
       supportedLanguages: DIAGNOSTICS_LANGUAGES,
       census: 'complete',
@@ -766,6 +779,7 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
       ...syntaxApproximations(syntax.analyzed.keys(), [
         ...(vetChecked > 0 ? GO_VET_COVERAGE.approximations : []),
         ...(parsedCSource ? (['c:parsed-as-cpp'] as const) : []),
+        ...(judgedKotlin ? ([KOTLIN_GRAMMAR_LIMIT] as const) : []),
       ]),
       // `go vet` counts on the syntax side: GO_VET_COVERAGE.checks.
       ...optionalChecks(checksOf(typeCheckRan, syntaxSide > 0)),
@@ -987,7 +1001,7 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
       await nextMacrotask();
       const checked = await this.checkOneFile(entry.file, entry.language);
       if ('reason' in checked) {
-        outcome.failures.push({ ...entry, reason: checked.reason });
+        outcome.failures.push({ ...entry, ...checked });
         continue;
       }
       outcome.analyzed.set(
@@ -1009,7 +1023,7 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     file: string,
     language: SupportedLanguage,
   ): Promise<
-    | { readonly reason: FailureReason }
+    | { readonly reason: FailureReason; readonly detail?: string }
     | { readonly entries: DiagnosticEntry[]; readonly errors: number }
   > {
     let content: string;
@@ -1038,10 +1052,13 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
     if (!results) return { reason: parserFailureReason(parsed.error) };
 
     // A C file names the grammar that judged it: valid C the C++ grammar
-    // rejects (a variable named `new`) is reported here too.
+    // rejects (a variable named `new`) is reported here too. A Kotlin error
+    // names the grammar's known limit (Batch 30k r1 R30K-02).
     const checkedAs = isCParsedAsCpp(file)
       ? `${language}, c:parsed-as-cpp`
-      : language;
+      : language === 'kotlin'
+        ? `${language}, ${KOTLIN_GRAMMAR_LIMIT}`
+        : language;
     const found = [
       ...(results.get('error') ?? []).flatMap((match) =>
         match.captures.map((capture) => ({
@@ -1058,6 +1075,16 @@ export class LanguageAwareDiagnosticsProvider implements IDiagnosticsProvider {
         })),
       ),
     ].sort((a, b) => a.row - b.row || a.column - b.column);
+
+    if (
+      found.length === 0 &&
+      results.parseStatus === 'recovered' &&
+      language === 'kotlin'
+    ) {
+      // The Kotlin grammar recovers this way from valid one-line class
+      // bodies: the file is not validated, and no error is claimed.
+      return { reason: 'parse', detail: KOTLIN_UNLOCATED_RECOVERY_TEXT };
+    }
 
     const entries: DiagnosticEntry[] = found
       .slice(0, SYNTAX_MAX_ERRORS)

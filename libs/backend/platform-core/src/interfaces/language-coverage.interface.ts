@@ -102,6 +102,9 @@ export type FailureReason = (typeof FAILURE_REASONS)[number];
 export const APPROXIMATION_PRIORITY = [
   'resolver-context-partial',
   'syntax-only',
+  // The vendored Kotlin grammar (1.1.0) can reject valid one-line class
+  // bodies, so its syntax answers are qualified (Batch 30k r1 R30K-02).
+  'kotlin:grammar-limit',
   'text-scan',
   'case-folded',
   'c:parsed-as-cpp',

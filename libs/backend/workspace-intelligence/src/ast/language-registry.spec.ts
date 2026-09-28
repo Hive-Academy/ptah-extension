@@ -326,6 +326,7 @@ describe('language registry', () => {
         'go',
         'csharp',
         'java',
+        'kotlin',
         'rust',
         'php',
         'ruby',
@@ -342,6 +343,7 @@ describe('language registry', () => {
         'go',
         'csharp',
         'java',
+        'kotlin',
         'rust',
         'php',
         'ruby',
@@ -359,6 +361,7 @@ describe('language registry', () => {
         'go',
         'csharp',
         'java',
+        'kotlin',
         'rust',
         'php',
         'ruby',
@@ -373,7 +376,17 @@ describe('language registry', () => {
     ],
     [
       'syntaxDiagnostics',
-      ['python', 'go', 'csharp', 'java', 'rust', 'php', 'ruby', 'cpp'],
+      [
+        'python',
+        'go',
+        'csharp',
+        'java',
+        'kotlin',
+        'rust',
+        'php',
+        'ruby',
+        'cpp',
+      ],
     ],
   ])('initial %s languages', (capability, expected) => {
     expect(supportedLanguagesFor(capability)).toEqual(expected);

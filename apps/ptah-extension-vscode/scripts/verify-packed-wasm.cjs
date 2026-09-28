@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const { execFileSync, spawnSync } = require('child_process');
 const AdmZip = require('adm-zip');
 
@@ -29,6 +30,33 @@ function requiredWasmFiles() {
   return files;
 }
 
+/**
+ * Every shipped file of a vendored grammar (the WASM and `wasm/LICENSE.<id>`)
+ * with its reviewed SHA-256, read through the same CLI boundary as
+ * `requiredWasmFiles`. The packed bytes must equal these (Batch 30k r1
+ * R30K-01); equal SHA-256 means equal length too.
+ */
+function requiredVendored() {
+  const output = execFileSync(
+    process.execPath,
+    [path.join(ROOT, 'scripts/copy-wasm.js'), '--list-vendored'],
+    { cwd: ROOT, encoding: 'utf8', timeout: 30000, maxBuffer: 128 * 1024 },
+  ).trim();
+  const lines = output === '' ? [] : output.split(/\r?\n/);
+  const vendored = lines.map((line) => {
+    const match =
+      /^(wasm\/(?:[a-z0-9-]+\.wasm|LICENSE\.[a-z0-9-]+)) ([a-f0-9]{64})$/.exec(
+        line,
+      );
+    if (!match) throw new Error('Invalid vendored manifest listing');
+    return { file: match[1], sha256: match[2] };
+  });
+  if (new Set(vendored.map(({ file }) => file)).size !== vendored.length) {
+    throw new Error('Invalid vendored manifest listing');
+  }
+  return vendored;
+}
+
 function packagedVsixPath() {
   const metadata = JSON.parse(
     fs.readFileSync(path.join(DIST_DIR, 'package.json'), 'utf8'),
@@ -47,43 +75,96 @@ function packagedVsixPath() {
   return path.join(DIST_DIR, filename);
 }
 
-function verifyVsix(vsixPath, required) {
+function isLicence(file) {
+  return file.startsWith('wasm/LICENSE.');
+}
+
+function verifyVsix(vsixPath, required, vendored = []) {
   if (!fs.statSync(vsixPath).isFile()) throw new Error('VSIX must be a file');
   const archive = new AdmZip(vsixPath);
   const entries = archive.getEntries();
+  const reviewed = new Map(vendored.map(({ file, sha256 }) => [file, sha256]));
   const problems = [];
-  for (const wasm of required) {
-    const name = `extension/${wasm}`;
+  const files = [
+    ...required,
+    ...vendored
+      .map(({ file }) => file)
+      .filter((file) => !required.includes(file)),
+  ];
+  for (const file of files) {
+    const name = `extension/${file}`;
     const matches = entries.filter((entry) => entry.entryName === name);
     if (matches.length === 0) {
-      problems.push(`${wasm} is missing from the VSIX`);
-    } else if (matches.length !== 1 || matches[0].isDirectory) {
-      problems.push(`${wasm} must be one file in the VSIX`);
-    } else if (matches[0].getData().length === 0) {
-      problems.push(`${wasm} is present in the VSIX but empty (0 bytes)`);
+      problems.push(`${file} is missing from the VSIX`);
+      continue;
+    }
+    if (matches.length !== 1 || matches[0].isDirectory) {
+      problems.push(`${file} must be one file in the VSIX`);
+      continue;
+    }
+    const data = matches[0].getData();
+    const sha256 = reviewed.get(file);
+    if (data.length === 0 && !isLicence(file)) {
+      problems.push(`${file} is present in the VSIX but empty (0 bytes)`);
+    } else if (
+      sha256 !== undefined &&
+      crypto.createHash('sha256').update(data).digest('hex') !== sha256
+    ) {
+      problems.push(
+        isLicence(file)
+          ? `${file} does not match the reviewed licence text`
+          : `${file} does not match the reviewed vendored grammar`,
+      );
     }
   }
   return problems;
 }
 
-function selfTest(required) {
+function selfTest(required, vendored) {
   const dir = fs.mkdtempSync(path.join(ROOT, '.wasm-vsix-test-'));
   try {
     const archivePath = path.join(dir, 'fixture.vsix');
-    function fixture(omitted, empty, prefix = 'extension/') {
+    const reviewed = new Set(vendored.map(({ file }) => file));
+    // A vendored file must be its committed bytes (the manifest's vendored
+    // location); any other asset is a stand-in.
+    const bytesOf = (file) =>
+      reviewed.has(file)
+        ? fs.readFileSync(
+            path.join(ROOT, 'assets/tree-sitter', path.posix.basename(file)),
+          )
+        : Buffer.from('fixture');
+    function fixture(omitted, empty, prefix = 'extension/', changed) {
       const archive = new AdmZip();
-      for (const wasm of required) {
-        if (wasm !== omitted) {
-          archive.addFile(
-            `${prefix}${wasm}`,
-            Buffer.from(wasm === empty ? '' : 'fixture'),
-          );
+      const files = [
+        ...required,
+        ...[...reviewed].filter((file) => !required.includes(file)),
+      ];
+      for (const file of files) {
+        if (file === omitted) continue;
+        let data = file === empty ? Buffer.from('') : bytesOf(file);
+        if (file === changed) {
+          // Same length, first byte flipped.
+          data = Buffer.from(data);
+          data[0] ^= 0xff;
         }
+        archive.addFile(`${prefix}${file}`, data);
       }
       archive.writeZip(archivePath);
     }
     fixture();
-    assert.deepEqual(verifyVsix(archivePath, required), []);
+    assert.deepEqual(verifyVsix(archivePath, required, vendored), []);
+    for (const file of reviewed) {
+      fixture(file);
+      assert.deepEqual(verifyVsix(archivePath, required, vendored), [
+        `${file} is missing from the VSIX`,
+      ]);
+      fixture(undefined, undefined, 'extension/', file);
+      assert.deepEqual(verifyVsix(archivePath, required, vendored), [
+        isLicence(file)
+          ? `${file} does not match the reviewed licence text`
+          : `${file} does not match the reviewed vendored grammar`,
+      ]);
+    }
     for (const wasm of required) {
       fixture(wasm);
       assert.deepEqual(verifyVsix(archivePath, required), [
@@ -147,24 +228,25 @@ function selfTest(required) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `VSIX WASM self-test PASS: complete ZIP; ${required.length} missing and ${required.length} empty asset negatives; wrong prefix, corrupt/missing archive, CLI exits and package ordering`,
+    `VSIX WASM self-test PASS: complete ZIP; ${required.length} missing and ${required.length} empty asset negatives; ${vendored.length} missing and ${vendored.length} changed vendored-file negatives; wrong prefix, corrupt/missing archive, CLI exits and package ordering`,
   );
 }
 
 if (require.main === module) {
   const required = requiredWasmFiles();
-  if (process.argv[2] === '--self-test') selfTest(required);
+  const vendored = requiredVendored();
+  if (process.argv[2] === '--self-test') selfTest(required, vendored);
   else {
     const vsixPath = process.argv[2]
       ? path.resolve(process.argv[2])
       : packagedVsixPath();
-    const problems = verifyVsix(vsixPath, required);
+    const problems = verifyVsix(vsixPath, required, vendored);
     if (problems.length)
       throw new Error(
         `Packed VSIX WASM verification failed:\n${problems.join('\n')}`,
       );
     console.log(
-      `[verify-packed-wasm] PASS ${path.basename(vsixPath)}: ${required.length} active WASM assets present and non-empty; ${fs.statSync(vsixPath).size} archive bytes`,
+      `[verify-packed-wasm] PASS ${path.basename(vsixPath)}: ${required.length} active WASM assets present and non-empty; ${vendored.length} vendored files match their reviewed SHA-256; ${fs.statSync(vsixPath).size} archive bytes`,
     );
   }
 }

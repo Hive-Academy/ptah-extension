@@ -190,19 +190,19 @@
     {
       "id": "kotlin",
       "kind": "grammar",
-      "active": false,
+      "active": true,
       "filename": "tree-sitter-kotlin.wasm",
       "licence": "MIT",
-      "bytes": null,
+      "bytes": 3441042,
       "source": {
         "kind": "vendored",
         "package": "@tree-sitter-grammars/tree-sitter-kotlin",
         "version": "1.1.0",
         "path": "assets/tree-sitter/tree-sitter-kotlin.wasm",
         "licenceFile": "assets/tree-sitter/LICENSE.kotlin",
-        "sha256": null,
-        "provenancePending": true,
-        "provenanceRecord": "Batch 30k must supply the source URL, exact bytes, SHA-256, LICENSE text and reviewed load record before activation."
+        "sha256": "7009d69453bc8735e438b2818a633efb21c88f99782769abba60dffedfab73f7",
+        "licenceSha256": "0eea8dc45e89deeb03c7799bbbc7b4688f365fb274562f4540ecfebdea82e727",
+        "provenanceFile": "assets/tree-sitter/PROVENANCE.kotlin.json"
       }
     }
   ]

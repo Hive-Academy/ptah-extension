@@ -49,6 +49,37 @@ const AST_NODE_TYPES = {
   LEXICAL_DECLARATION: 'lexical_declaration',
 } as const;
 
+function holdsComment(node: GenericAstNode): boolean {
+  // A capture built without its subtree (a hand-made match) holds none.
+  return (node.children ?? []).some(
+    (child) => child.type.includes('comment') || holdsComment(child),
+  );
+}
+
+/** Text of a node cut off by the capture depth limit (the parser service). */
+const TRUNCATED_NODE_TEXT = '... [Max Depth Reached]';
+
+/**
+ * A captured import path as written, minus any comment inside it: a comment
+ * is never part of a module name (Kotlin `a.` + block comment + `b.C` is
+ * `a.b.C`; Batch 30k r1 R30K-03). Without a comment the text is returned
+ * unchanged; with one, the path is the concatenation of its other tokens.
+ * A path deeper than the captured depth keeps its text as written.
+ */
+function textWithoutComments(capture: QueryCapture): string {
+  const node = capture.node;
+  if (node === undefined || !holdsComment(node)) return capture.text;
+  const tokens: string[] = [];
+  const collect = (current: GenericAstNode): void => {
+    if (current.type.includes('comment')) return;
+    const children = current.children ?? [];
+    if (children.length === 0) tokens.push(current.text);
+    else children.forEach(collect);
+  };
+  collect(node);
+  return tokens.includes(TRUNCATED_NODE_TEXT) ? capture.text : tokens.join('');
+}
+
 /**
  * Service responsible for analyzing Abstract Syntax Tree (AST) data.
  *
@@ -373,7 +404,7 @@ export class AstAnalysisService {
 
       const sourceCapture = captures.get('import.source');
       if (sourceCapture) {
-        let source = sourceCapture.text;
+        let source = textWithoutComments(sourceCapture);
         if (
           (source.startsWith('"') && source.endsWith('"')) ||
           (source.startsWith("'") && source.endsWith("'"))

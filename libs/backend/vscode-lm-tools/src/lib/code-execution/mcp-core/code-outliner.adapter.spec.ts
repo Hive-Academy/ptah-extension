@@ -34,12 +34,20 @@ jest.mock('wasm-bundle-dir', () => {
     'wasm',
   );
   const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  // Batch 30k: the Kotlin grammar is vendored in the repository.
+  // A repository asset, not a module: resolved from this file, not imported.
+  const kotlinWasm = nodePath.join(
+    __dirname,
+    '../../../../../../../assets/tree-sitter/tree-sitter-kotlin.wasm',
+  );
   return {
     BUNDLE_DIR: grammarDir,
     resolveWasmPath: (filename: string) =>
       filename.startsWith('web-tree-sitter')
         ? nodePath.join(runtimeDir, filename)
-        : nodePath.join(grammarDir, filename),
+        : filename === 'tree-sitter-kotlin.wasm'
+          ? kotlinWasm
+          : nodePath.join(grammarDir, filename),
   };
 });
 
@@ -279,6 +287,54 @@ const RUST_SOURCE = lines(
   '    fn name(&self) -> String;', // 16
   '}', // 17
   'fn empty() {}', // 18
+);
+
+/**
+ * Batch 30k: Kotlin with a secondary constructor, an `init` block, a getter,
+ * block and expression bodies, a named companion object, a type alias, a
+ * top-level lambda and a top-level function.
+ */
+const KOTLIN_SOURCE = lines(
+  'package app', // 0
+  '', // 1
+  'class Store(private val name: String) {', // 2
+  '    constructor(size: Int) : this(size.toString()) {', // 3
+  '        println(size)', // 4
+  '    }', // 5
+  '', // 6
+  '    init {', // 7
+  '        check(name.isNotEmpty())', // 8
+  '    }', // 9
+  '', // 10
+  '    val label: String', // 11
+  '        get() {', // 12
+  '            return name.uppercase()', // 13
+  '        }', // 14
+  '', // 15
+  '    fun render(prefix: String): String {', // 16
+  '        val body = prefix + name', // 17
+  '        return body', // 18
+  '    }', // 19
+  '', // 20
+  '    fun short(): String =', // 21
+  '        name', // 22
+  '', // 23
+  '    companion object Factory {', // 24
+  '        fun create(): Store = Store("x")', // 25
+  '    }', // 26
+  '}', // 27
+  '', // 28
+  'typealias Label = String', // 29
+  '', // 30
+  'val handlers = listOf(', // 31
+  '    { x: Int ->', // 32
+  '        x + 1', // 33
+  '    }', // 34
+  ')', // 35
+  '', // 36
+  'fun helper(value: Int): Int {', // 37
+  '    return value * 2', // 38
+  '}', // 39
 );
 
 /**
@@ -765,6 +821,71 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       await expect(outliner.outline(notCpp, '.c')).resolves.toBeNull();
     });
 
+    it('kotlin outline not refused (.kt and .kts): constructor, init, getter and function bodies; an expression body and a top-level lambda stay; focus on a class, a companion, a property, a type alias and a function (Batch 30k)', async () => {
+      for (const hint of ['.kt', 'kt', 'kotlin', 'src/main/kotlin/Store.kt']) {
+        const outline = await outliner.outline(KOTLIN_SOURCE, hint, 'Store');
+        expect({ hint, refused: outline === null }).toEqual({
+          hint,
+          refused: false,
+        });
+        expect(sorted(outline?.omittable ?? [])).toEqual([
+          { startLine: 4, endLine: 4 },
+          { startLine: 8, endLine: 8 },
+          { startLine: 13, endLine: 13 },
+          { startLine: 17, endLine: 18 },
+          { startLine: 38, endLine: 38 },
+        ]);
+        expect(outline?.focus).toEqual([{ startLine: 2, endLine: 27 }]);
+        expect(outline?.approximations).toBeUndefined();
+      }
+      const focus = async (symbol: string) =>
+        (await outliner.outline(KOTLIN_SOURCE, 'kotlin', symbol))?.focus;
+      expect(await focus('Factory')).toEqual([{ startLine: 24, endLine: 26 }]);
+      expect(await focus('create')).toEqual([{ startLine: 25, endLine: 25 }]);
+      expect(await focus('label')).toEqual([{ startLine: 11, endLine: 14 }]);
+      expect(await focus('Label')).toEqual([{ startLine: 29, endLine: 29 }]);
+      expect(await focus('handlers')).toEqual([{ startLine: 31, endLine: 35 }]);
+      expect(await focus('helper')).toEqual([{ startLine: 37, endLine: 39 }]);
+
+      const script = lines(
+        'plugins {', // 0
+        '    kotlin("jvm") version "2.0.0"', // 1
+        '}', // 2
+        '', // 3
+        'fun greet(name: String): String {', // 4
+        '    val text = "hi " + name', // 5
+        '    return text', // 6
+        '}', // 7
+      );
+      const kts = await outliner.outline(script, 'build.gradle.kts', 'greet');
+      // The build DSL block is structure and stays; the function body goes.
+      expect(kts?.omittable).toEqual([{ startLine: 5, endLine: 6 }]);
+      expect(kts?.focus).toEqual([{ startLine: 4, endLine: 7 }]);
+    });
+
+    it('kotlin: a syntax error is refused; the one-line class body limit of the vendored grammar is outlined only when no ERROR node was needed (Batch 30k)', async () => {
+      await expect(
+        outliner.outline('fun broken( {\n    val x = \n}\n', '.kt'),
+      ).resolves.toBeNull();
+      // Upstream tree-sitter-kotlin #12/#13 (1.1.0). A last member sharing
+      // the closing brace's line only gets a zero-width hidden separator
+      // inserted: no ERROR or MISSING node is visible and every span is
+      // exact, so the outline stands.
+      const oneLine = await outliner.outline(
+        'object Keys { const val A = 1 }\n',
+        '.kt',
+        'Keys',
+      );
+      expect(oneLine).toEqual({
+        omittable: [],
+        focus: [{ startLine: 0, endLine: 0 }],
+      });
+      // A nested one-line body makes the grammar build an ERROR node: refused.
+      await expect(
+        outliner.outline('class C { class D { val x = 1 } }\n', '.kt'),
+      ).resolves.toBeNull();
+    });
+
     it('reports no focus spans when no focus symbol is requested', async () => {
       const outline = await outliner.outline(TS_SOURCE, 'typescript');
       expect(outline?.focus).toEqual([]);
@@ -926,8 +1047,8 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
 
     it.each([
       'typescriptreact',
-      'kotlin',
-      '.kt',
+      'swift',
+      '.dart',
       'constructor',
       '.toString',
       '',
@@ -973,6 +1094,11 @@ describe('TreeSitterCodeOutliner (real TreeSitterParserService)', () => {
       ['h', 'cpp'],
       ['include/widget.h', 'cpp'],
       ['src/app.c++', 'cpp'],
+      ['kotlin', 'kotlin'],
+      ['kt', 'kotlin'],
+      ['.KTS', 'kotlin'],
+      ['src/main/kotlin/App.kt', 'kotlin'],
+      ['build.gradle.kts', 'kotlin'],
     ])(
       'resolves the language hint %j to the %s grammar',
       async (hint, grammar) => {

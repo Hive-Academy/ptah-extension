@@ -33,4 +33,5 @@ export type SupportedLanguage =
   | 'rust'
   | 'php'
   | 'ruby'
-  | 'cpp';
+  | 'cpp'
+  | 'kotlin';

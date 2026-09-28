@@ -1,0 +1,52 @@
+{
+  "language": "kotlin",
+  "package": "@tree-sitter-grammars/tree-sitter-kotlin",
+  "version": "1.1.0",
+  "repository": "https://github.com/tree-sitter-grammars/tree-sitter-kotlin",
+  "tag": "v1.1.0",
+  "commit": "77dd60ea0a9003ce062c9728a513ffe1aaff8c82",
+  "wasm": {
+    "bytes": 3441042,
+    "sha256": "7009d69453bc8735e438b2818a633efb21c88f99782769abba60dffedfab73f7",
+    "urls": [
+      "https://github.com/tree-sitter-grammars/tree-sitter-kotlin/releases/download/v1.1.0/tree-sitter-kotlin.wasm",
+      "https://registry.npmjs.org/@tree-sitter-grammars/tree-sitter-kotlin/-/tree-sitter-kotlin-1.1.0.tgz#package/tree-sitter-kotlin.wasm"
+    ]
+  },
+  "tarballIntegrity": "sha512-vlVXaxEE8t2kpJgfZpa8XVvxcnKw9AYtRTgy7KWjsDmAsadk06RxAT80IXOgGQnmM9i/orQn1nD84gPNUHu6DQ==",
+  "sourceArchive": {
+    "file": "tree-sitter-kotlin.tar.xz",
+    "sha256": "60f60c06a00f022b74251b98a89e42f5f575d34ae63c60c74667813714543671"
+  },
+  "license": {
+    "spdx": "MIT",
+    "bytes": 1101,
+    "sha256": "0eea8dc45e89deeb03c7799bbbc7b4688f365fb274562f4540ecfebdea82e727"
+  },
+  "abi": 14,
+  "attestation": {
+    "predicate": "https://slsa.dev/provenance/v1",
+    "run": "https://github.com/tree-sitter-grammars/tree-sitter-kotlin/actions/runs/12696697547/attempts/1",
+    "signerWorkflow": "tree-sitter/workflows/.github/workflows/release.yml",
+    "signerDigest": "8e205aa3badc0ff6c1ddd161811b946afce51a29",
+    "rekorLogIndex": 161206903,
+    "verifiedWith": "gh 2.96.0 attestation verify (exit 0, GitHub release asset and npm copy)",
+    "verifiedOn": "2026-09-28"
+  },
+  "reproduced": false,
+  "rebuild": {
+    "cli": "tree-sitter-cli@0.24.6",
+    "emscripten": "emscripten/emsdk:3.1.64@sha256:8847dad4171ebc8a53d9ae5cda86a2546ef5b2e68834c14dc1ba2b2962e125cc",
+    "attempted": false,
+    "reason": "No emscripten and no running container engine on the Batch 30k machine; not gating (User Decision 25).",
+    "sha256s": [],
+    "equalToShipped": null
+  },
+  "loadRecord": {
+    "runtime": "web-tree-sitter 0.27.0",
+    "node": "v24.15.0",
+    "date": "2026-09-28",
+    "abi": 14,
+    "corpusHasError": false
+  }
+}

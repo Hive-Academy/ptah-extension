@@ -59,12 +59,20 @@ jest.mock('wasm-bundle-dir', () => {
     'wasm',
   );
   const runtimeDir = nodePath.dirname(require.resolve('web-tree-sitter'));
+  // Batch 30k: the Kotlin grammar is vendored in the repository.
+  // A repository asset, not a module: resolved from this file, not imported.
+  const kotlinWasm = nodePath.join(
+    __dirname,
+    '../../../../../../../assets/tree-sitter/tree-sitter-kotlin.wasm',
+  );
   return {
     BUNDLE_DIR: grammarDir,
     resolveWasmPath: (filename: string) =>
       filename.startsWith('web-tree-sitter')
         ? nodePath.join(runtimeDir, filename)
-        : nodePath.join(grammarDir, filename),
+        : filename === 'tree-sitter-kotlin.wasm'
+          ? kotlinWasm
+          : nodePath.join(grammarDir, filename),
   };
 });
 
@@ -353,9 +361,9 @@ async function tsxOutlineHonesty(): Promise<void> {
   }
 }
 
-/** One grammar language's outline honesty subject (Batches 30 and 31). */
+/** One grammar language's outline honesty subject (Batches 30, 31, 30k). */
 interface GrammarOutlineSubject {
-  readonly language: 'java' | 'rust' | 'php' | 'ruby' | 'cpp';
+  readonly language: 'java' | 'rust' | 'php' | 'ruby' | 'cpp' | 'kotlin';
   readonly hint: string;
   /**
    * A file of the same language the outliner must refuse; defaults to the
@@ -444,6 +452,41 @@ const RUST_OUTLINE: GrammarOutlineSubject = {
   },
   keptSignatures: LARGE_MODULE_NAMES.map(
     (name) => `pub fn ${name}(rows: &[String]) -> usize {`,
+  ),
+};
+
+/** Batch 30k: Kotlin, with the vendored grammar. */
+const KOTLIN_OUTLINE: GrammarOutlineSubject = {
+  language: 'kotlin',
+  hint: '.kt',
+  source: [
+    'class Counter {',
+    '    fun next(step: Int): Int {',
+    '        val value = step + 1',
+    '        return value',
+    '    }',
+    '}',
+    '',
+  ].join('\n'),
+  focusSymbol: 'Counter',
+  omittable: [{ startLine: 2, endLine: 3 }],
+  focus: [{ startLine: 0, endLine: 5 }],
+  large: () => {
+    const out = ['class Report {'];
+    for (const name of LARGE_MODULE_NAMES) {
+      out.push(`    fun ${name}(rows: List<String>): Int {`);
+      for (let i = 0; i < 80; i++) {
+        out.push(
+          `        val row${i} = rows.getOrElse(${i}) { ${JSON.stringify(`${name}-${i}`)} }.length`,
+        );
+      }
+      out.push('        return rows.size', '    }');
+    }
+    out.push('}', '');
+    return out.join('\n');
+  },
+  keptSignatures: LARGE_MODULE_NAMES.map(
+    (name) => `    fun ${name}(rows: List<String>): Int {`,
   ),
 };
 
@@ -900,6 +943,7 @@ const CHECKED_ELSEWHERE_KEYS = [
   'outline:php',
   'outline:ruby',
   'outline:cpp',
+  'outline:kotlin',
 ] as const;
 
 const MCP_HONESTY_CHECKS: Readonly<
@@ -916,6 +960,7 @@ const MCP_HONESTY_CHECKS: Readonly<
   'outline:cpp': async () => {
     for (const subject of CPP_OUTLINES) await grammarOutlineHonesty(subject);
   },
+  'outline:kotlin': async () => grammarOutlineHonesty(KOTLIN_OUTLINE),
 };
 
 describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)", () => {
@@ -937,6 +982,7 @@ describe("MCP_HONESTY_CHECKS — executable proof (R27-01, this project's keys)"
       'honesty:ptah_lsp_references',
       'outline:cpp',
       'outline:java',
+      'outline:kotlin',
       'outline:php',
       'outline:ruby',
       'outline:rust',

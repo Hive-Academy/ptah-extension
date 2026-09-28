@@ -39,7 +39,8 @@ export const GRAMMAR_FILE_MAP: Readonly<Record<SupportedLanguage, string>> =
  * the TS-only declaration suffix for the same reason. Python, Go and C# have no
  * export statements, and Java/Rust/PHP/Ruby/C++ public-declaration extraction
  * belongs to Batches 34-36, so their exportQuery is empty (skipped by
- * analyzeSource).
+ * analyzeSource). Kotlin's is empty for good: no Kotlin graph support is
+ * required (User Decision 19).
  */
 export const LANGUAGE_QUERIES_MAP: Readonly<
   Record<SupportedLanguage, LanguageQueries>

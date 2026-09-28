@@ -24,6 +24,12 @@
  * with errors and is refused. Java and Rust have their own grammars since
  * Batch 30; PHP (HTML around `<?php` included), Ruby and C/C++ since Batch 31
  * (`.c`/`.h` parse with the C++ grammar, and C it cannot parse is refused).
+ * Kotlin (`.kt`, `.kts`) since Batch 30k, with the vendored grammar. That
+ * grammar needs error recovery for a class body whose last member shares the
+ * closing brace's line (upstream issues #12, #13): when it only inserts its
+ * zero-width hidden member separator, no ERROR or MISSING node is visible and
+ * the spans are exact, so the file is outlined; when it builds an ERROR node
+ * (a nested one-line body), the file is refused.
  *
  * Omittable spans hold only body content, so an omitted line never carries a
  * signature or other code:
@@ -131,7 +137,8 @@ const CPP_OUTLINE_QUERIES: OutlineQueries = {
 
 /**
  * Per-grammar outline queries. Every node and field name was checked against
- * the grammars `TreeSitterParserService` loads (@vscode/tree-sitter-wasm); a
+ * the grammars `TreeSitterParserService` loads (@vscode/tree-sitter-wasm, and
+ * the vendored Kotlin grammar); a
  * name the grammar lacks makes `queryMulti` fail, and the spec compiles each
  * set against its real grammar. The TSX grammar is the TypeScript grammar
  * plus JSX, so it takes the TypeScript set unchanged. Java and Rust bodies
@@ -301,6 +308,28 @@ const OUTLINE_QUERIES: Readonly<Record<SupportedLanguage, OutlineQueries>> = {
 `,
   },
   cpp: CPP_OUTLINE_QUERIES,
+  // Batch 30k (vendored grammar). A function body is a block or an `= expr`
+  // expression body; both take the brace rule, so a one-row or two-row
+  // expression body omits nothing. Lambdas are never omitted: outside a
+  // function they are usually structure (a `.kts` build script's
+  // `dependencies { … }`), and inside one they are already in its body.
+  kotlin: {
+    bodies: `
+(function_declaration (function_body) @body)
+(secondary_constructor (block) @body)
+(anonymous_initializer (block) @body)
+(getter (function_body) @body)
+(setter (function_body) @body)
+`,
+    declarations: `
+(function_declaration name: (identifier) @name) @decl
+(class_declaration name: (identifier) @name) @decl
+(object_declaration name: (identifier) @name) @decl
+(companion_object name: (identifier) @name) @decl
+(type_alias type: (identifier) @name) @decl
+(property_declaration (variable_declaration (identifier) @name)) @decl
+`,
+  },
 };
 
 /** The one parser-service method this adapter needs. */

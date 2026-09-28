@@ -732,9 +732,9 @@ describe('Batch 31 — compact language lists keep every pin', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it('lists php, ruby and cpp as code-index languages now', () => {
+  it('lists php, ruby and cpp (Batch 31) and kt (Batch 30k) as code-index languages now', () => {
     expect(buildCodeSearchSymbolsTool().description).toContain(
-      'Functions/classes/methods: ts,js,tsx,py,go,cs,java,rs,php,rb,cpp;',
+      'Functions/classes/methods: ts,js,tsx,py,go,cs,java,kt,rs,php,rb,cpp;',
     );
   });
 

@@ -86,6 +86,28 @@ function validateManifest(manifest) {
     ) {
       throw new Error('Vendored asset requires a sha256');
     }
+    if (row.source.kind === 'vendored' && !pending) {
+      if (
+        typeof row.source.licenceSha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(row.source.licenceSha256)
+      ) {
+        throw new Error('Vendored asset requires a licenceSha256');
+      }
+      const provenance = row.source.provenanceFile;
+      if (
+        typeof provenance !== 'string' ||
+        !provenance ||
+        path.isAbsolute(provenance) ||
+        provenance.includes('\\') ||
+        provenance
+          .split('/')
+          .some((part) => !part || part === '..' || part === '.')
+      ) {
+        throw new Error(
+          'Vendored asset requires a relative, contained provenanceFile',
+        );
+      }
+    }
     names.add(row.filename);
     ids.add(row.id);
   }
@@ -109,9 +131,81 @@ function activeWasmFiles() {
     .map((row) => `wasm/${row.filename}`);
 }
 
+/** Where an active vendored row's licence ships, next to its WASM. */
+function licenceDestination(row) {
+  return `wasm/LICENSE.${row.id}`;
+}
+
+/**
+ * Every shipped file of an active vendored row with its reviewed SHA-256: the
+ * grammar and its licence. A packed archive must hold exactly these bytes
+ * (Batch 30k r1 R30K-01).
+ */
+function activeVendoredFiles() {
+  return readManifest()
+    .assets.filter((row) => row.active && row.source.kind === 'vendored')
+    .flatMap((row) => [
+      { file: `wasm/${row.filename}`, sha256: row.source.sha256 },
+      { file: licenceDestination(row), sha256: row.source.licenceSha256 },
+    ]);
+}
+
+const MAX_RECORD_BYTES = 64 * 1024;
+
+function sha256(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
+/** A small repository record, read with a size bound before its bytes. */
+function readBoundedFile(file, what, id) {
+  if (fs.statSync(file).size > MAX_RECORD_BYTES) {
+    throw new Error(`${what} is too large: ${id}`);
+  }
+  return fs.readFileSync(file);
+}
+
+/**
+ * The vendored licence must be the exact reviewed text, and the provenance
+ * record (data only, never evaluated) must describe the same artefact as the
+ * manifest row.
+ */
+function verifyVendoredRecords(row, root) {
+  const source = row.source;
+  const licenceFile = containedFile(root, source.licenceFile);
+  const licence = readBoundedFile(licenceFile, 'Vendored licence', row.id);
+  if (licence.length === 0) {
+    throw new Error(`Vendored licence is empty: ${row.id}`);
+  }
+  if (sha256(licence) !== source.licenceSha256) {
+    throw new Error(`Vendored licence sha256 mismatch: ${row.id}`);
+  }
+  const provenanceFile = containedFile(root, source.provenanceFile);
+  const provenance = JSON.parse(
+    readBoundedFile(provenanceFile, 'Provenance record', row.id).toString(
+      'utf8',
+    ),
+  );
+  if (
+    provenance?.package !== source.package ||
+    provenance.version !== source.version ||
+    provenance.wasm?.sha256 !== source.sha256 ||
+    provenance.wasm?.bytes !== row.bytes ||
+    provenance.license?.sha256 !== source.licenceSha256
+  ) {
+    throw new Error(`Provenance record mismatch: ${row.id}`);
+  }
+  return licenceFile;
+}
+
 function resolveWasmFile(row, root = ROOT) {
+  return resolveAsset(row, root).file;
+}
+
+/** The verified WASM file of a row and, for a vendored row, its licence. */
+function resolveAsset(row, root = ROOT) {
   const source = row.source;
   let file;
+  let licence;
   if (source.kind === 'package') {
     // Node's directory walk-up also works in worktrees without node_modules.
     // Resolve the public WASM subpath: web-tree-sitter hides package.json.
@@ -135,17 +229,13 @@ function resolveWasmFile(row, root = ROOT) {
     containedFile(packageRoot, source.licenceFile);
   } else {
     file = containedFile(root, source.path);
-    containedFile(root, source.licenceFile);
-    const digest = crypto
-      .createHash('sha256')
-      .update(fs.readFileSync(file))
-      .digest('hex');
-    if (digest !== source.sha256)
+    if (sha256(fs.readFileSync(file)) !== source.sha256)
       throw new Error(`Vendored sha256 mismatch: ${row.id}`);
+    licence = verifyVendoredRecords(row, root);
   }
   if (fs.statSync(file).size !== row.bytes)
     throw new Error(`Asset byte size mismatch: ${row.id}`);
-  return file;
+  return { file, licence };
 }
 
 function copyWasm(outputDir, manifest = readManifest(), root = ROOT) {
@@ -153,10 +243,10 @@ function copyWasm(outputDir, manifest = readManifest(), root = ROOT) {
   // Resolve and verify everything before writing any output.
   const assets = manifest.assets
     .filter((row) => row.active)
-    .map((row) => ({ row, file: resolveWasmFile(row, root) }));
+    .map((row) => ({ row, ...resolveAsset(row, root) }));
   const wasmDest = path.resolve(outputDir, 'wasm');
   fs.mkdirSync(wasmDest, { recursive: true });
-  for (const { row, file } of assets) {
+  for (const { row, file, licence } of assets) {
     const dest = path.join(wasmDest, row.filename);
     fs.copyFileSync(file, dest);
     if (fs.statSync(dest).size !== row.bytes)
@@ -164,6 +254,14 @@ function copyWasm(outputDir, manifest = readManifest(), root = ROOT) {
     console.log(
       `  Copied ${row.filename} (${(row.bytes / 1024).toFixed(1)} KB)`,
     );
+    if (licence !== undefined) {
+      // A vendored grammar ships its licence notice (MIT's condition).
+      const licenceDest = path.resolve(outputDir, licenceDestination(row));
+      fs.copyFileSync(licence, licenceDest);
+      if (sha256(fs.readFileSync(licenceDest)) !== row.source.licenceSha256)
+        throw new Error(`Licence copy verification failed: ${row.id}`);
+      console.log(`  Copied ${licenceDestination(row)}`);
+    }
   }
   console.log(`WASM assets copied to ${wasmDest}`);
 }
@@ -220,8 +318,9 @@ function selfTest() {
   );
   const dir = fs.mkdtempSync(path.join(ROOT, '.wasm-copy-test-'));
   try {
+    const LICENCE_TEXT = 'MIT fixture';
     fs.writeFileSync(path.join(dir, 'fixture.wasm'), 'wasm');
-    fs.writeFileSync(path.join(dir, 'LICENSE'), 'MIT fixture');
+    fs.writeFileSync(path.join(dir, 'LICENSE'), LICENCE_TEXT);
     const row = {
       id: 'fixture',
       kind: 'grammar',
@@ -235,22 +334,77 @@ function selfTest() {
         version: '1.0.0',
         path: 'fixture.wasm',
         licenceFile: 'LICENSE',
-        sha256: crypto.createHash('sha256').update('wasm').digest('hex'),
+        sha256: sha256('wasm'),
+        licenceSha256: sha256(LICENCE_TEXT),
+        provenanceFile: 'PROVENANCE.json',
       },
     };
+    const provenance = {
+      package: 'fixture',
+      version: '1.0.0',
+      wasm: { bytes: 4, sha256: sha256('wasm') },
+      license: { sha256: sha256(LICENCE_TEXT) },
+    };
+    const writeProvenance = (value) =>
+      fs.writeFileSync(
+        path.join(dir, 'PROVENANCE.json'),
+        JSON.stringify(value),
+      );
+    writeProvenance(provenance);
     const fixtureManifest = { ...manifest, assets: [manifest.assets[0], row] };
     copyWasm(path.join(dir, 'good'), fixtureManifest, dir);
     assert.equal(
       fs.readFileSync(path.join(dir, 'good/wasm', row.filename), 'utf8'),
       'wasm',
     );
-    fs.writeFileSync(path.join(dir, 'fixture.wasm'), 'evil');
-    assert.throws(
-      () => copyWasm(path.join(dir, 'bad'), fixtureManifest, dir),
-      /sha256 mismatch/,
+    assert.equal(
+      fs.readFileSync(path.join(dir, 'good/wasm/LICENSE.fixture'), 'utf8'),
+      LICENCE_TEXT,
     );
-    assert.equal(fs.existsSync(path.join(dir, 'bad')), false);
+    /** A failing copy writes nothing, whatever the reason. */
+    let badRun = 0;
+    const assertCopyFails = (pattern, assets = fixtureManifest) => {
+      const out = path.join(dir, `bad-${badRun++}`);
+      assert.throws(() => copyWasm(out, assets, dir), pattern);
+      assert.equal(fs.existsSync(out), false);
+    };
+    fs.writeFileSync(path.join(dir, 'fixture.wasm'), 'evil');
+    assertCopyFails(/sha256 mismatch/);
     fs.writeFileSync(path.join(dir, 'fixture.wasm'), 'wasm');
+    // The licence: missing, empty, and changed by one byte.
+    fs.unlinkSync(path.join(dir, 'LICENSE'));
+    assertCopyFails(/ENOENT/);
+    fs.writeFileSync(path.join(dir, 'LICENSE'), '');
+    assertCopyFails(/licence is empty/);
+    fs.writeFileSync(path.join(dir, 'LICENSE'), 'MIT fixturE');
+    assertCopyFails(/licence sha256 mismatch/);
+    fs.writeFileSync(path.join(dir, 'LICENSE'), LICENCE_TEXT);
+    // The provenance record: missing, and describing another artefact.
+    fs.unlinkSync(path.join(dir, 'PROVENANCE.json'));
+    assertCopyFails(/ENOENT/);
+    writeProvenance({
+      ...provenance,
+      wasm: { ...provenance.wasm, sha256: sha256('evil') },
+    });
+    assertCopyFails(/Provenance record mismatch/);
+    writeProvenance({
+      ...provenance,
+      license: { sha256: sha256('another licence') },
+    });
+    assertCopyFails(/Provenance record mismatch/);
+    writeProvenance(provenance);
+    const withSource = (change) => ({
+      ...fixtureManifest,
+      assets: [
+        manifest.assets[0],
+        { ...row, source: { ...row.source, ...change } },
+      ],
+    });
+    assertCopyFails(/licenceSha256/, withSource({ licenceSha256: undefined }));
+    assertCopyFails(
+      /provenanceFile/,
+      withSource({ provenanceFile: '../PROVENANCE.json' }),
+    );
     assert.throws(
       () =>
         resolveWasmFile(
@@ -292,10 +446,28 @@ function selfTest() {
     copyWasm(path.join(dir, 'active'), manifest);
     assert.deepEqual(
       fs.readdirSync(path.join(dir, 'active/wasm')).sort(),
-      manifest.assets
-        .filter((asset) => asset.active)
-        .map((asset) => asset.filename)
-        .sort(),
+      [
+        ...manifest.assets
+          .filter((asset) => asset.active)
+          .map((asset) => asset.filename),
+        ...activeVendoredFiles()
+          .map(({ file }) => path.posix.basename(file))
+          .filter((file) => file.startsWith('LICENSE.')),
+      ].sort(),
+    );
+    // The vendored Kotlin grammar ships with its reviewed licence notice.
+    const kotlin = manifest.assets.find((asset) => asset.id === 'kotlin');
+    assert.deepEqual(
+      activeVendoredFiles().filter(({ file }) => file.includes('kotlin')),
+      [
+        { file: 'wasm/tree-sitter-kotlin.wasm', sha256: kotlin.source.sha256 },
+        { file: 'wasm/LICENSE.kotlin', sha256: kotlin.source.licenceSha256 },
+      ],
+    );
+    assert.equal(
+      sha256(fs.readFileSync(path.join(dir, 'active/wasm/LICENSE.kotlin'))),
+      manifest.assets.find((asset) => asset.id === 'kotlin').source
+        .licenceSha256,
     );
     // Every package grammar row is active since Batch 31, so the toggle is
     // proved from the other side: an active row is copied, and the same row
@@ -315,7 +487,7 @@ function selfTest() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    'copy-wasm self-test PASS: active-only copying, metadata, size, duplicate/path/provenance negatives, vendored SHA-256 failure before writes',
+    'copy-wasm self-test PASS: active-only copying, metadata, size, duplicate/path/provenance negatives; vendored WASM, licence (missing/empty/changed/unhashed) and provenance-record (missing/mismatched) failures before writes; licence copied as wasm/LICENSE.<id>',
   );
 }
 
@@ -323,9 +495,16 @@ if (require.main === module) {
   if (process.argv[2] === '--self-test') selfTest();
   else if (process.argv[2] === '--list')
     console.log(activeWasmFiles().join('\n'));
+  else if (process.argv[2] === '--list-vendored')
+    // One `<path> <sha256>` line per shipped vendored file (VSIX gate).
+    console.log(
+      activeVendoredFiles()
+        .map(({ file, sha256: digest }) => `${file} ${digest}`)
+        .join('\n'),
+    );
   else if (process.argv[2]) copyWasm(process.argv[2]);
   else
     throw new Error(
-      'Usage: node scripts/copy-wasm.js <output-dir> | --self-test | --list',
+      'Usage: node scripts/copy-wasm.js <output-dir> | --self-test | --list | --list-vendored',
     );
 }
