@@ -6620,40 +6620,74 @@ describe('protocol-handlers › dependency graph background build (TASK_2026_559
     // Review r3 R3-S1: an empty build that finishes after the bounded wait is
     // delivered to the next call, which does not start another discovery;
     // the call after that rediscovers as before.
+    //
+    // The real service's build awaits real filesystem I/O (the root's
+    // realpath, the resolver's manifest reads) on the libuv thread pool, which
+    // no fixed count of macrotasks outlasts under load. So the test waits on
+    // the build's own promise, and holds the root lookup far past any such
+    // count to prove it does not depend on winning that race.
     it('delivers a slow empty build to the next call, then rediscovers', async () => {
       const s = realSetup();
-      s.openGate();
-      const slowEmpty = deferred<string[]>();
-      s.findFiles.mockReturnValueOnce(slowEmpty.promise);
-      const first = callSymbolIndex(s.deps, 'slow-empty-first');
-      await flush();
-      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
-      expect(toResult(await first).body['status']).toBe('building');
+      const realRealpath = fs.promises.realpath;
+      const slowRealpath = jest
+        .spyOn(fs.promises, 'realpath')
+        .mockImplementation((async (target: fs.PathLike) => {
+          for (let i = 0; i < 200; i++) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+          return realRealpath(target);
+        }) as typeof fs.promises.realpath);
+      // Each settles when the matching real build has ended.
+      const buildsDone = [deferred<unknown>(), deferred<unknown>()];
+      let buildsStarted = 0;
+      const buildGraph = s.graph.buildGraph.bind(s.graph);
+      jest
+        .spyOn(s.graph, 'buildGraph')
+        .mockImplementation((...args: Parameters<typeof buildGraph>) => {
+          const build = buildGraph(...args);
+          buildsDone[buildsStarted++]?.resolve(build);
+          return build;
+        });
+      try {
+        s.openGate();
+        const slowEmpty = deferred<string[]>();
+        s.findFiles.mockReturnValueOnce(slowEmpty.promise);
+        const first = callSymbolIndex(s.deps, 'slow-empty-first');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        expect(toResult(await first).body['status']).toBe('building');
 
-      slowEmpty.resolve([]);
-      await flush();
-      expect(s.graph.isBuilt(root)).toBe(true);
+        slowEmpty.resolve([]);
+        await buildsDone[0].promise;
+        // The dispatcher records the outcome in microtasks after the build.
+        await flush();
+        expect(s.graph.isBuilt(root)).toBe(true);
 
-      // Every later discovery is slow too (held until the end).
-      const heldRediscovery = deferred<string[]>();
-      s.findFiles.mockReturnValue(heldRediscovery.promise);
-      const second = callSymbolIndex(s.deps, 'slow-empty-second');
-      await flush();
-      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
-      const secondResult = toResult(await second);
-      expect(secondResult.isError).toBe(false);
-      expect(secondResult.body).not.toHaveProperty('status');
-      expect(secondResult.body['total']).toBe(0);
-      expect(s.findFiles).toHaveBeenCalledTimes(1);
+        // Every later discovery is slow too (held until the end).
+        const heldRediscovery = deferred<string[]>();
+        s.findFiles.mockReturnValue(heldRediscovery.promise);
+        const second = callSymbolIndex(s.deps, 'slow-empty-second');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        const secondResult = toResult(await second);
+        expect(secondResult.isError).toBe(false);
+        expect(secondResult.body).not.toHaveProperty('status');
+        expect(secondResult.body['total']).toBe(0);
+        expect(s.findFiles).toHaveBeenCalledTimes(1);
 
-      const third = callSymbolIndex(s.deps, 'slow-empty-third');
-      await flush();
-      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
-      expect(toResult(await third).body['status']).toBe('building');
-      expect(s.findFiles).toHaveBeenCalledTimes(2);
+        const third = callSymbolIndex(s.deps, 'slow-empty-third');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        expect(toResult(await third).body['status']).toBe('building');
+        expect(s.findFiles).toHaveBeenCalledTimes(2);
 
-      heldRediscovery.resolve([]);
-      await flush();
+        heldRediscovery.resolve([]);
+        await buildsDone[1].promise;
+        await flush();
+        expect(buildsStarted).toBe(2);
+      } finally {
+        slowRealpath.mockRestore();
+      }
     });
 
     // Review r2 R2-M2: the waiting caller of a job a newer build superseded

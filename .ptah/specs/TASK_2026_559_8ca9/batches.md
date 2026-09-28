@@ -4640,6 +4640,22 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   honesty signal on recovered parses (landed in 24c); the gate fails if any of the four returns a clean-looking result
   for a recovered parse
 
+### Batch 38a: carried fixes before the gate — COMPLETE
+
+- RESUME POINT 2 step 3 items (a), (b), (c). Author: backend-developer subagent. Report `batch-38a-executor-report.md`.
+- (a) protocol-dispatcher "slow empty build" flake: raced real filesystem I/O in the graph build; the spec now awaits
+  the build promise, with a slowed-realpath pin (5 sequential + 10 parallel runs clean; suite `--maxWorkers=1`).
+- (b) Lane K finding 5: `packageDirForId` → `packageDirsForId`; `[pkg.test]` ids map exactly; an ambiguous bare
+  `foo_test` id disqualifies both candidates (no credit on a guess).
+- (c) 37b1d Minor: Electron and cli-engine wiring specs dispose the logger channel, wait for close/error, then remove
+  the temp dir in `finally`. 175 `ptah-*-govet-*` dirs from earlier runs remain in `%TEMP%` (outside the repo; not
+  deleted without user approval).
+- Review r1 (`reviews/batch-38a-code-logic-review-r1.md`, Codex, resumed Lane K session): REVISE 7/10 — Lane K
+  finding 5 CLOSED; R38A-01 Moderate (teardown skipped cleanup on a failed channel/stream). One bounded correction
+  (unconditional teardown + regression); no further review per the reviewer and Decision 24.
+- Team-leader verification (2026-09-28): ptah-electron, cli-engine, workspace-intelligence, vscode-lm-tools
+  test/lint/typecheck pass; audit TOTAL 300.
+
 ### Batch 38 verification
 
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes

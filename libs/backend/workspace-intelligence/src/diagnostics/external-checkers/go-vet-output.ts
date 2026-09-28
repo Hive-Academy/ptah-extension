@@ -170,20 +170,12 @@ export function parseVetDiagnostics(
   };
 }
 
-/**
- * The directory of a vet package id (`example.com/m/a`, its test variants
- * `… [example.com/m/a.test]` and `example.com/m/a_test`), or `null` when the
- * id is not under the module.
- */
-export function packageDirForId(
-  packageId: string,
-  modulePath: string | null,
+/** The directory of a package import path, or `null` when not under the module. */
+function dirUnderModule(
+  importPath: string,
+  modulePath: string,
   moduleDir: string,
 ): string | null {
-  if (modulePath === null) return null;
-  let importPath = packageId.split(' ')[0] ?? '';
-  if (importPath.endsWith('.test')) importPath = importPath.slice(0, -5);
-  if (importPath.endsWith('_test')) importPath = importPath.slice(0, -5);
   if (importPath === modulePath) return moduleDir;
   if (!importPath.startsWith(`${modulePath}/`)) return null;
   const parts = importPath.slice(modulePath.length + 1).split('/');
@@ -191,6 +183,62 @@ export function packageDirForId(
     return null;
   }
   return path.join(moduleDir, ...parts);
+}
+
+/**
+ * The import paths a bare package id may be: itself, and, when it could be a
+ * test variant reported without its bracket, the package under test (`a.test`
+ * is a real `a.test` package or `a`'s test binary; `a_test` is a real `a_test`
+ * package or `a`'s external test package).
+ */
+function bareIdCandidates(importPath: string): string[] {
+  const candidates = [importPath];
+  if (importPath.endsWith('.test')) candidates.push(importPath.slice(0, -5));
+  for (const candidate of [...candidates]) {
+    if (candidate.endsWith('_test')) candidates.push(candidate.slice(0, -5));
+  }
+  return candidates;
+}
+
+/**
+ * The directories a vet package id may belong to, or `null` when none is
+ * under the module (the caller then disqualifies every vetted file).
+ *
+ * A bracketed id `<path> [<pkg>.test]` names its directory exactly: the
+ * external test package `<pkg>_test` lives in `<pkg>`'s directory, any other
+ * `<path>` (the package itself compiled for the test) in its own; so a real
+ * `a_test` package's variant `a_test [a_test.test]` is `a_test`, and `a`'s
+ * external test `a_test [a.test]` is `a`. A bare id that could be a test
+ * variant reported without its bracket names every candidate package, so the
+ * caller disqualifies them all instead of crediting a file on a guess (Lane K
+ * closing review, finding 5); a candidate no vetted file is in costs nothing.
+ */
+export function packageDirsForId(
+  packageId: string,
+  modulePath: string | null,
+  moduleDir: string,
+): string[] | null {
+  if (modulePath === null) return null;
+  const separator = packageId.indexOf(' ');
+  const importPath = separator < 0 ? packageId : packageId.slice(0, separator);
+  const forTest =
+    separator < 0
+      ? null
+      : /^\[(\S+)\.test\]$/.exec(packageId.slice(separator + 1));
+  let candidates: string[];
+  if (forTest === null) {
+    candidates = bareIdCandidates(importPath);
+  } else if (importPath === `${forTest[1]}_test`) {
+    candidates = [forTest[1]];
+  } else {
+    candidates = [importPath];
+  }
+  const dirs: string[] = [];
+  for (const candidate of candidates) {
+    const dir = dirUnderModule(candidate, modulePath, moduleDir);
+    if (dir !== null) dirs.push(dir);
+  }
+  return dirs.length > 0 ? dirs : null;
 }
 
 const TOOLCHAIN_MISMATCH = /requires go >= |GOTOOLCHAIN=local/;

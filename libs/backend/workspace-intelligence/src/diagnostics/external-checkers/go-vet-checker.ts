@@ -76,14 +76,14 @@ import type {
 import { goFileMembership } from './go-file-membership';
 import {
   classifyFailure,
-  packageDirForId,
+  packageDirsForId,
   parseVetDiagnostics,
   type PositionMapper,
 } from './go-vet-output';
 
 export {
   GO_VET_MAX_DIAGNOSTICS,
-  packageDirForId,
+  packageDirsForId,
   splitVetOutput,
 } from './go-vet-output';
 
@@ -735,9 +735,10 @@ export class GoVetChecker {
     if (unmappedFindings > 0) {
       const modulePath = readModulePath(moduleDir);
       for (const packageId of parsed.unmapped.keys()) {
-        const dir = packageDirForId(packageId, modulePath, moduleDir);
-        if (dir === null) unmappedEverywhere = true;
-        else unmappedDirs.add(pathKey(dir, this.platform));
+        const dirs = packageDirsForId(packageId, modulePath, moduleDir);
+        if (dirs === null) unmappedEverywhere = true;
+        else
+          for (const dir of dirs) unmappedDirs.add(pathKey(dir, this.platform));
       }
     }
     const checkedFiles: string[] = [];

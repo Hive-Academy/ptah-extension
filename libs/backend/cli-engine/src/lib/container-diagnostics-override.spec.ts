@@ -36,6 +36,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  type IOutputChannel,
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
 import {
@@ -77,9 +78,83 @@ interface HostHarness {
   readonly manager: WorkspaceContextManager;
 }
 
+/** Every host container a test built; teardown disposes its output channel. */
+const hostContainers: DependencyContainer[] = [];
+
+/** File streams opened through the core `fs` since `watchWriteStreams()`. */
+interface WatchedStreams {
+  readonly streams: fs.WriteStream[];
+  readonly spy: jest.SpyInstance;
+}
+
+/**
+ * Record every write stream opened from now on (the output channel's log
+ * stream). The spy sits on the core module itself: an `import * as`
+ * namespace is not spyable, and the channel's own namespace reads through
+ * to this object.
+ */
+function watchWriteStreams(): WatchedStreams {
+  const streams: fs.WriteStream[] = [];
+  const coreFs = jest.requireActual<typeof fs>('node:fs');
+  const createWriteStream = coreFs.createWriteStream;
+  const spy = jest
+    .spyOn(coreFs, 'createWriteStream')
+    .mockImplementation((...args: Parameters<typeof createWriteStream>) => {
+      const stream = createWriteStream(...args);
+      streams.push(stream);
+      return stream;
+    });
+  return { streams, spy };
+}
+
+/**
+ * Resolves once `stream` has closed, or failed (an async open or write
+ * error); never rejects, and never waits on a stream already closed. The
+ * `error` listener also keeps a late failure from escaping as unhandled.
+ */
+function streamSettled(stream: fs.WriteStream): Promise<void> {
+  if (stream.closed) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    stream.once('close', () => resolve());
+    stream.once('error', () => resolve());
+  });
+}
+
+/**
+ * Dispose each container's output channel, wait for every watched stream to
+ * settle, then ALWAYS restore the spy and remove `dir`, however the steps
+ * before went. A container whose channel cannot be resolved or disposed (a
+ * partial setup) is skipped. Returns how many channels were disposed.
+ */
+async function releaseHost(
+  containers: readonly DependencyContainer[],
+  watched: WatchedStreams | undefined,
+  dir: string | undefined,
+): Promise<number> {
+  let disposed = 0;
+  try {
+    for (const c of containers) {
+      try {
+        c.resolve<IOutputChannel>(PLATFORM_TOKENS.OUTPUT_CHANNEL).dispose();
+        disposed++;
+      } catch (error: unknown) {
+        // Tolerated: a partial setup may not have registered the channel;
+        // the spy restore and removal below still run.
+        void error;
+      }
+    }
+    await Promise.all((watched?.streams ?? []).map(streamSettled));
+  } finally {
+    watched?.spy.mockRestore();
+    if (dir !== undefined) fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return disposed;
+}
+
 /** The CLI's Phase 0 + the Phase 1 pieces this wiring reads, over `root`. */
 function buildHostContainer(userDataPath: string, root: string): HostHarness {
   const c = rootContainer.createChildContainer();
+  hostContainers.push(c);
   registerPlatformCliServices(c, {
     appPath: userDataPath,
     userDataPath,
@@ -108,20 +183,33 @@ function buildHostContainer(userDataPath: string, root: string): HostHarness {
 }
 
 describe('CLI Phase 2 — DIAGNOSTICS_PROVIDER override and go vet wiring', () => {
-  let tmp: string;
+  let tmp: string | undefined;
   let userData: string;
   let root: string;
+  let watched: WatchedStreams | undefined;
 
   beforeEach(() => {
+    tmp = undefined;
+    watched = watchWriteStreams();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-cli-govet-'));
     userData = path.join(tmp, 'user-data');
     root = path.join(tmp, 'workspace');
     fs.mkdirSync(userData, { recursive: true });
     fs.mkdirSync(root, { recursive: true });
   });
-  // No cleanup: the platform output channel keeps a log stream open under
-  // `user-data/logs`, and removing the directory under it fails that stream
-  // after the test.
+
+  // The platform output channel opens a log stream under `user-data/logs`,
+  // and both its open and its `dispose()` (`end()`) finish asynchronously. So
+  // the channel is disposed and every stream settles before the directory
+  // goes (removing it earlier fails the pending open); the restore and
+  // removal run whatever happens before them.
+  afterEach(async () => {
+    const seen = watched;
+    watched = undefined;
+    const disposed = await releaseHost(hostContainers.splice(0), seen, tmp);
+    // Each disposed channel's stream was seen, or the wait proved nothing.
+    expect(seen?.streams.length ?? 0).toBeGreaterThanOrEqual(disposed);
+  });
 
   it('resolves to the Phase 0 CliDiagnosticsProvider stub before the override runs', () => {
     const { c } = buildHostContainer(userData, root);
@@ -203,5 +291,31 @@ describe('CLI Phase 2 — DIAGNOSTICS_PROVIDER override and go vet wiring', () =
     expect(data.supported).toBe(true);
     expect(data.workspace).toEqual({ root: path.resolve(root) });
     expect(data.state).toBe('off');
+  });
+});
+
+describe('CLI wiring spec teardown (Batch 38a review r1, R38A-01)', () => {
+  it('restores the spy and removes the directory after a stream error and a missing channel', async () => {
+    const coreFs = jest.requireActual<typeof fs>('node:fs');
+    const original = coreFs.createWriteStream;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-cli-govet-'));
+    const watched = watchWriteStreams();
+    // Its open fails asynchronously (ENOENT): the stream's error path.
+    const failing = coreFs.createWriteStream(
+      path.join(dir, 'missing', 'x.log'),
+    );
+    const failed = new Promise<unknown>((resolve) =>
+      failing.once('error', resolve),
+    );
+    // A partial setup: this container never registered the output channel.
+    const partial = rootContainer.createChildContainer();
+
+    const disposed = await releaseHost([partial], watched, dir);
+
+    await expect(failed).resolves.toMatchObject({ code: 'ENOENT' });
+    expect(disposed).toBe(0);
+    expect(watched.streams).toEqual([failing]);
+    expect(coreFs.createWriteStream).toBe(original);
+    expect(fs.existsSync(dir)).toBe(false);
   });
 });

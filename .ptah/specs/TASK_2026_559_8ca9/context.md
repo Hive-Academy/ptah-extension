@@ -74,6 +74,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 27. Graph scope cut (user, 2026-09-28, during Batch 33; amends Decisions 18(b) and 19 Q4): "lets do python , go and c# for now and deffer the other to follow up tasks". Dependency graphs in 559 are TS/JS (existing), Python + Go (Batch 33) and C# (Batch 34 reduced to Task 34.1). DEFERRED to a follow-up task: the Java graph (Task 34.2), Rust (35), PHP (36a), Ruby (36b) and C/C++ (36c). Grammars, outline, code index and syntax diagnostics for those languages stay (already landed). Their graph answers must stay honest: no `graphEdges`/`publicSymbols` key, and `ptah_get_dependents` / `ptah_get_dependencies` disclose them as unsupported, never as a clean empty answer. The Batch 38 gate enumerates the reduced required keys and asserts the deferred languages are disclosed as unsupported.
 
+28. R32B-01 still open after the Batch 33 review (user, 2026-09-28; the rolled-forward review found R33-10 — independent root tsconfig files with overlapping, non-identical `paths` patterns give a guessed target with complete context): conservative rule. If two or more independent root tsconfig files (not in one `extends` chain) declare `paths`, alias results are marked partial (context not complete); the resolver never guesses across configs. Fixed in the Batch 33 fix round together with R33-01..09; the Batch 34.1 review verifies it. If still open after that verification, commit it as a known issue carried to the follow-up task (no further escalation).
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

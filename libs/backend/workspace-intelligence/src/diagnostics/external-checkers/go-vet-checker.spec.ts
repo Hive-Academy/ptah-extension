@@ -37,7 +37,7 @@ import {
   GO_VET_MAX_DIAGNOSTICS,
   GoVetChecker,
   buildGoVetEnv,
-  packageDirForId,
+  packageDirsForId,
   type GoVetCheckResult,
   packagePattern,
   splitVetOutput,
@@ -812,22 +812,124 @@ describe('GoVetChecker — review r1 finding 3: unmappable findings are never er
     ]);
   });
 
-  it('packageDirForId maps a module package and its test variants, nothing else', () => {
-    const mod = path.resolve('/w/mod');
-    expect(packageDirForId('example.com/m', 'example.com/m', mod)).toBe(mod);
-    expect(
-      packageDirForId(
-        'example.com/m/a_test [example.com/m/a.test]',
-        'example.com/m',
-        mod,
+  // Batch 38a (Lane K closing review, Moderate 5): a real package directory
+  // whose name ends `_test` is not its sibling's external test package.
+  /** `goModule()` plus a real package directory `a_test/`. */
+  function moduleWithRealTestSuffixDir(): {
+    root: string;
+    a: string;
+    b: string;
+    aTest: string;
+  } {
+    const { root, a, b } = goModule();
+    const aTest = write(root, 'a_test/x.go', 'package atest\n\nfunc X() {}\n');
+    return { root, a, b, aTest };
+  }
+
+  it('a finding of a real `a_test` package disqualifies that package, not its sibling `a`', async () => {
+    const { root, a, aTest } = moduleWithRealTestSuffixDir();
+    const { checker, store } = harness(root, {
+      exit: 0,
+      stderr: outsideFinding(
+        'example.com/m/a_test [example.com/m/a_test.test]',
       ),
-    ).toBe(path.join(mod, 'a'));
+    });
+    await store.grant(root, BINARY);
+
+    const result = await checker.check({
+      workspaceRoot: root,
+      files: [a, aTest],
+    });
+
+    expect(result.checkedFiles).toEqual([a]);
+    expect(result.skippedFiles).toEqual([
+      { file: aTest, reason: 'unmapped-findings' },
+    ]);
+  });
+
+  it('a bare `a_test` id that is only the real package disqualifies that package', async () => {
+    const { root, b, aTest } = moduleWithRealTestSuffixDir();
+    const { checker, store } = harness(root, {
+      exit: 0,
+      stderr: outsideFinding('example.com/m/a_test'),
+    });
+    await store.grant(root, BINARY);
+
+    const result = await checker.check({
+      workspaceRoot: root,
+      files: [aTest, b],
+    });
+
+    expect(result.checkedFiles).toEqual([b]);
+    expect(result.skippedFiles).toEqual([
+      { file: aTest, reason: 'unmapped-findings' },
+    ]);
+  });
+
+  it('a bare `a_test` id that may be either package disqualifies both, never guessing', async () => {
+    const { root, a, b, aTest } = moduleWithRealTestSuffixDir();
+    const { checker, store } = harness(root, {
+      exit: 0,
+      stderr: outsideFinding('example.com/m/a_test'),
+    });
+    await store.grant(root, BINARY);
+
+    const result = await checker.check({
+      workspaceRoot: root,
+      files: [a, aTest, b],
+    });
+
+    expect(result.checkedFiles).toEqual([b]);
+    expect(result.skippedFiles).toEqual([
+      { file: a, reason: 'unmapped-findings' },
+      { file: aTest, reason: 'unmapped-findings' },
+    ]);
+  });
+
+  it('the external test package of `a` still disqualifies `a`, not a real `a_test` package', async () => {
+    const { root, a, aTest } = moduleWithRealTestSuffixDir();
+    const { checker, store } = harness(root, {
+      exit: 0,
+      stderr: outsideFinding('example.com/m/a_test [example.com/m/a.test]'),
+    });
+    await store.grant(root, BINARY);
+
+    const result = await checker.check({
+      workspaceRoot: root,
+      files: [a, aTest],
+    });
+
+    expect(result.checkedFiles).toEqual([aTest]);
+    expect(result.skippedFiles).toEqual([
+      { file: a, reason: 'unmapped-findings' },
+    ]);
+  });
+
+  it('packageDirsForId maps a module package and its test variants, nothing else', () => {
+    const mod = path.resolve('/w/mod');
+    const dirs = (id: string) => packageDirsForId(id, 'example.com/m', mod);
+    const a = path.join(mod, 'a');
+    const aTest = path.join(mod, 'a_test');
+    expect(dirs('example.com/m')).toEqual([mod]);
+    expect(dirs('example.com/m/a')).toEqual([a]);
+    // Bracketed ids are exact.
+    expect(dirs('example.com/m/a [example.com/m/a.test]')).toEqual([a]);
+    expect(dirs('example.com/m/a_test [example.com/m/a.test]')).toEqual([a]);
+    expect(dirs('example.com/m/a_test [example.com/m/a_test.test]')).toEqual([
+      aTest,
+    ]);
     expect(
-      packageDirForId('example.com/other', 'example.com/m', mod),
-    ).toBeNull();
-    expect(
-      packageDirForId('example.com/m/../x', 'example.com/m', mod),
-    ).toBeNull();
+      dirs('example.com/m/a_test_test [example.com/m/a_test.test]'),
+    ).toEqual([aTest]);
+    // A bare test-shaped id names every candidate.
+    expect(dirs('example.com/m/a_test')).toEqual([aTest, a]);
+    expect(dirs('example.com/m/a.test')).toEqual([path.join(mod, 'a.test'), a]);
+    // Only candidates under the module count.
+    expect(dirs('example.com/m_test')).toEqual([mod]);
+    expect(dirs('example.com/other')).toBeNull();
+    expect(dirs('example.com/m/../x')).toBeNull();
+    expect(dirs('command-line-arguments')).toBeNull();
+    expect(packageDirsForId('example.com/m/a', null, mod)).toBeNull();
   });
 });
 
