@@ -76,6 +76,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 28. R32B-01 still open after the Batch 33 review (user, 2026-09-28; the rolled-forward review found R33-10 — independent root tsconfig files with overlapping, non-identical `paths` patterns give a guessed target with complete context): conservative rule. If two or more independent root tsconfig files (not in one `extends` chain) declare `paths`, alias results are marked partial (context not complete); the resolver never guesses across configs. Fixed in the Batch 33 fix round together with R33-01..09; the Batch 34.1 review verifies it. If still open after that verification, commit it as a known issue carried to the follow-up task (no further escalation).
 
+29. Reviewer fallback (user, 2026-09-28, after Codex hit its usage limit until 2026-10-03 during the Lane G2 closing review): the remaining correctness-critical and closing reviews (Lane G2 closing, Batch 38) run TWO independent reviewers in parallel — an opencode CLI lane with `opencode-go/glm-5.3` (cross-side; the user pinned GLM 5.3, not Kimi) and a Claude `code-logic-reviewer` subagent (another model family). A Blocking from either reviewer counts. Low-risk batches keep opencode GLM 5.3 alone.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

@@ -514,11 +514,13 @@ describe('AstAnalysisService', () => {
         expect(LANGUAGE_QUERIES_MAP[lang].classQuery).toBeTruthy();
         expect(LANGUAGE_QUERIES_MAP[lang].importQuery).toBeTruthy();
       }
-      // Python and Go public symbols are declarations (Batch 33); C# has
-      // none extracted yet (Batch 34).
+      // Python and Go public symbols are declarations (Batch 33), C#'s the
+      // `public` declarations (Batch 34, `csharp-public-symbols.ts`).
       expect(LANGUAGE_QUERIES_MAP.python.exportQuery).toContain('@export.');
       expect(LANGUAGE_QUERIES_MAP.go.exportQuery).toContain('@export.');
-      expect(LANGUAGE_QUERIES_MAP.csharp.exportQuery).toBe('');
+      expect(LANGUAGE_QUERIES_MAP.csharp.exportQuery).toContain(
+        '@export.cs_type',
+      );
       expect(EXTENSION_LANGUAGE_MAP['.py']).toBe('python');
       expect(EXTENSION_LANGUAGE_MAP['.go']).toBe('go');
       expect(EXTENSION_LANGUAGE_MAP['.cs']).toBe('csharp');

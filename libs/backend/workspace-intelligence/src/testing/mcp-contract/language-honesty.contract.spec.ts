@@ -546,6 +546,30 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
       public: ['Widget', 'DefaultSize', 'New'],
       private: ['helper', 'Render'],
     }),
+
+  // Batch 34 (Task 34.1; Java, Task 34.2, is deferred): the C# graph.
+  'graphEdges:csharp': async () => csharpGraphHonesty(),
+  'publicSymbols:csharp': async () =>
+    publicSymbolsHonesty({
+      language: 'csharp',
+      relativePath: 'Widgets/Widget.cs',
+      source: [
+        'namespace Acme.Widgets;',
+        '',
+        'public class Widget',
+        '{',
+        '    public int Size { get; }',
+        '    public string Render() => Helper();',
+        '    private string Helper() => "w";',
+        '    internal void Reset() { }',
+        '}',
+        '',
+        'internal class Registry { public void Add() { } }',
+        '',
+      ].join('\n'),
+      public: ['Widget', 'Size', 'Render'],
+      private: ['Helper', 'Reset', 'Registry', 'Add'],
+    }),
 };
 
 /**
@@ -554,7 +578,7 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
  * index (what `ptah_get_symbol_index` reads) carries them for the file.
  */
 async function publicSymbolsHonesty(subject: {
-  readonly language: 'python' | 'go';
+  readonly language: 'python' | 'go' | 'csharp';
   readonly relativePath: string;
   readonly source: string;
   readonly public: readonly string[];
@@ -724,6 +748,92 @@ async function goGraphHonesty(): Promise<void> {
     ) {
       throw new Error(
         `go graph coverage did not disclose package edges: ${JSON.stringify(report)}`,
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/**
+ * `graphEdges:csharp` (Batch 34): `using N` links every file declaring
+ * namespace N and the coverage discloses `csharp:namespace-edges`; a
+ * `global using` in one file of a project reaches the others; `System` is
+ * proven external. Deferred languages stay honest: a Java file and a Kotlin
+ * file beside them (Task 34.2 is deferred, Kotlin has no graph by Decision
+ * 19) are counted unsupported, and the answer is not clean. Contrast: a
+ * missing workspace namespace is counted `unresolvedInternal`.
+ */
+async function csharpGraphHonesty(): Promise<void> {
+  const root = fs
+    .mkdtempSync(path.join(os.tmpdir(), 'ptah-34-cs-'))
+    .replace(/\\/g, '/');
+  try {
+    const project = '<Project Sdk="Microsoft.NET.Sdk"></Project>\n';
+    const sources: Record<string, string> = {
+      'App/App.csproj': project,
+      'App/GlobalUsings.cs': 'global using Acme.Billing;\n',
+      'App/Program.cs':
+        'using System;\n\nnamespace Acme.App;\npublic class Program { }\n',
+      'App/Report.cs':
+        'using Acme.Billing;\n\nnamespace Acme.App;\npublic class Report { }\n',
+      'Billing/Billing.csproj': project,
+      'Billing/Invoice.cs':
+        'namespace Acme.Billing;\npublic class Invoice { }\n',
+      'Billing/Order.cs':
+        'namespace Acme.Billing\n{\n    public class Order { }\n}\n',
+      'jvm/Widget.java': 'package jvm;\npublic class Widget { }\n',
+      'jvm/App.kt': 'fun main() = println("hi")\n',
+    };
+    for (const [rel, content] of Object.entries(sources)) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), content);
+    }
+    const at = (rel: string) => `${root}/${rel}`;
+    const graphed = Object.keys(sources)
+      .filter((rel) => !rel.endsWith('.csproj'))
+      .map(at);
+    const svc = new DependencyGraphService(
+      analysis,
+      realFileSystem(),
+      silentLogger(),
+    );
+    await svc.buildGraph(graphed, root);
+    const billing = [at('Billing/Invoice.cs'), at('Billing/Order.cs')];
+    for (const rel of ['App/Report.cs', 'App/Program.cs']) {
+      const deps = [...svc.getDependencies(at(rel))].sort();
+      if (JSON.stringify(deps) !== JSON.stringify(billing)) {
+        throw new Error(
+          `c# ${rel} did not link the namespace's files: ${JSON.stringify(deps)}`,
+        );
+      }
+    }
+    const report = svc.getCoverageReport(root)?.languages;
+    if (
+      !report?.approximations?.includes('csharp:namespace-edges') ||
+      report.resolution?.external !== 1 ||
+      report.resolution?.unresolvedInternal !== 0 ||
+      report.resolution?.context !== 'complete' ||
+      report.unsupported !== 2 ||
+      report.unsupportedByLanguage?.['java'] !== 1 ||
+      report.unsupportedByLanguage?.['kotlin'] !== 1 ||
+      isCleanAnswer(report)
+    ) {
+      throw new Error(
+        `c# graph coverage is not the fixture's: ${JSON.stringify(report)}`,
+      );
+    }
+    if (svc.getDependencies(at('jvm/Widget.java')).length !== 0) {
+      throw new Error('a deferred-language file was given graph edges');
+    }
+
+    const broken = at('App/Broken.cs');
+    fs.writeFileSync(broken, 'using Acme.Missing;\npublic class Broken { }\n');
+    await svc.buildGraph([...graphed, broken], root);
+    const after = svc.getCoverageReport(root)?.languages;
+    if (after?.resolution?.unresolvedInternal !== 1 || isCleanAnswer(after)) {
+      throw new Error(
+        `a missing c# namespace was not disclosed: ${JSON.stringify(after)}`,
       );
     }
   } finally {

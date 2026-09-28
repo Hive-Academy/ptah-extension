@@ -13,7 +13,8 @@
  *   codeIndex; publicSymbols and file graph edges through the TypeScript
  *   queries; no Electron definition fallback).
  * - `publicSymbols` / `graphEdges`: TS/JS, plus Python (file edges) and Go
- *   (package edges) since Batch 33; C#/Java/Rust/PHP/Ruby/C++ in 34-36.
+ *   (package edges) since Batch 33, and C# (namespace edges) since Batch 34;
+ *   Java/Rust/PHP/Ruby/C++ are deferred (User Decision 27).
  * - `definitionFallback` gained C# in Batch 26b (the Electron C# declaration
  *   query is proven against the shipped grammar in
  *   `apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`).
@@ -304,11 +305,11 @@ describe('coverage size contract', () => {
 
 describe('language registry', () => {
   it('codeIndex and publicSymbols are separate', () => {
-    // C#/Java/Rust chunks are in the SQLite code index while their public
-    // declarations are not extracted (empty exportQuery): one flag must not
-    // stand for the other (review r2 finding 1; 24b pins the tool side).
-    // Python and Go have public symbols since Batch 33.
-    for (const id of ['csharp', 'java', 'rust'] as const) {
+    // Java/Rust/Kotlin chunks are in the SQLite code index while their
+    // public declarations are not extracted (empty exportQuery): one flag
+    // must not stand for the other (review r2 finding 1; 24b pins the tool
+    // side). Python and Go have public symbols since Batch 33, C# since 34.
+    for (const id of ['java', 'rust', 'kotlin'] as const) {
       expect(hasCapability(id, 'codeIndex')).toBe(true);
       expect(hasCapability(id, 'publicSymbols')).toBe(false);
     }
@@ -370,8 +371,14 @@ describe('language registry', () => {
         'cpp',
       ],
     ],
-    ['publicSymbols', ['typescript', 'javascript', 'tsx', 'python', 'go']],
-    ['graphEdges', ['typescript', 'javascript', 'tsx', 'python', 'go']],
+    [
+      'publicSymbols',
+      ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp'],
+    ],
+    [
+      'graphEdges',
+      ['typescript', 'javascript', 'tsx', 'python', 'go', 'csharp'],
+    ],
     [
       'definitionFallback',
       ['typescript', 'javascript', 'python', 'go', 'csharp'],
@@ -415,6 +422,14 @@ describe('language registry', () => {
     });
     expect(LANGUAGE_REGISTRY.go.capabilities.graphEdges).toEqual({
       granularity: 'package',
+      referenceScopeComplete: false,
+    });
+  });
+
+  it('draws C# edges per namespace (Batch 34)', () => {
+    // Files of one namespace use each other with no `using`.
+    expect(LANGUAGE_REGISTRY.csharp.capabilities.graphEdges).toEqual({
+      granularity: 'namespace',
       referenceScopeComplete: false,
     });
   });

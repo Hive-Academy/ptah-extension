@@ -17,6 +17,7 @@ import {
   ImportInfo,
   ExportInfo,
   CodeInsights,
+  DeclarationInfo,
 } from './ast-analysis.interfaces';
 import { AstAnalysisService } from './ast-analysis.service';
 import { parserFailureReason } from './parser-refusal';
@@ -64,6 +65,13 @@ export interface FileNode {
    * import, and marks the edge as a re-export (see `getDependents`).
    */
   reExportSources?: string[];
+  /**
+   * The namespaces, packages and modules the file declares
+   * (`CodeInsights.declarations`): empty when it declares none, absent when
+   * its language extracts none. C#
+   * resolution reads them (`import-resolution/csharp-context.ts`).
+   */
+  declarations?: DeclarationInfo[];
   /** Language of the file */
   language: SupportedLanguage;
 }
@@ -511,6 +519,7 @@ export class DependencyGraphService {
       const context = await buildResolverContext({
         root: normalizedRoot,
         knownFiles: nodes.keys(),
+        parsedFiles: nodes.values(),
         isCurrent,
         ...(background ? { yieldBetweenReads: nextMacrotask } : {}),
       });
@@ -738,6 +747,11 @@ export class DependencyGraphService {
       insights.reExportSources.length > 0
         ? { reExportSources: insights.reExportSources }
         : {}),
+      // Kept when empty: an empty list is "declares none" (C#: the global
+      // namespace), an absent one "not extracted".
+      ...(insights.declarations !== undefined
+        ? { declarations: insights.declarations }
+        : {}),
       language,
     });
   }
@@ -818,6 +832,78 @@ export class DependencyGraphService {
       },
       reExporters,
     });
+    /**
+     * Link `filePath` to each target; false once linking must stop (a
+     * superseded background build, or the edge cap).
+     */
+    const linkTargets = async (
+      filePath: string,
+      fileEdges: Set<string>,
+      targets: readonly string[],
+      reExport: boolean,
+    ): Promise<boolean> => {
+      for (const target of targets) {
+        // Inside a multi-target expansion too: yield, and stop once
+        // superseded.
+        if (targets.length > 1 && !(await continueLinking())) return false;
+        if (reExport) addToSetMap(reExporters, target, filePath);
+        if (fileEdges.has(target)) continue;
+        if (edgeCount >= GRAPH_EDGE_CAP) {
+          edgeCapHit = true;
+          this.logger.info(
+            'DependencyGraphService.buildGraph() - Edge cap reached; linking stopped',
+          );
+          return false;
+        }
+        edgeCount++;
+        fileEdges.add(target);
+        addToSetMap(reverseEdges, target, filePath);
+      }
+      return true;
+    };
+    /**
+     * Count one resolution into the coverage tallies, and return the targets
+     * to link: none for an unresolved import (counted `external` or
+     * `unresolvedInternal`), or one that links nothing another file declares.
+     */
+    const tally = (
+      resolution: ImportResolution,
+      imp: ImportInfo,
+      node: FileNode,
+    ): readonly string[] => {
+      if (resolution.caseFolded === true) caseFolded = true;
+      if (resolution.contextDependent === true) contextDependent = true;
+      if (resolution.unresolvedMembers !== undefined) {
+        unresolvedCount += resolution.unresolvedMembers;
+        unresolvedInternal += resolution.unresolvedMembers;
+      }
+      // Resolved to nothing another file declares: no edge, not unresolved.
+      if (resolution.linksNothing === true) return [];
+      let targets = resolution.targets;
+      if (
+        resolution.truncated === true ||
+        targets.length > MAX_TARGETS_PER_IMPORT
+      ) {
+        truncatedImports++;
+        targets = targets.slice(0, MAX_TARGETS_PER_IMPORT);
+      }
+      if (targets.length === 0) {
+        unresolvedCount++;
+        if (resolution.kind === 'external') external++;
+        else unresolvedInternal++;
+        this.logger.debug(
+          `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
+        );
+        return [];
+      }
+      // Declared once targets link; an unresolved import approximates nothing.
+      if (resolution.approximation !== undefined) {
+        edgeApproximations.add(resolution.approximation);
+      }
+      return targets;
+    };
+    /** Implicit imports declared outside the graph that were tallied. */
+    const talliedImplicit = new Set<ImportInfo>();
     for (const [filePath, node] of nodes) {
       if (!(await continueLinking())) return finish();
       const fileEdges = new Set<string>();
@@ -829,52 +915,40 @@ export class DependencyGraphService {
         const resolution: ImportResolution = resolver
           ? resolver.resolve(imp, filePath, context)
           : { kind: 'unresolved-internal', targets: [] };
-        if (resolution.caseFolded === true) caseFolded = true;
-        if (resolution.contextDependent === true) contextDependent = true;
-        if (resolution.unresolvedMembers !== undefined) {
-          unresolvedCount += resolution.unresolvedMembers;
-          unresolvedInternal += resolution.unresolvedMembers;
+        const targets = tally(resolution, imp, node);
+        if (!(await linkTargets(filePath, fileEdges, targets, reExport))) {
+          return finish();
         }
-        let targets = resolution.targets;
-        if (
-          resolution.truncated === true ||
-          targets.length > MAX_TARGETS_PER_IMPORT
-        ) {
-          truncatedImports++;
-          targets = targets.slice(0, MAX_TARGETS_PER_IMPORT);
-        }
-        if (targets.length === 0) {
-          unresolvedCount++;
-          if (resolution.kind === 'external') external++;
-          else unresolvedInternal++;
-          this.logger.debug(
-            `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
-          );
-          continue;
-        }
-        // Declared once targets link; an unresolved import approximates nothing.
-        if (resolution.approximation !== undefined) {
-          edgeApproximations.add(resolution.approximation);
-        }
+      }
 
-        for (const target of targets) {
-          // Inside a multi-target expansion too: yield, and stop once
-          // superseded.
-          if (targets.length > 1 && !(await continueLinking())) {
-            return finish();
+      // Imports declared elsewhere that are in scope here too (C# global
+      // usings). One a graphed file declares was tallied as that file's own
+      // import; one a project manifest declares is tallied the first time.
+      if (resolver === undefined) continue;
+      for (const implicit of resolver.implicitImports?.(filePath, context) ??
+        []) {
+        if (!(await continueLinking())) return finish();
+        const resolution = resolver.resolve(implicit.imp, filePath, context);
+        let targets: readonly string[];
+        // Tallied once, for the first file that resolves it. That is sound
+        // because whether a manifest using is external, unresolved or
+        // linked does not depend on `fromFile`: it is looked up with an
+        // empty `scopePath` (global namespace only), and `fromFile` only
+        // removes the file itself from the targets (review R34C-01).
+        if (
+          implicit.declaredOutsideGraph === true &&
+          !talliedImplicit.has(implicit.imp)
+        ) {
+          talliedImplicit.add(implicit.imp);
+          targets = tally(resolution, implicit.imp, node);
+        } else {
+          targets = resolution.targets.slice(0, MAX_TARGETS_PER_IMPORT);
+          if (targets.length > 0 && resolution.approximation !== undefined) {
+            edgeApproximations.add(resolution.approximation);
           }
-          if (reExport) addToSetMap(reExporters, target, filePath);
-          if (fileEdges.has(target)) continue;
-          if (edgeCount >= GRAPH_EDGE_CAP) {
-            edgeCapHit = true;
-            this.logger.info(
-              'DependencyGraphService.buildGraph() - Edge cap reached; linking stopped',
-            );
-            return finish();
-          }
-          edgeCount++;
-          fileEdges.add(target);
-          addToSetMap(reverseEdges, target, filePath);
+        }
+        if (!(await linkTargets(filePath, fileEdges, targets, false))) {
+          return finish();
         }
       }
     }

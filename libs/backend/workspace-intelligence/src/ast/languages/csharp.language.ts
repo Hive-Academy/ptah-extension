@@ -1,5 +1,12 @@
-/** C# language module. C# has no export statements: `exportQuery` is empty. */
+/**
+ * C# language module. C# has no export statements: its public symbols are
+ * the `public` declarations `csharp-public-symbols.ts` decodes from
+ * {@link CSHARP_EXPORT_QUERY}, and its dependency graph has namespace edges
+ * through {@link CSHARP_IMPORT_RESOLVER} (Batch 34).
+ */
 import type { GenericAstNode } from '../ast.types';
+import { CSHARP_IMPORT_RESOLVER } from '../import-resolution/csharp-import-resolver';
+import type { GraphEdgesCapability } from '../language-registry';
 import type { ExtractedImport, LanguageModule } from './types';
 
 /**
@@ -129,6 +136,43 @@ const CSHARP_IMPORT_QUERY = `
 `;
 
 /**
+ * Public-symbol candidates (Batch 34): every type and every member
+ * declaration, each with its name. Visibility depends on the enclosing
+ * types, so `csharp-public-symbols.ts` decides it from the captured
+ * declarations (their `modifier` children and their ranges), not here. A
+ * field or event field declaring several names yields one match per name.
+ */
+const CSHARP_EXPORT_QUERY = `
+(class_declaration name: (identifier) @export.cs_name) @export.cs_type
+(struct_declaration name: (identifier) @export.cs_name) @export.cs_type
+(record_declaration name: (identifier) @export.cs_name) @export.cs_type
+(interface_declaration name: (identifier) @export.cs_name) @export.cs_type
+(enum_declaration name: (identifier) @export.cs_name) @export.cs_type
+(delegate_declaration name: (identifier) @export.cs_name) @export.cs_type
+
+(method_declaration name: (identifier) @export.cs_name) @export.cs_member
+(property_declaration name: (identifier) @export.cs_name) @export.cs_member
+(event_declaration name: (identifier) @export.cs_name) @export.cs_member
+(field_declaration
+  (variable_declaration
+    (variable_declarator name: (identifier) @export.cs_name))) @export.cs_member
+(event_field_declaration
+  (variable_declaration
+    (variable_declarator name: (identifier) @export.cs_name))) @export.cs_member
+`;
+
+/**
+ * Namespace edges through {@link CSHARP_IMPORT_RESOLVER}
+ * (`csharp:namespace-edges`). Not reference-complete: files of one namespace
+ * use each other with no `using`, and `ImplicitUsings`, extension methods and
+ * reflection are not modelled.
+ */
+const CSHARP_GRAPH_EDGES: GraphEdgesCapability = {
+  granularity: 'namespace',
+  referenceScopeComplete: false,
+};
+
+/**
  * Block namespaces nest (their names concatenate with `.`); a file-scoped
  * `namespace N;` node ends at its `;`, so it is marked to cover the rest of
  * the file.
@@ -192,17 +236,18 @@ export const CSHARP_LANGUAGE: LanguageModule = {
     functionQuery: CSHARP_FUNCTION_QUERY,
     classQuery: CSHARP_CLASS_QUERY,
     importQuery: CSHARP_IMPORT_QUERY,
-    exportQuery: '',
+    exportQuery: CSHARP_EXPORT_QUERY,
   },
   extraction: {
     extractImports: extractCSharpImport,
     declarations: { query: CSHARP_DECLARATION_QUERY, scopeSeparator: '.' },
   },
+  importResolver: CSHARP_IMPORT_RESOLVER,
   capabilities: {
     outline: true,
     enrichSummary: false,
     codeIndex: true,
-    graphEdges: null,
+    graphEdges: CSHARP_GRAPH_EDGES,
     definitionFallback: true,
     syntaxDiagnostics: true,
   },

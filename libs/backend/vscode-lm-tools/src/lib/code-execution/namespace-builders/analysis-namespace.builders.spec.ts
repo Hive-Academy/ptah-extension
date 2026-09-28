@@ -723,7 +723,14 @@ describe('buildDependencyNamespace', () => {
       census: 'unknown',
       analyzed: null,
       // Python and Go since Batch 33.
-      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
+      supportedLanguages: [
+        'typescript',
+        'javascript',
+        'tsx',
+        'python',
+        'go',
+        'csharp',
+      ],
     });
     expect(out.coverage.reasons[0]).toBe('census?');
   });
@@ -828,6 +835,7 @@ describe('buildDependencyNamespace', () => {
       ['src/a.jsx'],
       ['src/tool.py'],
       ['src/main.go'],
+      ['src/Program.cs'],
     ])('%s is graph-capable: no answer', (file) => {
       expect(
         buildDependencyNamespace(makeMocks()).unsupportedGraphLanguage(file),
@@ -835,7 +843,8 @@ describe('buildDependencyNamespace', () => {
     });
 
     it.each([
-      // Kotlin never gets graph edges (Decision 19).
+      // Kotlin never gets graph edges (Decision 19); Java's graph (Task
+      // 34.2) is deferred (User Decision 27).
       ['App.kt', 'kotlin', 'kotlin files (.kt)'],
       ['Main.java', 'java', 'java files (.java)'],
       ['esm.mjs', 'javascript', 'javascript files (.mjs)'],
@@ -849,7 +858,14 @@ describe('buildDependencyNamespace', () => {
       expect(answer).toEqual({
         status: 'unsupported-language',
         language,
-        supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
+        supportedLanguages: [
+          'typescript',
+          'javascript',
+          'tsx',
+          'python',
+          'go',
+          'csharp',
+        ],
         message: expect.stringContaining(subject),
       });
       expect(answer?.message).toContain(

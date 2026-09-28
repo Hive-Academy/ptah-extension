@@ -12,7 +12,10 @@
  * directories, declared dependencies: `python-manifest.ts`); and the root
  * `go.mod` and `go.work`, with the `go.mod` of every `go.work` `use`
  * directory (module paths, local `replace` directories, required modules:
- * `go-manifest.ts`). Each manifest is read bounded and identity-checked
+ * `go-manifest.ts`); and, when C# files are graphed, the `.csproj` and
+ * `Directory.Build.props`/`.targets` files of their directories and
+ * ancestors (project boundaries, `<Using>` items, package references:
+ * `csharp-context.ts`). Each manifest is read bounded and identity-checked
  * (`manifest-reader.ts`). Whatever could not be read, or was read but is not
  * modelled, is a {@link ResolverContextGap}. Any gap, or any import no read
  * manifest accounts for (a bare specifier that is not a builtin or a declared
@@ -33,6 +36,15 @@ import {
   type GoModManifest,
   type GoModules,
 } from './go-context';
+import {
+  csharpLayout,
+  findCSharpProjects,
+  isMsbuildManifest,
+  readMsbuildItems,
+  type CSharpLayout,
+  type MsbuildItems,
+  type ParsedSourceFacts,
+} from './csharp-context';
 import { readGoMod, readGoWork, type GoWorkFacts } from './go-manifest';
 import { pythonLayout, type PythonLayout } from './python-context';
 import { readPyproject, type PyprojectFacts } from './python-manifest';
@@ -70,7 +82,26 @@ export type ResolverContextGap =
    * replace a module differently, a replacement directory that cannot be
    * looked up): `go-context.ts`.
    */
-  | 'module-selection-unknown';
+  | 'module-selection-unknown'
+  /**
+   * C# project boundaries are a guess: the search for MSBuild manifests was
+   * incomplete (a listing failed or hit its limit, so a project and the
+   * global usings it declares may be missed), or a `global using` sits in a
+   * file no `.csproj` directory encloses (the root group stands in for its
+   * project): `csharp-context.ts`.
+   */
+  | 'csharp-project-unknown'
+  /**
+   * An MSBuild manifest read has an `<Import Project="…">`, which is not
+   * followed: the items it adds (global usings, packages) are unknown.
+   */
+  | 'msbuild-import-not-read'
+  /**
+   * An MSBuild `<Using Include>` value is built from a property
+   * (`$(RootNamespace).Models`), which is not evaluated: a global using is
+   * in scope whose target is unknown (review R34G-02).
+   */
+  | 'msbuild-using-not-evaluated';
 
 /** One tsconfig `paths` entry. */
 export interface TsconfigPathRule {
@@ -116,6 +147,7 @@ export interface ResolverContext {
   readonly localPackages: ReadonlyMap<string, string | undefined>;
   readonly python: PythonLayout;
   readonly go: GoModules;
+  readonly csharp: CSharpLayout;
   /** Empty when the manifests were read completely. */
   readonly gaps: readonly ResolverContextGap[];
   /** Manifest files read. */
@@ -127,6 +159,11 @@ export interface ResolverContextOptions {
   readonly root: string;
   /** Graph node keys of every parsed file. */
   readonly knownFiles: Iterable<string>;
+  /**
+   * What the parsed files declare and import (the graph's nodes); read for
+   * the C# layout. Absent: no C# facts.
+   */
+  readonly parsedFiles?: Iterable<ParsedSourceFacts>;
   /** False once the build was superseded: reading stops. */
   readonly isCurrent: () => boolean;
   /** Awaited before each manifest read (a background build yields here). */
@@ -158,6 +195,8 @@ interface ManifestFacts {
   pyproject: PyprojectFacts | undefined;
   readonly goMods: GoModManifest[];
   goWork: GoWorkFacts | undefined;
+  /** The MSBuild manifests read, by root-relative path (`csharp-context.ts`). */
+  readonly msbuild: Map<string, MsbuildItems>;
   manifestsRead: number;
   /** Manifest files whose read was attempted. */
   manifestsTried: number;
@@ -183,6 +222,7 @@ export async function buildResolverContext(
     pyproject: undefined,
     goMods: [],
     goWork: undefined,
+    msbuild: new Map(),
     manifestsRead: 0,
     manifestsTried: 0,
     totalBytes: 0,
@@ -232,6 +272,46 @@ export async function buildResolverContext(
       return undefined;
     }
   }
+  // Third round: the MSBuild manifests (`.csproj`, `Directory.Build.*`) of
+  // the C# files' directories and their ancestors.
+  const parsed = [...(options.parsedFiles ?? [])].filter(
+    (source) => source.language === 'csharp',
+  );
+  const projects = await findCSharpProjects(
+    parsed.map((source) => source.path),
+    root,
+    {
+      fileSystem,
+      isCurrent: options.isCurrent,
+      yieldBetweenReads: options.yieldBetweenReads,
+    },
+  );
+  if (projects === undefined) return undefined;
+  if (projects.manifests.length > 0) {
+    realRoot ??= await realPathOf(fileSystem, root, gaps);
+    if (!options.isCurrent()) return undefined;
+    const io = {
+      fileSystem,
+      isCurrent: options.isCurrent,
+      yieldBetweenReads: options.yieldBetweenReads,
+    };
+    if (
+      realRoot !== undefined &&
+      !(await readManifests(
+        projects.manifests,
+        root,
+        realRoot,
+        facts,
+        gaps,
+        io,
+      ))
+    ) {
+      return undefined;
+    }
+  }
+  const csharp = csharpLayout(parsed, projects, facts.msbuild, root);
+  if (csharp.projectsGuessed) gaps.add('csharp-project-unknown');
+
   const go = await selectGoModules(facts.goMods, facts.goWork, {
     root,
     realRoot,
@@ -258,6 +338,7 @@ export async function buildResolverContext(
     localPackages: facts.localPackages,
     python: pythonLayout(root, facts.pyproject, directories),
     go: go.modules,
+    csharp: csharp.layout,
     gaps: [...gaps],
     manifestsRead: facts.manifestsRead,
   };
@@ -339,6 +420,14 @@ function applyManifest(
   if (base === GO_WORK) {
     facts.goWork = readGoWork(text);
     return facts.goWork !== undefined;
+  }
+  if (isMsbuildManifest(base)) {
+    const items = readMsbuildItems(text);
+    if (items === undefined) return false;
+    facts.msbuild.set(name, items);
+    if (items.importsOther) gaps.add('msbuild-import-not-read');
+    if (items.unevaluatedUsings) gaps.add('msbuild-using-not-evaluated');
+    return true;
   }
   const parsed = parseJsonc(text);
   if (parsed === undefined || !isRecord(parsed)) return false;

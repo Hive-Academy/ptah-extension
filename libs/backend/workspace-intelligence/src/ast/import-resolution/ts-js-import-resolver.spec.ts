@@ -6,6 +6,7 @@
 import type { ImportInfo } from '../ast-analysis.interfaces';
 import type { ResolverContext, TsconfigPathRule } from './resolver-context';
 import { TS_JS_IMPORT_RESOLVER } from './ts-js-import-resolver';
+import { EMPTY_CSHARP_LAYOUT } from './csharp-context';
 
 const ROOT = 'D:/ws';
 const FROM = `${ROOT}/src/app/main.ts`;
@@ -35,7 +36,7 @@ function context(
     baseUrls: mapping.baseUrls ?? [],
     externalPackages: new Set(mapping.externalPackages ?? []),
     localPackages: new Map(Object.entries(mapping.localPackages ?? {})),
-    // Read by the Python and Go resolvers only.
+    // Read by the Python, Go and C# resolvers only.
     filesByDirectory: new Map(),
     directories: new Set(),
     directoriesByFoldedPath: new Map(),
@@ -46,6 +47,7 @@ function context(
       localDependencies: new Map(),
     },
     go: { local: [], external: new Set(), unknown: new Set() },
+    csharp: EMPTY_CSHARP_LAYOUT,
     gaps: [],
     manifestsRead: 0,
   };

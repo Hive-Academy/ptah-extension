@@ -2286,6 +2286,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
             'tsx',
             'python',
             'go',
+            'csharp',
           ],
           message: expect.stringContaining('Graph languages'),
           file,

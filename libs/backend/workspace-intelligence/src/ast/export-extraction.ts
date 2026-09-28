@@ -56,10 +56,19 @@
  * - `export.py_candidate` on a name and the other `export.py_*` captures
  *   (Python): decoded together by `python-public-symbols.ts`, which needs
  *   the file name to recognise a package `__init__.py`.
+ *
+ * C# (Batch 34): `export.cs_type` / `export.cs_member` with `export.cs_name`
+ * are decoded together by `csharp-public-symbols.ts` (visibility depends on
+ * the enclosing types).
  */
 
 import type { ExportInfo } from './ast-analysis.interfaces';
 import type { CodePosition, GenericAstNode } from './ast.types';
+import {
+  csharpCandidate,
+  csharpPublicSymbols,
+  type CSharpCandidate,
+} from './csharp-public-symbols';
 import {
   PYTHON_CAPTURES,
   emptyPythonCaptures,
@@ -151,8 +160,14 @@ export function extractExportsFromMatches(
   const python = emptyPythonCaptures();
   const pythonCandidates: PythonCandidate[] = [];
   let pythonSeen = false;
+  const csharpCandidates: CSharpCandidate[] = [];
 
   for (const match of matches) {
+    const csharp = csharpCandidate(match, rowRangeOf(match));
+    if (csharp !== undefined) {
+      csharpCandidates.push(csharp);
+      continue;
+    }
     const captures = new Map<string, QueryCapture>();
     let pythonCapture = false;
     for (const capture of match.captures) {
@@ -205,6 +220,20 @@ export function extractExportsFromMatches(
       options.fileName,
     );
     for (const { info, rows } of decided.exports) {
+      exports.push(info);
+      EXPORT_ROWS.set(info, rows);
+    }
+    for (const capture of decided.unextracted) {
+      addUnextracted(unextracted, capture);
+    }
+  }
+
+  if (csharpCandidates.length > 0) {
+    const decided = csharpPublicSymbols(csharpCandidates);
+    for (const { info, rows } of decided.exports) {
+      const key = `${info.name}\u0000${info.kind}\u0000`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       exports.push(info);
       EXPORT_ROWS.set(info, rows);
     }

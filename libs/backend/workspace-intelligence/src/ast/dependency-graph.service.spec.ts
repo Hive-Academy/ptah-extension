@@ -835,7 +835,14 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(report?.languages).toEqual({
       clean: true,
       reasons: [],
-      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
+      supportedLanguages: [
+        'typescript',
+        'javascript',
+        'tsx',
+        'python',
+        'go',
+        'csharp',
+      ],
       census: 'complete',
       analyzed: 2,
       unchecked: 0,

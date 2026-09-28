@@ -298,7 +298,27 @@ describe('C# grammar integration (real tree-sitter WASM)', () => {
     });
   });
 
-  it('produces no exports — C# has no export statement', () => {
-    expect(insights.exports).toBeUndefined();
+  // Batch 34: C# has no export statement; its public symbols are the
+  // `public` declarations (`csharp-public-symbols.ts`). Interface members
+  // are public by default; `private`, `internal` and the members of an
+  // internal type are not listed, and names repeat once per kind.
+  it('lists the public declarations as exports (Batch 34)', () => {
+    expect(insights.exports?.map((e) => `${e.kind}:${e.name}`)).toEqual([
+      'class:InvoiceCreated',
+      'class:Money',
+      'interface:IInvoiceStore',
+      'function:FindAsync',
+      'variable:Count',
+      'enum:InvoiceState',
+      'class:LineItem',
+      'function:Total',
+      'class:Invoice',
+      'variable:Id',
+      'function:Map',
+      'function:Send',
+      'class:Extensions',
+      'function:Net',
+    ]);
+    expect(insights.unextractedExports).toBeUndefined();
   });
 });

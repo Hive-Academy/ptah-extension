@@ -53,10 +53,20 @@ export interface ImportResolution {
    * `unresolved-internal` import beside the targets (review r1 R33-01).
    */
   readonly unresolvedMembers?: number;
+  /**
+   * The import resolved inside the workspace to nothing another file
+   * declares (a C# namespace only the importing file declares, or one that
+   * holds only nested namespaces): no edge, and not unresolved. Only with a
+   * resolved `kind` and empty `targets`.
+   */
+  readonly linksNothing?: true;
 }
 
 /** Approximations a resolver can attach to the edges it returns. */
-export type GraphEdgeApproximation = Extract<Approximation, 'go:package-edges'>;
+export type GraphEdgeApproximation = Extract<
+  Approximation,
+  'go:package-edges' | 'csharp:namespace-edges'
+>;
 
 /** Resolves the imports of one language. Pure: reads only `ctx`. */
 export interface ImportResolver {
@@ -71,6 +81,26 @@ export interface ImportResolver {
     fromFile: string,
     ctx: ResolverContext,
   ): ImportResolution;
+  /**
+   * Imports declared elsewhere that are in scope for `fromFile` too (C#
+   * global usings: every file of the declaring project). The graph resolves
+   * each for `fromFile` and links its targets.
+   */
+  implicitImports?(
+    fromFile: string,
+    ctx: ResolverContext,
+  ): readonly ImplicitImport[];
+}
+
+/** An import in scope for a file that did not write it. */
+export interface ImplicitImport {
+  readonly imp: ImportInfo;
+  /**
+   * Declared by no graphed file (a C# project manifest's `<Using>` item): the
+   * graph tallies it (external, unresolved, truncated) the first time it
+   * resolves it. Otherwise the declaring file's own import is the tally.
+   */
+  readonly declaredOutsideGraph?: true;
 }
 
 /** Most targets one import expands to (plan "Bounds": per-import expansion). */

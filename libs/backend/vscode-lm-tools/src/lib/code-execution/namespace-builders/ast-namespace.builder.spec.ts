@@ -28,8 +28,9 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
     '.js': 'javascript',
     '.jsx': 'javascript',
     '.py': 'python',
-    // A parsed language without public-symbol extraction (until Batch 34).
-    '.cs': 'csharp',
+    // A parsed language without public-symbol extraction (Java's, Task
+    // 34.2, is deferred: User Decision 27). C# has them since Batch 34.
+    '.java': 'java',
   },
   // Service classes are used as types only by the SUT — expose as stubs.
   TreeSitterParserService: class {},
@@ -278,14 +279,14 @@ describe('buildAstNamespace — analyze', () => {
     },
   );
 
-  // C# public declarations are extracted from Batch 34; Python and Go have
-  // them since Batch 33.
-  it('24a rejects C# exports instead of a silent empty list', async () => {
+  // Python and Go public declarations are extracted since Batch 33, C#
+  // since Batch 34; Java's (Task 34.2) are deferred.
+  it('24a rejects Java exports instead of a silent empty list', async () => {
     const { deps, parser } = makeDeps();
     parser.queryExports.mockResolvedValue(Result.ok([]));
     await expect(
-      buildAstNamespace(deps).queryExports('Program.cs'),
-    ).rejects.toThrow(/csharp.*typescript.*javascript/);
+      buildAstNamespace(deps).queryExports('Main.java'),
+    ).rejects.toThrow(/java.*typescript.*javascript/);
     expect(parser.queryExports).not.toHaveBeenCalled();
   });
 

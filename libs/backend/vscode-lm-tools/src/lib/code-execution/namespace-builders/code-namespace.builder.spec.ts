@@ -831,19 +831,20 @@ describe('buildCodeNamespace — live coverage (Batch 24b)', () => {
     expect(double.indexWorkspace).not.toHaveBeenCalled();
   });
 
-  // Python has public symbols since Batch 33; C# gets them in Batch 34.
-  it('C# stays searchable while C# queryExports errors', async () => {
-    expect(hasCapability('csharp', 'codeIndex')).toBe(true);
-    expect(hasCapability('csharp', 'publicSymbols')).toBe(false);
+  // Python has public symbols since Batch 33 and C# since Batch 34; Java's
+  // (Task 34.2) are deferred (User Decision 27).
+  it('Java stays searchable while Java queryExports errors', async () => {
+    expect(hasCapability('java', 'codeIndex')).toBe(true);
+    expect(hasCapability('java', 'publicSymbols')).toBe(false);
     const reader = makeReader(EMPTY);
     (reader.searchSymbols as jest.Mock).mockResolvedValue({
-      hits: [makeCodeHit({ filePath: '/ws/app/Auth.cs' })],
+      hits: [makeCodeHit({ filePath: '/ws/app/Auth.java' })],
       bm25Only: false,
     });
     const ns = buildCodeNamespace(freshnessDeps(reader, makeLiveIndexer()));
 
     const result = (await ns.searchSymbols('login', {
-      filePath: 'app/Auth.cs',
+      filePath: 'app/Auth.java',
     })) as SymbolSearchResult;
 
     expect(result.hits).toHaveLength(1);

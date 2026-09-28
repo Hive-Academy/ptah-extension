@@ -4242,7 +4242,25 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 34: C# + Java graphs — PENDING (User Decision 27: Task 34.1 C# only; Task 34.2 Java DEFERRED to a follow-up task)
+## Batch 34: C# + Java graphs — 34.1 COMPLETE (fixes verified by the Batch 38 closing review); 34.2 DEFERRED (User Decision 27)
+
+### Batch 34.1 review history — Lane G2 closing (User Decisions 24, 29)
+
+- Author: backend-developer subagent. Codex hit its usage limit (until 2026-10-03) on the first attempt, so two
+  independent closing reviewers ran (Decision 29): Claude `code-logic-reviewer` (`reviews/batch-34-lane-g2-closing-review-claude.md`)
+  APPROVE 8/10, and opencode `opencode-go/glm-5.3` (`reviews/batch-34-lane-g2-closing-review-glm.md`) REVISE 6/10.
+- Both verified the Batch 33 fix round: R33-01..R33-10 all CLOSED (R33-10 under User Decision 28 → R32B-01 closed;
+  R33-07 → R32B-04 closed). Both approved the merge d72fbbc06.
+- Findings: R34G-01 Blocking (Directory.Build.props `<Using>` dropped for files outside every `.csproj`, clean),
+  R34G-02 Serious (`$(…)` usings dropped silently), R34G-03 Serious (NOT adopted: a C# using-namespace-directive does
+  not import nested namespaces; the example was a fully qualified reference, already disclosed by
+  `referenceScopeComplete: false` — rationale in the resolver comment), R34G-04 Minor (global-namespace fallback edge),
+  R34C-01 Moderate (tally-once invariant). R34C-02, R34C-03 Minor carried.
+- One fix round (report "## Fix round (closing reviews)"): R34G-01/02/04 and R34C-01 fixed with regressions; new gap
+  `msbuild-using-not-evaluated`. The Batch 38 closing review verifies them.
+- Description pins: symbol index 975/1000, search 680/702, reindex 522/536 (no raise).
+- Team-leader verification (2026-09-28): workspace-intelligence, vscode-lm-tools, ptah-electron, platform-core
+  test/lint/typecheck pass; ptah-cli typecheck, validate-deps pass; audit TOTAL 300.
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
