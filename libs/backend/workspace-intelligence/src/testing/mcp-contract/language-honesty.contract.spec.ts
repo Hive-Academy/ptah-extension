@@ -35,6 +35,7 @@
 
 import 'reflect-metadata';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
@@ -70,6 +71,7 @@ import {
   createJavaRustFixture,
   createPhpRubyCppFixture,
   planNoGrammar,
+  planPythonApp,
 } from './polyglot-fixtures';
 import { REQUIRED_KEYS, sortedRequiredKeys } from './matrix/required-keys';
 import type { ActivationFragment } from './matrix/activations/activation-fragment';
@@ -431,7 +433,236 @@ const HONESTY_CHECKS: Readonly<Record<string, HonestyCheck>> = {
   'codeIndex:rust': async () =>
     codeIndexHonesty({ root: '/ws-30-rust-index', ...RUST_HONESTY }),
   'syntaxDiagnostics:rust': async () => syntaxDiagnosticsHonesty('rust'),
+
+  'graphEdges:python': async () => pythonGraphHonesty(),
+  'publicSymbols:python': async () =>
+    publicSymbolsHonesty({
+      language: 'python',
+      relativePath: 'app/widgets.py',
+      source: [
+        'class Widget:',
+        '    def render(self):',
+        '        return "w"',
+        '',
+        'def make_widget():',
+        '    return Widget()',
+        '',
+        'DEFAULT_SIZE = 3',
+        '',
+        'def _private_helper():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      public: ['Widget', 'make_widget', 'DEFAULT_SIZE'],
+      private: ['_private_helper', 'render'],
+    }),
+  'graphEdges:go': async () => goGraphHonesty(),
+  'publicSymbols:go': async () =>
+    publicSymbolsHonesty({
+      language: 'go',
+      relativePath: 'widget/widget.go',
+      source: [
+        'package widget',
+        '',
+        'type Widget struct{ size int }',
+        '',
+        'const DefaultSize = 3',
+        '',
+        'func New() *Widget { return &Widget{size: DefaultSize} }',
+        '',
+        'func (w *Widget) Render() string { return helper() }',
+        '',
+        'func helper() string { return "w" }',
+        '',
+      ].join('\n'),
+      public: ['Widget', 'DefaultSize', 'New'],
+      private: ['helper', 'Render'],
+    }),
 };
+
+/**
+ * `publicSymbols:<lang>` (Batch 33): the real parser lists the file's public
+ * declarations as exports, never a private one, and the real graph's symbol
+ * index (what `ptah_get_symbol_index` reads) carries them for the file.
+ */
+async function publicSymbolsHonesty(subject: {
+  readonly language: 'python' | 'go';
+  readonly relativePath: string;
+  readonly source: string;
+  readonly public: readonly string[];
+  readonly private: readonly string[];
+}): Promise<void> {
+  const analysed = await analysis.analyzeSource(
+    subject.source,
+    subject.language,
+    `/ws/${subject.relativePath}`,
+  );
+  if (analysed.isErr()) throw analysed.error ?? new Error('analysis failed');
+  const names = (analysed.unwrap().exports ?? []).map((e) => e.name);
+  const missing = subject.public.filter((name) => !names.includes(name));
+  const leaked = subject.private.filter((name) => names.includes(name));
+  if (missing.length > 0 || leaked.length > 0) {
+    throw new Error(
+      `${subject.language} public symbols wrong: missing ${JSON.stringify(missing)}, private listed ${JSON.stringify(leaked)}`,
+    );
+  }
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-33-symbols-'));
+  try {
+    const file = path.join(root, subject.relativePath).replace(/\\/g, '/');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, subject.source);
+    const svc = new DependencyGraphService(
+      analysis,
+      realFileSystem(),
+      silentLogger(),
+    );
+    const forward = root.replace(/\\/g, '/');
+    await svc.buildGraph([file], forward, {});
+    const indexed = (svc.getSymbolIndex(forward).get(file) ?? []).map(
+      (e) => e.name,
+    );
+    const notIndexed = subject.public.filter((n) => !indexed.includes(n));
+    if (notIndexed.length > 0) {
+      throw new Error(
+        `${subject.language} public symbols missing from the graph symbol index: ${JSON.stringify(notIndexed)}`,
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/**
+ * `graphEdges:python` (Batch 33): the python-app fixture's relative imports
+ * become real edges (100% recall of its known edge), the standard-library
+ * import is counted external, and nothing is unsupported or unresolved.
+ * Contrast: a missing relative module is counted `unresolvedInternal`, so
+ * the clean tally above is not a count that is always zero.
+ */
+async function pythonGraphHonesty(): Promise<void> {
+  const fixture = createPythonAppFixture();
+  try {
+    const at = (rel: string) => `${fixture.root}/${rel}`;
+    const files = ['app/__init__.py', 'app/models.py', 'app/service.py'].map(
+      at,
+    );
+    const svc = new DependencyGraphService(
+      analysis,
+      realFileSystem(),
+      silentLogger(),
+    );
+    await svc.buildGraph(files, fixture.root, {});
+    for (const edge of planPythonApp().knownEdges) {
+      if (!svc.getDependents(at(edge.toPath)).includes(at(edge.fromPath))) {
+        throw new Error(
+          `python edge ${edge.fromPath} -> ${edge.toPath} was not found`,
+        );
+      }
+    }
+    const report = svc.getCoverageReport(fixture.root)?.languages;
+    if (
+      !report ||
+      report.analyzed !== 3 ||
+      report.unsupported !== 0 ||
+      report.resolution?.unresolvedInternal !== 0 ||
+      report.resolution?.external !== 1 ||
+      report.resolution?.context !== 'complete'
+    ) {
+      throw new Error(
+        `python graph coverage is not the fixture's: ${JSON.stringify(report)}`,
+      );
+    }
+
+    const broken = at('app/broken.py');
+    fs.writeFileSync(broken, 'from .missing import thing\n');
+    await svc.buildGraph([...files, broken], fixture.root, {});
+    const after = svc.getCoverageReport(fixture.root)?.languages;
+    if (after?.resolution?.unresolvedInternal !== 1 || isCleanAnswer(after)) {
+      throw new Error(
+        `a missing python module was not disclosed: ${JSON.stringify(after)}`,
+      );
+    }
+  } finally {
+    fixture.cleanup();
+  }
+}
+
+/**
+ * `graphEdges:go` (Batch 33): with a go.mod, an import of a workspace
+ * package links every non-test file of the package, the edge is disclosed
+ * as `go:package-edges`, and the standard library is counted external.
+ * Import specs are assembled from a constant (validate-deps scans text).
+ */
+async function goGraphHonesty(): Promise<void> {
+  const IMPORT = 'imp' + 'ort';
+  const root = fs
+    .mkdtempSync(path.join(os.tmpdir(), 'ptah-33-go-'))
+    .replace(/\\/g, '/');
+  try {
+    const sources: Record<string, string> = {
+      'go.mod': 'module example.com/goapp\n\ngo 1.22\n',
+      'main.go': [
+        'package main',
+        '',
+        `${IMPORT} (`,
+        '\t"fmt"',
+        '\t"example.com/goapp/widget"',
+        ')',
+        '',
+        'func main() { fmt.Println(widget.Name()) }',
+        '',
+      ].join('\n'),
+      'widget/widget.go':
+        'package widget\n\nfunc Name() string { return label }\n',
+      'widget/label.go': 'package widget\n\nconst label = "widget"\n',
+      'widget/widget_test.go': 'package widget\n',
+    };
+    for (const [rel, content] of Object.entries(sources)) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), content);
+    }
+    const at = (rel: string) => `${root}/${rel}`;
+    const svc = new DependencyGraphService(
+      analysis,
+      realFileSystem(),
+      silentLogger(),
+    );
+    await svc.buildGraph(
+      [
+        'main.go',
+        'widget/widget.go',
+        'widget/label.go',
+        'widget/widget_test.go',
+      ].map(at),
+      root,
+      {},
+    );
+    const deps = [...svc.getDependencies(at('main.go'))].sort();
+    if (
+      JSON.stringify(deps) !==
+      JSON.stringify([at('widget/label.go'), at('widget/widget.go')])
+    ) {
+      throw new Error(
+        `go package edge did not link every non-test file: ${JSON.stringify(deps)}`,
+      );
+    }
+    const report = svc.getCoverageReport(root)?.languages;
+    if (
+      !report?.approximations?.includes('go:package-edges') ||
+      report.resolution?.external !== 1 ||
+      report.resolution?.unresolvedInternal !== 0 ||
+      report.resolution?.context !== 'complete' ||
+      report.unsupported !== 0
+    ) {
+      throw new Error(
+        `go graph coverage did not disclose package edges: ${JSON.stringify(report)}`,
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
 
 /** One Batch 30 language's honesty source: clean, and a broken contrast. */
 interface GrammarHonestySource {
@@ -718,7 +949,8 @@ async function tsxEnrichHonesty(): Promise<void> {
 /**
  * Real `DependencyGraphService` + REAL `AstAnalysisService`/tree-sitter (not
  * mocked) over the ts-python-monorepo fixture: a TS file's real export is
- * found through `getSymbolIndex`, and a python file (graph-unsupported) is
+ * found through `getSymbolIndex`, and a Kotlin file (graph-unsupported; no
+ * Kotlin graph is required, Decision 19) is
  * disclosed, never silently merged into a clean answer.
  */
 async function graphHonesty(
@@ -728,20 +960,27 @@ async function graphHonesty(
   try {
     const tsFile = `${fixture.root}/ts-service/src/index.ts`;
     const helperFile = `${fixture.root}/ts-service/src/helper.ts`;
-    const pyFile = `${fixture.root}/py-service/app.py`;
+    // Python has graph edges since Batch 33; Kotlin never gets them.
+    const unsupportedFile = `${fixture.root}/kt-service/App.kt`;
+    fs.mkdirSync(path.dirname(unsupportedFile), { recursive: true });
+    fs.writeFileSync(unsupportedFile, 'fun main() = println("hi")\n');
 
     const svc = new DependencyGraphService(
       analysis,
       realFileSystem(),
       silentLogger(),
     );
-    await svc.buildGraph([tsFile, helperFile, pyFile], fixture.root, {});
+    await svc.buildGraph(
+      [tsFile, helperFile, unsupportedFile],
+      fixture.root,
+      {},
+    );
 
     if (mode === 'dependents' || mode === 'dependencies') {
       const answer =
         mode === 'dependents'
-          ? svc.getDependents(pyFile)
-          : svc.getDependencies(pyFile);
+          ? svc.getDependents(unsupportedFile)
+          : svc.getDependencies(unsupportedFile);
       if (answer.length !== 0)
         throw new Error('expected an empty answer for the unsupported file');
       const report = svc.getCoverageReport(fixture.root);
@@ -749,10 +988,10 @@ async function graphHonesty(
       if (
         !languages ||
         languages.unsupported !== 1 ||
-        languages.unsupportedByLanguage?.['python'] !== 1
+        languages.unsupportedByLanguage?.['kotlin'] !== 1
       ) {
         throw new Error(
-          `python was not disclosed as unsupported: ${JSON.stringify(languages)}`,
+          `kotlin was not disclosed as unsupported: ${JSON.stringify(languages)}`,
         );
       }
       if (isCleanAnswer(languages)) {
@@ -777,9 +1016,9 @@ async function graphHonesty(
           )}`,
         );
       }
-      if (index.has(pyFile)) {
+      if (index.has(unsupportedFile)) {
         throw new Error(
-          'the graph-unsupported python file must not appear in the symbol index',
+          'the graph-unsupported kotlin file must not appear in the symbol index',
         );
       }
     }

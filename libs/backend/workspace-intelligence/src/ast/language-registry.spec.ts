@@ -12,7 +12,8 @@
  * - `tsx` has its own grammar since Batch 29b (parse, outline, enrichSummary,
  *   codeIndex; publicSymbols and file graph edges through the TypeScript
  *   queries; no Electron definition fallback).
- * - `publicSymbols` / `graphEdges` stay TS/JS only until Batches 33-36.
+ * - `publicSymbols` / `graphEdges`: TS/JS, plus Python (file edges) and Go
+ *   (package edges) since Batch 33; C#/Java/Rust/PHP/Ruby/C++ in 34-36.
  * - `definitionFallback` gained C# in Batch 26b (the Electron C# declaration
  *   query is proven against the shipped grammar in
  *   `apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`).
@@ -303,10 +304,11 @@ describe('coverage size contract', () => {
 
 describe('language registry', () => {
   it('codeIndex and publicSymbols are separate', () => {
-    // Python/Go/C# chunks are in the SQLite code index today while their
-    // export extraction is absent (empty exportQuery): one flag must not
+    // C#/Java/Rust chunks are in the SQLite code index while their public
+    // declarations are not extracted (empty exportQuery): one flag must not
     // stand for the other (review r2 finding 1; 24b pins the tool side).
-    for (const id of ['python', 'go', 'csharp'] as const) {
+    // Python and Go have public symbols since Batch 33.
+    for (const id of ['csharp', 'java', 'rust'] as const) {
       expect(hasCapability(id, 'codeIndex')).toBe(true);
       expect(hasCapability(id, 'publicSymbols')).toBe(false);
     }
@@ -356,8 +358,8 @@ describe('language registry', () => {
         'rust',
       ],
     ],
-    ['publicSymbols', ['typescript', 'javascript', 'tsx']],
-    ['graphEdges', ['typescript', 'javascript', 'tsx']],
+    ['publicSymbols', ['typescript', 'javascript', 'tsx', 'python', 'go']],
+    ['graphEdges', ['typescript', 'javascript', 'tsx', 'python', 'go']],
     [
       'definitionFallback',
       ['typescript', 'javascript', 'python', 'go', 'csharp'],
@@ -377,6 +379,19 @@ describe('language registry', () => {
         referenceScopeComplete: false,
       });
     }
+  });
+
+  it('draws Python edges per file and Go edges per package (Batch 33)', () => {
+    // Neither bounds references: star imports and importlib (Python), and
+    // files of one Go package use each other with no import.
+    expect(LANGUAGE_REGISTRY.python.capabilities.graphEdges).toEqual({
+      granularity: 'file',
+      referenceScopeComplete: false,
+    });
+    expect(LANGUAGE_REGISTRY.go.capabilities.graphEdges).toEqual({
+      granularity: 'package',
+      referenceScopeComplete: false,
+    });
   });
 
   it('has an entry for every language id and no capability without a grammar', () => {

@@ -110,6 +110,13 @@ export interface ImportInfo {
    */
   importedSymbols?: string[];
   /**
+   * The local name each entry of `importedSymbols` is bound to, index for
+   * index: the `as` name of a renamed member, `null` for one that keeps its
+   * own name (Python `from ..p import A as B, C` → `['B', null]`). Present
+   * only when at least one requested name is renamed.
+   */
+  importedSymbolAliases?: Array<string | null>;
+  /**
    * Whether this is a default import.
    */
   isDefault?: boolean;

@@ -8,7 +8,11 @@
  * (`tsconfig-mapping.ts`), the packages the root `package.json` declares
  * and how (a registry version, or a local `file:`/`link:`/`workspace:`
  * package), and whether it or `pnpm-workspace.yaml` declares workspace
- * packages. Each manifest is read bounded and identity-checked
+ * packages; the root `pyproject.toml` (Python source roots, package
+ * directories, declared dependencies: `python-manifest.ts`); and the root
+ * `go.mod` and `go.work`, with the `go.mod` of every `go.work` `use`
+ * directory (module paths, local `replace` directories, required modules:
+ * `go-manifest.ts`). Each manifest is read bounded and identity-checked
  * (`manifest-reader.ts`). Whatever could not be read, or was read but is not
  * modelled, is a {@link ResolverContextGap}. Any gap, or any import no read
  * manifest accounts for (a bare specifier that is not a builtin or a declared
@@ -23,6 +27,15 @@ import {
   toForwardSlashes,
   type ManifestFileSystem,
 } from './manifest-reader';
+import {
+  locateGoDirectory,
+  selectGoModules,
+  type GoModManifest,
+  type GoModules,
+} from './go-context';
+import { readGoMod, readGoWork, type GoWorkFacts } from './go-manifest';
+import { pythonLayout, type PythonLayout } from './python-context';
+import { readPyproject, type PyprojectFacts } from './python-manifest';
 import { mapRootTsconfigs, type RootTsconfig } from './tsconfig-mapping';
 
 /** Why a resolver context is `partial`. */
@@ -50,7 +63,14 @@ export type ResolverContextGap =
   /** Independent root tsconfigs map the same module differently. */
   | 'conflicting-configs'
   /** Workspace packages are declared; package-name imports are not mapped. */
-  | 'workspace-packages';
+  | 'workspace-packages'
+  /**
+   * Which code a Go module's imports select cannot be decided (a
+   * version-qualified replace of a version not known here, members that
+   * replace a module differently, a replacement directory that cannot be
+   * looked up): `go-context.ts`.
+   */
+  | 'module-selection-unknown';
 
 /** One tsconfig `paths` entry. */
 export interface TsconfigPathRule {
@@ -70,6 +90,12 @@ export interface ResolverContext {
   readonly knownFiles: ReadonlySet<string>;
   /** Node keys by lower-cased key, for the case rule (unique match only). */
   readonly filesByFoldedPath: ReadonlyMap<string, readonly string[]>;
+  /** Node keys by their directory (forward slashes, no trailing slash). */
+  readonly filesByDirectory: ReadonlyMap<string, readonly string[]>;
+  /** Every directory holding a node key, and each ancestor up to the root. */
+  readonly directories: ReadonlySet<string>;
+  /** Those directories by lower-cased path, for the case rule. */
+  readonly directoriesByFoldedPath: ReadonlyMap<string, readonly string[]>;
   /**
    * tsconfig `paths` rules: the caller's first (relative to the root), then
    * the effective rules of the root tsconfig files (`tsconfig-mapping.ts`).
@@ -91,6 +117,8 @@ export interface ResolverContext {
    * An import of one is a workspace module, never proven external.
    */
   readonly localPackages: ReadonlyMap<string, string | undefined>;
+  readonly python: PythonLayout;
+  readonly go: GoModules;
   /** Empty when the manifests were read completely. */
   readonly gaps: readonly ResolverContextGap[];
   /** Manifest files read. */
@@ -114,6 +142,15 @@ export interface ResolverContextOptions {
 const TSCONFIG_NAME = /^tsconfig.*\.json$/i;
 const PACKAGE_JSON = 'package.json';
 const PNPM_WORKSPACE = 'pnpm-workspace.yaml';
+const PYPROJECT = 'pyproject.toml';
+const GO_MOD = 'go.mod';
+const GO_WORK = 'go.work';
+const ROOT_MANIFEST_NAMES: ReadonlySet<string> = new Set([
+  PACKAGE_JSON,
+  PYPROJECT,
+  GO_MOD,
+  GO_WORK,
+]);
 
 /** Absent root: nothing to read, and nothing unknown about it. */
 const ABSENT_PATH_CODES: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR']);
@@ -123,7 +160,14 @@ interface ManifestFacts {
   readonly tsconfigs: RootTsconfig[];
   readonly externalPackages: Set<string>;
   readonly localPackages: Map<string, string | undefined>;
+  pyproject: PyprojectFacts | undefined;
+  readonly goMods: GoModManifest[];
+  goWork: GoWorkFacts | undefined;
   manifestsRead: number;
+  /** Manifest files whose read was attempted. */
+  manifestsTried: number;
+  /** Bytes read so far, charged against `MANIFEST_LIMITS.maxTotalBytes`. */
+  totalBytes: number;
 }
 
 /**
@@ -141,32 +185,65 @@ export async function buildResolverContext(
     tsconfigs: [],
     externalPackages: new Set(),
     localPackages: new Map(),
+    pyproject: undefined,
+    goMods: [],
+    goWork: undefined,
     manifestsRead: 0,
+    manifestsTried: 0,
+    totalBytes: 0,
   };
 
   const listing = await listManifests(fileSystem, root, gaps);
   if (!options.isCurrent()) return undefined;
   if (listing.pnpmWorkspace) gaps.add('workspace-packages');
 
-  let candidates = listing.manifests;
-  if (candidates.length > MANIFEST_LIMITS.maxFiles) {
-    gaps.add('too-many-manifests');
-    candidates = candidates.slice(0, MANIFEST_LIMITS.maxFiles);
-  }
-  if (candidates.length > 0) {
-    const realRoot = await realPathOf(fileSystem, root, gaps);
+  let realRoot: string | undefined;
+  if (listing.manifests.length > 0) {
+    realRoot = await realPathOf(fileSystem, root, gaps);
     if (!options.isCurrent()) return undefined;
+    const io = {
+      fileSystem,
+      isCurrent: options.isCurrent,
+      yieldBetweenReads: options.yieldBetweenReads,
+    };
     if (
       realRoot !== undefined &&
-      !(await readManifests(candidates, root, realRoot, facts, gaps, {
+      !(await readManifests(listing.manifests, root, realRoot, facts, gaps, io))
+    ) {
+      return undefined;
+    }
+    // Second round: the go.mod of each go.work module not read yet.
+    const workModules: string[] = [];
+    for (const use of facts.goWork?.uses ?? []) {
+      const location = await locateGoDirectory(use, '', {
+        root,
+        realRoot,
         fileSystem,
-        isCurrent: options.isCurrent,
-        yieldBetweenReads: options.yieldBetweenReads,
-      }))
+      });
+      if (!options.isCurrent()) return undefined;
+      // A module outside the root, or one that cannot be looked up: its
+      // go.mod is not read, so the module path it adds is unknown.
+      if (location.kind === 'outside') gaps.add('manifest-outside-root');
+      else if (location.kind === 'unknown') gaps.add('manifest-unreadable');
+      else workModules.push(path.posix.join(location.relative, GO_MOD));
+    }
+    const unread = [...new Set(workModules)].filter(
+      (name) => !listing.manifests.includes(name),
+    );
+    if (
+      realRoot !== undefined &&
+      !(await readManifests(unread, root, realRoot, facts, gaps, io))
     ) {
       return undefined;
     }
   }
+  const go = await selectGoModules(facts.goMods, facts.goWork, {
+    root,
+    realRoot,
+    fileSystem,
+  });
+  if (!options.isCurrent()) return undefined;
+  if (go.selectionUnknown) gaps.add('module-selection-unknown');
 
   const tsconfig = mapRootTsconfigs(facts.tsconfigs, root);
   for (const gap of tsconfig.gaps) gaps.add(gap);
@@ -178,24 +255,31 @@ export async function buildResolverContext(
     baseDir: root,
   }));
 
+  const filesByDirectory = directoryIndex(knownFiles);
+  const directories = withAncestors(filesByDirectory.keys(), root);
   return {
     root,
     knownFiles,
     filesByFoldedPath: foldedIndex(knownFiles),
+    filesByDirectory,
+    directories,
+    directoriesByFoldedPath: foldedIndex(directories),
     tsconfigPaths: [...callerRules, ...tsconfig.paths],
     baseUrls: tsconfig.baseUrls,
     externalPackages: facts.externalPackages,
     localPackages: facts.localPackages,
+    python: pythonLayout(root, facts.pyproject, directories),
+    go: go.modules,
     gaps: [...gaps],
     manifestsRead: facts.manifestsRead,
   };
 }
 
 /**
- * Read the candidate manifests in order, within the byte budget, into
- * `facts` and `gaps`. Every byte read is charged, whether its content is
- * used or not; once the budget is spent the rest are not read. False when
- * the build was superseded meanwhile.
+ * Read the candidate manifests (paths relative to the root) in order, within
+ * the file count and byte budget, into `facts` and `gaps`. Every byte read
+ * is charged, whether its content is used or not; once the budget is spent
+ * the rest are not read. False when the build was superseded meanwhile.
  */
 async function readManifests(
   candidates: readonly string[],
@@ -209,22 +293,26 @@ async function readManifests(
     readonly yieldBetweenReads?: () => Promise<void>;
   },
 ): Promise<boolean> {
-  let totalBytes = 0;
   for (const name of candidates) {
-    if (totalBytes >= MANIFEST_LIMITS.maxTotalBytes) {
+    if (facts.manifestsTried >= MANIFEST_LIMITS.maxFiles) {
+      gaps.add('too-many-manifests');
+      break;
+    }
+    if (facts.totalBytes >= MANIFEST_LIMITS.maxTotalBytes) {
       gaps.add('manifests-over-total');
       break;
     }
+    facts.manifestsTried++;
     await io.yieldBetweenReads?.();
     if (!io.isCurrent()) return false;
     const read = await readManifest({
       fileSystem: io.fileSystem,
       filePath: root.endsWith('/') ? root + name : `${root}/${name}`,
       realRoot,
-      remainingBytes: MANIFEST_LIMITS.maxTotalBytes - totalBytes,
+      remainingBytes: MANIFEST_LIMITS.maxTotalBytes - facts.totalBytes,
       isCurrent: io.isCurrent,
     });
-    totalBytes += read.bytesRead;
+    facts.totalBytes += read.bytesRead;
     if (read.kind === 'superseded' || !io.isCurrent()) return false;
     if (read.kind === 'skipped') continue;
     if (read.kind === 'gap') {
@@ -233,16 +321,43 @@ async function readManifests(
       continue;
     }
     facts.manifestsRead++;
-    const parsed = parseJsonc(read.text);
-    if (parsed === undefined || !isRecord(parsed)) {
+    if (!applyManifest(name, read.text, root, facts, gaps)) {
       gaps.add('manifest-unparseable');
-      continue;
     }
-    if (name === PACKAGE_JSON) {
-      readPackageJson(parsed, root, facts, gaps);
-    } else {
-      facts.tsconfigs.push({ name, config: parsed });
-    }
+  }
+  return true;
+}
+
+/** Record one manifest's text in `facts`; false when it cannot be parsed. */
+function applyManifest(
+  name: string,
+  text: string,
+  root: string,
+  facts: ManifestFacts,
+  gaps: Set<ResolverContextGap>,
+): boolean {
+  const base = path.posix.basename(name);
+  const dir = path.posix.dirname(name) === '.' ? '' : path.posix.dirname(name);
+  if (base === PYPROJECT) {
+    facts.pyproject = readPyproject(text);
+    return facts.pyproject !== undefined;
+  }
+  if (base === GO_MOD) {
+    const goMod = readGoMod(text);
+    if (goMod === undefined) return false;
+    facts.goMods.push({ dir, facts: goMod });
+    return true;
+  }
+  if (base === GO_WORK) {
+    facts.goWork = readGoWork(text);
+    return facts.goWork !== undefined;
+  }
+  const parsed = parseJsonc(text);
+  if (parsed === undefined || !isRecord(parsed)) return false;
+  if (base === PACKAGE_JSON) {
+    readPackageJson(parsed, root, facts, gaps);
+  } else {
+    facts.tsconfigs.push({ name, config: parsed });
   }
   return true;
 }
@@ -329,7 +444,7 @@ async function listManifests(
     names = [];
   }
   const manifests = names
-    .filter((name) => TSCONFIG_NAME.test(name) || name === PACKAGE_JSON)
+    .filter((name) => TSCONFIG_NAME.test(name) || ROOT_MANIFEST_NAMES.has(name))
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return { manifests, pnpmWorkspace: names.includes(PNPM_WORKSPACE) };
 }
@@ -349,6 +464,34 @@ async function realPathOf(
     gaps.add('manifest-unreadable');
   }
   return realRoot;
+}
+
+function directoryIndex(
+  knownFiles: ReadonlySet<string>,
+): Map<string, readonly string[]> {
+  const index = new Map<string, string[]>();
+  for (const file of knownFiles) {
+    const dir = path.posix.dirname(file);
+    const entry = index.get(dir);
+    if (entry) entry.push(file);
+    else index.set(dir, [file]);
+  }
+  return index;
+}
+
+/** `dirs` and each of their ancestors up to `root`. */
+function withAncestors(dirs: Iterable<string>, root: string): Set<string> {
+  const all = new Set<string>();
+  for (const start of dirs) {
+    let dir = start;
+    while (!all.has(dir)) {
+      all.add(dir);
+      const parent = path.posix.dirname(dir);
+      if (dir === root || parent === dir || !parent.startsWith(root)) break;
+      dir = parent;
+    }
+  }
+  return all;
 }
 
 function foldedIndex(

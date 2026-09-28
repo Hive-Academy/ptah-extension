@@ -239,6 +239,7 @@ export function buildAstNamespace(
 
       const { exports, unextracted } = extractExportsFromMatches(
         result.value ?? [],
+        { fileName: filePath },
       );
       if (unextracted.length > 0) {
         // A bare array has no room for the disclosure, so a partial

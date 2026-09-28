@@ -25,8 +25,9 @@ export interface LanguageQueries {
  *   capability (TS/JS/TSX: the declaration summary's node names).
  * - codeIndex: `CodeSymbolIndexer` (every parsed language).
  * - graphEdges: `DependencyGraphService`, through the module's
- *   `importResolver` (TS/JS: relative paths, tsconfig `paths`/`baseUrl`);
- *   other languages get no edges until Batches 33-36.
+ *   `importResolver` (TS/JS: relative paths, tsconfig `paths`/`baseUrl`;
+ *   Python: files, Go: packages, since Batch 33); other languages get no
+ *   edges until Batches 34-36.
  * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;
  *   C# since Batch 26b, proven against the shipped grammar by the Electron
  *   capability spec).
@@ -45,7 +46,12 @@ export type DeclaredLanguageCapabilities = Omit<
  */
 export type ExtractedImport = Pick<
   ImportInfo,
-  'source' | 'importedSymbols' | 'relativeLevel' | 'alias' | 'isStatic'
+  | 'source'
+  | 'importedSymbols'
+  | 'importedSymbolAliases'
+  | 'relativeLevel'
+  | 'alias'
+  | 'isStatic'
 > & { kind: ImportKind };
 
 /**

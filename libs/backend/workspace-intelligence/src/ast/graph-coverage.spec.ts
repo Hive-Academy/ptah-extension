@@ -110,8 +110,9 @@ describe('selectGraphFiles — parse cap', () => {
   });
 
   it('counts only graph-capable files against the cap', () => {
-    const py = Array.from({ length: 50 }, (_, i) => `D:/ws/p${i}.py`);
-    const selection = selectGraphFiles([...py, 'D:/ws/a.ts', 'D:/ws/b.ts'], 2);
+    // Kotlin never has graph edges (Decision 19).
+    const kt = Array.from({ length: 50 }, (_, i) => `D:/ws/p${i}.kt`);
+    const selection = selectGraphFiles([...kt, 'D:/ws/a.ts', 'D:/ws/b.ts'], 2);
     expect(selection.selected).toEqual(['D:/ws/a.ts', 'D:/ws/b.ts']);
     expect(selection.omittedByCap).toBe(0);
     expect(selection.unsupported).toBe(50);
@@ -143,13 +144,16 @@ describe('selectGraphFiles — census buckets', () => {
       'D:/ws/package.json',
     ]);
 
-    expect(selection.selected).toEqual(['D:/ws/a.ts']);
-    expect(selection.unsupported).toBe(5);
+    // Python and Go are graphed since Batch 33.
+    expect(selection.selected).toEqual([
+      'D:/ws/a.ts',
+      'D:/ws/tool.py',
+      'D:/ws/main.go',
+    ]);
+    expect(selection.unsupported).toBe(3);
     expect(selection.unsupportedByLanguage).toEqual({
-      go: 1,
       java: 1,
       javascript: 1, // .mjs: recognised, not yet graphed
-      python: 1,
       swift: 1,
     });
     expect(selection.unrecognised).toBe(2);
@@ -195,7 +199,7 @@ describe('buildGraphCoverage', () => {
     expect(coverage).toEqual({
       clean: true,
       reasons: [],
-      supportedLanguages: ['typescript', 'javascript', 'tsx'],
+      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
       census: 'complete',
       analyzed: 2,
       unchecked: 0,
@@ -208,6 +212,16 @@ describe('buildGraphCoverage', () => {
       resolution: CLEAN_RESOLUTION,
     });
     expect(isCleanAnswer(coverage)).toBe(true);
+  });
+
+  it('discloses the edge approximations the resolvers declared (Batch 33)', () => {
+    const coverage = coverageOf(['D:/ws/main.go', 'D:/ws/w/w.go'], {
+      resolution: {
+        ...CLEAN_RESOLUTION,
+        edgeApproximations: ['go:package-edges'],
+      },
+    });
+    expect(coverage.approximations).toEqual(['go:package-edges']);
   });
 
   it('counts failures by reason and caller-side drops as omitted', () => {
@@ -303,7 +317,7 @@ describe('saturatingSum', () => {
 });
 
 describe('mergeGraphCoverages — multi-root merge', () => {
-  const base = coverageOf(['D:/a/x.ts', 'D:/a/y.py']);
+  const base = coverageOf(['D:/a/x.ts', 'D:/a/y.kt']);
 
   it('returns undefined for no roots and the root itself for one', () => {
     expect(mergeGraphCoverages([])).toBeUndefined();
@@ -318,7 +332,7 @@ describe('mergeGraphCoverages — multi-root merge', () => {
     expect(merged?.analyzed).toBe(COVERAGE_COUNT_MAX);
     expect(merged?.unsupported).toBe(2);
     expect(merged?.excluded).toBeNull(); // null + 3
-    expect(merged?.unsupportedByLanguage).toEqual({ python: 2 });
+    expect(merged?.unsupportedByLanguage).toEqual({ kotlin: 2 });
   });
 
   it('takes the worst census and state', () => {

@@ -20,6 +20,7 @@ import {
   parseJsonc,
   type ResolverContextOptions,
 } from './resolver-context';
+import { mapRootTsconfigs } from './tsconfig-mapping';
 
 const ROOT = 'R:/ws';
 
@@ -247,21 +248,97 @@ describe('buildResolverContext — tsconfig extends semantics (R32B-01)', () => 
     ]);
   });
 
-  it('discloses independent configs that map a module differently, using neither', async () => {
+  // User Decision 28 (review r1 R33-10): two independent configs that
+  // declare `paths` never have a target picked across them.
+  it.each([
+    [
+      'the same key mapped differently',
+      '{ "@x": ["app.ts"], "@a": ["a.ts"] }',
+      '{ "@x": ["lib.ts"], "@b": ["b.ts"] }',
+    ],
+    [
+      'a wildcard against an exact key',
+      '{ "@*": ["old/*"] }',
+      '{ "@x": ["new.ts"] }',
+    ],
+    [
+      'overlapping wildcards',
+      '{ "@a/*": ["one/*"] }',
+      '{ "@a/b/*": ["two/*"] }',
+    ],
+    ['identical mappings', '{ "@x": ["x.ts"] }', '{ "@x": ["x.ts"] }'],
+  ])(
+    'discloses independent configs that both declare paths (%s), using none',
+    async (_label, appPaths, libPaths) => {
+      const ctx = await build(
+        memoryFileSystem({
+          [`${ROOT}/tsconfig.app.json`]: `{ "compilerOptions": { "paths": ${appPaths} } }`,
+          [`${ROOT}/tsconfig.lib.json`]: `{ "compilerOptions": { "paths": ${libPaths} } }`,
+        }),
+      );
+
+      expect(ctx?.gaps).toEqual(['conflicting-configs']);
+      expect(ctx?.tsconfigPaths).toEqual([]);
+    },
+  );
+
+  it('keeps full resolution for one extends chain shared by several top configs', async () => {
     const ctx = await build(
       memoryFileSystem({
-        [`${ROOT}/tsconfig.app.json`]:
-          '{ "compilerOptions": { "paths": { "@x": ["app.ts"], "@a": ["a.ts"] } } }',
-        [`${ROOT}/tsconfig.lib.json`]:
-          '{ "compilerOptions": { "paths": { "@x": ["lib.ts"], "@b": ["b.ts"] } } }',
+        [`${ROOT}/tsconfig.base.json`]:
+          '{ "compilerOptions": { "paths": { "@*": ["libs/*"] } } }',
+        [`${ROOT}/tsconfig.app.json`]: '{ "extends": "./tsconfig.base.json" }',
+        [`${ROOT}/tsconfig.spec.json`]: '{ "extends": "./tsconfig.base.json" }',
       }),
     );
 
-    expect(ctx?.gaps).toEqual(['conflicting-configs']);
-    expect(ctx?.tsconfigPaths.map((rule) => rule.pattern)).toEqual([
-      '@a',
-      '@b',
+    expect(ctx?.gaps).toEqual([]);
+    expect(ctx?.tsconfigPaths).toEqual([
+      { pattern: '@*', targets: ['libs/*'], baseDir: ROOT },
     ]);
+  });
+
+  // Review r1 R33-08: a shared or repeated parent is evaluated once.
+  it('evaluates each config once in a repeated-parent extends graph', async () => {
+    const count = 15;
+    const files: Record<string, string> = {
+      [`${ROOT}/tsconfig.c0.json`]:
+        '{ "compilerOptions": { "paths": { "@x": ["x.ts"] } } }',
+    };
+    for (let i = 1; i < count; i++) {
+      const parent = `./tsconfig.c${i - 1}.json`;
+      files[`${ROOT}/tsconfig.c${i}.json`] = JSON.stringify({
+        extends: [parent, parent],
+      });
+    }
+    // Counts reads of `compilerOptions`: one per evaluation of a config.
+    let evaluations = 0;
+
+    const mapped = mapRootTsconfigs(
+      Array.from({ length: count }, (_, i) => {
+        const name = `tsconfig.c${i}.json`;
+        const config = JSON.parse(files[`${ROOT}/${name}`]) as Record<
+          string,
+          unknown
+        >;
+        return {
+          name,
+          get config(): Record<string, unknown> {
+            return new Proxy(config, {
+              get(target, key, receiver) {
+                if (key === 'compilerOptions') evaluations++;
+                return Reflect.get(target, key, receiver);
+              },
+            });
+          },
+        };
+      }),
+      ROOT,
+    );
+
+    expect(mapped.gaps).toEqual([]);
+    expect(mapped.paths.map((rule) => rule.pattern)).toEqual(['@x']);
+    expect(evaluations).toBeLessThanOrEqual(count);
   });
 
   it('discloses independent configs with different baseUrls', async () => {
@@ -277,15 +354,13 @@ describe('buildResolverContext — tsconfig extends semantics (R32B-01)', () => 
     expect(ctx?.baseUrls).toEqual([]);
   });
 
-  it('uses independent configs that agree, or map different modules', async () => {
+  it('uses the one config that declares paths beside configs that map nothing', async () => {
     const ctx = await build(
       memoryFileSystem({
         [`${ROOT}/tsconfig.base.json`]:
-          '{ "compilerOptions": { "paths": { "@x": ["x.ts"] } } }',
+          '{ "compilerOptions": { "paths": { "@x": ["x.ts"], "@t": ["t.ts"] } } }',
         // An Nx-style root solution config: references only, maps nothing.
         [`${ROOT}/tsconfig.json`]: '{ "files": [], "references": [] }',
-        [`${ROOT}/tsconfig.tools.json`]:
-          '{ "compilerOptions": { "paths": { "@x": ["x.ts"], "@t": ["t.ts"] } } }',
       }),
     );
     expect(ctx?.gaps).toEqual([]);
@@ -441,6 +516,65 @@ describe('buildResolverContext — bounds (limits disclosed)', () => {
       MANIFEST_LIMITS.maxTotalBytes,
     );
     expect(ctx?.gaps).toEqual(['manifest-not-text', 'manifests-over-total']);
+    expect(ctx?.manifestsRead).toBe(0);
+  });
+
+  // Review r1 R33-07: bytes a handle returned before a read error are charged.
+  it('charges partial reads that end in a read error to the 2 MiB budget', async () => {
+    const files: Record<string, Uint8Array> = {};
+    const size = 250 * 1024;
+    for (let i = 0; i < 12; i++) {
+      files[`${ROOT}/tsconfig.${String(i).padStart(2, '0')}.json`] =
+        new Uint8Array(size).fill(0x20);
+    }
+    const fileSystem = memoryFileSystem(files);
+    let served = 0;
+    let opened = 0;
+    fileSystem.open.mockImplementation(async (filePath: string) => {
+      opened++;
+      let reads = 0;
+      return {
+        ...fileSystem.handleOf(filePath),
+        read: async (buffer: Uint8Array, offset: number, length: number) => {
+          reads++;
+          if (reads > 1) throw codeError('EIO');
+          const chunk = Math.min(length, size);
+          buffer.fill(0x20, offset, offset + chunk);
+          served += chunk;
+          return { bytesRead: chunk };
+        },
+      };
+    });
+
+    const ctx = await build(fileSystem);
+
+    expect(served).toBeLessThanOrEqual(MANIFEST_LIMITS.maxTotalBytes);
+    expect(opened).toBe(8);
+    expect(ctx?.gaps).toEqual(['manifest-unreadable', 'manifests-over-total']);
+  });
+
+  it('charges a manifest whose close fails after it was read', async () => {
+    const files: Record<string, string> = {};
+    const size = 250 * 1024;
+    for (let i = 0; i < 12; i++) {
+      files[`${ROOT}/tsconfig.${String(i).padStart(2, '0')}.json`] =
+        '{}'.padEnd(size, ' ');
+    }
+    const fileSystem = memoryFileSystem(files);
+    fileSystem.open.mockImplementation(async (filePath: string) => ({
+      ...fileSystem.handleOf(filePath),
+      close: async () => {
+        throw codeError('EIO');
+      },
+    }));
+
+    const ctx = await build(fileSystem);
+
+    expect(fileSystem.physicalBytes()).toBeLessThanOrEqual(
+      MANIFEST_LIMITS.maxTotalBytes,
+    );
+    expect(fileSystem.open).toHaveBeenCalledTimes(8);
+    expect(ctx?.gaps).toEqual(['manifest-unreadable', 'manifests-over-total']);
     expect(ctx?.manifestsRead).toBe(0);
   });
 

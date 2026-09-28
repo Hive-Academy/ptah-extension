@@ -2068,6 +2068,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2097,6 +2100,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2126,6 +2132,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const root = await writeWorkspace({
             'a.ts': 'export function Foo() {}\n',
             'b.ts': `import { Foo } ${FROM} './a';\nFoo();\n`,
@@ -2162,6 +2171,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const root = await writeWorkspace({
             'pkg/decl.ts': 'export function Foo() {}\n',
             'use.ts': `import { Foo } ${FROM} './pkg/decl';\nFoo();\n`,
@@ -2194,6 +2206,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const indexer = streamingIndexer([DECL, CONSUMER, PY_USER]);
           const { cap } = build({
             reader: readerWith(indexHit(DECL, 'doThing', 0)),
@@ -2678,6 +2693,9 @@ describe('ElectronIDECapabilities', () => {
           mockScopeComplete.add('typescript');
           mockScopeComplete.add('javascript');
           mockScopeComplete.add('tsx');
+          // Graphed since Batch 33: the gate checks every graph language.
+          mockScopeComplete.add('python');
+          mockScopeComplete.add('go');
           const indexer = streamingIndexer([DECL, CONSUMER, PY_USER]);
           const { cap } = build({
             reader: readerWith(

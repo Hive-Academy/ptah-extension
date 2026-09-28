@@ -7,13 +7,21 @@
  * overriding the earlier ones, and the config itself overrides them all.
  * `paths` and `baseUrl` are replaced whole, never merged. A config another
  * root config extends is superseded by that config and is not applied on
- * its own. The remaining (top) configs are independent projects: where they
- * agree, or only one of them maps something, the mapping is used; where they
- * map the same pattern differently, or declare different `baseUrl`s, which
- * one applies to a file is not known here, so that part of the mapping is
- * left out and disclosed as `conflicting-configs`. A top config that maps
- * nothing (an Nx root `tsconfig.json` holding only project `references`, for
- * example) conflicts with nothing.
+ * its own. The remaining (top) configs are independent projects, and which
+ * one governs a file is not known here. So `paths` are used only when every
+ * top config that has `paths` got them from the same declaring config (one
+ * config, or one shared base its extends chains reach): the resolver never
+ * picks a target across configs. When two or more independent configs
+ * declare `paths` (User Decision 28, review r1 R33-10), no `paths` rule is
+ * used and `conflicting-configs` is disclosed, so an alias-matched import is
+ * external only as far as the context knows, never a guessed edge. Different
+ * `baseUrl`s are disclosed the same way. A top config that maps nothing (an
+ * Nx root `tsconfig.json` holding only project `references`, for example)
+ * conflicts with nothing.
+ *
+ * Each config's effective options are evaluated once and memoised, so a
+ * shared or repeated parent in the extends graph costs one evaluation, not
+ * one per path to it (review r1 R33-08).
  *
  * Every config here lies in the root directory, so a relative `baseUrl` and
  * the targets of `paths` without a `baseUrl` are relative to the root.
@@ -39,6 +47,8 @@ interface MappingOptions {
   /** Absolute directory (forward slashes). */
   readonly baseUrl?: string;
   readonly paths?: ReadonlyArray<readonly [string, readonly string[]]>;
+  /** The (lower-cased) config whose own `paths` these are. */
+  readonly pathsFrom?: string;
 }
 
 const TSCONFIG_NAME = /^tsconfig.*\.json$/i;
@@ -68,23 +78,27 @@ export function mapRootTsconfigs(
     parents.set(cfg.name.toLowerCase(), resolved);
   }
 
-  const effective = (
-    name: string,
-    visiting: ReadonlySet<string>,
-  ): MappingOptions => {
+  const memo = new Map<string, MappingOptions>();
+  const visiting = new Set<string>();
+  const effective = (name: string): MappingOptions => {
+    const known = memo.get(name);
+    if (known !== undefined) return known;
     if (visiting.has(name)) {
       gaps.add('manifest-unparseable'); // an extends cycle
       return {};
     }
-    const inner = new Set(visiting).add(name);
+    visiting.add(name);
     let options: MappingOptions = {};
     for (const parent of parents.get(name) ?? []) {
-      options = override(options, effective(parent, inner));
+      options = override(options, effective(parent));
     }
+    visiting.delete(name);
     const own = byName.get(name);
-    return own
-      ? override(options, ownOptions(own.config, root, gaps))
+    const result = own
+      ? override(options, ownOptions(own.config, name, root, gaps))
       : options;
+    memo.set(name, result);
+    return result;
   };
 
   // Every config is evaluated, so an extends cycle (whose members all
@@ -92,32 +106,32 @@ export function mapRootTsconfigs(
   const allOptions = new Map(
     configs.map((cfg) => {
       const name = cfg.name.toLowerCase();
-      return [name, effective(name, new Set())] as const;
+      return [name, effective(name)] as const;
     }),
   );
   const tops = [...allOptions.keys()].filter((name) => !extended.has(name));
-  const rules = new Map<string, { rule: TsconfigPathRule; key: string }>();
-  const conflicted = new Set<string>();
   const baseUrls = new Set<string>();
+  /** Effective `paths` (with their base directory) by declaring config. */
+  const pathSources = new Map<string, TsconfigPathRule[]>();
   for (const name of tops) {
     const options = allOptions.get(name) ?? {};
     if (options.baseUrl !== undefined) baseUrls.add(options.baseUrl);
-    const baseDir = options.baseUrl ?? root;
-    for (const [pattern, targets] of options.paths ?? []) {
-      const key = JSON.stringify([targets, baseDir]);
-      const seen = rules.get(pattern);
-      if (seen === undefined) {
-        rules.set(pattern, { rule: { pattern, targets, baseDir }, key });
-      } else if (seen.key !== key) {
-        conflicted.add(pattern);
-      }
+    if (options.paths === undefined || options.pathsFrom === undefined) {
+      continue;
     }
+    const baseDir = options.baseUrl ?? root;
+    const rules = options.paths.map(([pattern, targets]) => ({
+      pattern,
+      targets,
+      baseDir,
+    }));
+    const key = `${options.pathsFrom}\u0000${baseDir}`;
+    if (!pathSources.has(key)) pathSources.set(key, rules);
   }
-  if (conflicted.size > 0 || baseUrls.size > 1) gaps.add('conflicting-configs');
+  const conflicting = pathSources.size > 1;
+  if (conflicting || baseUrls.size > 1) gaps.add('conflicting-configs');
   return {
-    paths: [...rules.values()]
-      .filter(({ rule }) => !conflicted.has(rule.pattern))
-      .map(({ rule }) => rule),
+    paths: conflicting ? [] : [...pathSources.values()].flat(),
     baseUrls: baseUrls.size === 1 ? [...baseUrls] : [],
     gaps: [...gaps],
   };
@@ -131,13 +145,16 @@ function override(
   return {
     ...parent,
     ...(child.baseUrl === undefined ? {} : { baseUrl: child.baseUrl }),
-    ...(child.paths === undefined ? {} : { paths: child.paths }),
+    ...(child.paths === undefined
+      ? {}
+      : { paths: child.paths, pathsFrom: child.pathsFrom }),
   };
 }
 
 /** The `baseUrl` and `paths` a config sets itself (malformed ones: a gap). */
 function ownOptions(
   config: Record<string, unknown>,
+  name: string,
   root: string,
   gaps: Set<ResolverContextGap>,
 ): MappingOptions {
@@ -171,7 +188,7 @@ function ownOptions(
       gaps.add('manifest-unparseable');
     }
   }
-  return { ...options, paths: entries };
+  return { ...options, paths: entries, pathsFrom: name };
 }
 
 /** The configs an `extends` names; `undefined` when it is malformed. */
