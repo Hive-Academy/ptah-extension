@@ -134,7 +134,7 @@ function wireResultStatsCallback(
 ): void {
   sdkAdapter.setResultStatsCallback(async (stats) => {
     logger.info(`${tag} Session stats received: ${stats.sessionId}`, {
-      cost: stats.cost,
+      turnCost: stats.turnCost,
       tokens: stats.tokens,
       duration: stats.duration,
       modelUsage: stats.modelUsage,
@@ -404,7 +404,7 @@ async function sendStatsWithRetry(
       () =>
         webviewManager.broadcastMessage(MESSAGE_TYPES.SESSION_STATS, {
           sessionId: stats.sessionId,
-          cost: stats.cost,
+          turnCost: stats.turnCost,
           tokens: stats.tokens,
           duration: stats.duration,
           modelUsage: stats.modelUsage,

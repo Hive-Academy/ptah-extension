@@ -1849,7 +1849,7 @@ describe('SdkAgentAdapter', () => {
       expect(typeof arg.onResultStats).toBe('function');
       const fakeStats = {
         sessionId: 'sess' as unknown as SessionId,
-        cost: 0,
+        turnCost: 0,
         tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
         duration: 0,
       };

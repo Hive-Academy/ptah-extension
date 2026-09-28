@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_74a4
 
-Total tasks: 12 | Batches: 6 | Complete: 1/6
+Total tasks: 14 | Batches: 7 | Complete: 3/7 (Batch 4 visual "after" evidence open, due after Batch 3)
 
 BUGFIX, plan-free. Decomposed from task.md, context.md ("Orchestrator scope decisions" 1-7, binding),
 research-report.md and research-addendum.md, stress-tested against base 722d921ab on disk.
@@ -25,7 +25,7 @@ Assumptions:
 - A2: `message_complete.cost` is already PER API CALL (`libs/backend/agent-sdk/src/lib/message-transform/assistant-message.transformer.ts:379-405` prices that message's own `usage`), so `agent-stats.service.ts:97-98` already sums non-cumulative values; the research-addendum claim that it sums cumulative numbers is not what the code does. Task 6.2 pins it; no production change expected there.
 - A3: History reload recomputes per-message cost from raw per-call usage (`session-replay.service.ts:233-282`) - verified by research; not touched.
 - A4: The live header only installs the backend snapshot and never sums message cost (`libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts:79-80`) - verified on disk.
-- A5: `SessionMetadataStore.addStats` (`libs/backend/agent-sdk/src/lib/session-metadata-store.ts:896-954`) sums `stats.cost` but has no production caller (only its own spec) - verified by grep; out of scope, left untouched.
+- A5: `SessionMetadataStore.addStats` (`libs/backend/agent-sdk/src/lib/session-metadata-store.ts:896-954`) sums `stats.cost` but has no production caller (only its own spec) - verified by grep. Batch 2 deleted it (and `propagateStatsToParent`) as dead code after the rename, per review b2 (minor).
 - A6: CLI lanes carry no usage/cost data (`CliSessionReference`, `cliAgentsFor`) and are shown only as a label list (`cliAgents`); they are not in any total today. Scope decision 3: stays out; Task 4.1 adds a guard that a CLI-only session never renders $0.
 - A7: The analytics RPC passes `SessionStatsEntry.knownCost` through unchanged (no handler maps it away; `libs/shared/src/lib/types/rpc/rpc-session.types.ts:204-209`). Task 4.1 verifies with a fixture entry carrying `knownCost`.
 - A8: `nx` targets `typecheck`, `test`, `lint` exist for every project named below (checked in project.json for shared, dashboard, cli-agent-runtime, ptah-tui; the others are the same lib shape).
@@ -35,12 +35,13 @@ Assumptions:
 | R1 Delta arithmetic. Scope decision 1 phrases it as `previous = run.current ?? run.base`, but `run.current` is a raw cumulative `RunUsageResult` and `run.base` is a `SavedCostState`; subtracting them directly mis-prices unreported (Codex) runs, whose base is subtracted in TOKENS and repriced (`session-stats-owner.service.ts:224-283`). Correct equivalent: `turnCost = net(new) - net(previous accepted)`, where `net(x) = subtractRunBase(x, run.base).totalCost` and `net(none) = 0`. This telescopes, so the sum of accepted turn costs equals the run's contribution to the session total exactly. | HIGH | Task 2.1 |
 | R2 Wire rename crosses the process boundary: after Batch 2 the webview reads `stats.cost` = undefined until Batch 3 lands (message footer cost disappears; header unaffected). The frontend copy of the payload type is a hand-written duplicate cast from `unknown`, so no compile error flags the drift. | MEDIUM | Batch 3 runs immediately after Batch 2; Task 3.1 derives the webview event type from the shared `ResultStatsPayload` so a future rename fails typecheck. The branch is not released between Batch 2 and Batch 3. |
 | R3 Footer scope mismatch: per-turn `tokens` are main-loop only (`sdkMessage.usage`), per-turn cost now includes subagent spend of that turn. Pricing `sdkTokens` instead would break sum(messages) == session total. | MEDIUM | Task 2.1 documents the field semantics on `turnCost`; no attempt to reprice `tokens`. |
-| R4 Non-accepted outcomes must never republish a cumulative figure. | HIGH | Task 2.1 outcome table: accepted -> delta (null when either side is unpriced); duplicate -> 0; rejected-invalid / rejected-non-monotonic / stale-owner / ignored-error / no owner (`statsGeneration === null`) / markRunIncomplete path -> null. |
+| R4 Non-accepted outcomes must never republish a cumulative figure. | HIGH | Task 2.1 outcome table: accepted -> delta (null when either side is unpriced); duplicate -> null and not published (revised in review round 1); rejected-invalid / rejected-non-monotonic / stale-owner / ignored-error / no owner (`statsGeneration === null`) / markRunIncomplete path -> null. |
 | R5 Existing tests encode cumulative-as-message-cost: `stream-transformer.spec.ts:2365-2399` (expects `[10, 15]`), `:2506-2532` (expects `[1, 2]`), and every spec/fixture that builds a `session:stats` payload with `cost`. | MEDIUM | Tasks 2.3, 3.2, 5.1 fix them to the new semantics; suppressing or deleting an assertion is a rejection. |
 | R6 `[1m]` rate choice: an OpenRouter catalog could publish a distinct `[1m]` SKU; long-context (>200K) tiering has no verified rate data. | MEDIUM | Task 1.1 exact match FIRST, then strip; tiering NOT implemented, recorded as follow-up (see Deferred). |
 | R7 TUI shows `payload.cost` as the session cost (`apps/ptah-tui/src/hooks/use-sessions.ts:153`); after the rename it would silently fall back to one model row's process-cumulative cost. | MEDIUM | Batch 5 switches the TUI to the backend `sessionStats` snapshot. |
 | R8 Analytics lower bound must stay labeled: `knownCost` is "never a substitute for totalCost" (`rpc-session.types.ts:204-209`). | MEDIUM | Task 4.1 sums `totalCost ?? knownCost` into a total explicitly flagged partial/lower-bound; the marker renders whenever any partially priced session contributes. |
 | R9 Visual "before" evidence must come from the base build, before Batch 4 lands. | MEDIUM | Batch 4 pre-step: visual-reviewer captures dark + light "before" screenshots of the analytics page at base 722d921ab first. |
+| R11 (added at Batch 2 commit, from code-logic-review-b2-r1.md; pre-existing on base) `isGrown` enforces dollar monotonicity on `'unreported'` runs, so a mid-run rate drop rejects every later result and freezes the session snapshot. | MEDIUM | Batch 2b |
 | R10 Pinning tests that cannot fail on base: live-vs-disk parity (e) and agent-stats sum (f) describe behaviour that is already correct on base. | LOW | Batch 6 states they are guards (not failing-first) and must fail when the guarded behaviour is broken on purpose (executor shows a deliberate mutation making each fail, then reverts). |
 
 Edge cases:
@@ -51,7 +52,8 @@ Edge cases:
 - Unreported run with one unpriced model: turnCost null, session total null, knownCost kept - Task 2.3.
 - Reported run whose saved base has unknown cost (`base.totalCostUSD === null` or `hasUnknownModelCost`): turnCost null for that run - Task 2.3.
 - Zero-usage error/startup result (`ignored-error`) and result without modelUsage (`markRunIncomplete`): turnCost null, snapshot unchanged - Task 2.3.
-- Duplicate result (identical cumulative): turnCost 0 - Task 2.3.
+- Duplicate result (identical cumulative): turnCost null and the payload is NOT published (revised in Batch 2 review round 1: publishing 0 overwrote the already-published turn's footer cost) - Task 2.3.
+- Unreported run whose rate drops mid-run: snapshot keeps advancing, that turn's turnCost null + runCostDecreased - Batch 2b.
 - Model ids `claude-opus-5-5[1m]`, `anthropic/claude-opus-5-5[1m]`, `claude-opus-5-5-20260101[1m]`, and a catalog key that itself contains `[1m]` (exact first) - Task 1.2.
 - Analytics: a session with pricingCoverage 'none' stays "Unknown" and out of the sum; a 'partial' one contributes knownCost with the marker; all-full ranges show no marker - Task 4.2.
 - CLI-lane-only session (cliAgents set, no priced usage): never renders $0 - Task 4.2.
@@ -101,7 +103,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Codex CLI-lane logic review returns APPROVE
 - Edge cases for model ids above are covered
 
-## Batch 2: Per-turn cost delta and the turnCost wire field - IN_PROGRESS
+## Batch 2: Per-turn cost delta and the turnCost wire field - COMPLETE (SHA_PENDING)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer (fresh invocation)
@@ -111,7 +113,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Reviewer: code-logic review on a CLI lane (codex) - accounting arithmetic, outcome handling, R1/R4.
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime`
 
-### Task 2.1: SessionStatsOwnerService.replaceRun returns the accepted turn's cost - IN_PROGRESS
+### Task 2.1: SessionStatsOwnerService.replaceRun returns the accepted turn's cost - COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.ts
 - Plan reference: context.md scope decision 1; research-addendum.md:36-48 (Q4); research-report.md:11-17
@@ -120,7 +122,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Validation notes: R1 (net-of-base on both sides, same `subtractRunBase`), R4 (outcome table).
 - Implementation details: capture `previous = run.current` BEFORE `applyResult`; after it, when `outcome === 'accepted'` compute `turnCost = diff(net(run.current), previous ? net(previous) : 0)` with `net(x) = subtractRunBase(x, run.base ?? null).totalCost`; `null` if either side is null; clamp tiny negative float noise with the existing `nonNegativeUsd`. Return `{ outcome, snapshot, firstRejection, turnCost }` with `turnCost: number | null` typed separately from any session total (name it `turnCost`, never `cost`/`totalCost`). Duplicate -> 0; every other outcome -> null. `recordAgent` stays count-only (scope decision 2).
 
-### Task 2.2: StreamTransformer publishes turnCost; shared wire type renamed - IN_PROGRESS
+### Task 2.2: StreamTransformer publishes turnCost; shared wire type renamed - COMPLETE
 
 - Depends on: Task 2.1
 - Files:
@@ -133,7 +135,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Validation notes: R2, R3, R4.
 - Implementation details: rename `ResultStatsPayload.cost` -> `turnCost: number | null` with a doc comment: "this result's own spend (delta of the run's cumulative cost since the previously accepted result, net of any restored base; includes Task-subagent spend of the turn); null when unknown; never a session or process total". Make stream-transformer's `ResultStatsCallback` / `ValidatedStats` use the shared payload type instead of a duplicate literal type (one source of truth). Publish `turnCost` from `replaceRun`; `null` when `statsGeneration === null`, on the `markRunIncomplete` path, and when no model rows. Fix the stale comments at :281-285 and :769-771. Replace the local `normalizeModelKey` (:72-89) with the Batch 1 shared export (behaviour-identical for `matchTrackedContexts`). In sdk-callbacks.ts:136-143 log `turnCost` instead of `cost`. Fix every compile error the rename causes in agent-sdk / cli-agent-runtime / shared specs (e.g. `sdk-agent-adapter.spec.ts` fake stats, `sdk-callbacks.spec.ts`).
 
-### Task 2.3: Contract tests for per-turn cost (scope 6a, 6b) and fixing wrong-semantics tests - IN_PROGRESS
+### Task 2.3: Contract tests for per-turn cost (scope 6a, 6b) and fixing wrong-semantics tests - COMPLETE
 
 - Depends on: Task 2.2
 - Files:
@@ -147,11 +149,51 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 
 ### Batch 2 verification
 
+Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime --skip-nx-cache` - passed (9 tasks, EXIT 0). Verified on disk: `replaceRun` returns `turnCost` / `runCostDecreased` via `acceptedTurnCost` (net(new) - net(previous accepted), both through `subtractRunBase`, rounded 1e-6); duplicates are not published; `validateStats` rejects negative/non-finite `turnCost`; `ResultStatsPayload.cost` renamed to `turnCost` with the contract doc; transformer uses the shared `normalizeModelKey` and the shared payload type; no `cost: totalCost` publish remains; dead `addStats` / `propagateStatsToParent` deleted (no remaining callers). Failing-before evidence reported by the executor: [13,15,18] vs [3,2,3], [10,15] vs [10,5], [1,2] vs [1,1], Codex first turn 0.46 vs 0.23; round 1: 12 tests failed on round-0 code. Logic review (antigravity CLI lane, cross-side): code-logic-review-b2.md REVISE 7/10 -> code-logic-review-b2-r1.md APPROVE 8/10. Remaining pre-existing `isGrown` finding moved to Batch 2b (R11).
+
 - All files exist and contain the work; `grep -n "cost: totalCost" stream-transformer.ts` finds nothing published as a message cost
 - Executor names the tests that failed on base and shows the failing assertion
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime` passes
 - Codex CLI-lane logic review returns APPROVE
 - R1, R3, R4 addressed as described
+
+## Batch 2b: Unreported runs never freeze on a mid-run rate drop - PENDING
+
+- Origin: code-logic-review-b2-r1.md moderate finding (pre-existing on base): `isGrown` (session-stats-owner.service.ts:926-948) enforces DOLLAR monotonicity. On a `costSource: 'unreported'` run (Codex / proxy; dollars come from the rate card, not the provider) a mid-run rate decrease (runtime pricing map re-registered when a provider catalog hydrates) makes every later result `rejected-non-monotonic`, freezing the session snapshot (tokens, cost, duration) at the earlier turn. Orchestrator decision: IN SCOPE (user asked for totals reflecting the actual model costs).
+- Recommended executor: backend-developer (sub-agent)
+- Fallback executor: backend-developer (fresh invocation)
+- Execution mode: sequential
+- Rationale: one owner function pair plus its spec; accounting semantics need judgment. File-disjoint from Batch 3 (libs/frontend/chat*), so it may run concurrently with Batch 3; commits stay sequential (team-leader). Must land before Batch 6 (same lib, Batch 6 guards the owner).
+- Tasks: 2 | Depends on: Batch 2
+- Reviewer: code-logic review on a CLI lane, cross-side - accounting monotonicity and duplicate detection.
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
+
+### Task 2b.1: Monotonicity and duplicate checks by cost source - PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.ts
+- Plan reference: code-logic-review-b2-r1.md (isGrown finding); context.md user request; Batch 2 `acceptedTurnCost` contract
+- Pattern to follow: `applyResult` (:728-745), `isSameUsage` (:903-919), `isGrown` (:926-948), `subtractRunBase` (:224-283), `acceptedTurnCost`
+- Quality requirements: a session snapshot never freezes because a rate changed; token counters stay the monotonicity authority; `'reported'` runs keep dollar monotonicity (SDK dollars are authoritative and cumulative).
+- Validation notes: new risk R11 (below). Policy (define and document on `isGrown`/`isSameUsage`): for `costSource === 'unreported'` the run's dollars are a pure function of its tokens and the CURRENT rate card, so (1) `isGrown` checks only token counters (per model, every previous model still present) and ignores `totalCost` and per-model `costUSD`; (2) `isSameUsage` compares tokens only, so identical tokens repriced at a new rate are a `duplicate` (not published, no footer overwrite) rather than a fresh turn; (3) the accepted snapshot reprices the whole run's net tokens at the current rates (what `subtractRunBase` already does) - the documented policy is "an unreported run's total is priced at the rate card in force at its latest accepted result"; (4) `acceptedTurnCost` unchanged: a turn whose net run cost went down by more than 1e-6 returns `turnCost: null` + `runCostDecreased: true` (logged), an increase stays a normal delta. Mixed cost-source across results of one run is not expected; if `prev.costSource !== next.costSource` keep the stricter (dollar) check.
+- Implementation details: pass the cost source into `isGrown` / `isSameUsage` (from `next.costSource`), branch on `'unreported'`. No change to `publish`, `recordAgent`, `subtractRunBase` or the wire type. Update the JSDoc of both functions.
+
+### Task 2b.2: Failing-first regression tests - PENDING
+
+- Depends on: Task 2b.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.spec.ts (only if an end-to-end publish case is needed; keep it to one case)
+- Plan reference: orchestrator decision (Batch 2 commit round)
+- Pattern to follow: the Batch 2 `replaceRun().turnCost` owner cases in session-stats-owner.service.spec.ts
+- Quality requirements: tests FAIL on the Batch 2 commit (show the failing assertion, e.g. outcome `rejected-non-monotonic` / frozen snapshot), pass after 2b.1; no loosened assertions.
+- Implementation details: (a) unreported run, no restored base, rate R1 for turns 1-2, rate drops to R2 < R1 before turn 3, tokens grow each turn: turn 3 outcome `accepted`, `turnCost` null, `runCostDecreased` true; snapshot tokens equal turn-3 cumulative tokens, `durationMs` includes turn 3, `totalCost` == turn-3 tokens priced at R2; turn 4 (tokens grow, rate R2) accepted with a normal positive `turnCost` == delta at R2 and the snapshot advances again - never frozen. (b) same with a restored non-zero base (net tokens repriced). (c) unreported result with identical tokens but a new rate -> `duplicate`, snapshot unchanged except as documented, `turnCost` null. (d) unreported, a token counter goes down -> still `rejected-non-monotonic`. (e) reported run whose SDK `total_cost_usd` goes down -> still `rejected-non-monotonic` (dollar check kept).
+
+### Batch 2b verification
+
+- Files exist and contain the work; policy documented on `isGrown` / `isSameUsage`
+- Executor names the tests that failed on the Batch 2 commit and shows the failing assertion
+- `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` passes
+- CLI-lane logic review returns APPROVE
 
 ## Batch 3: Webview consumers read turnCost - PENDING
 
@@ -162,6 +204,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Tasks: 2 | Depends on: Batch 2 (runs immediately after it - R2)
 - Reviewer: code-logic review on a CLI lane (codex) - cross-side contract with Batch 2.
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/chat-streaming`
+- Contract from Batch 2 (binding, `libs/shared/src/lib/types/agent-adapter.types.ts` `ResultStatsPayload`): one payload per NEW turn (duplicates are not published), so `turnCost` always applies to the latest assistant message; `turnCost: null` = UNKNOWN, rendered as unavailable, never $0 and never replaced by a previous or summed value; the session header installs only the backend `sessionStats` snapshot.
 
 ### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - PENDING
 
@@ -193,7 +236,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/chat-streaming` passes
 - Codex CLI-lane logic review returns APPROVE
 
-## Batch 4: Analytics keeps the known spend of partially priced sessions - IN_PROGRESS
+## Batch 4: Analytics keeps the known spend of partially priced sessions - COMPLETE (5b9f468f3)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -206,7 +249,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Reviewers: code-logic review on a CLI lane (codex) AND visual-reviewer "after" screenshots, dark + light, same page and data, compared with "before" (scope decision 7; rendered UI change).
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard`
 
-### Task 4.1: Aggregate knownCost of every session with an explicit partial marker - IN_PROGRESS
+### Task 4.1: Aggregate knownCost of every session with an explicit partial marker - COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\services\session-analytics-state.service.ts
@@ -221,7 +264,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Validation notes: R8, A6, A7.
 - Implementation details: add `knownCost: number | null` to `DashboardSessionEntry` (from `stats.knownCost ?? stats.totalCost ?? null` in `mergeEntry`). `aggregates.totalCost` sums `totalCost ?? knownCost` for every readable session that has either; add `totalCostIsLowerBound` (true when any contributing session has pricingCoverage 'partial' or knownCost-only); `avgCostPerSession` uses the same contributors; `unknownCostSessionCount` counts only sessions with neither. Metrics total card shows the lower-bound marker (e.g. a leading "≥" or "at least" label plus a tooltip/aria text naming the count of partially priced sessions); per-session card and detail modal show the session's knownCost with the same marker instead of "Unknown" when pricingCoverage is 'partial'; cost-per-message uses the same figure only when marked. Update the analytics status line copy to say the partial sessions ARE included as a lower bound (today it says "the total is a lower bound" while excluding them). CLI lanes: nothing added to any sum.
 
-### Task 4.2: Analytics regression tests (scope 6c) - IN_PROGRESS
+### Task 4.2: Analytics regression tests (scope 6c) - COMPLETE
 
 - Depends on: Task 4.1
 - Files:
@@ -234,6 +277,10 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Implementation details: fixture of three sessions: full (totalCost 2), partial (totalCost null, knownCost 3, pricingCoverage 'partial'), none (totalCost null, knownCost null, pricingCoverage 'none'): aggregate total 5, lower-bound flag true, partiallyPricedSessionCount 1, unknownCostSessionCount 1; all-full range -> flag false and no marker rendered; the partial session card renders "$3.00" with the marker, the 'none' session renders "Unknown", a CLI-only session (cliAgents ['codex'], no priced usage) never renders "$0.00".
 
 ### Batch 4 verification
+
+Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard --skip-nx-cache` - passed (executor: 13 suites, 109 tests). Files verified on disk: `sessionCostEstimate` is the single rule (total -> full or 'partial'-marked; else knownCost marked lower bound; else unknown) used by aggregates, formatSessionCost, sessionShowsLowerBound, sessionCostPerMessage and sessionCoverageNotes; `cliAgentSessionCount` touches no sum or flag; no stub markers. Failing-on-base evidence reported by the executor: total Expected 5 Received 2; card Expected '$3.00' Received 'Unknown'; avg marker; status-line and CLI-line tests. Logic review (Glm CLI lane, cross-side; codex unavailable as in Batch 1): code-logic-review-b4.md REVISE 6/10 -> code-logic-review-b4-r1.md APPROVE 8/10. Two cosmetic copy nits accepted, not fixed: the CLI status line reads slightly overbroad for a session mixing priced usage with CLI runs (analytics-card.component.html CLI line), and the all-unpriced sentence repeats itself (analytics-card.component.html:114-122); neither misstates a figure. Committed 5b9f468f3 (dashboard files plus the two b4 review files only; Batch 2 working-tree changes left unstaged).
+
+OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-reviewer "after" screenshots, dark + light, same page and data as `screenshots/before/`, compared with "before" (scope decision 7, including the neutral-colour requirement for "Unknown"). Cannot be taken now: the webview does not compile between Batch 2 and Batch 3 (cost -> turnCost rename, R2). Capture them after Batch 3 is committed; store under `screenshots/after/`.
 
 - "Before" screenshots (dark + light) exist from base before any Batch 4 edit
 - Files exist and contain the work; executor names the tests that failed on base

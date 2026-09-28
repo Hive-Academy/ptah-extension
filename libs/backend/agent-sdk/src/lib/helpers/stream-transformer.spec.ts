@@ -37,7 +37,12 @@ import {
   registerModelContextWindows,
   registerProviderPricing,
 } from '@ptah-extension/shared';
-import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
+import {
+  SessionStatsOwnerService,
+  type RunPreparationLoaders,
+  type SavedCostState,
+  type SessionStatsPrefix,
+} from '../session-stats/session-stats-owner.service';
 import {
   classifyUsageCostSource,
   resolveCapacityRoute,
@@ -532,9 +537,10 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
         onResultStats: (stats) => payloads.push(stats),
       }),
     );
-    expect(payloads.map((p) => p.sessionStats?.tokenCount)).toEqual([
-      51, 108, 108,
-    ]);
+    // The repeated `b` is a duplicate of an already-published turn: it is not
+    // published again (TASK_2026_575), and it adds nothing to the session.
+    expect(payloads.map((p) => p.sessionStats?.tokenCount)).toEqual([51, 108]);
+    expect(h.statsOwner.snapshot('sess-1')?.tokenCount).toBe(108);
     expect(payloads[1].tokens).toEqual({
       input: 20,
       output: 7,
@@ -901,29 +907,21 @@ describe('StreamTransformer — last-turn context key matching and subagent part
 // ---------------------------------------------------------------------------
 
 describe('StreamTransformer — usage-to-stats flow (TASK_2026_408)', () => {
-  interface StatsCapture {
-    cost: number | null;
-    // Matches the payload's `MessageTokenUsage`: cache fields are optional
-    // upstream, so the capture type must accept their absence too.
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    modelUsage?: ResultModelUsage[];
-  }
+  type StatsCapture = Pick<
+    ResultStatsPayload,
+    'turnCost' | 'tokens' | 'modelUsage'
+  >;
 
   function captureStats(): {
     captured: StatsCapture[];
-    onResultStats: (stats: StatsCapture) => void;
+    onResultStats: (stats: ResultStatsPayload) => void;
   } {
     const captured: StatsCapture[] = [];
     return {
       captured,
       onResultStats: (stats) => {
         captured.push({
-          cost: stats.cost,
+          turnCost: stats.turnCost,
           tokens: stats.tokens,
           modelUsage: stats.modelUsage,
         });
@@ -1260,29 +1258,35 @@ describe('StreamTransformer — message_delta context tracking (TASK_2026_408 Ga
 });
 
 describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', () => {
-  interface StatsCapture {
-    cost: number | null;
-    modelUsage?: ResultModelUsage[];
-  }
+  // Each case is the FIRST result of a brand-new session, so its turn cost is
+  // the whole run so far; a session owner exists because the turn cost is
+  // derived by the owner (TASK_2026_575).
+  type StatsCapture = Pick<ResultStatsPayload, 'turnCost' | 'modelUsage'>;
 
   function captureStats(): {
     captured: StatsCapture[];
-    onResultStats: (stats: {
-      cost: number | null;
-      modelUsage?: ResultModelUsage[];
-    }) => void;
+    onResultStats: (stats: ResultStatsPayload) => void;
   } {
     const captured: StatsCapture[] = [];
     return {
       captured,
       onResultStats: (stats) => {
-        captured.push({ cost: stats.cost, modelUsage: stats.modelUsage });
+        captured.push({
+          turnCost: stats.turnCost,
+          modelUsage: stats.modelUsage,
+        });
       },
     };
   }
 
+  function harnessWithOwner(authEnv: AuthEnv): Harness {
+    const harness = makeHarness(authEnv);
+    harness.statsOwner.startNew('sess-1');
+    return harness;
+  }
+
   it('direct Anthropic: passes SDK total_cost_usd and per-model costUSD through verbatim without invoking pricingProvider', async () => {
-    const { transformer, pricingProvider } = makeHarness(
+    const { transformer, pricingProvider } = harnessWithOwner(
       makeAuthEnv({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }),
     );
     const { captured, onResultStats } = captureStats();
@@ -1314,7 +1318,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
 
     expect(pricingProvider.getPricing).not.toHaveBeenCalled();
     expect(captured).toHaveLength(1);
-    expect(captured[0].cost).toBe(0.42);
+    expect(captured[0].turnCost).toBe(0.42);
     const byModel = new Map(
       (captured[0].modelUsage ?? []).map((m) => [m.model, m.costUSD]),
     );
@@ -1326,7 +1330,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     const authEnv = makeAuthEnv({
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
     });
-    const { transformer, pricingProvider } = makeHarness(authEnv);
+    const { transformer, pricingProvider } = harnessWithOwner(authEnv);
     const pricing: ModelPricing = {
       inputCostPerToken: 15e-6,
       outputCostPerToken: 75e-6,
@@ -1367,15 +1371,16 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     const row = captured[0].modelUsage?.[0];
     expect(row).toBeDefined();
     expect(row?.costUSD).toBeGreaterThan(0);
-    expect(captured[0].cost).toBe(row?.costUSD);
-    expect(captured[0].cost).not.toBe(999.0);
+    // Turn costs are rounded to 1e-6 (the snapshot's precision).
+    expect(captured[0].turnCost).toBeCloseTo(row?.costUSD ?? Number.NaN, 6);
+    expect(captured[0].turnCost).not.toBe(999.0);
   });
 
   it('third-party + pricing miss: costUSD is null per row and total cost is null', async () => {
     const authEnv = makeAuthEnv({
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
     });
-    const { transformer, pricingProvider } = makeHarness(authEnv);
+    const { transformer, pricingProvider } = harnessWithOwner(authEnv);
     pricingProvider.getPricing.mockResolvedValue(null);
 
     const { captured, onResultStats } = captureStats();
@@ -1401,7 +1406,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     await drain(iter);
 
     expect(captured).toHaveLength(1);
-    expect(captured[0].cost).toBeNull();
+    expect(captured[0].turnCost).toBeNull();
     expect(captured[0].modelUsage?.[0].costUSD).toBeNull();
   });
 
@@ -1409,7 +1414,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     const authEnv = makeAuthEnv({
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
     });
-    const { transformer, pricingProvider } = makeHarness(authEnv);
+    const { transformer, pricingProvider } = harnessWithOwner(authEnv);
     const hitPricing: ModelPricing = {
       inputCostPerToken: 10e-6,
       outputCostPerToken: 50e-6,
@@ -1456,7 +1461,7 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(typeof hitCost).toBe('number');
     expect(hitCost as number).toBeGreaterThan(0);
     expect(byModel.get('mystery-model-y')).toBeNull();
-    expect(captured[0].cost).toBeNull();
+    expect(captured[0].turnCost).toBeNull();
   });
 });
 
@@ -1575,7 +1580,10 @@ describe('StreamTransformer — result stats validation', () => {
     onResultStats: jest.Mock;
     logger: jest.Mocked<Logger>;
   }> {
-    const { transformer, logger } = makeHarness();
+    // A brand-new session: the result is the run's first, so its turn cost
+    // is the whole cumulative figure the SDK reported.
+    const { transformer, logger, statsOwner } = makeHarness();
+    statsOwner.startNew('sess-1');
     const onResultStats = jest.fn();
 
     await drain(
@@ -1590,7 +1598,7 @@ describe('StreamTransformer — result stats validation', () => {
     return { onResultStats, logger };
   }
 
-  it('accepts the measured cumulative cost 101.12 unchanged', async () => {
+  it('accepts a first-turn cost of 101.12 unchanged', async () => {
     const { onResultStats } = await transformResult(
       resultMessageMulti({
         totalCostUsd: 101.12,
@@ -1601,11 +1609,11 @@ describe('StreamTransformer — result stats validation', () => {
     );
 
     expect(onResultStats).toHaveBeenCalledWith(
-      expect.objectContaining({ cost: 101.12 }),
+      expect.objectContaining({ turnCost: 101.12 }),
     );
   });
 
-  it('accepts a cumulative cost of 356 unchanged', async () => {
+  it('accepts a first-turn cost of 356 unchanged', async () => {
     const { onResultStats } = await transformResult(
       resultMessageMulti({
         totalCostUsd: 356,
@@ -1616,7 +1624,7 @@ describe('StreamTransformer — result stats validation', () => {
     );
 
     expect(onResultStats).toHaveBeenCalledWith(
-      expect.objectContaining({ cost: 356 }),
+      expect.objectContaining({ turnCost: 356 }),
     );
   });
 
@@ -1754,7 +1762,7 @@ describe('StreamTransformer — usage-less result stats', () => {
   it('does not replace populated header stats with a result that has no usage or modelUsage', async () => {
     const { transformer } = makeHarness();
     const populatedHeader = {
-      cost: 1.1098535,
+      turnCost: 1.1098535,
       tokens: { input: 18, output: 7611 },
     };
     let header: unknown = populatedHeader;
@@ -1774,7 +1782,8 @@ describe('StreamTransformer — usage-less result stats', () => {
   });
 
   it('keeps the populated stats from the real resume sequence after skipping the zero result', async () => {
-    const { transformer } = makeHarness();
+    const { transformer, statsOwner } = makeHarness();
+    statsOwner.startNew('sess-1');
     const onResultStats = jest.fn();
     const populatedResult = rawResultMessage({
       totalCostUsd: 1.1098535,
@@ -1806,7 +1815,8 @@ describe('StreamTransformer — usage-less result stats', () => {
     expect(onResultStats).toHaveBeenCalledTimes(1);
     expect(onResultStats).toHaveBeenCalledWith(
       expect.objectContaining({
-        cost: 1.1098535,
+        // The SDK's 1.1098535, rounded to 1e-6 like the session snapshot.
+        turnCost: 1.109854,
         tokens: {
           input: 18,
           output: 7611,
@@ -1855,7 +1865,8 @@ describe('StreamTransformer — usage-less result stats', () => {
   });
 
   it('emits aggregate zero-token deltas with real cost and modelUsage unchanged', async () => {
-    const { transformer } = makeHarness();
+    const { transformer, statsOwner } = makeHarness();
+    statsOwner.startNew('sess-1');
     const onResultStats = jest.fn();
 
     await drain(
@@ -1887,7 +1898,8 @@ describe('StreamTransformer — usage-less result stats', () => {
 
     expect(onResultStats).toHaveBeenCalledWith(
       expect.objectContaining({
-        cost: 1.77963875,
+        // The SDK's 1.77963875, rounded to 1e-6 like the session snapshot.
+        turnCost: 1.779639,
         tokens: {
           input: 0,
           output: 0,
@@ -1928,8 +1940,9 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 
-  it('fires and passes through a cumulative cost above the former ceiling', async () => {
-    const { transformer } = makeHarness();
+  it('fires and passes through a turn cost above the former ceiling', async () => {
+    const { transformer, statsOwner } = makeHarness();
+    statsOwner.startNew('sess-1');
     const onTurnEnd = jest.fn();
     const onResultStats = jest.fn();
 
@@ -1951,7 +1964,7 @@ describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
     );
 
     expect(onResultStats).toHaveBeenCalledWith(
-      expect.objectContaining({ cost: 500 }),
+      expect.objectContaining({ turnCost: 500 }),
     );
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
@@ -2313,7 +2326,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
       ],
       { usageCostSource: 'reported' },
     );
-    expect(zero.cost).toBe(0);
+    expect(zero.turnCost).toBe(0);
     expect(zero.tokens).toEqual({
       input: 1,
       output: 2,
@@ -2348,7 +2361,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
       { usageCostSource: 'unreported' },
     );
     const expected = 1000 * 0.001 + 100 * 0.002 + 10000 * 0.0001 + 200 * 0.0005;
-    expect(priced.cost).toBeCloseTo(expected, 6);
+    expect(priced.turnCost).toBeCloseTo(expected, 6);
     expect(priced.sessionStats?.totalCost).toBeCloseTo(expected, 6);
     expect(priced.sessionStats?.modelUsageList).toEqual([
       {
@@ -2391,7 +2404,9 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
       { usageCostSource: 'reported', runToken: 'run-A' },
     );
 
-    expect(payloads.map((p) => p.cost)).toEqual([10, 15]);
+    // Each message carries its own turn (10, then 15 - 10); only the
+    // session snapshot carries the running total (TASK_2026_575).
+    expect(payloads.map((p) => p.turnCost)).toEqual([10, 5]);
     expect(payloads.map((p) => p.sessionStats?.totalCost)).toEqual([10, 15]);
     expect(payloads[1].sessionStats?.tokens.input).toBe(150);
     // Each result's `duration_ms` (100) is one turn: accepted turns add up.
@@ -2523,11 +2538,12 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
           usageCostSource: 'unreported',
           accountingAuthEnv: Object.freeze({ ...globalEnv }),
           statsGeneration: generation,
-          onResultStats: (stats) => costs.push(stats.cost),
+          onResultStats: (stats) => costs.push(stats.turnCost),
         }),
       );
 
-      expect(costs).toEqual([1, 2]);
+      // Both turns at the frozen CHEAP rate: 100 tokens each, $1 per turn.
+      expect(costs).toEqual([1, 1]);
       expect(owner.snapshot(SESSION)?.totalCost).toBe(2);
     });
 
@@ -2549,7 +2565,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
             [TIER_KEY]: 'override-model',
           }) as AuthEnv,
           statsGeneration: generation,
-          onResultStats: (stats) => costs.push(stats.cost),
+          onResultStats: (stats) => costs.push(stats.turnCost),
         }),
       );
 
@@ -2583,6 +2599,8 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
 
     expect(payloads).toHaveLength(1);
     expect(payloads[0].sessionStats).toBeUndefined();
+    // A stale owner's result is not a turn of this session: no message cost.
+    expect(payloads[0].turnCost).toBeNull();
     expect(harness.statsOwner.snapshot(SESSION)).toBeNull();
   });
 
@@ -2612,5 +2630,500 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
     // ...but the lifetime snapshot does not count them as a run total.
     expect(payloads[0].sessionStats?.tokenCount).toBe(0);
     expect(payloads[0].sessionStats?.coverage).toBe('partial');
+    // `total_cost_usd` (3) is cumulative: never republished as a turn cost.
+    expect(payloads[0].turnCost).toBeNull();
+  });
+
+  // TASK_2026_575: a message's cost is its own turn. The SDK's `modelUsage` /
+  // `total_cost_usd` are cumulative per query process and a resumed process
+  // may continue from the transcript's saved `cost-state`, so the published
+  // `turnCost` is the delta of the run's net-of-base cumulative cost since the
+  // previously accepted result. These cases use a NON-ZERO restored base: with
+  // a zero base the first turn equals the cumulative and hides the bug.
+  describe('per-turn cost contract (TASK_2026_575)', () => {
+    const PREFIX_COST = 10;
+
+    function transcriptPrefix(
+      model: string,
+      savedCostState: SavedCostState | null,
+    ): SessionStatsPrefix {
+      return {
+        stats: {
+          sessionId: SESSION,
+          model,
+          totalCost: PREFIX_COST,
+          knownCost: PREFIX_COST,
+          tokens: { input: 100, output: 0, cacheRead: 0, cacheCreation: 0 },
+          tokenCount: 100,
+          messageCount: 4,
+          modelUsageList: [
+            {
+              model,
+              inputTokens: 100,
+              outputTokens: 0,
+              cacheRead: 0,
+              cacheCreation: 0,
+              costUSD: PREFIX_COST,
+            },
+          ],
+          status: 'ok',
+          coverage: 'complete',
+          untimestampedCount: 0,
+          pricingCoverage: 'full',
+          scope: 'session',
+        },
+        subagentIds: [],
+        savedCostState,
+      };
+    }
+
+    function savedState(
+      model: string,
+      totalCostUSD: number,
+      usage: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheCreation: number;
+      },
+    ): SavedCostState {
+      return {
+        totalCostUSD,
+        hasUnknownModelCost: false,
+        models: { [model]: { ...usage, costUSD: totalCostUSD } },
+      };
+    }
+
+    /** Prepare and register a resumed run the way the adapter does. */
+    async function resumeRun(
+      harness: Harness,
+      prefixModel: string,
+      saved: SavedCostState | null,
+      runToken: string,
+      diskAfterPrefix: SavedCostState | null = saved,
+    ): Promise<number> {
+      const loadersFor: RunPreparationLoaders = {
+        loadPrefix: async () => transcriptPrefix(prefixModel, saved),
+        loadSavedCostState: async () => diskAfterPrefix,
+      };
+      const prep = await harness.statsOwner.prepareRun(SESSION, loadersFor);
+      harness.statsOwner.beginRun(
+        SESSION,
+        prep.generation,
+        runToken,
+        prep.candidate,
+      );
+      return prep.generation;
+    }
+
+    function sumTurns(payloads: ResultStatsPayload[]): number {
+      return payloads.reduce((sum, p) => sum + (p.turnCost ?? Number.NaN), 0);
+    }
+
+    it('reported (Claude): turn costs sum to the session delta; the last is not the total', async () => {
+      const harness = makeHarness();
+      const saved = savedState(MODEL, 10, {
+        input: 100,
+        output: 10,
+        cacheRead: 0,
+        cacheCreation: 0,
+      });
+      await resumeRun(harness, MODEL, saved, 'run-1');
+      const row = { model: MODEL, cacheRead: 0, cacheCreation: 0 };
+
+      const payloads = await collect(
+        harness,
+        [
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 13,
+            costUSD: 13,
+            input: 130,
+            output: 13,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 15,
+            costUSD: 15,
+            input: 150,
+            output: 15,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 18,
+            costUSD: 18,
+            input: 180,
+            output: 18,
+          }),
+        ],
+        { usageCostSource: 'reported', runToken: 'run-1' },
+      );
+
+      // Before TASK_2026_575 these were the cumulative 13, 15, 18.
+      expect(payloads.map((p) => p.turnCost)).toEqual([3, 2, 3]);
+      expect(payloads.map((p) => p.sessionStats?.totalCost)).toEqual([
+        13, 15, 18,
+      ]);
+      const total = payloads[2].sessionStats?.totalCost ?? Number.NaN;
+      expect(sumTurns(payloads)).toBeCloseTo(total - PREFIX_COST, 6);
+      expect(payloads[2].turnCost).not.toBe(total);
+    });
+
+    it('unreported (Codex): token deltas since the restored base are repriced at the rate card', async () => {
+      const harness = makeHarness();
+      // The SDK saved $0 on the proxied route; the rate card is authoritative.
+      const saved = savedState(FOUR_CLASS_MODEL, 0, {
+        input: 100,
+        output: 10,
+        cacheRead: 1000,
+        cacheCreation: 20,
+      });
+      await resumeRun(harness, FOUR_CLASS_MODEL, saved, 'run-1');
+      const price = (i: number, o: number, cr: number, cc: number) =>
+        i * 0.001 + o * 0.002 + cr * 0.0001 + cc * 0.0005;
+
+      const payloads = await collect(
+        harness,
+        [
+          cumulativeResult({
+            model: FOUR_CLASS_MODEL,
+            totalCostUsd: 0,
+            costUSD: 0,
+            input: 200,
+            output: 20,
+            cacheRead: 2000,
+            cacheCreation: 40,
+          }),
+          cumulativeResult({
+            model: FOUR_CLASS_MODEL,
+            totalCostUsd: 0,
+            costUSD: 0,
+            input: 300,
+            output: 30,
+            cacheRead: 2500,
+            cacheCreation: 50,
+          }),
+        ],
+        { usageCostSource: 'unreported', runToken: 'run-1' },
+      );
+
+      const net1 = price(100, 10, 1000, 20);
+      const net2 = price(200, 20, 1500, 30);
+      expect(payloads[0].turnCost).toBeCloseTo(net1, 6);
+      expect(payloads[1].turnCost).toBeCloseTo(net2 - net1, 6);
+      const total = payloads[1].sessionStats?.totalCost ?? Number.NaN;
+      expect(total).toBeCloseTo(PREFIX_COST + net2, 6);
+      expect(sumTurns(payloads)).toBeCloseTo(total - PREFIX_COST, 6);
+      expect(payloads[1].turnCost).not.toBeCloseTo(total, 6);
+    });
+
+    it('reset (saved base not restored): the first turn is the new process cumulative', async () => {
+      const harness = makeHarness();
+      const saved = savedState(MODEL, 10, {
+        input: 100,
+        output: 10,
+        cacheRead: 0,
+        cacheCreation: 0,
+      });
+      await resumeRun(harness, MODEL, saved, 'run-1');
+      const row = { model: MODEL, cacheRead: 0, cacheCreation: 0 };
+
+      const payloads = await collect(
+        harness,
+        [
+          // output 3 < saved 10: the process started from zero.
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 3,
+            costUSD: 3,
+            input: 30,
+            output: 3,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 5,
+            costUSD: 5,
+            input: 50,
+            output: 5,
+          }),
+        ],
+        { usageCostSource: 'reported', runToken: 'run-1' },
+      );
+
+      expect(payloads.map((p) => p.turnCost)).toEqual([3, 2]);
+      expect(payloads[1].sessionStats?.totalCost).toBe(PREFIX_COST + 5);
+    });
+
+    it('a restart (new runToken) measures its first turn against its own restored base', async () => {
+      const harness = makeHarness();
+      const row = { model: MODEL, cacheRead: 0, cacheCreation: 0 };
+      await resumeRun(harness, MODEL, null, 'run-1');
+      const first = await collect(
+        harness,
+        [
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 4,
+            costUSD: 4,
+            input: 40,
+            output: 4,
+          }),
+        ],
+        { usageCostSource: 'reported', runToken: 'run-1' },
+      );
+      // Run 1's process ended and saved its running total ($4).
+      const diskAfterRun1 = savedState(MODEL, 4, {
+        input: 40,
+        output: 4,
+        cacheRead: 0,
+        cacheCreation: 0,
+      });
+      await resumeRun(harness, MODEL, null, 'run-2', diskAfterRun1);
+      const second = await collect(
+        harness,
+        [
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 6,
+            costUSD: 6,
+            input: 60,
+            output: 6,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 9,
+            costUSD: 9,
+            input: 90,
+            output: 9,
+          }),
+        ],
+        { usageCostSource: 'reported', runToken: 'run-2' },
+      );
+
+      expect(first[0].turnCost).toBe(4);
+      expect(second.map((p) => p.turnCost)).toEqual([2, 3]);
+      expect(second[1].sessionStats?.totalCost).toBe(PREFIX_COST + 4 + 5);
+    });
+
+    it('an unpriced model makes the turn cost unknown (null), never 0', async () => {
+      const harness = makeHarness();
+      await resumeRun(harness, MODEL, null, 'run-1');
+      const payloads = await collect(
+        harness,
+        [
+          cumulativeResult({
+            model: 'zz-unpriced-575',
+            totalCostUsd: 0,
+            costUSD: 0,
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheCreation: 0,
+          }),
+        ],
+        { usageCostSource: 'unreported', runToken: 'run-1' },
+      );
+
+      expect(payloads[0].turnCost).toBeNull();
+      expect(payloads[0].sessionStats?.totalCost).toBeNull();
+      expect(payloads[0].sessionStats?.knownCost).toBe(PREFIX_COST);
+    });
+
+    it('a duplicate result is not published (its turn keeps its cost); a non-monotonic one carries no turn cost', async () => {
+      const harness = makeHarness();
+      harness.statsOwner.startNew(SESSION);
+      const onTurnEnd = jest.fn();
+      const row = { model: MODEL, cacheRead: 0, cacheCreation: 0 };
+      const payloads = await collect(
+        harness,
+        [
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 5,
+            costUSD: 5,
+            input: 50,
+            output: 5,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 5,
+            costUSD: 5,
+            input: 50,
+            output: 5,
+          }),
+          cumulativeResult({
+            ...row,
+            totalCostUsd: 6,
+            costUSD: 6,
+            input: 40,
+            output: 6,
+          }),
+        ],
+        { usageCostSource: 'reported', onTurnEnd },
+      );
+
+      // Three results, three turn boundaries, but only two publications: the
+      // duplicate belongs to the already-published $5 turn, and publishing a
+      // 0 for it would overwrite that message's cost.
+      expect(onTurnEnd).toHaveBeenCalledTimes(3);
+      expect(payloads.map((p) => p.turnCost)).toEqual([5, null]);
+      expect(payloads.some((p) => p.turnCost === 0)).toBe(false);
+      expect(payloads[1].sessionStats?.totalCost).toBe(5);
+    });
+
+    it('a zeroed error result and a result without an owner carry no turn cost', async () => {
+      const zeroed = {
+        ...(cumulativeResult({
+          model: MODEL,
+          totalCostUsd: 0,
+          costUSD: 0,
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheCreation: 0,
+        }) as unknown as Record<string, unknown>),
+        subtype: 'error_during_execution',
+        is_error: true,
+      } as unknown as SDKMessage;
+      const withOwner = makeHarness();
+      withOwner.statsOwner.startNew(SESSION);
+      const [ignored] = await collect(withOwner, [zeroed], {
+        usageCostSource: 'reported',
+      });
+
+      const noOwner = makeHarness();
+      const [unowned] = await collect(
+        noOwner,
+        [
+          cumulativeResult({
+            model: MODEL,
+            totalCostUsd: 7,
+            costUSD: 7,
+            input: 70,
+            output: 7,
+            cacheRead: 0,
+            cacheCreation: 0,
+          }),
+        ],
+        { usageCostSource: 'reported' },
+      );
+
+      expect(ignored.turnCost).toBeNull();
+      // The cumulative $7 of an unowned stream is never a message cost.
+      expect(unowned.turnCost).toBeNull();
+      expect(unowned.sessionStats).toBeUndefined();
+    });
+
+    it('a mid-run rate change that lowers the run cost makes that turn unknown and is logged, never 0', async () => {
+      const harness = makeHarness();
+      // Restored base: 1000 input tokens. Everything this run spends is cache
+      // reads. A catalog hydration mid-run makes input dearer and cache reads
+      // cheaper: the raw cumulative still grows, the run's own cost falls.
+      await resumeRun(
+        harness,
+        FOUR_CLASS_MODEL,
+        savedState(FOUR_CLASS_MODEL, 0, {
+          input: 1000,
+          output: 0,
+          cacheRead: 0,
+          cacheCreation: 0,
+        }),
+        'run-1',
+      );
+      const payloads: ResultStatsPayload[] = [];
+      const result = () =>
+        cumulativeResult({
+          model: FOUR_CLASS_MODEL,
+          totalCostUsd: 0,
+          costUSD: 0,
+          input: 1000,
+          output: 0,
+          cacheRead: 10000,
+          cacheCreation: 0,
+        });
+      const sdkQuery = (async function* () {
+        yield result(); // raw 1000 x 0.001 + 10000 x 0.0001 = $2; own $1
+        registerProviderPricing({
+          [FOUR_CLASS_MODEL]: {
+            inputCostPerToken: 0.002,
+            outputCostPerToken: 0.002,
+            cacheReadCostPerToken: 0.00005,
+            cacheCreationCostPerToken: 0.0005,
+          },
+        });
+        yield result(); // raw $2 + $0.50 = $2.50; own 10000 x 0.00005 = $0.50
+      })();
+
+      try {
+        await drain(
+          harness.transformer.transform({
+            sdkQuery,
+            sessionId: SESSION,
+            initialModel: MODEL,
+            runToken: 'run-1',
+            usageCostSource: 'unreported',
+            onResultStats: (stats) => payloads.push(stats),
+          }),
+        );
+      } finally {
+        // Restore the block's rate for any later case.
+        registerProviderPricing({
+          [FOUR_CLASS_MODEL]: {
+            inputCostPerToken: 0.001,
+            outputCostPerToken: 0.002,
+            cacheReadCostPerToken: 0.0001,
+            cacheCreationCostPerToken: 0.0005,
+          },
+        });
+      }
+
+      expect(payloads.map((p) => p.turnCost)).toEqual([1, null]);
+      expect(payloads[1].sessionStats?.totalCost).toBeCloseTo(
+        PREFIX_COST + 0.5,
+        6,
+      );
+      expect(harness.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('run cost went down'),
+        expect.objectContaining({ sessionId: SESSION }),
+      );
+    });
+
+    it.each([
+      ['negative', -1],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+    ])('rejects a %s turn cost from the owner', async (_label, invalid) => {
+      const harness = makeHarness();
+      harness.statsOwner.startNew(SESSION);
+      jest.spyOn(harness.statsOwner, 'replaceRun').mockReturnValue({
+        outcome: 'accepted',
+        snapshot: null,
+        firstRejection: false,
+        turnCost: invalid,
+        runCostDecreased: false,
+      });
+
+      const payloads = await collect(
+        harness,
+        [
+          cumulativeResult({
+            model: MODEL,
+            totalCostUsd: 1,
+            costUSD: 1,
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheCreation: 0,
+          }),
+        ],
+        { usageCostSource: 'reported' },
+      );
+
+      expect(payloads).toHaveLength(0);
+      expect(harness.logger.warn).toHaveBeenCalledWith(
+        '[StreamTransformer] Invalid turn cost from the session owner:',
+        expect.objectContaining({ turnCost: invalid }),
+      );
+    });
   });
 });

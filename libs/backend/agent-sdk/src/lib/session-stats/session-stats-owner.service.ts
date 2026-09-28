@@ -469,15 +469,40 @@ export class SessionStatsOwnerService {
      * caller logs it once per run rather than on every later result.
      */
     readonly firstRejection: boolean;
+    /**
+     * This result's OWN spend in USD — one message's cost, never a session or
+     * process total (the session total is `snapshot.totalCost`). See
+     * {@link acceptedTurnCost}. Only an accepted result has one: every other
+     * outcome is `null`, including a duplicate, which belongs to a turn that
+     * was already accounted for and has no cost of its own. Also `null` when
+     * either side of the delta is unpriced or the run's cost went down.
+     */
+    readonly turnCost: number | null;
+    /**
+     * `true` when this accepted result's own run cost is BELOW the previously
+     * accepted one by more than float noise: a model's rate changed mid-run.
+     * `turnCost` is `null` then; the caller logs it.
+     */
+    readonly runCostDecreased: boolean;
   } {
     const state = this.currentState(sessionId, generation);
     if (!state) {
-      return { outcome: 'stale-owner', snapshot: null, firstRejection: false };
+      return {
+        outcome: 'stale-owner',
+        snapshot: null,
+        firstRejection: false,
+        turnCost: null,
+        runCostDecreased: false,
+      };
     }
     const run = runFor(state, runToken);
+    // The last ACCEPTED cumulative value, read before `applyResult` replaces it.
+    const previous = run.current;
     const outcome = applyResult(run, result);
     let firstRejection = false;
+    let turn: AcceptedTurnCost = { turnCost: null, runCostDecreased: false };
     if (outcome === 'accepted') {
+      turn = acceptedTurnCost(result, previous, run.base ?? null);
       // `duration_ms` is per turn: only a result the run accepted adds its
       // turn. A duplicate, rejected or ignored result adds nothing.
       if (
@@ -495,6 +520,7 @@ export class SessionStatsOwnerService {
       outcome,
       snapshot: this.publish(sessionId, state),
       firstRejection,
+      ...turn,
     };
   }
 
@@ -716,6 +742,60 @@ function applyResult(run: RunState, result: RunUsageResult): RunResultOutcome {
   // A complete cumulative value covers everything the run spent so far.
   run.incomplete = false;
   return 'accepted';
+}
+
+/**
+ * The largest decrease of a run's own cost treated as float noise rather than
+ * a real change: one rounding step of {@link nonNegativeUsd}.
+ */
+const TURN_COST_NOISE_USD = 1e-6;
+
+interface AcceptedTurnCost {
+  readonly turnCost: number | null;
+  readonly runCostDecreased: boolean;
+}
+
+/**
+ * The spend of one accepted result: the run's own cumulative cost now minus
+ * its own cumulative cost at the previously accepted result, both net of the
+ * run's base through the same {@link subtractRunBase} the snapshot uses.
+ *
+ * Measuring both sides net of the same base makes the turn costs telescope:
+ * over a run they add up to that run's contribution to the snapshot total.
+ * Every turn, the first included, is rounded to 1e-6, so the sum may drift
+ * from the contribution by at most 1e-6 per turn. The first accepted result
+ * is measured against zero, so a restored base is never billed as a turn. The
+ * figure covers every model in the SDK's cumulative `modelUsage`, so it
+ * includes Task-subagent spend of the turn, while the per-turn `usage` tokens
+ * are main-loop only.
+ *
+ * `turnCost` is `null` when either side is unpriced (an unpriced row on an
+ * `'unreported'` run, an unknown reported total, or a base with unknown
+ * cost), and when the run's own cost went DOWN by more than
+ * {@link TURN_COST_NOISE_USD}. That happens only on an `'unreported'` run
+ * whose rates changed mid-run: each result is priced with the rate current
+ * when it arrives, and the runtime pricing map is re-registered when a
+ * provider catalog hydrates. The turn is then honestly unknown — never 0 —
+ * and `runCostDecreased` tells the caller to log it.
+ */
+function acceptedTurnCost(
+  accepted: RunUsageResult,
+  previous: RunUsageResult | null,
+  base: SavedCostState | null,
+): AcceptedTurnCost {
+  const unknown = { turnCost: null, runCostDecreased: false };
+  const now = subtractRunBase(accepted, base).totalCost;
+  if (now === null) return unknown;
+  if (previous === null) {
+    return { turnCost: nonNegativeUsd(now), runCostDecreased: false };
+  }
+  const before = subtractRunBase(previous, base).totalCost;
+  if (before === null) return unknown;
+  const delta = now - before;
+  if (delta < -TURN_COST_NOISE_USD) {
+    return { turnCost: null, runCostDecreased: true };
+  }
+  return { turnCost: nonNegativeUsd(delta), runCostDecreased: false };
 }
 
 /** Run a loader; a rejection reads as "nothing known". The loader logs. */
