@@ -1,5 +1,8 @@
 # Batches - TASK_2026_559_8ca9
 
+FINAL (Mode 3, 2026-09-28): every batch COMPLETE except 34.2 (task), 35, 36a, 36b, 36c — DEFERRED under User Decision 27.
+The authoritative table is "## Completion (Mode 3, 2026-09-28)". The counters below are the historical record.
+
 Total tasks: 111 | Batches: 60 | Complete: 32/60 (Batch 11b, a follow-up round of Batch 11, is COMPLETE and not counted separately; Batch 20 is COMPLETE with known issues R5-01..R5-03 carried to Batch 24d (User Decision 22). Language batches 22-38 added 2026-09-26 under User Decisions 18-19: 31 batches, 55 tasks, 5 complete — 28a, 28b, 22, 23a, 24a)
 
 Counter as of 2026-09-27 handoff (verified with git at task-branch HEAD ec6ad9bc8): COMPLETE on the task branch 32/60
@@ -2157,6 +2160,8 @@ complete declaration summary or an honest full-file result with a `reason`.
 
 ## RESUME POINT 2 (2026-09-27 evening, session handoff) — START HERE
 
+Superseded by "## Completion (Mode 3, 2026-09-28)" directly below; kept for history.
+
 Supersedes the earlier RESUME POINT below (kept for history).
 
 **Branch state (verified at handoff).** Task branch `fix/task-559-mcp-tool-contract` HEAD e6c155260, worktree
@@ -2214,6 +2219,142 @@ Known flakes: rpc-handlers harness-skill-selection (because `%TEMP%/.ptah/harnes
 it), Electron stress bundle (missing dist workspace-watch-host.mjs), protocol-dispatcher "slow empty build". Nx Cloud for this
 workspace is disabled (FREE plan exceeded) — local runs are unaffected. The `husky - command not found` hook error seen once was
 transient; a plain retry passed.
+
+## Completion (Mode 3, 2026-09-28)
+
+Branch `fix/task-559-mcp-tool-contract`, HEAD f028e46a3, base `origin/main` 9afac1aa2. Every SHA below was checked with
+`git merge-base --is-ancestor <sha> HEAD` (77 SHAs, 0 missing). No commit was made in Mode 3; the orchestrator commits
+this file, rebases onto main and opens the PR. Untracked and never staged: `code-logic-review.md`,
+`research/diagnostics-worktree-repro.ts`.
+
+### Final batch table
+
+| Batch                              | Name                                                                             | State                                                     | Commit(s)                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------- |
+| 1                                  | get_diagnostics output cap, requested files first                                | COMPLETE                                                  | 87922d8a7                                             |
+| 2a-2d                              | tool-output-reducers lib: detection, JSON, Markdown, log, HTML, code outline     | COMPLETE (known issues KI-2b-1, KI-2c-1..7, KI-2d-1/2)    | 7820e4d31, 466925a34, 7b833158e, dc5f43b50, ba56da867 |
+| 2e, 2f                             | Reducer pipeline + result budget; every response budgeted, ceiling in tools/list | COMPLETE                                                  | b93ef13a8, e131070da                                  |
+| 3, 4                               | Caller identity; server instructions from the shipped mandate                    | COMPLETE                                                  | 153fb036f, 53e823e13                                  |
+| 2x-audit, 2y-jest                  | Degradation-audit remediation; Jest `marked` mapping (unplanned)                 | COMPLETE                                                  | 51694c32c, 609b57bb5                                  |
+| 5, 6                               | Code index freshness + exact-name recall; lazy reindex + `ptah_code_reindex`     | COMPLETE                                                  | 670ee1fbc, 31c6b6995                                  |
+| 7                                  | context_enrich_file language inference + fallback reason                         | COMPLETE (KI-7-1..4)                                      | c42b8cee6                                             |
+| 8                                  | lsp_definitions index-free fallback                                              | COMPLETE                                                  | 3feea4f6a                                             |
+| 9, 9b                              | symbol_index paging + graph cap; background graph build                          | COMPLETE                                                  | 138c55f99, 00d1e43e3                                  |
+| 10                                 | workspace_analyze monorepo-first, bounded tree                                   | COMPLETE                                                  | d1d015fd4                                             |
+| 11, 11b                            | search_files notice, relevance dedupe; limit schema                              | COMPLETE                                                  | fc54a7307, 9d2637d37                                  |
+| 12, 13                             | agent_read bounded window; agent_read/agent_status surface                       | COMPLETE (KI-13-1)                                        | 7bbf72ba4, 7d92f9f77                                  |
+| 14                                 | agent_spawn resume without the resent prefix                                     | COMPLETE                                                  | 93037daed                                             |
+| 15, 16                             | task_list paging; dashboard_propose_spec schema + description budgets            | COMPLETE                                                  | ce6ba2c00, 2152a3305                                  |
+| 17, 18                             | browser_screenshot jpeg q60; browser_evaluate cap                                | COMPLETE                                                  | 3f45c6483, 31760e716                                  |
+| 19                                 | Scoped diagnostics lane                                                          | COMPLETE                                                  | 43358c04d                                             |
+| 20 (20.1/20.3, 20.2p, 20.2q, 20.2) | Harness H1                                                                       | COMPLETE (R5-01..03 closed in 24d)                        | db52fa759, 01f3daa8b, f926423a2, ac441f780            |
+| 21 (+21p/21q/21r)                  | Harness H2 contract sweep + stdio agent budgets                                  | COMPLETE                                                  | 5678513f4, 6fac0a695                                  |
+| 22, 22c                            | Coverage contract + registry; compact coverage block                             | COMPLETE                                                  | 186ba8cde, eec17be89                                  |
+| 23a, 23b, 24r                      | Graph accounting; honest graph answers; verdicts kept through reduction          | COMPLETE                                                  | 4af7d3eba, 41ed73395, 54e9c4b08                       |
+| 24a-24d                            | Parse honesty; index coverage; registry descriptions; TS/JS export kinds         | COMPLETE                                                  | a45cdd96d, efea46119, bf1a2b11b, 2509540e2            |
+| 25a+25b                            | Language-aware diagnostics                                                       | COMPLETE                                                  | 4c9a8aefa                                             |
+| 26a, 26b                           | LSP report contract; Electron reports                                            | COMPLETE                                                  | ea46dc9ad, 9e19b6cb0, d08e9557d                       |
+| 27                                 | Harness H3 polyglot fixtures + honesty contract                                  | COMPLETE                                                  | 6c91157f2, a01cc0d21                                  |
+| 28a, 28b                           | Grammar manifest; VSIX packed check                                              | COMPLETE                                                  | cf6ec11af, 5d19d8971                                  |
+| 29a1, 29a2, 29b                    | Language modules; lazy grammars; tsx                                             | COMPLETE                                                  | b2eeeebc1, f5fbec072, debb57129, 04a4874b8            |
+| 30, 31, 30k                        | Java + Rust; PHP, Ruby, C++ (.c/.h); Kotlin grammars                             | COMPLETE                                                  | 8b9b45849, e6c155260, bb54f328b                       |
+| 32a, 32b, 32c                      | Extraction contract; resolver seam; dead tsconfig parameter                      | COMPLETE                                                  | a5632f1bb, fb94c68f0, e933f8c06                       |
+| 33                                 | Python + Go graphs                                                               | COMPLETE                                                  | 49c075d3f                                             |
+| 34.1                               | C# graph                                                                         | COMPLETE                                                  | 842b8add5                                             |
+| 34.2                               | Java graph                                                                       | DEFERRED (User Decision 27)                               | —                                                     |
+| 35                                 | Rust graph                                                                       | DEFERRED (User Decision 27)                               | —                                                     |
+| 36a, 36b, 36c                      | PHP, Ruby, C/C++ graphs                                                          | DEFERRED (User Decision 27)                               | —                                                     |
+| 37a                                | Opt-in `go vet` checker                                                          | COMPLETE (real-Go hostile spec never run, Decision 30(b)) | fe3648eff                                             |
+| 37b1a-37b1d                        | Checker wiring, formatter, consent RPC, host DI                                  | COMPLETE                                                  | d9baaf969, 668dd181d, 3eb907fa5, 9b2586e5b            |
+| 37b2                               | Electron go vet consent card                                                     | COMPLETE                                                  | d61fc1d2b, 2ff8aded0, 0fe312efd                       |
+| 37b3                               | `ptah config go-vet`; `typeCheck:go` fragment                                    | COMPLETE                                                  | 4748709a6 (37b3.1), e6c155260 (37b3.2)                |
+| Lane K closing                     | Consent re-check at spawn; consent hardening                                     | COMPLETE                                                  | c5cab17fe, 9df0d81e4 (merged da21c936c)               |
+| 38a, 38                            | Carried fixes; language completion gate                                          | COMPLETE                                                  | 751c7bd78, f028e46a3                                  |
+
+### Verification summary
+
+- Scoped runs: each batch's team-leader verification (recorded in its section) ran `nx run-many -t=test,lint,typecheck`
+  with `--skip-nx-cache` on the owning projects, plus validate-deps and the degradation audit, before its commit.
+  Batch 38 gate: workspace-intelligence + vscode-lm-tools test/lint/typecheck pass; `ptah-electron:validate-deps` passes.
+- Full dependent-project run (Batch 38 carried item d): `nx run-many -t=test` over the 17 projects in RESUME POINT 2
+  step 3(d). 16 have a test target (memory-contracts has none; its typecheck passes). 3,300 tests pass. One failure:
+  rpc-handlers `harness-skill-selection-rpc.service.spec.ts` "never writes state.json", the known environment flake
+  (`%TEMP%/.ptah/harness/state.json` exists; the task does not touch `rpc-handlers/src/lib/harness`).
+- Degradation audit: `degradation-audit: TOTAL 300 unsuppressed site(s)`, unchanged, re-run in Mode 3 at f028e46a3.
+- Parity: no surface was replaced; tools were fixed in place. A grep of `name: '<tool>'` in the non-spec
+  vscode-lm-tools sources gives 52 tools at 9afac1aa2 and 53 at HEAD: all 52 are still there, and `ptah_code_reindex`
+  (Decision 1) is the one addition.
+- Real Go: `go-vet-hostile.integration.spec.ts` (8 cases) skips with a printed reason because Go is not installed here
+  and no CI workflow installs it. It has never run. Shipped that way under Decision 30(b); follow-up below.
+- Description pins (final values; the limit is on the right). No pin was raised without a reason recorded next to it
+  in the spec:
+
+| Tool / pin                                                                   | Measured | Limit                              | Recorded reason for the last change                                                                         |
+| ---------------------------------------------------------------------------- | -------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ptah_get_symbol_index` description                                          | 975      | < 1000 (`DESCRIPTION_CHAR_BUDGET`) | Batch 33 cut 4 chars of fixed wording rather than raise it; 34.1 used the compact alias list (+3 for `,cs`) |
+| `ptah_code_search_symbols`                                                   | 680      | 714                                | +12 in Batch 33: the registry publicSymbols list gained ", python, go"                                      |
+| `ptah_code_reindex`                                                          | 522      | 536                                | Pre-24b budget restored in the 24c fix round (ruling R2)                                                    |
+| `ptah_get_dependents` / `ptah_get_dependencies` / `ptah_ast_analyze` (sweep) | —        | 734 / 701 / 515                    | +12 each in Batch 33: registry graphEdges / publicSymbols lists gained ", python, go"                       |
+
+- Write-path trace (Mode 3 check 3). Two persisted writes are new in this task:
+  1. Spool files `.ptah/tmp/mcp-out/<id>-<epoch>-<hex>.txt` (Batch 2e). The trace is recorded at the Batch 2e
+     verification. The files are git-ignored and deleted after 24h.
+  2. The go vet consent record (Batches 37a, 37b1c): `<globalStoragePath>/go-vet-consent/<sha256(resolved root)[0:32]>.json`,
+     written by a temp-file-plus-rename in `GoVetConsentStore.grant`, and deleted by `revoke`. The only writer is
+     `DiagnosticsConsentRpcHandlers` (`diagnostics:go-vet-consent-set`, used by the Electron card and by
+     `ptah config go-vet on|off`). It reads back after every write. The readers are `GoVetChecker.read` plus the
+     spawn-time re-check of the record path and SHA-256 (c5cab17fe). The writer (`diagnostics-consent-rpc.handlers.ts:125`)
+     and the reader (`workspace-intelligence/src/di/register.ts:140-146`) both build the store from
+     `PLATFORM_INFO.globalStoragePath`, so they use the same key, the same file and the same strict `v:1` format.
+     Every read fails closed. There are no environment-variable side effects. Nothing is written into the repository,
+     VS Code settings or config files. VS Code does not have the capability (`goVetDiagnostics: false`).
+  - Batch 6's lazy reindex writes only to the existing `code_symbols` store through the existing governor. It adds no
+    new key or format.
+- Visual: Batch 37b2 added the Electron "Run `go vet` for this workspace" card (Settings → Tools, Electron only). There
+  is no `prototype/` for this task, so the card was reviewed against the written contract in O2 §5.1. Review history:
+  r1 NEEDS REVISION 6/10 (contrast, target size, badge disagreement); r2 APPROVED after the visual fixes 2ff8aded0 and
+  0fe312efd; r3 APPROVED after the consent hardening 9df0d81e4. The user approved the r3 screenshots under
+  Decision 30(a): 12 images, dark + light, 800/1280 px. They live in `.claude-worktrees/task-559-lane-k/.ptah/specs/
+TASK_2026_559_8ca9/screenshots/37b2/r3/` (untracked by design). The review record is `visual-review-37b2.md`.
+  Not verified: whether a real keyboard Tab shows a visible focus ring (see the follow-up below).
+
+### Reviewer history
+
+- Batches 1-10 (sequential): one Codex CLI lane per batch, cross-side, with up to 2 revise rounds, then a bounded
+  correction and a post-cap review, then the user (Decisions 8-16).
+- Parallel lanes (Decision 17, from Batch 11 on): the review bar stayed the same. Reviews were cross-side: Codex
+  reviewed Claude-authored batches and the Claude `code-logic-reviewer` reviewed Codex/Antigravity-authored ones.
+  Antigravity reviewed only low-risk batches. It approved every Lane K batch while the Codex closing review found 4
+  real Blockings, so it was never relied on alone.
+- Decision 24 (from 21r/26a on): one review round per batch. The next review in the same lane verifies the fixes, and
+  each lane gets a closing review (Lane A: `lane-a-closing-review-30k.md` APPROVE 9/10; Lane K: closing r1-r3). From
+  2026-09-28, opencode `opencode-go/glm-5.3` replaced Antigravity for low-risk batches (32c).
+- Codex hit its usage limit (until 2026-10-03) during the Lane G2 closing review. From that point Decision 29
+  applied: the G2 closing review (34.1) and the Batch 38 closing review each ran two independent reviewers, the Claude
+  `code-logic-reviewer` and GLM 5.3. The 34.1 reviews were APPROVE 8/10 (Claude) and REVISE 6/10 (GLM); one fix round
+  followed, verified by the Batch 38 reviews. Batch 38 was APPROVE 8/10 (Claude) and APPROVE 9/10 (GLM, re-run fresh
+  on the `Glm` ptah-cli lane after two opencode "Unknown error" failures).
+- Every batch passed its applicable review before its commit, or was committed under a recorded user decision with
+  its known issues listed (Decisions 11, 12, 13, 20, 22, 23).
+
+### Validation risks → resolution
+
+| Risk (plan validation)                                                                    | Resolution                                                                                          |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Global cap cuts tools with larger documented bounds / cuts diagnostics before its own cap | Batch 1 cap first; per-tool override table + `preformatted` hint (2e/2f)                            |
+| Single-line JSON cut leaves invalid JSON                                                  | JSON reducer first (2b); char cut + mandatory spool + partial trailer (2e)                          |
+| Spool filename collision / spool write failure                                            | `<id>-<epoch>-<hex>` names, 24h pruning, and a failed write returns capped text with a trailer (2e) |
+| Telemetry volume                                                                          | `debug`, one line per call (2f)                                                                     |
+| Lazy reindex deadlock / double run                                                        | Fire-and-forget, `userInitiated:false`, per-workspace latch (6)                                     |
+| Required port method breaks doubles                                                       | `getIndexFreshness?` optional (5)                                                                   |
+| dashboard schema drift                                                                    | Fixtures pinned against the advertised schema; Zod stays the enforcer (16)                          |
+| agent_read tail hides the report end                                                      | Last 200 lines + `offset` + counts (12, 13)                                                         |
+| Resume without the role prefix loses context                                              | Per-adapter skip, only where native resume is verified (14)                                         |
+| Monorepo-first reclassifies single apps                                                   | Single-signal fixtures unchanged + a combined Nx fixture (10)                                       |
+| Graph pre-warm freeze                                                                     | Not built; background build through the governor with a `building` answer (9, 9b)                   |
+| Worktree 45 s diagnostics case                                                            | Root cause: head-of-line blocking; separate scoped lane (19)                                        |
+| Cold single-lib diagnostics cost                                                          | Not fixed; carried (Follow-ups, TASK_2026_561)                                                      |
+| Harness pins broken numbers                                                               | Harness batches 20/21/27/38 ran after the fixes they measure                                        |
 
 ## RESUME POINT (2026-09-27, session handoff)
 
@@ -3344,7 +3485,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 24b: Code index live coverage — COMMITTED on Lane H, not merged (efea46119)
+## Batch 24b: Code index live coverage — COMPLETE (commit efea46119, merged 7d908f79f)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3353,7 +3494,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 22, Lane A Batch 13 merged
 
-### Task 24b.1: Indexer accounting and live state — PENDING
+### Task 24b.1: Indexer accounting and live state — COMPLETE
 
 - Files: `WI/services/code-symbol-indexer.service.ts`, `WI/services/code-symbol-indexer.service.spec.ts`
 - Plan reference: "Code symbol tools (24b)"
@@ -3362,7 +3503,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB "search during a run reports updating". Required tests: same-file overlap (per-file reindex racing a full-run write), 2,001st distinct per-file update, search after abort → `incomplete`. Re-verify by grep that the indexer is the only `code_symbols` writer and record it
 - Implementation details: no SQLite snapshot claim
 
-### Task 24b.2: Namespace shapes and unsupported answers — PENDING
+### Task 24b.2: Namespace shapes and unsupported answers — COMPLETE
 
 - Depends on: Task 24b.1
 - Files: `MCP/namespace-builders/code-namespace.builder.ts`, `MCP/namespace-builders/code-namespace.builder.spec.ts`, `MCP/types.ts`
@@ -3380,7 +3521,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 23b: Graph tools answer honestly; bounded discovery — COMMITTED on Lane H, not merged (41ed73395; R5-B1/R5-M1 carried to 25a, User Decision 23)
+## Batch 23b: Graph tools answer honestly; bounded discovery — COMPLETE (commit 41ed73395, merged 7d908f79f; R5-B1/R5-M1 carried to 25a, User Decision 23)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3389,7 +3530,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 23a, Batch 24b (lane order), Lane A Batch 13 merged
 
-### Task 23b.1: `discoverSourceFiles` with vendor excludes inside the walk — PENDING
+### Task 23b.1: `discoverSourceFiles` with vendor excludes inside the walk — COMPLETE
 
 - Files: `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`, `MCP/types.ts`, `MCP/ptah-api-builder.service.ts`
 - Plan reference: "Bounds" (Discovery row); codebase evidence `core-namespace.builders.ts:149-159`, `file-system-provider.interface.ts:106-113`
@@ -3398,7 +3539,7 @@ Edge cases (carried by the named task):
 - Validation notes: ASSUMPTION — check `ptah-api-builder.service.ts` for `fileSystemProvider` in the analysis deps before editing. FB "vendor tree does not exhaust discovery"
 - Implementation details: recognised-unsupported extensions counted through the same bounded call
 
-### Task 23b.2: Dispatcher answers with coverage — PENDING
+### Task 23b.2: Dispatcher answers with coverage — COMPLETE
 
 - Depends on: Task 23b.1
 - Files: `MCP/mcp-core/protocol-dispatcher.ts`, `MCP/mcp-core/protocol-dispatcher.spec.ts`
@@ -3426,7 +3567,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 25a: Diagnostics contract + language-aware provider — implemented on Lane H, unreviewed, uncommitted
+## Batch 25a: Diagnostics contract + language-aware provider — COMPLETE (commit 4c9a8aefa with 25b, merged 7d908f79f)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3435,7 +3576,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batches 22, 23a, 23b (bounded `discoverSourceFiles`)
 
-### Task 25a.1: Contract amendment — PENDING
+### Task 25a.1: Contract amendment — COMPLETE
 
 - Files: `PC/interfaces/diagnostics-provider.interface.ts`, `PC/testing/contracts/run-diagnostics-provider-contract.ts`
 - Plan reference: "Diagnostics" → "25a contract"
@@ -3444,7 +3585,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB is that contract case (fails on base: no syntax-only concept)
 - Implementation details: existing providers remain contract-compliant (coverage optional where the provider cannot know)
 
-### Task 25a.2: `LanguageAwareDiagnosticsProvider` — PENDING
+### Task 25a.2: `LanguageAwareDiagnosticsProvider` — COMPLETE
 
 - Depends on: Task 25a.1
 - Files: `WI/diagnostics/language-aware-diagnostics-provider.ts` (new), `WI/diagnostics/language-aware-diagnostics-provider.spec.ts` (new), `WI/di/register.ts`
@@ -3472,7 +3613,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 25b: Diagnostics forwarding + end-to-end — PENDING
+## Batch 25b: Diagnostics forwarding + end-to-end — COMPLETE (commit 4c9a8aefa with 25a, merged 7d908f79f)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3481,7 +3622,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 25a
 
-### Task 25b.1: Forward coverage; clean-answer rendering — PENDING
+### Task 25b.1: Forward coverage; clean-answer rendering — COMPLETE
 
 - Files: `MCP/namespace-builders/core-namespace.builders.ts`, `MCP/namespace-builders/core-namespace.builders.spec.ts`, `MCP/types.ts`, `MCP/mcp-core/mcp-response-formatter.ts`, `MCP/mcp-core/mcp-response-formatter.spec.ts`
 - Plan reference: "25b forwarding and rendering"; codebase evidence `core-namespace.builders.ts:225-231, :254-259`, `mcp-response-formatter.ts:515-520`
@@ -3490,7 +3631,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB "mixed repo never prints a bare No issues found". Diagnostics stay `preformatted` (not reduced; Batch 2e)
 - Implementation details: qualifier text names the qualifier
 
-### Task 25b.2: End-to-end spec — PENDING
+### Task 25b.2: End-to-end spec — COMPLETE
 
 - Depends on: Task 25b.1
 - Files: `MCP/mcp-core/diagnostics-coverage.e2e.spec.ts` (new)
@@ -3508,7 +3649,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 26a: LSP report contract + forwarding — PENDING
+## Batch 26a: LSP report contract + forwarding — COMPLETE (commit ea46dc9ad, merged 7d908f79f)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3517,7 +3658,7 @@ Edge cases (carried by the named task):
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 25b
 
-### Task 26a.1: Report methods on the IDE capability contract — PENDING
+### Task 26a.1: Report methods on the IDE capability contract — COMPLETE
 
 - Files: `MCP/namespace-builders/ide-namespace.builder.ts`, `MCP/namespace-builders/ide-namespace.builder.spec.ts`, `MCP/types.ts`
 - Plan reference: "LSP honesty" → 26a; codebase evidence `ide-namespace.builder.ts:42-56, :214-222, :345-352`
@@ -3526,7 +3667,7 @@ Edge cases (carried by the named task):
 - Validation notes: FB "no-host definitions are not Found: 0"
 - Implementation details: none beyond the plan
 
-### Task 26a.2: Dispatcher and formatter rendering — PENDING
+### Task 26a.2: Dispatcher and formatter rendering — COMPLETE
 
 - Depends on: Task 26a.1
 - Files: `MCP/mcp-core/protocol-dispatcher.ts`, `MCP/mcp-core/protocol-dispatcher.spec.ts`, `MCP/mcp-core/mcp-response-formatter.ts`
@@ -3544,7 +3685,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 26b: Electron report, C# fallback, narrowing gate — PENDING
+## Batch 26b: Electron report, C# fallback, narrowing gate — COMPLETE (commits 9e19b6cb0, d08e9557d)
 
 - Recommended executor: Antigravity CLI lane, Lane E (`task-559-lane-e`, branched after 26a merges)
 - Fallback executor: backend-developer (sub-agent)
@@ -3553,7 +3694,7 @@ Edge cases (carried by the named task):
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batches 26a, 23b
 
-### Task 26b.1: Report methods; scan extensions; C# fallback — PENDING
+### Task 26b.1: Report methods; scan extensions; C# fallback — COMPLETE
 
 - Files: `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.ts`, `<WT>/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts`
 - Plan reference: "LSP honesty" → 26b; codebase evidence `Electron:72-93, :153, :459-460, :632-667, :683-685`
@@ -3562,7 +3703,7 @@ Edge cases (carried by the named task):
 - Validation notes: node names proven against the shipped C# WASM
 - Implementation details: none beyond the plan
 
-### Task 26b.2: Per-query narrowing gate — PENDING
+### Task 26b.2: Per-query narrowing gate — COMPLETE
 
 - Depends on: Task 26b.1
 - Files: same two files
@@ -3580,7 +3721,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 22c: Compact coverage block — COMMITTED on Lane H, not merged (eec17be89) (added 2026-09-27, User Decision 21)
+## Batch 22c: Compact coverage block — COMPLETE (commit eec17be89, merged 7d908f79f) (added 2026-09-27, User Decision 21)
 
 - Recommended executor: backend-developer (sub-agent), Lane H after Batch 23b; review: Codex CLI lane
 - Rationale: the coverage block (Batch 22 / 24r, up to ~1,000 chars) made small `get_dependents` answers larger than a
@@ -3605,7 +3746,7 @@ Edge cases (carried by the named task):
 
 ---
 
-## Batch 24d: Code index records every TS/JS export kind — PENDING (added 2026-09-27, orchestrator)
+## Batch 24d: Code index records every TS/JS export kind — COMPLETE (commit 2509540e2) (added 2026-09-27, orchestrator)
 
 - Recommended executor: backend-developer (sub-agent); review: Codex CLI lane
 - Rationale: the Batch 20.2 r3 review (`reviews/batch-20b-code-logic-review-r3.md`) measured that the code-symbol
@@ -3647,7 +3788,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 24c: Registry-generated descriptions — PENDING
+## Batch 24c: Registry-generated descriptions — COMPLETE (commit bf1a2b11b)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3656,7 +3797,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Codex CLI lane
 - Tasks: 1 | Depends on: Batch 26a, Lane A Batches 13 and 21 merged
 
-### Task 24c.1: `languagesNote(capability)` in per-tool descriptions — PENDING
+### Task 24c.1: `languagesNote(capability)` in per-tool descriptions — COMPLETE
 
 - Files: `MCP/mcp-core/tool-description.builder.ts`, `MCP/mcp-core/tool-description.builder.spec.ts`; conditional: `MCP/mcp-core/mcp-contract.sweep.spec.ts` (only to re-measure the pinned `tools/list` size, with date, if the new text exceeds it)
 - Plan reference: "Descriptions (24c)"
@@ -3682,7 +3823,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 27: Harness H3 — polyglot fixtures, fixed keys, honesty contract — PENDING
+## Batch 27: Harness H3 — polyglot fixtures, fixed keys, honesty contract — COMPLETE (commits 6c91157f2, a01cc0d21)
 
 - Recommended executor: senior-tester (sub-agent), Lane T (`task-559-lane-t`)
 - Fallback executor: backend-developer
@@ -3691,7 +3832,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Codex CLI lane
 - Tasks: 3 | Depends on: Batch 20.1 (merged), the whole honesty chain 22, 23a, 23b, 24a, 24b, 24c, 25a, 25b, 26a, 26b; Lane A Batch 21 merged
 
-### Task 27.1: Polyglot fixtures — PENDING
+### Task 27.1: Polyglot fixtures — COMPLETE
 
 - Files: `WIT/polyglot-fixtures.ts` (new)
 - Plan reference: "Harness" → "Fixtures"
@@ -3700,7 +3841,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: import/require shapes built by concatenation
 - Implementation details: none beyond the plan
 
-### Task 27.2: Required keys, baseline fragment, honesty contract spec — PENDING
+### Task 27.2: Required keys, baseline fragment, honesty contract spec — COMPLETE
 
 - Depends on: Task 27.1
 - Files: `WIT/matrix/required-keys.ts` (new), `WIT/matrix/activations/b27-baseline.ts` (new), `WIT/language-honesty.contract.spec.ts` (new)
@@ -3710,7 +3851,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: FB per D6 — deliberate local revert of one honesty fix fails its key (shown, then restored)
 - Implementation details: each honesty key asserted against that tool's own contract (ast error; enrich full content + reason)
 
-### Task 27.3: Dispatcher coverage spec; 21 reconciliation — PENDING
+### Task 27.3: Dispatcher coverage spec; 21 reconciliation — COMPLETE
 
 - Depends on: Task 27.2
 - Files: `MCP/mcp-core/mcp-language-coverage.spec.ts` (new), `MCP/mcp-core/mcp-contract.sweep.spec.ts`, `MCP/mcp-core/mcp-mandate-manifest.spec.ts`
@@ -3826,7 +3967,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 29a1: Language modules (pure move) — PENDING
+## Batch 29a1: Language modules (pure move) — COMPLETE (commit b2eeeebc1)
 
 - Recommended executor: Codex CLI lane, Lane G (`task-559-lane-g`)
 - Fallback executor: backend-developer (sub-agent)
@@ -3835,7 +3976,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batches 27, 28a
 
-### Task 29a1.1: Move entries and queries to `languages/<id>.language.ts` — PENDING
+### Task 29a1.1: Move entries and queries to `languages/<id>.language.ts` — COMPLETE
 
 - Files: `WI/ast/languages/typescript.language.ts`, `…/javascript.language.ts`, `…/python.language.ts`, `…/go.language.ts`, `…/csharp.language.ts`, `…/index.ts`, `…/types.ts` (all new under `WI/ast/languages/`), `WI/ast/tree-sitter.config.ts`, `WI/ast/language-registry.ts`
 - Plan reference: "Grammars and queries" → 29a1
@@ -3852,7 +3993,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 29a2: Lazy isolated grammar loading — PENDING
+## Batch 29a2: Lazy isolated grammar loading — COMPLETE (commit f5fbec072)
 
 - Recommended executor: Codex CLI lane, Lane G
 - Fallback executor: backend-developer (sub-agent)
@@ -3861,7 +4002,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batch 29a1
 
-### Task 29a2.1: Per-language latch; too-large refusal — PENDING
+### Task 29a2.1: Per-language latch; too-large refusal — COMPLETE
 
 - Files: `WI/ast/tree-sitter-parser.service.ts`, `WI/ast/tree-sitter-parser.service.spec.ts`
 - Plan reference: 29a2; codebase evidence `tree-sitter-parser.service.ts:113-149`
@@ -3870,7 +4011,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: FB "a failing grammar does not disable the others". 24a `parseStatus` behaviour unchanged
 - Implementation details: concurrent first uses share one load
 
-### Task 29a2.2: Manifest ↔ registry spec — PENDING
+### Task 29a2.2: Manifest ↔ registry spec — COMPLETE
 
 - Depends on: Task 29a2.1
 - Files: `WI/ast/grammar-manifest.spec.ts` (new)
@@ -3888,7 +4029,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 29b: tsx, atomic — PENDING
+## Batch 29b: tsx, atomic — COMPLETE (commits debb57129, 04a4874b8)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -3897,7 +4038,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: Batch 29a2
 
-### Task 29b.1: `tsx` id, module, outliner, manifest, fragment — PENDING
+### Task 29b.1: `tsx` id, module, outliner, manifest, fragment — COMPLETE
 
 - Files: `WI/ast/ast.types.ts`, `WI/ast/languages/tsx.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/tsx-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`, `WIT/matrix/activations/b29b.ts` (new)
 - Plan reference: 29b; "Required keys" (parse/outline/codeIndex/enrichSummary: tsx)
@@ -3906,7 +4047,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: FB "tsx outline not refused"; new keys fail on base 29a2. Host typechecks (ptah-cli, ptah-electron) green in the same commit
 - Implementation details: none beyond the plan
 
-### Task 29b.2: Enrichment gate and namespace alias removal — PENDING
+### Task 29b.2: Enrichment gate and namespace alias removal — COMPLETE
 
 - Depends on: Task 29b.1
 - Files: `WI/context-analysis/context-enrichment.service.ts`, `WI/context-analysis/context-enrichment.service.spec.ts`, `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`
@@ -3924,7 +4065,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 30: Java + Rust grammars — PENDING
+## Batch 30: Java + Rust grammars — COMPLETE (commit 8b9b45849)
 
 - Recommended executor: Antigravity CLI lane, Lane G (G1 phase)
 - Fallback executor: backend-developer (sub-agent)
@@ -3933,7 +4074,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batch 29b
 
-### Task 30.1: Java — PENDING
+### Task 30.1: Java — COMPLETE
 
 - Files: `WI/ast/ast.types.ts`, `WI/ast/languages/java.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/java-rust-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`
 - Plan reference: query table (java row); "Required keys" (parse/outline/codeIndex/syntaxDiagnostics: java)
@@ -3942,7 +4083,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: new keys fail on base 29b
 - Implementation details: `graphEdges`/`publicSymbols` stay off (34 owns them)
 
-### Task 30.2: Rust and the fragment — PENDING
+### Task 30.2: Rust and the fragment — COMPLETE
 
 - Depends on: Task 30.1
 - Files: `WI/ast/languages/rust.language.ts` (new), same shared files as 30.1, `WIT/matrix/activations/b30.ts` (new)
@@ -3960,7 +4101,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 31: PHP, Ruby, C++ grammars (`.c/.h` via cpp) — PENDING
+## Batch 31: PHP, Ruby, C++ grammars (`.c/.h` via cpp) — COMPLETE (commit e6c155260)
 
 - Recommended executor: Antigravity CLI lane, Lane G (G1)
 - Fallback executor: backend-developer (sub-agent)
@@ -3969,7 +4110,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 3 | Depends on: Batch 30
 
-### Task 31.1: PHP — PENDING
+### Task 31.1: PHP — COMPLETE
 
 - Files: `WI/ast/ast.types.ts`, `WI/ast/languages/php.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/php-ruby-cpp-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `<WT>/scripts/tree-sitter-grammars.json`
 - Plan reference: query table (php row)
@@ -3978,7 +4119,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: keys fail on base 30
 - Implementation details: none
 
-### Task 31.2: Ruby — PENDING
+### Task 31.2: Ruby — COMPLETE
 
 - Depends on: Task 31.1
 - Files: `WI/ast/languages/ruby.language.ts` (new) + the shared files of 31.1
@@ -3988,7 +4129,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: none
 - Implementation details: none
 
-### Task 31.3: C++ with `.c`/`.h`, and the fragment — PENDING
+### Task 31.3: C++ with `.c`/`.h`, and the fragment — COMPLETE
 
 - Depends on: Task 31.2
 - Files: `WI/ast/languages/cpp.language.ts` (new) + the shared files of 31.1, `WIT/matrix/activations/b31.ts` (new)
@@ -4006,7 +4147,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 30k: Kotlin grammar (vendored, required) — COMPLETE (fixes verified by the Lane A closing review)
+## Batch 30k: Kotlin grammar (vendored, required) — COMPLETE (commit bb54f328b; fixes verified by the Lane A closing review)
 
 - Recommended executor: Antigravity CLI lane, Lane G (G1)
 - Fallback executor: backend-developer (sub-agent)
@@ -4015,7 +4156,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batch 31, O3 provenance gate
 
-### Task 30k.1: Vendored asset + manifest row — PENDING
+### Task 30k.1: Vendored asset + manifest row — COMPLETE
 
 - Files: `<WT>/assets/tree-sitter/tree-sitter-kotlin.wasm` (new; path per the 28a manifest, D7), `<WT>/assets/tree-sitter/LICENSE-tree-sitter-kotlin` (new), `<WT>/scripts/tree-sitter-grammars.json`
 - Plan reference: "Grammar sources" (Kotlin row); "Security notes"
@@ -4024,7 +4165,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: the file is binary — confirm `.gitattributes` treats `.wasm` as binary
 - Implementation details: real artifact delta (+~3.4 MB raw) recorded
 
-### Task 30k.2: Module, outliner, integration spec, fragment — PENDING
+### Task 30k.2: Module, outliner, integration spec, fragment — COMPLETE
 
 - Depends on: Task 30k.1
 - Files: `WI/ast/ast.types.ts`, `WI/ast/languages/kotlin.language.ts` (new), `WI/ast/languages/index.ts`, `WI/ast/kotlin-grammar.integration.spec.ts` (new), `MCP/mcp-core/code-outliner.adapter.ts`, `MCP/mcp-core/code-outliner.adapter.spec.ts`, `WIT/matrix/activations/b30k.ts` (new)
@@ -4072,7 +4213,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batches 29b, 30 (D3)
 
-### Task 32a.1: Contract and service — PENDING
+### Task 32a.1: Contract and service — COMPLETE
 
 - Files: `WI/ast/ast-analysis.interfaces.ts`, `WI/ast/ast-analysis.service.ts`, `WI/ast/ast-analysis.service.spec.ts`, `WI/ast/languages/types.ts`
 - Plan reference: "Extraction contract (32a)"; codebase evidence `ast-analysis.service.ts:83-95, :300-301, :320-420`
@@ -4081,7 +4222,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: existing TS/JS specs unchanged
 - Implementation details: C# nested namespaces concatenate; Rust inline modules nest; file-scoped namespaces cover the rest of the file
 
-### Task 32a.2: Per-language declaration queries and fixtures — PENDING
+### Task 32a.2: Per-language declaration queries and fixtures — COMPLETE
 
 - Depends on: Task 32a.1
 - Files: `WI/ast/languages/python.language.ts`, `…/go.language.ts`, `…/csharp.language.ts`, `…/java.language.ts`, `…/rust.language.ts` (all G2-owned after the 30 handoff)
@@ -4099,7 +4240,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 32b: Resolver seam, context, bounds — COMPLETE (fixes verified by the Batch 33 review)
+## Batch 32b: Resolver seam, context, bounds — COMPLETE (commit fb94c68f0; fixes verified by the Batch 33 review)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4108,7 +4249,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batch 32a
 
-### Task 32b.1: `ImportResolver` seam and TS/JS resolver — PENDING
+### Task 32b.1: `ImportResolver` seam and TS/JS resolver — COMPLETE
 
 - Files: `WI/ast/import-resolution/import-resolver.ts` (new), `WI/ast/import-resolution/ts-js-import-resolver.ts` (new)
 - Plan reference: "Resolver dispatch (32b)"; TS/JS resolution row
@@ -4117,7 +4258,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: FB "tsconfig alias resolves on the MCP path"
 - Implementation details: case rule (exact first; unique case-fold → `case-folded`; ambiguous → `unresolved-internal`)
 
-### Task 32b.2: `ResolverContext`, bounds, graph dispatch — PENDING
+### Task 32b.2: `ResolverContext`, bounds, graph dispatch — COMPLETE
 
 - Depends on: Task 32b.1
 - Files: `WI/ast/import-resolution/resolver-context.ts` (new), `WI/ast/import-resolution/resolver-context.spec.ts` (new), `WI/ast/dependency-graph.service.ts`, `WI/ast/dependency-graph.service.spec.ts`
@@ -4149,7 +4290,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 32c: Drop the dead tsconfig parameter — COMPLETE
+## Batch 32c: Drop the dead tsconfig parameter — COMPLETE (commit e933f8c06)
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -4158,7 +4299,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Codex CLI lane
 - Tasks: 1 | Depends on: Batch 32b
 
-### Task 32c.1: Remove the unused parameter — PENDING
+### Task 32c.1: Remove the unused parameter — COMPLETE
 
 - Files: `MCP/namespace-builders/analysis-namespace.builders.ts`, `MCP/namespace-builders/analysis-namespace.builders.spec.ts`
 - Plan reference: codebase evidence `analysis-namespace.builders.ts:453`
@@ -4188,7 +4329,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 33: Python + Go graphs — COMPLETE (fixes verified by the Batch 34.1 review)
+## Batch 33: Python + Go graphs — COMPLETE (commit 49c075d3f; fixes verified by the Batch 34.1 review)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4197,7 +4338,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batches 32b, 27
 
-### Task 33.1: Python resolver — PENDING
+### Task 33.1: Python resolver — COMPLETE
 
 - Files: `WI/ast/import-resolution/python-import-resolver.ts` (new), `…/python-import-resolver.spec.ts` (new), `WI/ast/languages/python.language.ts`
 - Plan reference: resolution table (Python row)
@@ -4206,7 +4347,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: keys fail on base 32b
 - Implementation details: pyproject read text-only, bounded
 
-### Task 33.2: Go resolver and the fragment — PENDING
+### Task 33.2: Go resolver and the fragment — COMPLETE
 
 - Depends on: Task 33.1
 - Files: `WI/ast/import-resolution/go-import-resolver.ts` (new), `…/go-import-resolver.spec.ts` (new), `WI/ast/languages/go.language.ts`, `WIT/matrix/activations/b33.ts` (new)
@@ -4242,7 +4383,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 34: C# + Java graphs — 34.1 COMPLETE (fixes verified by the Batch 38 closing review); 34.2 DEFERRED (User Decision 27)
+## Batch 34: C# + Java graphs — 34.1 COMPLETE (commit 842b8add5; fixes verified by the Batch 38 closing review); 34.2 DEFERRED (User Decision 27)
 
 ### Batch 34.1 review history — Lane G2 closing (User Decisions 24, 29)
 
@@ -4269,7 +4410,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 2 | Depends on: Batches 33, 30
 
-### Task 34.1: C# resolver — PENDING
+### Task 34.1: C# resolver — COMPLETE
 
 - Files: `WI/ast/import-resolution/csharp-import-resolver.ts` (new), `…/csharp-import-resolver.spec.ts` (new), `WI/ast/languages/csharp.language.ts`
 - Plan reference: resolution table (C# row)
@@ -4278,7 +4419,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: keys fail on base 33
 - Implementation details: none
 
-### Task 34.2: Java resolver and the fragment — PENDING
+### Task 34.2: Java resolver and the fragment — DEFERRED (User Decision 27)
 
 - Depends on: Task 34.1
 - Files: `WI/ast/import-resolution/jvm-import-resolver.ts` (new), `…/jvm-import-resolver.spec.ts` (new), `WI/ast/languages/java.language.ts`, `WIT/matrix/activations/b34.ts` (new)
@@ -4305,7 +4446,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batch 34
 
-### Task 35.1: Rust resolver, Cargo context, fragment — PENDING
+### Task 35.1: Rust resolver, Cargo context, fragment — DEFERRED (User Decision 27)
 
 - Files: `WI/ast/import-resolution/rust-import-resolver.ts` (new), `…/rust-import-resolver.spec.ts` (new), `WI/ast/languages/rust.language.ts`, `WI/ast/import-resolution/resolver-context.ts`, `WIT/matrix/activations/b35.ts` (new)
 - Plan reference: resolution table (Rust row)
@@ -4331,7 +4472,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batches 35, 31
 
-### Task 36a.1: PHP resolver and fragment — PENDING
+### Task 36a.1: PHP resolver and fragment — DEFERRED (User Decision 27)
 
 - Files: `WI/ast/import-resolution/php-import-resolver.ts` (new), `…/php-import-resolver.spec.ts` (new), `WI/ast/languages/php.language.ts`, `WIT/matrix/activations/b36a.ts` (new); `resolver-context.ts` only if composer reading is not already generic (then 5 files)
 - Plan reference: resolution table (PHP row)
@@ -4357,7 +4498,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batch 36a
 
-### Task 36b.1: Ruby resolver and fragment — PENDING
+### Task 36b.1: Ruby resolver and fragment — DEFERRED (User Decision 27)
 
 - Files: `WI/ast/import-resolution/ruby-import-resolver.ts` (new), `…/ruby-import-resolver.spec.ts` (new), `WI/ast/languages/ruby.language.ts`, `WIT/matrix/activations/b36b.ts` (new)
 - Plan reference: resolution table (Ruby row)
@@ -4383,7 +4524,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Claude `code-logic-reviewer` subagent
 - Tasks: 1 | Depends on: Batch 36b
 
-### Task 36c.1: C/C++ resolver and fragment — PENDING
+### Task 36c.1: C/C++ resolver and fragment — DEFERRED (User Decision 27)
 
 - Files: `WI/ast/import-resolution/cpp-import-resolver.ts` (new), `…/cpp-import-resolver.spec.ts` (new), `WI/ast/languages/cpp.language.ts`, `WIT/matrix/activations/b36c.ts` (new); `resolver-context.ts` only if `compile_commands.json` reading is added there
 - Plan reference: resolution table (C/C++ row)
@@ -4400,7 +4541,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 37a: `go vet` checker (required) — PENDING
+## Batch 37a: `go vet` checker (required) — COMPLETE (commit fe3648eff)
 
 - Recommended executor: backend-developer (sub-agent), Lane K (`task-559-lane-k`)
 - Fallback executor: backend-developer, fresh invocation
@@ -4409,7 +4550,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Review: Codex CLI lane
 - Tasks: 2 | Depends on: O2 amendment reviewed, Batch 25a
 
-### Task 37a.1: Checker runner — PENDING
+### Task 37a.1: Checker runner — COMPLETE
 
 - Files: `WI/diagnostics/external-checkers/checker-runner.ts` (new), `WI/diagnostics/external-checkers/checker-runner.spec.ts` (new)
 - Plan reference: "Tier 1" (Binary, Environment, Execution, Isolation, Consent)
@@ -4418,7 +4559,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - Validation notes: fake-spawner tests: hostile PATH/env, delayed spawn then timeout, overflow, non-zero exit, cancellation, partial success. No paths or raw error text logged
 - Implementation details: FB "hostile PATH entry rejected"
 
-### Task 37a.2: `go vet` checker and hostile fixture — PENDING
+### Task 37a.2: `go vet` checker and hostile fixture — COMPLETE
 
 - Depends on: Task 37a.1
 - Files: `WI/diagnostics/external-checkers/go-vet-checker.ts` (new), `…/go-vet-checker.spec.ts` (new), `…/go-vet-hostile.integration.spec.ts` (new)
@@ -4436,7 +4577,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 37b: Checker host wiring + consent surfaces — PENDING (split into 37b1 / 37b2 / 37b3, 2026-09-27)
+## Batch 37b: Checker host wiring + consent surfaces — COMPLETE (all six units; Lane K closing fixes c5cab17fe, 9df0d81e4; Lane K merged da21c936c) (split into 37b1 / 37b2 / 37b3, 2026-09-27)
 
 Decomposed from O2 (`o2-go-vet-consent-surface.md`, current text incl. "Revision (review r1)"; §8 splits 37b three
 ways: backend, Electron card, CLI). O2's backend part (37b-i) names ~14 files across 6 projects, which exceeds the
@@ -4455,7 +4596,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - **Mode 3 note:** 37b2 adds a rendered Electron card, so the "Visual: no UI change. N/A" completion note no longer
   holds for this task; visual-reviewer evidence (dark + light) for the card is required at completion
 
-### Batch 37b1a: Runner kill fix + provider wiring (WI) — PENDING
+### Batch 37b1a: Runner kill fix + provider wiring (WI) — COMPLETE (commit d9baaf969)
 
 - Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
@@ -4464,7 +4605,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
 - Tasks: 2 | Depends on: Batch 37a
 
-#### Task 37b1a.1: Runner cleanup-failure fix (37a r1 Moderate, finding 4) — PENDING
+#### Task 37b1a.1: Runner cleanup-failure fix (37a r1 Moderate, finding 4) — COMPLETE
 
 - Files: `WI/diagnostics/external-checkers/checker-runner.ts`, `…/checker-runner.spec.ts`
 - Plan reference: `reviews/batch-37a-code-logic-review-r1.md` finding 4 (Lane K worktree); O2 §4.3 "Limits"
@@ -4475,7 +4616,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - FB spec: rejecting terminator → `handle.kill` called once (fails on fe3648eff); default-helper failure reaches the
   observer (fails on fe3648eff)
 
-#### Task 37b1a.2: Attach the checker to the language-aware provider — PENDING
+#### Task 37b1a.2: Attach the checker to the language-aware provider — COMPLETE
 
 - Depends on: Task 37b1a.1
 - Files: `WI/diagnostics/language-aware-diagnostics-provider.ts`, `…/language-aware-diagnostics-provider.spec.ts`,
@@ -4506,7 +4647,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   (add `@ptah-extension/platform-core` only if the interface file is touched)
 - validate-deps; degradation audit TOTAL 300; hostile spec reported as skipped with reason; FB evidence; review approves
 
-### Batch 37b1b: Formatter rendering + spawner adapter proof — PENDING
+### Batch 37b1b: Formatter rendering + spawner adapter proof — COMPLETE (commit 668dd181d)
 
 - Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
@@ -4515,7 +4656,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
 - Tasks: 2 | Depends on: Batch 37b1a
 
-#### Task 37b1b.1: Render Go vet outcomes honestly — PENDING
+#### Task 37b1b.1: Render Go vet outcomes honestly — COMPLETE
 
 - Files: `MCP/mcp-core/mcp-response-formatter.ts`, `MCP/mcp-core/mcp-response-formatter.spec.ts`
 - Plan reference: O2 §5.4 (consent-off and stale lines, exact text; no quoted token after "from"), §6 reason codes
@@ -4523,7 +4664,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   reason code render as named limitations; Go vet is never labelled type-checked; no VS Code-only wording change
 - FB spec: payload with `unmappedFindings: 2` and no diagnostics renders a non-clean answer (fails before)
 
-#### Task 37b1b.2: Spawner adapter proof — PENDING
+#### Task 37b1b.2: Spawner adapter proof — COMPLETE
 
 - Files: `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.spec.ts`
 - Plan reference: O2 §4.1 "Through the spawner adapter", §7.3
@@ -4535,7 +4676,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools @ptah-extension/agent-sdk --skip-nx-cache 2>&1 | tail -40`
 - validate-deps (Electron bundle scanner: no `from "<x>"` in strings); degradation audit TOTAL 300; review approves
 
-### Batch 37b1c: `diagnosticsConsent` RPC family — PENDING
+### Batch 37b1c: `diagnosticsConsent` RPC family — COMPLETE (commit 3eb907fa5)
 
 - Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
@@ -4544,7 +4685,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
 - Tasks: 1 | Depends on: Batch 37b1a
 
-#### Task 37b1c.1: GET/SET handler, capability and manifest — PENDING
+#### Task 37b1c.1: GET/SET handler, capability and manifest — COMPLETE
 
 - Files: `libs/shared/src/lib/types/rpc.types.ts`, `RH/host-profile/capabilities.ts`, `RH/host-profile/host-profile.ts`,
   `RH/host-profile/manifest.ts`, `RH/handlers/diagnostics-consent-rpc.handlers.ts` (new), `…/diagnostics-consent-rpc.handlers.spec.ts` (new)
@@ -4559,7 +4700,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/shared @ptah-extension/rpc-handlers --skip-nx-cache 2>&1 | tail -40`
 - validate-deps; degradation audit TOTAL 300; review approves
 
-### Batch 37b1d: Host profiles and DI wiring (Electron + cli-engine) — PENDING
+### Batch 37b1d: Host profiles and DI wiring (Electron + cli-engine) — COMPLETE (commit 9b2586e5b)
 
 - Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
@@ -4568,7 +4709,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
 - Tasks: 1 | Depends on: Batches 37b1a, 37b1c
 
-#### Task 37b1d.1: Enable the capability and attach the checker in both hosts — PENDING
+#### Task 37b1d.1: Enable the capability and attach the checker in both hosts — COMPLETE
 
 - Files: `apps/ptah-electron/src/rpc-host-profile.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`,
   `apps/ptah-electron/src/di/rpc-surface.spec.ts` (extend, or `phase-2-diagnostics-override.spec.ts`),
@@ -4585,7 +4726,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p ptah-electron @ptah-extension/cli-engine --skip-nx-cache 2>&1 | tail -40`
 - `nx run ptah-electron:validate-deps`; degradation audit TOTAL 300; review approves
 
-### Batch 37b2: Electron consent card (O2 37b-ii) — PENDING
+### Batch 37b2: Electron consent card (O2 37b-ii) — COMPLETE (commit d61fc1d2b; visual fixes 2ff8aded0, 0fe312efd; screenshots r3 approved, User Decision 30(a))
 
 - Recommended executor: frontend-developer (sub-agent), Lane K
 - Fallback executor: frontend-developer, fresh invocation
@@ -4594,7 +4735,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (logic) + visual-reviewer (rendered card, dark + light)
 - Tasks: 1 | Depends on: Batches 37b1c, 37b1d
 
-#### Task 37b2.1: "Run `go vet` for this workspace" card — PENDING
+#### Task 37b2.1: "Run `go vet` for this workspace" card — COMPLETE
 
 - Files: `FE/ptah-ai/go-vet-consent-config.component.ts` (new), `FE/ptah-ai/go-vet-consent-config.component.spec.ts` (new),
   `FE/settings.component.ts`, `FE/settings.component.html` (inside the Electron-only `tools` block)
@@ -4610,7 +4751,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/chat --skip-nx-cache 2>&1 | tail -40`
 - Visual-reviewer screenshots (dark + light) of Settings → Tools with the card in off/on/stale; review approves
 
-### Batch 37b3: CLI `ptah config go-vet` + fragment (O2 37b-iii) — PENDING
+### Batch 37b3: CLI `ptah config go-vet` + fragment (O2 37b-iii) — COMPLETE (37b3.1 commit 4748709a6; 37b3.2 fragment in e6c155260)
 
 - Recommended executor: backend-developer (sub-agent), Lane K
 - Fallback executor: backend-developer, fresh invocation
@@ -4619,7 +4760,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 - Review: Codex CLI lane (fallback: Claude `code-logic-reviewer`)
 - Tasks: 2 | Depends on: Batches 37b1d, 37b2
 
-#### Task 37b3.1: `ptah config go-vet <status|on|off>` — PENDING
+#### Task 37b3.1: `ptah config go-vet <status|on|off>` — COMPLETE
 
 - Files: `apps/ptah-cli/src/cli/commands/config.ts`, `apps/ptah-cli/src/cli/router.ts`, `apps/ptah-cli/src/cli/commands/config.spec.ts`,
   `apps/ptah-cli/src/test-utils/manifest-parity.spec.ts` (only if it enumerates methods)
@@ -4629,7 +4770,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   (one fixed stderr line); `2` bad sub-command; `5` transport failure; `on`/`off` send GET's root
 - FB spec: `success:false` → exit `1`, no success notification
 
-#### Task 37b3.2: Matrix fragment — PENDING (deferred to the integration branch, 2026-09-27)
+#### Task 37b3.2: Matrix fragment — COMPLETE (landed on the integration branch in e6c155260)
 
 - Depends on: Task 37b3.1; Lane K merged into `fix/task-559-mcp-tool-contract` (the orchestrator decides and runs the
   merge; executors never run git)
@@ -4652,7 +4793,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 
 ---
 
-## Batch 38: Completion gate — COMPLETE
+## Batch 38: Completion gate — COMPLETE (commit f028e46a3)
 
 ### Batch 38 record (2026-09-28)
 
@@ -4685,7 +4826,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   keys drop the java/rust/php/ruby/cpp graph keys and instead assert those languages are disclosed as unsupported
   by ptah_get_dependents / ptah_get_dependencies (never a clean empty answer)
 
-### Task 38.1: Activated keys == required keys, exactly — PENDING
+### Task 38.1: Activated keys == required keys, exactly — COMPLETE
 
 - Files: `WIT/language-honesty.contract.spec.ts`
 - Plan reference: "Harness (27, 38)"; "Required keys" table
@@ -4697,7 +4838,7 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   honesty signal on recovered parses (landed in 24c); the gate fails if any of the four returns a clean-looking result
   for a recovered parse
 
-### Batch 38a: carried fixes before the gate — COMPLETE
+### Batch 38a: carried fixes before the gate — COMPLETE (commit 751c7bd78)
 
 - RESUME POINT 2 step 3 items (a), (b), (c). Author: backend-developer subagent. Report `batch-38a-executor-report.md`.
 - (a) protocol-dispatcher "slow empty build" flake: raced real filesystem I/O in the graph build; the spec now awaits
@@ -4728,8 +4869,77 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
   Wave 3 + TASK_2026_406 Phases 0-3). TASK_2026_561 starts after this task merges. When a batch here records a new
   residual, add it to that file too
 
+### Deferred and carried items that no 559 batch owns (added at Mode 3, 2026-09-28)
+
+These items are not yet in `.ptah/specs/TASK_2026_561_9e57/context.md` (Mode 3 edits only this file). The orchestrator
+or the follow-up task must copy them there.
+
+Deferred graph batches (User Decision 27). Their batch specs above carry over unchanged: files, quality requirements,
+verification. Today these languages are disclosed as `unsupported` by ptah_get_dependents / ptah_get_dependencies,
+never answered clean-empty. The Batch 38 gate asserts this (`DEFERRED_GRAPH_LANGUAGES`, java, kotlin, rust, php, ruby, cpp).
+
+- Java graph: Task 34.2 (`jvm-import-resolver.ts`, `b34.ts` java keys; FQN → unique file, nested → outer file,
+  wildcard/ambiguous → package dir with `java:package-wildcard`). Source: Batch 34 spec, Decision 27.
+- Rust graph: Batch 35 (crate roots, Cargo workspace members, `mod x;`, `crate::`/`self::`/`super::` from `scopePath`).
+  Source: Batch 35 spec.
+- PHP graph: Batch 36a (composer `autoload.psr-4`, literal include/require). Source: Batch 36a spec.
+- Ruby graph: Batch 36b (`require_relative`, `require` → `lib/` then root). Source: Batch 36b spec.
+- C/C++ graph: Batch 36c (`#include "x"` → file dir, then `-I` from `compile_commands.json`; `<x>` external; proven
+  on `.c`/`.h`). Source: Batch 36c spec.
+- Batch 33 lessons for all five (source: Batch 33 and 34.1 review histories, `reviews/batch-33-code-logic-review-r1.md`):
+  disclose instead of guessing. Every uncertain resolution gets a named gap (`module-selection-unknown`,
+  `unresolvedMembers`, `conflicting-configs`, `msbuild-using-not-evaluated`) and `context` partial, never a guessed
+  target with complete context (Decision 28). Local/path dependencies are never certified external. Manifest reads go
+  through the bounded reader (≤ 64 files, ≤ 256 KiB each, ≤ 2 MiB total, realpath inside root). Keep resolver files
+  under the facade size rule (split per language context, as `go-context.ts` / `python-context.ts`). Each batch
+  lengthens the registry `graphEdges` list, so re-measure the description pins, especially the next item.
+- `ptah_get_symbol_index` description is at 975 of the < 1000 budget. Five more graph languages will not fit unless
+  the description stops embedding the language list or uses the alias form only. Source: `batch-33-executor-report.md` O1,
+  `batch-34-executor-report.md` pin table.
+- Keep `DEFERRED_GRAPH_LANGUAGES` in sync, or derive it from `CAPABILITY_TABLE`: it is hand-maintained today. Source:
+  `reviews/batch-38-closing-review-claude.md` (Minor).
+
+Real-Go coverage (User Decision 30(b)):
+
+- Add a CI job with `actions/setup-go` that runs `go-vet-hostile.integration.spec.ts` (8 cases, incl. the `//line`
+  fixture). No workflow in `.github/workflows/` installs Go today, so the spec has never run. Source:
+  `batch-38-executor-report.md` "CI", `reviews/batch-38-closing-review-claude.md` (Moderate).
+
+Minor / Moderate carries:
+
+- R32C-01 duplicated temp-root scaffolding in the namespace spec; R32C-02 the new spec does not pin `context`/clean;
+  R32C-03 removed caller-rule precedence row (informational). Source: `reviews/batch-32c-code-logic-review-r1.md`.
+- R34C-02 C# `record`/`struct` are indexed as `kind: 'class'`. R34C-03: no fixture covers a workspace
+  `namespace System.*` next to the framework-root check. Source: `reviews/batch-34-lane-g2-closing-review-claude.md`.
+- R38G-03: the comment in the deferred-language honesty test says more than its assertions prove (add
+  `languages.analyzed === 1` or a TS edge). R38G-04: the helper throws `Error` instead of using `expect`. Source:
+  `reviews/batch-38-closing-review-glm.md`.
+- 32b Moderate: a local package's `main`/`exports` entry is not read, so a miss is `unresolved-internal`. Source: Batch
+  32b review history, `reviews/batch-32b-code-logic-review-r1.md`.
+- Electron `.kt` reference search counts matches in comments and strings (pre-existing). Source: Batch 30k review
+  history.
+- Nx `ptah-cli:copy-wasm` target lacks `scripts/tree-sitter-grammars.json` and `assets/tree-sitter/**` as cache
+  inputs. Source: Batch 30k review history.
+- 37b2 visual residuals: keyboard Tab focus-ring visibility is unverified (needs trusted keystrokes, e.g. Playwright);
+  the shared `toggle-xs` size on the other settings cards is below 24×24 (design-system-wide). Source:
+  `visual-review-37b2.md` (residual uncertainty, re-review).
+
+Known flakes (none is caused by this task; each passes alone):
+
+- rpc-handlers `harness-skill-selection-rpc.service.spec.ts` "never writes state.json" fails while
+  `%TEMP%/.ptah/harness/state.json` exists (the user has not deleted it). Source: Batch 38 record, item (d).
+- Electron stress bundle: missing dist `workspace-watch-host.mjs`. Source: RESUME POINT 2 standing rules.
+- `context-enrichment.service.spec.ts` times out under parallel load (70/70 alone). Source: Batch 32b team-leader
+  verification.
+- (Fixed, no longer a flake: protocol-dispatcher "slow empty build", Batch 38a 751c7bd78.)
+
+Housekeeping needing user approval:
+
+- 175 stale `ptah-*-govet-*` temp dirs in `%TEMP%` from wiring-spec runs before the 38a teardown fix. They are
+  outside the repository and were not deleted. Source: Batch 38a record, item (c).
+
 ## Completion notes for Mode 3
 
-- Parity: no surface is replaced, consolidated, rebuilt or redesigned. Tools are fixed in place and `ptah_code_reindex` is added. Mode 3 re-checks this against `tools/list` at the base commit: every tool present at 9afac1aa2 must still be present.
-- Visual: no UI change. N/A.
-- Write paths: the spool files (Batch 2e) are the only new persisted write. The trace is recorded at Batch 2e verification. No settings or config writes. User-owned files (`~/.codex/config.toml`, `.claude/settings.local.json`) are never touched.
+- Parity: no surface is replaced, consolidated, rebuilt or redesigned. Tools are fixed in place and `ptah_code_reindex` is added. Verified at Mode 3: all 52 tools named at 9afac1aa2 are present at f028e46a3 (53 with `ptah_code_reindex`).
+- Visual: Batch 37b2 added the Electron go vet consent card; the approved screenshots are r3, per Decision 30(a), recorded in `visual-review-37b2.md`. Details are in "## Completion (Mode 3, 2026-09-28)".
+- Write paths: two new persisted writes. (1) The spool files (Batch 2e); their trace is recorded at Batch 2e verification. (2) The go vet consent record under the host `globalStoragePath` (Batches 37a/37b1c); its trace is in "## Completion (Mode 3, 2026-09-28)". There are no settings or config-file writes. User-owned files (`~/.codex/config.toml`, `.claude/settings.local.json`) are never touched.

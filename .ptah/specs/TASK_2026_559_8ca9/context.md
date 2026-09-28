@@ -78,6 +78,8 @@ Gate 0.1 (user, 2026-09-25): Subagents + Codex review. Claude subagents do resea
 
 29. Reviewer fallback (user, 2026-09-28, after Codex hit its usage limit until 2026-10-03 during the Lane G2 closing review): the remaining correctness-critical and closing reviews (Lane G2 closing, Batch 38) run TWO independent reviewers in parallel — an opencode CLI lane with `opencode-go/glm-5.3` (cross-side; the user pinned GLM 5.3, not Kimi) and a Claude `code-logic-reviewer` subagent (another model family). A Blocking from either reviewer counts. Low-risk batches keep opencode GLM 5.3 alone.
 
+30. Completion items (user, 2026-09-28, after Batch 38): (a) the Batch 37b2 Electron "Run go vet for this workspace" card screenshots (round r3, 12 images, dark/light, 800/1280 px; `visual-review-37b2.md`) are APPROVED for the PR — the PNGs stay untracked, as no task folder tracks images; (b) the real-Go hostile integration spec (`go-vet-hostile.integration.spec.ts`) has never run (no Go here, no CI job installs Go): ship with it skipped visibly and record it as a known gap; a follow-up task adds a CI job with `actions/setup-go` that runs it.
+
 ## Conversation Summary
 
 - Source audit: `.ptah/specs/TASK_2026_557_tokaudit/research-report.md` (workflow run wf_5298f8d9-6d9), including the Delta section against TASK_PROMPT_EFFICIENCY / PR #571.

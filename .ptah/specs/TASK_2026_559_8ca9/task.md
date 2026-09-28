@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_559_8ca9
-status: in_progress
+status: done
 type: BUGFIX
 title: Restore every ptah MCP tool to its token-saving contract and guard it against regression
 description: >-

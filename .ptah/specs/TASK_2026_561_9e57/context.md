@@ -193,6 +193,24 @@ Line numbers are as recorded in `TASK_2026_559_8ca9/batches.md`; re-check them a
   `ProjectDiscovery` is not exported from `workspace-intelligence/src/index.ts`; declared globs can match
   `dist`-named directories
 
+### B9. Language support deferred and carried at 559 completion (2026-09-28)
+
+Full list with sources: TASK_2026_559_8ca9 `batches.md` "## Follow-up task" and "## Completion (Mode 3, 2026-09-28)".
+
+- User Decision 27 (559 `context.md`): dependency graphs for Java (Batch 34.2), Rust (35), PHP (36a), Ruby (36b) and
+  C/C++ (36c) are deferred. Reuse their 559 batch specs. Apply the Batch 33/34 lessons: disclose unresolved or
+  partial instead of guessing; never certify external without proof. Those languages are disclosed as unsupported
+  in graph answers today (Batch 38 gate).
+- User Decision 30(b): `go-vet-hostile.integration.spec.ts` has never run against real Go; add a CI job with
+  `actions/setup-go` that runs it.
+- `ptah_get_symbol_index` description is at 975 of its 1,000-char limit; each new graph language adds to it.
+- Minor/Moderate carries: R32C-01..03, R34C-02 (record/struct reported as `class`), R34C-03, R38G-03/04; a local
+  package's `main`/`exports` entry is not read (32b); Electron `.kt` reference search counts comment/string matches;
+  the Nx `ptah-cli:copy-wasm` target lacks the grammar manifest and `assets/tree-sitter/**` as cache inputs.
+- Known flakes: rpc-handlers `harness-skill-selection` (`%TEMP%/.ptah/harness/state.json`), the Electron stress
+  bundle, `context-enrichment.service.spec.ts` under parallel load.
+- 175 stale `ptah-*-govet-*` directories in `%TEMP%` from runs before 38a (not deleted; needs user approval).
+
 ### Accepted, not scheduled (recorded so nothing is lost)
 
 - Batch 6 (b): `ptah_code_reindex` bypasses the governor per-batch wait (accepted by the 559 batch spec)
