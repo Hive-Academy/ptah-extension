@@ -1,25 +1,27 @@
 /**
- * McpDirectoryBrowserComponent — the Installed tab's removal surface.
+ * McpDirectoryBrowserComponent — the MCP Registry discovery view.
  *
- * Four axes, all of them regressions the previous version could not see:
+ * After plan C11 the view only browses and installs; the installed list and
+ * its removal paths belong to the marketplace (their behaviour is covered by
+ * `installed-mcp-groups.spec.ts` and the marketplace removal specs). Axes:
  *
- *   - **A refused removal is reported.** `uninstallServer` read the RPC result
- *     with a bare `if (result.isSuccess())` and had no `else`, so a refusal
- *     cleared the spinner, reloaded an identical list, and told the user
- *     nothing at all. That was the reported bug.
- *   - **A `removal: 'none'` row offers no button.** Every row used to get a
- *     Remove button, including the ones no removal path can act on.
- *   - **A `removal: 'direct'` row asks first.** Ptah did not write that config
- *     entry, so the first click names the file and the SECOND one is what
- *     calls through with `force: true`.
- *   - **Two origins sharing one key stay two rows.** Grouping keyed on
- *     `serverKey` alone collapsed a disk install and a session connector onto
- *     one row with one button that acted on the wrong one.
+ *   - **No tab strip, no Installed view.** Nothing here removes a server.
+ *   - **Results are catalog cards** inside `ptah-catalog-grid`, each a list
+ *     item, with the "Installed" badge from the view's own `listInstalled`.
+ *   - **A listing's name never earns a vendor mark**: only an allowlisted
+ *     namespace or a catalogue URL does; everything else is a monogram.
+ *   - **The install path is unchanged**: the same `mcpDirectory:install` call
+ *     with the same arguments, from a storefront panel under the card.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { InstalledMcpServer } from '@ptah-extension/shared';
+import type {
+  InstalledMcpServer,
+  McpRegistryEntry,
+} from '@ptah-extension/shared';
 import { McpDirectoryBrowserComponent } from './mcp-directory-browser.component';
 
 /**
@@ -46,17 +48,30 @@ function fail(error: string) {
   };
 }
 
-function server(over: Partial<InstalledMcpServer> = {}): InstalledMcpServer {
+function entry(over: Partial<McpRegistryEntry> = {}): McpRegistryEntry {
   return {
-    serverKey: 'github',
+    name: 'io.github.acme/weather',
+    description: 'Forecasts for any city',
+    repository: { url: 'https://github.com/acme/weather', id: 'acme/weather' },
+    version_detail: {
+      version: '1.2.0',
+      packages: [{ registry_name: 'npm', name: '@acme/weather-mcp' }],
+      transports: [{ type: 'stdio' }],
+    },
+    ...over,
+  };
+}
+
+function installed(serverKey: string): InstalledMcpServer {
+  return {
+    serverKey,
     target: 'claude',
     configPath: 'C:\\Users\\dev\\.mcp.json',
-    config: { type: 'stdio', command: 'npx', args: ['-y', 'github-mcp'] },
+    config: { type: 'stdio', command: 'npx', args: ['-y', serverKey] },
     managedByPtah: true,
     origin: 'harness-config',
     removal: 'ptah-managed',
     originLabel: 'Harness config',
-    ...over,
   };
 }
 
@@ -65,7 +80,7 @@ interface RpcCall {
   params: unknown;
 }
 
-describe('mcp directory browser — installed removal', () => {
+describe('mcp directory browser — registry discovery', () => {
   let calls: RpcCall[];
   let responders: Map<string, () => unknown>;
 
@@ -93,52 +108,58 @@ describe('mcp directory browser — installed removal', () => {
     }
   };
 
-  /** Mount with `servers` installed, already switched to the Installed tab. */
-  const mountInstalled = async (
-    servers: InstalledMcpServer[],
-    connectors: InstalledMcpServer[] = [],
+  /** Mount with `popular` as the registry's popular list. */
+  const mount = async (
+    popular: McpRegistryEntry[],
+    installedServers: InstalledMcpServer[] = [],
   ): Promise<ComponentFixture<McpDirectoryBrowserComponent>> => {
-    setResponder('mcpDirectory:listInstalled', () => ok({ servers }));
+    setResponder('mcpDirectory:getPopular', () => ok({ servers: popular }));
+    setResponder('mcpDirectory:listInstalled', () =>
+      ok({ servers: installedServers }),
+    );
     const fixture = TestBed.createComponent(McpDirectoryBrowserComponent);
-    fixture.componentRef.setInput('connectorServers', connectors);
     await settle(fixture);
-    fixture.componentInstance.activeView.set('installed');
-    fixture.detectChanges();
     return fixture;
   };
 
   const host = (fixture: ComponentFixture<unknown>): HTMLElement =>
     fixture.nativeElement as HTMLElement;
 
-  const rows = (fixture: ComponentFixture<unknown>): HTMLElement[] =>
-    Array.from(host(fixture).querySelectorAll('[data-testid="installed-row"]'));
-
-  const clickRemove = async (
-    fixture: ComponentFixture<unknown>,
-    index = 0,
-  ): Promise<void> => {
-    const row = rows(fixture)[index];
-    row
-      ?.querySelector<HTMLButtonElement>('[data-testid="remove-button"]')
-      ?.click();
-    await settle(fixture);
-  };
+  const cards = (fixture: ComponentFixture<unknown>): HTMLElement[] =>
+    Array.from(host(fixture).querySelectorAll('ptah-catalog-card'));
 
   const errorText = (fixture: ComponentFixture<unknown>): string =>
     host(fixture)
       .querySelector('[data-testid="mcp-error"]')
       ?.textContent?.trim() ?? '';
 
-  const uninstallCalls = (): RpcCall[] =>
-    calls.filter((c) => c.method === 'mcpDirectory:uninstall');
+  const clickInstall = async (
+    fixture: ComponentFixture<unknown>,
+    index = 0,
+  ): Promise<void> => {
+    const card = cards(fixture)[index];
+    card?.querySelector<HTMLButtonElement>('[card-actions] button')?.click();
+    await settle(fixture);
+  };
+
+  const clickConfirm = async (
+    fixture: ComponentFixture<unknown>,
+  ): Promise<void> => {
+    host(fixture)
+      .querySelector<HTMLButtonElement>(
+        'ptah-storefront-panel [panel-footer] button',
+      )
+      ?.click();
+    await settle(fixture);
+  };
+
+  const installCalls = (): RpcCall[] =>
+    calls.filter((c) => c.method === 'mcpDirectory:install');
 
   beforeEach(() => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
-    // The Browse tab loads on init and is irrelevant to every test here.
-    setResponder('mcpDirectory:getPopular', () => ok({ servers: [] }));
-    setResponder('mcpDirectory:listInstalled', () => ok({ servers: [] }));
     TestBed.configureTestingModule({
       providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
     });
@@ -146,109 +167,88 @@ describe('mcp directory browser — installed removal', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('reports the reason when the backend refuses a removal', async () => {
-    const fixture = await mountInstalled([server()]);
-    setResponder('mcpDirectory:uninstall', () =>
-      fail('github is pinned by a workspace policy'),
-    );
+  it('renders no tab strip and no Installed view', async () => {
+    const fixture = await mount([entry()], [installed('weather')]);
 
-    await clickRemove(fixture);
-
-    expect(errorText(fixture)).toContain(
-      'github is pinned by a workspace policy',
-    );
+    expect(host(fixture).querySelector('.tabs, [role="tab"]')).toBeNull();
+    expect(
+      host(fixture).querySelector('[data-testid="installed-row"]'),
+    ).toBeNull();
+    expect(host(fixture).textContent).not.toMatch(/Installed \(\d+\)/);
   });
 
-  it('reports per-target failures even when the call itself succeeded', async () => {
-    const fixture = await mountInstalled([server()]);
-    setResponder('mcpDirectory:uninstall', () =>
-      ok({
-        results: [
-          {
-            target: 'claude',
-            success: false,
-            configPath: 'C:\\Users\\dev\\.mcp.json',
-            error: 'file is read-only',
-          },
-        ],
-      }),
-    );
-
-    await clickRemove(fixture);
-
-    expect(errorText(fixture)).toContain('file is read-only');
-  });
-
-  it('offers no Remove button for a row nothing can act on, and explains why', async () => {
-    const fixture = await mountInstalled([
-      server({
-        serverKey: 'notion',
-        origin: 'claude-connector',
-        originLabel: 'claude.ai connector',
-        removal: 'none',
-        removalBlockedReason: 'Manage this connector at claude.ai/settings.',
-        target: undefined,
-      }),
+  it('renders each result as a catalog card list item inside the catalog grid', async () => {
+    const fixture = await mount([
+      entry(),
+      entry({ name: 'io.github.acme/tides', repository: undefined }),
     ]);
 
-    const row = rows(fixture)[0];
-    expect(row.querySelector('[data-testid="remove-button"]')).toBeNull();
+    const grid = host(fixture).querySelector('ptah-catalog-grid');
+    expect(grid).not.toBeNull();
+    expect(cards(fixture)).toHaveLength(2);
+    for (const card of cards(fixture)) {
+      expect(card.closest('ptah-catalog-grid')).toBe(grid);
+      expect(card.getAttribute('role')).toBe('listitem');
+    }
+
+    const first = cards(fixture)[0];
     expect(
-      row.querySelector('[data-testid="removal-blocked"]')?.textContent,
-    ).toContain('Manage this connector at claude.ai/settings.');
+      first.querySelector('[data-testid="catalog-card"] h3')?.textContent,
+    ).toContain('weather');
+    expect(
+      first.querySelector('[data-testid="catalog-card-meta"]')?.textContent,
+    ).toContain('v1.2.0 · stdio · acme/weather');
   });
 
-  it('asks for confirmation naming the config file before forcing a direct removal', async () => {
-    const fixture = await mountInstalled([
-      server({
-        serverKey: 'local-tool',
-        origin: 'claude-user',
-        originLabel: '~/.claude.json',
-        removal: 'direct',
-        managedByPtah: false,
-        configPath: 'C:\\Users\\dev\\.claude.json',
-      }),
+  it('shows card-shaped skeletons inside the grid while the popular list loads', async () => {
+    setResponder('mcpDirectory:getPopular', () => new Promise(() => undefined));
+    const fixture = TestBed.createComponent(McpDirectoryBrowserComponent);
+    fixture.detectChanges();
+
+    const skeletons = host(fixture).querySelectorAll(
+      'ptah-catalog-grid ptah-catalog-card-skeleton[role="listitem"]',
+    );
+    expect(skeletons.length).toBeGreaterThan(0);
+    expect(cards(fixture)).toHaveLength(0);
+  });
+
+  it('badges a result as Installed from its own listInstalled read', async () => {
+    const fixture = await mount(
+      [entry(), entry({ name: 'io.github.acme/tides' })],
+      [installed('weather')],
+    );
+
+    const badges = cards(fixture).map(
+      (card) =>
+        card
+          .querySelector('[data-testid="catalog-card-badge"]')
+          ?.textContent?.trim() ?? null,
+    );
+    expect(badges).toEqual(['Installed', null]);
+    expect(calls.some((c) => c.method === 'mcpDirectory:listInstalled')).toBe(
+      true,
+    );
+  });
+
+  it('gives a vendor mark only to an allowlisted namespace, a monogram otherwise', async () => {
+    const fixture = await mount([
+      entry({ name: 'io.github.getsentry/sentry' }),
+      entry({ name: 'attacker/github' }),
     ]);
-    setResponder('mcpDirectory:uninstall', () =>
-      ok({
-        results: [
-          {
-            target: 'claude',
-            success: true,
-            configPath: 'C:\\Users\\dev\\.claude.json',
-          },
-        ],
-      }),
-    );
 
-    // First click arms the confirm step and calls nothing.
-    await clickRemove(fixture);
-    expect(uninstallCalls()).toHaveLength(0);
-    const confirm = rows(fixture)[0].querySelector(
-      '[data-testid="remove-confirm"]',
-    );
-    expect(confirm).not.toBeNull();
+    const [sentry, lookalike] = cards(fixture);
+    expect(sentry.querySelector('[card-mark] ptah-brand-mark')).not.toBeNull();
+    expect(lookalike.querySelector('ptah-brand-mark')).toBeNull();
     expect(
-      confirm?.querySelector('[data-testid="confirm-config-path"]')
-        ?.textContent,
-    ).toContain('.claude.json');
-
-    // Second click is the one that goes through, and it forces.
-    rows(fixture)[0]
-      .querySelector<HTMLButtonElement>('[data-testid="confirm-remove"]')
-      ?.click();
-    await settle(fixture);
-
-    expect(uninstallCalls()).toHaveLength(1);
-    expect(uninstallCalls()[0].params).toMatchObject({
-      serverKey: 'local-tool',
-      force: true,
-    });
+      lookalike.querySelector('ptah-monogram-tile[card-mark]'),
+    ).not.toBeNull();
   });
 
-  it('does not force a ptah-managed removal, and needs no confirmation', async () => {
-    const fixture = await mountInstalled([server()]);
-    setResponder('mcpDirectory:uninstall', () =>
+  it('installs through the same RPC and arguments from the storefront panel', async () => {
+    const fixture = await mount([entry()]);
+    const emitted: unknown[] = [];
+    fixture.componentInstance.serverInstalled.subscribe((e) => emitted.push(e));
+    setResponder('mcpDirectory:install', () =>
       ok({
         results: [
           {
@@ -260,80 +260,81 @@ describe('mcp directory browser — installed removal', () => {
       }),
     );
 
-    await clickRemove(fixture);
+    await clickInstall(fixture);
 
-    expect(uninstallCalls()).toHaveLength(1);
-    expect(uninstallCalls()[0].params).not.toHaveProperty('force');
-    expect(errorText(fixture)).toBe('');
-  });
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    expect(panel).not.toBeNull();
+    const row = panel?.closest('[role="listitem"]');
+    expect(row?.classList.contains('col-span-full')).toBe(true);
+    expect(row?.closest('ptah-catalog-grid')).not.toBeNull();
 
-  it('routes a smithery row to uninstallSmithery and surfaces its refusal', async () => {
-    const fixture = await mountInstalled([
-      server({
-        serverKey: 'exa',
-        origin: 'smithery',
-        originLabel: 'Smithery',
-        removal: 'smithery',
-        target: undefined,
-      }),
-    ]);
-    setResponder('mcpDirectory:uninstallSmithery', () =>
-      ok({ success: false, error: 'Smithery session expired' }),
-    );
+    const listInstalledBefore = calls.filter(
+      (c) => c.method === 'mcpDirectory:listInstalled',
+    ).length;
+    await clickConfirm(fixture);
 
-    await clickRemove(fixture);
-
-    expect(
-      calls.some((c) => c.method === 'mcpDirectory:uninstallSmithery'),
-    ).toBe(true);
-    expect(uninstallCalls()).toHaveLength(0);
-    expect(errorText(fixture)).toContain('Smithery session expired');
-  });
-
-  it('routes an oauth row to disconnectOAuth', async () => {
-    const fixture = await mountInstalled([
-      server({
-        serverKey: 'linear',
-        origin: 'oauth',
-        originLabel: 'Connected app',
-        removal: 'oauth',
-        target: undefined,
-      }),
-    ]);
-    setResponder('mcpDirectory:disconnectOAuth', () => ok({ success: true }));
-
-    await clickRemove(fixture);
-
-    const disconnect = calls.filter(
-      (c) => c.method === 'mcpDirectory:disconnectOAuth',
-    );
-    expect(disconnect).toHaveLength(1);
-    expect(disconnect[0].params).toEqual({ serverKey: 'linear' });
-  });
-
-  it('keeps two origins sharing one server key as two separate rows', async () => {
-    const fixture = await mountInstalled(
-      [server({ serverKey: 'github', origin: 'harness-config' })],
-      [
-        server({
-          serverKey: 'github',
-          origin: 'claude-connector',
-          originLabel: 'claude.ai connector',
-          removal: 'none',
-          removalBlockedReason: 'Manage this connector at claude.ai/settings.',
-          target: undefined,
-        }),
+    expect(installCalls()).toHaveLength(1);
+    expect(installCalls()[0].params).toEqual({
+      serverName: 'io.github.acme/weather',
+      serverKey: 'weather',
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@acme/weather-mcp'],
+      },
+      targets: [
+        'vscode',
+        'claude',
+        'cursor',
+        'copilot',
+        'codex',
+        'antigravity',
+        'opencode',
       ],
+    });
+    expect(emitted).toEqual([
+      { serverName: 'io.github.acme/weather', targets: ['claude'] },
+    ]);
+    expect(
+      calls.filter((c) => c.method === 'mcpDirectory:listInstalled').length,
+    ).toBe(listInstalledBefore + 1);
+    expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
+  });
+
+  it('fetches details before installing a result that carries none', async () => {
+    const bare = entry({ version_detail: undefined });
+    setResponder('mcpDirectory:getDetails', () => ok(entry()));
+    const fixture = await mount([bare]);
+
+    await clickInstall(fixture);
+
+    const details = calls.filter((c) => c.method === 'mcpDirectory:getDetails');
+    expect(details).toHaveLength(1);
+    expect(details[0].params).toEqual({ name: 'io.github.acme/weather' });
+    expect(
+      host(fixture).querySelector(
+        'ptah-storefront-panel [panel-footer] button',
+      ),
+    ).not.toBeNull();
+  });
+
+  it('reports the reason when the backend refuses an install', async () => {
+    const fixture = await mount([entry()]);
+    setResponder('mcpDirectory:install', () =>
+      fail('workspace policy blocks new servers'),
     );
 
-    expect(rows(fixture)).toHaveLength(2);
-    expect(fixture.componentInstance.installedCount()).toBe(2);
-    // Only the harness-config row is actionable; the connector row is labelled.
-    expect(
-      host(fixture).querySelectorAll('[data-testid="remove-button"]'),
-    ).toHaveLength(1);
-    expect(
-      host(fixture).querySelector('[data-testid="origin-label"]')?.textContent,
-    ).toContain('claude.ai connector');
+    await clickInstall(fixture);
+    await clickConfirm(fixture);
+
+    expect(errorText(fixture)).toContain('workspace policy blocks new servers');
+  });
+
+  it('does not use innerHTML in the component source', () => {
+    const source = readFileSync(
+      join(__dirname, 'mcp-directory-browser.component.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/innerHTML/i);
   });
 });

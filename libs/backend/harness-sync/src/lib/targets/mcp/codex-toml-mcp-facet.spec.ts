@@ -7,6 +7,21 @@
  * Source-under-test: `CodexTomlMcpFacet`.
  */
 
+// Both readers are wrapped (pass-through by default) so a test can make ONE
+// path fail with EACCES: `readFile` from `fs/promises` for `inspect`, and
+// `readFileSync` for the legacy `readAll`. `chmod` cannot do that on Windows,
+// and an unreadable config is exactly the case `inspect` exists to report (N9).
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return { ...actual, readFileSync: jest.fn(actual.readFileSync) };
+});
+jest.mock('fs/promises', () => {
+  const actual = jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return { ...actual, readFile: jest.fn(actual.readFile) };
+});
+
+import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import {
   mkdirSync,
   mkdtempSync,
@@ -18,6 +33,41 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { McpServerConfig } from '@ptah-extension/shared';
 import { CodexTomlMcpFacet } from './codex-toml-mcp-facet';
+
+const actualFs = jest.requireActual<typeof import('fs')>('fs');
+const actualFsPromises =
+  jest.requireActual<typeof import('fs/promises')>('fs/promises');
+
+function permissionDenied(path: string): Error {
+  return Object.assign(new Error(`EACCES: permission denied, open '${path}'`), {
+    code: 'EACCES',
+  });
+}
+
+/** Make every read of `path`, sync or async, fail like a permission-denied open. */
+function denyReadsOf(path: string): void {
+  jest.mocked(fs.readFileSync).mockImplementation(((
+    file: fs.PathOrFileDescriptor,
+    options?: Parameters<typeof actualFs.readFileSync>[1],
+  ) => {
+    if (file === path) throw permissionDenied(path);
+    return actualFs.readFileSync(file, options);
+  }) as typeof fs.readFileSync);
+  jest.mocked(fsPromises.readFile).mockImplementation(((
+    file: Parameters<typeof actualFsPromises.readFile>[0],
+    options?: Parameters<typeof actualFsPromises.readFile>[1],
+  ) => {
+    if (file === path) return Promise.reject(permissionDenied(path));
+    return actualFsPromises.readFile(file, options);
+  }) as typeof fsPromises.readFile);
+}
+
+afterEach(() => {
+  jest.mocked(fs.readFileSync).mockImplementation(actualFs.readFileSync);
+  jest
+    .mocked(fsPromises.readFile)
+    .mockImplementation(actualFsPromises.readFile);
+});
 
 describe('CodexTomlMcpFacet (E18)', () => {
   let tempHome: string;
@@ -185,6 +235,93 @@ describe('CodexTomlMcpFacet (E18)', () => {
       url: 'https://example.com/mcp',
       headers: { Authorization: 'Bearer xyz' },
       env: { FOO: 'bar' },
+    });
+  });
+
+  // ---------------------------------------------------------------- inspect
+
+  describe('inspect (N9)', () => {
+    it('reports `ok` with every declared server when the file is readable', async () => {
+      seedConfig(['[mcp_servers.mine]', 'command = "mine-cmd"', ''].join('\n'));
+      const facet = makeFacet();
+      await facet.write(ws, 'github', stdio('npx'));
+
+      const result = await facet.inspect();
+      expect(result.status).toBe('ok');
+      expect(result.error).toBeUndefined();
+      expect([...result.servers.keys()].sort()).toEqual(['github', 'mine']);
+      expect(result.servers.get('mine')).toEqual(stdio('mine-cmd'));
+    });
+
+    it('reports `ok` and no servers for a readable file that declares none', async () => {
+      seedConfig('model = "gpt-5-codex"\n');
+
+      const result = await makeFacet().inspect();
+      expect(result).toEqual({ status: 'ok', servers: new Map() });
+    });
+
+    it('reports `missing` — not `error` — when the config file does not exist (ENOENT)', async () => {
+      const result = await makeFacet().inspect();
+      expect(result).toEqual({ status: 'missing', servers: new Map() });
+    });
+
+    it('reports `missing` for a workspace-scoped facet with no workspace', async () => {
+      const facet = new CodexTomlMcpFacet({
+        homeDir: tempHome,
+        scope: 'workspace',
+      });
+      await expect(facet.inspect('')).resolves.toEqual({
+        status: 'missing',
+        servers: new Map(),
+      });
+    });
+
+    it('reads the workspace-scoped file under the given root', async () => {
+      mkdirSync(join(ws, '.codex'), { recursive: true });
+      writeFileSync(
+        join(ws, '.codex', 'config.toml'),
+        ['[mcp_servers.local]', 'url = "https://example.com/mcp"', ''].join(
+          '\n',
+        ),
+        'utf-8',
+      );
+      const facet = new CodexTomlMcpFacet({
+        homeDir: tempHome,
+        scope: 'workspace',
+      });
+
+      const result = await facet.inspect(ws);
+      expect(result.status).toBe('ok');
+      expect(result.servers.get('local')).toEqual({
+        type: 'http',
+        url: 'https://example.com/mcp',
+      });
+    });
+
+    it('reports `error` for an unreadable config (EACCES), while legacy readAll still reads it as empty', async () => {
+      seedConfig(['[mcp_servers.mine]', 'command = "mine-cmd"', ''].join('\n'));
+      denyReadsOf(configPath);
+      const facet = makeFacet();
+
+      const result = await facet.inspect();
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('EACCES');
+      // Nothing is KNOWN, so nothing is reported — the status is the signal.
+      expect(result.servers.size).toBe(0);
+
+      // The legacy contract is unchanged: readAll never throws and folds an
+      // unreadable file into "declares nothing".
+      expect(facet.readAll().size).toBe(0);
+      expect(facet.foreignServerKeys().size).toBe(0);
+    });
+
+    it('reports `error` when the config path is a directory, not a file', async () => {
+      mkdirSync(configPath, { recursive: true });
+
+      const result = await makeFacet().inspect();
+      expect(result.status).toBe('error');
+      expect(result.error).toBeDefined();
+      expect(result.servers.size).toBe(0);
     });
   });
 });

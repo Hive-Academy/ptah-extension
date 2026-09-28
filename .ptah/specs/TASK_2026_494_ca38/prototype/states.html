@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Apps page states &amp; fallbacks (TASK_2026_494)</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+</head>
+<body class="bg-base-100 text-base-content min-h-screen" style="font-family: Inter, system-ui, -apple-system, sans-serif;">
+
+  <header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="font-bold">Prototype controls:</span>
+      <button id="themeToggle" class="btn btn-xs btn-outline" aria-pressed="false">Theme: anubis (dark)</button>
+      <button id="widthToggle" class="btn btn-xs btn-outline">Width: wide desktop</button>
+      <a href="index.html" class="btn btn-xs btn-outline">← Main screen</a>
+    </div>
+    <div class="text-base-content-muted">TASK_2026_494 — states, fallbacks, empty and evicted</div>
+  </header>
+
+  <main id="prototypeContainer" class="viewport-wide p-4 space-y-8">
+
+    <!-- ================= 1. Submit / form state matrix ================= -->
+    <section>
+      <h2 class="text-sm font-semibold mb-1">Submit / form state matrix</h2>
+      <p class="text-xs text-base-content-muted mb-3">
+        Every branch of the `surface.submit` state table (implementation-plan.md Component 5, "Form flow"). Message
+        text stays in <code class="font-mono">text-base-content</code> at normal weight in every branch — only the
+        icon and the left spine carry color — because <code class="font-mono">text-error</code> on
+        <code class="font-mono">base-300</code> measures ≈3.17:1, which fails WCAG AA for small normal text
+        (design-spec.md "Accessibility", measured-contrast table). This is a deliberate, more conservative reading of
+        that table's own mitigation ("lean on the spine plus icon instead of the text color"); see
+        <code class="font-mono">README.md</code> "Deviations".
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+
+        <div class="card card-bordered p-3 spine-neutral">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">pending</div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+            <span class="text-sm font-semibold">Sending…</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" disabled>Sending…</button>
+          <p class="text-xs text-base-content mt-2">Button disabled while `surface:action`/`surface:operation` is pending, and while polling for the result.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-success">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">applied</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-success)" stroke-width="2.5" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            <span class="text-sm font-semibold text-success">Sent</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">A "Submitted: Submit rollback request" bubble is appended to the transcript; the view updates only from the echo or a read.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-warning">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">rejected · stale-revision</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-warning)" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span class="text-sm font-semibold">Rejected</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">"This app changed. Check the values and submit again." A read is requested; the surface re-renders before the button re-enables.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-warning">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">rejected · submit-invalid</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-warning)" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span class="text-sm font-semibold">Rejected</span>
+          </div>
+          <label class="block text-xs font-medium mb-1" for="ex-reason">Reason <span aria-hidden="true">*</span></label>
+          <input id="ex-reason" type="text" class="input input-sm w-full text-sm mb-1" aria-invalid="true" aria-describedby="ex-reason-err" value="" />
+          <p id="ex-reason-err" class="text-[11px] text-base-content mb-2">Reason is required before submitting.</p>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">Every `issues[]` entry marks its own input (<code class="font-mono">aria-invalid</code> + <code class="font-mono">aria-describedby</code>); values are kept, nothing is cleared.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-warning">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">rejected · busy</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-warning)" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span class="text-sm font-semibold">Rejected</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">"The agent is busy; try again when it finishes." Only one pending submit is allowed per routing id.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-warning">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">rejected · session-unavailable</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-warning)" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span class="text-sm font-semibold">Rejected</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">"This conversation is not running." The Apps session ended or was discarded before the submit landed.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-neutral">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">indeterminate</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-content-muted)" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            <span class="text-sm font-semibold">Not styled as a failure</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" disabled>Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">"May have been sent — do not resend." Button stays disabled until the Apps session goes idle again.</p>
+        </div>
+
+        <div class="card card-bordered p-3 spine-neutral">
+          <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">unknown</div>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-content-muted)" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            <span class="text-sm font-semibold">Unknown</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm">Submit rollback request</button>
+          <p class="text-xs text-base-content mt-2">"We could not confirm whether this was sent. Check the conversation before sending again." No rollback and no replay are offered — polling gave up after 150s or 3 transport failures.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= 2. Spec rejected — text fallback ================= -->
+    <section>
+      <h2 class="text-sm font-semibold mb-1">Spec rejected — text fallback (invalid / oversized spec)</h2>
+      <p class="text-xs text-base-content-muted mb-3">
+        Re-validation at the webview boundary failed (unknown schema/catalog version, over
+        <code class="font-mono">DASHBOARD_LIMITS.maxSpecBytes</code>, or a malformed value). No component from the
+        spec renders. The conversation's tool-result text stays visible in the transcript (Req 3.5).
+      </p>
+      <div class="card card-bordered p-3" style="max-width: 560px;">
+        <div class="bg-base-200 rounded p-3 font-mono-fallback text-xs">This app could not be shown.
+Reason: spec exceeds the maximum allowed size (48,203 bytes &gt; 32,768 byte limit).</div>
+      </div>
+    </section>
+
+    <!-- ================= 3. Render failure — text fallback ================= -->
+    <section>
+      <h2 class="text-sm font-semibold mb-1">Render failure — text fallback</h2>
+      <p class="text-xs text-base-content-muted mb-3">
+        The spec passed validation but the view-model build threw (<code class="font-mono">SURFACE_VIEW_MODEL_BUILDER</code>
+        override, Req 3.6). The renderer shows no partial tree — only
+        <code class="font-mono">renderDashboardSpecText(spec)</code> / <code class="font-mono">renderSurfaceText(view)</code>,
+        the same text-table fallback the model can already produce, capped at 20 rows.
+      </p>
+      <div class="card card-bordered p-3" style="max-width: 560px;">
+        <div class="bg-base-200 rounded p-3 font-mono-fallback text-xs">Weekly Deploy Cost
+
+Deploys this week: 42
+Avg cost / deploy: $0.0841
+Failed deploys: 3
+
+Recent deploys (top 20 of 42)
+Time   Service              Duration  Cost     Status
+08:00  checkout-api         182s      $0.1920  Succeeded
+08:07  billing-worker       94s       $0.0610  Succeeded
+08:14  notifications-svc    41s       $0.0220  Failed
+...</div>
+      </div>
+    </section>
+
+    <!-- ================= 4. Empty Apps page ================= -->
+    <section>
+      <h2 class="text-sm font-semibold mb-1">Empty Apps page (no surface yet)</h2>
+      <p class="text-xs text-base-content-muted mb-3">
+        Req 2.7: when no spec has been rendered yet, the page shows an empty state with the request input — never a
+        blank area.
+      </p>
+      <div class="flex border border-base-300 rounded-lg overflow-hidden" style="height: 320px; max-width: 900px;">
+        <div class="flex flex-col border-r border-base-300 flex-shrink-0" style="width: 300px;">
+          <div class="px-3 py-2 border-b border-base-300">
+            <h3 class="text-sm font-semibold">Apps</h3>
+            <p class="text-[11px] text-base-content-muted">Conversation for this page only</p>
+          </div>
+          <div class="flex-1"></div>
+          <div class="border-t border-base-300 p-2 space-y-1.5">
+            <textarea class="textarea w-full text-sm" rows="2" placeholder="Ask for a dashboard, a form, or a change…" aria-label="Message the Apps conversation"></textarea>
+            <div class="flex items-center justify-end">
+              <button type="button" class="btn btn-primary btn-xs">Send</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex-1 flex flex-col items-center justify-center text-center px-6">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--brand-content-muted)" stroke-width="1.5" aria-hidden="true" class="mb-2"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="11" width="8" height="9" rx="1"/><rect x="13" y="11" width="8" height="9" rx="1"/></svg>
+          <p class="text-sm font-medium">No app yet</p>
+          <p class="text-xs text-base-content-muted mt-1 max-w-xs">Ask for a dashboard or a form in the conversation on the left to get started.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 5. Evicted / removed notice ================= -->
+    <section>
+      <h2 class="text-sm font-semibold mb-1">Evicted notice (surface removed to free memory)</h2>
+      <p class="text-xs text-base-content-muted mb-3">
+        A `deleted` push with `reason: 'evicted'` (host store LRU, `SURFACE_STORE_LIMITS`) removes the entry and, if
+        it was active, promotes the next most recent surface. The same copy covers a `not-found` submit result.
+      </p>
+      <div class="flex border border-base-300 rounded-lg overflow-hidden" style="height: 220px; max-width: 900px;">
+        <div class="flex-1 flex flex-col">
+          <div class="flex items-center gap-1 px-3 py-2 border-b border-base-300" role="tablist" aria-label="Open apps">
+            <span class="tab text-xs px-3 py-1.5 rounded-t-md text-base-content-muted">Rollback Request</span>
+          </div>
+          <div class="flex-1 flex items-center justify-center px-6">
+            <div class="text-center" role="status">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--brand-warning)" stroke-width="2" aria-hidden="true" class="mx-auto mb-2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+              <p class="text-sm font-medium">This app was removed to free memory.</p>
+              <p class="text-xs text-base-content-muted mt-1">Ask the agent to rebuild it.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const themeBtn = document.getElementById('themeToggle');
+    themeBtn.addEventListener('click', () => {
+      const dark = root.getAttribute('data-theme') === 'anubis';
+      root.setAttribute('data-theme', dark ? 'anubis-light' : 'anubis');
+      themeBtn.textContent = dark ? 'Theme: anubis-light (light)' : 'Theme: anubis (dark)';
+      themeBtn.setAttribute('aria-pressed', String(dark));
+    });
+    const container = document.getElementById('prototypeContainer');
+    const widthBtn = document.getElementById('widthToggle');
+    widthBtn.addEventListener('click', () => {
+      const wide = container.classList.contains('viewport-wide');
+      container.classList.toggle('viewport-wide', !wide);
+      container.classList.toggle('viewport-sidebar', wide);
+      widthBtn.textContent = wide ? 'Width: embedded sidebar (~420px)' : 'Width: wide desktop';
+    });
+  </script>
+</body>
+</html>

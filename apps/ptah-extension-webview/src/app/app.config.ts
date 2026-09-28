@@ -31,6 +31,7 @@ import {
   surfaceActiveFor,
 } from '@ptah-extension/core';
 import { appRoutes } from './app.routes';
+import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
@@ -168,6 +169,15 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    // The ONE `surface:updated` intake for every host (TASK_2026_494, plan
+    // D3). Eager on purpose: a lazy consumer claims its routing id before
+    // `chat:start`, so nothing can arrive unclaimed, and the zod-free inbox
+    // keeps the contract validators out of the initial bundle.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SurfaceUpdateInbox,
+      multi: true,
+    },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: AgentMonitorMessageHandler,

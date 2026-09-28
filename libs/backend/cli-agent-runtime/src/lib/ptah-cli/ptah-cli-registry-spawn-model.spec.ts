@@ -32,7 +32,12 @@ import type {
   SDKUserMessage,
 } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { PtahCliConfig } from '@ptah-extension/shared';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type {
+  EffectiveCapabilitySet,
+  PtahCliConfig,
+} from '@ptah-extension/shared';
+import type { DependencyContainer } from 'tsyringe';
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
@@ -65,6 +70,32 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 async function* emptyStream(): AsyncGenerator<never, void, unknown> {
   // No messages — streamLoop.run resolves with exit code 0.
+}
+
+/**
+ * A container holding a resolver that answers with a VERIFIED policy, so the
+ * spawn takes the normal path and the only log lines are the ones under test.
+ * (With no resolver the spawn fails closed, which logs a warning.)
+ */
+function verifiedPolicyContainer(): DependencyContainer {
+  const policy: EffectiveCapabilitySet = {
+    physicalRoot: '/test/dir',
+    policyKey: '/test/dir',
+    status: 'verified',
+    reasons: [],
+    ptahEnabled: true,
+    deniedMcpServers: [],
+    approvedProjectMcpServers: [],
+    deniedSkillNames: [],
+    disabledPluginIds: [],
+    harnessFingerprint: 'fp-test',
+  };
+  const resolver = { resolve: jest.fn().mockResolvedValue(policy) };
+  return {
+    isRegistered: (token: symbol) =>
+      token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+    resolve: () => resolver,
+  } as unknown as DependencyContainer;
 }
 
 interface SpawnHarness {
@@ -143,6 +174,8 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     null as never, // modelResolver
     { get: jest.fn(() => undefined) } as unknown as never, // configManager
     createFakeSdkProcessSpawner(), // processSpawner
+    null, // harnessPreflight
+    verifiedPolicyContainer(),
   );
 
   return {

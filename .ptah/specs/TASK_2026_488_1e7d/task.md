@@ -1,11 +1,12 @@
 ---
-status: in_progress
+status: done
 type: bugfix
 title: Restore the ptah-cli copy-wasm dependency
 description: >-
   The ptah-cli test target never runs because its copy-wasm dependency fails
   with WASM file not found for web-tree-sitter.wasm. The whole ptah-cli test
   suite is therefore unverified on this machine.
+updated: '2026-09-26T14:40:51.634Z'
 ---
 
 # Restore the ptah-cli copy-wasm dependency

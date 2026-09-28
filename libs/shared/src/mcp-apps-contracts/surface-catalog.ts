@@ -76,9 +76,28 @@ export const SURFACE_V1_ID_PREFIX = 'v1:';
 export const SURFACE_OPERATION_ID_PATTERN = /^op-[0-9]{13}-[A-Za-z0-9]{8,40}$/;
 
 /**
- * Budgets — PROVISIONAL. These starting values await the TASK_2026_494 render
- * test; that task confirms or replaces them. Consumers read budgets here so
- * confirming a number is a one-line change in one file.
+ * Budgets.
+ *
+ * `maxComponents`, `maxTreeDepth`, `maxStringLength`, `maxTableRows`,
+ * `maxTableColumns` and `maxSeriesPoints` are the same numbers as
+ * `DASHBOARD_LIMITS` and are CONFIRMED there (see that doc comment).
+ * `maxInputs`, `maxOptions` (on both `select` and `radio-group`),
+ * `maxChildrenPerNode`, `maxGridColumns`, `maxDataModelBytes` and
+ * `maxSurfaceBytes` are CONFIRMED by TASK_2026_494: each renders through the
+ * real `SurfaceRendererComponent` with no `renderFailed`, at exactly this
+ * value, in
+ * `libs/frontend/declarative-dashboard/src/lib/budget-render.spec.ts`
+ * (`budget-render-report.md`, TASK_2026_494_ca38). The measured jsdom render
+ * times are a RELATIVE signal only (that report's A4 caveat); none was slow
+ * enough to justify lowering a value. Every other budget below —
+ * `maxActionsPerComponent`, the id/path-grammar limits, the data-model shape
+ * limits, `maxUpdateRequestBytes`, `maxPatchOps`, `maxRpcRequestBytes`,
+ * `maxSubmitMessageBytes`, `maxStateReadBytes` and the write-log limits —
+ * stays PROVISIONAL: it is pinned at the validator boundary
+ * (`surface-budgets.spec.ts`, `surface-concurrency.spec.ts`) but is not a
+ * `budget-render.spec.ts` case, so this task does not confirm it against the
+ * renderer. Consumers read budgets here so confirming or changing a number is
+ * a one-line change in one file.
  */
 export const SURFACE_LIMITS = {
   maxComponents: DASHBOARD_LIMITS.maxComponents,
@@ -119,7 +138,10 @@ export const SURFACE_LIMITS = {
   maxWriteLogPathsPerEntry: 16,
 } as const;
 
-/** Store budgets — PROVISIONAL, to be confirmed alongside the surface budgets. */
+/**
+ * Store budgets — PROVISIONAL. Not a `budget-render.spec.ts` case (there is
+ * no store in a render test); TASK_2026_494 leaves these as they were.
+ */
 export const SURFACE_STORE_LIMITS = {
   maxRoutingIds: 32,
   maxSurfacesPerRoutingId: 8,

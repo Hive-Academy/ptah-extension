@@ -834,6 +834,14 @@ export class SdkModelService {
           pathToClaudeCodeExecutable: cliJsPath,
           settingSources,
           settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+          // The probe only asks for the model list, so it loads no MCP server
+          // and no skill. Without these it started every server and listed every
+          // skill the user's config declares, including ones the capability
+          // policy turned off, just to answer `supportedModels()`
+          // (TASK_2026_560, C5).
+          strictMcpConfig: true,
+          mcpServers: {},
+          skills: [],
           env,
           stderr: onStderr,
           spawnClaudeCodeProcess: (spawnOptions) =>

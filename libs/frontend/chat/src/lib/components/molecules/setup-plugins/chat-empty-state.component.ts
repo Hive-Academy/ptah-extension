@@ -15,7 +15,6 @@ import {
   AppStateManager,
   PluginCatalogService,
   VSCodeService,
-  encodeMarketplaceTarget,
 } from '@ptah-extension/core';
 
 /**
@@ -26,8 +25,8 @@ import {
  *
  * Content (single column, no tabs):
  * - Hero: Ptah logo, title and tagline
- * - "Skills Not Configured" warning, deep-linking to the Marketplace Skills
- *   section (TASK_2026_524 — the plugin catalog is edited there now, inline,
+ * - "Skills Not Configured" warning, deep-linking to the Marketplace Ptah
+ *   plugins page (TASK_2026_524 — the plugin catalog is edited there now, inline,
  *   not in the modal this component used to host)
  * - Intelligent Project Setup card with `<ptah-setup-status-widget>`
  * - One `<ptah-prompt-suggestions>`
@@ -45,7 +44,7 @@ import {
  * - Composition: Embeds setup-status-widget and prompt-suggestions by selector
  * - Dependency Inversion: Depends on the `@ptah-extension/core` service
  *   abstractions rather than on the Marketplace library, which `chat` must not
- *   import — the section id is encoded through `encodeMarketplaceTarget`.
+ *   import — the page is addressed through `AppStateManager.openMarketplace`.
  */
 @Component({
   selector: 'ptah-chat-empty-state',
@@ -266,18 +265,14 @@ export class ChatEmptyStateComponent implements OnInit {
   }
 
   /**
-   * Open the Marketplace on its Skills section, focused on the Ptah plugins
-   * chip — where the catalog is now edited inline.
+   * Open the Marketplace on the Ptah plugins skill source — where the catalog
+   * is now edited inline.
    *
-   * `chat` must not import `@ptah-extension/marketplace`, so the target is
-   * written through `core`'s encoder into the state field the hub reads,
-   * then the surface switch goes through `AppStateManager`, which owns the
-   * Router-backed navigation and its busy guard.
+   * `chat` must not import `@ptah-extension/marketplace`, so the page is a
+   * `core` `MarketplaceRoute` and `AppStateManager.openMarketplace` navigates
+   * to it through the Router, under its busy guard.
    */
   protected openMarketplaceSkills(): void {
-    this.appState.setMarketplaceActiveProvider(
-      encodeMarketplaceTarget('skills', 'ptah-plugins'),
-    );
-    this.appState.setCurrentView('marketplace');
+    this.appState.openMarketplace({ page: 'skills', source: 'ptah-plugins' });
   }
 }

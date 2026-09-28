@@ -171,6 +171,45 @@ describe('startMessagingGateway — the persistence gate', () => {
   });
 });
 
+describe('startMessagingGateway — skipStart (PTAH_E2E gate, TASK_2026_389)', () => {
+  it('starts neither the gateway nor the bridge and does not wait on the gate', async () => {
+    const h = makeHarness();
+
+    // The persistence gate is never settled: a skipped start must return
+    // without awaiting it, or the harness boot would still pay for the wait.
+    await startMessagingGateway({
+      gateway: h.gateway,
+      bridge: h.bridge,
+      coordinator: h.coordinator,
+      broadcast: h.broadcast,
+      skipStart: true,
+    });
+
+    expect(h.gatewayStart).not.toHaveBeenCalled();
+    expect(h.bridgeStart).not.toHaveBeenCalled();
+    expect(h.broadcast).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Messaging gateway start skipped — e2e harness'),
+    );
+  });
+
+  it('starts normally when skipStart is false', async () => {
+    const h = makeHarness();
+    const started = startMessagingGateway({
+      gateway: h.gateway,
+      bridge: h.bridge,
+      coordinator: h.coordinator,
+      broadcast: h.broadcast,
+      skipStart: false,
+    });
+    h.coordinator.markPersistenceSettled({ sqliteOpen: true });
+    await started;
+
+    expect(h.gatewayStart).toHaveBeenCalledTimes(1);
+    expect(h.bridgeStart).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('startMessagingGateway — failure containment', () => {
   it('skips the bridge and warns when the gateway start rejects', async () => {
     const h = makeHarness({

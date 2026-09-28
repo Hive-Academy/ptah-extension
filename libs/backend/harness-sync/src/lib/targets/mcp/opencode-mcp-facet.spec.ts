@@ -18,13 +18,20 @@
  * Source-under-test: `JsonMcpFacet` as configured by `createMcpFacet('opencode')`.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { McpServerConfig } from '@ptah-extension/shared';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
 import { PTAH_SPAWN_MCP_KEY } from './mcp-facet.port';
 import { createMcpFacet } from './mcp-facet.registry';
+import { EMPTY_CONFIG_REREAD_DELAY_MS, JsonMcpFacet } from './json-mcp-facet';
 import { hashMcpConfig } from './mcp-json-format';
 
 describe('OpenCode MCP facet (opencode.json)', () => {
@@ -248,6 +255,167 @@ describe('OpenCode MCP facet (opencode.json)', () => {
     expect(makeFacet().readAll(ws).size).toBe(0);
     writeFileSync(configPath, '{ not json', 'utf-8');
     expect(makeFacet().readAll(ws).size).toBe(0);
+  });
+
+  // ---------------------------------------------------------------- inspect
+
+  describe('inspect', () => {
+    it('reports `ok` with every declared server, in the same shape readAll reads', async () => {
+      seedConfig({
+        model: 'anthropic/claude-sonnet-4-5',
+        mcp: {
+          theirs: { type: 'remote', url: 'https://theirs.example.com/mcp' },
+          local: { type: 'local', command: ['bun', 'x', 'srv'] },
+        },
+      });
+      const facet = makeFacet();
+
+      const result = await facet.inspect(ws);
+      expect(result.status).toBe('ok');
+      expect(result.error).toBeUndefined();
+      expect(result.servers).toEqual(facet.readAll(ws));
+      expect(result.servers.get('local')).toEqual({
+        type: 'stdio',
+        command: 'bun',
+        args: ['x', 'srv'],
+      });
+    });
+
+    it('reports `ok` and no servers for a file without an `mcp` key', async () => {
+      seedConfig({ model: 'anthropic/claude-sonnet-4-5' });
+      await expect(makeFacet().inspect(ws)).resolves.toEqual({
+        status: 'ok',
+        servers: new Map(),
+      });
+    });
+
+    describe('an empty file is re-read once, because it may be a torn write', () => {
+      /**
+       * The opencode facet exactly as `createMcpFacet('opencode')` builds it,
+       * plus a wait hook that stands in for the delay between the two reads.
+       * The hook is where a concurrent writer "finishes" (or breaks) the file.
+       */
+      function makeFacetWithWait(
+        wait: (ms: number) => Promise<void>,
+      ): IHarnessMcpFacet {
+        return new JsonMcpFacet({
+          target: 'opencode',
+          mcpTarget: 'opencode',
+          scope: 'workspace',
+          segments: ['opencode.json'],
+          rootKey: 'mcp',
+          includeType: true,
+          dialect: 'opencode',
+          waitBeforeEmptyReread: wait,
+        });
+      }
+
+      it('reports `ok` and no servers when it is still empty on the re-read', async () => {
+        writeFileSync(configPath, '', 'utf-8');
+        const wait = jest.fn(() => Promise.resolve());
+
+        await expect(makeFacetWithWait(wait).inspect(ws)).resolves.toEqual({
+          status: 'ok',
+          servers: new Map(),
+        });
+        expect(wait).toHaveBeenCalledTimes(1);
+        expect(wait).toHaveBeenCalledWith(EMPTY_CONFIG_REREAD_DELAY_MS);
+      });
+
+      it('parses the content the re-read finds when the writer finished in between', async () => {
+        writeFileSync(configPath, '', 'utf-8');
+        const facet = makeFacetWithWait(async () => {
+          seedConfig({
+            mcp: {
+              theirs: { type: 'remote', url: 'https://theirs.example.com/mcp' },
+            },
+          });
+        });
+
+        const result = await facet.inspect(ws);
+        expect(result.status).toBe('ok');
+        expect(result.servers.get('theirs')).toEqual({
+          type: 'http',
+          url: 'https://theirs.example.com/mcp',
+        });
+      });
+
+      it('reports `error` when the file has become unreadable by the re-read', async () => {
+        writeFileSync(configPath, '', 'utf-8');
+        const facet = makeFacetWithWait(async () => {
+          rmSync(configPath);
+          mkdirSync(configPath);
+        });
+
+        const result = await facet.inspect(ws);
+        expect(result.status).toBe('error');
+        expect(result.error).toBeDefined();
+        expect(result.servers.size).toBe(0);
+      });
+
+      it('does not wait at all for a file with content', async () => {
+        seedConfig({ mcp: {} });
+        const wait = jest.fn(() => Promise.resolve());
+
+        expect((await makeFacetWithWait(wait).inspect(ws)).status).toBe('ok');
+        expect(wait).not.toHaveBeenCalled();
+      });
+
+      it('uses a real (short) timer by default and still reports `ok` for a stable empty file', async () => {
+        writeFileSync(configPath, '', 'utf-8');
+        await expect(makeFacet().inspect(ws)).resolves.toEqual({
+          status: 'ok',
+          servers: new Map(),
+        });
+      });
+    });
+
+    it('reports `missing` when opencode.json does not exist (ENOENT)', async () => {
+      await expect(makeFacet().inspect(ws)).resolves.toEqual({
+        status: 'missing',
+        servers: new Map(),
+      });
+    });
+
+    it('reports `missing` with no workspace to resolve the file under', async () => {
+      await expect(makeFacet().inspect('')).resolves.toEqual({
+        status: 'missing',
+        servers: new Map(),
+      });
+    });
+
+    it('reports `error` for malformed JSON, while legacy readAll still reads it as empty', async () => {
+      writeFileSync(configPath, '{ not json', 'utf-8');
+      const facet = makeFacet();
+
+      const result = await facet.inspect(ws);
+      expect(result.status).toBe('error');
+      expect(result.error).toBeDefined();
+      expect(result.servers.size).toBe(0);
+      expect(facet.readAll(ws).size).toBe(0);
+    });
+
+    it('reports `error` when the top level is not a JSON object', async () => {
+      writeFileSync(configPath, '[1, 2]', 'utf-8');
+      expect((await makeFacet().inspect(ws)).status).toBe('error');
+    });
+
+    it('reports `error` when `mcp` is present but not an object', async () => {
+      seedConfig({ mcp: ['theirs'] });
+      const result = await makeFacet().inspect(ws);
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('"mcp"');
+    });
+
+    it('reports `error` for an unreadable path (a directory where the file should be)', async () => {
+      mkdirSync(configPath);
+      const facet = makeFacet();
+
+      const result = await facet.inspect(ws);
+      expect(result.status).toBe('error');
+      expect(result.error).toBeDefined();
+      expect(facet.readAll(ws).size).toBe(0);
+    });
   });
 
   // ------------------------------------------------------------- concurrency

@@ -15,23 +15,30 @@ import type { UiDriver } from '../../support/ui-driver';
  * driven the same way `new-project.spec.ts` drives the harness surface:
  * mocked RPC + real clicks, via `UiDriver`.
  *
- * Known landmine, same class as `SetupHubComponent`'s unguarded
- * `presets().length` (see `new-project.spec.ts`): the Skills section header
- * — rendered ABOVE the external-marketplace surface by
- * `SkillsSectionComponent` — reads the plugin catalogue for its
- * `{enabled}/{total} enabled` line, and the driver's unmocked-method fallback
- * answers `plugins:list-available` with an object that has no `plugins` key.
- * Each test below mocks both `plugins:get-config` and `plugins:list-available`
- * with their real contract shapes (`PluginConfigState`,
- * `{ plugins: PluginInfo[] }` from `rpc.types.ts`) so every test in this file
- * exercises the external marketplace surface, not that unrelated header's
- * crash.
+ * Former landmine, same class as `SetupHubComponent`'s unguarded
+ * `presets().length` (see `new-project.spec.ts`): under TASK_2026_524's hub,
+ * the Skills section header rendered ABOVE the external-marketplace surface
+ * on every Skills tab and read the plugin catalogue for its `{enabled}/
+ * {total} enabled` line, so an unmocked `plugins:list-available` crashed
+ * every test here even though none of them exercise that header.
+ * TASK_2026_533's `SkillSourceHostComponent` mounts
+ * `SkillsSectionHeaderComponent` only on the `ptah-plugins` source
+ * (`skill-source-host.component.ts`), never on `marketplaces`, so navigating
+ * straight to `skills/marketplaces` (below) no longer mounts it and the
+ * landmine cannot fire on this route. `PLUGIN_CATALOG_MOCKS` is kept anyway,
+ * defensively, so a future route change that reintroduces the header here
+ * does not resurrect a silent crash.
  *
- * TASK_2026_524 replaced the seven-tile provider grid with three sections
- * (Connected / Apps / Skills) and a per-section source chip strip, so the
- * navigation helper below selects the Skills tab and then the Marketplaces
- * chip. Every `external-*` testid and copy assertion is untouched — only the
- * route to the surface moved.
+ * TASK_2026_524 replaced the seven-tile provider grid with three hub
+ * sections (Connected / Apps / Skills) and a per-section source chip strip,
+ * reached by clicking the Skills tab and then the Marketplaces chip.
+ * TASK_2026_533 (implementation-plan.md C6/C9/C10) replaced that hub with the
+ * routed Marketplace shell: the persistent nav's Sources group links
+ * straight to `skills/marketplaces`, so the navigation helper below is now
+ * ONE click instead of two, through `ui.goto('marketplace')` (the routed
+ * shell, `[data-testid="marketplace-shell"]`) plus a single nav-link click.
+ * Every `external-*` / `marketplace-source` / `marketplace-add` testid and
+ * copy assertion below is untouched — only the route to the surface moved.
  */
 
 const SOURCE = 'dotnet/skills';
@@ -84,20 +91,22 @@ const PLUGIN_CATALOG_MOCKS = {
 };
 
 /**
- * Navigate to Marketplace -> Skills -> Marketplaces, the host of the
+ * Navigate straight to `/marketplace/skills/marketplaces`, the host of the
  * external-marketplace surface.
  *
- * The section strip is `NativeTabGroupComponent` (`role="tab"`), scoped to the
- * hub because the app shell's own top nav is a tablist too. The chip strip is
- * plain buttons carrying `data-source-id`, which is the stable handle — the
- * visible label is the only other candidate and it collides with the surface's
- * own copy.
+ * The routed shell's persistent nav (`marketplace-nav.component.ts`) links
+ * every source directly, so this is one click on the Sources group's
+ * "Marketplaces" item — `[data-nav-id="marketplaces"]`, the stable handle,
+ * scoped to `[data-testid="marketplace-nav"]` because it is the only stable
+ * attribute (the visible label collides with the surface's own copy, same
+ * reason the old chip strip used `data-source-id` instead of its label).
  */
 async function openSkillsMarketplaces(ui: UiDriver): Promise<void> {
   await ui.goto('marketplace');
-  const hub = ui.page.locator('ptah-marketplace-hub');
-  await hub.getByRole('tab', { name: 'Skills' }).click();
-  await hub.locator('[data-source-id="marketplaces"]').click();
+  const shell = ui.page.locator('[data-testid="marketplace-shell"]');
+  await shell
+    .locator('[data-testid="marketplace-nav"] [data-nav-id="marketplaces"]')
+    .click();
   await expect(ui.page.locator('ptah-external-marketplaces')).toBeVisible();
   await expect(
     ui.page.locator('[data-testid="marketplace-source"]'),

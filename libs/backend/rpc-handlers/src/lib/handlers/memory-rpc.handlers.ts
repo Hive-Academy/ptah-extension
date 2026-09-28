@@ -40,6 +40,8 @@ import type {
   MemoryGetTriggersParams,
   MemoryGetTriggersResult,
   MemoryListParams,
+  MemoryListQuarantinedParams,
+  MemoryListQuarantinedResult,
   MemoryListResult,
   MemoryPinParams,
   MemoryPinResult,
@@ -50,6 +52,8 @@ import type {
   MemoryQueryScope,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
+  MemoryRestoreQuarantinedParams,
+  MemoryRestoreQuarantinedResult,
   MemoryRunNowParams,
   MemoryRunNowResult,
   MemorySearchHitWire,
@@ -69,7 +73,9 @@ import { z } from 'zod';
 import {
   MemoryDiagnosticsParamsSchema,
   MemoryGetTriggersParamsSchema,
+  MemoryListQuarantinedParamsSchema,
   MemoryPurgeBySubjectPatternParamsSchema,
+  MemoryRestoreQuarantinedParamsSchema,
   MemoryRunNowParamsSchema,
   MemorySearchSymbolsParamsSchema,
   MemorySetTriggersParamsSchema,
@@ -128,6 +134,8 @@ export class MemoryRpcHandlers {
     'memory:runNow',
     'memory:setTriggers',
     'memory:getTriggers',
+    'memory:listQuarantined',
+    'memory:restoreQuarantined',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -256,7 +264,10 @@ export class MemoryRpcHandlers {
       async (params: MemoryGetParams | undefined): Promise<MemoryGetResult> => {
         if (!params?.id) return { memory: null, chunks: [] };
         const id = memoryId(params.id);
-        const memory = this.store.getById(id);
+        // A quarantined row reads as missing (and records no use): its
+        // content is reviewed through `memory:listQuarantined` and read in
+        // full only after `memory:restoreQuarantined`.
+        const memory = this.store.getActiveById(id);
         if (!memory) return { memory: null, chunks: [] };
         const chunks = this.store.getChunks(id);
         try {
@@ -279,7 +290,11 @@ export class MemoryRpcHandlers {
       async (params: MemoryPinParams | undefined): Promise<MemoryPinResult> => {
         if (!params?.id) return { success: false, pinned: false };
         try {
-          this.store.setPinned(memoryId(params.id), true);
+          // `false` = no active row matched (missing or quarantined): report
+          // the same "not pinned" envelope as a missing id, never success.
+          if (!this.store.setPinned(memoryId(params.id), true)) {
+            return { success: false, pinned: false };
+          }
           return { success: true, pinned: true };
         } catch (err) {
           this.logger.warn('[memory] pin failed', { error: String(err) });
@@ -293,7 +308,9 @@ export class MemoryRpcHandlers {
       async (params: MemoryPinParams | undefined): Promise<MemoryPinResult> => {
         if (!params?.id) return { success: false, pinned: false };
         try {
-          this.store.setPinned(memoryId(params.id), false);
+          if (!this.store.setPinned(memoryId(params.id), false)) {
+            return { success: false, pinned: false };
+          }
           return { success: true, pinned: false };
         } catch (err) {
           this.logger.warn('[memory] unpin failed', { error: String(err) });
@@ -756,6 +773,116 @@ export class MemoryRpcHandlers {
           );
         }
         return { triggers: readMemoryTriggers(this.workspaceProvider) };
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:listQuarantined',
+      async (
+        params: MemoryListQuarantinedParams | undefined,
+      ): Promise<MemoryListQuarantinedResult> => {
+        let validated: z.infer<typeof MemoryListQuarantinedParamsSchema>;
+        try {
+          validated = MemoryListQuarantinedParamsSchema.parse(params ?? {});
+        } catch (err: unknown) {
+          this.logger.warn('[memory] listQuarantined — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:listQuarantined',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const page = this.store.listQuarantined({
+            workspaceRoot: this.resolveReadScope(
+              validated.scope,
+              validated.workspaceRoot,
+            ),
+            reason: validated.reason,
+            limit: validated.limit,
+            offset: validated.offset,
+          });
+          return {
+            items: page.rows.map((row) => ({
+              id: row.id as unknown as string,
+              workspaceRoot: row.workspaceRoot,
+              subject: row.subject,
+              kind: row.kind,
+              tier: row.tier,
+              reason: row.reason,
+              quarantinedAt: row.quarantinedAt,
+              excerpt: row.excerpt,
+            })),
+            total: page.total,
+          };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] listQuarantined failed', {
+            error: message,
+          });
+          throw new RpcUserError(
+            'memory:listQuarantined failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:restoreQuarantined',
+      async (
+        params: MemoryRestoreQuarantinedParams | undefined,
+      ): Promise<MemoryRestoreQuarantinedResult> => {
+        // Scoped like the destructive `memory:purgeJunk` precedent, with one
+        // deliberate difference: an explicit `null` is accepted and targets
+        // exactly the unscoped rows. Restore only clears the two quarantine
+        // columns inside that exact scope — it cannot delete or widen — so the
+        // unscoped case is allowed where `purgeBySubjectPattern` refuses null.
+        // An omitted key fails the schema: never "current" and never "all".
+        let validated: z.infer<typeof MemoryRestoreQuarantinedParamsSchema>;
+        try {
+          validated = MemoryRestoreQuarantinedParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[memory] restoreQuarantined — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:restoreQuarantined',
+            'INVALID_PARAMS',
+          );
+        }
+        const workspaceRoot = validated.workspaceRoot;
+        if (workspaceRoot === null) {
+          this.logger.info('[memory] restoreQuarantined', {
+            scope: 'unscoped',
+          });
+        } else if (
+          !isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
+          );
+        }
+        const selector =
+          validated.ids !== undefined
+            ? { ids: validated.ids }
+            : validated.reason !== undefined
+              ? { reason: validated.reason }
+              : { all: true as const };
+        try {
+          return this.store.restoreQuarantined(selector, workspaceRoot);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[memory] restoreQuarantined failed', {
+            error: message,
+          });
+          throw new RpcUserError(
+            'memory:restoreQuarantined failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
       },
     );
 

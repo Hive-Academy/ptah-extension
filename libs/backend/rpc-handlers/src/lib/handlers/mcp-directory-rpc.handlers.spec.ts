@@ -80,8 +80,23 @@ import {
 } from '@ptah-extension/platform-core/testing';
 
 import type { DependencyContainer } from 'tsyringe';
-import type { IHttpServerProvider } from '@ptah-extension/platform-core';
-import { MCP_OAUTH_LOOPBACK_PORT } from '@ptah-extension/cli-agent-runtime';
+import type {
+  IHttpServerProvider,
+  IOutputChannel,
+  IStateStorage,
+} from '@ptah-extension/platform-core';
+import {
+  CapabilityResolverService,
+  CapabilityToggleStore,
+  MCP_OAUTH_LOOPBACK_PORT,
+  McpInstallService,
+} from '@ptah-extension/cli-agent-runtime';
+import { McpIntentStore } from '@ptah-extension/harness-sync';
+import { PluginLoaderService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type {
+  ICapabilityResolver,
+  McpInstallResult,
+} from '@ptah-extension/shared';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1055,5 +1070,237 @@ describe('McpDirectoryRpcHandlers — Smithery Connections API', () => {
     'mcpDirectory:openSmitherySetup',
   ])('declares %s in the METHODS tuple', (method) => {
     expect(McpDirectoryRpcHandlers.METHODS).toContain(method);
+  });
+});
+
+// ── Install records an explicit workspace ON (TASK_2026_560, N6) ────────────
+
+/**
+ * The install writes are the reconciler's; these specs replace
+ * `McpInstallService.install` with one that only reports the per-target
+ * outcome, and the N6 case writes the `.mcp.json` itself. The capability side
+ * is either the REAL resolver over a temp home or a scripted one.
+ */
+describe('McpDirectoryRpcHandlers — install writes an explicit capability ON', () => {
+  const stdio = { type: 'stdio' as const, command: 'node', args: ['s.js'] };
+  const created: string[] = [];
+  let logger: MockLogger;
+  let rpc: MockRpcHandler;
+
+  /** A container whose only capability registration is `resolver`. */
+  const containerWith = (resolver: ICapabilityResolver): DependencyContainer =>
+    ({
+      isRegistered: (token: unknown) =>
+        token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+      resolve: (token: unknown) => {
+        if (token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER) return resolver;
+        throw new Error('not registered');
+      },
+    }) as unknown as DependencyContainer;
+
+  const scriptedResolver = (
+    setExplicit: ICapabilityResolver['setExplicit'],
+  ): ICapabilityResolver & { setExplicit: jest.Mock } => ({
+    resolve: jest.fn(),
+    list: jest.fn(),
+    set: jest.fn(),
+    setExplicit: jest.fn(setExplicit),
+  });
+
+  const build = (root: string, resolver: ICapabilityResolver): void => {
+    new McpDirectoryRpcHandlers(
+      logger as unknown as Logger,
+      rpc as never,
+      createMockWorkspaceProvider({ folders: [root] }),
+      createMockSentryService() as unknown as SentryService,
+      createMockAuthSecretsService(),
+      createMockUserInteraction(),
+      createMockHttpServerProvider(),
+      containerWith(resolver),
+    ).register();
+  };
+
+  /** Make the install report `results` without touching any config file. */
+  const stubInstall = (results: McpInstallResult[]): void => {
+    jest
+      .spyOn(McpInstallService.prototype, 'install')
+      .mockResolvedValue(results);
+  };
+
+  const install = (serverKey: string, targets: string[]) =>
+    rpc.handleMessage({
+      method: 'mcpDirectory:install',
+      params: {
+        serverName: `io.example/${serverKey}`,
+        serverKey,
+        config: stdio,
+        targets,
+      },
+      correlationId: 'c1',
+    } as never);
+
+  const tempHome = (): { home: string; repo: string } => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-install-n6-'));
+    created.push(home);
+    const repo = path.join(home, 'repo');
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    return { home, repo };
+  };
+
+  beforeEach(() => {
+    logger = createMockLogger();
+    rpc = createMockRpcHandler();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    for (const dir of created.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('N6: a workspace install of a name also in global Codex, with native auto-approval off, ends up approved', async () => {
+    const { home, repo } = tempHome();
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, '.codex', 'config.toml'),
+      '[mcp_servers.dual]\ncommand = "node"\n',
+    );
+
+    const output = {
+      name: 'test',
+      appendLine: () => undefined,
+      append: () => undefined,
+      clear: () => undefined,
+      show: () => undefined,
+      hide: () => undefined,
+      dispose: () => undefined,
+    } as unknown as IOutputChannel;
+    const store = new CapabilityToggleStore(
+      output,
+      path.join(home, '.ptah', 'capabilities'),
+    );
+    const pluginsBase = path.join(home, 'plugins');
+    fs.mkdirSync(pluginsBase, { recursive: true });
+    const loader = new PluginLoaderService(
+      createMockLogger() as unknown as Logger,
+      { isInstalled: () => false, listInstalled: () => [] } as never,
+      { getWorkspaceRoot: () => repo } as never,
+      store,
+    );
+    const pluginState = new Map<string, unknown>();
+    loader.initialize(pluginsBase, {
+      get: <T>(key: string, fallback?: T): T | undefined =>
+        (pluginState.get(key) as T | undefined) ?? fallback,
+      update: async (key: string, value: unknown) => {
+        pluginState.set(key, value);
+      },
+      keys: () => [...pluginState.keys()],
+    } as IStateStorage);
+    const resolver = new CapabilityResolverService({
+      output,
+      store,
+      inventory: new McpInstallService(
+        null,
+        new McpIntentStore(path.join(home, '.ptah', 'mcp-installed.json')),
+        { homeDir: home },
+      ),
+      // Native auto-approval off: Claude has approved nothing for this project.
+      approvals: {
+        read: async () => ({ status: 'ok', approvals: [], reasons: [] }),
+      },
+      plugins: loader,
+      homeDir: home,
+    });
+
+    // The declaration alone is not an approval: the same-name Codex entry
+    // makes the inherited value ON, which an ordinary toggle would normalize
+    // away.
+    const mcpJson = path.join(repo, '.mcp.json');
+    fs.writeFileSync(
+      mcpJson,
+      JSON.stringify({ mcpServers: { dual: { command: 'node' } } }),
+    );
+    expect((await resolver.resolve(repo)).approvedProjectMcpServers).toEqual(
+      [],
+    );
+
+    stubInstall([{ target: 'claude', success: true, configPath: mcpJson }]);
+    build(repo, resolver);
+
+    const res = await install('dual', ['claude']);
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      results: [{ target: 'claude', success: true, configPath: mcpJson }],
+    });
+    expect((await resolver.resolve(repo)).approvedProjectMcpServers).toEqual([
+      'dual',
+    ]);
+  });
+
+  it('keeps the install and returns a capabilityWarning naming the server when setExplicit rejects', async () => {
+    const { repo } = tempHome();
+    const resolver = scriptedResolver(async () => {
+      throw new Error('EACCES: permission denied, open C:\\secret\\item.json');
+    });
+    const configPath = path.join(repo, '.mcp.json');
+    stubInstall([{ target: 'claude', success: true, configPath }]);
+    build(repo, resolver);
+
+    const res = await install('github', ['claude']);
+
+    expect(resolver.setExplicit).toHaveBeenCalledWith(
+      repo,
+      'mcp',
+      'github',
+      true,
+    );
+    const data = res.data as {
+      results: McpInstallResult[];
+      capabilityWarning?: string;
+    };
+    expect(data.results).toEqual([
+      { target: 'claude', success: true, configPath },
+    ]);
+    expect(data.capabilityWarning).toContain('"github"');
+    expect(data.capabilityWarning).not.toMatch(/EACCES|secret|item\.json/);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('writes no capability entry for a global-only install', async () => {
+    const { repo } = tempHome();
+    const resolver = scriptedResolver(async () => {
+      throw new Error('must not be called');
+    });
+    stubInstall([
+      { target: 'codex', success: true, configPath: '/home/u/.codex/c.toml' },
+    ]);
+    build(repo, resolver);
+
+    const res = await install('github', ['codex']);
+
+    expect(resolver.setExplicit).not.toHaveBeenCalled();
+    expect(res.data).not.toHaveProperty('capabilityWarning');
+  });
+
+  it('writes no capability entry when every workspace target failed', async () => {
+    const { repo } = tempHome();
+    const resolver = scriptedResolver(async () => {
+      throw new Error('must not be called');
+    });
+    stubInstall([
+      {
+        target: 'claude',
+        success: false,
+        configPath: '',
+        error: 'reconciler unavailable',
+      },
+    ]);
+    build(repo, resolver);
+
+    await install('github', ['claude']);
+
+    expect(resolver.setExplicit).not.toHaveBeenCalled();
   });
 });

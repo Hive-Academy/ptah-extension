@@ -32,6 +32,7 @@ describe('webview surface ids', () => {
       'marketplace',
       'tribunal',
       'tasks',
+      'apps',
     ]);
     expect(new Set(SURFACE_ROUTE_IDS).size).toBe(SURFACE_ROUTE_IDS.length);
   });

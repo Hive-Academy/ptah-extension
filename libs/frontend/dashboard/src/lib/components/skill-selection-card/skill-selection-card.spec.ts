@@ -256,6 +256,50 @@ describe('dashboard skill-selection card', () => {
       ).toBeNull();
     });
 
+    /**
+     * D-2b: the picker shows the same storefront cards as the Marketplace.
+     * jsdom computes no `@container` layout, so the 2-column / no-overflow
+     * check inside `max-w-2xl` runs in Batch 25's real browser; this pins the
+     * structure that check depends on.
+     */
+    it('renders the plugins as ptah-catalog-card items in a catalog grid inside the max-w-2xl dialog', async () => {
+      setResponder('plugins:list-available', () =>
+        ok({
+          plugins: [
+            {
+              id: 'ptah-core',
+              name: 'Ptah Core',
+              description: 'A bundled plugin.',
+              category: 'core-tools',
+              skillCount: 1,
+              commandCount: 0,
+              isDefault: true,
+            },
+          ],
+        }),
+      );
+      setResponder('plugins:get-config', () => ok({}));
+      const fixture = await openPicker();
+      // The panel's catalogue read needs further passes to render its cards.
+      await settle(fixture);
+      await settle(fixture);
+      const box = (fixture.nativeElement as HTMLElement).querySelector(
+        'dialog.modal .modal-box.max-w-2xl',
+      );
+
+      const grid = box?.querySelector('ptah-catalog-grid');
+      expect(grid).not.toBeNull();
+      expect(
+        grid?.querySelector('[role="list"].ptah-catalog-grid'),
+      ).not.toBeNull();
+      const cards = grid?.querySelectorAll(
+        'ptah-catalog-card[role="listitem"]',
+      );
+      expect(cards).toHaveLength(1);
+      expect(cards?.[0]?.querySelector('ptah-monogram-tile')).not.toBeNull();
+      expect(box?.querySelector('ptah-brand-mark')).toBeNull();
+    });
+
     it('closes on the close button and on the backdrop, re-reading the selection each time', async () => {
       for (const closer of [
         '[data-testid="skill-selection-card-close"]',

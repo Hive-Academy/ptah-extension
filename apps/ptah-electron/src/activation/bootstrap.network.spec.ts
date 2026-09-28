@@ -120,6 +120,24 @@ describe('startMembershipVerification', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('never touches the licence service when skip is set (PTAH_E2E gate, TASK_2026_389)', async () => {
+    const verifyLicense = jest.fn().mockResolvedValue({ valid: true });
+    const resolve = jest.fn(() => ({ verifyLicense }));
+    const container = { resolve } as unknown as DependencyContainer;
+
+    await expect(
+      startMembershipVerification(container, { skip: true }),
+    ).resolves.toBeUndefined();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(verifyLicense).not.toHaveBeenCalled();
+  });
+
+  it('is wired from PTAH_E2E at the call site in bootstrapElectron', () => {
+    expect(BOOTSTRAP_BODY).toMatch(
+      /void startMembershipVerification\(container, \{\s*skip: process\.env\['PTAH_E2E'\] === '1',\s*\}\)/,
+    );
+  });
+
   it('does not reject when the licence service is not registered', async () => {
     await expect(
       startMembershipVerification(makeContainer([])),

@@ -36,6 +36,7 @@ import {
   LayoutGrid,
   Scale,
   ClipboardList,
+  AppWindow,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -133,7 +134,17 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
               Chat
             </button>
-            <!-- Apps tab (TASK_2026_494) renders between Chat and Tasks -->
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'apps'"
+              [attr.aria-selected]="appState.currentView() === 'apps'"
+              title="Apps"
+              (click)="openApps()"
+            >
+              <lucide-angular [img]="AppWindowIcon" class="w-3.5 h-3.5" />
+              Apps
+            </button>
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
@@ -380,6 +391,7 @@ export class ElectronShellComponent {
   readonly LayoutGridIcon = LayoutGrid;
   readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
+  readonly AppWindowIcon = AppWindow;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -398,5 +410,9 @@ export class ElectronShellComponent {
 
   openTasks(): void {
     this.appState.setCurrentView('tasks');
+  }
+
+  openApps(): void {
+    this.appState.setCurrentView('apps');
   }
 }

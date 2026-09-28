@@ -20,7 +20,12 @@ import type {
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { PtahCliConfig } from '@ptah-extension/shared';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type {
+  EffectiveCapabilitySet,
+  PtahCliConfig,
+} from '@ptah-extension/shared';
+import type { DependencyContainer } from 'tsyringe';
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
@@ -58,6 +63,33 @@ const CONFIG: PtahCliConfig = {
 
 async function* emptyStream(): AsyncGenerator<never, void, unknown> {
   // The registry's stream loop accepts an empty completed SDK response.
+}
+
+/**
+ * A container holding a resolver that answers with a VERIFIED policy and no
+ * `HarnessPolicySync`: that is the path on which the bare preflight still runs
+ * (TASK_2026_560). An unverified policy skips every harness pass, which
+ * `ptah-cli-registry-capabilities.spec.ts` covers.
+ */
+function verifiedPolicyContainer(): DependencyContainer {
+  const policy: EffectiveCapabilitySet = {
+    physicalRoot: '/repo',
+    policyKey: '/repo',
+    status: 'verified',
+    reasons: [],
+    ptahEnabled: true,
+    deniedMcpServers: [],
+    approvedProjectMcpServers: [],
+    deniedSkillNames: [],
+    disabledPluginIds: [],
+    harnessFingerprint: 'fp-test',
+  };
+  const resolver = { resolve: jest.fn().mockResolvedValue(policy) };
+  return {
+    isRegistered: (token: symbol) =>
+      token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+    resolve: () => resolver,
+  } as unknown as DependencyContainer;
 }
 
 interface Harness {
@@ -116,6 +148,7 @@ function buildHarness(ensure: jest.Mock | null): Harness {
     { get: jest.fn(() => undefined) } as never,
     createFakeSdkProcessSpawner(),
     ensure === null ? null : ({ ensure } as IHarnessPreflight),
+    verifiedPolicyContainer(),
   );
 
   return { registry, ensure, assembleSpawnOptions, getQueryFunction, logger };

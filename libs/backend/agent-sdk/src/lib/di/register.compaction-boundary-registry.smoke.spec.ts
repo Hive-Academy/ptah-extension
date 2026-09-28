@@ -45,6 +45,7 @@ import {
   SessionHistoryReaderService,
   SessionTurnStateRegistry,
   InternalQueryService,
+  McpServerBackoffService,
   // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
   // by alias (`@nx/enforce-module-boundaries`). This is still the public
   // barrel, so the smoke test proves the same surface.
@@ -232,6 +233,31 @@ describe('registerSdkServices — CompactionBoundaryGenerationRegistry DI smoke'
       }
     ).compactionBoundaryRegistry;
     expect(injected).toBe(registry);
+  });
+});
+
+/**
+ * TASK_2026_560 regression — `McpServerBackoffService` has an untokened
+ * `options?: McpServerBackoffOptions` constructor parameter, which emits
+ * `Object` in `design:paramtypes`; registered as `useClass` it threw
+ * "TypeInfo not known for \"Object\"" on resolution. The factory registration
+ * must resolve it, wired to the real callback registries.
+ */
+describe('registerSdkServices — McpServerBackoffService DI smoke', () => {
+  it('resolves SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE as a singleton', () => {
+    const container = buildSmokeContainer();
+
+    const service = container.resolve<McpServerBackoffService>(
+      SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE,
+    );
+
+    expect(service).toBeInstanceOf(McpServerBackoffService);
+    expect(container.resolve(SDK_TOKENS.SDK_MCP_SERVER_BACKOFF_SERVICE)).toBe(
+      service,
+    );
+    expect((service as unknown as { mcpStatus: unknown }).mcpStatus).toBe(
+      container.resolve(SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY),
+    );
   });
 });
 

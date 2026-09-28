@@ -18,6 +18,12 @@ import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 import type { BootCoordinator } from './boot-coordinator';
 import { createBootReadinessBroadcaster } from './boot-readiness-broadcaster';
 import { startMessagingGateway } from './start-messaging-gateway';
+import {
+  bootStep,
+  disarmBootGuards,
+  RENDERER_LOADED_STEP,
+  reportBootFailure,
+} from './boot-trace';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface PostWindowOptions {
@@ -82,7 +88,20 @@ export async function registerPostWindow(
   setMainWindow(mainWindow);
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
-  mainWindow.loadFile(rendererPath);
+  // `once`: the start-up trace wants the first load, not every reload. The
+  // step also disarms the start-up watchdog armed in `main.ts`.
+  mainWindow.webContents.once('did-finish-load', () =>
+    bootStep(RENDERER_LOADED_STEP),
+  );
+  // Not awaited — the window is shown while the rest of this phase runs — but
+  // never unobserved: a failed renderer load used to be an unhandled rejection
+  // that left the preparing shell on screen with nothing in the log.
+  mainWindow.loadFile(rendererPath).catch((error: unknown) => {
+    reportBootFailure('Renderer did not load', error);
+    // The goal step will never come, so the boot window ends here; the
+    // process-level guards must not outlive it.
+    disarmBootGuards();
+  });
   // One half of the warmup barrier. The other half — the memory curator — is
   // created inside the post-window boot, which has not even started yet, so
   // this is a NOTIFICATION rather than a trigger. The coordinator waits for
@@ -144,6 +163,7 @@ export async function registerPostWindow(
       gateway,
       bridge,
       coordinator,
+      skipStart: process.env['PTAH_E2E'] === '1',
       // Resolved lazily, as it was inside the old IIFE: this phase must not
       // fail activation because the webview manager is not registered yet.
       broadcast: (type, payload) =>

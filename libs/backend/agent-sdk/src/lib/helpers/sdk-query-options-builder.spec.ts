@@ -765,6 +765,151 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
 });
 
 // ---------------------------------------------------------------------------
+// build() — disclosure of dropped user-tier settings (TASK_2026_408)
+// ---------------------------------------------------------------------------
+//
+// A localhost base URL drops the `user` setting source. The builder says so
+// once, in an info line, and `settingSources` itself is unchanged.
+
+describe('SdkQueryOptionsBuilder.build — dropped user-tier disclosure', () => {
+  const DISCLOSURE_PREFIX =
+    '[SdkQueryOptionsBuilder] Localhost ANTHROPIC_BASE_URL session (translation proxy or local provider): user-tier settings';
+
+  interface LoggerStub {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    debug: jest.Mock;
+  }
+
+  function makeBuilder(
+    logger: LoggerStub,
+    baseUrl: string | undefined,
+  ): SdkQueryOptionsBuilder {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      logger,
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
+      },
+      noopHooks,
+      noopHooks,
+      (baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {}) as AuthEnv,
+      {
+        resolveModelId: jest.fn().mockImplementation((m: string) => m),
+        hasCachedModels: jest.fn().mockReturnValue(false),
+        getSupportedModels: jest.fn(),
+      },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+    );
+  }
+
+  function makeLogger(): LoggerStub {
+    return {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+  }
+
+  async function buildWith(
+    logger: LoggerStub,
+    builderBaseUrl: string | undefined,
+    authEnvOverride?: AuthEnv,
+  ): Promise<Awaited<ReturnType<SdkQueryOptionsBuilder['build']>>['options']> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const cfg = await makeBuilder(logger, builderBaseUrl).build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4-5',
+        projectPath: 'D:/tmp/ws',
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
+      ...(authEnvOverride ? { authEnvOverride } : {}),
+    });
+    return cfg.options;
+  }
+
+  function disclosureCalls(logger: LoggerStub): unknown[][] {
+    return logger.info.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].startsWith(DISCLOSURE_PREFIX),
+    );
+  }
+
+  it.each(['http://127.0.0.1:4000', 'http://localhost:8080/v1'])(
+    'localhost base URL %s logs the disclosure once and drops the user tier',
+    async (baseUrl) => {
+      const logger = makeLogger();
+      const opts = await buildWith(logger, baseUrl);
+
+      const calls = disclosureCalls(logger);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual([
+        '[SdkQueryOptionsBuilder] Localhost ANTHROPIC_BASE_URL session (translation proxy or local provider): user-tier settings (~/.claude skills, commands, agents, hooks, output styles, settings.json) are not loaded; project (.claude/) and local tiers are. See TASK_2026_408 ownership.md.',
+      ]);
+      expect(opts.settingSources).toEqual(['project', 'local']);
+    },
+  );
+
+  it.each([
+    ['direct Anthropic', 'https://api.anthropic.com'],
+    ['a non-localhost custom provider', 'https://api.moonshot.cn/v1'],
+    ['an absent base URL', undefined],
+  ])(
+    '%s logs no disclosure and keeps the user tier',
+    async (_label, baseUrl) => {
+      const logger = makeLogger();
+      const opts = await buildWith(logger, baseUrl);
+
+      expect(disclosureCalls(logger)).toHaveLength(0);
+      expect(opts.settingSources).toEqual(['user', 'project', 'local']);
+    },
+  );
+
+  it('follows authEnvOverride, the same env settingSources is derived from', async () => {
+    const logger = makeLogger();
+    const opts = await buildWith(logger, 'https://api.anthropic.com', {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:4000',
+    } as AuthEnv);
+
+    expect(disclosureCalls(logger)).toHaveLength(1);
+    expect(opts.settingSources).toEqual(['project', 'local']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // build() — system prompt prepend order: sessionStart → corpusPrime → memoryRecall → preset
 // ---------------------------------------------------------------------------
 //

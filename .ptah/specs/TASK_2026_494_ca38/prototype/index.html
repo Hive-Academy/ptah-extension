@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Apps page (TASK_2026_494)</title>
+
+<!-- CDN fallback (no node_modules in this worktree to run the project's own
+     Tailwind/daisyUI build — see prototype/README.md "Deviations"). Color
+     tokens are NOT trusted from this build; assets/app.css redeclares every
+     used class with the project's real anubis / anubis-light values. -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+</head>
+<body class="bg-base-100 text-base-content min-h-screen" style="font-family: Inter, system-ui, -apple-system, sans-serif;">
+
+  <!-- ============================================================ -->
+  <!-- PROTOTYPE-ONLY TOOLBAR — not part of the shipped Electron UI  -->
+  <!-- ============================================================ -->
+  <header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="font-bold">Prototype controls:</span>
+      <button id="themeToggle" class="btn btn-xs btn-outline" aria-pressed="false">Theme: anubis (dark)</button>
+      <button id="widthToggle" class="btn btn-xs btn-outline">Width: wide desktop</button>
+      <a href="states.html" class="btn btn-xs btn-outline">States &amp; fallbacks →</a>
+    </div>
+    <div class="text-base-content-muted">TASK_2026_494 — Apps page (Electron only)</div>
+  </header>
+
+  <main id="prototypeContainer" class="viewport-wide">
+  <!-- ============================================================ -->
+  <!-- MOCK ELECTRON SHELL                                           -->
+  <!-- ============================================================ -->
+  <div class="flex flex-col bg-base-100" style="height: calc(100vh - 40px);">
+
+    <!-- Global navbar (electron-shell.component.ts:98-204) -->
+    <div class="flex items-center h-10 px-3 bg-base-200 border-b border-base-content/10 gap-2 flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="w-5 h-5 rounded-sm flex-shrink-0" style="background: var(--brand-secondary);" aria-hidden="true"></span>
+        <span class="text-sm font-semibold text-base-content-muted select-none">Ptah</span>
+      </div>
+      <div class="flex-1"></div>
+
+      <!-- Tab row: Chat, Apps, Tasks, Tribunal, Analytics (design-spec.md
+           "Navigation sets", code workspace row; electron-shell.component.ts:122-170,
+           Apps slot comment at :136) -->
+      <div role="tablist" class="tabs flex items-center">
+        <button role="tab" class="tab gap-1.5" aria-selected="false" title="Chat">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Chat
+        </button>
+        <button role="tab" class="tab tab-active gap-1.5" aria-selected="true" title="Apps" data-test="apps-tab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="11" width="8" height="9" rx="1"/><rect x="13" y="11" width="8" height="9" rx="1"/></svg>
+          Apps
+        </button>
+        <button role="tab" class="tab gap-1.5" aria-selected="false" title="Tasks">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Tasks
+        </button>
+        <button role="tab" class="tab gap-1.5" aria-selected="false" title="Tribunal">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v18M5 7l-3 6a4 4 0 0 0 6 0zM19 7l-3 6a4 4 0 0 0 6 0zM5 7h14"/></svg>
+          Tribunal
+        </button>
+        <button role="tab" class="tab gap-1.5" aria-selected="false" title="Analytics">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+          Analytics
+        </button>
+      </div>
+      <div class="flex-1"></div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Configuration menu" title="Thoth, Setup hub, Marketplace, Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Toggle color theme">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- APPS PAGE (AppsPageComponent) — host, tabindex="-1"            -->
+    <!-- ============================================================ -->
+    <div id="appsPageHost" tabindex="-1" class="flex flex-1 min-h-0 outline-none">
+
+      <!-- Conversation column (AppsTranscriptComponent + composer) -->
+      <div class="flex flex-col border-r border-base-300 flex-shrink-0" style="width: 360px;">
+        <div class="flex items-center justify-between px-3 py-2 border-b border-base-300">
+          <div>
+            <h1 class="text-sm font-semibold">Apps</h1>
+            <p class="text-[11px] text-base-content-muted">Conversation for this page only — the coding chat is unaffected</p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-xs" data-test="new-conversation">New conversation</button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-3 py-3 space-y-3" role="log" aria-label="Apps conversation transcript">
+          <div class="flex justify-end">
+            <div class="bg-base-200 rounded-lg px-3 py-2 text-sm max-w-[90%]">
+              Show me weekly deploy cost, and give me a rollback request form.
+            </div>
+          </div>
+
+          <div class="text-sm">
+            Here's the weekly deploy cost dashboard and a rollback request form. Switch between them with the tabs on the right.
+          </div>
+
+          <div class="tool-card" role="alert">
+            <div class="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-base-content-muted">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="11" width="8" height="9" rx="1"/><rect x="13" y="11" width="8" height="9" rx="1"/></svg>
+              ptah_surface_update
+            </div>
+            <div class="text-xs mt-1">Created surface: <span class="font-medium">Weekly Deploy Cost</span></div>
+          </div>
+
+          <div class="tool-card" role="alert">
+            <div class="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-base-content-muted">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="11" width="8" height="9" rx="1"/><rect x="13" y="11" width="8" height="9" rx="1"/></svg>
+              ptah_surface_update
+            </div>
+            <div class="text-xs mt-1">Created surface: <span class="font-medium">Rollback Request</span></div>
+          </div>
+
+          <div id="selectionNotice" class="text-[11px] text-base-content-muted is-hidden" role="status"></div>
+        </div>
+
+        <div class="border-t border-base-300 p-2 space-y-1.5">
+          <textarea class="textarea w-full text-sm" rows="2" placeholder="Ask for a dashboard, a form, or a change…" aria-label="Message the Apps conversation"></textarea>
+          <div class="flex items-center justify-between">
+            <button type="button" class="btn btn-ghost btn-xs" disabled title="No turn is streaming right now">Stop</button>
+            <button type="button" class="btn btn-primary btn-xs">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Surface panel (AppsSurfacePanelComponent) -->
+      <div class="flex-1 min-w-0 flex flex-col">
+
+        <!-- Surface switcher — role="tablist", 2 live surfaces -->
+        <div class="flex items-center gap-1 px-3 py-2 border-b border-base-300" role="tablist" aria-label="Open apps">
+          <button type="button" id="switchA" class="tab tab-active text-xs px-3 py-1.5 rounded-t-md" role="tab" aria-selected="true" aria-controls="surfaceA" onclick="switchSurface('A')">
+            Weekly Deploy Cost
+          </button>
+          <button type="button" id="switchB" class="tab text-xs px-3 py-1.5 rounded-t-md" role="tab" aria-selected="false" aria-controls="surfaceB" onclick="switchSurface('B')">
+            Rollback Request
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4">
+
+          <!-- ======================= SURFACE A: dashboard ======================= -->
+          <section id="surfaceA" role="tabpanel" aria-labelledby="switchA">
+            <div class="flex items-start justify-between gap-2 mb-3">
+              <div>
+                <h2 class="text-base font-semibold">Weekly Deploy Cost</h2>
+                <p class="text-[11px] text-base-content-muted">dashboard-spec/2 · updated moments ago</p>
+              </div>
+            </div>
+
+            <!-- Stats row (stat kind; session-stats-card.component.html:51-86 pattern) -->
+            <div class="grid grid-cols-3 gap-2 mb-4">
+              <div class="bg-base-300/30 rounded px-2 py-1.5 border border-success/20">
+                <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">Deploys this week</div>
+                <div class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5">42</div>
+              </div>
+              <div class="bg-base-300/30 rounded px-2 py-1.5 border border-info/20">
+                <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">Avg cost / deploy</div>
+                <div class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5">$0.0841</div>
+              </div>
+              <div class="bg-base-300/30 rounded px-2 py-1.5 border border-warning/20">
+                <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">Failed deploys <span class="text-base-content-muted normal-case">(&Delta; +1 vs last week)</span></div>
+                <div class="text-sm font-semibold text-warning tabular-nums leading-tight mt-0.5">3</div>
+              </div>
+            </div>
+
+            <!-- Charts row -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+              <div class="card card-bordered p-3">
+                <div class="flex items-center justify-between mb-1">
+                  <h3 class="text-xs font-semibold" id="lineChartTitle">Cost trend (7d)</h3>
+                  <div class="flex items-center gap-1">
+                    <button type="button" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="lineChartNote" onclick="toggleExpand(this,'lineChartNote')">
+                      <span class="expand-label">Expand Cost trend</span>
+                    </button>
+                    <button type="button" class="btn btn-ghost btn-xs" aria-pressed="false" onclick="toggleChartTable(this,'lineChartSvg','lineChartTable')">
+                      Show as table
+                    </button>
+                  </div>
+                </div>
+                <svg id="lineChartSvg" viewBox="0 0 240 110" class="w-full" role="img" aria-labelledby="lineChartTitle" style="height:110px;">
+                  <line x1="24" y1="10" x2="24" y2="90" class="chart-gridline" />
+                  <line x1="24" y1="90" x2="230" y2="90" class="chart-gridline" />
+                  <text x="4" y="14" class="chart-axis-text">$8</text>
+                  <text x="4" y="92" class="chart-axis-text">$0</text>
+                  <text x="24" y="104" class="chart-axis-text">Mon</text>
+                  <text x="200" y="104" class="chart-axis-text">Sun</text>
+                  <!-- Series A: Production — solid line -->
+                  <polyline points="24,70 55,60 86,64 117,40 148,46 179,30 210,34" fill="none" class="chart-series-a" stroke-width="2" />
+                  <!-- Series B: Staging — dashed line (pattern, not hue alone — Req 7.4) -->
+                  <polyline points="24,84 55,80 86,78 117,74 148,70 179,66 210,60" fill="none" class="chart-series-b" stroke-width="2" stroke-dasharray="4 3" />
+                </svg>
+                <div class="flex items-center gap-3 text-[10px] text-base-content-muted mt-1">
+                  <span class="flex items-center gap-1"><span style="width:10px;height:2px;background:var(--brand-primary);display:inline-block;"></span>Production</span>
+                  <span class="flex items-center gap-1"><span style="width:10px;height:0;border-top:2px dashed var(--brand-secondary);display:inline-block;"></span>Staging</span>
+                </div>
+                <table id="lineChartTable" class="table table-xs is-hidden mt-1">
+                  <caption class="sr-only">Cost trend, 7 days, by environment</caption>
+                  <thead><tr><th scope="col">Day</th><th scope="col">Production</th><th scope="col">Staging</th></tr></thead>
+                  <tbody>
+                    <tr><td>Mon</td><td>$2.10</td><td>$0.60</td></tr>
+                    <tr><td>Tue</td><td>$2.60</td><td>$0.75</td></tr>
+                    <tr><td>Wed</td><td>$2.45</td><td>$0.80</td></tr>
+                    <tr><td>Thu</td><td>$3.40</td><td>$0.95</td></tr>
+                    <tr><td>Fri</td><td>$3.15</td><td>$1.10</td></tr>
+                    <tr><td>Sat</td><td>$3.70</td><td>$1.25</td></tr>
+                    <tr><td>Sun</td><td>$3.55</td><td>$1.55</td></tr>
+                  </tbody>
+                </table>
+                <p id="lineChartNote" class="text-[10px] text-base-content-muted mt-2 is-hidden">Source: deterministic tool call <code class="font-mono">deploys.cost_by_day</code>. Refreshed on request — this page does not poll.</p>
+              </div>
+
+              <div class="card card-bordered p-3">
+                <div class="flex items-center justify-between mb-1">
+                  <h3 class="text-xs font-semibold" id="barChartTitle">Deploys per day</h3>
+                  <button type="button" class="btn btn-ghost btn-xs" aria-pressed="false" onclick="toggleChartTable(this,'barChartSvg','barChartTable')">
+                    Show as table
+                  </button>
+                </div>
+                <svg id="barChartSvg" viewBox="0 0 240 110" class="w-full" role="img" aria-labelledby="barChartTitle" style="height:110px;">
+                  <defs>
+                    <pattern id="hatch" width="4" height="4" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                      <line x1="0" y1="0" x2="0" y2="4" stroke="var(--brand-secondary)" stroke-width="2" />
+                    </pattern>
+                  </defs>
+                  <line x1="24" y1="90" x2="230" y2="90" class="chart-gridline" />
+                  <!-- Series A: succeeded (solid fill) -->
+                  <rect x="30" y="50" width="10" height="40" class="chart-series-a" />
+                  <rect x="58" y="42" width="10" height="48" class="chart-series-a" />
+                  <rect x="86" y="36" width="10" height="54" class="chart-series-a" />
+                  <rect x="114" y="30" width="10" height="60" class="chart-series-a" />
+                  <rect x="142" y="46" width="10" height="44" class="chart-series-a" />
+                  <rect x="170" y="20" width="10" height="70" class="chart-series-a" />
+                  <rect x="198" y="34" width="10" height="56" class="chart-series-a" />
+                  <!-- Series B: failed (hatched fill — pattern, not hue alone) -->
+                  <rect x="42" y="84" width="10" height="6" fill="url(#hatch)" />
+                  <rect x="182" y="80" width="10" height="10" fill="url(#hatch)" />
+                  <rect x="210" y="86" width="10" height="4" fill="url(#hatch)" />
+                  <text x="24" y="104" class="chart-axis-text">Mon</text>
+                  <text x="200" y="104" class="chart-axis-text">Sun</text>
+                </svg>
+                <div class="flex items-center gap-3 text-[10px] text-base-content-muted mt-1">
+                  <span class="flex items-center gap-1"><span style="width:10px;height:8px;background:var(--brand-primary);display:inline-block;"></span>Succeeded</span>
+                  <span class="flex items-center gap-1"><span style="width:10px;height:8px;background:repeating-linear-gradient(45deg,var(--brand-secondary) 0 2px,transparent 2px 4px);display:inline-block;"></span>Failed</span>
+                </div>
+                <table id="barChartTable" class="table table-xs is-hidden mt-1">
+                  <caption class="sr-only">Deploys per day, succeeded vs failed</caption>
+                  <thead><tr><th scope="col">Day</th><th scope="col">Succeeded</th><th scope="col">Failed</th></tr></thead>
+                  <tbody>
+                    <tr><td>Mon</td><td>6</td><td>1</td></tr>
+                    <tr><td>Tue</td><td>7</td><td>0</td></tr>
+                    <tr><td>Wed</td><td>8</td><td>0</td></tr>
+                    <tr><td>Thu</td><td>9</td><td>0</td></tr>
+                    <tr><td>Fri</td><td>6</td><td>0</td></tr>
+                    <tr><td>Sat</td><td>10</td><td>1</td></tr>
+                    <tr><td>Sun</td><td>8</td><td>1</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Table (sort/filter/page, Req 5; one selected row, Req 6) -->
+            <div class="card card-bordered p-3 mb-4">
+              <div class="flex items-center justify-between mb-2 gap-2">
+                <h3 class="text-xs font-semibold">Recent deploys</h3>
+                <div class="flex items-center gap-2">
+                  <label class="sr-only" for="tableFilter">Filter deploys</label>
+                  <input id="tableFilter" type="text" class="input input-sm text-xs" style="width:180px;" placeholder="Filter deploys…" oninput="onFilterTable()" />
+                </div>
+              </div>
+              <div id="tableFilterCount" class="text-[10px] text-base-content-muted mb-1" role="status">42 of 42 rows</div>
+              <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                  <thead>
+                    <tr>
+                      <th scope="col"><button type="button" class="th-sort-btn" data-col="time" aria-sort="none" onclick="onSort('time')">Time</button></th>
+                      <th scope="col"><button type="button" class="th-sort-btn" data-col="service" aria-sort="none" onclick="onSort('service')">Service</button></th>
+                      <th scope="col" class="text-right"><button type="button" class="th-sort-btn" data-col="duration" aria-sort="none" onclick="onSort('duration')">Duration</button></th>
+                      <th scope="col" class="text-right"><button type="button" class="th-sort-btn" data-col="cost" aria-sort="descending" onclick="onSort('cost')">Cost</button></th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="deployRows"></tbody>
+                </table>
+              </div>
+              <div class="flex items-center justify-between mt-2 text-[11px]">
+                <span id="pagerLabel" role="status">Page 1 of 2 (25 rows per page)</span>
+                <div class="flex items-center gap-1">
+                  <button type="button" id="pagerPrev" class="btn btn-ghost btn-xs" onclick="onPage(-1)" disabled>Previous</button>
+                  <button type="button" id="pagerNext" class="btn btn-ghost btn-xs" onclick="onPage(1)">Next</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- List -->
+            <div class="card card-bordered p-3">
+              <h3 class="text-xs font-semibold mb-2">Recent incidents</h3>
+              <ol class="space-y-1">
+                <li class="rounded-md border-l-2 border-transparent hover:bg-base-300/50 px-2 py-1.5">
+                  <div class="text-sm font-medium">Rollback triggered on checkout-api</div>
+                  <div class="text-xs text-base-content-muted">2 hours ago · resolved in 4m</div>
+                </li>
+                <li class="rounded-md border-l-2 border-transparent hover:bg-base-300/50 px-2 py-1.5">
+                  <div class="text-sm font-medium">Elevated latency on billing-worker</div>
+                  <div class="text-xs text-base-content-muted">Yesterday · resolved in 11m</div>
+                </li>
+                <li class="rounded-md border-l-2 border-transparent hover:bg-base-300/50 px-2 py-1.5">
+                  <div class="text-sm font-medium">Failed canary on notifications-svc</div>
+                  <div class="text-xs text-base-content-muted">2 days ago · rolled back automatically</div>
+                </li>
+              </ol>
+            </div>
+          </section>
+
+          <!-- ======================= SURFACE B: form ======================= -->
+          <section id="surfaceB" role="tabpanel" aria-labelledby="switchB" class="is-hidden">
+            <div class="card card-bordered p-4" style="max-width: 480px;">
+              <h2 class="text-base font-semibold">Rollback request</h2>
+              <p class="text-xs text-base-content-muted mb-3">Submit to roll back the last deploy. This runs through the agent's conversation, not this page directly.</p>
+
+              <div class="space-y-3">
+                <div>
+                  <label for="fReason" class="block text-xs font-medium mb-1">Reason <span aria-hidden="true">*</span></label>
+                  <input id="fReason" type="text" class="input input-sm w-full text-sm" placeholder="Why are you rolling back?" aria-required="true" aria-describedby="fReasonErr" />
+                  <p id="fReasonErr" class="text-[11px] text-base-content mt-1 is-hidden">Reason is required before submitting.</p>
+                </div>
+
+                <div>
+                  <label for="fEnv" class="block text-xs font-medium mb-1">Target environment</label>
+                  <select id="fEnv" class="select select-sm w-full text-sm">
+                    <option value="">—</option>
+                    <option value="production" selected>Production</option>
+                    <option value="staging">Staging</option>
+                    <option value="preview">Preview</option>
+                  </select>
+                </div>
+
+                <fieldset>
+                  <legend>Rollback strategy</legend>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center gap-2 text-sm"><input type="radio" name="strategy" class="radio radio-sm" checked /> Immediate</label>
+                    <label class="flex items-center gap-2 text-sm"><input type="radio" name="strategy" class="radio radio-sm" /> Canary (10% traffic first)</label>
+                    <label class="flex items-center gap-2 text-sm"><input type="radio" name="strategy" class="radio radio-sm" /> Scheduled (next maintenance window)</label>
+                  </div>
+                </fieldset>
+
+                <label class="flex items-center gap-2 text-sm">
+                  <input id="fNotify" type="checkbox" class="checkbox checkbox-sm" checked />
+                  Notify on-call channel
+                </label>
+              </div>
+
+              <div class="flex items-center gap-2 mt-4">
+                <button type="button" id="submitBtn" class="btn btn-primary btn-sm" onclick="applyFormState(document.getElementById('formStateSelect').value)">
+                  Submit rollback request
+                </button>
+                <span id="submitStatus" class="text-xs" role="status"></span>
+              </div>
+
+              <div class="border-t border-base-300 mt-4 pt-2">
+                <label for="formStateSelect" class="block text-[10px] uppercase tracking-wider text-base-content-muted mb-1">Prototype control — submit/form state</label>
+                <select id="formStateSelect" class="select select-xs w-full text-xs" onchange="applyFormState(this.value)">
+                  <option value="idle" selected>Idle</option>
+                  <option value="pending">Pending — sending</option>
+                  <option value="applied">Applied — sent</option>
+                  <option value="rejected-stale">Rejected — stale-revision</option>
+                  <option value="rejected-invalid">Rejected — submit-invalid</option>
+                  <option value="rejected-busy">Rejected — busy</option>
+                  <option value="rejected-session">Rejected — session-unavailable</option>
+                  <option value="indeterminate">Indeterminate</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+                <p class="text-[10px] text-base-content-muted mt-1">Full state matrix, text fallback, empty page and evicted notice: <a class="text-primary" href="states.html">states.html</a>.</p>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  </div>
+  </main>
+
+  <script>
+    // ---- Theme toggle -------------------------------------------------
+    const root = document.documentElement;
+    const themeBtn = document.getElementById('themeToggle');
+    themeBtn.addEventListener('click', () => {
+      const dark = root.getAttribute('data-theme') === 'anubis';
+      root.setAttribute('data-theme', dark ? 'anubis-light' : 'anubis');
+      themeBtn.textContent = dark ? 'Theme: anubis-light (light)' : 'Theme: anubis (dark)';
+      themeBtn.setAttribute('aria-pressed', String(dark));
+    });
+
+    // ---- Width toggle ---------------------------------------------------
+    const container = document.getElementById('prototypeContainer');
+    const widthBtn = document.getElementById('widthToggle');
+    widthBtn.addEventListener('click', () => {
+      const wide = container.classList.contains('viewport-wide');
+      container.classList.toggle('viewport-wide', !wide);
+      container.classList.toggle('viewport-sidebar', wide);
+      widthBtn.textContent = wide ? 'Width: embedded sidebar (~420px)' : 'Width: wide desktop';
+    });
+
+    // ---- Surface switcher -------------------------------------------------
+    function switchSurface(which) {
+      const a = document.getElementById('surfaceA');
+      const b = document.getElementById('surfaceB');
+      const btnA = document.getElementById('switchA');
+      const btnB = document.getElementById('switchB');
+      const showA = which === 'A';
+      a.classList.toggle('is-hidden', !showA);
+      b.classList.toggle('is-hidden', showA);
+      btnA.classList.toggle('tab-active', showA);
+      btnB.classList.toggle('tab-active', !showA);
+      btnA.setAttribute('aria-selected', String(showA));
+      btnB.setAttribute('aria-selected', String(!showA));
+    }
+
+    // ---- Expand/collapse (Req 7.1/7.2) -------------------------------------
+    function toggleExpand(btn, targetId) {
+      const target = document.getElementById(targetId);
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!expanded));
+      target.classList.toggle('is-hidden', expanded);
+      btn.querySelector('.expand-label').textContent = expanded ? 'Expand Cost trend' : 'Collapse Cost trend';
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const openBtn = document.querySelector('[aria-expanded="true"]');
+      if (openBtn) { toggleExpand(openBtn, openBtn.getAttribute('aria-controls')); openBtn.focus(); }
+    });
+
+    // ---- Chart / table toggle (Req 7.3) ------------------------------------
+    function toggleChartTable(btn, svgId, tableId) {
+      const pressed = btn.getAttribute('aria-pressed') === 'true';
+      btn.setAttribute('aria-pressed', String(!pressed));
+      document.getElementById(svgId).classList.toggle('is-hidden', !pressed);
+      document.getElementById(tableId).classList.toggle('is-hidden', pressed);
+      btn.textContent = pressed ? 'Show as table' : 'Show as chart';
+    }
+
+    // ---- Mock deploy table data (client-side sort/filter/page, Req 5) -----
+    const SERVICES = ['checkout-api', 'billing-worker', 'notifications-svc', 'auth-gateway', 'search-index'];
+    const STATUSES = ['succeeded', 'succeeded', 'succeeded', 'failed'];
+    function buildRows() {
+      const rows = [];
+      for (let i = 0; i < 42; i++) {
+        const h = 8 + (i % 12);
+        const m = (i * 7) % 60;
+        rows.push({
+          idx: i,
+          time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+          service: SERVICES[i % SERVICES.length],
+          duration: 30 + ((i * 13) % 180),
+          cost: +(0.02 + ((i * 37) % 200) / 1000).toFixed(4),
+          status: STATUSES[i % STATUSES.length],
+        });
+      }
+      return rows;
+    }
+    const allRows = buildRows();
+    let sortCol = 'cost';
+    let sortDir = 'desc'; // 'asc' | 'desc' | 'none'
+    let filterText = '';
+    let page = 0;
+    const PAGE_SIZE = 25;
+
+    function visibleRows() {
+      let rows = allRows.filter((r) =>
+        !filterText || (r.service + ' ' + r.status + ' ' + r.time).toLowerCase().includes(filterText)
+      );
+      if (sortDir !== 'none') {
+        rows = rows.slice().sort((a, b) => {
+          const av = a[sortCol], bv = b[sortCol];
+          const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+          return sortDir === 'asc' ? cmp : -cmp;
+        });
+      } else {
+        rows = rows.slice().sort((a, b) => a.idx - b.idx);
+      }
+      return rows;
+    }
+
+    let selectedIdx = null;
+
+    function renderRows() {
+      const rows = visibleRows();
+      const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      if (page > totalPages - 1) page = totalPages - 1;
+      const start = page * PAGE_SIZE;
+      const pageRows = rows.slice(start, start + PAGE_SIZE);
+      const tbody = document.getElementById('deployRows');
+      tbody.innerHTML = '';
+      for (const r of pageRows) {
+        const tr = document.createElement('tr');
+        tr.setAttribute('role', 'row');
+        tr.tabIndex = 0;
+        tr.setAttribute('aria-selected', String(r.idx === selectedIdx));
+        tr.style.cursor = 'pointer';
+        tr.innerHTML =
+          '<td>' + r.time + '</td>' +
+          '<td>' + r.service + '</td>' +
+          '<td class="text-right tabular-nums">' + r.duration + 's</td>' +
+          '<td class="text-right tabular-nums">$' + r.cost.toFixed(4) + '</td>' +
+          '<td>' + (r.status === 'succeeded'
+            ? '<span class="text-success text-xs">Succeeded</span>'
+            : '<span class="text-error text-xs font-medium">Failed</span>') + '</td>';
+        const select = () => {
+          selectedIdx = r.idx === selectedIdx ? null : r.idx;
+          renderRows();
+          const notice = document.getElementById('selectionNotice');
+          if (selectedIdx === null) {
+            notice.classList.add('is-hidden');
+          } else {
+            notice.textContent = 'Selection sent to agent: row ' + (r.idx + 1) + ' (' + r.service + ', ' + r.time + ')';
+            notice.classList.remove('is-hidden');
+          }
+        };
+        tr.addEventListener('click', select);
+        tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); } });
+        tbody.appendChild(tr);
+      }
+      document.getElementById('pagerLabel').textContent = `Page ${page + 1} of ${totalPages} (25 rows per page)`;
+      document.getElementById('pagerPrev').disabled = page === 0;
+      document.getElementById('pagerNext').disabled = page >= totalPages - 1;
+      document.getElementById('tableFilterCount').textContent = `${rows.length} of ${allRows.length} rows`;
+      document.querySelectorAll('.th-sort-btn').forEach((btn) => {
+        const th = btn.closest('th');
+        if (btn.dataset.col === sortCol) {
+          th.setAttribute('aria-sort', sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : 'none');
+        } else {
+          th.setAttribute('aria-sort', 'none');
+        }
+      });
+    }
+
+    function onSort(col) {
+      if (sortCol === col) {
+        sortDir = sortDir === 'desc' ? 'asc' : sortDir === 'asc' ? 'none' : 'desc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      page = 0;
+      renderRows();
+    }
+    function onFilterTable() {
+      filterText = document.getElementById('tableFilter').value.trim().toLowerCase();
+      page = 0;
+      renderRows();
+    }
+    function onPage(delta) {
+      page += delta;
+      renderRows();
+    }
+    renderRows();
+
+    // ---- Form / submit state matrix (Req 6, D4 state table) ---------------
+    function applyFormState(state) {
+      const btn = document.getElementById('submitBtn');
+      const status = document.getElementById('submitStatus');
+      const reasonErr = document.getElementById('fReasonErr');
+      const reasonInput = document.getElementById('fReason');
+      btn.disabled = false;
+      reasonErr.classList.add('is-hidden');
+      reasonInput.removeAttribute('aria-invalid');
+      status.className = 'text-xs';
+      switch (state) {
+        case 'idle':
+          status.textContent = '';
+          break;
+        case 'pending':
+          btn.disabled = true;
+          btn.textContent = 'Sending…';
+          status.textContent = '';
+          break;
+        case 'applied':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'Sent';
+          status.classList.add('text-success');
+          break;
+        case 'rejected-stale':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'This app changed. Check the values and submit again.';
+          break;
+        case 'rejected-invalid':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'Some fields need attention.';
+          reasonErr.classList.remove('is-hidden');
+          reasonInput.setAttribute('aria-invalid', 'true');
+          break;
+        case 'rejected-busy':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'The agent is busy; try again when it finishes.';
+          break;
+        case 'rejected-session':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'This conversation is not running.';
+          break;
+        case 'indeterminate':
+          btn.disabled = true;
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'May have been sent — do not resend.';
+          break;
+        case 'unknown':
+          btn.textContent = 'Submit rollback request';
+          status.textContent = 'We could not confirm whether this was sent. Check the conversation before sending again.';
+          break;
+      }
+      if (state !== 'pending' && state !== 'idle') {
+        btn.textContent = 'Submit rollback request';
+      }
+    }
+  </script>
+</body>
+</html>

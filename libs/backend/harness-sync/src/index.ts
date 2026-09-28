@@ -178,6 +178,8 @@ export {
   mcpEntryKey,
   PTAH_SPAWN_MCP_KEY,
   type IHarnessMcpFacet,
+  type McpFacetInspection,
+  type McpSourceStatus,
 } from './lib/targets/mcp/mcp-facet.port';
 export {
   mcpConfigLockPath,

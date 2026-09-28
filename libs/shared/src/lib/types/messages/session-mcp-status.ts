@@ -60,8 +60,16 @@ export interface SessionMcpServerEntry {
  *
  * Deliberately a closed union: a notice is rendered as prose the UI writes
  * itself, so an unknown code has nothing to render.
+ *
+ * - `claude-ai-connectors-disabled` — the CLI's own stderr line (see above).
+ * - `capability-policy-unverified` — Ptah could not read the capability
+ *   toggle policy for this workspace, so the session was built fail-closed:
+ *   only Ptah's own MCP tools, no skills (TASK_2026_560, AC-4.6). The message
+ *   names the unreadable file and the reason.
  */
-export type SessionMcpNoticeCode = 'claude-ai-connectors-disabled';
+export type SessionMcpNoticeCode =
+  | 'claude-ai-connectors-disabled'
+  | 'capability-policy-unverified';
 
 /** One informational notice the CLI emitted at session start. */
 export interface SessionMcpNotice {
@@ -82,7 +90,16 @@ export interface SessionMcpStatusPayload {
   readonly notices: readonly SessionMcpNotice[];
 }
 
-const NOTICE_CODES: readonly string[] = ['claude-ai-connectors-disabled'];
+/**
+ * Every {@link SessionMcpNoticeCode}, for the parser. Typed as a `Record` so a
+ * code added to the union without a key here is a compile error — otherwise
+ * the parser would silently drop the new notice.
+ */
+const NOTICE_CODE_SET: Record<SessionMcpNoticeCode, true> = {
+  'claude-ai-connectors-disabled': true,
+  'capability-policy-unverified': true,
+};
+const NOTICE_CODES: readonly string[] = Object.keys(NOTICE_CODE_SET);
 
 /**
  * Hand-written parser for the `session:mcpStatus` wire payload.

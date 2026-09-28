@@ -80,3 +80,17 @@
    Anthropic server-side compaction beta on Anthropic routes?
 5. Does the native loop read `~/.ptah/user/**` directly for skills/agents/
    commands, and does `harness-sync` then treat Ptah as the origin?
+
+## Resume point (status audit 2026-09-26)
+
+Status: PARTIAL — implemented on a branch, never merged.
+
+Shipped (branch only):
+
+- `feat/native-agent-loop-pi-ai`: batches B1-B9 (`5e8041ce8` .. `957d4aebd`), 15 commits not on main. The branch is 1,228 commits behind main (checked 2026-09-26).
+- None of the seven libs exist on main: `agent-loop-contracts`, `llm-providers`, `agent-loop`, `agent-tools`, `agent-session`, `native-agent-adapter`, `agent-runtime`.
+
+Remaining targets:
+
+- [ ] Decide: rebase and merge, or park the branch.
+- [ ] If merge: rebase onto main, resolve the host DI composition roots, re-run the verification gate across the affected projects, open a PR.

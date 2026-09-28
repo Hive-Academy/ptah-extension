@@ -1,14 +1,19 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   input,
   output,
 } from '@angular/core';
-import { LucideAngularModule, Check, Unlink } from 'lucide-angular';
+import {
+  CatalogCardComponent,
+  MonogramTileComponent,
+  type CatalogCardBadge,
+} from '@ptah-extension/ui';
 import type { ExternalPluginListing } from '@ptah-extension/shared';
 
 /**
- * ExternalInstalledRowComponent — one row of the flat "Installed" list, built
+ * ExternalInstalledRowComponent — one card of the flat "Installed" list, built
  * from consent records rather than from any marketplace manifest.
  *
  * Deliberately NOT {@link ExternalPluginRowComponent}. These are different
@@ -23,64 +28,48 @@ import type { ExternalPluginListing } from '@ptah-extension/shared';
  *  - `path` is `''` on these entries (no manifest behind them), so nothing here
  *    displays it.
  *
- * Complexity Level: 1 — three inputs, one output, no state.
+ * Renders a storefront `ptah-catalog-card` (plan C13) whose badge carries the
+ * installed version; a deregistered marketplace is called out in the status
+ * slot, in words.
+ *
+ * Complexity Level: 1 — three inputs, one output, one derived badge.
  */
 @Component({
   selector: 'ptah-external-installed-row',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [CatalogCardComponent, MonogramTileComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      class="rounded-lg border border-base-300 bg-base-200/30 p-2 flex items-start gap-2"
+    <ptah-catalog-card
+      class="flex-1"
       [attr.data-testid]="'external-installed-' + listing().id"
+      [heading]="listing().name"
+      [meta]="[listing().source]"
+      [badge]="badge()"
     >
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs font-medium text-base-content truncate">{{
-            listing().name
-          }}</span>
-          @if (listing().installedVersion) {
-            <span class="badge badge-xs badge-ghost font-mono text-[10px]">{{
-              listing().installedVersion
-            }}</span>
-          }
-          <span class="badge badge-xs badge-primary text-[10px] gap-0.5">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="w-2 h-2"
-              aria-hidden="true"
-            />
-            Installed
-          </span>
-          @if (orphaned()) {
-            <span class="badge badge-xs badge-warning text-[10px] gap-0.5">
-              <lucide-angular
-                [img]="UnlinkIcon"
-                class="w-2 h-2"
-                aria-hidden="true"
-              />
-              Marketplace removed
-            </span>
-          }
-        </div>
-        <div
-          class="text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
-        >
-          {{ listing().source }}
-        </div>
-        @if (orphaned()) {
-          <p class="text-[10px] text-base-content-muted mt-0.5">
+      <ptah-monogram-tile card-mark [label]="listing().name" />
+      @if (orphaned()) {
+        <div card-status class="space-y-0.5 text-[11px]">
+          <p class="font-medium text-warning">Marketplace removed</p>
+          <p class="text-base-content-muted">
             Still installed and active. Its marketplace is no longer registered,
             so it cannot be browsed or updated — re-add
             <span class="font-mono">{{ listing().source }}</span> to do that.
           </p>
-        }
-      </div>
-
-      <div class="shrink-0">
+        </div>
+      }
+      @if (error(); as message) {
+        <p
+          card-status
+          class="mt-1 text-[11px] text-error first:mt-0"
+          role="alert"
+        >
+          {{ message }}
+        </p>
+      }
+      <div card-actions class="flex items-center gap-2">
         <button
-          class="btn btn-ghost btn-xs text-error"
+          class="btn btn-ghost btn-sm text-error"
           type="button"
           [disabled]="uninstalling()"
           [attr.aria-label]="'Uninstall ' + listing().name"
@@ -93,12 +82,14 @@ import type { ExternalPluginListing } from '@ptah-extension/shared';
           }
         </button>
       </div>
-    </div>
+    </ptah-catalog-card>
   `,
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
       }
     `,
   ],
@@ -108,9 +99,17 @@ export class ExternalInstalledRowComponent {
   /** True when this plugin's marketplace is no longer registered. */
   public readonly orphaned = input(false);
   public readonly uninstalling = input(false);
+  /** Why the last uninstall of this plugin failed, or null. */
+  public readonly error = input<string | null>(null);
 
   public readonly uninstallRequested = output<void>();
 
-  protected readonly CheckIcon = Check;
-  protected readonly UnlinkIcon = Unlink;
+  /** "Installed <version>", or plain "Installed" when none was recorded. */
+  protected readonly badge = computed<CatalogCardBadge>(() => {
+    const version = this.listing().installedVersion;
+    return {
+      label: version ? `Installed ${version}` : 'Installed',
+      tone: 'success',
+    };
+  });
 }

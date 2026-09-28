@@ -17,7 +17,8 @@
  *     workspace switch now surfaces loudly instead of silently dropping.
  *   - switchWorkspace swaps AppStateManager's view slice, so the previous
  *     workspace's view does not survive the switch (TASK_2026_195), and
- *     neither does its Thoth tab or marketplace provider (TASK_2026_228).
+ *     neither does its Thoth tab (TASK_2026_228). The Marketplace page memory
+ *     `marketplaceRoute` is global, so it does survive (TASK_2026_533).
  *   - The captured switchGeneration is re-checked after the awaited git
  *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
  *   - A workspace switch reaches the REAL `GitStatusService` /
@@ -508,36 +509,54 @@ describe('WorkspaceCoordinatorService', () => {
       expect(appState.currentView()).toBe('chat');
     });
 
-    it("replaces the previous workspace's Thoth tab and marketplace provider too (TASK_2026_228)", async () => {
+    it("replaces the previous workspace's Thoth tab but keeps the global Marketplace page (TASK_2026_228, TASK_2026_533)", async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setCurrentView('thoth');
       await settle();
       appState.setThothActiveTab('gateway');
-      appState.setMarketplaceActiveProvider('skills-sh');
+      appState.rememberMarketplaceRoute({
+        page: 'servers',
+        source: 'smithery',
+      });
 
       await service.switchWorkspace('D:/repo/B');
 
-      // B's Thoth pillars and installed content are its own; A's selections
-      // used to survive the switch and point at the wrong workspace's state.
+      // B's Thoth pillars are its own; A's tab used to survive the switch and
+      // point at the wrong workspace's state.
       expect(appState.thothActiveTab()).toBe('memory');
-      expect(appState.marketplaceActiveProvider()).toBeNull();
+      // The Marketplace page is not workspace state: its memory lives in the
+      // global Marketplace slot, so B reads the page A left.
+      expect(appState.marketplaceRoute()).toEqual({
+        page: 'servers',
+        source: 'smithery',
+      });
     });
 
-    it('restores each workspace Thoth tab and provider on return (TASK_2026_228)', async () => {
+    it('restores each workspace Thoth tab on return while the Marketplace page stays the last one remembered (TASK_2026_228, TASK_2026_533)', async () => {
       await service.switchWorkspace('D:/repo/A');
       appState.setThothActiveTab('skills');
-      appState.setMarketplaceActiveProvider('official-mcp');
+      appState.rememberMarketplaceRoute({ page: 'connectors' });
 
       await service.switchWorkspace('D:/repo/B');
       appState.setThothActiveTab('cron');
+      appState.rememberMarketplaceRoute({
+        page: 'skills',
+        source: 'community',
+      });
 
       await service.switchWorkspace('D:/repo/A');
       expect(appState.thothActiveTab()).toBe('skills');
-      expect(appState.marketplaceActiveProvider()).toBe('official-mcp');
+      expect(appState.marketplaceRoute()).toEqual({
+        page: 'skills',
+        source: 'community',
+      });
 
       await service.switchWorkspace('D:/repo/B');
       expect(appState.thothActiveTab()).toBe('cron');
-      expect(appState.marketplaceActiveProvider()).toBeNull();
+      expect(appState.marketplaceRoute()).toEqual({
+        page: 'skills',
+        source: 'community',
+      });
     });
   });
 

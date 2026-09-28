@@ -66,11 +66,19 @@ export type HarnessFacetMatrix = Readonly<
  *   run; the next online activation heals it. Never an error.
  * - `pending-download` — sources are empty AND a content download is known to
  *   be in flight, so the emptiness is expected to be temporary.
+ * - `policy-unknown` — the capability policy (per-workspace skill and plugin
+ *   toggles) could not be read, so the reconciler froze: it planned no skill,
+ *   plugin or agent writes or removals this pass. Treating an unreadable policy
+ *   as "nothing is disabled" would re-add what the user turned off, so the
+ *   harness keeps whatever is on disk until the policy reads again
+ *   (TASK_2026_560, fail-closed). {@link summarizeHarnessHealth} reduces it to
+ *   `degraded`, like every other non-`ok` sources status.
  */
 export type HarnessSourcesStatus =
   | 'ok'
   | 'sources-missing'
-  | 'pending-download';
+  | 'pending-download'
+  | 'policy-unknown';
 
 /** Why a desired entry could not be written. */
 export interface HarnessWriteFailure {
@@ -167,6 +175,14 @@ export interface HarnessHealth {
   targets: HarnessTargetHealth[];
   /** Source-level, not per-target: a shadowed skill is shadowed everywhere. */
   collisions: HarnessCollision[];
+  /**
+   * `harnessPolicyFingerprint` of the capability policy this pass planned
+   * against (TASK_2026_560). A caller that asked for a pass under policy X
+   * treats it as applied only when this equals X — see
+   * `isHarnessPassAcknowledged`. Optional: reports produced before the field
+   * existed, and passes run with no policy input, carry none.
+   */
+  policyFingerprint?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +311,8 @@ function harnessHealthLabel(
         return 'Content download in progress';
       if (counts.sources === 'sources-missing')
         return 'Harness sources not installed yet';
+      if (counts.sources === 'policy-unknown')
+        return 'Skill and plugin sync paused';
       return `${counts.missing} missing across ${targets}`;
     case 'ok':
       return `Harness in sync across ${targets}`;

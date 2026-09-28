@@ -3,9 +3,9 @@
  *
  * A second narrow barrel beside `./services.ts`, for the same reason that one
  * exists: `@ptah-extension/marketplace` (the WIDE barrel) is reachable only
- * through a dynamic `import()`, because it pulls `MarketplaceHubComponent` and
- * the eight surfaces behind it — `SmitherySurfaceComponent` and
- * `ExternalMarketplacesComponent` alone are ~1,700 lines. A static import of
+ * through a dynamic `import()`, because it pulls `MARKETPLACE_ROUTES` — the
+ * shell, every page and the surfaces behind them; `SmitherySurfaceComponent`
+ * and `ExternalMarketplacesComponent` alone are ~1,700 lines. A static import of
  * the wide barrel from eager code drags all of that into the initial bundle
  * and is rejected by `@nx/enforce-module-boundaries`
  * (`checkDynamicDependenciesExceptions`, `eslint.config.mjs`).

@@ -29,8 +29,9 @@ describe('migration 0046_memory_merge_subject_index', () => {
     expect(
       MIGRATIONS.filter((migration) => migration.version === 46),
     ).toHaveLength(1);
+    // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      47,
+      49,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { resolveListingBrandSlug } from '@ptah-extension/ui';
 import { SmitherySurfaceComponent } from './smithery-surface.component';
+import { statusPresentation } from './ui/status-pill.component';
 
 /**
  * Minimal stand-in for the core `RpcResult` shape consumed by the surface:
@@ -130,6 +134,16 @@ describe('SmitherySurfaceComponent', () => {
       expect(searchCall?.params).toEqual({ query: '', source: 'smithery' });
     });
 
+    it('renders the key gate as a storefront panel', async () => {
+      await createComponent();
+
+      expect(
+        hostElement.querySelector(
+          'ptah-storefront-panel input[type="password"]',
+        ),
+      ).toBeTruthy();
+    });
+
     it('surfaces a set-key error in-view', async () => {
       setResponder('mcpDirectory:setSmitheryApiKey', () =>
         ok({ success: false, error: 'invalid key' }),
@@ -223,33 +237,98 @@ describe('SmitherySurfaceComponent', () => {
       expect(component.nextCursor()).toBeNull();
     });
 
-    it('renders a server logo from icons[0].src', async () => {
+    it('renders every server as a catalog card inside the catalog grid', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/a' }, { name: '@owner/b' }] }),
+      );
+      await createComponent();
+
+      const cards = hostElement.querySelectorAll(
+        'ptah-catalog-grid ptah-catalog-card[role="listitem"]',
+      );
+      expect(cards).toHaveLength(2);
+    });
+
+    it('never renders a remote listing icon; an allowlisted namespace gets its brand mark', async () => {
+      const name = 'io.github.getsentry/sentry';
       setResponder('mcpDirectory:search', () =>
         ok({
           servers: [
+            { name, icons: [{ src: 'https://cdn.smithery.ai/logo.png' }] },
+          ],
+        }),
+      );
+      await createComponent();
+
+      expect(
+        resolveListingBrandSlug({ registryName: name, remoteUrls: [] }),
+      ).not.toBeNull();
+      expect(hostElement.querySelector('img')).toBeFalsy();
+      expect(
+        hostElement.querySelector(
+          'ptah-catalog-card ptah-brand-mark [data-testid="brand-mark-tile"]',
+        ),
+      ).toBeTruthy();
+      expect(hostElement.querySelector('ptah-monogram-tile')).toBeFalsy();
+    });
+
+    it('opens the setup form as a full-width storefront panel row in the grid', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/server' }] }),
+      );
+      setResponder('mcpDirectory:getDetails', () =>
+        ok({
+          name: '@owner/server',
+          connections: [
             {
-              name: '@owner/with-icon',
-              icons: [{ src: 'https://cdn.smithery.ai/logo.png' }],
+              type: 'http',
+              configSchema: {
+                type: 'object',
+                properties: { apiKey: { type: 'string' } },
+              },
             },
           ],
         }),
       );
       await createComponent();
 
-      const img = hostElement.querySelector('img');
-      expect(img).toBeTruthy();
-      expect(img?.getAttribute('src')).toBe('https://cdn.smithery.ai/logo.png');
+      await component.toggleInstallPanel({ name: '@owner/server' });
+      fixture.detectChanges();
+
+      expect(
+        hostElement.querySelector(
+          'ptah-catalog-grid [role="listitem"].col-span-full ptah-storefront-panel ptah-json-schema-form',
+        ),
+      ).toBeTruthy();
     });
 
-    it('renders a lettered fallback avatar when a server has no icons', async () => {
+    it('renders a monogram when the resolver finds no brand, even for a look-alike name', async () => {
       setResponder('mcpDirectory:search', () =>
-        ok({ servers: [{ name: '@owner/exa', displayName: 'Exa' }] }),
+        ok({ servers: [{ name: 'attacker/github', displayName: 'Exa' }] }),
       );
       await createComponent();
 
+      expect(
+        resolveListingBrandSlug({
+          registryName: 'attacker/github',
+          remoteUrls: [],
+        }),
+      ).toBeNull();
       expect(hostElement.querySelector('img')).toBeFalsy();
-      // First letter of the display name renders as the fallback avatar.
-      expect(hostElement.textContent).toContain('E');
+      expect(hostElement.querySelector('ptah-brand-mark')).toBeFalsy();
+      const tile = hostElement.querySelector(
+        'ptah-catalog-card ptah-monogram-tile',
+      );
+      // First letter of the display name renders as the monogram.
+      expect(tile?.textContent?.trim()).toBe('E');
+    });
+
+    it('does not use innerHTML in the component source', () => {
+      const source = readFileSync(
+        join(__dirname, 'smithery-surface.component.ts'),
+        'utf8',
+      );
+      expect(source).not.toMatch(/innerHTML/i);
     });
 
     it('renders the config form when a connection carries a configSchema with properties', async () => {
@@ -668,7 +747,9 @@ describe('SmitherySurfaceComponent', () => {
 
       expect(component.connections()).toHaveLength(2);
       expect(hostElement.textContent).toContain('Connections');
-      expect(hostElement.textContent).toContain('Needs authorization');
+      expect(hostElement.textContent).toContain(
+        statusPresentation('needs-auth').label,
+      );
       expect(hostElement.textContent).toContain('Managed by Ptah');
     });
 
@@ -841,6 +922,42 @@ describe('SmitherySurfaceComponent', () => {
 
       expect(component.isInstalled('hubspot')).toBe(true);
       expect(component.installedBadge('hubspot')).toBe('needs-auth');
+    });
+
+    it('words the installed card badge with statusPresentation()', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: 'hubspot' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            { qualifiedName: 'hubspot', serverKey: 'smithery_hubspot' },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:listSmitheryConnections', () =>
+        ok({
+          connections: [
+            {
+              connectionId: 'hubspot',
+              name: 'HubSpot',
+              server: 'hubspot',
+              status: 'error',
+              managedByPtah: true,
+              serverKey: 'smithery_hubspot',
+            },
+          ],
+          namespace: 'acme',
+        }),
+      );
+      await createComponent();
+
+      const badge = hostElement.querySelector(
+        'ptah-catalog-card [data-testid="catalog-card-badge"]',
+      );
+      expect(badge?.textContent?.trim()).toBe(
+        statusPresentation('failed').label,
+      );
     });
 
     it('falls back to the Installed badge for a legacy record with no connection', async () => {

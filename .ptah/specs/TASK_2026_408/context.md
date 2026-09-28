@@ -33,3 +33,47 @@ These observations are code-level, not live integration results. Revalidate agai
 ## Boundaries
 
 No implementation, provider requests, commits, or architectural migration authorized by filing this task. Native reasoning/continuation support is an investigation and design decision, not a preselected solution. Keep shared translation changes compatible with other providers using the same modules.
+
+## Resume point (status audit 2026-09-26)
+
+Status: PARTIAL. Scope item 1 shipped. Items 2-4 have no commits.
+
+Shipped:
+
+- `4f806f210` — `translateResponsesUsage` (`translation-proxy-helpers.ts`) maps cached tokens to `cache_read_input_tokens` on all three response paths: stream translator, SSE collector, and non-streaming JSON in `translation-proxy-base.ts`. The final `message_delta` carries full usage. `message_start` sends zeros by design.
+
+Remaining targets:
+
+- [ ] Context continuity: validate the model window (known vs unknown), compaction and resume under the proxy. Decide a reasoning carry-over policy. Requests are still stateless (`store: false` in `responses-request-translator.ts`).
+- [ ] Skills and slash commands end to end. The placeholder `skill__` tools with empty argument schemas in `apps/ptah-cli/src/services/proxy/workspace-mcp-collector.ts` are unchanged.
+- [ ] Ownership note: translation proxy vs native Codex adapter vs CLI workspace proxy.
+- [ ] `test-report.md` with exact counts, plus one integration test through the installed SDK.
+
+## Resume point (update 2026-09-27, branch `fix/task-408-codex-proxy-phase-1-2`)
+
+Status: phases 1-2 DONE on the branch (PR against main). Phase 3 OPEN. Task stays `in_progress`.
+
+Phase 1 (overflow and terminal mapping), which TASK_2026_561_9e57 A8 depends on:
+
+- `8cb5697f8` classifier (`responses-error-mapping.ts`) and collector terminal handling.
+- `74e2358f3` one Anthropic terminal per Responses stream.
+- `f4a1222fb` error-first stream failures go out as plain HTTP errors (deferred headers), with a header deadline. Found by the SDK integration test: an SSE error after `200` made the CLI retry instead of compact.
+
+Phase 2:
+
+- `f02215eec` + `118380beb` tool-name guard, exactly-once streamed tool arguments, dense block indexes.
+- `296f06942` + `3613f2ebf` images in tool results (Codex only; placeholder for other Responses providers).
+- `389566769` Codex static model list demoted to catalog-only fallback.
+- `b0632f949` disclosure log for the dropped user tier on localhost proxies.
+- `54038450c` (+ `952cf82d0`) `ownership.md` and entry-point comments.
+- `ba13acf27` SDK integration spec (real SDK 0.3.278 + real CLI + real proxy, MOCKED upstream). Overflow → real auto-compaction proven for HTTP 400 and for streamed `response.failed` before output.
+- `2c77b33c9` prettier on the new modules.
+- Evidence: `test-report.md`, `integration-observations.md`, `code-logic-review-*.md`.
+
+Scope item 2 (context continuity) is partly covered: overflow → compaction → resume is proven through the SDK. The model-window default for proxied models stays with TASK_2026_561_9e57.
+
+Scope item 3, path C, moved to TASK_2026_564_87a6 (backlog).
+
+Open (phase 3): decide the reasoning carry-over policy (`phase-3-options.md`: `reasoning.encrypted_content` include/replay, `previous_response_id`, `store`). This needs a live probe of the ChatGPT subscription endpoint, which the user must authorize first (probe plan in `phase-3-options.md`; it also resolves the overflow-pattern assumption, probe P7).
+
+Known limits: an overflow reported after partial streamed output is retried, not compacted; `[DONE]`-only streams end as `end_turn`. See `ownership.md`.

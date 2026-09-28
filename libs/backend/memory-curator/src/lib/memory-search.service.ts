@@ -2,8 +2,9 @@
  * MemorySearchService — hybrid BM25 (FTS5) + vector (sqlite-vec) search
  * with Reciprocal Rank Fusion (RRF). Falls back to BM25-only when
  * sqlite-vec is unavailable. Results are cached in an LRU cache keyed by
- * query + workspaceRoot + write-counter so stale entries are auto-evicted
- * on any write to the memory store.
+ * query + scope + limit + write-counter so stale entries are auto-evicted
+ * on any write to the memory store. Quarantined memories are excluded from
+ * every read path.
  */
 import { LRUCache } from 'lru-cache';
 import { inject, injectable } from 'tsyringe';
@@ -159,6 +160,42 @@ function parseStringArrayJson(raw: string | null): readonly string[] {
 /** Default k for RRF — lowered from 60 to 25 for tighter ranking at memory scales of 100-5000 chunks. */
 const RRF_K_DEFAULT = 25;
 
+/**
+ * Quarantined memories (migration 0048) are hidden from every read this
+ * service serves. Queries alias `memories` as `m`, except the two that read
+ * `memories` unaliased (`timeline`, `getObservations`).
+ */
+const ACTIVE_MEMORY = 'm.quarantined_at IS NULL';
+const ACTIVE_MEMORY_UNALIASED = 'quarantined_at IS NULL';
+
+/**
+ * The `searchRich` scope as SQL on `memories m`:
+ * - a non-empty string scopes to that workspace root;
+ * - `null` scopes to memories stored with no workspace root;
+ * - `undefined` or `''` applies no workspace predicate (every workspace).
+ */
+function searchScopePredicate(workspaceRoot: string | null | undefined): {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+} {
+  if (workspaceRoot === null) {
+    return { sql: 'AND m.workspace_root IS NULL', params: [] };
+  }
+  if (workspaceRoot) {
+    return { sql: 'AND m.workspace_root IS ?', params: [workspaceRoot] };
+  }
+  return { sql: '', params: [] };
+}
+
+/** The scope component of a cache key; each scope has a distinct shape. */
+function cacheScope(
+  workspaceRoot: string | null | undefined,
+): readonly string[] {
+  if (workspaceRoot === null) return ['null'];
+  if (workspaceRoot) return ['named', workspaceRoot];
+  return ['all'];
+}
+
 interface FtsRow {
   rowid: number;
   chunk_id: string;
@@ -176,13 +213,13 @@ interface VecRow {
 
 @injectable()
 export class MemorySearchService implements IMemoryReader {
-  /** LRU result cache — keyed by `${query}|${workspaceRoot}|${writeCounter}`. */
+  /** LRU result cache — keyed by the JSON tuple `[query, scope, limit, writeCounter]`. */
   private readonly cache = new LRUCache<string, MemorySearchResponse>({
     max: 100,
     ttl: 60_000,
   });
 
-  /** LRU result cache for `searchIndex` — keyed by query + filter blob + ws + writeCounter. */
+  /** LRU result cache for `searchIndex` — keyed by the JSON tuple `[scope, writeCounter, filter]`. */
   private readonly indexCache = new LRUCache<string, MemSearchIndexResponse>({
     max: 100,
     ttl: 60_000,
@@ -205,35 +242,51 @@ export class MemorySearchService implements IMemoryReader {
   /**
    * Build the LRU cache key. Embeds the write-counter so cached entries
    * from before a store write are never returned after it.
+   *
+   * The key is a JSON-serialised tuple, so no field value (a query or a
+   * workspace path containing a separator) can shift into a neighbouring
+   * field. The scope tuple keeps the three scopes apart: `null` (no-workspace
+   * rows only) never shares an entry with `undefined`/`''` (every workspace).
+   * The clamped limit is part of the key so a `topK = 5` page is never served
+   * to a `topK = 10` caller. The counter is read for the actual scope: rows
+   * with no workspace and unscoped writes both bump the `''` generation.
    */
   private makeCacheKey(
     normalizedQuery: string,
-    workspaceRoot: string | undefined,
+    workspaceRoot: string | null | undefined,
+    limit: number,
   ): string {
-    const ws = workspaceRoot ?? '';
-    const counter = this.store.getWriteCounter(ws);
-    return `${normalizedQuery}|${ws}|${counter}`;
+    const counter = this.store.getWriteCounter(workspaceRoot || '');
+    return JSON.stringify([
+      normalizedQuery,
+      cacheScope(workspaceRoot),
+      limit,
+      counter,
+    ]);
   }
 
   /**
-   * Build the LRU cache key for `searchIndex`. The filter blob is a stable
-   * JSON projection so two semantically-equal filter objects collide.
+   * Build the LRU cache key for `searchIndex` from a filter whose
+   * `workspaceRoot` is already normalised (`''` removed). The filter
+   * projection is stable so two semantically-equal filter objects collide.
    */
   private makeIndexCacheKey(filter: MemSearchIndexFilter): string {
-    const ws = filter.workspaceRoot ?? '';
-    const counter = this.store.getWriteCounter(ws);
-    const filterBlob = JSON.stringify({
-      q: (filter.query ?? '').trim().toLowerCase(),
-      k: filter.topK ?? 0,
-      t: filter.type ? [...filter.type].sort() : [],
-      c: filter.concepts ? [...filter.concepts].sort() : [],
-      f: filter.files ? [...filter.files].sort() : [],
-      d: {
-        f: filter.dateRange?.fromMs ?? null,
-        t: filter.dateRange?.toMs ?? null,
+    const counter = this.store.getWriteCounter(filter.workspaceRoot ?? '');
+    return JSON.stringify([
+      cacheScope(filter.workspaceRoot),
+      counter,
+      {
+        q: (filter.query ?? '').trim().toLowerCase(),
+        k: filter.topK ?? 0,
+        t: filter.type ? [...filter.type].sort() : [],
+        c: filter.concepts ? [...filter.concepts].sort() : [],
+        f: filter.files ? [...filter.files].sort() : [],
+        d: {
+          f: filter.dateRange?.fromMs ?? null,
+          t: filter.dateRange?.toMs ?? null,
+        },
       },
-    });
-    return `${ws}|${counter}|${filterBlob}`;
+    ]);
   }
 
   async search(
@@ -261,10 +314,16 @@ export class MemorySearchService implements IMemoryReader {
     );
   }
 
+  /**
+   * Hybrid search returning full hits. `workspaceRoot` is tri-state: a
+   * non-empty string scopes to that workspace, `null` scopes to memories with
+   * no workspace, and `undefined`/`''` searches every workspace. Quarantined
+   * memories are never returned.
+   */
   async searchRich(
     query: string,
     topK = 10,
-    workspaceRoot?: string,
+    workspaceRoot?: string | null,
   ): Promise<MemorySearchResponse> {
     return this.tracer.startSpan(
       'memory.searchRich',
@@ -275,13 +334,13 @@ export class MemorySearchService implements IMemoryReader {
 
   private async searchRichInner(
     query: string,
-    topK = 10,
-    workspaceRoot?: string,
+    topK: number,
+    workspaceRoot: string | null | undefined,
   ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
     if (!trimmed) return { hits: [], bm25Only: !this.vecStatus.available };
-    const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
+    const cacheKey = this.makeCacheKey(trimmed, workspaceRoot, limit);
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.logger.debug('[memory-curator] cache hit', { query: trimmed });
@@ -378,29 +437,28 @@ export class MemorySearchService implements IMemoryReader {
   private bm25Search(
     query: string,
     limit: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | null | undefined,
   ): FtsRow[] {
-    const workspaceJoin = workspaceRoot
-      ? 'JOIN memories m ON m.id = mc.memory_id'
-      : '';
-    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
+    const scope = searchScopePredicate(workspaceRoot);
+    // The join is unconditional: the quarantine predicate lives on `memories`,
+    // and filtering here (before LIMIT) keeps quarantined chunks from taking
+    // BM25 slots that active matches would otherwise fill.
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
              mc.created_at AS created_at
       FROM memory_chunks_fts fts
       JOIN memory_chunks mc ON mc.rowid = fts.rowid
-      ${workspaceJoin}
+      JOIN memories m ON m.id = mc.memory_id
       WHERE memory_chunks_fts MATCH ?
-      ${workspaceFilter}
+      AND ${ACTIVE_MEMORY}
+      ${scope.sql}
       ORDER BY bm25(memory_chunks_fts) ASC
       LIMIT ?
     `;
     const plan = buildFtsQueryPlan(query);
     const run = (match: string): FtsRow[] => {
-      const params: unknown[] = [match];
-      if (workspaceRoot) params.push(workspaceRoot);
-      params.push(limit);
+      const params: unknown[] = [match, ...scope.params, limit];
       return this.connection.db.prepare(sql).all(...params) as FtsRow[];
     };
     try {
@@ -416,7 +474,7 @@ export class MemorySearchService implements IMemoryReader {
   private async vecSearch(
     query: string,
     limit: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | null | undefined,
   ): Promise<Array<FtsRow & { distance: number }>> {
     return this.tracer.startSpan(
       'memory.vecSearch',
@@ -425,10 +483,15 @@ export class MemorySearchService implements IMemoryReader {
     );
   }
 
+  /**
+   * vec0 KNN cannot take a join filter, so the `limit` nearest chunks are
+   * chosen before the scope and quarantine predicates apply; out-of-scope and
+   * quarantined chunks can take KNN slots (accepted, no refill round).
+   */
   private async vecSearchInner(
     query: string,
     limit: number,
-    workspaceRoot?: string,
+    workspaceRoot: string | null | undefined,
   ): Promise<Array<FtsRow & { distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
@@ -441,7 +504,7 @@ export class MemorySearchService implements IMemoryReader {
       .all(buf, limit) as VecRow[];
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const workspaceFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
+    const scope = searchScopePredicate(workspaceRoot);
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
@@ -449,11 +512,11 @@ export class MemorySearchService implements IMemoryReader {
       FROM memory_chunks mc
       JOIN memories m ON m.id = mc.memory_id
       WHERE mc.rowid IN (${placeholders})
-      ${workspaceFilter}
+      AND ${ACTIVE_MEMORY}
+      ${scope.sql}
     `;
     const rowids = distRows.map((r) => r.rowid);
-    const params: unknown[] = [...rowids];
-    if (workspaceRoot) params.push(workspaceRoot);
+    const params: unknown[] = [...rowids, ...scope.params];
     const chunkRows = this.connection.db
       .prepare(sql)
       .all(...params) as FtsRow[];
@@ -548,8 +611,14 @@ export class MemorySearchService implements IMemoryReader {
   }
 
   private async searchIndexInner(
-    filter: MemSearchIndexFilter,
+    rawFilter: MemSearchIndexFilter,
   ): Promise<MemSearchIndexResponse> {
+    // `''` is not a workspace: normalise it to "omitted" once, so the cache
+    // key, the BM25/vector helpers and the final SQL filter all agree.
+    const { workspaceRoot: rawWorkspaceRoot, ...unscopedFilter } = rawFilter;
+    const filter: MemSearchIndexFilter = rawWorkspaceRoot
+      ? { ...unscopedFilter, workspaceRoot: rawWorkspaceRoot }
+      : unscopedFilter;
     const trimmedQuery = (filter.query ?? '').trim();
     const cacheKey = this.makeIndexCacheKey(filter);
     const cached = this.indexCache.get(cacheKey);
@@ -621,7 +690,8 @@ export class MemorySearchService implements IMemoryReader {
   /**
    * Timeline: `[...before.reverse(), anchor, ...after]` with
    * `anchorIndex = before.length`. Workspace-top → empty before;
-   * workspace-bottom → empty after; anchor missing → empty rows.
+   * workspace-bottom → empty after; anchor missing or quarantined → empty
+   * rows. Quarantined neighbours are skipped.
    */
   timeline(req: MemTimelineRequest): MemTimelineResponse {
     const beforeLimit = Math.max(0, Math.min(50, req.before ?? 5));
@@ -631,13 +701,13 @@ export class MemorySearchService implements IMemoryReader {
     const anchorRow = db
       .prepare(
         `SELECT id, workspace_root, subject, type, concepts_json, files_json, created_at
-         FROM memories WHERE id = ?`,
+         FROM memories WHERE id = ? AND ${ACTIVE_MEMORY_UNALIASED}`,
       )
       .get(req.anchorId) as MemoryRowCompact | undefined;
     if (!anchorRow) return { rows: [], anchorIndex: 0 };
 
     const workspaceRoot = req.workspaceRoot ?? anchorRow.workspace_root;
-    const wsFilter = 'workspace_root IS ?';
+    const wsFilter = `workspace_root IS ? AND ${ACTIVE_MEMORY_UNALIASED}`;
 
     const beforeRows = db
       .prepare(
@@ -675,7 +745,7 @@ export class MemorySearchService implements IMemoryReader {
   /**
    * Fetch full 5-field summaries for the requested ids plus the read-only
    * observation queue rows grouped by session. Does NOT mark observation
-   * rows processed.
+   * rows processed. Quarantined ids are omitted.
    */
   getObservations(req: MemGetObservationsRequest): MemGetObservationsResponse {
     const ids = req.ids.slice(0, 200);
@@ -688,7 +758,8 @@ export class MemorySearchService implements IMemoryReader {
         `SELECT id, session_id, workspace_root, subject, content, type,
                 request, investigated, learned, completed, next_steps,
                 concepts_json, files_json, created_at
-         FROM memories WHERE id IN (${placeholders})`,
+         FROM memories WHERE id IN (${placeholders})
+         AND ${ACTIVE_MEMORY_UNALIASED}`,
       )
       .all(...ids) as MemoryRowFull[];
 
@@ -755,7 +826,9 @@ export class MemorySearchService implements IMemoryReader {
     clause: string;
     params: unknown[];
   } {
-    const where: string[] = [];
+    // Always present, so both the pure-filter listing and the final fetch of
+    // ranked ids exclude quarantined memories.
+    const where: string[] = [ACTIVE_MEMORY];
     const params: unknown[] = [];
 
     if (filter.workspaceRoot !== undefined) {
@@ -801,10 +874,7 @@ export class MemorySearchService implements IMemoryReader {
       params.push(filter.dateRange.toMs);
     }
 
-    return {
-      clause: where.length > 0 ? `WHERE ${where.join(' AND ')}` : '',
-      params,
-    };
+    return { clause: `WHERE ${where.join(' AND ')}`, params };
   }
 
   private listIndexRowsByFilter(
@@ -838,12 +908,11 @@ export class MemorySearchService implements IMemoryReader {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const { clause, params } = this.buildFilterClause(filter);
-    const idClause = clause === '' ? 'WHERE m.id IN' : 'AND m.id IN';
     const sql = `SELECT m.id, m.workspace_root, m.subject, m.type,
                         m.concepts_json, m.files_json, m.created_at
                  FROM memories m
                  ${clause}
-                 ${idClause} (${placeholders})`;
+                 AND m.id IN (${placeholders})`;
     try {
       return this.connection.db
         .prepare(sql)
@@ -861,18 +930,29 @@ export class MemorySearchService implements IMemoryReader {
     limit: number,
     workspaceRoot?: string,
   ): Array<{ memory_id: string; rank: number }> {
-    const wsJoin = workspaceRoot
-      ? 'JOIN memories m ON m.id = mc.memory_id'
-      : '';
+    // Quarantined memories are filtered here, before LIMIT, so they cannot
+    // take BM25 slots and starve active matches out of the final fetch.
+    //
+    // bm25() is an FTS5 auxiliary function: it is only valid while the FTS
+    // cursor is positioned on the matched row. Wrapped directly in MIN() under
+    // GROUP BY, SQLite evaluates it from the group-by sorter and raises
+    // "unable to use function bm25 in the requested context" on any match.
+    // The MATERIALIZED CTE scores each chunk during the FTS scan (it is never
+    // flattened into the aggregate) and the outer query groups the scores.
     const wsFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
-      SELECT mc.memory_id AS memory_id, MIN(bm25(memory_chunks_fts)) AS rank
-      FROM memory_chunks_fts fts
-      JOIN memory_chunks mc ON mc.rowid = fts.rowid
-      ${wsJoin}
-      WHERE memory_chunks_fts MATCH ?
-      ${wsFilter}
-      GROUP BY mc.memory_id
+      WITH chunk_hits AS MATERIALIZED (
+        SELECT mc.memory_id AS memory_id, bm25(memory_chunks_fts) AS score
+        FROM memory_chunks_fts fts
+        JOIN memory_chunks mc ON mc.rowid = fts.rowid
+        JOIN memories m ON m.id = mc.memory_id
+        WHERE memory_chunks_fts MATCH ?
+        AND ${ACTIVE_MEMORY}
+        ${wsFilter}
+      )
+      SELECT memory_id, MIN(score) AS rank
+      FROM chunk_hits
+      GROUP BY memory_id
       ORDER BY rank ASC
       LIMIT ?
     `;
@@ -912,15 +992,13 @@ export class MemorySearchService implements IMemoryReader {
       .all(buf, limit) as Array<{ rowid: number; distance: number }>;
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
-    const wsJoin = workspaceRoot
-      ? 'JOIN memories m ON m.id = mc.memory_id'
-      : '';
     const wsFilter = workspaceRoot ? 'AND m.workspace_root IS ?' : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.memory_id AS memory_id
       FROM memory_chunks mc
-      ${wsJoin}
+      JOIN memories m ON m.id = mc.memory_id
       WHERE mc.rowid IN (${placeholders})
+      AND ${ACTIVE_MEMORY}
       ${wsFilter}
     `;
     const params: unknown[] = distRows.map((r) => r.rowid);

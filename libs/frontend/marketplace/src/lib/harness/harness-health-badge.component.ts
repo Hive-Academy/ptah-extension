@@ -262,6 +262,8 @@ export class HarnessHealthBadgeComponent implements OnInit {
         return 'Skill content is still downloading. Targets fill in once it finishes.';
       case 'sources-missing':
         return 'No skill sources on disk yet. They download on the next online start — nothing is broken.';
+      case 'policy-unknown':
+        return "Skill and plugin sync is paused because Ptah couldn't read the capability policy. Nothing was added or removed.";
       case 'ok':
         return null;
     }

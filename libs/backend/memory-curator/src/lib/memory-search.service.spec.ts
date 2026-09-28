@@ -6,6 +6,8 @@
  *   - Reranker integration: happy path, skip on <5 candidates,
  *     error fallback to RRF order
  *   - Porter stemming integration test (skipped without native better-sqlite3)
+ *   - Tri-state scope, cache key and quarantine exclusion against real SQLite
+ *     (better-sqlite3 or node:sqlite, with sqlite-vec loaded)
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -15,11 +17,19 @@ import type {
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
-import type { MemoryStore } from './memory.store';
+import { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import type { ObservationQueueStore } from './observation-queue.store';
 import { escapeFtsQuery } from './fts-query.util';
+import { memoryId } from './memory.types';
+import {
+  openRetentionTestDb,
+  removeRetentionTempDirs,
+  seedMemories,
+  type RetentionTestDb,
+  type SeedMemoryOptions,
+} from './retention/retention-sqlite.test-support';
 
 interface RecordingTracer extends ITracer {
   readonly spans: string[];
@@ -885,6 +895,112 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
     // Should only reach the DB once; second call hits the LRU cache.
     expect(allMock).toHaveBeenCalledTimes(1);
   });
+
+  it('BM25: null scope filters m.workspace_root IS NULL and binds no workspace param', async () => {
+    const { service, allMock, prepareMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, null);
+
+    const bm25Sql = prepareMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('memory_chunks_fts'));
+    expect(bm25Sql).toContain('AND m.workspace_root IS NULL');
+    expect(bm25Sql).not.toContain('m.workspace_root IS ?');
+    expect(allMock.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("BM25: '' scope is unscoped, like an omitted workspaceRoot", async () => {
+    const { service, prepareMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '');
+
+    const bm25Sql = prepareMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('memory_chunks_fts'));
+    expect(bm25Sql).not.toContain('m.workspace_root');
+  });
+
+  it('BM25: every scope joins memories and excludes quarantined rows before LIMIT', async () => {
+    for (const scope of [undefined, null, '/ws/a']) {
+      const { service, prepareMock } = makeServiceForWorkspaceFilter();
+      await service.searchRich('hello', 10, scope);
+      const bm25Sql = prepareMock.mock.calls
+        .map((c) => c[0] as string)
+        .find((sql) => sql.includes('memory_chunks_fts')) as string;
+      expect(bm25Sql).toContain('JOIN memories m ON m.id = mc.memory_id');
+      expect(bm25Sql).toContain('AND m.quarantined_at IS NULL');
+      expect(bm25Sql.indexOf('m.quarantined_at IS NULL')).toBeLessThan(
+        bm25Sql.indexOf('LIMIT ?'),
+      );
+    }
+  });
+
+  it('cache: null scope and omitted scope are separate cache entries', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, null);
+    await service.searchRich('hello', 10);
+    await service.searchRich('hello', 10, '');
+
+    // null and undefined miss separately; '' shares the unscoped entry.
+    expect(allMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("cache: a '|' in the query or the workspace cannot make two different searches share a key", async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    // Joined with '|' unescaped, both pairs produce `q|/ws/a|/ws/b|10|0`.
+    const first = await service.searchRich('q|/ws/a', 10, '/ws/b');
+    const second = await service.searchRich('q', 10, '/ws/a|/ws/b');
+
+    expect(allMock).toHaveBeenCalledTimes(2);
+    expect(allMock.mock.calls[0]).toContain('/ws/b');
+    expect(allMock.mock.calls[1]).toContain('/ws/a|/ws/b');
+    expect(second).not.toBe(first);
+  });
+
+  it("cache: searchIndex keys are tuples too — a '|' in the workspace does not merge scopes", async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchIndex({ workspaceRoot: '/ws/a|0' });
+    await service.searchIndex({ workspaceRoot: '/ws/a' });
+
+    expect(allMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('cache: the clamped limit is part of the key (topK 5 then 10 both reach the DB)', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 5, '/ws/a');
+    await service.searchRich('hello', 10, '/ws/a');
+    // 60 and 50 clamp to the same limit and share an entry.
+    await service.searchRich('hello', 60, '/ws/a');
+    await service.searchRich('hello', 50, '/ws/a');
+
+    expect(allMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('cache: null and unscoped reads use the unscoped write counter; a named scope uses its own', async () => {
+    const getWriteCounter = jest.fn(() => 0);
+    const connection = {
+      vecExtensionLoaded: false,
+      db: { prepare: jest.fn(() => ({ all: jest.fn(() => []) })) },
+    } as unknown as SqliteConnectionService;
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      { getById: jest.fn(), getWriteCounter } as unknown as MemoryStore,
+      makeObservationQueue(),
+      makeVecStatus(false),
+    );
+
+    await service.searchRich('hello', 10, null);
+    await service.searchRich('hello', 10);
+    await service.searchRich('hello', 10, '/ws/a');
+
+    expect(getWriteCounter.mock.calls).toEqual([[''], [''], ['/ws/a']]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1385,5 +1501,435 @@ describe('MemorySearchService — tracing instrumentation', () => {
     );
     await service.searchRich('a longer query string here', 5);
     expect(tracer.spans).toContain('memory.vecSearch');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real SQLite: tri-state scope, cache key, quarantine exclusion
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService — real SQLite scope and quarantine', () => {
+  let t: RetentionTestDb;
+  let store: MemoryStore;
+
+  /** Every seeded vector is zero, so each KNN distance ties at 0. */
+  const zeroEmbedder = {
+    dim: 384,
+    embed: async (texts: readonly string[]) =>
+      texts.map(() => new Float32Array(384)),
+  } as unknown as IEmbedder;
+
+  /** Replaces the quarantine predicate with a tautology: "no predicate". */
+  const withoutQuarantinePredicate = (sql: string): string =>
+    sql.replace(/(?:m\.)?quarantined_at IS NULL/g, '1');
+
+  function makeSearch(
+    options: {
+      vec?: boolean;
+      rewrite?: (sql: string) => string;
+      logger?: Logger;
+    } = {},
+  ): MemorySearchService {
+    const vec = options.vec ?? true;
+    const { rewrite } = options;
+    const connection = {
+      vecExtensionLoaded: vec,
+      get db() {
+        const db = t.db;
+        return rewrite
+          ? { prepare: (sql: string) => db.prepare(rewrite(sql)) }
+          : db;
+      },
+    } as unknown as SqliteConnectionService;
+    return new MemorySearchService(
+      options.logger ?? makeLogger(),
+      connection,
+      zeroEmbedder,
+      store,
+      makeObservationQueue(),
+      makeVecStatus(vec),
+    );
+  }
+
+  function quarantine(...ids: string[]): void {
+    const stmt = t.raw.prepare(
+      `UPDATE memories SET quarantined_at = ?, quarantine_reason = 'rule:test'
+       WHERE id = ?`,
+    );
+    for (const id of ids) stmt.run(5_000, id);
+  }
+
+  const hitIds = (hits: ReadonlyArray<{ memory: { id: unknown } }>) =>
+    hits.map((h) => String(h.memory.id)).sort();
+
+  const kiwi = (
+    id: string,
+    workspaceRoot: string | null,
+    extra: Partial<SeedMemoryOptions> = {},
+  ): SeedMemoryOptions => ({
+    id,
+    workspaceRoot,
+    token: 'kiwi orchard notes',
+    ...extra,
+  });
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+    store = new MemoryStore(makeLogger(), t.connection, zeroEmbedder, {
+      available: true,
+    } as VecStatusService);
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  it('null scope returns only no-workspace rows; undefined returns every workspace', async () => {
+    seedMemories(t.raw, [
+      kiwi('a-1', '/ws/a'),
+      kiwi('b-1', '/ws/b'),
+      kiwi('n-1', null),
+      kiwi('n-2', null),
+    ]);
+    const search = makeSearch();
+
+    const nullScoped = await search.searchRich('kiwi orchard', 10, null);
+    const unscoped = await search.searchRich('kiwi orchard', 10);
+    const named = await search.searchRich('kiwi orchard', 10, '/ws/a');
+
+    expect(hitIds(nullScoped.hits)).toEqual(['n-1', 'n-2']);
+    expect(hitIds(unscoped.hits)).toEqual(['a-1', 'b-1', 'n-1', 'n-2']);
+    expect(hitIds(named.hits)).toEqual(['a-1']);
+    expect(unscoped.bm25Only).toBe(false);
+  });
+
+  it('cache: a cached null-scope result never serves an unscoped query, or the reverse', async () => {
+    seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('n-1', null)]);
+    const search = makeSearch();
+
+    const firstUnscoped = await search.searchRich('kiwi', 10);
+    const nullScoped = await search.searchRich('kiwi', 10, null);
+    const secondUnscoped = await search.searchRich('kiwi', 10);
+
+    expect(hitIds(nullScoped.hits)).toEqual(['n-1']);
+    expect(hitIds(firstUnscoped.hits)).toEqual(['a-1', 'n-1']);
+    expect(secondUnscoped).toBe(firstUnscoped);
+  });
+
+  it('cache: the same query and scope with topK 5 then 10 return 5 and 10 hits', async () => {
+    seedMemories(
+      t.raw,
+      Array.from({ length: 12 }, (_, i) => ({
+        id: `m-${String(i).padStart(2, '0')}`,
+        workspaceRoot: '/ws/c',
+        token: 'mango ledger',
+      })),
+    );
+    const search = makeSearch();
+
+    const five = await search.searchRich('mango', 5, '/ws/c');
+    const ten = await search.searchRich('mango', 10, '/ws/c');
+
+    expect(five.hits).toHaveLength(5);
+    expect(ten.hits).toHaveLength(10);
+  });
+
+  it('a restore that bumps the write counter makes a cached query return the restored row', async () => {
+    seedMemories(t.raw, [kiwi('n-1', null), kiwi('n-2', null)]);
+    quarantine('n-2');
+    const search = makeSearch();
+
+    const before = await search.searchRich('kiwi', 10, null);
+    expect(hitIds(before.hits)).toEqual(['n-1']);
+
+    t.raw
+      .prepare(
+        `UPDATE memories SET quarantined_at = NULL, quarantine_reason = NULL
+         WHERE id = ?`,
+      )
+      .run('n-2');
+    // Without a counter bump the cached page is still served.
+    expect(await search.searchRich('kiwi', 10, null)).toBe(before);
+
+    // The store's counter bump path (the one a restore uses) invalidates it.
+    store.markWorkspacesChanged([null]);
+    const after = await search.searchRich('kiwi', 10, null);
+    expect(hitIds(after.hits)).toEqual(['n-1', 'n-2']);
+  });
+
+  it('searchIndex BM25 ranks by best chunk per memory instead of failing (bm25() in an aggregate)', async () => {
+    seedMemories(t.raw, [
+      {
+        id: 'weak',
+        workspaceRoot: '/ws/e',
+        token: 'guava among many other words here',
+        chunks: 2,
+      },
+      { id: 'strong', workspaceRoot: '/ws/e', token: 'guava guava guava' },
+      { id: 'miss', workspaceRoot: '/ws/e', token: 'unrelated text' },
+    ]);
+    const logger = makeLogger();
+    const search = makeSearch({ vec: false, logger });
+
+    const scoped = await search.searchIndex({
+      query: 'guava',
+      workspaceRoot: '/ws/e',
+    });
+    const unscoped = await search.searchIndex({ query: 'guava' });
+
+    expect(scoped.rows.map((r) => r.id)).toEqual(['strong', 'weak']);
+    expect(unscoped.rows.map((r) => r.id)).toEqual(['strong', 'weak']);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('quarantined BM25 matches beyond the limit do not starve active matches', async () => {
+    const quarantined = Array.from({ length: 8 }, (_, i) => ({
+      id: `q-${i}`,
+      workspaceRoot: '/ws/d',
+      token: 'papaya papaya papaya papaya',
+    }));
+    seedMemories(t.raw, [
+      ...quarantined,
+      {
+        id: 'active',
+        workspaceRoot: '/ws/d',
+        token: 'papaya with several other filler words in the chunk',
+      },
+    ]);
+    quarantine(...quarantined.map((row) => row.id));
+    // Precondition: unfiltered, the four best BM25 matches are all quarantined.
+    const topFour = t.raw
+      .prepare(
+        `SELECT mc.memory_id AS id FROM memory_chunks_fts fts
+         JOIN memory_chunks mc ON mc.rowid = fts.rowid
+         WHERE memory_chunks_fts MATCH 'papaya'
+         ORDER BY bm25(memory_chunks_fts) ASC LIMIT 4`,
+      )
+      .all() as Array<{ id: string }>;
+    expect(topFour.map((r) => r.id).every((id) => id.startsWith('q-'))).toBe(
+      true,
+    );
+    const search = makeSearch({ vec: false });
+
+    const index = await search.searchIndex({
+      query: 'papaya',
+      topK: 1,
+      workspaceRoot: '/ws/d',
+    });
+    const rich = await search.searchRich('papaya', 1, '/ws/d');
+
+    expect(index.rows.map((r) => r.id)).toEqual(['active']);
+    expect(hitIds(rich.hits)).toEqual(['active']);
+  });
+
+  it('quarantined rows are absent from search, searchRich, searchIndex, timeline and getObservations', async () => {
+    seedMemories(t.raw, [
+      kiwi('t-1', '/ws/t', { lastUsedAt: 100 }),
+      kiwi('t-2', '/ws/t', { lastUsedAt: 200 }),
+      kiwi('t-3', '/ws/t', { lastUsedAt: 300 }),
+      kiwi('t-4', '/ws/t', { lastUsedAt: 400 }),
+      kiwi('n-1', null, { lastUsedAt: 500 }),
+      kiwi('n-2', null, { lastUsedAt: 600 }),
+    ]);
+    quarantine('t-2', 'n-2');
+    const search = makeSearch();
+    const active = ['n-1', 't-1', 't-3', 't-4'];
+
+    const plain = await search.search('kiwi orchard', 10);
+    expect(plain.hits.map((h) => h.memoryId).sort()).toEqual(active);
+    expect(hitIds((await search.searchRich('kiwi', 10)).hits)).toEqual(active);
+    expect(hitIds((await search.searchRich('kiwi', 10, null)).hits)).toEqual([
+      'n-1',
+    ]);
+    expect(hitIds((await search.searchRich('kiwi', 10, '/ws/t')).hits)).toEqual(
+      ['t-1', 't-3', 't-4'],
+    );
+
+    const byQuery = await search.searchIndex({ query: 'kiwi', topK: 20 });
+    expect(byQuery.rows.map((r) => r.id).sort()).toEqual(active);
+    const byFilter = await search.searchIndex({ topK: 20 });
+    expect(byFilter.rows.map((r) => r.id).sort()).toEqual(active);
+    const byWorkspace = await search.searchIndex({ workspaceRoot: '/ws/t' });
+    expect(byWorkspace.rows.map((r) => r.id).sort()).toEqual([
+      't-1',
+      't-3',
+      't-4',
+    ]);
+
+    const timeline = search.timeline({ anchorId: 't-3' });
+    expect(timeline.rows.map((r) => r.id)).toEqual(['t-1', 't-3', 't-4']);
+    expect(timeline.anchorIndex).toBe(1);
+    expect(search.timeline({ anchorId: 't-2' })).toEqual({
+      rows: [],
+      anchorIndex: 0,
+    });
+
+    const observations = search.getObservations({
+      ids: ['t-1', 't-2', 'n-2'],
+      includeQueueRows: false,
+    });
+    expect(observations.memories.map((m) => m.id)).toEqual(['t-1']);
+  });
+
+  // Predicate neutrality: on this fixture, with nothing quarantined, adding the
+  // quarantine predicate changes no result. It compares this implementation
+  // with and without the predicate on the same data only; it is not a
+  // comparison with any earlier version of the service.
+  it('predicate neutrality: with nothing quarantined, the quarantine predicate changes no result', async () => {
+    seedMemories(t.raw, [
+      kiwi('t-1', '/ws/t', { lastUsedAt: 100, concepts: ['fruit'] }),
+      kiwi('t-2', '/ws/t', { lastUsedAt: 200 }),
+      kiwi('t-3', '/ws/t', { lastUsedAt: 300, chunks: 2 }),
+      kiwi('u-1', '/ws/u', { lastUsedAt: 400, concepts: ['fruit'] }),
+      kiwi('n-1', null, { lastUsedAt: 500 }),
+      {
+        id: 'other',
+        workspaceRoot: '/ws/t',
+        token: 'unrelated banana text',
+        lastUsedAt: 600,
+      },
+    ]);
+    const filtered = makeSearch();
+    const unfiltered = makeSearch({ rewrite: withoutQuarantinePredicate });
+
+    expect(withoutQuarantinePredicate('WHERE m.quarantined_at IS NULL')).toBe(
+      'WHERE 1',
+    );
+    const run = async (service: MemorySearchService) => ({
+      search: await service.search('kiwi orchard', 10),
+      richAll: await service.searchRich('kiwi notes', 10),
+      richNull: await service.searchRich('kiwi notes', 10, null),
+      richNamed: await service.searchRich('kiwi notes', 3, '/ws/t'),
+      indexQuery: await service.searchIndex({ query: 'kiwi', topK: 10 }),
+      indexFilter: await service.searchIndex({ concepts: ['fruit'] }),
+      indexWorkspace: await service.searchIndex({ workspaceRoot: '/ws/t' }),
+      timeline: service.timeline({ anchorId: 't-2' }),
+      observations: service.getObservations({
+        ids: ['t-1', 'u-1', 'n-1', 'other'],
+        includeQueueRows: false,
+      }),
+    });
+
+    const withPredicate = await run(filtered);
+    const withoutPredicate = await run(unfiltered);
+
+    expect(withPredicate).toEqual(withoutPredicate);
+    expect(withPredicate.search.hits.length).toBeGreaterThan(0);
+    expect(withPredicate.indexFilter.rows.map((r) => r.id).sort()).toEqual([
+      't-1',
+      'u-1',
+    ]);
+    expect(withPredicate.timeline.rows).toHaveLength(4);
+  });
+
+  it("searchIndex treats workspaceRoot '' as omitted: same rows as {} on the query and pure-filter paths", async () => {
+    seedMemories(t.raw, [
+      kiwi('a-1', '/ws/a'),
+      kiwi('b-1', '/ws/b'),
+      kiwi('n-1', null),
+    ]);
+    const everything = ['a-1', 'b-1', 'n-1'];
+    const ids = (r: { rows: ReadonlyArray<{ id: string }> }) =>
+      r.rows.map((row) => row.id).sort();
+
+    // Fresh services, so no cache entry can make the two agree by accident.
+    for (const vec of [true, false]) {
+      expect(ids(await makeSearch({ vec }).searchIndex({}))).toEqual(
+        everything,
+      );
+      expect(
+        ids(await makeSearch({ vec }).searchIndex({ workspaceRoot: '' })),
+      ).toEqual(everything);
+      expect(
+        ids(await makeSearch({ vec }).searchIndex({ query: 'kiwi' })),
+      ).toEqual(everything);
+      expect(
+        ids(
+          await makeSearch({ vec }).searchIndex({
+            query: 'kiwi',
+            workspaceRoot: '',
+          }),
+        ),
+      ).toEqual(everything);
+    }
+
+    // One service: '' and omitted share a cache entry because they are the
+    // same scope, and the SQL issued for '' carries no workspace predicate.
+    const shared = makeSearch();
+    const issuedBefore = t.issued.length;
+    const omitted = await shared.searchIndex({ topK: 5 });
+    const blank = await shared.searchIndex({ topK: 5, workspaceRoot: '' });
+    expect(blank).toBe(omitted);
+    expect(
+      t.issued
+        .slice(issuedBefore)
+        .some((sql) => sql.includes('workspace_root IS')),
+    ).toBe(false);
+  });
+
+  // Cache invalidation through the real store (no mocked counters). The insert
+  // and forget cases need every named-workspace write to also bump the global
+  // '' generation (Batch 3, MemoryStore); restore already does through
+  // markWorkspacesChanged.
+  describe('cache invalidation through real MemoryStore writes', () => {
+    const insertKiwi = (workspaceRoot: string | null) =>
+      store.insertMemoryWithChunks(
+        {
+          workspaceRoot,
+          tier: 'recall',
+          kind: 'fact',
+          content: 'kiwi orchard notes',
+        },
+        [{ ord: 0, text: 'kiwi orchard notes', tokenCount: 3 }],
+      );
+    const richIds = async (search: MemorySearchService) =>
+      hitIds((await search.searchRich('kiwi', 10)).hits);
+    const indexIds = async (search: MemorySearchService) =>
+      (await search.searchIndex({ query: 'kiwi', topK: 20 })).rows
+        .map((r) => r.id)
+        .sort();
+
+    it('an insert into /ws/a is visible to cached unscoped searchRich and searchIndex', async () => {
+      seedMemories(t.raw, [kiwi('n-1', null)]);
+      const search = makeSearch();
+      expect(await richIds(search)).toEqual(['n-1']);
+      expect(await indexIds(search)).toEqual(['n-1']);
+
+      const inserted = String(await insertKiwi('/ws/a'));
+
+      expect(await richIds(search)).toEqual([inserted, 'n-1'].sort());
+      expect(await indexIds(search)).toEqual([inserted, 'n-1'].sort());
+    });
+
+    it('a forget in /ws/a is visible to cached unscoped searchRich and searchIndex', async () => {
+      seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('n-1', null)]);
+      const search = makeSearch();
+      expect(await richIds(search)).toEqual(['a-1', 'n-1']);
+      expect(await indexIds(search)).toEqual(['a-1', 'n-1']);
+
+      store.forget(memoryId('a-1'));
+
+      expect(await richIds(search)).toEqual(['n-1']);
+      expect(await indexIds(search)).toEqual(['n-1']);
+    });
+
+    it('a restore in /ws/a is visible to cached unscoped and scoped searchRich and searchIndex', async () => {
+      seedMemories(t.raw, [kiwi('a-1', '/ws/a'), kiwi('n-1', null)]);
+      quarantine('a-1');
+      const search = makeSearch();
+      expect(await richIds(search)).toEqual(['n-1']);
+      expect(await indexIds(search)).toEqual(['n-1']);
+      expect(
+        hitIds((await search.searchRich('kiwi', 10, '/ws/a')).hits),
+      ).toEqual([]);
+
+      expect(store.restoreQuarantined({ ids: ['a-1'] }, '/ws/a')).toEqual({
+        restored: 1,
+      });
+
+      expect(await richIds(search)).toEqual(['a-1', 'n-1']);
+      expect(await indexIds(search)).toEqual(['a-1', 'n-1']);
+      expect(
+        hitIds((await search.searchRich('kiwi', 10, '/ws/a')).hits),
+      ).toEqual(['a-1']);
+    });
   });
 });

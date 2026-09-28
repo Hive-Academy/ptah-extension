@@ -113,7 +113,7 @@ test.describe('Global configuration menu — welcome gate', () => {
 
     await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-marketplace"]').click();
-    await expect(page.locator('ptah-marketplace-hub')).toBeVisible();
+    await expect(page.locator('ptah-marketplace-shell')).toBeVisible();
     await expect(page.locator('ptah-app-shell')).toHaveCount(0);
 
     // Simulate the first folder landing from outside the app (Explorer/
@@ -134,7 +134,9 @@ test.describe('Global configuration menu — welcome gate', () => {
     // 3-panel area replaces the bare outlet, the surface stays (no error,
     // no fall-back to chat), and the back button disappears with it.
     await expect(page.locator('ptah-app-shell')).toBeVisible();
-    await expect(page.locator('ptah-app-shell ptah-marketplace-hub')).toBeVisible();
+    await expect(
+      page.locator('ptah-app-shell ptah-marketplace-shell'),
+    ).toBeVisible();
     await expect(
       page.locator('[data-test="config-back-to-welcome"]'),
     ).toHaveCount(0);

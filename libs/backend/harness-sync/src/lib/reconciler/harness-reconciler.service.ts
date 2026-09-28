@@ -53,7 +53,10 @@ import {
   acquireWorkspaceLock,
   serializePerWorkspace,
 } from '../lock/workspace-lock';
-import type { IHarnessSourceResolver } from '../sources/harness-source.port';
+import type {
+  HarnessSourceState,
+  IHarnessSourceResolver,
+} from '../sources/harness-source.port';
 import type {
   HarnessPlan,
   IHarnessTarget,
@@ -196,14 +199,12 @@ export class HarnessReconcilerService {
     // Scoped to the root being VERIFIED, exactly as `runReconcile` scopes the
     // root being reconciled. A health badge polling one window must not report
     // the other window's overlay as this workspace's desired state.
-    const desired = await this.builder.build(
-      this.sourceResolver.resolve(workspaceRoot),
-      {
-        downloadPending: false,
-        agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
-        skillSync,
-      },
-    );
+    const source = await this.sourceResolver.resolve(workspaceRoot);
+    const desired = await this.builder.build(source, {
+      downloadPending: false,
+      agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
+      skillSync,
+    });
 
     const targetHealth: HarnessTargetHealth[] = [];
     for (const target of this.targets) {
@@ -242,7 +243,7 @@ export class HarnessReconcilerService {
       // read-only end of the same spectrum, not a third mode nobody handles.
       mode: 'preflight',
       reason,
-      sources: desired.sources,
+      ...policyHealth(source, desired),
       targets: targetHealth,
       collisions: desired.collisions,
     };
@@ -379,15 +380,20 @@ export class HarnessReconcilerService {
     // overlay and wrote 44 skill copies into qa3elhamor, recorded them in
     // qa3elhamor's manifests, and reaped all 44 again on the way back
     // (TASK_2026_346; `tmp/logs/log.log:1225`, `:1647`).
-    const desired = await this.builder.build(
-      this.sourceResolver.resolve(workspaceRoot),
-      {
-        downloadPending: options.downloadPending === true,
-        agentSyncEnabled: agentSync.enabled,
-        skillSync,
-        signal: options.signal,
-      },
-    );
+    const source = await this.sourceResolver.resolve(workspaceRoot);
+    const desired = await this.builder.build(source, {
+      downloadPending: options.downloadPending === true,
+      agentSyncEnabled: agentSync.enabled,
+      skillSync,
+      signal: options.signal,
+    });
+    const frozen = source.policyUnknown === true;
+    if (frozen) {
+      this.logger.warn(
+        '[harness-sync] Capability policy unknown; skills, commands and agents are frozen this pass (MCP still applies)',
+        { workspaceRoot, reason: options.reason },
+      );
+    }
 
     const selected = this.selectTargets(options.targets);
     const lock = await acquireWorkspaceLock(workspaceRoot);
@@ -420,7 +426,13 @@ export class HarnessReconcilerService {
       }
       for (const target of selected) {
         targetHealth.push(
-          await this.reconcileTarget(target, workspaceRoot, desired, options),
+          await this.reconcileTarget(
+            target,
+            workspaceRoot,
+            desired,
+            options,
+            frozen,
+          ),
         );
       }
       this.maintainGitignore(workspaceRoot, selected, targetHealth, options);
@@ -433,7 +445,7 @@ export class HarnessReconcilerService {
       generatedAt: new Date().toISOString(),
       mode: options.mode,
       reason: options.reason,
-      sources: desired.sources,
+      ...policyHealth(source, desired),
       targets: targetHealth,
       collisions: desired.collisions,
     };
@@ -560,6 +572,7 @@ export class HarnessReconcilerService {
     workspaceRoot: string,
     desired: HarnessDesiredState,
     options: HarnessReconcileOptions,
+    frozen: boolean,
   ): Promise<HarnessTargetHealth> {
     const startedAt = Date.now();
     // ONE COMMIT POINT PER TARGET, not one per pass. Each target persists its
@@ -594,12 +607,13 @@ export class HarnessReconcilerService {
         return await target.verify(desired, workspaceRoot, pass.signal);
       }
 
-      const plan = await target.plan(
+      const planned = await target.plan(
         desired,
         workspaceRoot,
         manifest,
         pass.signal,
       );
+      const plan = frozen ? freezeToMcp(planned, manifest) : planned;
       if (this.isNoOp(plan, manifest)) {
         return appliedTargetHealth(
           plan,
@@ -984,6 +998,60 @@ function blockedReason(relPath: string): string {
   return isMcpFragmentKey(relPath)
     ? 'the config file already defines this server key, and Ptah did not write it'
     : 'occupied by a file or directory Ptah does not own';
+}
+
+/**
+ * The health fields that describe the policy a pass planned against: a frozen
+ * pass reads `policy-unknown` whatever the user layer held, and the
+ * fingerprint the source state carried is stamped as-is (absent stays absent,
+ * so a report from a reader with no layered policy is unchanged).
+ */
+function policyHealth(
+  source: HarnessSourceState,
+  desired: HarnessDesiredState,
+): Pick<HarnessHealth, 'sources' | 'policyFingerprint'> {
+  return {
+    sources: source.policyUnknown === true ? 'policy-unknown' : desired.sources,
+    ...(source.policyFingerprint === undefined
+      ? {}
+      : { policyFingerprint: source.policyFingerprint }),
+  };
+}
+
+/**
+ * A plan with every skill, command and agent change taken out, for a pass
+ * whose capability policy could not be read (TASK_2026_560, fail-closed).
+ *
+ * The desired state of such a pass cannot say which skills and plugins are
+ * off, so any write could re-add one the user disabled and any removal could
+ * reap one they kept. Only MCP entries — governed by the intent store, not by
+ * that policy — still move. Migrations wait too: each is a one-time repair a
+ * later, readable pass still finds.
+ *
+ * Ownership follows the same line. Non-MCP entries keep exactly what the
+ * manifest recorded (an adoption this pass planned is not taken), and MCP
+ * entries take the plan's view, so the manifest saved afterwards differs from
+ * the loaded one only where MCP changed.
+ */
+function freezeToMcp(
+  plan: HarnessPlan,
+  manifest: ManagedManifest,
+): HarnessPlan {
+  const baseEntries: ManagedEntries = {};
+  for (const [relPath, entry] of Object.entries(manifest.entries)) {
+    if (entry.kind !== 'mcp') baseEntries[relPath] = entry;
+  }
+  for (const [relPath, entry] of Object.entries(plan.baseEntries)) {
+    if (entry.kind === 'mcp') baseEntries[relPath] = entry;
+  }
+  return {
+    ...plan,
+    writes: plan.writes.filter((write) => write.kind === 'mcp'),
+    removals: plan.removals.filter((removal) => removal.kind === 'mcp'),
+    migrations: [],
+    adopted: plan.adopted.filter((relPath) => isMcpFragmentKey(relPath)),
+    baseEntries,
+  };
 }
 
 function sortKeys(entries: ManagedEntries): ManagedEntries {

@@ -1167,6 +1167,77 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
     });
   });
 
+  describe('Apps page splitter width (TASK_2026_494 B20)', () => {
+    it('defaults to the prototype 360px conversation column', () => {
+      setup();
+      expect(service.appsSplitWidth()).toBe(360);
+    });
+
+    it('clamps drag frames to [240, 1200] and never persists them', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setAppsSplitWidth(100);
+      expect(service.appsSplitWidth()).toBe(240);
+      service.setAppsSplitWidth(5000);
+      expect(service.appsSplitWidth()).toBe(1200);
+      service.setAppsSplitWidth(420);
+      expect(service.appsSplitWidth()).toBe(420);
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('rounds to whole pixels after clamping', () => {
+      setup();
+      service.setAppsSplitWidth(360.75);
+      expect(service.appsSplitWidth()).toBe(361);
+      service.setAppsSplitWidth(420.4);
+      expect(service.appsSplitWidth()).toBe(420);
+      service.setAppsSplitWidth(239.6);
+      expect(service.appsSplitWidth()).toBe(240);
+    });
+
+    it('rejects non-finite widths and keeps the last value', () => {
+      setup();
+      service.setAppsSplitWidth(500);
+      service.setAppsSplitWidth(Number.NaN);
+      service.setAppsSplitWidth(Number.POSITIVE_INFINITY);
+      service.setAppsSplitWidth(Number.NEGATIVE_INFINITY);
+      expect(service.appsSplitWidth()).toBe(500);
+    });
+
+    it('persists on commit in the same object as every other panel field', () => {
+      setup();
+      service.setWorkspaceSidebarWidth(250);
+      service.setGitRailWidth(300);
+      service.setAppsSplitWidth(512);
+      vscodeService.setState.mockClear();
+      service.commitAppsSplitWidth();
+      expect(vscodeService.setState).toHaveBeenCalledTimes(1);
+      expect(vscodeService.setState).toHaveBeenCalledWith('electron-layout', {
+        sidebarWidth: 250,
+        sidebarVisible: true,
+        editorWidth: service.editorPanelWidth(),
+        editorVisible: false,
+        gitRailWidth: 300,
+        gitRailCollapsed: false,
+        appsSplitWidth: 512,
+      });
+    });
+
+    it('is kept when another layout writer persists afterwards', () => {
+      setup();
+      service.setAppsSplitWidth(480);
+      service.commitAppsSplitWidth();
+      vscodeService.setState.mockClear();
+      service.toggleGitRail();
+      service.setSidebarDragging(false);
+      for (const [key, value] of vscodeService.setState.mock.calls) {
+        expect(key).toBe('electron-layout');
+        expect(value).toEqual(expect.objectContaining({ appsSplitWidth: 480 }));
+      }
+      expect(vscodeService.setState).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('setWorkspaceFolders()', () => {
     it('directly sets the workspace folders signal', () => {
       setup();
@@ -2008,6 +2079,61 @@ describe('ElectronLayoutService — restoreLayout with stored state', () => {
 
     expect(service.gitRailWidth()).toBe(256);
     expect(service.gitRailCollapsed()).toBe(false);
+  }));
+
+  function restoreFrom(stored: unknown): ElectronLayoutService {
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: buildVscodeService(stored) },
+        { provide: AppStateManager, useValue: buildAppState() },
+        { provide: ClaudeRpcService, useValue: buildRpc() },
+        { provide: WORKSPACE_COORDINATOR, useValue: buildCoordinator() },
+      ],
+    });
+    return TestBed.inject(ElectronLayoutService);
+  }
+
+  it('round-trips the Apps split width through the persisted layout object', fakeAsync(() => {
+    const first = restoreFrom(null);
+    tick(0);
+    const firstVscode = TestBed.inject(VSCodeService) as unknown as ReturnType<
+      typeof buildVscodeService
+    >;
+    first.setAppsSplitWidth(430);
+    first.setGitRailWidth(210);
+    firstVscode.setState.mockClear();
+    first.commitAppsSplitWidth();
+    const [[key, persisted]] = firstVscode.setState.mock.calls;
+    expect(key).toBe('electron-layout');
+    TestBed.resetTestingModule();
+
+    const second = restoreFrom(persisted);
+    tick(0);
+
+    expect(second.appsSplitWidth()).toBe(430);
+    expect(second.gitRailWidth()).toBe(210);
+  }));
+
+  it.each([
+    ['missing', { gitRailWidth: 300 }],
+    ['a string', { appsSplitWidth: '500' }],
+    ['NaN', { appsSplitWidth: Number.NaN }],
+    ['Infinity', { appsSplitWidth: Number.POSITIVE_INFINITY }],
+    ['null', { appsSplitWidth: null }],
+  ])(
+    'falls back to the 360px default when appsSplitWidth is %s',
+    fakeAsync((_label: string, stored: unknown) => {
+      const service = restoreFrom(stored);
+      tick(0);
+      expect(service.appsSplitWidth()).toBe(360);
+    }),
+  );
+
+  it('clamps a restored Apps split width that is out of range', fakeAsync(() => {
+    const service = restoreFrom({ appsSplitWidth: 40 });
+    tick(0);
+    expect(service.appsSplitWidth()).toBe(240);
   }));
 });
 

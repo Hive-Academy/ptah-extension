@@ -27,7 +27,12 @@ const SURFACE_HOSTS: Record<
   settings: 'ptah-settings',
   'setup-wizard': 'ptah-wizard-view',
   thoth: 'ptah-thoth-shell',
-  marketplace: 'ptah-marketplace-hub',
+  // TASK_2026_533 replaced the tabbed MarketplaceHubComponent with the
+  // routed MarketplaceShellComponent (implementation-plan.md C6/C10); the
+  // `switchView` push below still lands on the surface (AppStateManager.
+  // setCurrentView('marketplace') is unchanged), only the mounted host
+  // element's selector moved.
+  marketplace: 'ptah-marketplace-shell',
   tribunal: 'ptah-tribunal-page',
   tasks: 'ptah-tasks-view',
   'harness-builder': 'ptah-harness-builder-view',
@@ -248,6 +253,23 @@ export class UiDriver {
       };
       return (g.__uiObservedCalls ?? []).filter((c) => c.method === target);
     }, method);
+  }
+
+  /**
+   * Every RPC call observed so far, unfiltered — the raw sibling of
+   * {@link getObservedCalls} for specs that need to bound the FULL set of
+   * methods called over a window (e.g. "this mount fired nothing outside an
+   * allowlist"), not just count calls to one already-known method.
+   */
+  public async getAllObservedCalls(): Promise<
+    { method: string; params: unknown }[]
+  > {
+    return this.app.evaluate((_electron) => {
+      const g = globalThis as unknown as {
+        __uiObservedCalls?: { method: string; params: unknown }[];
+      };
+      return g.__uiObservedCalls ?? [];
+    });
   }
 
   public async waitForObservedCall(

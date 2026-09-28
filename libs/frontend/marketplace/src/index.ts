@@ -1,30 +1,23 @@
-export { MarketplaceHubComponent } from './lib/marketplace-hub.component';
-export { SmitherySurfaceComponent } from './lib/smithery-surface.component';
-export { ConnectedSurfaceComponent } from './lib/connected-surface.component';
-export type {
-  ConnectedGroup,
-  ConnectedGroupId,
-  ConnectedRemoveAction,
-  ConnectedRow,
-  ConnectedRowKind,
-} from './lib/connected-surface.component';
-export { AppsSectionComponent } from './lib/apps-section.component';
-export { SkillsSectionComponent } from './lib/skills-section.component';
-export { ExternalMarketplacesComponent } from './lib/external-marketplaces.component';
-export { ExternalConsentDialogComponent } from './lib/external-consent-dialog.component';
-export { ExternalPluginRowComponent } from './lib/external-plugin-row.component';
-export { OAuthSurfaceComponent } from './lib/oauth-surface.component';
-export { ConnectorsSurfaceComponent } from './lib/connectors-surface.component';
-export type {
-  ConnectorStatus,
-  ConnectorLink,
-} from './lib/connectors-surface.component';
-export { MarketplaceStateService } from './lib/marketplace-state.service';
+/**
+ * Marketplace Library — wide entry point (LAZY ONLY).
+ *
+ * Reached through `loadChildren` in the webview's `app.routes.ts`; it pulls the
+ * shell, every page and every discovery surface behind them. Eager code uses
+ * the narrow barrels instead: `./services.ts` (`HarnessHealthStore`) and
+ * `./harness.ts` (the Dashboard harness card's pieces).
+ *
+ * Pages, stores and surfaces are deliberately not exported: the route table
+ * is the only way in, and nothing outside this library constructs them.
+ */
+
+// Routes
+export { MARKETPLACE_ROUTES } from './lib/routes/marketplace.routes';
+
+// Harness health presentation
 export { HarnessHealthBadgeComponent } from './lib/harness/harness-health-badge.component';
 export { HarnessTargetRowComponent } from './lib/harness/harness-target-row.component';
 export { HarnessBlockedPathsComponent } from './lib/harness/harness-blocked-paths.component';
 export { HarnessRepairDialogComponent } from './lib/harness/harness-repair-dialog.component';
-export { HarnessHealthStore } from './lib/harness/harness-health.store';
 export {
   HARNESS_FACET_ORDER,
   harnessBadgeTone,
@@ -38,11 +31,3 @@ export type {
   HarnessBlockedDisclosure,
   HarnessBlockedGroup,
 } from './lib/harness/harness-health.model';
-export {
-  MARKETPLACE_SECTIONS,
-  marketplaceSourcesOf,
-} from './lib/sections.registry';
-export type {
-  MarketplaceSectionSpec,
-  MarketplaceSourceSpec,
-} from './lib/sections.registry';

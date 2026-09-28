@@ -214,6 +214,43 @@ describe('PTAH_CONNECTORS', () => {
     }
   });
 
+  // ── brandSlug (TASK_2026_533 C2) ──────────────────────────────────────────
+
+  it('gives every entry a kebab-case brandSlug', () => {
+    for (const connector of PTAH_CONNECTORS) {
+      expect(connector.brandSlug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    }
+  });
+
+  it('shares a brandSlug only between entries for the same brand', () => {
+    // Every slug used by more than one entry, with exactly the entries allowed
+    // to use it. A new row that reuses another brand's slug — or a family that
+    // silently loses a member — fails here instead of rendering the wrong mark.
+    const sameBrandFamilies: Readonly<Record<string, readonly string[]>> = {
+      atlassian: ['atlassian', 'atlassian-v2'],
+      asana: ['asana', 'asana-v2'],
+      exa: ['exa', 'exa-smithery'],
+      hubspot: ['hubspot', 'hubspot-smithery'],
+      gmail: ['gmail-smithery', 'google-gmail'],
+      'google-calendar': ['googlecalendar-smithery', 'google-calendar'],
+      'google-drive': ['googledrive-smithery', 'google-drive'],
+      'google-docs': ['googledocs-smithery', 'google-docs'],
+      'google-sheets': ['googlesheets-smithery', 'google-sheets'],
+    };
+
+    const idsBySlug = new Map<string, string[]>();
+    for (const connector of PTAH_CONNECTORS) {
+      const ids = idsBySlug.get(connector.brandSlug) ?? [];
+      ids.push(connector.id);
+      idsBySlug.set(connector.brandSlug, ids);
+    }
+
+    const shared = Object.fromEntries(
+      [...idsBySlug].filter(([, ids]) => ids.length > 1),
+    );
+    expect(shared).toEqual(sameBrandFamilies);
+  });
+
   // ── one product, one row (TASK_2026_379 C3) ───────────────────────────────
 
   it('gives every entry a distinct label', () => {

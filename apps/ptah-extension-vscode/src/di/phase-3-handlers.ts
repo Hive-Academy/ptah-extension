@@ -24,6 +24,7 @@ import {
   FilePickerRpcHandlers,
   EditorRpcHandlers,
   ImagePickerRpcHandlers,
+  CapabilityRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -80,6 +81,7 @@ export function registerPhase3Handlers(
   container.registerSingleton(PtahCliRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(McpDirectoryRpcHandlers);
+  container.registerSingleton(CapabilityRpcHandlers);
   container.registerSingleton(HarnessRpcHandlers);
   registerSharedRpcHandlers(container);
   activateSessionLifecycleNotifier(container);

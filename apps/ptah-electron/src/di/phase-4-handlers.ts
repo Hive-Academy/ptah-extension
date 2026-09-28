@@ -41,6 +41,7 @@ import {
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
+  CapabilityRpcHandlers,
   GitRpcHandlers,
   MemoryRpcHandlers,
   MemRpcHandlers,
@@ -103,6 +104,7 @@ export function registerPhase4Handlers(
   registerSharedRpcHandlers(container);
   container.registerSingleton(HarnessRpcHandlers);
   container.registerSingleton(McpDirectoryRpcHandlers);
+  container.registerSingleton(CapabilityRpcHandlers);
   // Hand GitInfoService the off-thread spawner phase 2 already bound. Every
   // `git:*` call otherwise runs `CreateProcessW` inline on the main thread,
   // which is the one synchronous main-thread spawn left on the boot path
@@ -158,6 +160,7 @@ export function registerPhase4Handlers(
       // ---
       'HarnessRpcHandlers',
       'McpDirectoryRpcHandlers',
+      'CapabilityRpcHandlers',
       'GitRpcHandlers',
       'MemoryRpcHandlers',
       'MemRpcHandlers',

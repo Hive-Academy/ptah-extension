@@ -44,6 +44,11 @@
             "glob": "package.json",
             "input": "apps/ptah-extension-vscode",
             "output": "."
+          },
+          {
+            "glob": "brand-icons-notices.txt",
+            "input": "libs/frontend/ui/src/lib/native/brand-mark",
+            "output": "."
           }
         ]
       },

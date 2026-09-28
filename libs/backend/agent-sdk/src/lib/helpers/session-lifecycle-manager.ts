@@ -27,6 +27,7 @@ import {
   type ContextCapacityRoute,
   type EffortLevel,
   type FlagEffortLevel,
+  type ICapabilityResolver,
   type McpHttpServerOverride,
   type PermissionLevel,
 } from '@ptah-extension/shared';
@@ -59,10 +60,7 @@ import type { SessionEndCallbackRegistry } from './session-end-callback-registry
 import type { SdkQueryRunner } from './sdk-query-runner.service';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
 import type { UsageCostSource } from '../session-stats/session-stats-owner.service';
-import {
-  HARNESS_PREFLIGHT_TOKEN,
-  type IHarnessPreflight,
-} from '../harness/harness-preflight.port';
+import type { HarnessPolicySync } from '../harness/harness-policy-sync';
 export type { SDKUserMessage, ContentBlock };
 export type {
   SessionRecord,
@@ -325,12 +323,20 @@ export class SessionLifecycleManager {
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
     private readonly queryRunner: SdkQueryRunner,
     /**
-     * Bound by each host to `HARNESS_SYNC_TOKENS.PREFLIGHT`. Optional so a
-     * container without `harness-sync` — every unit test, and any embedder that
-     * only wants the SDK adapter — still constructs.
+     * The capability policy every session is built under (TASK_2026_560, C5),
+     * registered by `cli-agent-runtime`. Optional so a container without it —
+     * every unit test, and any embedder that only wants the SDK adapter — still
+     * constructs; its sessions then run fail-closed.
      */
-    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
-    private readonly harnessPreflight: IHarnessPreflight | null = null,
+    @inject(SDK_TOKENS.SDK_CAPABILITY_RESOLVER, { isOptional: true })
+    private readonly capabilityResolver: ICapabilityResolver | null = null,
+    /**
+     * Runs the harness preflight (`HARNESS_PREFLIGHT_TOKEN`, bound by each host
+     * to `HARNESS_SYNC_TOKENS.PREFLIGHT`) until a pass acknowledges the
+     * session's policy fingerprint. Registered by `registerSdkServices`.
+     */
+    @inject(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC, { isOptional: true })
+    private readonly harnessPolicySync: HarnessPolicySync | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -348,7 +354,8 @@ export class SessionLifecycleManager {
       this.messageFactory,
       this.authEnv,
       this.queryRunner,
-      this.harnessPreflight,
+      this.capabilityResolver,
+      this.harnessPolicySync,
     );
     this._control = new SessionControl(
       this.logger,

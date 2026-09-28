@@ -4,13 +4,12 @@ export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
 
 export {
-  MARKETPLACE_SECTION_IDS,
-  type MarketplaceSection,
-  type MarketplaceSourceId,
-  type MarketplaceTarget,
-  encodeMarketplaceTarget,
-  parseMarketplaceTarget,
-} from './lib/marketplace/marketplace-section';
+  type MarketplaceRoute,
+  type MarketplaceServerSource,
+  type MarketplaceSkillSource,
+  marketplaceRouteCommands,
+  marketplaceRouteFromSegments,
+} from './lib/marketplace/marketplace-route';
 
 export {
   SESSION_DATA_PROVIDER,

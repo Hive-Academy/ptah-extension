@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_389
-status: backlog
+status: done
 type: devops
 title: >-
   Electron e2e harness: make PTAH_E2E gate the heavy boot subsystems, fix the

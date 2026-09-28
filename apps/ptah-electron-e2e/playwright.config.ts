@@ -23,7 +23,10 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: isCI,
   retries: 0,
-  timeout: 60_000,
+  // Each test boots its own Electron app, and a cold first `git` spawn on
+  // Windows alone can take 4-11 s (see `real-rpc-fixtures.ts`); 60 s left too
+  // little room for the spec body (TASK_2026_389).
+  timeout: 120_000,
   expect: {
     timeout: 30_000,
   },
@@ -41,7 +44,9 @@ export default defineConfig({
   outputDir: '../../dist/apps/ptah-electron-e2e/test-results',
   use: {
     actionTimeout: 15_000,
-    trace: isCI ? 'retain-on-failure' : 'off',
+    // Unconditional: with `retries: 0` there is no retry for 'on-first-retry'
+    // to key on, and a local failure is the one that most needs a trace.
+    trace: 'retain-on-failure',
     video: 'off',
     screenshot: 'only-on-failure',
   },

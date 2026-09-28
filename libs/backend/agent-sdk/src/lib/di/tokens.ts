@@ -180,6 +180,24 @@ export const SDK_TOKENS = {
    * `peer-session-messenger.service.ts`.
    */
   SDK_PEER_SESSION_MESSENGER: Symbol.for('SdkPeerSessionMessenger'),
+  /**
+   * The capability policy (`ICapabilityResolver` from `@ptah-extension/shared`):
+   * which MCP servers, skills and plugins are on for a workspace
+   * (TASK_2026_560). Registered by `cli-agent-runtime`; every enforcement point
+   * reads it.
+   */
+  SDK_CAPABILITY_RESOLVER: Symbol.for('SdkCapabilityResolver'),
+  /**
+   * The global layer of skill and plugin toggles (`ICapabilityGlobalLayer`),
+   * layered under the workspace `PluginConfigState` by `PluginLoaderService`
+   * (TASK_2026_560). Implemented by the per-item capability toggle store.
+   */
+  SDK_CAPABILITY_GLOBAL_LAYER: Symbol.for('SdkCapabilityGlobalLayer'),
+  /**
+   * `HarnessPolicySync`: runs the harness preflight until a pass acknowledges
+   * the policy fingerprint a session was built against (TASK_2026_560, N4).
+   */
+  SDK_HARNESS_POLICY_SYNC: Symbol.for('SdkHarnessPolicySync'),
 } as const;
 
 /**

@@ -54,6 +54,21 @@ describe('session:mcpStatus contract', () => {
       expect(parsed?.servers[0]?.status).toBe('reconnecting');
     });
 
+    it('keeps the capability-policy-unverified notice (TASK_2026_560)', () => {
+      const unverified = {
+        sessionId: 's1',
+        servers: [{ name: 'ptah', status: 'connected' }],
+        notices: [
+          {
+            code: 'capability-policy-unverified',
+            message:
+              "Ptah couldn't read /home/u/.ptah/capabilities/global/mcp__l_x.json (invalid JSON).",
+          },
+        ],
+      };
+      expect(parseSessionMcpStatusPayload(unverified)).toEqual(unverified);
+    });
+
     it('drops an unknown notice code but keeps the servers', () => {
       const parsed = parseSessionMcpStatusPayload({
         sessionId: 's1',
@@ -107,6 +122,21 @@ describe('session:mcpStatus contract', () => {
           sessionId: 's1',
           servers: [{ name: 'x', status: 'reconnecting' }],
           notices: [],
+        }).success,
+      ).toBe(true);
+    });
+
+    it('accepts the capability-policy-unverified notice', () => {
+      expect(
+        SessionMcpStatusPayloadSchema.safeParse({
+          sessionId: 's1',
+          servers: [],
+          notices: [
+            {
+              code: 'capability-policy-unverified',
+              message: 'The capability policy could not be read.',
+            },
+          ],
         }).success,
       ).toBe(true);
     });

@@ -63,6 +63,23 @@ describe('McpInstallService', () => {
     JSON.parse(fs.readFileSync(path.join(tmp, '.mcp.json'), 'utf-8'))
       .mcpServers;
 
+  /** `~/.claude.json` with a top-level (user) map and this workspace's map. */
+  const writeClaudeJson = (maps: {
+    user?: Record<string, unknown>;
+    project?: Record<string, unknown>;
+  }): void => {
+    fs.writeFileSync(
+      path.join(tmp, '.claude.json'),
+      JSON.stringify({
+        ...(maps.user === undefined ? {} : { mcpServers: maps.user }),
+        projects: { [tmp]: { mcpServers: maps.project ?? {} } },
+      }),
+      'utf-8',
+    );
+  };
+
+  const httpServer = { type: 'http', url: 'https://example.test/mcp' };
+
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-install-service-'));
     intents = new McpIntentStore(path.join(tmp, '.ptah', 'mcp-installed.json'));
@@ -132,6 +149,135 @@ describe('McpInstallService', () => {
       });
     });
 
+    describe('removalFixCommand on ~/.claude.json rows', () => {
+      const claudeRow = async (serverKey: string) =>
+        (await service().listInstalled(tmp)).find(
+          (r) => r.origin === 'claude-user' && r.serverKey === serverKey,
+        );
+
+      it('gives a project-scope row the bare command, and leaves the prose as it was', async () => {
+        writeClaudeJson({ project: { sentry: httpServer } });
+
+        const row = await claudeRow('sentry');
+        expect(row?.removalFixCommand).toBe('claude mcp remove sentry');
+        expect(row?.removalBlockedReason).toBe(
+          `"sentry" is declared in ${path.join(tmp, '.claude.json')}, ` +
+            'which belongs to the Claude CLI — Ptah reads it and never ' +
+            'writes it. Remove it with `claude mcp remove sentry`.',
+        );
+      });
+
+      it('adds --scope user for a user-scope row, exactly as the prose does', async () => {
+        writeClaudeJson({ user: { github: httpServer } });
+
+        const row = await claudeRow('github');
+        expect(row?.removalFixCommand).toBe(
+          'claude mcp remove github --scope user',
+        );
+        expect(row?.removalBlockedReason).toContain(
+          '`claude mcp remove github --scope user`',
+        );
+      });
+
+      it.each([
+        'oauth-mcp.sentry',
+        'smithery_owner_server',
+        'node_repl',
+        'io.github/user:server',
+      ])('passes the plain key %j bare', async (serverKey) => {
+        writeClaudeJson({ project: { [serverKey]: httpServer } });
+
+        expect((await claudeRow(serverKey))?.removalFixCommand).toBe(
+          `claude mcp remove ${serverKey}`,
+        );
+      });
+
+      it.each([
+        ['whitespace', 'my server'],
+        ['a command separator', 'a;rm -rf ~'],
+        ['a pipe and redirect', 'a|b>c'],
+        ['an ampersand', 'a&b'],
+        ['a glob', 'serv*'],
+        ['a comment marker', 'a#b'],
+        ['a leading tilde', '~home'],
+        ['a PowerShell array comma', 'a,b'],
+        ['a PowerShell splat', '@scope/server'],
+        ['parentheses', 'fn(x)'],
+        ['a single quote', "o'brien"],
+        ['non-ASCII text', 'café'],
+      ])('double-quotes a key with %s', async (_label, serverKey) => {
+        writeClaudeJson({ user: { [serverKey]: httpServer } });
+
+        expect((await claudeRow(serverKey))?.removalFixCommand).toBe(
+          `claude mcp remove "${serverKey}" --scope user`,
+        );
+      });
+
+      it.each([
+        ['a double quote', 'say"hi"'],
+        ['a newline', 'line\nbreak'],
+        ['a carriage return', 'line\rbreak'],
+        ['a tab', 'tab\there'],
+        ['an escape character', 'esc\u001bseq'],
+        ['a C1 control', 'c1\u0085next'],
+        ['a Unicode line separator', 'ls next'],
+        ['a dollar expansion', '$HOME'],
+        ['a backtick', 'back`tick'],
+        ['a backslash', 'a\\b'],
+        ['a history bang', 'bang!'],
+        ['a cmd percent', '%PATH%'],
+        ['a leading dash, read as an option', '-rf'],
+      ])('omits the command for a key with %s', async (_label, serverKey) => {
+        writeClaudeJson({ project: { [serverKey]: httpServer } });
+
+        const row = await claudeRow(serverKey);
+        expect(row).toBeDefined();
+        expect(row).not.toHaveProperty('removalFixCommand');
+        // The reason still explains where the entry lives and what removes it.
+        expect(row?.removal).toBe('none');
+        expect(row?.removalBlockedReason).toContain('.claude.json');
+      });
+
+      it('gives no command to rows that have a local removal path', async () => {
+        writeMcpJson({ handwritten: { command: 'node' } });
+        const rows = await service({
+          smithery: {
+            filePath: path.join(tmp, '.ptah', 'smithery-installed.json'),
+            list: () => [
+              {
+                source: 'smithery',
+                qualifiedName: '@owner/server',
+                serverKey: 'smithery_owner_server',
+                namespace: 'ns',
+                connectionId: 'owner-server',
+                hasEncryptedConfig: true,
+                installedAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+          oauth: {
+            filePath: path.join(tmp, '.ptah', 'mcp-oauth-installed.json'),
+            list: () => [
+              {
+                serverKey: 'oauth-mcp.sentry',
+                name: 'Sentry',
+                serverUrl: 'https://mcp.sentry.dev/mcp',
+                connectedAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+        }).listInstalled(tmp);
+
+        const origins = new Set(rows.map((r) => r.origin));
+        expect(origins).toEqual(
+          new Set(['harness-config', 'smithery', 'oauth']),
+        );
+        for (const row of rows) {
+          expect(row).not.toHaveProperty('removalFixCommand');
+        }
+      });
+    });
+
     it('includes Smithery and OAuth records, with no harness target and no secrets', async () => {
       const smitheryPath = path.join(tmp, '.ptah', 'smithery-installed.json');
       const oauthPath = path.join(tmp, '.ptah', 'mcp-oauth-installed.json');
@@ -195,6 +341,76 @@ describe('McpInstallService', () => {
       expect(new Set(rows.map((r) => r.target))).toEqual(
         new Set(['claude', 'cursor']),
       );
+    });
+  });
+
+  describe('listDeclarations (the one inventory, TASK_2026_560 C4)', () => {
+    it('classifies every row by scope: repository files are workspace, user files global', async () => {
+      writeMcpJson({ repo: { command: 'node' } });
+      writeClaudeJson({
+        user: { mine: httpServer },
+        project: { local: httpServer },
+      });
+      fs.mkdirSync(path.join(tmp, '.codex'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, '.codex', 'config.toml'),
+        '[mcp_servers.cx]\ncommand = "node"\n',
+        'utf-8',
+      );
+
+      const { declarations, sourceStatus } =
+        await service().listDeclarations(tmp);
+
+      const scopeOf = (key: string, origin: string) =>
+        declarations.find((r) => r.serverKey === key && r.origin === origin)
+          ?.scope;
+      expect(scopeOf('repo', 'harness-config')).toBe('workspace');
+      expect(scopeOf('cx', 'harness-config')).toBe('global');
+      // Both `~/.claude.json` maps are per-user files (the existing
+      // `entry.scope` still drives the removal command).
+      expect(scopeOf('mine', 'claude-user')).toBe('global');
+      expect(scopeOf('local', 'claude-user')).toBe('global');
+      expect(sourceStatus.find((s) => s.target === 'claude')?.status).toBe(
+        'ok',
+      );
+    });
+
+    it('reports an unreadable config file as error instead of "declares nothing"', async () => {
+      fs.writeFileSync(path.join(tmp, '.mcp.json'), '{ not json', 'utf-8');
+      writeClaudeJson({ user: { mine: httpServer } });
+
+      const { declarations, sourceStatus } =
+        await service().listDeclarations(tmp);
+
+      const claude = sourceStatus.find((s) => s.target === 'claude');
+      expect(claude).toMatchObject({
+        status: 'error',
+        path: path.join(tmp, '.mcp.json'),
+      });
+      expect(claude?.error).toBeTruthy();
+      // The other sources still answer.
+      expect(declarations.map((r) => r.serverKey)).toContain('mine');
+    });
+
+    it('marks an absent file missing, and lists no file for an unresolvable scope', async () => {
+      const withRoot = await service().listDeclarations(tmp);
+      expect(
+        withRoot.sourceStatus.find((s) => s.target === 'claude')?.status,
+      ).toBe('missing');
+
+      const noRoot = await service().listDeclarations();
+      expect(noRoot.sourceStatus.some((s) => s.target === 'claude')).toBe(
+        false,
+      );
+    });
+
+    it('feeds listInstalled, which carries the scope on every row', async () => {
+      writeMcpJson({ repo: { command: 'node' } });
+      writeClaudeJson({ user: { mine: httpServer } });
+
+      const rows = await service().listInstalled(tmp);
+      expect(rows.find((r) => r.serverKey === 'repo')?.scope).toBe('workspace');
+      expect(rows.find((r) => r.serverKey === 'mine')?.scope).toBe('global');
     });
   });
 

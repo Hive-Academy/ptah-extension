@@ -17,6 +17,9 @@
  *     curator, and leaks no interval when it gives up.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
 import { BootCoordinator, createEmptyBootRefs } from './boot-coordinator';
 
 /** Minimal stand-in for the curator ref — the barrier only tests for null. */
@@ -429,6 +432,67 @@ describe('BootCoordinator — warmup barrier', () => {
     await Promise.resolve();
 
     expect(warmup).toHaveBeenCalledTimes(1);
+  });
+
+  describe('skipWarmup (PTAH_E2E gate, TASK_2026_389)', () => {
+    it('arms no timer, never runs the warmup and never logs the 30 s timeout', () => {
+      const log = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+      const coordinator = new BootCoordinator({ skipWarmup: true });
+      const warmup = jest.fn();
+
+      coordinator.armWarmup(warmup);
+      coordinator.notifyWindowLoaded();
+      expect(jest.getTimerCount()).toBe(0);
+
+      // Even a curator that does appear must not open a skipped barrier.
+      coordinator.refs.memoryCurator =
+        fakeCurator() as unknown as typeof coordinator.refs.memoryCurator;
+      coordinator.notifyWindowLoaded();
+      jest.advanceTimersByTime(60_000);
+
+      expect(warmup).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+      expect(console.warn).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining('Embedder warmup skipped'),
+      );
+    });
+
+    it('logs the skip once when armed repeatedly', () => {
+      const log = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+      const coordinator = new BootCoordinator({ skipWarmup: true });
+
+      coordinator.armWarmup(jest.fn());
+      coordinator.armWarmup(jest.fn());
+
+      expect(log).toHaveBeenCalledTimes(1);
+    });
+
+    it('arms the barrier as before when skipWarmup is false', () => {
+      const coordinator = new BootCoordinator({ skipWarmup: false });
+      const warmup = jest.fn();
+      coordinator.refs.memoryCurator =
+        fakeCurator() as unknown as typeof coordinator.refs.memoryCurator;
+
+      coordinator.armWarmup(warmup);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      coordinator.notifyWindowLoaded();
+      jest.advanceTimersByTime(3000);
+
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+
+    it('is wired from PTAH_E2E at the composition point in main.ts', () => {
+      const mainSource = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+      expect(mainSource).toMatch(
+        /new BootCoordinator\(\{\s*skipWarmup: process\.env\['PTAH_E2E'\] === '1',\s*\}\)/,
+      );
+    });
   });
 });
 

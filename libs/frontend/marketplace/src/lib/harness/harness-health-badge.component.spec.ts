@@ -241,6 +241,16 @@ describe('HarnessHealthBadgeComponent', () => {
       expect(badge()?.className).not.toContain('text-error');
     });
 
+    it('is amber, not red, while the capability policy is unreadable', async () => {
+      // The reconciler froze rather than failed: nothing was written or
+      // removed, so this is "paused", not a write a human must repair.
+      await render(makeHealth({ sources: 'policy-unknown' }));
+
+      expect(badge()?.className).toContain('text-warning');
+      expect(badge()?.className).not.toContain('text-error');
+      expect(badge()?.textContent).toContain('Skill and plugin sync paused');
+    });
+
     it('is neutral grey when no pass has run for this workspace', async () => {
       await render(null);
 
@@ -463,6 +473,15 @@ describe('HarnessHealthBadgeComponent', () => {
 
       expect(testId('harness-sources-note')?.textContent).toContain(
         'No skill sources on disk yet',
+      );
+    });
+
+    it('says skill and plugin sync is paused when the capability policy is unreadable', async () => {
+      await render(makeHealth({ sources: 'policy-unknown' }));
+      await openPanel();
+
+      expect(testId('harness-sources-note')?.textContent).toContain(
+        "sync is paused because Ptah couldn't read the capability policy",
       );
     });
 

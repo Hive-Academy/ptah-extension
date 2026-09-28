@@ -1,8 +1,8 @@
 /**
  * PluginCatalogPanelComponent — the five assertions carried over from
  * `plugin-browser-modal.component.spec.ts` when the modal body became an
- * inline panel (TASK_2026_524, spec 4). Only the SECOND axis is pinned here:
- * the plugin-checkbox axis has never had coverage and is out of scope.
+ * inline panel (TASK_2026_524, spec 4). They pin the SECOND axis; the plugin
+ * axis has one structural test for the storefront-card restyle (C13).
  *
  *   - **A user-layer slug with no plugin above it renders as ordinary.** A
  *     promoted synth skill or a `skills.sh` install has `pluginId: null`, and
@@ -229,6 +229,112 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
       host.querySelector('input[aria-label="Enable Ptah Core"]'),
     ).not.toBeNull();
     expect(host.querySelector('.text-error')).toBeNull();
+  });
+
+  it('renders each plugin as a storefront catalog card with a monogram, toggle and skill expansion (C13)', async () => {
+    setResponder('plugins:list-available', () =>
+      ok({
+        plugins: [
+          {
+            id: 'ptah-core',
+            name: 'Ptah Core',
+            description: 'A bundled plugin.',
+            category: 'core-tools',
+            skillCount: 2,
+            commandCount: 1,
+            isDefault: true,
+          },
+        ],
+      }),
+    );
+    setResponder('plugins:get-config', () =>
+      ok({
+        enabledPluginIds: ['ptah-core'],
+        disabledPluginIds: [],
+        disabledSkillIds: [],
+      }),
+    );
+    setResponder('plugins:list-skills', () =>
+      ok({
+        skills: [
+          {
+            skillId: 'ptah-core:review',
+            pluginId: 'ptah-core',
+            displayName: 'Review',
+            description: 'Reviews code.',
+          },
+        ],
+      }),
+    );
+
+    const fixture = await mount();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // One grid for the Core Tools group, headed by a visible h2, one card.
+    const grid = host.querySelector('ptah-catalog-grid');
+    expect(grid?.previousElementSibling?.tagName).toBe('H2');
+    expect(grid?.previousElementSibling?.textContent?.trim()).toBe(
+      'Core Tools',
+    );
+    const card = grid?.querySelector('ptah-catalog-card');
+    expect(card?.getAttribute('role')).toBe('listitem');
+    expect(card?.querySelector('h3')?.textContent?.trim()).toBe('Ptah Core');
+    expect(
+      card?.querySelector('[data-testid="catalog-card-meta"]')?.textContent,
+    ).toContain('2 skills · 1 command · Recommended');
+    expect(
+      card?.querySelector('[data-testid="catalog-card-badge"]')?.textContent,
+    ).toContain('Enabled');
+    // R7: the eager dashboard renders this panel, so never the brand table.
+    expect(card?.querySelector('ptah-monogram-tile')).not.toBeNull();
+    expect(host.querySelector('ptah-brand-mark')).toBeNull();
+    const toggle = card?.querySelector<HTMLInputElement>(
+      '[data-testid="catalog-card-actions"] input[aria-label="Enable Ptah Core"]',
+    );
+    expect(toggle?.checked).toBe(true);
+
+    // The plugin's skills are a list inside the card expansion, behind a
+    // disclosure button whose aria-expanded tracks it: false, true, false.
+    const expander = (): HTMLButtonElement | null | undefined =>
+      card?.querySelector<HTMLButtonElement>(
+        '[data-testid="catalog-card-actions"] button[aria-expanded]',
+      );
+    const skills = (): Element | null | undefined =>
+      card?.querySelector(
+        '[data-testid="catalog-card-expansion"] [aria-label="Skills for Ptah Core"]',
+      );
+    expect(expander()?.getAttribute('aria-expanded')).toBe('false');
+    expect(expander()?.getAttribute('aria-label')).toBe('Expand skill list');
+    expect(skills()).toBeNull();
+
+    expander()?.click();
+    await settle(fixture);
+    expect(expander()?.getAttribute('aria-expanded')).toBe('true');
+    expect(expander()?.getAttribute('aria-label')).toBe('Collapse skill list');
+    expect(
+      skills()?.querySelector('input[aria-label="Disable Review"]'),
+    ).not.toBeNull();
+
+    expander()?.click();
+    await settle(fixture);
+    expect(expander()?.getAttribute('aria-expanded')).toBe('false');
+    expect(skills()).toBeNull();
+
+    // Unticking the toggle drops the badge; the save payload follows it.
+    toggle?.click();
+    await settle(fixture);
+    expect(
+      card?.querySelector('[data-testid="catalog-card-badge"]'),
+    ).toBeNull();
+    clickSave(host);
+    await settle(fixture);
+    expect(
+      calls.find((c) => c.method === 'plugins:save-config')?.params,
+    ).toEqual({
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+    });
   });
 
   it('never records an untouched derived "all" as a choice', async () => {

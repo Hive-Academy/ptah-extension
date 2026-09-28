@@ -7,7 +7,7 @@
  * lib whose junction service this replaces. That direction is not circular
  * today, but it puts the reconciler downstream of a 10-concern monolith for the
  * sake of three method calls, and Batch 2 moves rival-CLI sync in here too. A
- * three-method port keeps the reconciler a leaf.
+ * small structural port keeps the reconciler a leaf.
  */
 
 import type { HarnessTargetId } from '@ptah-extension/shared';
@@ -115,6 +115,23 @@ export interface HarnessSourceState {
    * predates this field stays a valid source state rather than a compile error.
    */
   disabledAgentIds?: string[];
+  /**
+   * The capability policy (skill and plugin toggles, both layers) could not be
+   * read, so nobody can say which of them are off (TASK_2026_560).
+   *
+   * The reconciler answers it by FREEZING: no skill, command or agent write or
+   * removal this pass (MCP intents still apply), and health `sources` reads
+   * `policy-unknown`. Planning against an unreadable policy as if nothing were
+   * disabled would re-add what the user turned off. Absent means known.
+   */
+  policyUnknown?: boolean;
+  /**
+   * `harnessPolicyFingerprint` of the policy this state was built from, copied
+   * from the plugin loader's effective config. The reconciler stamps it on
+   * every health it reports, so a caller can tell which policy a pass applied.
+   * Absent when the reader has no effective config or the policy is unknown.
+   */
+  policyFingerprint?: string;
 }
 
 /** Resolves the current source state. Must never throw — degrade to empty. */
@@ -133,8 +150,17 @@ export interface IHarnessSourceResolver {
    *   still ask for the ambient answer. A resolver that cannot scope is
    *   entitled to ignore it; what it must not do is claim a per-root answer it
    *   did not compute.
+   *
+   *   A Promise when the plugin loader offers the layered (global + workspace)
+   *   policy, which is an async read; a plain value otherwise. The union keeps
+   *   every resolver bound to fixed state — `createStaticSourceResolver` and
+   *   every spec fake — assignable, and callers `await` either shape. A
+   *   returned Promise must never reject, for the same reason `resolve` must
+   *   never throw.
    */
-  resolve(workspaceRoot?: string): HarnessSourceState;
+  resolve(
+    workspaceRoot?: string,
+  ): HarnessSourceState | Promise<HarnessSourceState>;
 }
 
 /**

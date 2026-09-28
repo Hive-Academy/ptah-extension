@@ -38,37 +38,37 @@ function gateAnswering(enabled: boolean): AgentConsentReader {
 describe('the reader half — resolve(workspaceRoot) scopes agentsRoot', () => {
   const resolver = new PluginConfigSourceResolver(() => null);
 
-  it('gives two workspaces two agent roots', () => {
-    const a = resolver.resolve(WS_A).layout.agentsRoot;
-    const b = resolver.resolve(WS_B).layout.agentsRoot;
+  it('gives two workspaces two agent roots', async () => {
+    const a = (await resolver.resolve(WS_A)).layout.agentsRoot;
+    const b = (await resolver.resolve(WS_B)).layout.agentsRoot;
     expect(a).not.toBe(b);
   });
 
-  it('leaves the per-machine skill and command roots flat', () => {
+  it('leaves the per-machine skill and command roots flat', async () => {
     // Only agents are per-project. Scoping a skill root would fork one
     // installed skill into a copy per workspace.
-    const a = resolver.resolve(WS_A).layout;
-    const b = resolver.resolve(WS_B).layout;
+    const a = (await resolver.resolve(WS_A)).layout;
+    const b = (await resolver.resolve(WS_B)).layout;
     expect(a.skillsRoot).toBe(b.skillsRoot);
     expect(a.commandsRoot).toBe(b.commandsRoot);
   });
 
-  it('scopes the READ-FAILURE state too, not only the success path', () => {
+  it('scopes the READ-FAILURE state too, not only the success path', async () => {
     // The resolver returns an `empty` state on any reader failure. An empty
     // state carrying the UNSCOPED root would let a transient plugin-loader
     // failure read the base directory as this workspace's desired state.
     const failing = new PluginConfigSourceResolver(() => {
       throw new Error('loader not ready');
     });
-    expect(failing.resolve(WS_A).layout.agentsRoot).toBe(
-      resolver.resolve(WS_A).layout.agentsRoot,
+    expect((await failing.resolve(WS_A)).layout.agentsRoot).toBe(
+      (await resolver.resolve(WS_A)).layout.agentsRoot,
     );
   });
 
-  it('falls back to the unscoped base when no root is given', () => {
+  it('falls back to the unscoped base when no root is given', async () => {
     // No path that builds a desired state reaches this: the reconciler resolves
     // the root at its entry point and passes it from `reconcile` and `verify`.
-    expect(resolver.resolve().layout.agentsRoot).toBe(
+    expect((await resolver.resolve()).layout.agentsRoot).toBe(
       defaultHarnessSourceLayout().agentsRoot,
     );
   });
@@ -113,7 +113,7 @@ describe('the writer half — resolveAgentMirrorSource', () => {
     expect(resolveAgentMirrorSource('', gateAnswering(true))).toEqual({});
   });
 
-  it('hands back the root the READER keys on, not the caller’s spelling', () => {
+  it('hands back the root the READER keys on, not the caller’s spelling', async () => {
     // This is the whole point of resolving here. A host that passed its raw
     // folder would mirror into a directory the reconciler never reads, and the
     // reconciler would then reap every agent copy it owns.
@@ -125,7 +125,8 @@ describe('the writer half — resolveAgentMirrorSource', () => {
     expect(
       scopeAgentsRoot(defaultHarnessSourceLayout(), written).agentsRoot,
     ).toBe(
-      resolver.resolve(resolveHarnessWorkspaceRoot(raw)).layout.agentsRoot,
+      (await resolver.resolve(resolveHarnessWorkspaceRoot(raw))).layout
+        .agentsRoot,
     );
   });
 });

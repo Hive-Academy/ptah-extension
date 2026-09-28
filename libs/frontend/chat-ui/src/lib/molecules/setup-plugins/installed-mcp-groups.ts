@@ -4,7 +4,7 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * Grouped installed servers for the Installed tab.
+ * Grouped installed servers for the marketplace's installed views.
  *
  * Grouped by origin AND server key, never by key alone: a `github` entry read
  * from `.mcp.json` and a `github` connector held by a live claude.ai session
@@ -22,6 +22,11 @@ export interface InstalledServerGroup {
   showOriginLabel: boolean;
   removal: InstalledMcpServer['removal'];
   removalBlockedReason?: string;
+  /**
+   * The group head's copyable removal command. Absent when the head has none
+   * — the UI then shows the reason with no copy button, never an empty one.
+   */
+  removalFixCommand?: string;
   servers: InstalledMcpServer[];
   /** Only the rows that actually have a target — Smithery/OAuth rows have none. */
   targets: McpInstallTarget[];
@@ -79,6 +84,9 @@ export function groupInstalledServers(
       showOriginLabel: head.origin !== 'harness-config',
       removal: head.removal,
       removalBlockedReason: head.removalBlockedReason,
+      ...(head.removalFixCommand === undefined
+        ? {}
+        : { removalFixCommand: head.removalFixCommand }),
       servers: grouped,
       targets: grouped
         .map((s) => s.target)

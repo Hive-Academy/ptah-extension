@@ -29,7 +29,8 @@ describe('migration 0045_skill_backlog_cleanup — registry entry', () => {
     ).toHaveLength(1);
     const versions = MIGRATIONS.map((migration) => migration.version);
     expect(versions).toContain(44);
-    expect(Math.max(...versions)).toBe(47);
+    // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
+    expect(Math.max(...versions)).toBe(49);
   });
 });
 

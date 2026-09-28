@@ -25,6 +25,12 @@
  * - NativeDropdownComponent - dropdown without CDK Overlay
  * - NativePopoverComponent - popover without CDK FocusTrap
  * - NativeAutocompleteComponent - autocomplete without CDK
+ *
+ * KEEP THIS FILE A PURE LIST OF `export * from` LINES (R7, TASK_2026_533
+ * Batch 24a). esbuild never emits a star-only barrel, but a concrete export
+ * here would make it a kept module whose every import esbuild follows, pulling
+ * every domain barrel, the brand-mark artwork table included, onto the eager
+ * path. `native/brand-mark/brand-mark-barrels.spec.ts` enforces this.
  */
 
 export * from './lib/overlays';

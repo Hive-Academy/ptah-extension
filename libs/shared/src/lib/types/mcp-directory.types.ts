@@ -8,6 +8,16 @@
  */
 
 /**
+ * Which scope a declaration or a capability toggle belongs to: `global` for a
+ * user-scope source, `workspace` for a repository file (TASK_2026_560).
+ *
+ * Defined here, the lower layer, because it first of all describes where an
+ * MCP declaration came from ({@link InstalledMcpServer.scope});
+ * `capability-toggle.types.ts` imports it one-way.
+ */
+export type CapabilityScope = 'global' | 'workspace';
+
+/**
  * Targets where MCP server configs can be installed.
  *
  * Config file locations:
@@ -238,11 +248,7 @@ export interface McpInstallResult {
  * backend cannot and does not emit it.
  */
 export type McpServerOrigin =
-  | 'harness-config'
-  | 'claude-user'
-  | 'smithery'
-  | 'oauth'
-  | 'claude-connector';
+  'harness-config' | 'claude-user' | 'smithery' | 'oauth' | 'claude-connector';
 
 /**
  * How — and whether — a row can be removed locally.
@@ -255,11 +261,7 @@ export type McpServerOrigin =
  * local removal path at all and `removalBlockedReason` says where to go.
  */
 export type McpRemovalKind =
-  | 'ptah-managed'
-  | 'direct'
-  | 'smithery'
-  | 'oauth'
-  | 'none';
+  'ptah-managed' | 'direct' | 'smithery' | 'oauth' | 'none';
 
 /** An MCP server that is currently installed (read from config files) */
 export interface InstalledMcpServer {
@@ -291,6 +293,27 @@ export interface InstalledMcpServer {
    * `removal: 'none'` row and names the file plus the command that can do it.
    */
   removalBlockedReason?: string;
+  /**
+   * The exact shell command that removes this row, ready to copy — present
+   * only when one exists AND can be written safely for the key as stored.
+   *
+   * Structured beside {@link InstalledMcpServer.removalBlockedReason} so the
+   * UI never has to parse the command back out of prose. A key that needs
+   * quoting is double-quoted; a key no quoting can make safe (a `"`, a `$`, a
+   * newline, a leading `-`…) gets no command at all, and the reason alone is
+   * shown. Absent for every row that has a local removal path, and for
+   * claude.ai connector rows, which no command can remove.
+   */
+  removalFixCommand?: string;
+  /**
+   * Which scope declared this row (TASK_2026_560, AC-2.1): `global` for a
+   * user-scope source (`~/.claude.json`, `~/.codex`, `~/.ptah`, Smithery,
+   * OAuth), `workspace` for a repository file (`.mcp.json`,
+   * `.claude/settings*.json`, `.vscode/mcp.json`, …). Classified by
+   * `classifyMcpScope`. Optional: payloads from before the field existed carry
+   * none, and the UI shows no scope label for them.
+   */
+  scope?: CapabilityScope;
 }
 
 /** Tracks which MCP servers Ptah has installed (persisted to ~/.ptah/mcp-installed.json) */
@@ -738,6 +761,11 @@ export interface McpDirectoryInstallParams {
 /** Result for mcpDirectory:install */
 export interface McpDirectoryInstallResult {
   results: McpInstallResult[];
+  /**
+   * Set when the install succeeded but Ptah could not record the workspace ON
+   * decision; the server stays off until it is enabled in the Marketplace.
+   */
+  capabilityWarning?: string;
 }
 
 /** Params for mcpDirectory:uninstall */

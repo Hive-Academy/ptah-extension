@@ -610,17 +610,33 @@ export class HarnessBuilderViewComponent implements OnInit {
     return !!(cfg.persona || cfg.agents || cfg.skills || cfg.prompt || cfg.mcp);
   });
 
-  protected readonly surfacePermissions = computed(() =>
-    this.permissionHandler
+  protected readonly surfacePermissions = computed(() => {
+    this.permissionHandler.routingTargetRevision();
+    const surfaceId = this.workflow.surfaceId();
+    if (!surfaceId) return [];
+    return this.permissionHandler
       .permissionRequests()
-      .filter((p) => this.permissionHandler.hasSurfaceTargets(p.id)),
-  );
+      .filter(
+        (p) =>
+          this.permissionHandler.hasSurfaceTargets(p.id) &&
+          this.permissionHandler.targetTabsFor(p.id).includes(surfaceId),
+      );
+  });
 
-  protected readonly surfaceQuestions = computed(() =>
-    this.permissionHandler
+  protected readonly surfaceQuestions = computed(() => {
+    this.permissionHandler.routingTargetRevision();
+    const surfaceId = this.workflow.surfaceId();
+    if (!surfaceId) return [];
+    return this.permissionHandler
       .questionRequests()
-      .filter((q) => this.permissionHandler.hasSurfaceQuestionTargets(q.id)),
-  );
+      .filter(
+        (q) =>
+          this.permissionHandler.hasSurfaceQuestionTargets(q.id) &&
+          this.permissionHandler
+            .questionTargetTabsFor(q.id)
+            .includes(surfaceId),
+      );
+  });
 
   constructor() {
     effect(() => {

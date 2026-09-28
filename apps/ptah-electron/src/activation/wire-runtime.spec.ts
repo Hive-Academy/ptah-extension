@@ -39,6 +39,7 @@ import {
 import {
   logBootDegradationSummary,
   reportStartupBootFailure,
+  settleOnAbort,
 } from './wire-runtime';
 
 function buildTestContainer(): DependencyContainer {
@@ -634,5 +635,67 @@ describe('reportStartupBootFailure (TASK_2026_383 task 2.2)', () => {
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(report).not.toHaveBeenCalled();
     bare.clearInstances();
+  });
+});
+
+/**
+ * The post-window wait on the subagent registration (TASK_2026_556). The CLI
+ * probes behind it cannot be cancelled, so a quit must release the WAIT —
+ * otherwise every quit during start-up spends the whole `will-quit` drain.
+ */
+describe('settleOnAbort', () => {
+  const never = (): Promise<void> => new Promise<void>(() => undefined);
+
+  it('resolves when the work settles', async () => {
+    const controller = new AbortController();
+    await expect(
+      settleOnAbort(Promise.resolve('done'), controller.signal),
+    ).resolves.toBeUndefined();
+  });
+
+  it('resolves on abort while the work is still pending', async () => {
+    const controller = new AbortController();
+    const waiting = settleOnAbort(never(), controller.signal);
+
+    controller.abort();
+
+    await expect(waiting).resolves.toBeUndefined();
+  });
+
+  it('resolves at once when already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      settleOnAbort(never(), controller.signal),
+    ).resolves.toBeUndefined();
+  });
+
+  it('never rejects, even when the work does', async () => {
+    const controller = new AbortController();
+    await expect(
+      settleOnAbort(
+        Promise.reject(new Error('probe failed')),
+        controller.signal,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('observes a late rejection after an abort', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let rejectWork: (error: Error) => void = () => undefined;
+    const work = new Promise<void>((_resolve, reject) => {
+      rejectWork = reject;
+    });
+    const unhandled = jest.fn();
+    process.on('unhandledRejection', unhandled);
+
+    await settleOnAbort(work, controller.signal);
+    rejectWork(new Error('late'));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    process.off('unhandledRejection', unhandled);
+    expect(unhandled).not.toHaveBeenCalled();
   });
 });

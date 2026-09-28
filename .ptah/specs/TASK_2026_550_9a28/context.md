@@ -54,3 +54,9 @@ as a BUGFIX; if it is an e2e-environment effect, fix the launcher.
 - Other branches the same day failed on `chat/compaction-duplicate-session.spec.ts:52` (run 35964417827, not investigated).
 
 Each run failed a different test that passed on the other runs, so the suite needs a flake audit (fixed sleeps, static mocks swapped mid-test, renderer writes racing test writes) as part of this task.
+
+## Moved in from TASK_2026_389 (2026-09-24)
+
+- Audit the 3 mocked git specs (`git-dock`, `diff-view-state`, `perf-m1-diff-redisplay`) and the
+  `harness/*` and `tasks/*` families for whether their mocked-vs-real fixture choice matches what they
+  claim to test. Do it as part of the per-spec isolation review this task already requires.

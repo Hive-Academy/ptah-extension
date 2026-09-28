@@ -1,13 +1,14 @@
-import type {
-  InstalledMcpServer,
-  SessionMcpServerEntry,
+import {
+  normalizeServerKey,
+  type InstalledMcpServer,
+  type SessionMcpServerEntry,
 } from '@ptah-extension/shared';
 
 /**
  * Short badge text for a claude.ai account connector row.
  *
- * `McpDirectoryBrowserComponent` renders `originLabel` verbatim in a
- * `badge-xs`, so it has to stay short enough not to wrap the row.
+ * The installed-server rows (`data/provider-row.ts`) show `originLabel`
+ * verbatim as the row's origin, so it has to stay short enough not to wrap.
  */
 export const CLAUDE_CONNECTOR_ORIGIN_LABEL = 'claude.ai connector';
 
@@ -21,23 +22,6 @@ export const CLAUDE_CONNECTOR_REMOVAL_REASON =
   'This connector lives in your claude.ai account, not on this machine. ' +
   'Add or remove it from your claude.ai connector settings — Ptah cannot ' +
   'change it from here.';
-
-/**
- * Fold a server key to a comparable form.
- *
- * The session reports whatever the CLI calls the server, which for an account
- * connector is a display name (`Google Calendar`), while every disk and
- * manifest row is keyed by a slug (`google-calendar`). Comparing the raw
- * strings would let one server show up twice under two spellings, which is the
- * exact duplication this filter exists to prevent.
- */
-export function normalizeServerKey(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
 
 /**
  * Map the session's MCP servers into the account-connector rows the Installed

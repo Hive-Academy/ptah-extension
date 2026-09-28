@@ -12,7 +12,6 @@ import {
   DEFAULT_SURFACE_ID,
   isSurfaceRouteId,
   surfaceIdFromSegment,
-  surfaceRoutePath,
   type ViewType,
 } from './surface-routes';
 
@@ -106,29 +105,53 @@ export class SurfaceRouterService {
   }
 
   /**
-   * Navigate to `id`'s route.
+   * Navigate to `id`'s route, optionally to a child of it.
+   *
+   * `subPath` is router commands below the surface —
+   * `navigateToSurface('marketplace', ['servers', 'smithery'])` lands on
+   * `/marketplace/servers/smithery`. The URL is built with
+   * `Router.createUrlTree`, never by string concatenation, so a segment that
+   * carries `/` or `:` (an external plugin id) is encoded as one segment.
+   * Omitting it addresses the surface root, which is what every caller did
+   * before sub-paths existed.
    *
    * Never rejects: every outcome is a {@link SurfaceNavigationResult}, so a
    * caller that cannot act on a failure (a navbar click) can fire and forget
    * while `App.handleInitialView` and `HarnessWorkflowMessageHandler` can tell
    * the three interesting cases apart.
    */
-  async navigateToSurface(id: ViewType): Promise<SurfaceNavigationResult> {
+  async navigateToSurface(
+    id: ViewType,
+    subPath: readonly string[] = [],
+  ): Promise<SurfaceNavigationResult> {
     const target = isSurfaceRouteId(id) ? id : DEFAULT_SURFACE_ID;
     if (target !== id) {
+      // The sub-path belonged to the surface that was asked for. Applied under
+      // the fallback it would address a child that surface does not have.
       console.warn(
         `[SurfaceRouterService] "${id}" has no route — navigating to "${target}" instead.`,
       );
     }
 
-    const targetUrl = surfaceRoutePath(target);
-    // Read BEFORE navigating: this is the only honest test of "the Router had
-    // nothing to do", because after the call `router.url` looks identical
-    // whether the navigation was skipped or completed.
-    const startedAtTarget = this.router.url === targetUrl;
-
+    // Building the tree is inside the `try` too: `createUrlTree` throws
+    // synchronously on commands it cannot resolve, and that must become
+    // `failed`, not a rejection.
     try {
-      const navigated = await this.router.navigateByUrl(targetUrl);
+      const targetTree = this.router.createUrlTree([
+        '/',
+        target,
+        ...(target === id ? subPath : []),
+      ]);
+      // Compared as serialized trees on both sides: `router.url` is the
+      // serializer's output for the current tree, so an encoded segment
+      // (`external:owner%2Frepo`) matches itself rather than its decoded form.
+      const targetUrl = this.router.serializeUrl(targetTree);
+      // Read BEFORE navigating: this is the only honest test of "the Router
+      // had nothing to do", because after the call `router.url` looks
+      // identical whether the navigation was skipped or completed.
+      const startedAtTarget = this.router.url === targetUrl;
+
+      const navigated = await this.router.navigateByUrl(targetTree);
       if (navigated) return 'navigated';
       return startedAtTarget && this.router.url === targetUrl
         ? 'already-there'

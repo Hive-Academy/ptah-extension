@@ -1,7 +1,7 @@
 /**
- * The Installed-tab grouping and removal rules, lifted out of
- * `McpDirectoryBrowserComponent` so the marketplace Connected view and the
- * Installed tab cannot drift apart (TASK_2026_524, spec 3).
+ * The installed-server grouping and removal rules the marketplace's installed
+ * views run on (TASK_2026_524, spec 3; the registry browser's own Installed
+ * tab was removed in TASK_2026_533, plan C11).
  *
  * Two things are pinned here:
  *   - grouping identity is origin AND key, never key alone — a `.mcp.json`
@@ -165,10 +165,64 @@ describe('groupInstalledServers', () => {
   it('is total on an empty list', () => {
     expect(groupInstalledServers([])).toEqual([]);
   });
+
+  it('carries the head row removal fix command onto the group', () => {
+    const [claudeUser] = groupInstalledServers([
+      server({
+        origin: 'claude-user',
+        originLabel: 'Claude CLI',
+        serverKey: 'sentry',
+        configPath: '/home/.claude.json',
+        removal: 'none',
+        removalBlockedReason: 'Remove it with `claude mcp remove sentry`.',
+        removalFixCommand: 'claude mcp remove sentry --scope user',
+      }),
+    ]);
+
+    expect(claudeUser.removalFixCommand).toBe(
+      'claude mcp remove sentry --scope user',
+    );
+    expect(claudeUser.removalBlockedReason).toBe(
+      'Remove it with `claude mcp remove sentry`.',
+    );
+  });
+
+  it('takes the command from the head row, not a later one', () => {
+    const [grouped] = groupInstalledServers([
+      server({ removal: 'none', removalFixCommand: 'claude mcp remove first' }),
+      server({ removal: 'none', removalFixCommand: 'claude mcp remove other' }),
+    ]);
+
+    expect(grouped.removalFixCommand).toBe('claude mcp remove first');
+  });
+
+  it('leaves the field absent when the head row has no command', () => {
+    const [connector, unquotable] = groupInstalledServers([
+      // A claude.ai connector row: blocked, but no command can remove it.
+      server({
+        origin: 'claude-connector',
+        originLabel: 'Claude account',
+        configPath: '',
+        removal: 'none',
+        removalBlockedReason: 'Manage it in your Claude account.',
+      }),
+      // The backend withheld the command because the key cannot be quoted.
+      server({
+        origin: 'claude-user',
+        originLabel: 'Claude CLI',
+        serverKey: 'say"hi"',
+        removal: 'none',
+        removalBlockedReason: 'Remove it with the claude CLI.',
+      }),
+    ]);
+
+    expect(connector).not.toHaveProperty('removalFixCommand');
+    expect(unquotable).not.toHaveProperty('removalFixCommand');
+  });
 });
 
 describe('mcpTargetLabel', () => {
-  it('names each target the way the Installed tab renders it', () => {
+  it('names each target the way the target labels render it', () => {
     expect(mcpTargetLabel('vscode')).toBe('VS Code');
     expect(mcpTargetLabel('claude')).toBe('Claude Code');
     expect(mcpTargetLabel('codex')).toBe('Codex CLI');

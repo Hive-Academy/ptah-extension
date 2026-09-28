@@ -14,8 +14,7 @@ import {
  *
  * `rpc` is a PARAMETER, never injected: `setup-plugins/` is a grandfathered
  * exception to chat-ui's no-injected-state rule and must not be widened. The
- * caller — the Installed tab, or the marketplace Connected view — owns the
- * service and hands it in.
+ * caller (the marketplace inventory store) owns the service and hands it in.
  *
  * A `removal: 'none'` group returns `null` without calling anything. Arming
  * the `direct` confirm step stays with the caller: that is a UI rule, not a

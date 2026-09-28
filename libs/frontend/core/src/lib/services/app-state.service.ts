@@ -34,6 +34,10 @@ import {
   isSurfaceRouteId,
   type ViewType,
 } from '../routing/surface-routes';
+import {
+  marketplaceRouteCommands,
+  type MarketplaceRoute,
+} from '../marketplace/marketplace-route';
 
 /**
  * Re-exported from `../routing/surface-routes`, where it now lives beside
@@ -74,19 +78,20 @@ export function isConfigurationSurface(
 
 /**
  * Per-surface global slot, typed per key. 540 owns no surface-global state of
- * its own, so every member starts as an empty record. A task that needs state
- * which is global to the surface (not per-workspace) narrows its member with
- * its own interface. TASK_2026_533 narrows the marketplace member with
- * `marketplaceRoute: MarketplaceRoute | null` — a member narrowing, not a
- * reshape of this interface.
+ * its own, so its members are empty records. A task that needs state which is
+ * global to the surface (not per-workspace) narrows its member with its own
+ * shape, as TASK_2026_533 does for the marketplace member.
  */
 export interface ConfigurationSurfaceSlots {
   /** Reserved; no 540-owned Thoth-global state. */
   readonly thoth: Readonly<Record<string, never>>;
   /** Reserved; no 540-owned Setup-hub-global state. */
   readonly 'setup-hub': Readonly<Record<string, never>>;
-  /** TASK_2026_533 adds its marketplaceRoute here. */
-  readonly marketplace: Readonly<Record<string, never>>;
+  /** Marketplace-global state (TASK_2026_533). */
+  readonly marketplace: {
+    /** Last settled Marketplace page, the same for every workspace. */
+    readonly marketplaceRoute: MarketplaceRoute | null;
+  };
   /** Reserved; no 540-owned Settings-global state. */
   readonly settings: Readonly<Record<string, never>>;
 }
@@ -94,7 +99,7 @@ export interface ConfigurationSurfaceSlots {
 export interface ConfigurationSurfacesState {
   /** The configuration surface currently open, or null when none is. */
   readonly openSurface: ConfigurationSurfaceId | null;
-  /** Extension point for surface-global state — see TASK_2026_533. */
+  /** Surface-global state, one member per configuration surface. */
   readonly perSurface: ConfigurationSurfaceSlots;
 }
 
@@ -135,16 +140,25 @@ export interface HarnessWorkflowRequest {
 }
 
 export type SettingsTabId =
-  | 'providers'
-  | 'claude-auth'
-  | 'orchestration'
-  | 'pro-features'
-  | 'tools';
+  'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools';
 
 export interface PendingSettingsTab {
   tab: SettingsTabId;
   providerId?: string;
-  section?: 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'background-models' | 'cli-agents' | 'more-providers' | 'memory-curator' | 'archaeologist' | 'synthesis' | 'judge' | 'replay' | 'judging-enhancement';
+  section?:
+    | 'main-agent'
+    | 'main-model'
+    | 'main-effort'
+    | 'connections'
+    | 'background-models'
+    | 'cli-agents'
+    | 'more-providers'
+    | 'memory-curator'
+    | 'archaeologist'
+    | 'synthesis'
+    | 'judge'
+    | 'replay'
+    | 'judging-enhancement';
 }
 
 /**
@@ -252,21 +266,19 @@ const IMPLICIT_WORKSPACE_PATH = '';
  * onto whichever workspace happens to be active when the write runs
  * (TASK_2026_524 revision 1, F1).
  *
- * `thothActiveTab` and `marketplaceActiveProvider` are the same kind of
- * pointer one level down — which tab of the `'thoth'` view, which provider of
- * the `'marketplace'` view — so they live in the same slice rather than in
- * parallel maps. That is not just tidiness: retention, lazy seeding, the
+ * `thothActiveTab` is the same kind of pointer one level down — which tab of
+ * the `'thoth'` view — so it lives in the same slice rather than in a parallel
+ * map. That is not just tidiness: retention, lazy seeding, the
  * bootstrap-sentinel migration in {@link AppStateManager.switchWorkspace} and
  * the cleanup in {@link AppStateManager.removeWorkspaceState} are all
  * slice-shaped, and a parallel map would have to re-implement each of them.
+ * The Marketplace page memory is global: {@link ConfigurationSurfaceSlots}.
  */
 interface ViewSlice {
   readonly currentView: ViewType;
   readonly openViews: ReadonlySet<ViewType>;
   /** Active tab of this workspace's Thoth hub. */
   readonly thothActiveTab: ThothActiveTabId;
-  /** Selected marketplace provider id, or null when none is selected. */
-  readonly marketplaceActiveProvider: string | null;
 }
 
 /** Slice a never-visited workspace reads until its first view mutation. */
@@ -274,8 +286,25 @@ const DEFAULT_VIEW_SLICE: ViewSlice = {
   currentView: 'chat',
   openViews: new Set<ViewType>(['chat']),
   thothActiveTab: 'memory',
-  marketplaceActiveProvider: null,
 };
+
+/**
+ * Whether two Marketplace routes address the same page. Compared through
+ * their router commands, so `{ page: 'servers' }` and
+ * `{ page: 'servers', source: undefined }` are equal, as they are to the
+ * Router.
+ */
+function sameMarketplaceRoute(
+  a: MarketplaceRoute,
+  b: MarketplaceRoute,
+): boolean {
+  const left = marketplaceRouteCommands(a);
+  const right = marketplaceRouteCommands(b);
+  return (
+    left.length === right.length &&
+    left.every((segment, index) => segment === right[index])
+  );
+}
 
 /**
  * App State Manager - Signal-based global state
@@ -357,11 +386,17 @@ export class AppStateManager implements MessageHandler {
    * unconditionally from the Router's surface; slice stamping refuses these
    * ids (see openViewInActiveSlice); switchWorkspace leaves them on screen
    * and bumps _configurationSurfaceRemountTick so the Electron shell
-   * re-creates the routed component against the new workspace.
+   * re-creates the routed component against the new workspace;
+   * updateMarketplaceSlot is the writer of perSurface.marketplace.
    */
   private readonly _configurationSurfaces = signal<ConfigurationSurfacesState>({
     openSurface: null,
-    perSurface: { thoth: {}, 'setup-hub': {}, marketplace: {}, settings: {} },
+    perSurface: {
+      thoth: {},
+      'setup-hub': {},
+      marketplace: { marketplaceRoute: null },
+      settings: {},
+    },
   });
   /**
    * Monotonic counter, deliberately NOT workspace-partitioned. Bumped once per
@@ -509,13 +544,21 @@ export class AppStateManager implements MessageHandler {
    *
    * Every write path in this service goes through here, so there is one place
    * that decides what "this workspace reached that surface" means.
+   *
+   * `subPath` addresses a child of the surface (see
+   * {@link SurfaceRouterService.navigateToSurface}). The settlement records
+   * the SURFACE only; the page inside it is recorded by the surface itself
+   * once the Router has settled there.
    */
-  private requestSurface(surface: ViewType): void {
+  private requestSurface(
+    surface: ViewType,
+    subPath: readonly string[] = [],
+  ): void {
     const generation = ++this._navigationGeneration;
     const workspacePath = this._activeWorkspacePath();
 
     void this.surfaceRouter
-      .navigateToSurface(surface)
+      .navigateToSurface(surface, subPath)
       .then((result) =>
         this.recordSettledSurface(generation, workspacePath, surface, result),
       );
@@ -535,7 +578,7 @@ export class AppStateManager implements MessageHandler {
    *
    * Slice-stamp and owner re-grant only: this method performs NO global write.
    * Every landed navigation also changes `currentSurface()`, which runs the
-   * constructor effect — the single writer of
+   * constructor effect — the single writer of `openSurface` in
    * {@link AppStateManager._configurationSurfaces}.
    */
   private recordSettledSurface(
@@ -627,12 +670,14 @@ export class AppStateManager implements MessageHandler {
     () => this.activeViewSlice().thothActiveTab,
   );
   /**
-   * Selected marketplace provider id of the active workspace (null when none
-   * selected). Partitioned for the same reason as {@link thothActiveTab}:
-   * installed content is per-workspace, so the provider selection is too.
+   * The Marketplace page last settled on, or null before the first one.
+   * Global, like the Marketplace itself: every workspace reads the same page.
+   *
+   * A memory, not the live location: the Router owns where the Marketplace is
+   * now. This is what a bare `/marketplace` navigation restores.
    */
-  readonly marketplaceActiveProvider = computed<string | null>(
-    () => this.activeViewSlice().marketplaceActiveProvider,
+  readonly marketplaceRoute = computed<MarketplaceRoute | null>(
+    () => this._configurationSurfaces().perSurface.marketplace.marketplaceRoute,
   );
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
@@ -898,11 +943,24 @@ export class AppStateManager implements MessageHandler {
    * an effect that cannot act on a failed navigation. The one caller that can —
    * `App.handleInitialView` — goes through
    * {@link SurfaceRouterService.navigateToSurface} directly and reports it.
+   *
+   * Re-requesting the surface on screen is a no-op while the active workspace
+   * owns it and no navigation is pending, so a bare Marketplace click keeps an
+   * open detail in place (plan C1). Unowned (failed restore, closed workspace)
+   * or pending still navigates: the click re-grants ownership or cancels.
+   * The stay-branch of {@link switchWorkspace} grants ownership directly.
    */
   setCurrentView(view: ViewType): void {
-    if (this.canSwitchViews()) {
-      this.requestSurface(this.normalizeView(view));
+    if (!this.canSwitchViews()) return;
+    const surface = this.normalizeView(view);
+    if (
+      surface === this.currentView() &&
+      this.surfaceRouter.pendingSurface() === null &&
+      this._settlementOwner === this._activeWorkspacePath()
+    ) {
+      return;
     }
+    this.requestSurface(surface);
   }
 
   /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
@@ -1001,15 +1059,53 @@ export class AppStateManager implements MessageHandler {
   }
 
   /**
-   * Update the active workspace's selected marketplace provider id (null to
-   * clear the selection).
+   * Record the Marketplace page the Router settled on, for every workspace.
+   *
+   * Called by the Marketplace shell on every settled navigation inside it —
+   * never ahead of one. Writing the target before the Router lands would be
+   * an optimistic mirror of the location, the TASK_2026_317 bug.
+   *
+   * A route equal to the remembered one leaves the state untouched, so a
+   * re-settle on the same page does not re-notify every reader.
    */
-  setMarketplaceActiveProvider(id: string | null): void {
-    this.updateActiveViewSlice((slice) =>
-      slice.marketplaceActiveProvider === id
-        ? slice
-        : { ...slice, marketplaceActiveProvider: id },
+  rememberMarketplaceRoute(route: MarketplaceRoute): void {
+    this.updateMarketplaceSlot((slot) =>
+      slot.marketplaceRoute !== null &&
+      sameMarketplaceRoute(slot.marketplaceRoute, route)
+        ? slot
+        : { ...slot, marketplaceRoute: route },
     );
+  }
+
+  /**
+   * The only writer of the global Marketplace slot. Returning the same slot
+   * leaves the state, and so every reader, untouched.
+   */
+  private updateMarketplaceSlot(
+    update: (
+      slot: ConfigurationSurfaceSlots['marketplace'],
+    ) => ConfigurationSurfaceSlots['marketplace'],
+  ): void {
+    this._configurationSurfaces.update((state) => {
+      const next = update(state.perSurface.marketplace);
+      return next === state.perSurface.marketplace
+        ? state
+        : { ...state, perSurface: { ...state.perSurface, marketplace: next } };
+    });
+  }
+
+  /**
+   * Open the Marketplace at `route`.
+   *
+   * The one entry point through which a library outside `marketplace` deep
+   * links into it. Gated on {@link canSwitchViews}, like
+   * {@link setCurrentView}: while loading or disconnected it is a no-op. The
+   * navigation goes through {@link requestSurface}, so its settlement belongs
+   * to the workspace that asked, exactly as a plain surface switch does.
+   */
+  openMarketplace(route: MarketplaceRoute): void {
+    if (!this.canSwitchViews()) return;
+    this.requestSurface('marketplace', marketplaceRouteCommands(route));
   }
 
   /**

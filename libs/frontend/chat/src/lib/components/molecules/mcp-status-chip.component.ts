@@ -22,11 +22,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import {
-  AppStateManager,
-  ClaudeRpcService,
-  encodeMarketplaceTarget,
-} from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import {
@@ -71,6 +67,12 @@ const CHIP_BASE_CLASSES =
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30';
 
 const DOT_BASE_CLASSES = 'w-1.5 h-1.5 rounded-full';
+
+/** The notice codes the popover has a row for; see the template's `@switch`. */
+const RENDERED_NOTICE_CODES: readonly SessionMcpNotice['code'][] = [
+  'claude-ai-connectors-disabled',
+  'capability-policy-unverified',
+];
 
 const PILL_BASE_CLASSES = 'rounded px-1.5 py-0.5 whitespace-nowrap';
 
@@ -174,27 +176,44 @@ function normalizeUrl(url: string): string {
           }
 
           @for (notice of notices(); track notice.code) {
-            <div
-              class="mt-2 rounded border border-info/25 bg-info/10 p-2"
-              [title]="notice.message"
-            >
-              <div class="mb-1 font-medium text-info">
-                claude.ai connectors are not loaded
-              </div>
-              <p class="mb-1 text-base-content-muted">
-                Your claude.ai connectors (Gmail, Calendar, Drive…) are disabled
-                because Ptah runs this session on
-                {{ providerLabel() }}. Switch the provider to Claude login to
-                load them.
-              </p>
-              <button
-                type="button"
-                class="underline transition-colors hover:text-info"
-                (click)="openProviderSettings()"
-              >
-                Settings → Providers
-              </button>
-            </div>
+            @switch (notice.code) {
+              @case ('claude-ai-connectors-disabled') {
+                <div
+                  class="mt-2 rounded border border-info/25 bg-info/10 p-2"
+                  [title]="notice.message"
+                >
+                  <div class="mb-1 font-medium text-info">
+                    claude.ai connectors are not loaded
+                  </div>
+                  <p class="mb-1 text-base-content-muted">
+                    Your claude.ai connectors (Gmail, Calendar, Drive…) are
+                    disabled because Ptah runs this session on
+                    {{ providerLabel() }}. Switch the provider to Claude login
+                    to load them.
+                  </p>
+                  <button
+                    type="button"
+                    class="underline transition-colors hover:text-info"
+                    (click)="openProviderSettings()"
+                  >
+                    Settings → Providers
+                  </button>
+                </div>
+              }
+              @case ('capability-policy-unverified') {
+                <!-- The backend composes the sentence, path and reason
+                     included; it is rendered as text, never as HTML. -->
+                <div
+                  class="mt-2 rounded border border-warning/25 bg-warning/10 p-2"
+                  role="status"
+                >
+                  <div class="mb-1 font-medium text-warning">
+                    Capability settings could not be read
+                  </div>
+                  <p class="text-base-content-muted">{{ notice.message }}</p>
+                </div>
+              }
+            }
           }
         </div>
       </ptah-native-popover>
@@ -229,8 +248,15 @@ export class McpStatusChipComponent {
     this.registry.statusFor(this.sessionId(), this.tabId())(),
   );
 
-  readonly notices = computed<readonly SessionMcpNotice[]>(
-    () => this.status()?.notices ?? [],
+  /**
+   * The notices this chip knows how to render. A code it does not know is
+   * dropped here, so it neither shows a row nor, on its own, keeps an empty
+   * trigger on screen or colours the dot.
+   */
+  readonly notices = computed<readonly SessionMcpNotice[]>(() =>
+    (this.status()?.notices ?? []).filter((notice) =>
+      RENDERED_NOTICE_CODES.includes(notice.code),
+    ),
   );
 
   private readonly servers = computed<readonly SessionMcpServerEntry[]>(
@@ -337,6 +363,8 @@ export class McpStatusChipComponent {
    * different states — so there is no single connection for this chip to
    * authorize. It opens the Marketplace Smithery surface, which lists the
    * connections with their own per-connection Authorize buttons (B2/B3).
+   * Everything else that cannot be authorized from here opens the Connectors
+   * page.
    */
   async authorize(row: McpServerRow): Promise<void> {
     this.isOpen.set(false);
@@ -378,18 +406,18 @@ export class McpStatusChipComponent {
   // ── Internals ──────────────────────────────────────────────────────────────
 
   /**
-   * Open the Marketplace on the Apps section, focused on one source chip.
+   * Open the Marketplace page that owns the connection: the Smithery server
+   * source for a Smithery namespace, the Connectors page for anything else.
    *
-   * The hub no longer has per-source drill-in tiles (TASK_2026_524), so the
-   * persisted field now carries a `section:source` target rather than a bare
-   * provider id. `chat` cannot import `@ptah-extension/marketplace`, so the
-   * encoding comes from `core`.
+   * `chat` cannot import `@ptah-extension/marketplace`, so the route comes
+   * from `core`'s `MarketplaceRoute` and `openMarketplace` navigates to it.
    */
   private navigateToMarketplace(source: 'connectors' | 'smithery'): void {
-    this.appState.setMarketplaceActiveProvider(
-      encodeMarketplaceTarget('apps', source),
+    this.appState.openMarketplace(
+      source === 'smithery'
+        ? { page: 'servers', source: 'smithery' }
+        : { page: 'connectors' },
     );
-    this.appState.setCurrentView('marketplace');
   }
 
   private toRow(
@@ -455,7 +483,11 @@ export class McpStatusChipComponent {
   }
 
   private async loadProviderName(): Promise<void> {
-    if (this.notices().length === 0 || this.providerName()) return;
+    // Only the claude.ai notice names the provider.
+    const namesProvider = this.notices().some(
+      (notice) => notice.code === 'claude-ai-connectors-disabled',
+    );
+    if (!namesProvider || this.providerName()) return;
     const result = await this.rpc.call('auth:getAuthStatus', {});
     if (this.destroyed || !result.isSuccess()) return;
     const { anthropicProviderId, availableProviders } = result.data;

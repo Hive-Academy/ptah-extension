@@ -73,6 +73,8 @@ import { sql as sql0044MemoryLifecycle } from './0044_memory_lifecycle';
 import { sql as sql0045SkillBacklogCleanup } from './0045_skill_backlog_cleanup';
 import { sql as sql0046MemoryMergeSubjectIndex } from './0046_memory_merge_subject_index';
 import { sql as sql0047MemoryRetentionHealth } from './0047_memory_retention_health';
+import { sql as sql0048MemoryQuarantine } from './0048_memory_quarantine';
+import { sql as sql0049MemorySedimentQuarantine } from './0049_memory_sediment_quarantine';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -352,5 +354,15 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 47,
     name: '0047_memory_retention_health',
     sql: sql0047MemoryRetentionHealth,
+  },
+  {
+    version: 48,
+    name: '0048_memory_quarantine',
+    sql: sql0048MemoryQuarantine,
+  },
+  {
+    version: 49,
+    name: '0049_memory_sediment_quarantine',
+    sql: sql0049MemorySedimentQuarantine,
   },
 ];

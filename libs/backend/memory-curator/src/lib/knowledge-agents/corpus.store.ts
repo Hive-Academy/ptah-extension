@@ -311,6 +311,7 @@ export class CorpusStore {
            FROM corpus_memories cm
            JOIN memories m ON m.id = cm.memory_id
           WHERE cm.corpus_id = ?
+            AND m.quarantined_at IS NULL
           ORDER BY cm.ord ASC`,
       )
       .all(corpus.id) as Array<{

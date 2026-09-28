@@ -23,8 +23,12 @@ import {
 } from './retention/memory-retention-config';
 import {
   adaptSqliteDatabase,
+  openRetentionTestDb,
+  removeRetentionTempDirs,
   requireSqliteOpener,
+  seedMemory,
   type RawDb,
+  type RetentionTestDb,
 } from './retention/retention-sqlite.test-support';
 
 function makeVecStatus(available = false): VecStatusService {
@@ -224,9 +228,11 @@ describe('MemoryStore write-counter bumps', () => {
     const id = memoryId('01J000000000000000000000A5');
 
     expect(store.getWriteCounter('/ws/A')).toBe(0);
-    await store.appendChunks(id, [
-      { ord: 0, text: 'chunk text', tokenCount: 2 },
-    ]);
+    await store.appendChunks(
+      id,
+      [{ ord: 0, text: 'chunk text', tokenCount: 2 }],
+      { workspaceRoot: '/ws/A' },
+    );
     expect(store.getWriteCounter('/ws/A')).toBe(1);
   });
 });
@@ -293,12 +299,15 @@ describe('MemoryStore.stats — workspaceRoot tri-state', () => {
     expect(boundArgs).toEqual([[null], [null]]);
   });
 
-  it('undefined drops the predicate entirely (whole-database sweep)', () => {
+  it('undefined drops the workspace predicate (whole-database sweep)', () => {
     const { stub, prepared, boundArgs } = makeSqlCapturingDb();
     makeStore(stub).stats();
 
+    // TASK_2026_563: the quarantine predicate is the only one left, so the
+    // counts equal what search can return.
     for (const sql of prepared) {
-      expect(sql).not.toContain('WHERE');
+      expect(sql).not.toContain('workspace_root');
+      expect(sql).toContain('WHERE quarantined_at IS NULL');
     }
     expect(boundArgs).toEqual([[], []]);
   });
@@ -379,7 +388,9 @@ describe('MemoryStore D5 — handleFatalWriteError wiring', () => {
     const id = memoryId('01J000000000000000000000A1');
 
     await expect(
-      store.appendChunks(id, [{ ord: 0, text: 'text', tokenCount: 1 }]),
+      store.appendChunks(id, [{ ord: 0, text: 'text', tokenCount: 1 }], {
+        workspaceRoot: '/ws/A',
+      }),
     ).rejects.toThrow('SQLITE_FULL');
     expect(handleFatalWriteError).toHaveBeenCalledWith(diskFullError);
   });
@@ -825,10 +836,14 @@ describe('MemoryStore B5 — sqlite-vec rowid INTEGER affinity (native-gated)', 
           [{ ord: 0, text: 'original chunk', tokenCount: 3 }],
         );
 
-        await store.appendChunks(id, [
-          { ord: 1, text: 'appended chunk one', tokenCount: 3 },
-          { ord: 2, text: 'appended chunk two', tokenCount: 3 },
-        ]);
+        await store.appendChunks(
+          id,
+          [
+            { ord: 1, text: 'appended chunk one', tokenCount: 3 },
+            { ord: 2, text: 'appended chunk two', tokenCount: 3 },
+          ],
+          { workspaceRoot: '/ws/A' },
+        );
 
         const chunkCount = (
           service.db
@@ -1294,7 +1309,8 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
       updated_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, archived_at INTEGER,
       expires_at INTEGER, request TEXT, investigated TEXT, learned TEXT,
       completed TEXT, next_steps TEXT, type TEXT NOT NULL,
-      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL
+      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL,
+      quarantined_at INTEGER, quarantine_reason TEXT
     );
     CREATE TABLE memory_chunks (
       id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, ord INTEGER NOT NULL,
@@ -1516,9 +1532,11 @@ describe('MemoryStore ranking and explicit use on real SQLite', () => {
       .get(inserted) as { archived_at: number | null };
     expect(archived.archived_at).not.toBeNull();
 
-    await store.appendChunks(inserted, [
-      { ord: 0, text: 'restored content', tokenCount: 2 },
-    ]);
+    await store.appendChunks(
+      inserted,
+      [{ ord: 0, text: 'restored content', tokenCount: 2 }],
+      { workspaceRoot: '/ws' },
+    );
     const restored = raw
       .prepare('SELECT tier, archived_at FROM memories WHERE id = ?')
       .get(inserted) as { tier: string; archived_at: number | null };
@@ -1572,7 +1590,8 @@ describe('MemoryStore.findMergeCandidates — TASK_2026_473 Track A', () => {
       updated_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, archived_at INTEGER,
       expires_at INTEGER, request TEXT, investigated TEXT, learned TEXT,
       completed TEXT, next_steps TEXT, type TEXT NOT NULL,
-      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL
+      concepts_json TEXT NOT NULL, files_json TEXT NOT NULL,
+      quarantined_at INTEGER, quarantine_reason TEXT
     )`);
     const db = adaptSqliteDatabase(raw);
     const connection = {
@@ -1879,4 +1898,735 @@ describe('MemoryStore.findMergeCandidates — TASK_2026_473 Track A', () => {
       store.findMergeCandidates(['padded-subject'], '/ws').map((r) => r.id),
     ).toEqual(['legacy-padded-row']);
   });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_563 M5 — quarantine awareness, write freeze, list and restore.
+//
+// Real SQLite with the production schema (migrations up to 0048), so the
+// predicates run against the real `quarantined_at` / `quarantine_reason`
+// columns, chunks, FTS and vec dependants.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore quarantine (TASK_2026_563)', () => {
+  let t: RetentionTestDb;
+  let log: Logger;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+    log = makeLogger();
+    store = new MemoryStore(
+      log,
+      t.connection,
+      makeEmbedder(),
+      makeVecStatus(false),
+    );
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  function quarantine(id: string, reason = 'rule:test', at = 1_000): void {
+    t.raw
+      .prepare(
+        'UPDATE memories SET quarantined_at = ?, quarantine_reason = ? WHERE id = ?',
+      )
+      .run(at, reason, id);
+  }
+
+  function setSubject(id: string, subject: string): void {
+    t.raw
+      .prepare('UPDATE memories SET subject = ? WHERE id = ?')
+      .run(subject, id);
+  }
+
+  type FullRow = Record<string, unknown>;
+
+  function rowOf(id: string): FullRow | undefined {
+    return t.raw.prepare('SELECT * FROM memories WHERE id = ?').get(id) as
+      FullRow | undefined;
+  }
+
+  function chunkCount(id: string): number {
+    const row = t.raw
+      .prepare('SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id = ?')
+      .get(id) as { n: number };
+    return Number(row.n);
+  }
+
+  function withoutQuarantine(row: FullRow | undefined): FullRow {
+    const copy = { ...(row ?? {}) };
+    delete copy['quarantined_at'];
+    delete copy['quarantine_reason'];
+    return copy;
+  }
+
+  it('excludes quarantined rows from list, listAll, stats and findMergeCandidates', () => {
+    seedMemory(t.raw, { id: 'active', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'hidden', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, {
+      id: 'hidden-core',
+      workspaceRoot: '/ws/A',
+      tier: 'core',
+    });
+    setSubject('active', 'shared-subject');
+    setSubject('hidden', 'shared-subject');
+    t.raw
+      .prepare('UPDATE memories SET updated_at = 9999 WHERE id = ?')
+      .run('hidden');
+    quarantine('hidden');
+    quarantine('hidden-core');
+
+    const listed = store.list({ workspaceRoot: '/ws/A' });
+    expect(listed.memories.map((m) => m.id)).toEqual(['active']);
+    expect(listed.total).toBe(1);
+    expect(store.list().memories.map((m) => m.id)).toEqual(['active']);
+
+    const all = store.listAll('/ws/A');
+    expect(all.memories.map((m) => m.id)).toEqual(['active']);
+    expect(all.total).toBe(1);
+    expect(store.listAll().total).toBe(1);
+
+    for (const scope of ['/ws/A', undefined] as const) {
+      expect(store.stats(scope)).toEqual({
+        core: 0,
+        recall: 1,
+        archival: 0,
+        // MAX(updated_at) ignores the quarantined row stamped 9999.
+        lastCuratedAt: 1_000,
+      });
+    }
+
+    expect(
+      store.findMergeCandidates(['shared-subject'], '/ws/A').map((r) => r.id),
+    ).toEqual(['active']);
+    // The raw identity lookup is unchanged.
+    expect(store.getById(memoryId('hidden'))?.id).toBe('hidden');
+  });
+
+  it('getActiveById hides a quarantined row and returns it again after restore', () => {
+    seedMemory(t.raw, { id: 'q', workspaceRoot: '/ws/A' });
+    expect(store.getActiveById(memoryId('q'))?.id).toBe('q');
+    quarantine('q');
+    expect(store.getActiveById(memoryId('q'))).toBeNull();
+    expect(store.getActiveById(memoryId('missing'))).toBeNull();
+
+    expect(store.restoreQuarantined({ ids: ['q'] }, '/ws/A')).toEqual({
+      restored: 1,
+    });
+    expect(store.getActiveById(memoryId('q'))?.id).toBe('q');
+  });
+
+  it('recordUse leaves hits, last_used_at, tier and archived_at of a quarantined row frozen', () => {
+    for (const [id, ws] of [
+      ['frozen', '/ws/F'],
+      ['control', '/ws/C'],
+    ] as const) {
+      seedMemory(t.raw, {
+        id,
+        workspaceRoot: ws,
+        tier: 'archival',
+        archivedAt: 50,
+        lastUsedAt: 40,
+      });
+    }
+    quarantine('frozen');
+    const before = rowOf('frozen');
+
+    store.recordUse(['frozen', 'control']);
+
+    expect(rowOf('frozen')).toEqual(before);
+    expect(rowOf('control')).toEqual(
+      expect.objectContaining({ tier: 'recall', archived_at: null, hits: 1 }),
+    );
+    // Only the control's restored root is invalidated.
+    expect(store.getWriteCounter('/ws/F')).toBe(0);
+    expect(store.getWriteCounter('/ws/C')).toBe(1);
+  });
+
+  it('setPinned returns true for an active row, even when the value is unchanged, and bumps its counter', () => {
+    seedMemory(t.raw, { id: 'control', workspaceRoot: '/ws/F' });
+
+    expect(store.setPinned(memoryId('control'), true)).toBe(true);
+    expect(rowOf('control')?.['pinned']).toBe(1);
+    // SQLite counts a matched row even when `pinned` already holds the value.
+    expect(store.setPinned(memoryId('control'), true)).toBe(true);
+    expect(store.getWriteCounter('/ws/F')).toBe(2);
+  });
+
+  it('setPinned returns false and leaves a quarantined row frozen in both directions', () => {
+    seedMemory(t.raw, { id: 'frozen-off', workspaceRoot: '/ws/F' });
+    seedMemory(t.raw, {
+      id: 'frozen-on',
+      workspaceRoot: '/ws/F',
+      pinned: true,
+    });
+    quarantine('frozen-off');
+    quarantine('frozen-on');
+    const beforeOff = rowOf('frozen-off');
+    const beforeOn = rowOf('frozen-on');
+
+    expect(store.setPinned(memoryId('frozen-off'), true)).toBe(false);
+    expect(store.setPinned(memoryId('frozen-on'), false)).toBe(false);
+
+    expect(rowOf('frozen-off')).toEqual(beforeOff);
+    expect(rowOf('frozen-on')).toEqual(beforeOn);
+    expect(store.getWriteCounter('/ws/F')).toBe(0);
+    expect(store.getWriteCounter('')).toBe(0);
+  });
+
+  it('setPinned returns false for a missing id', () => {
+    expect(store.setPinned(memoryId('missing'), true)).toBe(false);
+    expect(store.getWriteCounter('')).toBe(0);
+  });
+
+  it('stats(null) counts only active unscoped rows and ignores named workspaces', () => {
+    seedMemory(t.raw, { id: 'n-recall', workspaceRoot: null, lastUsedAt: 100 });
+    seedMemory(t.raw, {
+      id: 'n-core',
+      workspaceRoot: null,
+      tier: 'core',
+      lastUsedAt: 200,
+    });
+    seedMemory(t.raw, {
+      id: 'n-hidden',
+      workspaceRoot: null,
+      tier: 'archival',
+      archivedAt: 10,
+      lastUsedAt: 9_000,
+    });
+    seedMemory(t.raw, {
+      id: 'named-archival',
+      workspaceRoot: '/ws/A',
+      tier: 'archival',
+      archivedAt: 10,
+      lastUsedAt: 8_000,
+    });
+    seedMemory(t.raw, { id: 'named-recall', workspaceRoot: '/ws/A' });
+    quarantine('n-hidden');
+
+    expect(store.stats(null)).toEqual({
+      core: 1,
+      recall: 1,
+      archival: 0,
+      // n-hidden (9000) is quarantined and named-archival (8000) is scoped.
+      lastCuratedAt: 200,
+    });
+    expect(store.stats('/ws/A')).toEqual({
+      core: 0,
+      recall: 1,
+      archival: 1,
+      lastCuratedAt: 8_000,
+    });
+  });
+
+  it('restoreQuarantined rolls back, reports the fatal write and rethrows when the UPDATE fails', () => {
+    const handleFatalWriteError = jest.fn();
+    const failing = new MemoryStore(
+      log,
+      {
+        get db() {
+          return t.db;
+        },
+        handleFatalWriteError,
+      } as unknown as SqliteConnectionService,
+      makeEmbedder(),
+      makeVecStatus(false),
+    );
+    seedMemory(t.raw, { id: 'q1', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'q2', workspaceRoot: '/ws/A' });
+    quarantine('q1');
+    quarantine('q2');
+    // Fails on the second row, after the first row's update ran.
+    t.raw.exec(`CREATE TRIGGER fail_restore BEFORE UPDATE ON memories
+      WHEN OLD.id = 'q2' AND NEW.quarantined_at IS NULL
+      BEGIN SELECT RAISE(ABORT, 'restore failed'); END`);
+
+    let thrown: unknown;
+    try {
+      failing.restoreQuarantined({ all: true }, '/ws/A');
+    } catch (error: unknown) {
+      thrown = error;
+    }
+
+    // Shape check, not `instanceof Error`: the driver's SqliteError can come
+    // from the host realm, which fails instanceof inside the Jest sandbox.
+    expect(thrown).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('restore failed'),
+      }),
+    );
+    expect(handleFatalWriteError).toHaveBeenCalledTimes(1);
+    expect(handleFatalWriteError).toHaveBeenCalledWith(thrown);
+    expect(rowOf('q1')?.['quarantined_at']).toBe(1_000);
+    expect(rowOf('q2')?.['quarantined_at']).toBe(1_000);
+    expect(t.db.inTransaction).toBe(false);
+    expect(failing.getWriteCounter('/ws/A')).toBe(0);
+    expect(failing.getWriteCounter('')).toBe(0);
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('listQuarantined orders newest first, carries workspaceRoot per row and honours the tri-state', () => {
+    const long = 'x'.repeat(250);
+    seedMemory(t.raw, { id: 'a1', workspaceRoot: '/ws/A', token: long });
+    seedMemory(t.raw, { id: 'a2', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'a3', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'n1', workspaceRoot: null });
+    seedMemory(t.raw, { id: 'active', workspaceRoot: '/ws/A' });
+    setSubject('a1', 'commitlint-scopes');
+    quarantine('a1', 'rule:commitlint-scope-facts', 300);
+    quarantine('a2', 'rule:other', 300);
+    quarantine('a3', 'rule:commitlint-scope-facts', 100);
+    quarantine('n1', 'rule:commitlint-scope-facts', 200);
+
+    const everyScope = store.listQuarantined({ workspaceRoot: undefined });
+    expect(everyScope.total).toBe(4);
+    // quarantined_at DESC, then id DESC for the tie at 300.
+    expect(everyScope.rows.map((r) => [r.id, r.workspaceRoot])).toEqual([
+      ['a2', '/ws/A'],
+      ['a1', '/ws/A'],
+      ['n1', null],
+      ['a3', '/ws/A'],
+    ]);
+    expect(everyScope.rows[1]).toEqual({
+      id: 'a1',
+      workspaceRoot: '/ws/A',
+      subject: 'commitlint-scopes',
+      kind: 'fact',
+      tier: 'recall',
+      reason: 'rule:commitlint-scope-facts',
+      quarantinedAt: 300,
+      excerpt: long.slice(0, 200),
+    });
+
+    expect(
+      store.listQuarantined({ workspaceRoot: null }).rows.map((r) => r.id),
+    ).toEqual(['n1']);
+    const scoped = store.listQuarantined({
+      workspaceRoot: '/ws/A',
+      reason: 'rule:commitlint-scope-facts',
+    });
+    expect(scoped.rows.map((r) => r.id)).toEqual(['a1', 'a3']);
+    expect(scoped.total).toBe(2);
+
+    const page = store.listQuarantined({
+      workspaceRoot: undefined,
+      limit: 0,
+      offset: 1,
+    });
+    // limit clamps to at least 1; total still counts every match.
+    expect(page.rows.map((r) => r.id)).toEqual(['a1']);
+    expect(page.total).toBe(4);
+  });
+
+  it('restores by ids, by reason and all, clearing only the two quarantine columns', () => {
+    const ids = ['i1', 'i2', 'r1', 'r2', 'x1'];
+    for (const id of ids) {
+      seedMemory(t.raw, {
+        id,
+        workspaceRoot: '/ws/A',
+        tier: 'archival',
+        archivedAt: 70,
+        salience: 0.3,
+        pinned: id === 'x1',
+        chunks: 2,
+      });
+    }
+    const before = new Map(ids.map((id) => [id, rowOf(id)]));
+    quarantine('i1', 'rule:a');
+    quarantine('i2', 'rule:a');
+    quarantine('r1', 'rule:b');
+    quarantine('r2', 'rule:b');
+    quarantine('x1', 'rule:c');
+
+    expect(store.restoreQuarantined({ ids: ['i1', 'i1'] }, '/ws/A')).toEqual({
+      restored: 1,
+    });
+    expect(store.restoreQuarantined({ reason: 'rule:b' }, '/ws/A')).toEqual({
+      restored: 2,
+    });
+    expect(
+      store.listQuarantined({ workspaceRoot: '/ws/A' }).rows.map((r) => r.id),
+    ).toEqual(['x1', 'i2']);
+    expect(store.restoreQuarantined({ all: true }, '/ws/A')).toEqual({
+      restored: 2,
+    });
+
+    for (const [id, row] of before) {
+      const after = rowOf(id);
+      expect(after?.['quarantined_at']).toBeNull();
+      expect(after?.['quarantine_reason']).toBeNull();
+      expect(withoutQuarantine(after)).toEqual(withoutQuarantine(row));
+      expect(chunkCount(id)).toBe(2);
+    }
+  });
+
+  it('keeps NULL-scope and named-scope restores isolated in both directions', () => {
+    seedMemory(t.raw, { id: 'named', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'unscoped', workspaceRoot: null });
+    quarantine('named');
+    quarantine('unscoped');
+
+    // A NULL-scope restore never touches a named-workspace row, even by id.
+    expect(
+      store.restoreQuarantined({ ids: ['named', 'unscoped'] }, null),
+    ).toEqual({ restored: 1 });
+    expect(rowOf('unscoped')?.['quarantined_at']).toBeNull();
+    expect(rowOf('named')?.['quarantined_at']).toBe(1_000);
+
+    quarantine('unscoped');
+    // And a named restore never touches the unscoped row.
+    expect(store.restoreQuarantined({ all: true }, '/ws/A')).toEqual({
+      restored: 1,
+    });
+    expect(rowOf('named')?.['quarantined_at']).toBeNull();
+    expect(rowOf('unscoped')?.['quarantined_at']).toBe(1_000);
+    expect(store.restoreQuarantined({ all: true }, '/ws/B')).toEqual({
+      restored: 0,
+    });
+    expect(rowOf('unscoped')?.['quarantined_at']).toBe(1_000);
+  });
+
+  it('is idempotent and bumps the write counter only when rows were restored', () => {
+    seedMemory(t.raw, { id: 'q', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'n', workspaceRoot: null });
+    quarantine('q');
+    quarantine('n');
+
+    expect(store.restoreQuarantined({ ids: ['q'] }, '/ws/A').restored).toBe(1);
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+    expect(store.getWriteCounter('')).toBe(1);
+
+    expect(store.restoreQuarantined({ ids: ['q'] }, '/ws/A').restored).toBe(0);
+    expect(store.restoreQuarantined({ all: true }, '/ws/A').restored).toBe(0);
+    expect(store.restoreQuarantined({ ids: [] }, '/ws/A').restored).toBe(0);
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+    expect(store.getWriteCounter('')).toBe(1);
+
+    expect(store.restoreQuarantined({ all: true }, null).restored).toBe(1);
+    expect(store.getWriteCounter('')).toBe(2);
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+    expect(log.info).toHaveBeenCalledWith(
+      '[memory-curator] restored quarantined memories',
+      { restored: 1, scope: 'unscoped' },
+    );
+  });
+
+  it('caps an ids restore at 500 distinct ids and logs the truncation', () => {
+    const ids = Array.from(
+      { length: 501 },
+      (_, i) => `id-${String(i).padStart(3, '0')}`,
+    );
+    for (const id of ids) {
+      seedMemory(t.raw, { id, workspaceRoot: '/ws/A', chunks: 0 });
+      quarantine(id);
+    }
+
+    expect(store.restoreQuarantined({ ids }, '/ws/A')).toEqual({
+      restored: 500,
+    });
+    expect(log.debug).toHaveBeenCalledWith(
+      '[memory-curator] restoreQuarantined truncated memory ids',
+      { received: 501, restored: 500 },
+    );
+    expect(store.listQuarantined({ workspaceRoot: '/ws/A' }).total).toBe(1);
+  });
+
+  it('getMergeTarget refuses a missing, other-workspace or quarantined row', () => {
+    seedMemory(t.raw, { id: 'target', workspaceRoot: '/ws/A' });
+    seedMemory(t.raw, { id: 'unscoped', workspaceRoot: null });
+    seedMemory(t.raw, { id: 'hidden', workspaceRoot: '/ws/A' });
+    quarantine('hidden');
+
+    expect(store.getMergeTarget(memoryId('target'), '/ws/A')).toBe('target');
+    expect(store.getMergeTarget(memoryId('missing'), '/ws/A')).toBeNull();
+    expect(store.getMergeTarget(memoryId('target'), '/ws/B')).toBeNull();
+    expect(store.getMergeTarget(memoryId('target'), null)).toBeNull();
+    expect(store.getMergeTarget(memoryId('unscoped'), null)).toBe('unscoped');
+    expect(store.getMergeTarget(memoryId('unscoped'), '/ws/A')).toBeNull();
+    expect(store.getMergeTarget(memoryId('hidden'), '/ws/A')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_563 (Batch 4 review finding 1) — every committed named-workspace
+// write also advances the unscoped ('') generation that all-workspace search
+// caches key on; an unscoped write advances it exactly once.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore write generations advance the unscoped key (real SQLite)', () => {
+  let t: RetentionTestDb;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+    store = new MemoryStore(
+      makeLogger(),
+      t.connection,
+      makeEmbedder(),
+      makeVecStatus(false),
+    );
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  function generations(): { named: number; unscoped: number } {
+    return {
+      named: store.getWriteCounter('/ws/A'),
+      unscoped: store.getWriteCounter(''),
+    };
+  }
+
+  it('advances both the named and the unscoped generation once per named write', async () => {
+    const id = await store.insertMemoryWithChunks(
+      { tier: 'archival', kind: 'fact', content: 'x', workspaceRoot: '/ws/A' },
+      [],
+    );
+    expect(generations()).toEqual({ named: 1, unscoped: 1 });
+
+    expect(store.setPinned(id, true)).toBe(true);
+    expect(generations()).toEqual({ named: 2, unscoped: 2 });
+
+    expect(
+      await store.appendChunks(id, [{ ord: 0, text: 'more', tokenCount: 1 }], {
+        workspaceRoot: '/ws/A',
+      }),
+    ).toBe('appended');
+    expect(generations()).toEqual({ named: 3, unscoped: 3 });
+
+    store.setPinned(id, false);
+    t.raw
+      .prepare(
+        "UPDATE memories SET tier = 'archival', archived_at = 1 WHERE id = ?",
+      )
+      .run(id);
+    store.recordUse([id]);
+    expect(generations()).toEqual({ named: 5, unscoped: 5 });
+
+    seedMemory(t.raw, { id: 'entity', workspaceRoot: '/ws/A' });
+    t.raw
+      .prepare(
+        "UPDATE memories SET kind = 'entity', subject = 'file:///a.ts#x' WHERE id = ?",
+      )
+      .run('entity');
+    expect(store.deleteBySubjectPrefix('file:///a.ts', '/ws/A')).toBe(1);
+    expect(generations()).toEqual({ named: 6, unscoped: 6 });
+
+    seedMemory(t.raw, { id: 'purge', workspaceRoot: '/ws/A' });
+    t.raw
+      .prepare("UPDATE memories SET subject = 'purge-me' WHERE id = ?")
+      .run('purge');
+    expect(store.purgeBySubjectPattern('purge-me', 'substring', '/ws/A')).toBe(
+      1,
+    );
+    expect(generations()).toEqual({ named: 7, unscoped: 7 });
+
+    seedMemory(t.raw, { id: 'q', workspaceRoot: '/ws/A' });
+    t.raw
+      .prepare('UPDATE memories SET quarantined_at = 1 WHERE id = ?')
+      .run('q');
+    expect(store.restoreQuarantined({ ids: ['q'] }, '/ws/A')).toEqual({
+      restored: 1,
+    });
+    expect(generations()).toEqual({ named: 8, unscoped: 8 });
+
+    store.forget(id);
+    expect(generations()).toEqual({ named: 9, unscoped: 9 });
+    expect(store.getWriteCounter('/ws/B')).toBe(0);
+  });
+
+  it('advances the unscoped generation exactly once for an unscoped write', async () => {
+    const id = await store.insertMemoryWithChunks(
+      { tier: 'recall', kind: 'fact', content: 'x', workspaceRoot: null },
+      [],
+    );
+    expect(store.getWriteCounter('')).toBe(1);
+    store.forget(id);
+    expect(store.getWriteCounter('')).toBe(2);
+    expect(store.getWriteCounter('/ws/A')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_563 (Batch 5 review finding 1) — appendChunks re-checks merge
+// eligibility inside its write transaction, after the embedding await, so a
+// row quarantined or moved to another workspace meanwhile receives nothing.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore.appendChunks atomic eligibility (real SQLite)', () => {
+  let t: RetentionTestDb;
+
+  beforeEach(() => {
+    t = openRetentionTestDb({ memorySchema: true, vec: true });
+  });
+  afterEach(() => t.close());
+  afterAll(() => removeRetentionTempDirs());
+
+  /** An embedder that signals when it starts and resolves only when released. */
+  function gatedEmbedder(): {
+    embedder: IEmbedder;
+    started: Promise<void>;
+    release: () => void;
+  } {
+    let signalStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => (signalStarted = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const embedder = {
+      dim: 384,
+      embed: jest.fn(async (texts: readonly string[]) => {
+        signalStarted();
+        await gate;
+        return texts.map(() => new Float32Array(384));
+      }),
+    } as unknown as IEmbedder;
+    return { embedder, started, release };
+  }
+
+  function storeWith(embedder: IEmbedder): MemoryStore {
+    return new MemoryStore(
+      makeLogger(),
+      t.connection,
+      embedder,
+      makeVecStatus(true),
+    );
+  }
+
+  function snapshot(id: string): {
+    row: Record<string, unknown> | undefined;
+    chunks: number;
+    vectors: number;
+  } {
+    const count = (sql: string, ...params: unknown[]): number =>
+      Number((t.raw.prepare(sql).get(...params) as { n: number }).n);
+    return {
+      row: t.raw
+        .prepare(
+          'SELECT tier, archived_at, updated_at, last_used_at FROM memories WHERE id = ?',
+        )
+        .get(id) as Record<string, unknown> | undefined,
+      chunks: count(
+        'SELECT COUNT(*) AS n FROM memory_chunks WHERE memory_id = ?',
+        id,
+      ),
+      vectors: count('SELECT COUNT(*) AS n FROM memory_chunks_vec'),
+    };
+  }
+
+  function seedTarget(): void {
+    seedMemory(t.raw, {
+      id: 'target',
+      workspaceRoot: '/ws/A',
+      tier: 'archival',
+      archivedAt: 50,
+      lastUsedAt: 40,
+    });
+  }
+
+  const draft = [{ ord: 0, text: 'draft content', tokenCount: 2 }];
+
+  it('writes nothing and returns ineligible when the target is quarantined after embedding starts', async () => {
+    seedTarget();
+    const gated = gatedEmbedder();
+    const store = storeWith(gated.embedder);
+    const before = snapshot('target');
+
+    const pending = store.appendChunks(memoryId('target'), draft, {
+      workspaceRoot: '/ws/A',
+    });
+    await gated.started;
+    t.raw
+      .prepare(
+        "UPDATE memories SET quarantined_at = 1, quarantine_reason = 'rule:test' WHERE id = ?",
+      )
+      .run('target');
+    gated.release();
+
+    await expect(pending).resolves.toBe('ineligible');
+    expect(snapshot('target')).toEqual(before);
+    expect(store.getWriteCounter('/ws/A')).toBe(0);
+    expect(store.getWriteCounter('')).toBe(0);
+  });
+
+  it('writes nothing and returns ineligible when the target moves to another workspace after embedding starts', async () => {
+    seedTarget();
+    const gated = gatedEmbedder();
+    const store = storeWith(gated.embedder);
+    const before = snapshot('target');
+
+    const pending = store.appendChunks(memoryId('target'), draft, {
+      workspaceRoot: '/ws/A',
+    });
+    await gated.started;
+    t.raw
+      .prepare("UPDATE memories SET workspace_root = '/ws/B' WHERE id = ?")
+      .run('target');
+    gated.release();
+
+    await expect(pending).resolves.toBe('ineligible');
+    expect(snapshot('target')).toEqual(before);
+    expect(store.getWriteCounter('/ws/A')).toBe(0);
+    expect(store.getWriteCounter('/ws/B')).toBe(0);
+  });
+
+  it('appends, restores the archival row and bumps the generation when the target stays eligible', async () => {
+    seedTarget();
+    const gated = gatedEmbedder();
+    const store = storeWith(gated.embedder);
+    const before = snapshot('target');
+
+    const pending = store.appendChunks(memoryId('target'), draft, {
+      workspaceRoot: '/ws/A',
+    });
+    await gated.started;
+    gated.release();
+
+    await expect(pending).resolves.toBe('appended');
+    const after = snapshot('target');
+    expect(after.chunks).toBe(before.chunks + 1);
+    expect(after.vectors).toBe(before.vectors + 1);
+    expect(after.row).toEqual(
+      expect.objectContaining({ tier: 'recall', archived_at: null }),
+    );
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+    expect(store.getWriteCounter('')).toBe(1);
+  });
+
+  it('returns ineligible for a missing id, the wrong scope or a quarantined target', async () => {
+    seedTarget();
+    seedMemory(t.raw, { id: 'unscoped', workspaceRoot: null });
+    const store = storeWith(gatedEmbedderReleased());
+    const before = snapshot('target');
+
+    for (const [id, workspaceRoot] of [
+      ['missing', '/ws/A'],
+      ['target', null],
+      ['target', '/ws/B'],
+      ['unscoped', '/ws/A'],
+    ] as const) {
+      await expect(
+        store.appendChunks(memoryId(id), draft, { workspaceRoot }),
+      ).resolves.toBe('ineligible');
+    }
+    t.raw
+      .prepare('UPDATE memories SET quarantined_at = 1 WHERE id = ?')
+      .run('target');
+    await expect(
+      store.appendChunks(memoryId('target'), draft, { workspaceRoot: '/ws/A' }),
+    ).resolves.toBe('ineligible');
+    // An empty append reports eligibility without writing.
+    await expect(
+      store.appendChunks(memoryId('unscoped'), [], { workspaceRoot: null }),
+    ).resolves.toBe('appended');
+
+    expect(snapshot('target').chunks).toBe(before.chunks);
+    expect(snapshot('unscoped').chunks).toBe(1);
+    expect(store.getWriteCounter('')).toBe(0);
+  });
+
+  function gatedEmbedderReleased(): IEmbedder {
+    const gated = gatedEmbedder();
+    gated.release();
+    return gated.embedder;
+  }
 });

@@ -17,3 +17,19 @@ Dedicated worktree D:/projects/ptah-extension/.claude-worktrees/boot-readiness-t
 ## Acceptance for eventual fix
 
 Readiness RPC should be available promptly and represent true state, never fake ready. Bound polling/inflight requests and clean teardown. Address demonstrated blocking work rather than increase timeout or suppress diagnostics. Preserve all three hosts and hexagonal boundaries. Tests should exercise slow startup, request/response delivery, recovery/teardown and identified actual failure. Report installed-bundle vs source mismatch if present. No arbitrary broad startup redesign.
+
+## Resume point (status audit 2026-09-26)
+
+Status: ROOT CAUSE FIXED ELSEWHERE. Two small items remain.
+
+The main-thread starvation from full `workspace-state.json` writes was fixed when state storage moved into a worker:
+
+- TASK_2026_411 — `122770d90`, `a9f2fd97d`
+- TASK_2026_430_83a2 — `2a365495c`
+
+This task has no commits of its own.
+
+Remaining targets:
+
+- [ ] Single-flight guard (`pullInFlight`) on the watchdog pull in `libs/frontend/core/src/lib/services/boot-status.service.ts`.
+- [ ] Async target-side reads in `libs/backend/harness-sync/src/lib/targets/workspace-target.ts` (still `readFileSync`). Gated in the plan.
