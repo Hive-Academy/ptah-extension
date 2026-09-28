@@ -15,7 +15,10 @@ import {
   QueryCapture,
 } from './tree-sitter-parser.service';
 import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
-import { extractExportsFromMatches } from './export-extraction';
+import {
+  extractExportsFromMatches,
+  moduleStringValue,
+} from './export-extraction';
 import { LANGUAGE_MODULES } from './languages';
 import type { LanguageExtraction } from './languages/types';
 
@@ -49,6 +52,14 @@ function encloses(outer: ScopedDeclaration, position: CodePosition): boolean {
 function endOfContent(content: string): CodePosition {
   const lines = content.split('\n');
   return { row: lines.length - 1, column: lines[lines.length - 1].length };
+}
+
+/** A TS/JS module string's text without its surrounding quotes. */
+function unquoteModuleString(text: string): string {
+  return (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+    ? text.slice(1, -1)
+    : text;
 }
 
 /**
@@ -175,6 +186,9 @@ export class AstAnalysisService {
             scopes,
           )
         : this.extractImportsFromMatches(map.get('imports') ?? []);
+      const reExportSources = extraction
+        ? []
+        : this.extractReExportSources(map.get('imports') ?? []);
       const { exports, unextracted } = extractExportsFromMatches(
         map.get('exports') ?? [],
       );
@@ -188,6 +202,7 @@ export class AstAnalysisService {
         imports,
         exports: exports.length > 0 ? exports : undefined,
         ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
+        ...(reExportSources.length > 0 ? { reExportSources } : {}),
         ...(extraction?.declarations
           ? {
               declarations: scopes.map(
@@ -401,13 +416,7 @@ export class AstAnalysisService {
 
       const sourceCapture = captures.get('import.source');
       if (sourceCapture) {
-        let source = sourceCapture.text;
-        if (
-          (source.startsWith('"') && source.endsWith('"')) ||
-          (source.startsWith("'") && source.endsWith("'"))
-        ) {
-          source = source.slice(1, -1);
-        }
+        const source = unquoteModuleString(sourceCapture.text);
         const defaultCapture = captures.get('import.default');
         const namedCapture = captures.get('import.named');
         const namespaceCapture = captures.get('import.namespace');
@@ -442,6 +451,23 @@ export class AstAnalysisService {
     }
 
     return imports;
+  }
+
+  /**
+   * Batch 32b: the module of every TS/JS re-export statement
+   * (`@import.reexport_source`), as its decoded value, once each, in source
+   * order.
+   */
+  private extractReExportSources(matches: QueryMatch[]): string[] {
+    const sources = new Set<string>();
+    for (const match of matches) {
+      for (const capture of match.captures) {
+        if (capture.name === 'import.reexport_source') {
+          sources.add(moduleStringValue(capture.node));
+        }
+      }
+    }
+    return [...sources];
   }
 
   /**

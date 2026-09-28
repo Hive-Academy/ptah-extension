@@ -91,9 +91,9 @@ export type ImportKind =
  * extraction contract. They are present for every language whose module
  * defines `extraction` (`languages/types.ts`); TS/JS imports keep their
  * earlier shape byte for byte and carry none of them. A TS/JS re-export
- * (`export { X } from './a'`) is not an import: it is the `ExportInfo` with
- * `isReExport` and `source`, which the graph node already stores, so a graph
- * edge for it needs no change to this contract.
+ * (`export { X } from './a'`) is not an import: the module it loads is in
+ * `CodeInsights.reExportSources` (and, when it names something, in an
+ * `ExportInfo` with `isReExport` and `source`).
  */
 export interface ImportInfo {
   /**
@@ -241,6 +241,14 @@ export interface CodeInsights extends Partial<ParseQuality> {
    * e.g. `exports[key] = v`. Present means `exports` may be incomplete.
    */
   unextractedExports?: string[];
+  /**
+   * Every module a TS/JS re-export statement loads (`export { a } from './m'`,
+   * `export * from './m'`, and the empty clause `export {} from './m'`, which
+   * exports no name), as the string's value (escapes decoded), once each, in
+   * source order. The dependency graph links each one like an import.
+   * Absent when the file has none.
+   */
+  reExportSources?: string[];
   /**
    * Packages, namespaces and modules the file declares, in source order.
    * Present (possibly empty) only for a language whose module defines a

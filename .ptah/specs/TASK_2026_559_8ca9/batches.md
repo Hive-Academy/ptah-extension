@@ -3982,7 +3982,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 32a: Extraction contract — PENDING
+## Batch 32a: Extraction contract — COMPLETE (commit a5632f1bb)
 
 - Recommended executor: Codex CLI lane, Lane G2 (`task-559-lane-g2`)
 - Fallback executor: backend-developer (sub-agent)
@@ -4018,7 +4018,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 32b: Resolver seam, context, bounds — PENDING
+## Batch 32b: Resolver seam, context, bounds — COMPLETE (fixes verified by the Batch 33 review)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4051,6 +4051,20 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - FB evidence; the Claude reviewer approves
+
+### Batch 32b review history (User Decision 24)
+
+- Author: backend-developer subagent. Reviewer: Codex (G2 session), cross-side.
+- r1 (`reviews/batch-32b-code-logic-review-r1.md`): REVISE 4/10 — R32B-01..03 Blocking (tsconfig extends/override,
+  `file:`/`link:`/`workspace:` deps certified external, manifest check/open race), R32B-04 Serious (physical read
+  bounds), R32B-05/06 Moderate (escaped re-export specifiers, cancellation before read). The same review verified the
+  32a fix round: R32A-01, -02, -03, -05 CLOSED; R32A-04 (Python per-member aliases) carried to Batch 33.
+- One fix round (report "## Fix round (review r1)"): all six fixed with regressions. The Batch 33 review verifies them.
+- Team-leader verification (2026-09-28): workspace-intelligence test/lint/typecheck and vscode-lm-tools
+  test/typecheck pass (`--skip-nx-cache`), validate-deps pass, degradation audit TOTAL 300.
+  `context-enrichment.service.spec.ts` timed out once under parallel load and passed alone (70/70) — load flake,
+  carried to Batch 38.
+- Carried (Moderate): a local package's `main`/`exports` entry is not read; a miss is unresolved-internal.
 
 ---
 

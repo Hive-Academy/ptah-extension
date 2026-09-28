@@ -1257,6 +1257,78 @@ describe('AstAnalysisService extraction contract (real grammars, Batch 32a)', ()
     ]);
   });
 
+  // Batch 32b (R32A-05, R26B-C-B1): every module a re-export statement loads,
+  // whatever it exports; the empty clause has no export record at all.
+  it.each(['typescript', 'javascript', 'tsx'] as const)(
+    '%s: every re-export statement reports the module it loads',
+    async (language) => {
+      const EXPORT = 'exp' + 'ort';
+      const insights = await analyse(
+        [
+          `${EXPORT} {} ${FROM} './side';`,
+          `${EXPORT} { X, Y as Z } ${FROM} './leaf';`,
+          `${EXPORT} * ${FROM} './all';`,
+          `${EXPORT} * as ns ${FROM} './ns';`,
+          `${EXPORT} {} ${FROM} './side';`,
+          `${IMPORT} { a } ${FROM} './a';`,
+          `${EXPORT} const local = 1;`,
+          '',
+        ].join('\n'),
+        language,
+      );
+
+      expect(insights.reExportSources).toEqual([
+        './side',
+        './leaf',
+        './all',
+        './ns',
+      ]);
+      // A re-export is not an import: the imports are those of the import
+      // statement alone.
+      const importOnly = await analyse(
+        `${IMPORT} { a } ${FROM} './a';\n`,
+        language,
+      );
+      expect(insights.imports).toEqual(importOnly.imports);
+    },
+  );
+
+  // R32B-05: a module string is its runtime value (escapes decoded, no eval),
+  // in both channels, so the graph resolves `./leaf` and sees one source.
+  it.each(['typescript', 'javascript'] as const)(
+    '%s: escaped re-export module strings are decoded',
+    async (language) => {
+      const EXPORT = 'exp' + 'ort';
+      const BS = '\\';
+      const insights = await analyse(
+        [
+          `${EXPORT} {} ${FROM} './${BS}u006ceaf';`,
+          `${EXPORT} { X } ${FROM} './${BS}x6ceaf';`,
+          `${EXPORT} * ${FROM} './${BS}u{6c}eaf';`,
+          `${EXPORT} * as ns ${FROM} "./l${BS}"eaf";`,
+          `${EXPORT} { Y } ${FROM} './li${BS}` + '\n' + `ne';`,
+          '',
+        ].join('\n'),
+        language,
+      );
+
+      expect(insights.reExportSources).toEqual(['./leaf', './l"eaf', './line']);
+      expect(
+        (insights.exports ?? []).map((info) => [info.name, info.source]),
+      ).toEqual([
+        ['X', './leaf'],
+        ['*', './leaf'],
+        ['ns', './l"eaf'],
+        ['Y', './line'],
+      ]);
+    },
+  );
+
+  it('TS/JS without a re-export carry no reExportSources key', async () => {
+    const ts = await analyse(`${IMPORT} { a } ${FROM} './a';\n`, 'typescript');
+    expect('reExportSources' in ts).toBe(false);
+  });
+
   it('TS/JS keep their earlier import shape and get no declarations', async () => {
     const ts = await analyse(
       `${IMPORT} { a } ${FROM} './a';\n${IMPORT} b ${FROM} './b';\n`,

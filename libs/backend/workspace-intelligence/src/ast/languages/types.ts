@@ -1,6 +1,7 @@
 import type { GenericAstNode, SupportedLanguage } from '../ast.types';
 import type { ImportInfo, ImportKind } from '../ast-analysis.interfaces';
 import type { LanguageCapabilities } from '../language-registry';
+import type { ImportResolver } from '../import-resolution/import-resolver';
 
 export interface LanguageQueries {
   /** Query for function declarations, expressions, and arrow functions */
@@ -23,8 +24,9 @@ export interface LanguageQueries {
  * - enrichSummary: `ContextEnrichmentService` gate, which reads this
  *   capability (TS/JS/TSX: the declaration summary's node names).
  * - codeIndex: `CodeSymbolIndexer` (every parsed language).
- * - graphEdges: `DependencyGraphService` resolves relative TS/JS imports to
- *   files; other languages get no edges until Batches 33-36.
+ * - graphEdges: `DependencyGraphService`, through the module's
+ *   `importResolver` (TS/JS: relative paths, tsconfig `paths`/`baseUrl`);
+ *   other languages get no edges until Batches 33-36.
  * - definitionFallback: Electron `DECLARATION_QUERIES` (TS/JS/Python/Go/C#;
  *   C# since Batch 26b, proven against the shipped grammar by the Electron
  *   capability spec).
@@ -98,5 +100,12 @@ export interface LanguageModule {
    * their earlier output shape.
    */
   readonly extraction?: LanguageExtraction;
+  /**
+   * Turns this language's imports into graph targets (Batch 32b): the
+   * dependency graph dispatches on the importing file's language. Absent
+   * means the graph cannot resolve the language's imports; a language
+   * declaring `graphEdges` without one has every import counted unresolved.
+   */
+  readonly importResolver?: ImportResolver;
   readonly capabilities: DeclaredLanguageCapabilities;
 }

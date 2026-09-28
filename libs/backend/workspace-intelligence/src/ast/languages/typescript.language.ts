@@ -11,6 +11,7 @@ import {
   JS_TS_FUNCTION_QUERY,
   JS_TS_IMPORT_QUERY,
 } from './javascript.language';
+import { TS_JS_IMPORT_RESOLVER } from '../import-resolution/ts-js-import-resolver';
 
 /**
  * TypeScript class query — uses extends_clause which TS grammar adds on top of JS.
@@ -106,6 +107,7 @@ export const TYPESCRIPT_LANGUAGE: LanguageModule = {
     importQuery: JS_TS_IMPORT_QUERY,
     exportQuery: JS_TS_EXPORT_QUERY + TS_EXPORT_QUERY_SUFFIX,
   },
+  importResolver: TS_JS_IMPORT_RESOLVER,
   capabilities: {
     outline: true,
     enrichSummary: true,

@@ -24,13 +24,21 @@ import { FileSystemService } from '../services/file-system.service';
 import {
   GRAPH_EDGE_CAP,
   buildGraphCoverage,
-  classifyUnresolvedSpecifier,
   identityUnavailableCoverage,
   invalidatedCoverage,
   mergeGraphCoverages,
   selectGraphFiles,
   type GraphResolutionCounts,
 } from './graph-coverage';
+import { LANGUAGE_MODULES } from './languages';
+import {
+  MAX_TARGETS_PER_IMPORT,
+  type ImportResolution,
+} from './import-resolution/import-resolver';
+import {
+  buildResolverContext,
+  type ResolverContext,
+} from './import-resolution/resolver-context';
 
 /** A node in the dependency graph representing a single file */
 export interface FileNode {
@@ -49,6 +57,12 @@ export interface FileNode {
    * Absent when every export was read.
    */
   unextractedExports?: string[];
+  /**
+   * Modules the file's re-export statements load (`CodeInsights.
+   * reExportSources`); absent when it has none. Each is linked like an
+   * import, and marks the edge as a re-export (see `getDependents`).
+   */
+  reExportSources?: string[];
   /** Language of the file */
   language: SupportedLanguage;
 }
@@ -281,14 +295,43 @@ function fileIdentities(normalizedPath: string): string[] {
     : [lexical, realIdentity];
 }
 
-/** Extensions to try when resolving relative imports (in order) */
-const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
-
-/** Index file names to try when resolving directory imports */
-const INDEX_FILES = ['index.ts', 'index.js'];
-
 /** Maximum transitive depth allowed for getDependencies */
 const MAX_DEPTH = 3;
+
+/**
+ * What one node depends on, in order: its imports, then each module its
+ * re-export statements load (`reExportSources`, plus the source of every
+ * re-export record, which also covers TypeScript's `export import X =
+ * require(...)`), once each, as an import of that module.
+ */
+function dependenciesOf(
+  node: FileNode,
+): Array<{ imp: ImportInfo; reExport: boolean }> {
+  const reExportSources = new Set(node.reExportSources ?? []);
+  for (const info of node.exports) {
+    if (info.isReExport === true && info.source !== undefined) {
+      reExportSources.add(info.source);
+    }
+  }
+  return [
+    ...node.imports.map((imp) => ({ imp, reExport: false })),
+    ...[...reExportSources].map((source) => ({
+      imp: { source },
+      reExport: true,
+    })),
+  ];
+}
+
+/** Add `value` to the set `map` holds under `key`, creating it. */
+function addToSetMap(
+  map: Map<string, Set<string>>,
+  key: string,
+  value: string,
+): void {
+  const set = map.get(key);
+  if (set) set.add(value);
+  else map.set(key, new Set([value]));
+}
 
 /**
  * Dependency Graph Service
@@ -368,6 +411,16 @@ export class DependencyGraphService {
     Map<string, string[]>
   >();
 
+  /**
+   * Per graph: for each file, the files that re-export it (their edge to it
+   * came from a re-export statement). Kept beside the graph, not on the
+   * exported `DependencyGraph` shape; mutated with it by invalidation.
+   */
+  private readonly reExporters = new WeakMap<
+    DependencyGraph,
+    Map<string, Set<string>>
+  >();
+
   /** Latch: a defective governor is warned about once, not per chunk. */
   private governorFailureWarned = false;
 
@@ -391,7 +444,9 @@ export class DependencyGraphService {
    *
    * @param filePaths - Absolute paths of files to include
    * @param workspaceRoot - Workspace root for relative path resolution
-   * @param tsconfigPaths - Optional tsconfig compilerOptions.paths for alias resolution
+   * @param tsconfigPaths - Optional `paths` (relative to the root), tried
+   *   before those the build's resolver context reads from the root
+   *   `tsconfig*.json` itself (Batch 32b); no caller needs to pass them.
    * Only graph-capable files are parsed (see `selectGraphFiles`): at most
    * `GRAPH_PARSE_CAP` of them, shared round-robin across their languages.
    * Every other file is counted in the published coverage, never parsed.
@@ -452,12 +507,33 @@ export class DependencyGraphService {
             normalizedRoot,
             recordFailure,
           );
-      const { graph, resolution } = await this.linkNodes(
+      // Built once per build, after parsing (it indexes the parsed files);
+      // a background build yields between manifest reads.
+      const context = await buildResolverContext({
+        root: normalizedRoot,
+        knownFiles: nodes.keys(),
+        ...(tsconfigPaths === undefined ? {} : { callerPaths: tsconfigPaths }),
+        isCurrent,
+        ...(background ? { yieldBetweenReads: nextMacrotask } : {}),
+      });
+      if (context === undefined) {
+        this.logger.debug(
+          'DependencyGraphService.buildGraph() - Superseded while reading manifests; graph not published',
+        );
+        return this.emptyGraph(nodes);
+      }
+      if (context.gaps.length > 0) {
+        // Fixed gap names only: never a path.
+        this.logger.debug(
+          `DependencyGraphService.buildGraph() - Resolver context partial: ${context.gaps.join(', ')}`,
+        );
+      }
+      const { graph, resolution, reExporters } = await this.linkNodes(
         nodes,
-        normalizedRoot,
-        tsconfigPaths,
+        context,
         background ? isCurrent : undefined,
       );
+      this.reExporters.set(graph, reExporters);
       if (!isCurrent()) {
         // Fixed text: the root is a path.
         this.logger.debug(
@@ -660,39 +736,52 @@ export class DependencyGraphService {
       imports: insights.imports,
       exports: insights.exports ?? [],
       ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
+      ...(insights.reExportSources !== undefined &&
+      insights.reExportSources.length > 0
+        ? { reExportSources: insights.reExportSources }
+        : {}),
       language,
     });
   }
 
   /**
-   * Resolve every node's imports into forward and reverse edges. A
-   * background build (`isCurrent` given) yields a macrotask whenever it has
-   * linked for {@link EDGE_SLICE_MS}, checked before every node and every
-   * import, so one import-heavy file cannot hold the host; once `isCurrent`
-   * says it was superseded it stops and returns the partial graph, which
-   * `buildGraph` does not publish. An awaited build never yields.
+   * Resolve every node's imports and re-export sources into forward and
+   * reverse edges, through the resolver of the importing file's language
+   * (`LanguageModule.importResolver`). A background build (`isCurrent`
+   * given) yields a macrotask whenever it has linked for
+   * {@link EDGE_SLICE_MS}, checked before every node, every dependency and
+   * every target of a multi-target expansion, so one import-heavy file cannot
+   * hold the host; once `isCurrent` says it was superseded it stops and
+   * returns the partial graph, which `buildGraph` does not publish. An
+   * awaited build never yields.
    *
-   * Every import is tallied for coverage: resolved to an edge, `external`,
-   * or `unresolvedInternal` (see `classifyUnresolvedSpecifier`). Once the graph
-   * holds {@link GRAPH_EDGE_CAP} distinct edges, the next new edge stops
-   * linking with `edgeCapHit`, so the graph is disclosed as incomplete
-   * instead of growing without bound.
+   * Every dependency is tallied for coverage: linked, `external`, or
+   * `unresolvedInternal`. An import is expanded to at most
+   * {@link MAX_TARGETS_PER_IMPORT} targets (`truncatedImports` counts those
+   * cut). Once the graph holds {@link GRAPH_EDGE_CAP} distinct edges, the
+   * next new edge stops linking with `edgeCapHit`, so the graph is disclosed
+   * as incomplete instead of growing without bound.
    */
   private async linkNodes(
     nodes: Map<string, FileNode>,
-    normalizedRoot: string,
-    tsconfigPaths: Record<string, string[]> | undefined,
+    context: ResolverContext,
     isCurrent: (() => boolean) | undefined,
-  ): Promise<{ graph: DependencyGraph; resolution: GraphResolutionCounts }> {
+  ): Promise<{
+    graph: DependencyGraph;
+    resolution: GraphResolutionCounts;
+    reExporters: Map<string, Set<string>>;
+  }> {
     const edges = new Map<string, Set<string>>();
     const reverseEdges = new Map<string, Set<string>>();
+    const reExporters = new Map<string, Set<string>>();
     let unresolvedCount = 0;
     let external = 0;
     let unresolvedInternal = 0;
+    let truncatedImports = 0;
     let edgeCount = 0;
     let edgeCapHit = false;
+    let caseFolded = false;
     let contextDependent = false;
-    const knownFiles = new Set(nodes.keys());
     let sliceStart = Date.now();
     /** False once a background build was superseded: stop linking. */
     const continueLinking = async (): Promise<boolean> => {
@@ -705,6 +794,7 @@ export class DependencyGraphService {
     const finish = (): {
       graph: DependencyGraph;
       resolution: GraphResolutionCounts;
+      reExporters: Map<string, Set<string>>;
     } => ({
       graph: {
         nodes,
@@ -716,32 +806,55 @@ export class DependencyGraphService {
       resolution: {
         external,
         unresolvedInternal,
-        truncatedImports: 0, // one target per import until resolver dispatch
+        truncatedImports,
         edgeCapHit,
-        // A bare specifier not proven external may be a workspace alias
-        // (tsconfig paths/baseUrl, package imports) this build cannot read
-        // yet (Batch 32b); a supplied `paths` object does not prove there is
-        // no other alias mechanism, so it never certifies completeness.
-        context: contextDependent ? 'partial' : 'complete',
+        // Partial when the context could not read every manifest, or an
+        // import was external only as far as the context knows.
+        context:
+          context.gaps.length > 0 || contextDependent ? 'partial' : 'complete',
+        ...(caseFolded ? { caseFolded: true } : {}),
       },
+      reExporters,
     });
     for (const [filePath, node] of nodes) {
       if (!(await continueLinking())) return finish();
       const fileEdges = new Set<string>();
       edges.set(filePath, fileEdges);
+      const resolver = LANGUAGE_MODULES[node.language].importResolver;
 
-      for (const imp of node.imports) {
+      for (const { imp, reExport } of dependenciesOf(node)) {
         if (!(await continueLinking())) return finish();
-        const resolvedPath = this.resolveImportPath(
-          imp.source,
-          filePath,
-          normalizedRoot,
-          knownFiles,
-          tsconfigPaths,
-        );
+        const resolution: ImportResolution = resolver
+          ? resolver.resolve(imp, filePath, context)
+          : { kind: 'unresolved-internal', targets: [] };
+        if (resolution.caseFolded === true) caseFolded = true;
+        if (resolution.contextDependent === true) contextDependent = true;
+        let targets = resolution.targets;
+        if (
+          resolution.truncated === true ||
+          targets.length > MAX_TARGETS_PER_IMPORT
+        ) {
+          truncatedImports++;
+          targets = targets.slice(0, MAX_TARGETS_PER_IMPORT);
+        }
+        if (targets.length === 0) {
+          unresolvedCount++;
+          if (resolution.kind === 'external') external++;
+          else unresolvedInternal++;
+          this.logger.debug(
+            `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
+          );
+          continue;
+        }
 
-        if (resolvedPath) {
-          if (fileEdges.has(resolvedPath)) continue;
+        for (const target of targets) {
+          // Inside a multi-target expansion too: yield, and stop once
+          // superseded.
+          if (targets.length > 1 && !(await continueLinking())) {
+            return finish();
+          }
+          if (reExport) addToSetMap(reExporters, target, filePath);
+          if (fileEdges.has(target)) continue;
           if (edgeCount >= GRAPH_EDGE_CAP) {
             edgeCapHit = true;
             this.logger.info(
@@ -750,26 +863,8 @@ export class DependencyGraphService {
             return finish();
           }
           edgeCount++;
-          fileEdges.add(resolvedPath);
-          if (!reverseEdges.has(resolvedPath)) {
-            reverseEdges.set(resolvedPath, new Set());
-          }
-          reverseEdges.get(resolvedPath)!.add(filePath);
-        } else {
-          unresolvedCount++;
-          const kind = classifyUnresolvedSpecifier(
-            imp.source,
-            this.claimedByTsconfigPaths(imp.source, tsconfigPaths),
-          );
-          if (kind === 'internal') {
-            unresolvedInternal++;
-          } else {
-            external++;
-            if (kind === 'context-dependent') contextDependent = true;
-          }
-          this.logger.debug(
-            `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
-          );
+          fileEdges.add(target);
+          addToSetMap(reverseEdges, target, filePath);
         }
       }
     }
@@ -777,17 +872,15 @@ export class DependencyGraphService {
     return finish();
   }
 
-  /** Whether a supplied tsconfig `paths` pattern claims `importSource`. */
-  private claimedByTsconfigPaths(
-    importSource: string,
-    tsconfigPaths: Record<string, string[]> | undefined,
-  ): boolean {
-    return (
-      tsconfigPaths !== undefined &&
-      Object.keys(tsconfigPaths).some(
-        (pattern) => this.matchTsconfigPattern(importSource, pattern) !== null,
-      )
-    );
+  /** A graph of `nodes` with no edge (a build superseded before linking). */
+  private emptyGraph(nodes: Map<string, FileNode>): DependencyGraph {
+    return {
+      nodes,
+      edges: new Map(),
+      reverseEdges: new Map(),
+      builtAt: Date.now(),
+      unresolvedCount: 0,
+    };
   }
 
   /**
@@ -835,18 +928,36 @@ export class DependencyGraphService {
   }
 
   /**
-   * Get reverse dependencies (what files import this file).
+   * Get reverse dependencies: the files that import or re-export this file,
+   * then, through every barrel that re-exports it (directly or through a
+   * chain of re-exports), the files that import or re-export that barrel.
+   * A barrel's consumer reaches the file's declarations through it, so it
+   * depends on the file as much as a direct importer does; a plain import
+   * passes nothing on.
    *
    * @param filePath - Absolute file path
-   * @returns Array of dependent file paths
+   * @returns Array of dependent file paths: direct dependents first
    */
   getDependents(filePath: string): string[] {
     const found = this.findNode(filePath);
     if (!found) {
       return [];
     }
-    const dependents = found[0].reverseEdges.get(found[1]);
-    return dependents ? Array.from(dependents) : [];
+    const [graph, nodeKey] = found;
+    const dependents = new Set(graph.reverseEdges.get(nodeKey) ?? []);
+    const reExporters = this.reExporters.get(graph);
+    const visited = new Set<string>([nodeKey]);
+    const barrels = [...(reExporters?.get(nodeKey) ?? [])];
+    while (barrels.length > 0) {
+      const barrel = barrels.shift() as string;
+      if (visited.has(barrel)) continue;
+      visited.add(barrel);
+      for (const consumer of graph.reverseEdges.get(barrel) ?? []) {
+        if (consumer !== nodeKey) dependents.add(consumer);
+      }
+      barrels.push(...(reExporters?.get(barrel) ?? []));
+    }
+    return [...dependents];
   }
 
   /**
@@ -1061,6 +1172,7 @@ export class DependencyGraphService {
       return;
     }
     const normalizedPath = nodeKey;
+    const reExporters = this.reExporters.get(graph);
 
     const forwardDeps = graph.edges.get(normalizedPath);
     if (forwardDeps) {
@@ -1072,9 +1184,15 @@ export class DependencyGraphService {
             graph.reverseEdges.delete(dep);
           }
         }
+        const barrels = reExporters?.get(dep);
+        if (barrels) {
+          barrels.delete(normalizedPath);
+          if (barrels.size === 0) reExporters?.delete(dep);
+        }
       }
       graph.edges.delete(normalizedPath);
     }
+    reExporters?.delete(normalizedPath);
     const reverseDeps = graph.reverseEdges.get(normalizedPath);
     if (reverseDeps) {
       for (const dependent of reverseDeps) {
@@ -1439,149 +1557,6 @@ export class DependencyGraphService {
         );
       }
     }
-  }
-
-  /**
-   * Resolve an import source to an absolute file path within the workspace.
-   *
-   * @returns Resolved absolute path (normalized with forward slashes) or null if unresolved
-   */
-  private resolveImportPath(
-    importSource: string,
-    importingFilePath: string,
-    workspaceRoot: string,
-    knownFiles: Set<string>,
-    tsconfigPaths?: Record<string, string[]>,
-  ): string | null {
-    if (importSource.startsWith('.')) {
-      return this.resolveRelativeImport(
-        importSource,
-        importingFilePath,
-        knownFiles,
-      );
-    }
-    if (tsconfigPaths) {
-      const resolved = this.resolveTsconfigPath(
-        importSource,
-        workspaceRoot,
-        knownFiles,
-        tsconfigPaths,
-      );
-      if (resolved) {
-        return resolved;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Resolve a relative import (starts with './' or '../') to an absolute path.
-   */
-  private resolveRelativeImport(
-    importSource: string,
-    importingFilePath: string,
-    knownFiles: Set<string>,
-  ): string | null {
-    // All internal paths are pre-normalized to forward slashes, so resolve with
-    // POSIX semantics. `path.resolve` would key off the host platform's notion
-    // of "absolute" — on Linux a Windows-style root like `D:/ws` is treated as
-    // relative and gets `process.cwd()` prepended, breaking resolution. `path.
-    // posix.join` joins deterministically on every platform.
-    const importDir = path.posix.dirname(importingFilePath);
-    const basePath = path.posix.join(importDir, importSource);
-    if (knownFiles.has(basePath)) {
-      return basePath;
-    }
-    for (const ext of RESOLVE_EXTENSIONS) {
-      const withExt = basePath + ext;
-      if (knownFiles.has(withExt)) {
-        return withExt;
-      }
-    }
-    for (const indexFile of INDEX_FILES) {
-      const indexPath = basePath + '/' + indexFile;
-      if (knownFiles.has(indexPath)) {
-        return indexPath;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Resolve a tsconfig path alias to an absolute file path.
-   */
-  private resolveTsconfigPath(
-    importSource: string,
-    workspaceRoot: string,
-    knownFiles: Set<string>,
-    tsconfigPaths: Record<string, string[]>,
-  ): string | null {
-    for (const [pattern, mappings] of Object.entries(tsconfigPaths)) {
-      const match = this.matchTsconfigPattern(importSource, pattern);
-      if (match === null) {
-        continue;
-      }
-      for (const mappingPath of mappings) {
-        const resolvedMapping = mappingPath.replace('*', match);
-        // POSIX join for platform-independent resolution — see the note in
-        // resolveRelativeImport. `workspaceRoot` is already forward-slashed, so
-        // `path.resolve` on Linux would treat a Windows-style root as relative.
-        const absolutePath = path.posix.join(workspaceRoot, resolvedMapping);
-        if (knownFiles.has(absolutePath)) {
-          return absolutePath;
-        }
-        for (const ext of RESOLVE_EXTENSIONS) {
-          const withExt = absolutePath + ext;
-          if (knownFiles.has(withExt)) {
-            return withExt;
-          }
-        }
-        for (const indexFile of INDEX_FILES) {
-          const indexPath = absolutePath + '/' + indexFile;
-          if (knownFiles.has(indexPath)) {
-            return indexPath;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Match an import source against a tsconfig paths pattern.
-   * Returns the captured wildcard portion, or null if no match.
-   *
-   * Pattern examples:
-   * - "@ptah-extension/*" matches "@ptah-extension/shared" -> captured: "shared"
-   * - "@ptah-extension/shared" matches "@ptah-extension/shared" exactly -> captured: ""
-   */
-  private matchTsconfigPattern(
-    importSource: string,
-    pattern: string,
-  ): string | null {
-    const wildcardIndex = pattern.indexOf('*');
-
-    if (wildcardIndex === -1) {
-      return importSource === pattern ? '' : null;
-    }
-
-    const prefix = pattern.substring(0, wildcardIndex);
-    const suffix = pattern.substring(wildcardIndex + 1);
-
-    if (!importSource.startsWith(prefix)) {
-      return null;
-    }
-
-    if (suffix && !importSource.endsWith(suffix)) {
-      return null;
-    }
-    const captured = importSource.substring(
-      prefix.length,
-      importSource.length - suffix.length,
-    );
-
-    return captured;
   }
 
   /**
