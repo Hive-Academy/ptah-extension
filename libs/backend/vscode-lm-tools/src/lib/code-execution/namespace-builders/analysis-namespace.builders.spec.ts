@@ -696,13 +696,8 @@ describe('buildDependencyNamespace', () => {
     await ns.buildGraph(['a.ts'], 'D:/ws');
 
     const calls = deps._dependencyGraph.buildGraph.mock.calls;
-    expect(calls[0].slice(2)).toEqual([
-      undefined,
-      9,
-      { yieldToForeground: false },
-    ]);
+    expect(calls[0].slice(2)).toEqual([9, { yieldToForeground: false }]);
     expect(calls[1].slice(2)).toEqual([
-      undefined,
       undefined,
       { yieldToForeground: false },
     ]);
@@ -748,8 +743,8 @@ describe('buildDependencyNamespace', () => {
     await ns.buildGraph(['a.ts'], 'D:/ws', 3, {});
 
     const calls = deps._dependencyGraph.buildGraph.mock.calls;
-    expect(calls[0][4]).toEqual({ yieldToForeground: true });
-    expect(calls[1][4]).toEqual({ yieldToForeground: false });
+    expect(calls[0][3]).toEqual({ yieldToForeground: true });
+    expect(calls[1][3]).toEqual({ yieldToForeground: false });
   });
 
   // Batch 9b review r1 F1: the background build reserves its generation
@@ -781,7 +776,7 @@ describe('buildDependencyNamespace', () => {
 
     expect(deps._dependencyGraph.reserveBuild).toHaveBeenCalledWith('D:/ws');
     expect(deps._dependencyGraph.getBuildState).toHaveBeenCalledWith('D:/ws');
-    expect(deps._dependencyGraph.buildGraph.mock.calls[0][4]).toEqual({
+    expect(deps._dependencyGraph.buildGraph.mock.calls[0][3]).toEqual({
       yieldToForeground: true,
       generation: 7,
     });
@@ -1159,7 +1154,7 @@ describe('buildDependencyNamespace', () => {
     async function pkgRootedGraph() {
       const { graph, ns, deps } = await aliasGraph();
       graph.evict(alias);
-      await graph.buildGraph([A, B], `${alias}/pkg`, undefined, undefined, {});
+      await graph.buildGraph([A, B], `${alias}/pkg`, undefined, {});
       return { graph, ns, deps };
     }
 
@@ -1188,7 +1183,7 @@ describe('buildDependencyNamespace', () => {
       const deps = makeMocks();
       deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(alias);
       const ns = buildDependencyNamespace({ ...deps, dependencyGraph: graph });
-      await graph.buildGraph([A, B], alias, undefined, undefined, {});
+      await graph.buildGraph([A, B], alias, undefined, {});
       return { graph, ns, deps };
     }
 
@@ -1221,13 +1216,7 @@ describe('buildDependencyNamespace', () => {
         const { graph, ns, deps } = await pkgRootedGraph();
         // An unrelated second graph must not leak into any prefix below.
         const other = otherRoot.replace(/\\/g, '/');
-        await graph.buildGraph(
-          [`${other}/x.ts`],
-          other,
-          undefined,
-          undefined,
-          {},
-        );
+        await graph.buildGraph([`${other}/x.ts`], other, undefined, {});
         deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(
           `${alias}/pkg`,
         );
@@ -1272,7 +1261,6 @@ describe('buildDependencyNamespace', () => {
         await graph.buildGraph(
           [`${otherRoot.replace(/\\/g, '/')}/x.ts`],
           otherRoot,
-          undefined,
           undefined,
           {},
         );
@@ -1325,7 +1313,7 @@ describe('buildDependencyNamespace', () => {
       const deps = makeMocks();
       deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(ROOT);
       const ns = buildDependencyNamespace({ ...deps, dependencyGraph: graph });
-      await graph.buildGraph([A, B], ROOT, undefined, undefined, {});
+      await graph.buildGraph([A, B], ROOT, undefined, {});
       return ns;
     }
 
@@ -1364,6 +1352,62 @@ describe('buildDependencyNamespace', () => {
       expect(variant).toEqual(exact);
       expect(absolute).toEqual(exact);
     });
+  });
+
+  // Batch 32c: the namespace passes no tsconfig `paths` to the service; the
+  // service's resolver context reads the root tsconfig itself, so an alias
+  // import still becomes an edge through the namespace path.
+  it('buildGraph resolves a root tsconfig alias with no paths argument (real graph service)', async () => {
+    const root = fs
+      .realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-32c-')))
+      .replace(/\\/g, '/');
+    try {
+      fs.writeFileSync(
+        path.join(root, 'tsconfig.json'),
+        '{ "compilerOptions": { "paths": { "@app/*": ["src/*"] } } }',
+      );
+      const consumer = `${root}/a.ts`;
+      const util = `${root}/src/util.ts`;
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports:
+                p === consumer
+                  ? [{ source: '@app/util', importedSymbols: [] }]
+                  : [],
+              exports: p === util ? [{ name: 'util' }] : [],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        {
+          info: jest.fn(),
+          debug: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+        } as unknown as Logger,
+      );
+      const deps = makeMocks();
+      deps._workspaceProvider.getWorkspaceRoot.mockReturnValue(root);
+      const ns = buildDependencyNamespace({ ...deps, dependencyGraph: graph });
+
+      const out = await ns.buildGraph(['a.ts', 'src/util.ts'], root);
+
+      expect(out).toMatchObject({ nodeCount: 2, edgeCount: 1 });
+      await expect(ns.getDependents(util)).resolves.toEqual([consumer]);
+      const { coverage } = await ns.getGraphCoverage(root);
+      expect(coverage.resolution).toMatchObject({
+        external: 0,
+        unresolvedInternal: 0,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('buildGraph returns a zeroed envelope with error on failure', async () => {

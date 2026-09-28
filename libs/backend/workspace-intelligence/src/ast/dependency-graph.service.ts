@@ -443,10 +443,9 @@ export class DependencyGraphService {
    * Parses each file's imports/exports and resolves relative paths.
    *
    * @param filePaths - Absolute paths of files to include
-   * @param workspaceRoot - Workspace root for relative path resolution
-   * @param tsconfigPaths - Optional `paths` (relative to the root), tried
-   *   before those the build's resolver context reads from the root
-   *   `tsconfig*.json` itself (Batch 32b); no caller needs to pass them.
+   * @param workspaceRoot - Workspace root for relative path resolution. The
+   *   build's resolver context reads tsconfig `paths`/`baseUrl` from the
+   *   root `tsconfig*.json` itself (Batch 32b).
    * Only graph-capable files are parsed (see `selectGraphFiles`): at most
    * `GRAPH_PARSE_CAP` of them, shared round-robin across their languages.
    * Every other file is counted in the published coverage, never parsed.
@@ -463,7 +462,6 @@ export class DependencyGraphService {
   async buildGraph(
     filePaths: string[],
     workspaceRoot: string,
-    tsconfigPaths?: Record<string, string[]>,
     discoveredFiles?: number,
     options: BuildGraphOptions = {},
   ): Promise<DependencyGraph> {
@@ -512,7 +510,6 @@ export class DependencyGraphService {
       const context = await buildResolverContext({
         root: normalizedRoot,
         knownFiles: nodes.keys(),
-        ...(tsconfigPaths === undefined ? {} : { callerPaths: tsconfigPaths }),
         isCurrent,
         ...(background ? { yieldBetweenReads: nextMacrotask } : {}),
       });

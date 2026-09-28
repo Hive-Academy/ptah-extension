@@ -184,23 +184,36 @@ describe('DependencyGraphService — transitive dependencies', () => {
 });
 
 describe('DependencyGraphService — tsconfig path aliases', () => {
-  // a.ts imports '@app/util', resolved via tsconfig paths to src/util.ts.
-  const ALIAS: Record<string, CodeInsights> = {
-    'D:/ws-a/a.ts': insights([imp('@app/util')], []),
-    'D:/ws-a/src/util.ts': insights([], [exp('util')]),
-  };
-  const ALIAS_FILES = ['D:/ws-a/a.ts', 'D:/ws-a/src/util.ts'];
+  // a.ts imports '@app/util', resolved via the root tsconfig's paths.
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function aliasBuild(paths: Record<string, string[]>) {
+    const root = tempRoot({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { paths } }),
+    });
+    roots.push(root);
+    const a = `${root}/a.ts`;
+    const util = `${root}/src/util.ts`;
+    const svc = makeServiceWith({
+      [a]: insights([imp('@app/util')], []),
+      [util]: insights([], [exp('util')]),
+    });
+    return { svc, root, a, util };
+  }
 
   it('resolves an alias import to a workspace file', async () => {
-    const svc = makeServiceWith(ALIAS);
-    await svc.buildGraph(ALIAS_FILES, WS_A, { '@app/*': ['src/*'] });
-    expect(svc.getDependents('D:/ws-a/src/util.ts')).toEqual(['D:/ws-a/a.ts']);
+    const { svc, root, a, util } = aliasBuild({ '@app/*': ['src/*'] });
+    await svc.buildGraph([a, util], root);
+    expect(svc.getDependents(util)).toEqual([a]);
   });
 
   it('leaves an import unresolved when no alias matches', async () => {
-    const svc = makeServiceWith(ALIAS);
-    await svc.buildGraph(ALIAS_FILES, WS_A, { '@other/*': ['lib/*'] });
-    expect(svc.getDependents('D:/ws-a/src/util.ts')).toEqual([]);
+    const { svc, root, a, util } = aliasBuild({ '@other/*': ['lib/*'] });
+    await svc.buildGraph([a, util], root);
+    expect(svc.getDependents(util)).toEqual([]);
   });
 });
 
@@ -282,7 +295,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
 
   it('keeps the uncapped discovered count a capping caller passes', async () => {
     const svc = makeService();
-    await svc.buildGraph(A_FILES, 'D:\\ws-a\\', undefined, 7);
+    await svc.buildGraph(A_FILES, 'D:\\ws-a\\', 7);
     expect(svc.getCoverage('D:/ws-a')).toEqual({
       graphedFiles: 2,
       discoveredFiles: 7,
@@ -297,7 +310,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
     'never reports fewer discovered than graphed files (%s)',
     async (_label, discovered) => {
       const svc = makeService();
-      await svc.buildGraph(A_FILES, WS_A, undefined, discovered);
+      await svc.buildGraph(A_FILES, WS_A, discovered);
       expect(svc.getCoverage(WS_A)).toEqual({
         graphedFiles: 2,
         discoveredFiles: 2,
@@ -307,7 +320,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
 
   it('sums every graph when no root is given, and drops coverage on eviction', async () => {
     const svc = makeService();
-    await svc.buildGraph(A_FILES, WS_A, undefined, 10);
+    await svc.buildGraph(A_FILES, WS_A, 10);
     await svc.buildGraph(B_FILES, WS_B);
     expect(svc.getCoverage()).toEqual({ graphedFiles: 3, discoveredFiles: 11 });
 
@@ -318,7 +331,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
     svc.retainOnly([]);
     expect(svc.getCoverage()).toBeUndefined();
 
-    await svc.buildGraph(A_FILES, WS_A, undefined, 5);
+    await svc.buildGraph(A_FILES, WS_A, 5);
     svc.clear();
     expect(svc.getCoverage(WS_A)).toBeUndefined();
   });
@@ -327,7 +340,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
   it('reports the coverage of the graph a file query is routed to, in both directions', async () => {
     const svc = makeService();
     await svc.buildGraph(A_FILES, WS_A);
-    await svc.buildGraph(B_FILES, WS_B, undefined, 5_001);
+    await svc.buildGraph(B_FILES, WS_B, 5_001);
 
     expect(svc.getCoverageForFile('D:/ws-b/c.ts')).toEqual({
       graphedFiles: 1,
@@ -343,7 +356,7 @@ describe('DependencyGraphService — coverage (TASK_2026_559 Batch 9)', () => {
   it('reports the nested graph coverage for a file under a nested root', async () => {
     const svc = makeService();
     await svc.buildGraph(A_FILES, WS_A);
-    await svc.buildGraph(['D:/ws-a/pkg/x.ts'], 'D:/ws-a/pkg', undefined, 9);
+    await svc.buildGraph(['D:/ws-a/pkg/x.ts'], 'D:/ws-a/pkg', 9);
 
     expect(svc.getCoverageForFile('D:/ws-a/pkg/x.ts')).toEqual({
       graphedFiles: 1,
@@ -435,12 +448,7 @@ describe('DependencyGraphService — builds in flight', () => {
   // not at all; a superseded build leaves neither behind.
   it('superseded build publishes neither graph nor coverage', async () => {
     const { svc, release } = gatedService();
-    const earlier = svc.buildGraph(
-      [...A_FILES, 'D:/ws-a/tool.py'],
-      WS_A,
-      undefined,
-      50,
-    );
+    const earlier = svc.buildGraph([...A_FILES, 'D:/ws-a/tool.py'], WS_A, 50);
     const later = svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
     release();
     const [earlierGraph] = await Promise.all([earlier, later]);
@@ -457,7 +465,7 @@ describe('DependencyGraphService — builds in flight', () => {
 
     // An eviction mid-build: no graph and no coverage at all.
     const { svc: evicted, release: releaseEvicted } = gatedService();
-    const build = evicted.buildGraph(A_FILES, WS_A, undefined, undefined, {
+    const build = evicted.buildGraph(A_FILES, WS_A, undefined, {
       yieldToForeground: true,
       generation: evicted.reserveBuild(WS_A),
     });
@@ -471,7 +479,7 @@ describe('DependencyGraphService — builds in flight', () => {
 
   it('keeps the later-started build when an earlier one finishes after it', async () => {
     const { svc, release } = gatedService();
-    const earlier = svc.buildGraph(A_FILES, WS_A, undefined, 50);
+    const earlier = svc.buildGraph(A_FILES, WS_A, 50);
     const later = svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
     release();
     await Promise.all([earlier, later]);
@@ -493,7 +501,7 @@ describe('DependencyGraphService — builds in flight', () => {
     await svc.buildGraph(A_FILES, WS_A);
     expect(governor.whenClear).not.toHaveBeenCalled();
 
-    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+    await svc.buildGraph(A_FILES, WS_A, undefined, {
       yieldToForeground: true,
     });
     expect(governor.whenClear).toHaveBeenCalledTimes(1);
@@ -517,7 +525,7 @@ describe('DependencyGraphService — builds in flight', () => {
     release();
 
     await expect(
-      svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+      svc.buildGraph(A_FILES, WS_A, undefined, {
         yieldToForeground: true,
       }),
     ).rejects.toBe(abort);
@@ -535,7 +543,7 @@ describe('DependencyGraphService — builds in flight', () => {
     release();
     const files = Array.from({ length: 45 }, (_, i) => `D:/ws-a/f${i}.ts`);
 
-    await svc.buildGraph(files, WS_A, undefined, undefined, {
+    await svc.buildGraph(files, WS_A, undefined, {
       yieldToForeground: true,
     });
 
@@ -578,7 +586,7 @@ describe('DependencyGraphService — reserved generations and host yielding (TAS
     const generation = svc.reserveBuild(WS_A);
     expect(svc.getBuildState(WS_A)).toEqual({ generation, building: false });
 
-    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+    await svc.buildGraph(A_FILES, WS_A, undefined, {
       ...BACKGROUND,
       generation,
     });
@@ -605,7 +613,7 @@ describe('DependencyGraphService — reserved generations and host yielding (TAS
     const generation = svc.reserveBuild(WS_A);
     await act(svc);
 
-    await svc.buildGraph(A_FILES, WS_A, undefined, undefined, {
+    await svc.buildGraph(A_FILES, WS_A, undefined, {
       ...BACKGROUND,
       generation,
     });
@@ -641,7 +649,7 @@ describe('DependencyGraphService — reserved generations and host yielding (TAS
     });
     holder.svc = svc;
 
-    await svc.buildGraph(files, WS_A, undefined, undefined, BACKGROUND);
+    await svc.buildGraph(files, WS_A, undefined, BACKGROUND);
 
     expect(analyzeSource).toHaveBeenCalledTimes(1);
     expect(svc.isBuilt(WS_A)).toBe(false);
@@ -660,7 +668,7 @@ describe('DependencyGraphService — reserved generations and host yielding (TAS
     const files = Array.from({ length: 8 }, (_, i) => `D:/ws-a/f${i}.ts`);
     const ticker = setInterval(() => order.push('tick'), 1);
     try {
-      await svc.buildGraph(files, WS_A, undefined, undefined, BACKGROUND);
+      await svc.buildGraph(files, WS_A, undefined, BACKGROUND);
     } finally {
       clearInterval(ticker);
     }
@@ -734,7 +742,7 @@ describe('DependencyGraphService — edge linking inside one node (TASK_2026_559
     const { svc, order, restoreClock } = heavyNodeSetup();
     const stop = startHeartbeat(() => order.push('tick'));
     try {
-      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, undefined, {
+      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, {
         yieldToForeground: true,
       });
     } finally {
@@ -762,7 +770,7 @@ describe('DependencyGraphService — edge linking inside one node (TASK_2026_559
       }
     });
     try {
-      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, undefined, {
+      await svc.buildGraph([HEAVY_FILE], WS_A, undefined, {
         yieldToForeground: true,
       });
     } finally {
@@ -820,7 +828,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
   it('publishes a clean coverage for a fully resolved TS graph', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph(A_FILES, WS_A, {});
+    await svc.buildGraph(A_FILES, WS_A);
 
     const report = svc.getCoverageReport(WS_A);
     expect(report?.files).toEqual(svc.getCoverage(WS_A));
@@ -862,7 +870,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
       parseThrow: ['D:/ws-a/crash.ts'],
     });
 
-    const graph = await svc.buildGraph(files, WS_A, {});
+    const graph = await svc.buildGraph(files, WS_A);
 
     expect([...graph.nodes.keys()].sort()).toEqual(A_FILES);
     const languages = svc.getCoverageReport(WS_A)?.languages;
@@ -872,27 +880,46 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(isCleanAnswer(languages!)).toBe(false);
   });
 
-  it('counts external and unresolved internal imports per import', async () => {
-    const map: Record<string, CodeInsights> = {
-      'D:/ws-a/a.ts': insights(
-        [
-          imp('./b'),
-          imp('./missing'),
-          imp('lodash'),
-          imp('@app/gone'),
-          imp('@app/util'),
-        ],
-        [],
-      ),
-      'D:/ws-a/b.ts': insights([], []),
-      'D:/ws-a/src/util.ts': insights([], []),
-    };
-    const files = ['D:/ws-a/a.ts', 'D:/ws-a/b.ts', 'D:/ws-a/src/util.ts'];
-    const { svc } = serviceWith(map);
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
 
-    await svc.buildGraph(files, WS_A, { '@app/*': ['src/*'] });
+  /** A root on disk whose tsconfig declares `paths`. */
+  function pathsRoot(paths: Record<string, string[]>): string {
+    const root = tempRoot({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { paths } }),
+    });
+    roots.push(root);
+    return root;
+  }
+
+  it('counts external and unresolved internal imports per import', async () => {
+    const graphOf = (root: string) => {
+      const map: Record<string, CodeInsights> = {
+        [`${root}/a.ts`]: insights(
+          [
+            imp('./b'),
+            imp('./missing'),
+            imp('lodash'),
+            imp('@app/gone'),
+            imp('@app/util'),
+          ],
+          [],
+        ),
+        [`${root}/b.ts`]: insights([], []),
+        [`${root}/src/util.ts`]: insights([], []),
+      };
+      return { svc: serviceWith(map).svc, files: Object.keys(map) };
+    };
+
+    const aliased = pathsRoot({ '@app/*': ['src/*'] });
+    const withPaths = graphOf(aliased);
+    await withPaths.svc.buildGraph(withPaths.files, aliased);
     // `lodash` is most likely a package, but nothing proves it (r1 B2).
-    expect(svc.getCoverageReport(WS_A)?.languages.resolution).toEqual({
+    expect(
+      withPaths.svc.getCoverageReport(aliased)?.languages.resolution,
+    ).toEqual({
       external: 1,
       unresolvedInternal: 2,
       truncatedImports: 0,
@@ -902,6 +929,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
     // Without tsconfig paths the alias imports read as packages: the
     // context is partial and says so.
+    const { svc, files } = graphOf(WS_A);
     await svc.buildGraph(files, WS_A);
     const languages = svc.getCoverageReport(WS_A)?.languages;
     expect(languages?.resolution).toEqual({
@@ -914,9 +942,9 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(languages?.approximations).toEqual(['resolver-context-partial']);
   });
 
-  // r1 B2 (FB): a supplied `paths` object does not prove there is no other
+  // r1 B2 (FB): a tsconfig `paths` object does not prove there is no other
   // alias mechanism, so unresolved `#`/bare specifiers never read as clean.
-  it.each([
+  it.each<[string, Record<string, string[]>, string, string]>([
     ['an empty paths object and a package # import', {}, '#b', 'internal'],
     [
       'an unrelated paths mapping and a baseUrl-style import',
@@ -925,17 +953,19 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
       'context-dependent',
     ],
   ])(
-    'a supplied paths object never certifies resolution (%s)',
+    'a tsconfig paths object never certifies resolution (%s)',
     async (_label, paths, specifier, kind) => {
-      const map: Record<string, CodeInsights> = {
-        'D:/ws-a/a.ts': insights([imp(specifier)], []),
-        'D:/ws-a/utils/b.ts': insights([], []),
-      };
-      const { svc } = serviceWith(map);
-      await svc.buildGraph(['D:/ws-a/a.ts', 'D:/ws-a/utils/b.ts'], WS_A, paths);
+      const root = pathsRoot(paths);
+      const a = `${root}/a.ts`;
+      const b = `${root}/utils/b.ts`;
+      const { svc } = serviceWith({
+        [a]: insights([imp(specifier)], []),
+        [b]: insights([], []),
+      });
+      await svc.buildGraph([a, b], root);
 
-      const languages = svc.getCoverageReport(WS_A)!.languages;
-      expect(svc.getDependents('D:/ws-a/utils/b.ts')).toEqual([]);
+      const languages = svc.getCoverageReport(root)!.languages;
+      expect(svc.getDependents(b)).toEqual([]);
       expect(languages.resolution).toMatchObject(
         kind === 'internal'
           ? { unresolvedInternal: 1, external: 0 }
@@ -969,7 +999,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
   // r1 B1 (FB): invalidation revokes the clean answer in the same step.
   it('an invalidated file makes the coverage unclean with the graph change', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph(A_FILES, WS_A, {});
+    await svc.buildGraph(A_FILES, WS_A);
     expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
 
     svc.invalidateFile('D:\\ws-a\\a.ts');
@@ -992,13 +1022,13 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     });
 
     // The next build publishes a fresh, clean report.
-    await svc.buildGraph(A_FILES, WS_A, {});
+    await svc.buildGraph(A_FILES, WS_A);
     expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
   });
 
   it('an unknown file invalidated under a graph qualifies it without moving counts', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph(A_FILES, WS_A, {});
+    await svc.buildGraph(A_FILES, WS_A);
 
     svc.invalidateFile('D:/ws-a/new.ts');
 
@@ -1022,8 +1052,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
         'D:/repo/pkg/b.ts': insights([], []),
       };
       const { svc } = serviceWith(map);
-      await svc.buildGraph(PKG_FILES, PARENT, {});
-      await svc.buildGraph(PKG_FILES, CHILD, {});
+      await svc.buildGraph(PKG_FILES, PARENT);
+      await svc.buildGraph(PKG_FILES, CHILD);
       expect(isCleanAnswer(svc.getCoverageReport(PARENT)!.languages)).toBe(
         true,
       );
@@ -1072,7 +1102,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
     it('leaves a sibling root that does not contain the file clean', async () => {
       const svc = await builtParentAndChild();
-      await svc.buildGraph(B_FILES, WS_B, {});
+      await svc.buildGraph(B_FILES, WS_B);
 
       svc.invalidateFile('D:/repo/pkg/a.ts');
 
@@ -1090,8 +1120,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     async function parentAndChild(parent: string, child: string) {
       const files = [`${child}/a.ts`, `${child}/b.ts`];
       const { svc } = serviceWith({});
-      await svc.buildGraph(files, parent, {});
-      await svc.buildGraph(files, child, {});
+      await svc.buildGraph(files, parent);
+      await svc.buildGraph(files, child);
       expect(isCleanAnswer(svc.getCoverageReport(parent)!.languages)).toBe(
         true,
       );
@@ -1156,7 +1186,6 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
         const build = svc.buildGraph(
           ['D:/Repo/pkg/a.ts', 'D:/Repo/pkg/b.ts'],
           'D:/Repo',
-          {},
         );
         svc.invalidateFile('d:/REPO/Pkg/A.TS');
         release();
@@ -1170,7 +1199,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
     it('keeps a trailing-separator/backslash spelling and a sibling boundary apart', async () => {
       const svc = await parentAndChild('D:/Repo', 'D:/Repo/pkg');
-      await svc.buildGraph(['D:/Repo2/x.ts'], 'D:/Repo2', {});
+      await svc.buildGraph(['D:/Repo2/x.ts'], 'D:/Repo2');
 
       svc.invalidateFile('D:\\Repo\\pkg\\a.ts');
 
@@ -1259,7 +1288,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     } as unknown as Logger;
     const svc = new DependencyGraphService(astAnalysis, fileSystem, logger);
 
-    const build = svc.buildGraph(A_FILES, WS_A, {});
+    const build = svc.buildGraph(A_FILES, WS_A);
     svc.invalidateFile('D:/ws-a/a.ts'); // no graph published yet
     svc.invalidateFile('D:/ws-b/c.ts'); // another root: not this build's
     release();
@@ -1272,7 +1301,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(isCleanAnswer(languages)).toBe(false);
 
     // The latch is per build: a later build is not affected.
-    await svc.buildGraph(A_FILES, WS_A, {});
+    await svc.buildGraph(A_FILES, WS_A);
     expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(true);
   });
 
@@ -1292,7 +1321,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     });
     const { svc } = serviceWith(map);
 
-    const graph = await svc.buildGraph(files, WS_A, {});
+    const graph = await svc.buildGraph(files, WS_A);
 
     let edgeCount = 0;
     for (const set of graph.edges.values()) edgeCount += set.size;
@@ -1308,7 +1337,6 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     await svc.buildGraph(
       [...A_FILES, 'D:/ws-a/tool.py', 'D:/ws-a/build.zig', 'D:/ws-a/README.md'],
       WS_A,
-      {},
     );
 
     expect(analyzeSource).toHaveBeenCalledTimes(2);
@@ -1328,7 +1356,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     const ts = Array.from({ length: 5_010 }, (_, i) => `D:/ws-a/t${i}.ts`);
     const { svc, analyzeSource } = serviceWith({});
 
-    await svc.buildGraph([...ts, 'D:/ws-a/late.js'], WS_A, {});
+    await svc.buildGraph([...ts, 'D:/ws-a/late.js'], WS_A);
 
     expect(analyzeSource).toHaveBeenCalledTimes(5_000);
     expect(
@@ -1344,7 +1372,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
   it('counts files a caller dropped before the build, and a truncated census', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph(A_FILES, WS_A, {}, 7, { censusLimit: 50_001 });
+    await svc.buildGraph(A_FILES, WS_A, 7, { censusLimit: 50_001 });
 
     const languages = svc.getCoverageReport(WS_A)?.languages;
     expect(languages?.omittedByCap).toBe(5);
@@ -1354,8 +1382,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
   it('merges every root when none is given, and routes a file to its root', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph([...A_FILES, 'D:/ws-a/x.py'], WS_A, {});
-    await svc.buildGraph(B_FILES, WS_B, {}, 4);
+    await svc.buildGraph([...A_FILES, 'D:/ws-a/x.py'], WS_A);
+    await svc.buildGraph(B_FILES, WS_B, 4);
 
     const merged = svc.getCoverageReport();
     expect(merged?.files).toEqual({ graphedFiles: 4, discoveredFiles: 7 });
@@ -1391,7 +1419,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
         [A]: insights([imp('./B')], []),
         [B]: insights([imp('./C')], []),
       });
-      await svc.buildGraph([A, B, C], REPO, {});
+      await svc.buildGraph([A, B, C], REPO);
       expect(isCleanAnswer(svc.getCoverageReport(REPO)!.languages)).toBe(true);
       return svc;
     }
@@ -1441,7 +1469,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
           [lower]: insights([imp('./Pkg/B')], []),
           [upper]: insights([imp('./Pkg/C')], []),
         });
-        await svc.buildGraph([lower, upper, B, C], REPO, {});
+        await svc.buildGraph([lower, upper, B, C], REPO);
 
         expect(svc.resolveNodePath('d:/repo/X.TS')).toBeUndefined();
         expect(svc.getDependencies('d:/repo/X.TS')).toEqual([]);
@@ -1467,7 +1495,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
       it('R4-M1: an EIO lookup is disclosed as unknown unchecked files, never clean', async () => {
         failRealpath('EIO');
         const { svc } = serviceWith(INSIGHTS);
-        await svc.buildGraph(A_FILES, WS_A, {});
+        await svc.buildGraph(A_FILES, WS_A);
 
         const languages = svc.getCoverageReport(WS_A)!.languages;
         expect(languages.unchecked).toBeNull();
@@ -1483,7 +1511,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
       it('an absent root (ENOENT) proves no alias exists: coverage stays clean', async () => {
         failRealpath('ENOENT');
         const { svc } = serviceWith(INSIGHTS);
-        await svc.buildGraph(A_FILES, WS_A, {});
+        await svc.buildGraph(A_FILES, WS_A);
 
         expect(isCleanAnswer(svc.getCoverageReport(WS_A)!.languages)).toBe(
           true,
@@ -1493,13 +1521,13 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
       it('a later build whose lookup succeeds is clean again', async () => {
         const spy = failRealpath('EACCES');
         const { svc } = serviceWith(INSIGHTS);
-        await svc.buildGraph(A_FILES, WS_A, {});
+        await svc.buildGraph(A_FILES, WS_A);
         expect(svc.getCoverageReport(WS_A)!.languages.clean).toBe(false);
 
         spy.mockRejectedValue(
           Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
         );
-        await svc.buildGraph(A_FILES, WS_A, {});
+        await svc.buildGraph(A_FILES, WS_A);
         expect(svc.getCoverageReport(WS_A)!.languages.clean).toBe(true);
       });
     });
@@ -1542,7 +1570,6 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
           await svc.buildGraph(
             [`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`],
             alias,
-            {},
           );
 
           expect(svc.getDependents(path.join(realRoot, 'pkg', 'b.ts'))).toEqual(
@@ -1566,13 +1593,9 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
             [`${alias}/pkg/a.ts`]: insights([imp('./b')], []),
           });
           const buildAlias = () =>
-            svc.buildGraph(
-              [`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`],
-              alias,
-              {},
-            );
+            svc.buildGraph([`${alias}/pkg/a.ts`, `${alias}/pkg/b.ts`], alias);
           const buildSibling = () =>
-            svc.buildGraph(['D:/elsewhere/x.ts'], 'D:/elsewhere', {});
+            svc.buildGraph(['D:/elsewhere/x.ts'], 'D:/elsewhere');
           if (siblingFirst) {
             await buildSibling();
             await buildAlias();
@@ -1600,8 +1623,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
           const realSlashed = realRoot.replace(/\\/g, '/');
           const realFiles = [`${realSlashed}/pkg/a.ts`];
           const builds = [
-            () => svc.buildGraph(aliasFiles, alias, {}),
-            () => svc.buildGraph(realFiles, realSlashed, {}),
+            () => svc.buildGraph(aliasFiles, alias),
+            () => svc.buildGraph(realFiles, realSlashed),
           ];
           for (const build of realFirst ? builds.reverse() : builds) {
             await build();
@@ -1621,7 +1644,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
         'graphSpellingsOf re-roots a real-target prefix at the alias key, keeping a trailing slash',
         async () => {
           const { svc } = serviceWith({});
-          await svc.buildGraph([`${alias}/pkg/a.ts`], alias, {});
+          await svc.buildGraph([`${alias}/pkg/a.ts`], alias);
 
           expect(
             svc.graphSpellingsOf(`${realRoot.replace(/\\/g, '/')}/pkg/`),
@@ -1636,7 +1659,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
         'r2 B1: graphSpellingsOf maps a real-spelled ancestor prefix to the alias/pkg root',
         async () => {
           const { svc } = serviceWith({});
-          await svc.buildGraph([`${alias}/pkg/a.ts`], `${alias}/pkg`, {});
+          await svc.buildGraph([`${alias}/pkg/a.ts`], `${alias}/pkg`);
           const realSlashed = realRoot.replace(/\\/g, '/');
           const rootSpelling = `${graphPathIdentity(`${alias}/pkg`)}/`;
 
@@ -1662,8 +1685,8 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
             .mockRejectedValue(
               Object.assign(new Error('EIO'), { code: 'EIO' }),
             );
-          await svc.buildGraph(files, alias, {});
-          await svc.buildGraph(files, `${alias}/pkg`, {});
+          await svc.buildGraph(files, alias);
+          await svc.buildGraph(files, `${alias}/pkg`);
           spy.mockRestore();
 
           svc.invalidateFile(path.join(realRoot, 'pkg', 'a.ts'));
@@ -1810,7 +1833,7 @@ describe('DependencyGraphService — resolver context (TASK_2026_559 Batch 32b)'
       [util]: insights([], [exp('util')]),
     });
 
-    await svc.buildGraph([a, util], root, undefined);
+    await svc.buildGraph([a, util], root);
 
     expect(svc.getDependents(util)).toEqual([a]);
     const languages = languagesOf(svc, root);
@@ -2018,7 +2041,7 @@ describe('DependencyGraphService — multi-target expansion (TASK_2026_559 Batch
     handle = setImmediate(beat);
     let graph: DependencyGraph | undefined;
     try {
-      graph = await svc.buildGraph(FILES, 'D:/ws-m', undefined, undefined, {
+      graph = await svc.buildGraph(FILES, 'D:/ws-m', undefined, {
         yieldToForeground: true,
       });
     } finally {

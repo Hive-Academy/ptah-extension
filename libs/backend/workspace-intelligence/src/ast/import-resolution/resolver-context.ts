@@ -70,10 +70,7 @@ export interface ResolverContext {
   readonly knownFiles: ReadonlySet<string>;
   /** Node keys by lower-cased key, for the case rule (unique match only). */
   readonly filesByFoldedPath: ReadonlyMap<string, readonly string[]>;
-  /**
-   * tsconfig `paths` rules: the caller's first (relative to the root), then
-   * the effective rules of the root tsconfig files (`tsconfig-mapping.ts`).
-   */
+  /** The effective `paths` rules of the root tsconfig files (`tsconfig-mapping.ts`). */
   readonly tsconfigPaths: readonly TsconfigPathRule[];
   /** The effective `baseUrl` directory of the root tsconfig files (0 or 1). */
   readonly baseUrls: readonly string[];
@@ -102,8 +99,6 @@ export interface ResolverContextOptions {
   readonly root: string;
   /** Graph node keys of every parsed file. */
   readonly knownFiles: Iterable<string>;
-  /** `paths` the caller supplied, relative to the root. */
-  readonly callerPaths?: Readonly<Record<string, readonly string[]>>;
   /** False once the build was superseded: reading stops. */
   readonly isCurrent: () => boolean;
   /** Awaited before each manifest read (a background build yields here). */
@@ -170,19 +165,12 @@ export async function buildResolverContext(
 
   const tsconfig = mapRootTsconfigs(facts.tsconfigs, root);
   for (const gap of tsconfig.gaps) gaps.add(gap);
-  const callerRules: TsconfigPathRule[] = Object.entries(
-    options.callerPaths ?? {},
-  ).map(([pattern, targets]) => ({
-    pattern,
-    targets: [...targets],
-    baseDir: root,
-  }));
 
   return {
     root,
     knownFiles,
     filesByFoldedPath: foldedIndex(knownFiles),
-    tsconfigPaths: [...callerRules, ...tsconfig.paths],
+    tsconfigPaths: tsconfig.paths,
     baseUrls: tsconfig.baseUrls,
     externalPackages: facts.externalPackages,
     localPackages: facts.localPackages,

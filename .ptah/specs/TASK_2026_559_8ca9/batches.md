@@ -4058,6 +4058,8 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
   description pins unchanged (671/702, 522/536).
 - Carried to Batch 38 / follow-up: Electron `.kt` reference search counts comment/string matches (pre-existing);
   the Nx `ptah-cli:copy-wasm` target lacks the manifest and `assets/tree-sitter/**` as cache inputs.
+- Committed bb54f328b. Lane A closing review (`reviews/lane-a-closing-review-30k.md`, Codex): APPROVE 9/10 —
+  R30K-01..03 CLOSED; the Lane G2 merge 082a0c15b conflict resolution approved; no new findings. Lane A closed.
 
 ---
 
@@ -4147,7 +4149,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 32c: Drop the dead tsconfig parameter — PENDING
+## Batch 32c: Drop the dead tsconfig parameter — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent), Lane H
 - Fallback executor: backend-developer, fresh invocation
@@ -4170,6 +4172,19 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/vscode-lm-tools --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - Codex review approves
+
+### Batch 32c review history
+
+- Author: backend-developer subagent. Reviewer: opencode (`opencode-go/glm-5.3`, user-pinned 2026-09-28 for
+  low-risk batches in place of Antigravity), cross-side. The reviewer changed from Codex because the batch is a pure
+  parameter removal.
+- r1 (`reviews/batch-32c-code-logic-review-r1.md`): APPROVE 9/10, 3 Minor — R32C-01 duplicated temp-root scaffolding
+  in the namespace spec, R32C-02 the new spec does not pin `context`/clean, R32C-03 the removed caller-rule precedence
+  row (informational). Carried as Minor; no fix round.
+- Footprint grew from 2 to 10 files (positional parameter: service signature, `callerPaths` option and every spec call
+  site) — see `batch-32c-executor-report.md`.
+- Team-leader verification (2026-09-28): workspace-intelligence, vscode-lm-tools, ptah-electron test/lint/typecheck
+  pass; ptah-cli typecheck, validate-deps pass; audit TOTAL 300; no production `callerPaths` caller left.
 
 ---
 

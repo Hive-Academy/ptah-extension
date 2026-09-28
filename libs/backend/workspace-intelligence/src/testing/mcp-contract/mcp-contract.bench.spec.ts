@@ -578,21 +578,14 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
       ];
     }
 
-    async function buildRealGraph(
-      extraFiles: readonly string[] = [],
-      tsconfigPaths?: Record<string, string[]>,
-    ) {
+    async function buildRealGraph(extraFiles: readonly string[] = []) {
       const logger = makeLogger();
       const astAnalysis = new AstAnalysisService(logger, parser);
       const fileSystem = new FileSystemService(createRealFsProvider());
       const graph = new DependencyGraphService(astAnalysis, fileSystem, logger);
 
       const graphFiles = [...graphFileSet(), ...extraFiles];
-      const builtGraph = await graph.buildGraph(
-        graphFiles,
-        fixture.root,
-        tsconfigPaths,
-      );
+      const builtGraph = await graph.buildGraph(graphFiles, fixture.root);
       return { graph, builtGraph };
     }
 
@@ -640,7 +633,7 @@ describe('MCP tool contract benchmark (size + recall vs native)', () => {
     });
 
     it('a bare/workspace-alias import with no tsconfig paths given is unconditionally reported partial with resolver-context-partial (r1 defect 8, forced case)', async () => {
-      // An extra file with one bare specifier no `tsconfigPaths` claims. This
+      // An extra file with one bare specifier no tsconfig `paths` claims. This
       // is a real ambiguous case (Batch 32b, User Decision 20), not derived
       // from whatever the resolver happens to answer.
       const aliasConsumerPath = `${fixture.root}/flat-directory/bare-alias-consumer.ts`;

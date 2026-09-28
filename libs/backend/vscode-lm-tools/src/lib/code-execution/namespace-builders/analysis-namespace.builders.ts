@@ -537,7 +537,6 @@ export function buildDependencyNamespace(
           // of an error. Resolve against the root the caller already passed.
           filePaths.map((file) => toAbsoluteWorkspacePath(workspaceRoot, file)),
           workspaceRoot,
-          undefined,
           discoveredFiles,
           // Only a build nobody awaits yields to the governor; see the option.
           {

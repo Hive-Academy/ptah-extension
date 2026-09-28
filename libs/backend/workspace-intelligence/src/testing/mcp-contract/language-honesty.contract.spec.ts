@@ -964,7 +964,7 @@ async function graphHonesty(
       realFileSystem(),
       silentLogger(),
     );
-    await svc.buildGraph([tsFile, helperFile, pyFile], fixture.root, {});
+    await svc.buildGraph([tsFile, helperFile, pyFile], fixture.root);
 
     if (mode === 'dependents' || mode === 'dependencies') {
       const answer =

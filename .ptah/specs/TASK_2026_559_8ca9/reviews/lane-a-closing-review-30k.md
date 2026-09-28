@@ -1,0 +1,69 @@
+﻿# Lane A closing code-logic review — Batch 30k
+
+## Verdict
+
+**Recommendation: APPROVE — 9/10.** R30K-01, R30K-02 and R30K-03 are **CLOSED**. The reviewed merge resolution is **APPROVED**. No new actionable findings were established in this closing scope: 0 Blocking, 0 Serious, 0 Moderate, 0 Minor.
+
+Reviewed commits `bb54f328b` and `082a0c15ba5f0dd631f81eb1cdb2ff73d3fe6fb0`, including the latter's combined conflict diff and comparison with its Lane G2 parent `fb94c68f0`. This is a closing verification of the fixes and merge boundaries, not another review of all 32a/32b work or the concurrent Batch 32c edits.
+
+All execution used an exported copy of `082a0c15b` under TEMP, with the installed dependencies linked into it. Working-tree application changes were not used. Paths and line numbers below refer to that committed snapshot. `WI` abbreviates `libs/backend/workspace-intelligence/src`.
+
+## Rolled-forward findings
+
+| Finding                                                         | Status     | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **R30K-01 — corrupt non-empty packed Kotlin WASM passes**       | **CLOSED** | Repeated the original same-length, first-byte flip on the real copied Kotlin asset, then built actual tarball, ASAR and VSIX fixtures. Every production verifier now reports `wasm/tree-sitter-kotlin.wasm does not match the reviewed vendored grammar`. Complete fixtures pass. CLI verifies size and SHA-256 at `apps/ptah-cli/scripts/verify-packed-wasm.cjs:139–143`; Electron does likewise at `apps/ptah-electron/scripts/verify-packed-wasm.js:155–159`; VSIX hashes the extracted member at `apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs:110–116`.                                                                        |
+| **R30K-02 — valid Kotlin receives an unqualified syntax error** | **CLOSED** | Replayed `object Keys { const val A = 1 }` and `class C { init { println() } }` through the real grammar/parser/provider. Both Kotlin-only requests return `status:'unavailable'`, `clean:false`, `failedByReason:{parse:1}`, `kotlin:grammar-limit`, and a “Syntax not validated” reason explaining recovery without a located error. Neither claims a severity-error syntax diagnostic. The branch is at `WI/diagnostics/language-aware-diagnostics-provider.ts:1080–1086`; qualification is added at `:750–782`. The committed integration suite passed, including genuine broken Kotlin and a mixed valid-limited/broken request.            |
+| **R30K-03 — comments delete Kotlin imports**                    | **CLOSED** | The real merged analyzer reports exactly one import for each probe: `import a./* c */b.C` → `a.b.C`; `import a./* c */b.*` → `a.b`; `import a./* c */b.C as D` → `a.b.C`. The committed eight-case regression additionally covers comments before/after and verifies imported-name parity. The one-pattern query is in `WI/ast/languages/kotlin.language.ts`; `ast-analysis.service.ts:115` removes comment nodes, and `:486` unquotes the resulting text. Cross-language parity probes against the G2-parent analyzer pass for TS, JS, Python, Go, C#, Java and Rust. Literal `/*...*/` text inside TS/JS/Go module strings survives unchanged. |
+
+### Packed-asset details
+
+The expected Kotlin identity still comes from the committed manifest, rather than the tested archive. CLI/Electron read the reviewed manifest digest and size; VSIX obtains vendored paths and digests through `copy-wasm.js --list-vendored` (`scripts/copy-wasm.js:498`). The VSIX listing carries a digest, not a separate byte count; equality to the reviewed SHA-256 adequately checks the byte identity and does not leave the prior same-length bypass.
+
+The fixture matrix also rejects empty/missing WASM and missing/changed licence files in all three archive formats. Source-copy checks continue to reject changed WASM, changed/missing licence and a provenance byte-count mismatch before output creation. Therefore the fix strengthens the archive boundary without dropping the earlier provenance/licence checks.
+
+### Kotlin limitation ruling and coverage bound
+
+The approved approximation is now visible to callers. Unlocated Kotlin recovery is a refusal to validate, not evidence that valid source is erroneous. A located syntax error remains an error and names `kotlin:grammar-limit` in its message; successful Kotlin checks also carry the qualification. This satisfies the earlier ruling: source comments alone were insufficient, but a caller-visible limitation plus honest refusal is acceptable. It does not assert that the upstream grammar has become fully correct.
+
+`kotlin:grammar-limit` is a typed approximation in `libs/backend/platform-core/src/interfaces/language-coverage.interface.ts:107`. The compact-coverage size contract passed in the scoped project run and remains **994 characters**, below 1,000. The new id is 20 characters, shorter than the four longest already-enumerated approximation entries, so adding it cannot increase that fixed-cap worst case. The test helper's handwritten candidate list does not itself enumerate the new id; that omission does not invalidate this measured bound for this particular addition. Clean coverage still preserves retained approximations and the omission count.
+
+## Merge-resolution review
+
+**Verdict: APPROVE.** The conflict resolution is the required union, with no demonstrated loss at the reviewed seams.
+
+| Merge boundary               | Evidence                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CodeInsights` fields        | Comparing `ast-analysis.interfaces.ts` against the G2 parent shows only the added Batch 31 `unextractedDeclarations` field; `reExportSources` and `declarations` remain. Comparing against the Lane A side shows the G2 fields added without deleting the Batch 31 field.                                                                                                                    |
+| Returned result              | `WI/ast/ast-analysis.service.ts:233–250` independently carries unextracted exports, unextracted declarations, re-export sources and scoped declarations. Their conditional spreads do not overwrite one another.                                                                                                                                                                             |
+| Legacy import sources        | `:486` composes `unquoteModuleString(textWithoutComments(sourceCapture))`. The comment helper uses actual comment-node types, not a text regex over string contents. A comment-free capture returns its original text.                                                                                                                                                                       |
+| G2 extraction path           | `:213–222` retains the language extraction branch; scoped import declarations still pass through `extractLanguageImports`, while the legacy branch gets comment stripping. The seven-language comparison used the actual G2-parent service with the same merged parser/module inputs, isolating the conflict resolution's effect. Complete import arrays were equal for all seven languages. |
+| TS/JS re-export extraction   | Independent real-parser probes preserve sources `./dep`, `./star`, `./empty` for named, wildcard and empty-clause TypeScript re-exports; JavaScript wildcard source remains `./star`. Outputs equal the G2 parent.                                                                                                                                                                           |
+| Re-export graph edges        | A separate real-parser → analyzer → `DependencyGraphService` probe built named, wildcard and empty-clause barrels over `leaf.ts`, with a consumer importing the empty-clause barrel. Each barrel has one dependency on the leaf; the leaf's dependents contain all three barrels plus the consumer. The committed dependency-graph tests also passed.                                        |
+| Batch 31 extraction handling | The merged function extractor still returns `unextractedDeclarations`, retains the C/C++ declarator walker and full name-position deduplication. Existing integration tests for these paths ran in the successful project suite.                                                                                                                                                             |
+
+The Kotlin plain/wildcard/alias probes deliberately compare the merged behavior with the G2 parent: Kotlin differs in the intended way because the G2 parent did not contain the Lane A comment fix. The TS/JS parity result is not a claim to redesign their pre-existing capture cardinality; the full arrays, including their existing shapes, remain unchanged by the merge.
+
+## New findings
+
+None. No `R30K-C-NN` finding is assigned without a concrete new failing scenario.
+
+## Logic checks
+
+- **Silent loss:** the three original failures now produce the required rejection, qualification or complete import result.
+- **Unexpected user action:** both formerly misleading valid Kotlin examples are marked not validated; a real syntax error remains visible.
+- **Wrong successful result:** comment-looking string contents are preserved; Kotlin comment nodes are removed exactly once without duplicate imports in the tested forms.
+- **Dependency/failure behavior:** source validation and archive verification both fail closed on their tested corruption cases. Parser limitations remain explicit rather than becoming clean answers.
+- **Boundary completeness:** the merge carries all three disputed fields, preserves G2 import behavior, and retains re-export edges through a real parser-to-graph execution.
+
+## Verification and limitations
+
+- **Scoped Nx test:** PASS, exit 0, **2m45s**, `@ptah-extension/workspace-intelligence:test`, `--skip-nx-cache`, executed from the exported commit. `NX_DAEMON=false` and `NX_ISOLATE_PLUGINS=false` avoided the plugin-worker startup problem seen in the earlier review. This was one successful scoped suite run; no full-workspace verification or formatter was run.
+- **Archive probes:** complete fixtures pass; same-length corrupted WASM fails in tarball, ASAR and VSIX; missing/empty and licence/provenance negatives also behave as expected.
+- **Direct graph probe:** PASS, one test, 58.206s including cold setup/transformation.
+- **Direct import-parity probe:** PASS, one test covering three Kotlin forms and seven comparison languages, 26.507s.
+- **Probe setup corrections:** the first reused parity fixture contained improperly escaped newlines and was corrected only under TEMP. A broad-root reused fixture then exceeded Jest's default five-second per-test timeout under concurrent verification load; its recorded Kotlin provider results were inspected, and the import comparison was rerun as a narrow standalone probe with a suitable timeout. Neither setup failure is attributed to production. No failed production suite was rerun merely to reread its log.
+- The first Nx invocation used an obsolete `nx/bin/nx.js` path and did not launch Nx; the actual scoped run used this installation's `nx/dist/bin/nx.js` entry point and passed.
+- No application release build/launch, broad lint or broad typecheck was required or claimed for this closing review. Full provenance re-attestation was not repeated; the scope here was the committed corrective code and its archive-byte enforcement.
+
+Evidence lives under `C:/Users/abdal/AppData/Local/Temp/ptah-closing-ee4bf670`: exported `snapshot`, `gate-results.json`, `kotlin-results.json`, `merge-import-results.json`, `graph-results.json`, and scoped test logs. The only task-folder writes are this report and its required `code-logic-review.md` mirror. No source, tests, batch plan or working-tree namespace-builder files were edited; no state-changing git command was used.

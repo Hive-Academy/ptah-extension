@@ -134,16 +134,15 @@ describe('buildResolverContext — tsconfig reading', () => {
     expect(ctx?.manifestsRead).toBe(1);
   });
 
-  it('puts the caller paths first and resolves tsconfig paths from its baseUrl', async () => {
+  it('resolves tsconfig paths from its baseUrl', async () => {
     const fileSystem = memoryFileSystem({
       [`${ROOT}/tsconfig.json`]:
         '{ "compilerOptions": { "baseUrl": "./src", "paths": { "@x": ["x"] } } }',
     });
 
-    const ctx = await build(fileSystem, { callerPaths: { '@c/*': ['c/*'] } });
+    const ctx = await build(fileSystem);
 
     expect(ctx?.tsconfigPaths).toEqual([
-      { pattern: '@c/*', targets: ['c/*'], baseDir: ROOT },
       { pattern: '@x', targets: ['x'], baseDir: `${ROOT}/src` },
     ]);
     expect(ctx?.baseUrls).toEqual([`${ROOT}/src`]);

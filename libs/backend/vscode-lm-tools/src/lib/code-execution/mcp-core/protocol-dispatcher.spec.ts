@@ -1789,12 +1789,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       it("reports root B's cap for a file under B while the session root A is complete", async () => {
         const graph = realGraph();
         await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
-        await graph.buildGraph(
-          [path.join(rootB, 'b.ts')],
-          rootB,
-          undefined,
-          5_001,
-        );
+        await graph.buildGraph([path.join(rootB, 'b.ts')], rootB, 5_001);
         const body = await query(graph, path.join(rootB, 'b.ts'));
         expect(body).toMatchObject({
           incomplete: true,
@@ -1805,12 +1800,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 
       it('reports no cap for a complete root B while the session root A is capped', async () => {
         const graph = realGraph();
-        await graph.buildGraph(
-          [path.join(rootA, 'a.ts')],
-          rootA,
-          undefined,
-          7_000,
-        );
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA, 7_000);
         await graph.buildGraph([path.join(rootB, 'b.ts')], rootB);
         const body = await query(graph, path.join(rootB, 'b.ts'));
         expect(body).not.toHaveProperty('incomplete');
@@ -1821,12 +1811,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       it('reports the nested root for a file under it, and the outer root elsewhere', async () => {
         const graph = realGraph();
         await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
-        await graph.buildGraph(
-          [path.join(nested, 'x.ts')],
-          nested,
-          undefined,
-          9,
-        );
+        await graph.buildGraph([path.join(nested, 'x.ts')], nested, 9);
         expect(await query(graph, path.join(nested, 'x.ts'))).toMatchObject({
           incomplete: true,
           graphedFiles: 1,
