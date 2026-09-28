@@ -64,14 +64,17 @@ Files this file imports (forward edges). Understand what a module depends on. Wo
 ### ptah_code_search_symbols { query, maxResults?, filePath? }
 Hybrid BM25 + vector search over indexed workspace symbols. Prefer over Grep to find a function/class by what it does across files. Returns an "index unavailable" result where the symbol index is absent (e.g. VS Code) — fall back to ptah_search_files / Grep there.
 
+### ptah_code_reindex { filePath? }
+Refresh the symbol index ptah_code_search_symbols reads. No filePath: starts a full workspace reindex in the background and returns at once. With an absolute filePath: reindexes that file and returns its stats. Returns an error where the symbol index is absent (e.g. VS Code).
+
 ### ptah_memory_search { query, maxResults?, global? }
 Search persistent cross-session memory (facts, preferences, prior decisions). Call when the user references past work ("last time", "previously", "the X we set up") or when prior context would help. Workspace-scoped by default. Returns "not available" where the memory store is absent (e.g. VS Code).
 
 ### ptah_relevance_rank_files { query, limit? }
 Rank workspace files by relevance to a query, each with a 0-100 score and reasons. Use to triage which files to open first instead of guessing. Works on all runtimes.
 
-### ptah_get_symbol_index (no parameters)
-Map of file → exported symbol names across the workspace import graph. Use to find where a symbol is exported from. Builds the import graph on first use. Works on all runtimes.
+### ptah_get_symbol_index { pathPrefix?, limit?, offset? }
+Map of file → exported symbol names across the workspace import graph, one page at a time; pass nextOffset as offset for the next page. Use to find where a symbol is exported from. Builds the import graph on first use; on very large workspaces the graph is partial and the result says incomplete: true. Works on all runtimes.
 
 ### ptah_project_detect_monorepo (no parameters)
 Detect monorepo tooling (nx/lerna/turbo/pnpm/yarn workspaces) and package count. Use to understand workspace layout before navigating a multi-package repo. Works on all runtimes.
@@ -306,7 +309,7 @@ Example: const info = await ptah.skill.describe('my-skill');
 
 ## Code Symbol Search
 
-For symbol search, prefer the first-class **\`ptah_code_search_symbols\`** tool (documented above) — no execute_code needed. The \`ptah.code\` namespace below is still available via execute_code, and is the only way to trigger \`reindex\`.
+For symbol search, prefer the first-class **\`ptah_code_search_symbols\`** tool (documented above) — no execute_code needed. The \`ptah.code\` namespace below is still available via execute_code; to trigger a reindex without execute_code, call **\`ptah_code_reindex\`**.
 
 The \`ptah.code\` namespace provides semantic search over indexed code symbols (functions, classes, methods) using hybrid BM25+vector search. Symbols are indexed from the workspace at boot and re-indexed on file save.
 
@@ -320,7 +323,7 @@ The \`ptah.code\` namespace provides semantic search over indexed code symbols (
 | \`ptah.code.reindex(opts?)\` | Trigger full or file-level workspace re-index | After large refactors or to force a fresh index |
 
 **\`ptah.code.searchSymbols(query, { maxResults? })\`**
-- Returns \`{ hits: SymbolHit[], bm25Only: false }\` on success
+- Returns \`{ hits: SymbolHit[], bm25Only: false, index }\` on success; \`index\` is \`{ symbolCount, indexAgeMs, reindexStarted, reindexInFlight }\` (\`null\` counts mean freshness is unknown). An empty or day-old index starts a background reindex
 - Returns \`{ hits: [], error: "index unavailable" }\` when SQLite is not running
 - Each \`SymbolHit\`: \`{ subject, filePath, symbolName, kind, text, score }\` (\`text\` is the symbol body/signature)
 - Hybrid ranked over the dedicated code symbol index; \`bm25Only: true\` when the vector index is unavailable
@@ -333,8 +336,8 @@ else { result.hits.forEach(h => console.log(h.subject, h.score)); }
 \`\`\`
 
 **\`ptah.code.reindex({ filePath? })\`**
-- No \`filePath\`: full workspace re-index (background, returns \`IndexingStats\`)
-- With \`filePath\`: incremental re-index for a single file
+- No \`filePath\`: starts a full workspace re-index in the background and returns at once with \`{ started, symbolCount, indexAgeMs, reindexInFlight }\`
+- With \`filePath\`: incremental re-index for a single file, awaited; returns \`{ filesScanned, symbolsIndexed, errors, durationMs }\`
 - Returns \`{ error: "index unavailable" }\` when indexer is not registered
 
 ### ptah.code.searchSymbols(query, options?)
@@ -361,13 +364,14 @@ Options:
 Trigger workspace re-indexing or re-index a single file.
 
 \`\`\`typescript
-const stats = await ptah.code.reindex();
-if ('error' in stats) {
-  console.log('Reindex unavailable:', stats.error);
+const run = await ptah.code.reindex();
+if ('error' in run) {
+  console.log('Reindex unavailable:', run.error);
 } else {
-  console.log(\`Indexed \${stats.symbolsIndexed} symbols in \${stats.durationMs}ms\`);
+  console.log(\`Reindex started: \${run.started}; \${run.symbolCount} symbols indexed so far\`);
 }
-await ptah.code.reindex({ filePath: '/absolute/path/to/file.ts' });
+const stats = await ptah.code.reindex({ filePath: '/absolute/path/to/file.ts' });
+if (!('error' in stats)) console.log(\`Indexed \${stats.symbolsIndexed} symbols in \${stats.durationMs}ms\`);
 \`\`\`
 
 Both methods return \`{ error: "..." }\` when SQLite or the indexer is unavailable — always check for the error variant before accessing stats fields.

@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import {
   formatLspDefinitions,
@@ -15,7 +18,20 @@ import {
   formatBrowserClose,
   formatBrowserRecordStart,
   formatBrowserRecordStop,
+  formatSearchFiles,
+  type EvaluateValueSpool,
 } from './mcp-response-formatter';
+import {
+  applyToolResultBudget,
+  DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+  getToolResultBudget,
+  spoolToolText,
+  type SpoolOutcome,
+} from './tool-result-budget';
+import {
+  countTokens,
+  type TextBudget,
+} from '@ptah-extension/tool-output-reducers';
 import type {
   BrowserScreenshotResult,
   BrowserEvaluateResult,
@@ -25,6 +41,44 @@ import type {
   BrowserRecordStopResult,
 } from '../types';
 import type { AgentProcessInfo } from '@ptah-extension/shared';
+
+// TASK_2026_559 Batch 11: a capped search printed "Found: N files" with no sign
+// that more files matched.
+describe('mcp-response-formatter › formatSearchFiles truncation notice', () => {
+  const NOTICE = '(showing first 3; narrow the pattern or raise limit)';
+
+  it('says more matched and how to get them when more files are available', () => {
+    const out = formatSearchFiles(['a.ts', 'b.ts', 'c.ts'], true);
+    expect(out).toContain(`Found: more than 3 files ${NOTICE}`);
+    expect(out).toContain('c.ts');
+  });
+
+  it('puts the notice before the list, so a cut tail cannot drop it', () => {
+    const files = Array.from({ length: 3 }, (_, i) => `f${i}.ts`);
+    const out = formatSearchFiles(files, true);
+    expect(out.indexOf(NOTICE)).toBeLessThan(out.indexOf('f0.ts'));
+  });
+
+  it('adds no notice when the result count equals the limit and nothing more matched', () => {
+    const out = formatSearchFiles(['a.ts', 'b.ts', 'c.ts'], false);
+    expect(out).toContain('Found: 3 files');
+    expect(out).not.toContain('showing first');
+    expect(out).not.toContain('more than');
+  });
+
+  it('adds no notice by default (under the limit)', () => {
+    const out = formatSearchFiles(['a.ts']);
+    expect(out).toContain('Found: 1 file');
+    expect(out).not.toContain('showing first');
+  });
+
+  it('uses the singular for a single shown file', () => {
+    const out = formatSearchFiles(['a.ts'], true);
+    expect(out).toContain(
+      'Found: more than 1 file (showing first 1; narrow the pattern or raise limit)',
+    );
+  });
+});
 
 describe('mcp-response-formatter › formatLspDefinitions', () => {
   it('falls back to JSON when defs is not an array', () => {
@@ -387,40 +441,256 @@ describe('mcp-response-formatter › formatBrowserScreenshot', () => {
 });
 
 describe('mcp-response-formatter › formatBrowserEvaluate', () => {
-  it('renders error branch', () => {
-    const out = formatBrowserEvaluate({
+  const noSpool: EvaluateValueSpool = () => {
+    throw new Error('spool must not be called for a result within the budget');
+  };
+
+  function evaluate(result: Partial<BrowserEvaluateResult>): Promise<string> {
+    return formatBrowserEvaluate(
+      result as BrowserEvaluateResult,
+      getToolResultBudget('ptah_browser_evaluate'),
+      noSpool,
+    );
+  }
+
+  it('renders error branch', async () => {
+    const out = await evaluate({
       value: undefined,
       type: 'undefined',
       error: 'eval blew up',
-    } as BrowserEvaluateResult);
+    });
     expect(out).toMatch(/JavaScript Evaluation Failed/);
     expect(out).toMatch(/eval blew up/);
   });
 
-  it('renders object value as JSON code block', () => {
-    const out = formatBrowserEvaluate({
-      value: { a: 1 },
-      type: 'object',
-    } as BrowserEvaluateResult);
+  it('renders object value as JSON code block', async () => {
+    const out = await evaluate({ value: { a: 1 }, type: 'object' });
     expect(out).toMatch(/JavaScript Evaluation Result/);
     expect(out).toMatch(/"a": 1/);
   });
 
-  it('renders short primitive value as inline paragraph', () => {
-    const out = formatBrowserEvaluate({
-      value: 42,
-      type: 'number',
-    } as BrowserEvaluateResult);
+  it('renders short primitive value as inline paragraph', async () => {
+    const out = await evaluate({ value: 42, type: 'number' });
     expect(out).toMatch(/Value:\*\* 42/);
   });
 
-  it('renders long primitive as code block', () => {
+  it('renders long primitive as code block, whole, within the budget', async () => {
     const longStr = 'x'.repeat(150);
-    const out = formatBrowserEvaluate({
-      value: longStr,
-      type: 'string',
-    } as BrowserEvaluateResult);
-    expect(out).toContain(longStr);
+    const out = await evaluate({ value: longStr, type: 'string' });
+    expect(out).toContain('```json\n' + longStr + '\n```');
+    expect(out).not.toContain('[...truncated');
+  });
+});
+
+// TASK_2026_559 Batch 18: the stringified value was unbounded, so `evaluate`
+// bypassed the 32 KB cap of ptah_browser_content. Over the tool's result
+// budget, the full value is now spooled (User Decision 7) and the value is
+// cut so the whole answer, trailer included, fits the budget; the budget
+// step then returns it unchanged, so the trailer stays visible.
+describe('mcp-response-formatter › formatBrowserEvaluate budget cut', () => {
+  const BUDGET = getToolResultBudget('ptah_browser_evaluate');
+  const HINT = 'for page content use ptah_browser_content with a selector]';
+  const SPOOL_PATH = '/spool/.ptah/tmp/mcp-out/18-1-abcd.txt';
+  const LONE_HIGH_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/;
+
+  /** A spool that records what it was given and reports `outcome`. */
+  function fakeSpool(outcome: SpoolOutcome = { path: SPOOL_PATH }): {
+    spool: EvaluateValueSpool;
+    saved: string[];
+  } {
+    const saved: string[] = [];
+    return {
+      saved,
+      spool: async (text) => {
+        saved.push(text);
+        return outcome;
+      },
+    };
+  }
+
+  function evaluate(
+    value: unknown,
+    type: string,
+    spool: EvaluateValueSpool,
+    budget: TextBudget = BUDGET,
+  ): Promise<string> {
+    return formatBrowserEvaluate(
+      { value, type } as BrowserEvaluateResult,
+      budget,
+      spool,
+    );
+  }
+
+  /** Independent oracle: the whole string, tokenized at once, and its length. */
+  function expectWithin(text: string, budget: TextBudget = BUDGET): void {
+    expect(text.length).toBeLessThanOrEqual(budget.chars);
+    expect(countTokens(text)).toBeLessThanOrEqual(budget.tokens);
+  }
+
+  it('uses the default 8,000-char / 2,000-token budget', () => {
+    expect(BUDGET).toEqual({
+      chars: DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+      tokens: 2000,
+    });
+  });
+
+  describe('at the budget boundary (a chars-bound budget)', () => {
+    const WIDE: TextBudget = { chars: 400, tokens: 100_000 };
+
+    async function overhead(): Promise<number> {
+      const probe = 'x'.repeat(101);
+      const { spool } = fakeSpool();
+      return (await evaluate(probe, 'string', spool, WIDE)).length - 101;
+    }
+
+    it('keeps a value whose answer is exactly at the budget whole, unspooled', async () => {
+      const value = 'x'.repeat(WIDE.chars - (await overhead()));
+      const { spool, saved } = fakeSpool();
+      const out = await evaluate(value, 'string', spool, WIDE);
+      expect(out.length).toBe(WIDE.chars);
+      expect(out).toContain('```json\n' + value + '\n```');
+      expect(out).not.toContain('[...truncated');
+      expect(saved).toEqual([]);
+    });
+
+    it('cuts a value one char over, spools it whole and stays within the budget', async () => {
+      const value = 'x'.repeat(WIDE.chars - (await overhead())) + 'Z';
+      const { spool, saved } = fakeSpool();
+      const out = await evaluate(value, 'string', spool, WIDE);
+      expect(saved).toEqual([value]);
+      expect(out).not.toContain('Z');
+      expectWithin(out, WIDE);
+      const match =
+        /\n\n\[\.\.\.truncated: (\d+) more chars; full value: (.+) — for page content use ptah_browser_content with a selector\]\n```\n$/.exec(
+          out,
+        );
+      expect(match).not.toBeNull();
+      expect(match?.[2]).toBe(SPOOL_PATH);
+      // The dropped count is exact: the kept prefix plus the dropped chars.
+      const kept =
+        out.indexOf('\n\n[...truncated') - out.indexOf('```json\n') - 8;
+      expect(kept + Number(match?.[1])).toBe(value.length);
+      // Maximal cut: one more kept char would push the answer over.
+      expect(out.length).toBeGreaterThan(WIDE.chars - 3);
+    });
+
+    it('never splits a surrogate pair, wherever the cut lands', async () => {
+      const value = '\u{1F600}'.repeat(500);
+      for (let chars = 300; chars < 312; chars++) {
+        const budget: TextBudget = { chars, tokens: 100_000 };
+        const { spool } = fakeSpool();
+        const out = await evaluate(value, 'string', spool, budget);
+        expectWithin(out, budget);
+        expect(out).toContain(' more chars; full value: ');
+        expect(out).not.toMatch(LONE_HIGH_SURROGATE);
+        const dropped = Number(/truncated: (\d+) more/.exec(out)?.[1]);
+        expect(dropped % 2).toBe(0);
+      }
+    });
+  });
+
+  it('cuts a 100 KB value: trailer and spool path present, raw tail absent', async () => {
+    const value = 'a'.repeat(4000) + 'TAIL-MARKER' + 'b'.repeat(100 * 1024);
+    const { spool, saved } = fakeSpool();
+    const out = await evaluate(value, 'string', spool);
+    expectWithin(out);
+    expect(saved).toEqual([value]);
+    expect(out).toContain(`; full value: ${SPOOL_PATH} — ${HINT}`);
+    expect(out).not.toContain('TAIL-MARKER');
+    // ('b' alone occurs in the trailer's "ptah_browser_content".)
+    expect(out).not.toContain('bb');
+  });
+
+  it('says so in the trailer when the full value could not be saved', async () => {
+    const { spool } = fakeSpool({ failure: 'EACCES' });
+    const out = await evaluate('q'.repeat(50_000), 'string', spool);
+    expectWithin(out);
+    expect(out).toContain(`; full value could not be saved: EACCES — ${HINT}`);
+  });
+
+  it('cuts a JSON-looking string as text and spools the string itself', async () => {
+    const value = JSON.stringify({ html: 'h'.repeat(20_000) });
+    const { spool, saved } = fakeSpool();
+    const out = await evaluate(value, 'string', spool);
+    expectWithin(out);
+    expect(out).toMatch(/\*\*Type:\*\* string/);
+    expect(out).toContain('```json\n{"html":"hhh');
+    expect(saved).toEqual([value]);
+  });
+
+  it('cuts a large object after pretty-printing it and spools the pretty JSON', async () => {
+    const value = { rows: Array.from({ length: 2000 }, (_, i) => `row-${i}`) };
+    const pretty = JSON.stringify(value, null, 2);
+    const { spool, saved } = fakeSpool();
+    const out = await evaluate(value, 'object', spool);
+    expectWithin(out);
+    expect(out).toMatch(/\*\*Type:\*\* object/);
+    expect(out).toContain('```json\n{\n  "rows": [\n    "row-0",');
+    expect(out).not.toContain('row-1999');
+    expect(saved).toEqual([pretty]);
+  });
+
+  it('renders a small object, null, undefined and a circular value as before, unspooled', async () => {
+    const { spool, saved } = fakeSpool();
+    expect(await evaluate({ a: 1 }, 'object', spool)).toContain(
+      '```json\n{\n  "a": 1\n}\n```',
+    );
+    expect(await evaluate(null, 'object', spool)).toContain(
+      '```json\nnull\n```',
+    );
+    expect(await evaluate(undefined, 'undefined', spool)).toMatch(
+      /\*\*Value:\*\* undefined/,
+    );
+    const circular: Record<string, unknown> = {};
+    circular['self'] = circular;
+    expect(await evaluate(circular, 'object', spool)).toBe(
+      '[Unable to serialize result]',
+    );
+    expect(saved).toEqual([]);
+  });
+
+  describe('with the real spool and the tool-result budget step', () => {
+    let root: string;
+
+    beforeEach(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-evaluate-cut-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    it('spools the full value byte-for-byte and the budget step keeps the trailer visible', async () => {
+      const value =
+        'a'.repeat(3000) + 'TAIL-MARKER' + 'é\u{1F600}'.repeat(40_000);
+      const formatted = await evaluate(value, 'string', (text) =>
+        spoolToolText(text, root, 18),
+      );
+      const outcome = await applyToolResultBudget({
+        text: formatted,
+        toolName: 'ptah_browser_evaluate',
+        requestId: 18,
+        spoolRoot: root,
+      });
+
+      // The budget step returns the answer unchanged: no second cut, no
+      // second spool, and the evaluate trailer is inline.
+      expect(outcome.text).toBe(formatted);
+      expect(outcome.truncated).toBe(false);
+      expectWithin(outcome.text);
+      expect(outcome.text).not.toContain('TAIL-MARKER');
+
+      const dir = path.join(root, '.ptah', 'tmp', 'mcp-out');
+      const files = fs.readdirSync(dir);
+      expect(files).toHaveLength(1);
+      const spoolFile = path.join(dir, files[0]);
+      expect(
+        fs.readFileSync(spoolFile).equals(Buffer.from(value, 'utf8')),
+      ).toBe(true);
+      expect(outcome.text).toContain(
+        `[...truncated: ${value.length - (outcome.text.indexOf('\n\n[...truncated') - outcome.text.indexOf('```json\n') - 8)} more chars; full value: ${spoolFile} — ${HINT}`,
+      );
+    });
   });
 });
 

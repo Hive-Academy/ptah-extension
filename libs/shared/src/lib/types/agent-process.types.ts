@@ -40,11 +40,7 @@ export const AgentId = {
 };
 
 export type AgentStatus =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'timeout'
-  | 'stopped';
+  'running' | 'completed' | 'failed' | 'timeout' | 'stopped';
 
 /**
  * Every CLI backed by a first-party adapter that spawns a real binary.
@@ -216,8 +212,16 @@ export interface AgentOutput {
   readonly agentId: AgentId;
   readonly stdout: string;
   readonly stderr: string;
-  /** Lines in the returned stdout + stderr */
+  /** Lines in the returned stdout + stderr, including final partial lines */
   readonly lineCount: number;
+  /** Lines in parsed stdout + stderr before applying the read window */
+  readonly totalLines: number;
+  /** Parsed lines excluded by the read window (totalLines minus lineCount) */
+  readonly omittedLines: number;
+  /** Parsed stdout lines before windowing (each stream is windowed on its own) */
+  readonly stdoutTotalLines: number;
+  /** Parsed stderr lines before windowing */
+  readonly stderrTotalLines: number;
   /** Whether output was truncated due to buffer limit */
   readonly truncated: boolean;
 }
@@ -253,10 +257,7 @@ export interface SpawnAgentResult {
  * - `unsupported` — nothing was delivered; `detail` carries the reason.
  */
 export type AgentMessagingMode =
-  | 'steer'
-  | 'interrupt-resume'
-  | 'queue-next-turn'
-  | 'unsupported';
+  'steer' | 'interrupt-resume' | 'queue-next-turn' | 'unsupported';
 
 /**
  * The best mechanism a CLI can offer, as reported by agent listings.
@@ -440,10 +441,7 @@ export interface LaneDeliverableCheck {
  * - `failed` — any other terminal status (`failed`, `timeout`, `stopped`).
  */
 export type LaneCompletionVerdict =
-  | 'delivered'
-  | 'no-deliverable'
-  | 'unverified'
-  | 'failed';
+  'delivered' | 'no-deliverable' | 'unverified' | 'failed';
 
 /** The payload pushed to the session that spawned the lane. */
 export interface LaneCompletionSignal {

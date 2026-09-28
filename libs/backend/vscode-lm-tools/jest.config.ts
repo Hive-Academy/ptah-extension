@@ -25,6 +25,10 @@ export default {
     // anything at all fails on a module this lib never uses.
     '(^|/)wasm-bundle-dir(\\.js)?$': '<rootDir>/__mocks__/wasm-bundle-dir.ts',
   },
+  // `@ptah-extension/tool-output-reducers` loads its Markdown reducer, which
+  // imports the ESM-only `marked`; ts-jest transpiles it to CommonJS for the
+  // specs, the same way that lib's own jest.config.ts does.
+  transformIgnorePatterns: ['node_modules/(?!marked/)'],
   coverageDirectory: '../../../coverage/libs/backend/vscode-lm-tools',
   coverageThreshold: {
     global: {

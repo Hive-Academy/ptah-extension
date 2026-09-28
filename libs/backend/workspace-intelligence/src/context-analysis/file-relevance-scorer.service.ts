@@ -51,7 +51,7 @@ export class FileRelevanceScorerService {
     file: IndexedFile,
     query?: string,
     symbolIndex?: SymbolIndex,
-    activeFileImports?: ImportInfo[]
+    activeFileImports?: ImportInfo[],
   ): FileRelevanceResult {
     const reasons: string[] = [];
     let score = 0;
@@ -71,8 +71,7 @@ export class FileRelevanceScorerService {
       if (fileName.includes(keyword)) {
         score += 10;
         reasons.push(`Filename contains "${keyword}"`);
-      }
-      else if (filePath.includes(keyword)) {
+      } else if (filePath.includes(keyword)) {
         score += 5;
         reasons.push(`Path contains "${keyword}"`);
       }
@@ -132,14 +131,20 @@ export class FileRelevanceScorerService {
       keywords,
       reasons,
       symbolIndex,
-      activeFileImports
+      activeFileImports,
     );
     const normalizedScore = Math.min(100, Math.max(0, score));
+    // A repeated query word (or one export matched by two words) scores once
+    // per match but is listed once: the reasons explain, they do not tally.
+    const uniqueReasons = [...new Set(reasons)];
 
     return {
       file,
       score: normalizedScore,
-      reasons: reasons.length > 0 ? reasons : ['No specific relevance matches'],
+      reasons:
+        uniqueReasons.length > 0
+          ? uniqueReasons
+          : ['No specific relevance matches'],
     };
   }
 
@@ -154,7 +159,7 @@ export class FileRelevanceScorerService {
     files: IndexedFile[],
     query?: string,
     symbolIndex?: SymbolIndex,
-    activeFileImports?: ImportInfo[]
+    activeFileImports?: ImportInfo[],
   ): Map<IndexedFile, number> {
     const scores = new Map<IndexedFile, number>();
     files.forEach((file) => {
@@ -162,12 +167,12 @@ export class FileRelevanceScorerService {
         file,
         query,
         symbolIndex,
-        activeFileImports
+        activeFileImports,
       );
       scores.set(file, result.score);
     });
     const sortedEntries = Array.from(scores.entries()).sort(
-      (a, b) => b[1] - a[1]
+      (a, b) => b[1] - a[1],
     );
 
     return new Map(sortedEntries);
@@ -186,11 +191,11 @@ export class FileRelevanceScorerService {
     query: string,
     limit = 10,
     symbolIndex?: SymbolIndex,
-    activeFileImports?: ImportInfo[]
+    activeFileImports?: ImportInfo[],
   ): FileRelevanceResult[] {
     const results = files
       .map((file) =>
-        this.scoreFile(file, query, symbolIndex, activeFileImports)
+        this.scoreFile(file, query, symbolIndex, activeFileImports),
       )
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
@@ -252,7 +257,7 @@ export class FileRelevanceScorerService {
   private scoreByLanguagePattern(
     file: IndexedFile,
     query: string,
-    reasons: string[]
+    reasons: string[],
   ): number {
     let score = 0;
     if (file.language === 'typescript' || file.language === 'javascript') {
@@ -294,7 +299,7 @@ export class FileRelevanceScorerService {
   private scoreByFrameworkPattern(
     file: IndexedFile,
     query: string,
-    reasons: string[]
+    reasons: string[],
   ): number {
     let score = 0;
     if (file.relativePath.includes('.component.')) {
@@ -336,7 +341,7 @@ export class FileRelevanceScorerService {
   private scoreByTaskPattern(
     file: IndexedFile,
     query: string,
-    reasons: string[]
+    reasons: string[],
   ): number {
     let score = 0;
     if (
@@ -400,7 +405,7 @@ export class FileRelevanceScorerService {
     keywords: string[],
     reasons: string[],
     symbolIndex?: SymbolIndex,
-    activeFileImports?: ImportInfo[]
+    activeFileImports?: ImportInfo[],
   ): number {
     if (!symbolIndex) {
       return 0;
@@ -437,7 +442,7 @@ export class FileRelevanceScorerService {
           if (importedSymbolNames.has(exp.name.toLowerCase())) {
             score += 10;
             reasons.push(
-              `Exports symbol '${exp.name}' imported by active file`
+              `Exports symbol '${exp.name}' imported by active file`,
             );
           }
         }

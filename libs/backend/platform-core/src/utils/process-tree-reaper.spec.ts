@@ -1,6 +1,5 @@
-const mockExecFile = jest.fn(
-  (...args: unknown[]) =>
-    (args.at(-1) as (error: Error | null) => void)(null),
+const mockExecFile = jest.fn((...args: unknown[]) =>
+  (args.at(-1) as (error: Error | null) => void)(null),
 );
 
 jest.mock('node:child_process', () => ({
@@ -153,5 +152,85 @@ describe('killProcessTree', () => {
     await reaped;
 
     expect(kill).toHaveBeenCalledWith(-8083, 'SIGKILL');
+  });
+
+  // TASK_2026_559 Batch 37b1a review r1 failure mode 2: a POSIX kill that
+  // leaves the process alive reaches `onError`, as a failed taskkill does.
+  it('reports a POSIX kill failure other than ESRCH to onError', async () => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+    const eperm = Object.assign(new Error('operation not permitted'), {
+      code: 'EPERM',
+    });
+    jest.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0)
+        throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+      throw eperm;
+    });
+    const onError = jest.fn();
+
+    const reaped = killProcessTree(8084, 'SIGKILL', onError);
+    await jest.advanceTimersByTimeAsync(100);
+    await reaped;
+
+    expect(onError).toHaveBeenCalledWith(eperm);
+  });
+
+  it('does not report a POSIX process that already exited (ESRCH)', async () => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+    jest.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    });
+    const onError = jest.fn();
+
+    const reaped = killProcessTree(8085, 'SIGKILL', onError);
+    await jest.advanceTimersByTimeAsync(100);
+    await reaped;
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  // Regression (PR #604 Linux CI): `isEsrch` gated on `instanceof Error`, but
+  // a real `process.kill` error is created in Node's realm, outside the Jest
+  // VM that runs this module, so the predicate was false for it. The poll's
+  // ESRCH fast path never fired and the already-gone process reached
+  // `onError` as a kill failure. The realm-local `new Error` above cannot
+  // reproduce that; the error thrown here is captured from a real exited
+  // child, so it crosses the realm boundary exactly as on CI.
+  it('does not report a real cross-realm ESRCH from process.kill', async () => {
+    jest.useFakeTimers();
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    });
+    const { spawnSync } = jest.requireActual(
+      'node:child_process',
+    ) as typeof import('node:child_process');
+    const exited = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    let realEsrch: unknown;
+    try {
+      process.kill(exited.pid as number, 0);
+    } catch (error: unknown) {
+      realEsrch = error;
+    }
+    expect(realEsrch).toBeDefined();
+
+    jest.spyOn(process, 'kill').mockImplementation(() => {
+      throw realEsrch;
+    });
+    const onError = jest.fn();
+
+    const reaped = killProcessTree(8086, 'SIGKILL', onError);
+    await jest.advanceTimersByTimeAsync(PROCESS_TREE_KILL_GRACE_MS);
+    await reaped;
+
+    expect(onError).not.toHaveBeenCalled();
   });
 });

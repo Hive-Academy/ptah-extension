@@ -15,6 +15,7 @@
  * @packageDocumentation
  */
 
+import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -26,7 +27,10 @@ import type {
 } from '@ptah-extension/platform-core';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
-import { ProjectDetectorService } from '../project-analysis/project-detector.service';
+import {
+  ProjectDetectorService,
+  type WorkspaceProject,
+} from '../project-analysis/project-detector.service';
 import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
 import { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
 import {
@@ -40,6 +44,7 @@ import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { CodeInsights } from '../ast/ast-analysis.interfaces';
 import { SupportedLanguage } from '../ast/ast.types';
+import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 
 /**
@@ -52,6 +57,21 @@ export interface WorkspaceInfo {
   readonly frameworks?: readonly string[];
   readonly hasPackageJson?: boolean;
   readonly hasTsConfig?: boolean;
+}
+
+/**
+ * A monorepo's frameworks: the distinct frameworks detected for its inspected
+ * projects, sorted. A project with only a language (`node`, `python`) adds
+ * none — a language is not a framework.
+ */
+function monorepoFrameworks(projects: readonly WorkspaceProject[]): string[] {
+  const frameworks = new Set<string>();
+  for (const project of projects) {
+    if (project.framework) {
+      frameworks.add(project.framework);
+    }
+  }
+  return [...frameworks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**
@@ -383,6 +403,17 @@ export class WorkspaceAnalyzerService implements IDisposable {
     return promise;
   }
 
+  /** A single-app root's framework, detected from its own project type. */
+  private async detectRootFrameworks(workspacePath: string): Promise<string[]> {
+    const projectType =
+      await this.projectDetector.detectProjectType(workspacePath);
+    const frameworksMap = await this.frameworkDetector.detectFrameworks(
+      new Map<string, ProjectType>([[workspacePath, projectType]]),
+    );
+    const framework = frameworksMap.get(workspacePath);
+    return framework ? [framework] : [];
+  }
+
   /**
    * Build the `WorkspaceInfo` for an explicit root.
    *
@@ -399,14 +430,9 @@ export class WorkspaceAnalyzerService implements IDisposable {
   ): Promise<WorkspaceInfo | undefined> {
     try {
       const info = await this.getProjectInfo(workspacePath);
-      const projectType =
-        await this.projectDetector.detectProjectType(workspacePath);
-      const projectTypesMap = new Map<string, ProjectType>();
-      projectTypesMap.set(workspacePath, projectType);
-
-      const frameworksMap =
-        await this.frameworkDetector.detectFrameworks(projectTypesMap);
-      const framework = frameworksMap.get(workspacePath);
+      const frameworks = info.monorepoType
+        ? monorepoFrameworks(info.projects ?? [])
+        : await this.detectRootFrameworks(workspacePath);
       const hasTypeScript =
         info.dependencies.some((dep) => dep === 'typescript') ||
         info.devDependencies.some((dep) => dep === 'typescript') ||
@@ -417,8 +443,12 @@ export class WorkspaceAnalyzerService implements IDisposable {
       const built: WorkspaceInfo = {
         name: info.name,
         path: info.path,
-        projectType: info.type,
-        frameworks: framework ? [framework] : [],
+        // A monorepo is named by its tool (`nx-monorepo`); its frameworks are
+        // the per-project types, never one read off the root dependencies.
+        projectType: info.monorepoType
+          ? `${info.monorepoType}-monorepo`
+          : info.type,
+        frameworks,
         hasPackageJson: info.dependencies.length > 0, // If we have dependencies, package.json exists
         hasTsConfig: hasTypeScript,
       };
@@ -562,10 +592,16 @@ export class WorkspaceAnalyzerService implements IDisposable {
   async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
     try {
       const content = await this.fileSystemService.readFile(filePath);
-      const language: SupportedLanguage =
-        filePath.endsWith('.ts') || filePath.endsWith('.tsx')
-          ? 'typescript'
-          : 'javascript';
+      // The shared extension map picks each parsed language's own grammar
+      // (`.tsx` since 29b, `.java`/`.rs` since 30); anything else keeps the
+      // JavaScript grammar this method has always fallen back to.
+      const extension = path.extname(filePath).toLowerCase();
+      const language: SupportedLanguage = Object.hasOwn(
+        EXTENSION_LANGUAGE_MAP,
+        extension,
+      )
+        ? EXTENSION_LANGUAGE_MAP[extension]
+        : 'javascript';
 
       this.logger.debug(
         `Extracting code insights from ${filePath} (language: ${language})`,

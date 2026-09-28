@@ -8,11 +8,13 @@
  *   - testing namespace — always graceful
  */
 
+import 'reflect-metadata';
 import {
   buildIDENamespace,
   IDE_NOT_AVAILABLE_MSG,
   type IIDECapabilities,
 } from './ide-namespace.builder';
+import type { LspLocationReport } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -162,6 +164,109 @@ describe('buildIDENamespace — LSP (capability-backed)', () => {
     expect(lsp.getDefinition).not.toHaveBeenCalled();
     expect(lsp.getReferences).not.toHaveBeenCalled();
   });
+
+  it('runs onDefinitionLookup once per valid definition lookup, and for no other LSP call', async () => {
+    const { capabilities, lsp } = createCapabilities();
+    const onDefinitionLookup = jest.fn();
+    const ns = buildIDENamespace(capabilities, { onDefinitionLookup });
+
+    await ns.lsp.getDefinition('x.ts', 1, 2);
+    await ns.lsp.getReferences('x.ts', 1, 2);
+    await ns.lsp.getTypeDefinition('x.ts', 1, 2);
+    await expect(ns.lsp.getDefinition('', 0, 0)).rejects.toThrow();
+
+    expect(onDefinitionLookup).toHaveBeenCalledTimes(1);
+    expect(lsp.getDefinition).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capability-backed — LSP reports (TASK_2026_559 Batch 26a)
+// ---------------------------------------------------------------------------
+
+describe('buildIDENamespace — LSP reports (capability-backed)', () => {
+  const HOST_REPORT: LspLocationReport = {
+    locations: [{ file: '/w/a.py', line: 3, column: 4 }],
+    mechanism: 'text-scan',
+    language: 'python',
+    languageSupported: true,
+    approximations: ['text-scan'],
+    truncated: true,
+  };
+
+  it('prefers the host report methods over the array APIs', async () => {
+    const { capabilities, lsp } = createCapabilities();
+    const getDefinitionReport = jest.fn().mockResolvedValue(HOST_REPORT);
+    const getReferencesReport = jest.fn().mockResolvedValue(HOST_REPORT);
+    capabilities.lsp = { ...lsp, getDefinitionReport, getReferencesReport };
+    const ns = buildIDENamespace(capabilities);
+
+    await expect(ns.lsp.getDefinitionReport('a.py', 1, 2)).resolves.toBe(
+      HOST_REPORT,
+    );
+    await expect(ns.lsp.getReferencesReport('a.py', 5, 6)).resolves.toBe(
+      HOST_REPORT,
+    );
+
+    expect(getDefinitionReport).toHaveBeenCalledWith('a.py', 1, 2);
+    expect(getReferencesReport).toHaveBeenCalledWith('a.py', 5, 6);
+    expect(lsp.getDefinition).not.toHaveBeenCalled();
+    expect(lsp.getReferences).not.toHaveBeenCalled();
+  });
+
+  it('wraps the array APIs as a provider-defined report when the host has no report method', async () => {
+    const { capabilities, lsp } = createCapabilities();
+    const location = { file: '/w/b.ts', line: 7, column: 1 };
+    lsp.getDefinition.mockResolvedValue([location]);
+    const ns = buildIDENamespace(capabilities);
+
+    await expect(ns.lsp.getDefinitionReport('b.ts', 1, 2)).resolves.toEqual({
+      locations: [location],
+      mechanism: 'provider-defined',
+      language: 'typescript',
+      languageSupported: null,
+      approximations: [],
+    });
+    await expect(ns.lsp.getReferencesReport('notes.xyz', 0, 0)).resolves.toEqual(
+      {
+        locations: [],
+        mechanism: 'provider-defined',
+        language: null,
+        languageSupported: null,
+        approximations: [],
+      },
+    );
+    expect(lsp.getDefinition).toHaveBeenCalledWith('b.ts', 1, 2);
+    expect(lsp.getReferences).toHaveBeenCalledWith('notes.xyz', 0, 0);
+  });
+
+  it('validates report inputs before delegating', async () => {
+    const { capabilities, lsp } = createCapabilities();
+    const getDefinitionReport = jest.fn().mockResolvedValue(HOST_REPORT);
+    capabilities.lsp = { ...lsp, getDefinitionReport };
+    const ns = buildIDENamespace(capabilities);
+
+    await expect(ns.lsp.getDefinitionReport(' ', 0, 0)).rejects.toThrow(
+      'File path cannot be empty',
+    );
+    await expect(ns.lsp.getReferencesReport('a.ts', -1, 0)).rejects.toThrow(
+      'Line and column must be non-negative',
+    );
+    expect(getDefinitionReport).not.toHaveBeenCalled();
+    expect(lsp.getReferences).not.toHaveBeenCalled();
+  });
+
+  it('runs onDefinitionLookup for a valid definition report, not for references', async () => {
+    const { capabilities } = createCapabilities();
+    const onDefinitionLookup = jest.fn();
+    const ns = buildIDENamespace(capabilities, { onDefinitionLookup });
+
+    await ns.lsp.getDefinitionReport('x.ts', 1, 2);
+    await ns.lsp.getReferencesReport('x.ts', 1, 2);
+    await expect(ns.lsp.getDefinitionReport('', 0, 0)).rejects.toThrow();
+
+    expect(onDefinitionLookup).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -292,6 +397,25 @@ describe('buildIDENamespace — graceful degradation (no capabilities)', () => {
     await expect(ns.lsp.getTypeDefinition('x.ts', 0, 0)).resolves.toEqual([]);
     await expect(ns.lsp.getHover('x.ts', 0, 0)).resolves.toBeNull();
     await expect(ns.lsp.getSignatureHelp('x.ts', 0, 0)).resolves.toBeNull();
+  });
+
+  // FB (Batch 26a): the no-host lookup is reported as `mechanism: 'none'`,
+  // never as an empty list that reads "no definitions".
+  it('LSP reports answer mechanism none with the file language', async () => {
+    const ns = buildIDENamespace();
+
+    await expect(ns.lsp.getDefinitionReport('src/a.py', 0, 0)).resolves.toEqual(
+      {
+        locations: [],
+        mechanism: 'none',
+        language: 'python',
+        languageSupported: false,
+        approximations: [],
+      },
+    );
+    await expect(
+      ns.lsp.getReferencesReport('README', 0, 0),
+    ).resolves.toMatchObject({ mechanism: 'none', language: null });
   });
 
   it('Editor methods return nulls / empty arrays', async () => {

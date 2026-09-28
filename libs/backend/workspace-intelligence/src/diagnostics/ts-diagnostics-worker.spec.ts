@@ -19,7 +19,10 @@
  */
 
 import { Worker } from 'node:worker_threads';
-import { TsDiagnosticsWorker } from './ts-diagnostics-worker';
+import {
+  TsDiagnosticsWorker,
+  type TsDiagnosticsRunRequest,
+} from './ts-diagnostics-worker';
 import { TS_DIAGNOSTICS_WORKER_SOURCE } from './ts-diagnostics-worker-source';
 
 jest.mock('node:worker_threads', () => {
@@ -98,12 +101,17 @@ function flush(): Promise<void> {
   });
 }
 
-function request(tsModulePath: string, root = '/ws') {
+function request(
+  tsModulePath: string,
+  root = '/ws',
+  lane: TsDiagnosticsRunRequest['lane'] = 'unscoped',
+) {
   return {
     tsModulePath,
     configPaths: [`${root}/tsconfig.json`],
     normRoot: root,
     platform: 'linux' as NodeJS.Platform,
+    lane,
   };
 }
 
@@ -322,6 +330,195 @@ describe('TsDiagnosticsWorker', () => {
 
       reply(workerA, 4);
       await expect(runA).resolves.toMatchObject({ programCount: 4 });
+    });
+  });
+
+  /**
+   * TASK_2026_559 Batch 19. The provider's 45 s budget answers the caller but
+   * keeps the compile running, so an abandoned whole-workspace run went on
+   * occupying the only thread for its compiler, and every later scoped check
+   * queued behind it (Task 1.2 case e: 86 s for ~21 s of work). Each compiler
+   * now has one thread per lane.
+   */
+  describe('scoped and unscoped lanes (TASK_2026_559 Batch 19)', () => {
+    const TS = '/compilers/a/typescript.js';
+
+    it('a scoped run gets its own thread and resolves while an unscoped run on the same compiler is still in flight', async () => {
+      let unscopedSettled = false;
+      const unscoped = sut.run(request(TS, '/ws', 'unscoped')).finally(() => {
+        unscopedSettled = true;
+      });
+      const scoped = sut.run(request(TS, '/ws', 'scoped'));
+
+      expect(WorkerMock.instances).toHaveLength(2);
+      const [unscopedThread, scopedThread] = WorkerMock.instances;
+      expect(unscopedThread.workerData.tsModulePath).toBe(TS);
+      expect(scopedThread.workerData.tsModulePath).toBe(TS);
+      expect(unscopedThread.posted).toHaveLength(1);
+      expect(scopedThread.posted).toHaveLength(1);
+
+      reply(scopedThread, 2);
+      await expect(scoped).resolves.toMatchObject({ programCount: 2 });
+      await flush();
+
+      // The unscoped run is kept, not cancelled: its thread is alive, still
+      // ref'd for its outstanding run, and its result still arrives.
+      expect(unscopedSettled).toBe(false);
+      expect(unscopedThread.terminateCalls).toBe(0);
+      expect(unscopedThread.refCalls).toBe(1);
+      expect(unscopedThread.unrefCalls).toBe(1);
+      // The scoped lane went idle on its own: unref'd once at construction
+      // and once when its run settled.
+      expect(scopedThread.unrefCalls).toBe(2);
+
+      reply(unscopedThread, 9);
+      await expect(unscoped).resolves.toMatchObject({ programCount: 9 });
+    });
+
+    it('two scoped runs share one lane and queue on it', async () => {
+      const first = sut.run(request(TS, '/wsA', 'scoped'));
+      const second = sut.run(request(TS, '/wsB', 'scoped'));
+
+      expect(WorkerMock.instances).toHaveLength(1);
+      const [thread] = WorkerMock.instances;
+      expect(thread.posted.map((m) => m['normRoot'])).toEqual(['/wsA', '/wsB']);
+
+      thread.emit('message', {
+        id: thread.posted[0]['id'],
+        ok: true,
+        collected: [],
+        errors: [],
+        programCount: 1,
+      });
+      reply(thread, 3);
+
+      await expect(first).resolves.toMatchObject({ programCount: 1 });
+      await expect(second).resolves.toMatchObject({ programCount: 3 });
+    });
+
+    it('two unscoped runs share one lane and queue on it', async () => {
+      const first = sut.run(request(TS, '/wsA', 'unscoped'));
+      const second = sut.run(request(TS, '/wsB', 'unscoped'));
+
+      expect(WorkerMock.instances).toHaveLength(1);
+      expect(WorkerMock.instances[0].posted).toHaveLength(2);
+
+      const [thread] = WorkerMock.instances;
+      thread.emit('message', {
+        id: thread.posted[0]['id'],
+        ok: true,
+        collected: [],
+        errors: [],
+        programCount: 1,
+      });
+      reply(thread, 1);
+      await Promise.all([first, second]);
+    });
+
+    it('a failure on one lane leaves the other lane of the same compiler running', async () => {
+      const unscoped = sut.run(request(TS, '/ws', 'unscoped'));
+      const scoped = sut.run(request(TS, '/ws', 'scoped'));
+      const [unscopedThread, scopedThread] = WorkerMock.instances;
+
+      unscopedThread.emit('error', new Error('unscoped lane died'));
+      await expect(unscoped).rejects.toThrow('unscoped lane died');
+      expect(scopedThread.terminateCalls).toBe(0);
+
+      reply(scopedThread, 4);
+      await expect(scoped).resolves.toMatchObject({ programCount: 4 });
+    });
+
+    it('each lane self-terminates after its own idle window', async () => {
+      jest.useFakeTimers();
+      const unscoped = sut.run(request(TS, '/ws', 'unscoped'));
+      const scoped = sut.run(request(TS, '/ws', 'scoped'));
+      const [unscopedThread, scopedThread] = WorkerMock.instances;
+
+      reply(scopedThread);
+      await scoped;
+      jest.advanceTimersByTime(60_000);
+
+      // The idle scoped lane gives its compiler back; the busy unscoped lane
+      // is untouched.
+      expect(scopedThread.terminateCalls).toBe(1);
+      expect(unscopedThread.terminateCalls).toBe(0);
+
+      reply(unscopedThread);
+      await unscoped;
+      jest.advanceTimersByTime(60_000);
+      expect(unscopedThread.terminateCalls).toBe(1);
+
+      // A terminated lane is respawned on demand, not reused.
+      const next = sut.run(request(TS, '/ws', 'scoped'));
+      expect(WorkerMock.instances).toHaveLength(3);
+      reply(WorkerMock.instances[2]);
+      await expect(next).resolves.toMatchObject({ programCount: 1 });
+    });
+
+    it('dispose() resolves only once every lane of every compiler is gone', async () => {
+      const runs = [
+        sut.run(request(TS, '/ws', 'unscoped')),
+        sut.run(request(TS, '/ws', 'scoped')),
+      ];
+      const settled = Promise.all(
+        runs.map((run) => expect(run).rejects.toThrow('disposed')),
+      );
+      const [unscopedThread, scopedThread] = WorkerMock.instances;
+      unscopedThread.holdTerminate = true;
+      scopedThread.holdTerminate = true;
+
+      let disposeResolved = false;
+      const disposal = sut.dispose().then(() => {
+        disposeResolved = true;
+      });
+      await settled;
+
+      scopedThread.finishTerminate();
+      await flush();
+      expect(disposeResolved).toBe(false);
+
+      unscopedThread.finishTerminate();
+      await disposal;
+      expect(disposeResolved).toBe(true);
+      expect(unscopedThread.terminateCalls).toBe(1);
+      expect(scopedThread.terminateCalls).toBe(1);
+    });
+
+    /**
+     * Batch 19 r1 S1(a). `dispose()` awaited a snapshot of the lanes, so a run
+     * posted while it was waiting for termination created a fresh thread that
+     * `dispose()` never saw — it resolved with that thread alive and ref'd.
+     */
+    it('a run posted while dispose() is in progress is refused and creates no thread', async () => {
+      const runs = [
+        sut.run(request(TS, '/ws', 'unscoped')),
+        sut.run(request(TS, '/ws', 'scoped')),
+      ];
+      const settled = Promise.all(
+        runs.map((run) => expect(run).rejects.toThrow('disposed')),
+      );
+      for (const instance of WorkerMock.instances) {
+        instance.holdTerminate = true;
+      }
+
+      const disposal = sut.dispose();
+      const late = sut.run(request(TS, '/ws', 'scoped'));
+      const lateSettled = expect(late).rejects.toThrow(
+        'TypeScript diagnostics worker was disposed.',
+      );
+
+      expect(WorkerMock.instances).toHaveLength(2);
+      for (const instance of WorkerMock.instances) instance.finishTerminate();
+      await disposal;
+      await settled;
+      await lateSettled;
+      expect(WorkerMock.instances).toHaveLength(2);
+
+      // Disposal ends a generation, not the pool: the next run is admitted.
+      const next = sut.run(request(TS, '/ws', 'scoped'));
+      expect(WorkerMock.instances).toHaveLength(3);
+      reply(WorkerMock.instances[2]);
+      await expect(next).resolves.toMatchObject({ programCount: 1 });
     });
   });
 

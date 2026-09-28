@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "consumers": [
+    "scripts/copy-wasm.js",
+    "apps/ptah-electron/scripts/verify-packed-wasm.js",
+    "apps/ptah-cli/scripts/verify-packed-wasm.cjs",
+    ".github/workflows/publish-cli.yml"
+  ],
+  "assets": [
+    {
+      "id": "runtime",
+      "kind": "runtime",
+      "active": true,
+      "filename": "web-tree-sitter.wasm",
+      "licence": "MIT",
+      "bytes": 209613,
+      "source": {
+        "kind": "package",
+        "package": "web-tree-sitter",
+        "version": "0.27.0",
+        "path": "web-tree-sitter.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "javascript",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-javascript.wasm",
+      "licence": "MIT",
+      "bytes": 411770,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-javascript.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "typescript",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-typescript.wasm",
+      "licence": "MIT",
+      "bytes": 1413849,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-typescript.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "python",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-python.wasm",
+      "licence": "MIT",
+      "bytes": 457883,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-python.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "go",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-go.wasm",
+      "licence": "MIT",
+      "bytes": 217182,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-go.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "c-sharp",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-c-sharp.wasm",
+      "licence": "MIT",
+      "bytes": 5103332,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-c-sharp.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "tsx",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-tsx.wasm",
+      "licence": "MIT",
+      "bytes": 1445638,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-tsx.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "java",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-java.wasm",
+      "licence": "MIT",
+      "bytes": 414641,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-java.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "rust",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-rust.wasm",
+      "licence": "MIT",
+      "bytes": 1113644,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-rust.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "php",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-php.wasm",
+      "licence": "MIT",
+      "bytes": 1058041,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-php.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "ruby",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-ruby.wasm",
+      "licence": "MIT",
+      "bytes": 2106352,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-ruby.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "cpp",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-cpp.wasm",
+      "licence": "MIT",
+      "bytes": 5394393,
+      "source": {
+        "kind": "package",
+        "package": "@vscode/tree-sitter-wasm",
+        "version": "0.3.1",
+        "path": "wasm/tree-sitter-cpp.wasm",
+        "licenceFile": "LICENSE"
+      }
+    },
+    {
+      "id": "kotlin",
+      "kind": "grammar",
+      "active": true,
+      "filename": "tree-sitter-kotlin.wasm",
+      "licence": "MIT",
+      "bytes": 3441042,
+      "source": {
+        "kind": "vendored",
+        "package": "@tree-sitter-grammars/tree-sitter-kotlin",
+        "version": "1.1.0",
+        "path": "assets/tree-sitter/tree-sitter-kotlin.wasm",
+        "licenceFile": "assets/tree-sitter/LICENSE.kotlin",
+        "sha256": "7009d69453bc8735e438b2818a633efb21c88f99782769abba60dffedfab73f7",
+        "licenceSha256": "0eea8dc45e89deeb03c7799bbbc7b4688f365fb274562f4540ecfebdea82e727",
+        "provenanceFile": "assets/tree-sitter/PROVENANCE.kotlin.json"
+      }
+    }
+  ]
+}

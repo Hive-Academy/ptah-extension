@@ -2172,6 +2172,14 @@ export interface RpcMethodRegistry {
     params: UpdateMarkDownloadedParams;
     result: UpdateMarkDownloadedResult;
   };
+  'diagnostics:go-vet-consent-get': {
+    params: DiagnosticsGoVetConsentGetParams;
+    result: DiagnosticsGoVetConsentGetResult;
+  };
+  'diagnostics:go-vet-consent-set': {
+    params: DiagnosticsGoVetConsentSetParams;
+    result: DiagnosticsGoVetConsentSetResult;
+  };
   'tasks:list': { params: TasksListParams; result: TasksListResult };
   'tasks:get': { params: TasksGetParams; result: TasksGetResult };
   'tasks:getArtifact': {
@@ -3457,6 +3465,80 @@ export interface CronNextFireResult {
   nextRunAt: number | null;
 }
 
+// --- `go vet` consent (TASK_2026_559 Batch 37b1c, O2 §3) -------------------
+
+/** Per-workspace `go vet` consent as the host judges it now. */
+export type GoVetConsentStateDto = 'off' | 'on' | 'stale';
+
+/**
+ * Why a stored consent no longer holds (User Decision 25): the folder moved,
+ * was replaced, or the Go binary changed. A `stale` consent never runs vet.
+ */
+export type GoVetConsentStaleReasonDto =
+  'root-moved' | 'root-replaced' | 'go-changed';
+
+/** Params for `diagnostics:go-vet-consent-get` — none. */
+export type DiagnosticsGoVetConsentGetParams = Record<string, never>;
+
+/** Response from `diagnostics:go-vet-consent-get`. */
+export interface DiagnosticsGoVetConsentGetResult {
+  /** `false` when the host has no per-workspace state storage. */
+  supported: boolean;
+  /** The active, host-registered workspace root, or `null`. */
+  workspace: { root: string } | null;
+  state: GoVetConsentStateDto;
+  /** Set only when `state` is `stale`. */
+  staleReason?: GoVetConsentStaleReasonDto;
+  /** The binary the consent records (`on`) or a grant would record; display only. */
+  goBinary?: string;
+  /**
+   * Opaque, host-issued identity of what this answer displays: the root's
+   * real path and file identity, and the Go binary a grant would record.
+   * Present whenever `workspace` is. A SET that enables must send it back
+   * unchanged; the host refuses (`workspace-changed` / `go-changed`) when the
+   * folder or the binary is no longer the one shown.
+   */
+  confirmToken?: string;
+}
+
+/** Params for `diagnostics:go-vet-consent-set`. */
+export interface DiagnosticsGoVetConsentSetParams {
+  enabled: boolean;
+  /**
+   * The root the caller last displayed (from GET). A comparison token only:
+   * the host writes to its own active root, and refuses with
+   * `workspace-changed` when the two differ.
+   */
+  workspaceRoot: string;
+  /**
+   * The `confirmToken` of the GET whose root and binary the user saw.
+   * Required when `enabled` is `true` (else `invalid-params`); ignored on a
+   * revoke, which is never refused for a changed target.
+   */
+  confirmToken?: string;
+  source: 'settings-ui' | 'cli';
+}
+
+/** Fixed refusal codes of `diagnostics:go-vet-consent-set`. */
+export type DiagnosticsGoVetConsentSetError =
+  | 'invalid-params'
+  | 'unsupported'
+  | 'no-workspace'
+  | 'workspace-changed'
+  | 'go-changed'
+  | 'no-go-binary'
+  | 'persist-failed';
+
+/** Response from `diagnostics:go-vet-consent-set`; success only after read-back. */
+export type DiagnosticsGoVetConsentSetResult =
+  | {
+      success: true;
+      state: 'on' | 'off';
+      /** On a grant: the binary the committed record binds (display). */
+      goBinary?: string;
+    }
+  | { success: false; error: DiagnosticsGoVetConsentSetError };
+
 /**
  * Valid RPC method names (compile-time enforced)
  * Use this type to ensure only valid methods can be called
@@ -3864,6 +3946,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'update:get-state': true,
   'update:check-now': true,
   'update:mark-downloaded': true,
+
+  'diagnostics:go-vet-consent-get': true,
+  'diagnostics:go-vet-consent-set': true,
 
   'tasks:list': true,
   'tasks:get': true,

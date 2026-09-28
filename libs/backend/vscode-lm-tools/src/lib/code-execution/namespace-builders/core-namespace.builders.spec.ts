@@ -23,15 +23,19 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import 'reflect-metadata';
 
+import * as path from 'path';
 import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
+import { withCoverageVerdict } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   IWorkspaceProvider,
   IFileSystemProvider,
   DiagnosticsResult,
+  LanguageCoverage,
+  NotCheckedFiles,
 } from '@ptah-extension/platform-core';
 import {
   buildWorkspaceNamespace,
@@ -39,6 +43,7 @@ import {
   buildDiagnosticsNamespace,
   type CoreNamespaceDependencies,
 } from './core-namespace.builders';
+import { formatDiagnostics } from '../mcp-core/mcp-response-formatter';
 
 // ---------------------------------------------------------------------------
 // Helpers — typed partial mocks
@@ -581,15 +586,19 @@ describe('buildDiagnosticsNamespace', () => {
       source: 'test',
       diagnostics: [],
     });
+    // Built with path.resolve so the entry is absolute on every platform:
+    // `D:/...` is relative on posix and would now be resolved against the root.
+    const root = path.resolve('/workspace');
+    const file = path.resolve(root, 'src/a.ts');
     const ns = buildDiagnosticsNamespace(
       provider,
-      createWorkspaceProviderMock('D:/workspace'),
+      createWorkspaceProviderMock(root),
     );
 
-    await ns.getErrors(['D:/workspace/src/a.ts']);
+    await ns.getErrors([file]);
 
-    expect(provider.getDiagnostics).toHaveBeenCalledWith('D:/workspace', {
-      files: ['D:/workspace/src/a.ts'],
+    expect(provider.getDiagnostics).toHaveBeenCalledWith(root, {
+      files: [file],
     });
   });
 
@@ -649,5 +658,319 @@ describe('buildDiagnosticsNamespace', () => {
     const payload = await ns.getErrors();
     expect(payload.status).toBe('available');
     expect(payload.diagnostics).toEqual([]);
+  });
+
+  describe('requested-file scope (TASK_2026_559 r1)', () => {
+    // A root that is absolute on the platform running the spec, spelled the
+    // way the workspace provider reports it.
+    const ROOT = process.platform === 'win32' ? 'D:\\repo' : '/repo';
+    // Diagnostic paths as the compiler reports them: forward slashes.
+    const onDisk = (relative: string): string =>
+      path.resolve(ROOT, relative).replace(/\\/g, '/');
+
+    function providerReturning(
+      entries: Array<{ file: string; messages: string[] }>,
+    ): jest.Mocked<IDiagnosticsProvider> {
+      return createDiagnosticsProvider({
+        status: 'available',
+        source: 'typescript-compiler',
+        diagnostics: entries.map(({ file, messages }) => ({
+          file,
+          diagnostics: messages.map((message, i) => ({
+            message,
+            line: i + 1,
+            severity: 'error' as const,
+          })),
+        })),
+      });
+    }
+
+    // The dispatcher's path: the namespace payload goes to the formatter as-is.
+    function render(payload: unknown): string {
+      return formatDiagnostics(payload);
+    }
+
+    it('resolves relative files against the session root, never the process cwd', async () => {
+      const provider = providerReturning([]);
+      const ns = buildDiagnosticsNamespace(
+        provider,
+        createWorkspaceProviderMock(ROOT),
+      );
+      const absolute = path.resolve(ROOT, 'libs/x/src/abs.ts');
+
+      const payload = await ns.getAll([
+        'src/a.ts',
+        './src/../src/z.ts',
+        absolute,
+      ]);
+
+      const expected = [
+        path.resolve(ROOT, 'src/a.ts'),
+        path.resolve(ROOT, 'src/z.ts'),
+        absolute,
+      ];
+      expect(provider.getDiagnostics).toHaveBeenCalledWith(ROOT, {
+        files: expected,
+      });
+      expect(payload.requestedFiles).toEqual(expected);
+    });
+
+    it('without a session root, forwards relative files unchanged and reports only the absolute ones as requested', async () => {
+      const provider = providerReturning([]);
+      const ns = buildDiagnosticsNamespace(
+        provider,
+        createWorkspaceProviderMock(undefined),
+      );
+      const absolute = path.resolve(ROOT, 'src/a.ts');
+
+      const payload = await ns.getAll(['src/z.ts', absolute]);
+
+      expect(provider.getDiagnostics).toHaveBeenCalledWith(undefined, {
+        files: ['src/z.ts', absolute],
+      });
+      expect(payload.requestedFiles).toEqual([absolute]);
+    });
+
+    it('carries no requested scope for an unscoped or empty-files call', async () => {
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([]),
+        createWorkspaceProviderMock(ROOT),
+      );
+      expect((await ns.getAll()).requestedFiles).toBeUndefined();
+      expect((await ns.getAll([])).requestedFiles).toBeUndefined();
+    });
+
+    it('a relative dot-segment request keeps its diagnostic ahead of 60 earlier-sorting siblings', async () => {
+      const files = ['./src/../src/z.ts'];
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([
+          {
+            file: onDisk('src/a.ts'),
+            messages: Array.from({ length: 60 }, (_, i) => `sib-${i}`),
+          },
+          { file: onDisk('src/z.ts'), messages: ['TARGET'] },
+        ]),
+        createWorkspaceProviderMock(ROOT),
+      );
+
+      const out = render(await ns.getAll(files));
+
+      expect(out).toContain('TARGET');
+      expect(out).not.toContain('No diagnostics in the requested files');
+      expect(out).toContain(
+        'Shown 50 of 61 (1 in requested files, 11 in sibling files omitted)',
+      );
+    });
+
+    it('a relative request selects only the file under the root, not every file sharing its suffix', async () => {
+      const files = ['src/a.ts'];
+      const ns = buildDiagnosticsNamespace(
+        providerReturning([
+          { file: onDisk('src/a.ts'), messages: ['REQUESTED'] },
+          { file: onDisk('packages/other/src/a.ts'), messages: ['OTHER'] },
+          {
+            file: onDisk('libs/b.ts'),
+            messages: Array.from({ length: 60 }, (_, i) => `sib-${i}`),
+          },
+        ]),
+        createWorkspaceProviderMock(ROOT),
+      );
+
+      const out = render(await ns.getAll(files));
+
+      expect(out).toContain('REQUESTED');
+      expect(out).not.toContain('OTHER');
+      expect(out).toContain(
+        'Shown 50 of 62 (1 in requested files, 12 in sibling files omitted)',
+      );
+      expect(out).toContain(`\`${onDisk('packages/other/src/a.ts')}\` (1)`);
+    });
+  });
+
+  describe('coverage forwarding (TASK_2026_559 Batch 25b)', () => {
+    const MIXED_UNSCOPED: LanguageCoverage = withCoverageVerdict({
+      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python'],
+      census: 'complete',
+      analyzed: null,
+      unchecked: 2,
+      failed: 0,
+      unsupported: 0,
+      unrecognised: 0,
+      nonSource: 0,
+      excluded: null,
+      omittedByCap: 0,
+      checks: 'type-check',
+    });
+    const NOT_CHECKED: NotCheckedFiles[] = [
+      {
+        language: 'python',
+        count: 2,
+        reason:
+          'The syntax check runs only on requested files: pass `files` to check them.',
+      },
+    ];
+
+    it('mixed repo never prints a bare No issues found', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock('D:/workspace'),
+      );
+
+      const out = formatDiagnostics(await ns.getErrors());
+
+      expect(out).not.toMatch(/No issues found/);
+      expect(out).toContain('2 files unchecked (pass `files` to check them)');
+      expect(out).toContain('2 python files');
+    });
+
+    it('forwards coverage and notChecked unchanged on the available arm, for every severity filter', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          ...availableResult,
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+        }),
+        createWorkspaceProviderMock(),
+      );
+
+      for (const payload of [
+        await ns.getErrors(),
+        await ns.getWarnings(),
+        await ns.getAll(),
+      ]) {
+        expect(payload.coverage).toBe(MIXED_UNSCOPED);
+        expect(payload.notChecked).toBe(NOT_CHECKED);
+      }
+    });
+
+    it('forwards coverage and notChecked on the unavailable arm', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'unavailable',
+          source: 'typescript-compiler',
+          reason: 'No tsconfig.json found under workspace root.',
+          coverage: MIXED_UNSCOPED,
+          notChecked: NOT_CHECKED,
+        }),
+        createWorkspaceProviderMock(),
+      );
+
+      const payload = await ns.getAll();
+
+      expect(payload).toMatchObject({
+        status: 'unavailable',
+        coverage: MIXED_UNSCOPED,
+        notChecked: NOT_CHECKED,
+        diagnostics: [],
+      });
+    });
+
+    it('leaves notChecked out when the provider names none', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          notChecked: [],
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock(),
+      );
+      expect('notChecked' in (await ns.getAll())).toBe(false);
+    });
+
+    // Batch 37b1b: the go vet run and the checker limits reach the formatter
+    // on both arms; without them it could print a false clean answer.
+    it.each(['available', 'unavailable'] as const)(
+      'forwards goVet, unmappedFindings and diagnosticsTruncated on the %s arm; the answer is not clean',
+      async (status) => {
+        const goVet = {
+          status: 'checked',
+          outcome: 'findings',
+          reason: 'unmapped-findings',
+          checkedFiles: 1,
+        } as const;
+        const clean = withCoverageVerdict({
+          ...MIXED_UNSCOPED,
+          unchecked: 0,
+        });
+        const fields = {
+          coverage: clean,
+          goVet,
+          unmappedFindings: 2,
+          diagnosticsTruncated: true,
+        };
+        const result: DiagnosticsResult =
+          status === 'available'
+            ? {
+                status,
+                source: 'tree-sitter-syntax',
+                diagnostics: [],
+                ...fields,
+              }
+            : { status, source: 'tree-sitter-syntax', reason: 'x', ...fields };
+        const ns = buildDiagnosticsNamespace(
+          createDiagnosticsProvider(result),
+          createWorkspaceProviderMock(),
+        );
+
+        const payload = await ns.getAll();
+
+        expect(payload.goVet).toBe(goVet);
+        expect(payload.unmappedFindings).toBe(2);
+        expect(payload.diagnosticsTruncated).toBe(true);
+        const out = formatDiagnostics(payload);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain('2 go vet findings could not be placed');
+      },
+    );
+
+    it('leaves the checker fields out when the provider reports none', async () => {
+      const ns = buildDiagnosticsNamespace(
+        createDiagnosticsProvider({
+          status: 'available',
+          source: 'typescript-compiler',
+          coverage: MIXED_UNSCOPED,
+          diagnostics: [],
+        }),
+        createWorkspaceProviderMock(),
+      );
+      const payload = await ns.getAll();
+      expect('goVet' in payload).toBe(false);
+      expect('unmappedFindings' in payload).toBe(false);
+      expect('diagnosticsTruncated' in payload).toBe(false);
+    });
+
+    it.each(['available', 'unavailable'] as const)(
+      'a provider with no coverage (the VS Code provider) is provider-defined on the %s arm, analyzed null, never clean',
+      async (status) => {
+        const result: DiagnosticsResult =
+          status === 'available'
+            ? { status, source: 'vscode-languages', diagnostics: [] }
+            : { status, source: 'vscode-languages', reason: 'No workspace.' };
+        const ns = buildDiagnosticsNamespace(
+          createDiagnosticsProvider(result),
+          createWorkspaceProviderMock(),
+        );
+
+        const payload = await ns.getAll();
+
+        expect(payload.coverage).toMatchObject({
+          clean: false,
+          checks: 'provider-defined',
+          census: 'unknown',
+          analyzed: null,
+        });
+        const out = formatDiagnostics(payload);
+        expect(out).not.toMatch(/No issues found/);
+        expect(out).toContain('provider-defined');
+      },
+    );
   });
 });

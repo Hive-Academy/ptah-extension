@@ -7,17 +7,20 @@
  * injected from platform-core (VS Code or Electron implementation).
  */
 
+import * as path from 'path';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
   DEFAULT_WORKSPACE_EXCLUDES,
 } from '@ptah-extension/workspace-intelligence';
+import { withCoverageVerdict } from '@ptah-extension/platform-core';
 import type {
   IDiagnosticsProvider,
   IWorkspaceProvider,
   IFileSystemProvider,
   DiagnosticsResult,
   FileDiagnostics,
+  LanguageCoverage,
 } from '@ptah-extension/platform-core';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
@@ -199,6 +202,16 @@ export function buildSearchNamespace(
  * compiles treats an empty scope as "nothing to check", and a caller that built
  * its list from a filter that matched nothing would silently get a clean answer
  * about no files at all.
+ *
+ * Relative `files` entries are resolved against the same session root the
+ * provider receives, so the provider and the formatter agree on which files
+ * were asked about; the resolved absolute scope rides on the payload as
+ * `requestedFiles`. See {@link resolveRequestedFiles}.
+ *
+ * The provider's `coverage` and `notChecked` are forwarded on both arms
+ * (TASK_2026_559 Batch 25b); a provider that reports no coverage gets
+ * {@link providerDefinedCoverage}, never a clean one. So are `goVet`,
+ * `unmappedFindings` and `diagnosticsTruncated` (Batch 37b).
  */
 export function buildDiagnosticsNamespace(
   diagnosticsProvider: IDiagnosticsProvider,
@@ -209,16 +222,40 @@ export function buildDiagnosticsNamespace(
     files?: readonly string[],
   ): Promise<DiagnosticsPayload> => {
     const root = resolveRootPerCall(workspaceProvider);
+    const scopeFiles =
+      files && files.length > 0 ? resolveRequestedFiles(files, root) : [];
     const result: DiagnosticsResult = await diagnosticsProvider.getDiagnostics(
       root,
-      files && files.length > 0 ? { files } : undefined,
+      scopeFiles.length > 0 ? { files: scopeFiles } : undefined,
     );
+
+    // Coverage rides on both arms (Batch 25b): an answer that did not check
+    // every file must say so to the formatter, whatever its status.
+    const coverage = result.coverage ?? providerDefinedCoverage();
+    const notChecked =
+      result.notChecked && result.notChecked.length > 0
+        ? { notChecked: result.notChecked }
+        : {};
+    // The go vet run and the checker limits (Batch 37b) ride along too: each
+    // one qualifies the answer in the formatter.
+    const checker = {
+      ...(result.goVet !== undefined ? { goVet: result.goVet } : {}),
+      ...(result.unmappedFindings !== undefined
+        ? { unmappedFindings: result.unmappedFindings }
+        : {}),
+      ...(result.diagnosticsTruncated === true
+        ? { diagnosticsTruncated: true }
+        : {}),
+    };
 
     if (result.status === 'unavailable') {
       return {
         status: 'unavailable',
         source: result.source,
         reason: result.reason,
+        coverage,
+        ...notChecked,
+        ...checker,
         diagnostics: [],
       };
     }
@@ -237,10 +274,20 @@ export function buildDiagnosticsNamespace(
       }
     }
 
+    // Only entries with a known absolute identity can be matched against the
+    // provider's diagnostic paths; see `resolveRequestedFiles`.
+    const requestedFiles = scopeFiles.filter(
+      (f) => typeof f === 'string' && path.isAbsolute(f),
+    );
+
     return {
       status: 'available',
       source: result.source,
+      coverage,
+      ...notChecked,
+      ...checker,
       diagnostics,
+      ...(requestedFiles.length > 0 ? { requestedFiles } : {}),
     };
   };
 
@@ -249,4 +296,52 @@ export function buildDiagnosticsNamespace(
     getWarnings: (files) => getPayload('warning', files),
     getAll: (files) => getPayload(undefined, files),
   };
+}
+
+/**
+ * The coverage of an answer whose provider reports none. The contract
+ * (`DiagnosticsCoverageFields` in platform-core) reads that as
+ * `provider-defined`, never as a complete census: the VS Code provider
+ * returns whatever the installed language extensions publish, so which
+ * languages and files were checked is not knowable here. Every count is
+ * `null` and the census `unknown`, so the answer is never clean.
+ */
+function providerDefinedCoverage(): LanguageCoverage {
+  return withCoverageVerdict({
+    // No capability claim: the host's language extensions decide.
+    supportedLanguages: [],
+    census: 'unknown',
+    analyzed: null,
+    unchecked: null,
+    failed: null,
+    unsupported: null,
+    unrecognised: null,
+    nonSource: null,
+    excluded: null,
+    omittedByCap: null,
+    checks: 'provider-defined',
+  });
+}
+
+/**
+ * The `files` scope with every relative entry resolved against the session
+ * root — the root the provider is handed, never the process cwd, which in a
+ * multi-session host is some other workspace.
+ *
+ * Without a root a relative entry has no identity to resolve to: it is passed
+ * on unchanged (the provider's documented no-root fallback) and, being
+ * relative, is left out of `requestedFiles`, so the formatter renders the
+ * result as unscoped rather than declaring a file it cannot identify clean.
+ * `files` arrives from tool arguments; a non-string entry is passed on as
+ * given and is never treated as requested.
+ */
+function resolveRequestedFiles(
+  files: readonly string[],
+  root: string | undefined,
+): string[] {
+  return files.map((file) =>
+    typeof file === 'string' && root && !path.isAbsolute(file)
+      ? path.resolve(root, file)
+      : file,
+  );
 }

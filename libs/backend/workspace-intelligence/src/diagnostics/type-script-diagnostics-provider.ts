@@ -246,6 +246,10 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
    * retries after this message either shares the same run or reads its result.
    * Abandoning it instead would make every retry start a SECOND full compile
    * beside the first, which is how a slow answer becomes a wedged machine.
+   *
+   * What a kept run occupies is its own lane only (`compute` passes the
+   * lane): a kept whole-workspace compile never delays a later scoped check,
+   * which runs on the compiler's other thread (TASK_2026_559 Batch 19).
    */
   private async withBudget(
     run: Promise<DiagnosticsResult>,
@@ -350,6 +354,16 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
     }
 
     const scoped = scopeFiles.length > 0;
+    // Admission is decided when the request starts, before its first await,
+    // and re-checked right before the worker is asked. A request that starts
+    // while the pool is being disposed is refused here and never admitted
+    // later (TASK_2026_559 Batch 19 r2, R2-S1).
+    const admission = tsDiagnosticsWorker.admissionToken();
+    if (admission === null) {
+      return unavailable(
+        'TypeScript type-check did not start: the diagnostics worker is being disposed.',
+      );
+    }
 
     // A scoped call never walks the workspace. Discovery is the whole cost this
     // path exists to avoid: it is a full recursive glob AND it feeds every
@@ -381,6 +395,17 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
       );
     }
 
+    // Discovery is the only await between admission and `run`, and `run`
+    // follows this check synchronously. If a disposal began in the meantime
+    // (finished or not), starting a compile now would create a thread after
+    // `dispose()` reported none left (TASK_2026_559 Batch 19 r1 S1). Nothing
+    // was checked, so this is `unavailable`, and it is not cached.
+    if (tsDiagnosticsWorker.admissionToken() !== admission) {
+      return unavailable(
+        'TypeScript type-check did not start: the diagnostics worker was disposed while its configs were being discovered.',
+      );
+    }
+
     let outcome: TsDiagnosticsRunOutcome;
     try {
       outcome = await tsDiagnosticsWorker.run({
@@ -388,6 +413,10 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
         configPaths,
         normRoot,
         platform: this.platform,
+        // A scoped check must never wait behind a whole-workspace compile on
+        // the same compiler — including one `withBudget` already answered for
+        // and deliberately left running.
+        lane: scoped ? 'scoped' : 'unscoped',
       });
     } catch (error: unknown) {
       // The worker died, timed out, or the compiler threw. Nothing was

@@ -22,17 +22,83 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  countTokens,
+  countTokensPiecewise,
+} from '@ptah-extension/tool-output-reducers';
 import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
 import {
+  DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+  DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+  getToolResultBudget,
+} from './tool-result-budget';
+import {
+  formatBrowserContent,
+  formatLspDefinitions,
+  formatLspReferences,
+  formatSearchFiles,
+  formatWebSearch,
+} from './mcp-response-formatter';
+import {
+  buildBrowserScreenshotTool,
+  buildSearchFilesTool,
+} from './tool-description.builder';
+import { buildServerInstructions } from './server-instructions';
+import {
+  getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
 } from './mcp-request-context';
-import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
+import type {
+  LspLocationReport,
+  MCPRequest,
+  MCPResponse,
+  PtahAPI,
+  SymbolIndexEntry,
+} from '../types';
+import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import {
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
+} from '../namespace-builders/browser-namespace.builder';
+import {
+  SYMBOL_INDEX_DEFAULT_LIMIT,
+  SYMBOL_INDEX_MAX_LIMIT,
+  pageSymbolIndex,
+  type ParsedSymbolIndexQuery,
+} from '../namespace-builders/symbol-index-query';
+import {
+  buildDependencyNamespace,
+  type AnalysisNamespaceDependencies,
+} from '../namespace-builders/analysis-namespace.builders';
+import {
+  buildIDENamespace,
+  type IIDECapabilities,
+} from '../namespace-builders/ide-namespace.builder';
+import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
+import {
+  IncompleteFileSearchError,
+  collectBounded,
+  createFailureTally,
+  walkGlobMatches,
+  withCoverageVerdict,
+  type IFileSystemProvider,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
+import { Result } from '@ptah-extension/shared';
+import {
+  DependencyGraphService,
+  type AstAnalysisService,
+  type CodeSymbolIndexer,
+  type FileSystemService,
+} from '@ptah-extension/workspace-intelligence';
 import {
   AgentRoleError,
   CliCommandLineTooLongError,
@@ -87,6 +153,67 @@ function buildDeps(
   };
 }
 
+/** A clean graph coverage (verdict first), for stubs of the graph tools. */
+const CLEAN_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
+  supportedLanguages: ['typescript', 'javascript'],
+  census: 'complete',
+  analyzed: 2,
+  unchecked: 0,
+  failed: 0,
+  unsupported: 0,
+  unrecognised: 0,
+  nonSource: 0,
+  excluded: null,
+  omittedByCap: 0,
+  resolution: {
+    external: 0,
+    unresolvedInternal: 0,
+    truncatedImports: 0,
+    edgeCapHit: false,
+    context: 'complete',
+  },
+});
+
+/** A qualified graph coverage: three Python files the graph cannot analyse. */
+const QUALIFIED_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
+  ...CLEAN_GRAPH_COVERAGE,
+  unsupported: 3,
+  unsupportedByLanguage: { python: 3 },
+});
+
+/**
+ * The Batch 23b members every stub of the graph tools needs: a graph-capable
+ * query file (no unsupported-language answer), the answering graph's coverage
+ * with the file in it, and discovery through `findFiles` (a stub that may
+ * return workspace-relative paths, as `ptah.search.findFiles` did).
+ */
+function graphToolStubs(
+  options: {
+    findFiles?: jest.Mock;
+    fileCoverage?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  const findFiles = options.findFiles ?? jest.fn().mockResolvedValue([]);
+  return {
+    unsupportedGraphLanguage: jest.fn(() => undefined),
+    discoverSourceFiles: jest.fn(async (root: string) => ({
+      files: ((await findFiles()) as string[]).map((file) =>
+        path.isAbsolute(file) ? file : path.join(root, file),
+      ),
+      truncated: false,
+      limit: 50_000,
+    })),
+    getGraphCoverageForFile: jest.fn(async (file: string) => ({
+      coverage: CLEAN_GRAPH_COVERAGE,
+      nodePath: file,
+      ...options.fileCoverage,
+    })),
+    getGraphCoverage: jest
+      .fn()
+      .mockResolvedValue({ coverage: CLEAN_GRAPH_COVERAGE }),
+  };
+}
+
 function makeRequest(overrides: Partial<MCPRequest> = {}): MCPRequest {
   return {
     jsonrpc: '2.0',
@@ -119,10 +246,12 @@ describe('protocol-handlers › handshake (initialize)', () => {
       protocolVersion: string;
       capabilities: { tools: Record<string, unknown> };
       serverInfo: { name: string; version: string };
+      instructions: string;
     };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.capabilities.tools).toEqual({});
     expect(result.serverInfo).toEqual({ name: 'ptah', version: '1.0.0' });
+    expect(result.instructions).toBe(buildServerInstructions());
     // Logger must record both the top-level MCP Request and the initialize hook.
     expect(logger.info).toHaveBeenCalled();
   });
@@ -654,6 +783,31 @@ describe('tools/call — task specs routing', () => {
     expect(tasks.check).toHaveBeenCalled();
   });
 
+  // TASK_2026_559 Batch 15 r1 S1: the page is sized by the SAME test the
+  // result budget applies, so the budget step never cuts inside a row.
+  it('hands ptah_task_list the result-budget test so the page fits whole', async () => {
+    const { tasks, deps } = buildTasksApi();
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'call-list',
+        method: 'tools/call',
+        params: { name: 'ptah_task_list', arguments: { limit: 5 } },
+      }),
+      deps,
+    );
+
+    expect(tasks.list).toHaveBeenCalledTimes(1);
+    const [args, options] = tasks.list.mock.calls[0] as [
+      unknown,
+      { fits?: (text: string) => boolean } | undefined,
+    ];
+    expect(args).toEqual({ limit: 5 });
+    expect(typeof options?.fits).toBe('function');
+    expect(options?.fits?.('{"ok":true}')).toBe(true);
+    expect(options?.fits?.('x'.repeat(8_001))).toBe(false);
+  });
+
   /**
    * A validation refusal is DATA, not a protocol error: the namespace returns
    * `{ ok: false, ... }` and the dispatcher passes it through as a successful
@@ -743,15 +897,18 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
 
     expect(executeCode).toBeDefined();
     expect(isEager(executeCode)).toBe(false);
-    expect(executeCode?._meta).toBeUndefined();
+    // Only the result-budget declaration (Task 2f.2), no alwaysLoad.
+    expect(executeCode?._meta).toEqual({
+      'anthropic/maxResultSizeChars': 8000,
+    });
   });
 
-  it('does NOT mark non-eager tools (e.g. a browser tool) with _meta', async () => {
+  it('does NOT mark non-eager tools (e.g. a browser tool) with alwaysLoad', async () => {
     const tools = await listTools();
     const browser = tools.find((t) => t.name === 'ptah_browser_navigate');
     expect(browser).toBeDefined();
     expect(isEager(browser)).toBe(false);
-    expect(browser?._meta).toBeUndefined();
+    expect(browser?._meta).toEqual({ 'anthropic/maxResultSizeChars': 8000 });
   });
 
   it('marks IDE-only eager tools only when hasIDECapabilities is true', async () => {
@@ -813,7 +970,8 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       deps,
     );
 
-    expect(findFiles).toHaveBeenCalledWith('**/*.ts', 10);
+    // One more than the limit, to learn whether the result was capped.
+    expect(findFiles).toHaveBeenCalledWith('**/*.ts', 11);
     const content = (
       res.result as { content: Array<{ type: string; text: string }> }
     ).content;
@@ -823,10 +981,275 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(content[0].text).toContain('b.ts');
   });
 
+  // TASK_2026_559 Batch 20.2p: per-record JSON keys cost the promised saving.
+  it('writes ptah_ast_analyze records as tables behind parse status and coverage', async () => {
+    const analyze = jest.fn().mockResolvedValue({
+      parseStatus: 'ok',
+      errorNodeCount: 0,
+      errorNodeCountCapped: false,
+      // Lane H merge (24r): the namespace returns the full coverage, verdict
+      // first; the dispatcher writes it compact (22c).
+      coverage: withCoverageVerdict({
+        supportedLanguages: ['typescript', 'javascript'],
+        census: 'complete',
+        analyzed: 1,
+        unchecked: 0,
+        failed: 0,
+        unsupported: 0,
+        unrecognised: 0,
+        nonSource: 0,
+        excluded: 0,
+        omittedByCap: 0,
+      }),
+      file: 'src/a.ts',
+      language: 'typescript',
+      functions: [
+        { name: 'load', parameters: ['id'], startLine: 1, endLine: 4 },
+        { name: 'save', parameters: [], startLine: 6, endLine: 9 },
+      ],
+      classes: [],
+      imports: [{ source: 'node:path', importedSymbols: ['join'] }],
+      exports: [{ name: 'load', kind: 'function' }],
+    });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        ast: { analyze } as unknown as PtahAPI['ast'],
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ast-1',
+        method: 'tools/call',
+        params: { name: 'ptah_ast_analyze', arguments: { file: 'src/a.ts' } },
+      }),
+      deps,
+    );
+
+    expect(analyze).toHaveBeenCalledWith('src/a.ts', undefined);
+    const content = (
+      res.result as { content: Array<{ type: string; text: string }> }
+    ).content;
+    expect(content[0].text).toBe(
+      '{"parseStatus":"ok","errorNodeCount":0,"errorNodeCountCapped":false,' +
+        '"coverage":{"clean":true,"analyzed":1},"file":"src/a.ts",' +
+        '"language":"typescript",' +
+        '"functions":[["name","parameters","startLine","endLine"],["load",["id"],1,4],["save",[],6,9]],' +
+        '"classes":[],"imports":[["source","importedSymbols"],["node:path",["join"]]],' +
+        '"exports":[["name","kind"],["load","function"]]}',
+    );
+  });
+
+  // TASK_2026_559 Batch 11: a capped search looked complete, and an empty
+  // pattern reached the provider and came back as its thrown error.
+  describe('ptah_search_files limit probe and argument validation', () => {
+    const NOTICE_TAIL = 'narrow the pattern or raise limit)';
+
+    async function searchFiles(
+      args: Record<string, unknown>,
+      findFiles: jest.Mock,
+    ): Promise<{ text: string; isError: boolean | undefined }> {
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          search: { findFiles } as unknown as PtahAPI['search'],
+        }),
+      });
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'sf',
+          method: 'tools/call',
+          params: { name: 'ptah_search_files', arguments: args },
+        }),
+        deps,
+      );
+      const result = res.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      return { text: result.content[0].text, isError: result.isError };
+    }
+
+    const files = (n: number): string[] =>
+      Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+
+    it('shows the first `limit` files and a notice when more matched', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(4));
+
+      const { text, isError } = await searchFiles(
+        { pattern: '**/*.ts', limit: 3 },
+        findFiles,
+      );
+
+      expect(isError).toBeFalsy();
+      expect(findFiles).toHaveBeenCalledWith('**/*.ts', 4);
+      expect(text).toContain(
+        'Found: more than 3 files (showing first 3; narrow the pattern or raise limit)',
+      );
+      expect(text).toContain('src/f2.ts');
+      expect(text).not.toContain('src/f3.ts');
+    });
+
+    it('applies the default limit of 50 through the same probe', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(51));
+
+      const { text } = await searchFiles({ pattern: '**/*' }, findFiles);
+
+      expect(findFiles).toHaveBeenCalledWith('**/*', 51);
+      expect(text).toContain('(showing first 50; ' + NOTICE_TAIL);
+      expect(text).toContain('src/f49.ts');
+      expect(text).not.toContain('src/f50.ts');
+    });
+
+    it('adds no notice when exactly `limit` files matched', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(3));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 3 },
+        findFiles,
+      );
+
+      expect(text).toContain('Found: 3 files');
+      expect(text).not.toContain(NOTICE_TAIL);
+    });
+
+    it('adds no notice under the limit', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(2));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 10 },
+        findFiles,
+      );
+
+      expect(text).toContain('Found: 2 files');
+      expect(text).not.toContain(NOTICE_TAIL);
+    });
+
+    it('caps a provider that ignores the requested maximum', async () => {
+      const findFiles = jest.fn().mockResolvedValue(files(9));
+
+      const { text } = await searchFiles(
+        { pattern: '*.ts', limit: 2 },
+        findFiles,
+      );
+
+      expect(text).toContain('(showing first 2; ' + NOTICE_TAIL);
+      expect(text).not.toContain('src/f2.ts');
+    });
+
+    it('treats a null limit as the default', async () => {
+      const findFiles = jest.fn().mockResolvedValue([]);
+
+      await searchFiles({ pattern: '*.ts', limit: null }, findFiles);
+
+      expect(findFiles).toHaveBeenCalledWith('*.ts', 51);
+    });
+
+    it.each([
+      ['an empty string', ''],
+      ['whitespace only', '   \t'],
+      ['a number', 42],
+      ['missing', undefined],
+    ])(
+      'returns a tool error without calling the provider when the pattern is %s',
+      async (_label, pattern) => {
+        const findFiles = jest.fn().mockResolvedValue([]);
+
+        const { text, isError } = await searchFiles({ pattern }, findFiles);
+
+        expect(isError).toBe(true);
+        expect(text).toBe(
+          'Error: "pattern" is required and must be a non-empty string.',
+        );
+        expect(findFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['zero', 0],
+      ['negative', -5],
+      ['a fraction', 2.5],
+      ['NaN', Number.NaN],
+      ['a numeric string', '10'],
+    ])(
+      'returns a tool error without calling the provider when the limit is %s',
+      async (_label, limit) => {
+        const findFiles = jest.fn().mockResolvedValue([]);
+
+        const { text, isError } = await searchFiles(
+          { pattern: '*.ts', limit },
+          findFiles,
+        );
+
+        expect(isError).toBe(true);
+        expect(text).toBe(
+          `Error: "limit" must be an integer from 1 to ${Number.MAX_SAFE_INTEGER} (omit it for the default 50).`,
+        );
+        expect(findFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    // TASK_2026_559 Batch 11b (r1 M1): discovery published `limit` as any
+    // number, so 0, -1 and 2.5 passed the schema and failed the handler.
+    it('advertises exactly the limits the handler accepts, and its default', async () => {
+      const schema = buildSearchFilesTool().inputSchema.properties['limit'] as {
+        type?: unknown;
+        minimum?: unknown;
+        maximum?: unknown;
+        default?: unknown;
+      };
+      const schemaAccepts = (value: number): boolean =>
+        (schema.type === 'integer'
+          ? Number.isInteger(value)
+          : schema.type === 'number') &&
+        (typeof schema.minimum !== 'number' || value >= schema.minimum) &&
+        (typeof schema.maximum !== 'number' || value <= schema.maximum);
+
+      for (const limit of [
+        1,
+        2,
+        50,
+        10_000,
+        Number.MAX_SAFE_INTEGER,
+        Number.MAX_SAFE_INTEGER + 1,
+        1e20,
+        0,
+        -1,
+        -50,
+        0.5,
+        2.5,
+      ]) {
+        const findFiles = jest.fn().mockResolvedValue([]);
+        const { isError } = await searchFiles(
+          { pattern: '*.ts', limit },
+          findFiles,
+        );
+        const handlerAccepts = !isError && findFiles.mock.calls.length === 1;
+        expect({ limit, accepted: schemaAccepts(limit) }).toEqual({
+          limit,
+          accepted: handlerAccepts,
+        });
+      }
+
+      const findFiles = jest.fn().mockResolvedValue([]);
+      await searchFiles({ pattern: '*.ts' }, findFiles);
+      expect(schema.default).toBe(50);
+      expect(findFiles).toHaveBeenCalledWith(
+        '*.ts',
+        Number(schema.default) + 1,
+      );
+    });
+  });
+
   it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {
     const root = path.resolve('/ws');
-    const isBuilt = jest.fn().mockResolvedValue(false);
-    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 2 });
+    let built = false;
+    const isBuilt = jest.fn(async () => built);
+    // A small workspace: the build ends inside the bounded wait, so the first
+    // call is answered.
+    const buildGraph = jest.fn(async () => {
+      built = true;
+      return { nodeCount: 2 };
+    });
     const getDependents = jest.fn().mockResolvedValue([]);
     const getInfo = jest.fn().mockResolvedValue({ path: root });
     const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
@@ -834,11 +1257,16 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     const deps = buildDeps({
       ptahAPI: buildPtahAPIStub({
         workspace: { getInfo } as unknown as PtahAPI['workspace'],
-        search: { findFiles } as unknown as PtahAPI['search'],
         dependencies: {
+          ...graphToolStubs({ findFiles }),
           isBuilt,
           buildGraph,
           getDependents,
+          reserveGraphBuild: jest.fn(() => 1),
+          getGraphBuildState: jest.fn(() => ({
+            generation: 1,
+            building: false,
+          })),
         } as unknown as PtahAPI['dependencies'],
       }),
     });
@@ -859,6 +1287,8 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(buildGraph).toHaveBeenCalledWith(
       [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
       root,
+      2,
+      { yieldToForeground: true, generation: 1 },
     );
     // Relative query arg resolved to absolute before querying.
     expect(getDependents).toHaveBeenCalledWith(path.join(root, 'src/a.ts'));
@@ -872,10 +1302,8 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         workspace: {
           getInfo: jest.fn().mockResolvedValue({ path: path.resolve('/ws') }),
         } as unknown as PtahAPI['workspace'],
-        search: {
-          findFiles: jest.fn().mockResolvedValue([]),
-        } as unknown as PtahAPI['search'],
         dependencies: {
+          ...graphToolStubs(),
           isBuilt: jest.fn().mockResolvedValue(true),
           getDependencies,
         } as unknown as PtahAPI['dependencies'],
@@ -896,6 +1324,982 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 
     expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
+
+  // Batch 23b: discovery is bounded (census limit) and every discovered file
+  // goes to the build, whose own fair parse cap (Batch 23a) chooses what it
+  // parses; a truncated discovery passes its limit so the census says so.
+  it.each([
+    ['a complete discovery', false],
+    ['a truncated discovery', true],
+  ])(
+    'builds from every file of %s and passes the discovered count',
+    async (_label, truncated) => {
+      const root = path.resolve('/ws');
+      const discovered = Array.from({ length: 5_354 }, (_, i) =>
+        path.join(root, `src/file-${String(i).padStart(4, '0')}.ts`),
+      );
+      const discoverSourceFiles = jest.fn().mockResolvedValue({
+        files: discovered,
+        truncated,
+        limit: 50_000,
+      });
+      const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 5_000 });
+      await handleMCPRequest(
+        makeRequest({
+          id: 'b23b-discovery',
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              discoverSourceFiles,
+              isBuilt: jest.fn().mockResolvedValue(false),
+              buildGraph,
+              getDependents: jest.fn().mockResolvedValue([]),
+              reserveGraphBuild: jest.fn(() => 1),
+              getGraphBuildState: jest.fn(() => ({
+                generation: 1,
+                building: false,
+              })),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+
+      expect(discoverSourceFiles).toHaveBeenCalledWith(root);
+      expect(buildGraph).toHaveBeenCalledWith(discovered, root, 5_354, {
+        yieldToForeground: true,
+        generation: 1,
+        ...(truncated ? { censusLimit: 50_000 } : {}),
+      });
+    },
+  );
+
+  // r4 B1 (FB): a workspace root that does not exist answered every graph
+  // tool with a clean, complete, empty graph. Real namespace and graph
+  // service; discovery runs the adapters' bounded call.
+  it.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s over a missing workspace root answers with an unknown census, never clean',
+    async (toolName) => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-r4-'));
+      const root = path.join(tempDir, 'nonexistent');
+      try {
+        const graph = new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () =>
+              Result.ok({
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+              }),
+            ),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => 'source'),
+          } as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+        const findFiles = jest.fn(
+          async (
+            pattern: string,
+            exclude: string[],
+            maxResults: number,
+            cwd: string,
+          ) => {
+            const tally = createFailureTally();
+            const matches = await collectBounded(
+              walkGlobMatches(pattern, {
+                exclude,
+                cwd,
+                dot: true,
+                onFailure: tally.onFailure,
+              }),
+              maxResults,
+            );
+            const failures = tally.failures();
+            if (failures !== undefined) {
+              throw new IncompleteFileSearchError(matches, failures);
+            }
+            return matches;
+          },
+        );
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => root },
+          fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b23b-r4-missing-root-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file: 'src/a.ts' } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: root }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const body = JSON.parse(
+          (res.result as { content: Array<{ text: string }> }).content[0].text,
+        ) as Record<string, unknown>;
+
+        expect(body).toMatchObject({
+          count: 0,
+          fileInGraph: false,
+          coverage: { clean: false, census: 'unknown' },
+        });
+        expect((body['coverage'] as { reasons: string[] }).reasons[0]).toBe(
+          'census?',
+        );
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // r3 B1 (FB): a discovery that could not read part of the tree builds a
+  // graph whose census is unknown, never a clean complete one.
+  it('builds with an unknown census when discovery reports unreadable paths', async () => {
+    const root = path.resolve('/ws');
+    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 1 });
+    await handleMCPRequest(
+      makeRequest({
+        id: 'b23b-unreadable',
+        method: 'tools/call',
+        params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: root }),
+          } as unknown as PtahAPI['workspace'],
+          dependencies: {
+            ...graphToolStubs(),
+            discoverSourceFiles: jest.fn().mockResolvedValue({
+              files: [path.join(root, 'a.ts')],
+              truncated: false,
+              limit: 50_000,
+              unreadable: { paths: 2, byCode: { EIO: 1, EACCES: 1 } },
+            }),
+            isBuilt: jest.fn().mockResolvedValue(false),
+            buildGraph,
+            getDependents: jest.fn().mockResolvedValue([]),
+            reserveGraphBuild: jest.fn(() => 1),
+            getGraphBuildState: jest.fn(() => ({
+              generation: 1,
+              building: false,
+            })),
+          } as unknown as PtahAPI['dependencies'],
+        }),
+      }),
+    );
+
+    expect(buildGraph).toHaveBeenCalledWith(
+      [path.join(root, 'a.ts')],
+      root,
+      1,
+      {
+        yieldToForeground: true,
+        generation: 1,
+        censusUnknown: true,
+      },
+    );
+  });
+
+  describe.each([
+    ['ptah_get_dependents', 'getDependents', 'dependents'],
+    ['ptah_get_dependencies', 'getDependencies', 'dependencies'],
+  ])('%s graph completeness', (toolName, method, listField) => {
+    const root = path.resolve('/ws');
+
+    async function call(coverage: Record<string, unknown>): Promise<{
+      body: Record<string, unknown>;
+      getGraphCoverageForFile: jest.Mock;
+    }> {
+      const getGraphCoverageForFile = jest.fn().mockResolvedValue(coverage);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b9-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: 'src/a.ts' } },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest.fn().mockResolvedValue([]),
+              getGraphCoverageForFile,
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const result = res.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      expect(result.isError).not.toBe(true);
+      return {
+        body: JSON.parse(result.content[0].text) as Record<string, unknown>,
+        getGraphCoverageForFile,
+      };
+    }
+
+    it('adds no completeness fields when the graph covers every discovered file', async () => {
+      const stored = path.join(root, 'Src/A.ts');
+      const { body, getGraphCoverageForFile } = await call({
+        graphedFiles: 120,
+        discoveredFiles: 120,
+        coverage: CLEAN_GRAPH_COVERAGE,
+        nodePath: stored,
+      });
+      expect(getGraphCoverageForFile).toHaveBeenCalledWith(
+        path.join(root, 'src/a.ts'),
+      );
+      // Batch 23b: status first, then coverage, then the graph's own
+      // spelling of the file, then the list.
+      expect(Object.keys(body)).toEqual([
+        'count',
+        'fileInGraph',
+        'coverage',
+        'file',
+        listField,
+      ]);
+      // Batch 22c: a clean coverage is written as `{clean, analyzed}` only.
+      expect(body).toEqual({
+        count: 0,
+        fileInGraph: true,
+        coverage: { clean: true, analyzed: 2 },
+        file: stored,
+        [listField]: [],
+      });
+    });
+
+    it('adds no completeness fields, and an unknown coverage, when no graph answers', async () => {
+      const unknown = withCoverageVerdict({
+        ...CLEAN_GRAPH_COVERAGE,
+        census: 'unknown',
+      });
+      const { body } = await call({ coverage: unknown });
+      expect(body).not.toHaveProperty('incomplete');
+      expect(body).not.toHaveProperty('graphedFiles');
+      expect(body).toMatchObject({
+        fileInGraph: false,
+        coverage: { clean: false, census: 'unknown' },
+        file: path.join(root, 'src/a.ts'),
+      });
+    });
+
+    it('says incomplete, with both counts, when the cap dropped files', async () => {
+      const { body } = await call({
+        graphedFiles: 5_000,
+        discoveredFiles: 5_354,
+        coverage: CLEAN_GRAPH_COVERAGE,
+      });
+      expect(body).toMatchObject({
+        [listField]: [],
+        count: 0,
+        incomplete: true,
+        graphedFiles: 5_000,
+        discoveredFiles: 5_354,
+      });
+    });
+  });
+
+  /**
+   * Batch 22c (User Decision 21): on a small answer the coverage block must
+   * not outweigh the answer. Overhead = exact o200k tokens of the answer
+   * text minus those of the same answer without `coverage`. Fails before
+   * 22c: the full block (every zero bucket, census, supportedLanguages,
+   * resolution) cost more than either cap.
+   */
+  describe('ptah_get_dependents coverage overhead on a small answer', () => {
+    const root = path.resolve('/ws');
+    const dependents = [
+      'libs/shared-core/src/consumer-a.ts',
+      'libs/shared-core/src/consumer-b.ts',
+      'apps/web/src/app/feature.ts',
+      'apps/api/src/main.ts',
+    ].map((file) => path.join(root, file));
+    /** Clean coverage over a small fixture workspace. */
+    const CLEAN_OVERHEAD_CAP = 40;
+    /** A typical qualified coverage (a few Python and shell files). */
+    const QUALIFIED_OVERHEAD_CAP = 120;
+    const TYPICAL_QUALIFIED = withCoverageVerdict({
+      supportedLanguages: ['typescript', 'javascript'],
+      census: 'complete',
+      analyzed: 128,
+      unchecked: 0,
+      failed: 0,
+      unsupported: 2,
+      unrecognised: 3,
+      nonSource: 41,
+      excluded: null,
+      omittedByCap: 0,
+      unsupportedByLanguage: { python: 2 },
+      resolution: {
+        external: 57,
+        unresolvedInternal: 0,
+        truncatedImports: 0,
+        edgeCapHit: false,
+        context: 'complete',
+      },
+    });
+
+    async function overhead(coverage: LanguageCoverage): Promise<{
+      tokens: number;
+      body: Record<string, unknown>;
+    }> {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'b22c-overhead',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_get_dependents',
+            arguments: { file: 'libs/shared-core/src/hub.ts' },
+          },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              getDependents: jest.fn().mockResolvedValue(dependents),
+              getGraphCoverageForFile: jest.fn(async (file: string) => ({
+                coverage,
+                nodePath: file,
+              })),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+      const body = JSON.parse(text) as Record<string, unknown>;
+      const { coverage: _coverage, ...withoutCoverage } = body;
+      return {
+        tokens:
+          countTokens(text) - countTokens(JSON.stringify(withoutCoverage)),
+        body,
+      };
+    }
+
+    it(`costs at most ${CLEAN_OVERHEAD_CAP} tokens when clean`, async () => {
+      const { tokens, body } = await overhead(CLEAN_GRAPH_COVERAGE);
+      expect(body['coverage']).toEqual({ clean: true, analyzed: 2 });
+      expect(body['dependents']).toEqual(dependents);
+      expect(tokens).toBeLessThanOrEqual(CLEAN_OVERHEAD_CAP);
+    });
+
+    it(`costs at most ${QUALIFIED_OVERHEAD_CAP} tokens when qualified, unknowns kept`, async () => {
+      const { tokens, body } = await overhead(TYPICAL_QUALIFIED);
+      expect(body['coverage']).toEqual({
+        clean: false,
+        reasons: ['unsupported', 'unrecognised'],
+        supportedLanguages: ['typescript', 'javascript'],
+        analyzed: 128,
+        unsupported: 2,
+        unrecognised: 3,
+        nonSource: 41,
+        excluded: null,
+        unsupportedByLanguage: { python: 2 },
+        resolution: { external: 57 },
+      });
+      expect(tokens).toBeLessThanOrEqual(QUALIFIED_OVERHEAD_CAP);
+    });
+  });
+
+  // Round 2 review R2-B1: the coverage reported is that of the graph which
+  // answered the query, not the session root's. Real graph service and
+  // namespace; only the parser and file reads are stubbed.
+  describe.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s coverage of the answering graph',
+    (toolName) => {
+      const rootA = path.resolve('/ws-a');
+      const rootB = path.resolve('/ws-b');
+      const nested = path.join(rootA, 'pkg');
+
+      function realGraph(): DependencyGraphService {
+        return new DependencyGraphService(
+          {
+            analyzeSource: jest.fn(async () =>
+              Result.ok({
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+              }),
+            ),
+          } as unknown as AstAnalysisService,
+          {
+            readFile: jest.fn(async () => 'source'),
+          } as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+      }
+
+      async function query(
+        graph: DependencyGraphService,
+        file: string,
+      ): Promise<Record<string, unknown>> {
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => rootA },
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b9-r2-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              // The session root is A throughout.
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: rootA }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const result = res.result as {
+          content: Array<{ text: string }>;
+          isError?: boolean;
+        };
+        expect(result.isError).not.toBe(true);
+        return JSON.parse(result.content[0].text) as Record<string, unknown>;
+      }
+
+      it("reports root B's cap for a file under B while the session root A is complete", async () => {
+        const graph = realGraph();
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
+        await graph.buildGraph([path.join(rootB, 'b.ts')], rootB, 5_001);
+        const body = await query(graph, path.join(rootB, 'b.ts'));
+        expect(body).toMatchObject({
+          incomplete: true,
+          graphedFiles: 1,
+          discoveredFiles: 5_001,
+        });
+      });
+
+      it('reports no cap for a complete root B while the session root A is capped', async () => {
+        const graph = realGraph();
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA, 7_000);
+        await graph.buildGraph([path.join(rootB, 'b.ts')], rootB);
+        const body = await query(graph, path.join(rootB, 'b.ts'));
+        expect(body).not.toHaveProperty('incomplete');
+        expect(body).not.toHaveProperty('graphedFiles');
+        expect(body).not.toHaveProperty('discoveredFiles');
+      });
+
+      it('reports the nested root for a file under it, and the outer root elsewhere', async () => {
+        const graph = realGraph();
+        await graph.buildGraph([path.join(rootA, 'a.ts')], rootA);
+        await graph.buildGraph([path.join(nested, 'x.ts')], nested, 9);
+        expect(await query(graph, path.join(nested, 'x.ts'))).toMatchObject({
+          incomplete: true,
+          graphedFiles: 1,
+          discoveredFiles: 9,
+        });
+        expect(await query(graph, path.join(rootA, 'a.ts'))).not.toHaveProperty(
+          'incomplete',
+        );
+      });
+    },
+  );
+
+  // Batch 23b carried criterion R4-B1 (User Decision 20): the reviewer's
+  // case-variant probe through the dispatcher's own path conversion, the
+  // real namespace and the real graph service.
+  describe('R4-B1 case-variant query paths through the dispatcher', () => {
+    const onWin32 = process.platform === 'win32';
+    const ROOT = 'D:/Repo';
+    const A = 'D:/Repo/Pkg/A.ts';
+    const B = 'D:/Repo/Pkg/B.ts';
+    const C = 'D:/Repo/Pkg/C.ts';
+
+    async function call(
+      toolName: string,
+      args: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports:
+                p === A
+                  ? [{ source: './B', importedSymbols: [] }]
+                  : p === B
+                    ? [{ source: './C', importedSymbols: [] }]
+                    : [],
+              exports: [],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      await graph.buildGraph([A, B, C], ROOT);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `r4-b1-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: ROOT }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: buildDependencyNamespace({
+              dependencyGraph: graph,
+              workspaceProvider: { getWorkspaceRoot: () => ROOT },
+            } as unknown as AnalysisNamespaceDependencies),
+          }),
+        }),
+      );
+      return JSON.parse(
+        (res.result as { content: Array<{ text: string }> }).content[0].text,
+      ) as Record<string, unknown>;
+    }
+
+    it('the matching-case control answers with the stored spelling and clean coverage', async () => {
+      expect(
+        await call('ptah_get_dependencies', { file: 'Pkg/A.ts', depth: 2 }),
+      ).toMatchObject({
+        count: 2,
+        fileInGraph: true,
+        coverage: { clean: true },
+        file: A,
+        dependencies: [B, C],
+      });
+    });
+
+    (onWin32 ? it.each : it.skip.each)([
+      ['relative', 'pkg/a.ts', 'pkg/b.ts'],
+      ['absolute', 'd:/repo/pkg/a.ts', 'd:\\repo\\PKG\\b.ts'],
+    ])(
+      'a %s case variant answers the same edges, never [] with clean coverage',
+      async (_label, aVariant, bVariant) => {
+        expect(
+          await call('ptah_get_dependencies', { file: aVariant, depth: 2 }),
+        ).toMatchObject({
+          count: 2,
+          fileInGraph: true,
+          file: A,
+          dependencies: [B, C],
+        });
+        expect(
+          await call('ptah_get_dependents', { file: bVariant }),
+        ).toMatchObject({
+          count: 1,
+          fileInGraph: true,
+          file: B,
+          dependents: [A],
+        });
+      },
+    );
+
+    it('a file the graph does not hold says so beside a clean coverage', async () => {
+      expect(
+        await call('ptah_get_dependents', { file: 'Pkg/New.ts' }),
+      ).toMatchObject({
+        count: 0,
+        fileInGraph: false,
+        coverage: { clean: true },
+        dependents: [],
+      });
+    });
+  });
+
+  // Round 2 review R2-S1: a list over the result budget is cut, but the
+  // completeness fields come before it and survive the cut.
+  describe.each([
+    ['ptah_get_dependents', 'getDependents'],
+    ['ptah_get_dependencies', 'getDependencies'],
+  ])('%s completeness through the result budget', (toolName, method) => {
+    let spoolRoot: string;
+
+    beforeEach(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b9-r2-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    it.each([
+      ['the full output is saved', false],
+      ['the full output cannot be saved', true],
+    ])(
+      'keeps incomplete and both counts when %s',
+      async (_label, failSpool) => {
+        if (failSpool) {
+          // A file where the spool directory's parent must be: the save fails.
+          fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+        }
+        const list = Array.from(
+          { length: 1_500 },
+          (_, i) => `C:/ws/lib/module-${i}.ts`,
+        );
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b9-r2-budget-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file: 'C:/ws/lib/hub.ts' } },
+            _callerWorkspaceRoot: spoolRoot,
+          }),
+          buildDeps({
+            workspaceProvider: knownFolders(spoolRoot),
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies: {
+                ...graphToolStubs(),
+                isBuilt: jest.fn().mockResolvedValue(true),
+                [method]: jest.fn().mockResolvedValue(list),
+                getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                  graphedFiles: 5_000,
+                  discoveredFiles: 6_000,
+                  coverage: QUALIFIED_GRAPH_COVERAGE,
+                  nodePath: 'C:/ws/lib/hub.ts',
+                }),
+              } as unknown as PtahAPI['dependencies'],
+            }),
+          }),
+        );
+        const text = (res.result as { content: Array<{ text: string }> })
+          .content[0].text;
+
+        // The list was cut to the budget, measured in tokens...
+        expect(text.length).toBeLessThanOrEqual(
+          getToolResultBudget(toolName).chars,
+        );
+        expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+          getToolResultBudget(toolName).tokens,
+        );
+        expect(text).not.toContain('module-1499.ts');
+        // ...and the completeness fields and the coverage verdict were not.
+        expect(text).toMatch(/"count":\s*1500/);
+        expect(text).toMatch(/"incomplete":\s*true/);
+        expect(text).toMatch(/"graphedFiles":\s*5000/);
+        expect(text).toMatch(/"discoveredFiles":\s*6000/);
+        expect(text).toMatch(/"fileInGraph":\s*true/);
+        expect(text).toMatch(
+          /"coverage":\s*\{\s*"clean":\s*false,\s*"reasons":\s*\[\s*"unsupported"\s*\]/,
+        );
+      },
+    );
+
+    // Round 3 review: a query path long enough to use the token budget on its
+    // own must not push the completeness fields out of the cut.
+    it('keeps incomplete and both counts ahead of a very long query path', async () => {
+      const longFile = `C:/ws/${'deepabc/'.repeat(810)}hub.ts`;
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b9-r3-long-path-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: longFile } },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          workspaceProvider: knownFolders(spoolRoot),
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest
+                .fn()
+                .mockResolvedValue(['C:/ws/lib/a.ts', 'C:/ws/lib/b.ts']),
+              getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                graphedFiles: 5_000,
+                discoveredFiles: 6_000,
+                coverage: CLEAN_GRAPH_COVERAGE,
+              }),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+
+      expect(text.length).toBeLessThanOrEqual(
+        getToolResultBudget(toolName).chars,
+      );
+      expect(text).toMatch(/"count":\s*2/);
+      expect(text).toMatch(/"incomplete":\s*true/);
+      expect(text).toMatch(/"graphedFiles":\s*5000/);
+      expect(text).toMatch(/"discoveredFiles":\s*6000/);
+    });
+
+    // Batch 23b (Decision 15 pattern, plan "Placement"): a very long path and
+    // an oversized list together keep the qualified coverage verdict and the
+    // file-in-graph status inside the cut, measured in tokens end to end
+    // through the real budget layer.
+    it('keeps fileInGraph and the qualified coverage ahead of a very long path and an oversized list', async () => {
+      const longFile = `C:/ws/${'deepabc/'.repeat(810)}hub.ts`;
+      const list = Array.from(
+        { length: 1_500 },
+        (_, i) => `C:/ws/lib/module-${i}.ts`,
+      );
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: `b23b-long-path-${toolName}`,
+          method: 'tools/call',
+          params: { name: toolName, arguments: { file: longFile } },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          workspaceProvider: knownFolders(spoolRoot),
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: 'C:/ws' }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies: {
+              ...graphToolStubs(),
+              isBuilt: jest.fn().mockResolvedValue(true),
+              [method]: jest.fn().mockResolvedValue(list),
+              getGraphCoverageForFile: jest.fn().mockResolvedValue({
+                graphedFiles: 5_000,
+                discoveredFiles: 6_000,
+                coverage: QUALIFIED_GRAPH_COVERAGE,
+              }),
+            } as unknown as PtahAPI['dependencies'],
+          }),
+        }),
+      );
+      const text = (res.result as { content: Array<{ text: string }> })
+        .content[0].text;
+
+      const budget = getToolResultBudget(toolName);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(text).not.toContain('module-1499.ts');
+      expect(text).toMatch(/"count":\s*1500/);
+      expect(text).toMatch(/"fileInGraph":\s*false/);
+      expect(text).toMatch(
+        /"coverage":\s*\{\s*"clean":\s*false,\s*"reasons":\s*\[\s*"unsupported"\s*\]/,
+      );
+      expect(text).toMatch(/"unsupportedByLanguage":\s*\{\s*"python":\s*3/);
+    });
+  });
+
+  // Batch 23b FB "vendor tree does not exhaust discovery", end to end: the
+  // real namespace, graph service and a fast-glob provider (the Electron/CLI
+  // provider's call) over a temporary tree. Vendor trees never reach the
+  // graph; recognised files it cannot analyse are counted in its coverage.
+  it('builds the graph from bounded discovery: vendor trees excluded, other languages counted', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b23b-graph-'));
+    try {
+      const write = (relative: string): void => {
+        fs.mkdirSync(path.dirname(path.join(root, relative)), {
+          recursive: true,
+        });
+        fs.writeFileSync(path.join(root, relative), '');
+      };
+      // r1 B1: upper-case extensions (LIB.TS, analysis.R) are discovered too.
+      [
+        'src/app.ts',
+        'src/util.ts',
+        'src/LIB.TS',
+        // Kotlin never gets graph edges (Decision 19); Python has them since 33.
+        'src/App.kt',
+        'stats/analysis.R',
+        'bin/cli.js',
+      ].forEach(write);
+      for (let i = 0; i < 8; i++) write(`vendor/lib/v${i}.ts`);
+      const app = path.join(root, 'src', 'app.ts').replace(/\\/g, '/');
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async (_c: string, _l: string, p: string) =>
+            Result.ok({
+              imports:
+                p === app ? [{ source: './util', importedSymbols: [] }] : [],
+              exports: [],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        {
+          readFile: jest.fn(async () => 'source'),
+        } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      // The Electron adapter's own bounded call: the walk, stopped at the limit.
+      const findFiles = jest.fn(
+        async (
+          pattern: string,
+          exclude: string[],
+          maxResults: number,
+          cwd: string,
+        ) =>
+          collectBounded(
+            walkGlobMatches(pattern, {
+              exclude,
+              cwd,
+              dot: true,
+              // No failure is expected in this fixture; one would fail it.
+              onFailure: (code) => {
+                throw new Error(`unexpected walk failure ${code}`);
+              },
+            }),
+            maxResults,
+          ),
+      );
+      const dependencies = buildDependencyNamespace({
+        dependencyGraph: graph,
+        workspaceProvider: { getWorkspaceRoot: () => root },
+        fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+      } as unknown as AnalysisNamespaceDependencies);
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'b23b-discovery-e2e',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_get_dependents',
+            arguments: { file: 'src/util.ts' },
+          },
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: root }),
+            } as unknown as PtahAPI['workspace'],
+            dependencies,
+          }),
+        }),
+      );
+      const body = JSON.parse(
+        (res.result as { content: Array<{ text: string }> }).content[0].text,
+      ) as Record<string, unknown>;
+
+      expect(body).toMatchObject({
+        count: 1,
+        fileInGraph: true,
+        coverage: {
+          clean: false,
+          reasons: ['unsupported'],
+          analyzed: 3,
+          unsupported: 2,
+          unsupportedByLanguage: { kotlin: 1, r: 1 },
+          excluded: null,
+        },
+        dependents: [app],
+      });
+      // Batch 22c: the compact block leaves the clean values out (a complete
+      // census, zero buckets) and keeps the unknown `excluded: null`.
+      const coverage = body['coverage'] as Record<string, unknown>;
+      expect(coverage).not.toHaveProperty('census');
+      expect(coverage).not.toHaveProperty('failed');
+      expect(coverage).not.toHaveProperty('omittedByCap');
+      // Only the project's own five recognised files were discovered.
+      expect(graph.getCoverage(root)).toEqual({
+        graphedFiles: 5,
+        discoveredFiles: 5,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Batch 23b FB "dependents of a python file is not a silent empty list":
+  // a file the graph cannot hold is answered unsupported-language, through
+  // the real namespace, and starts no graph build. Python is graphed since
+  // Batch 33, so a Kotlin file (never graphed, Decision 19) stands in.
+  describe.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
+    '%s for a file the graph cannot hold',
+    (toolName) => {
+      it.each([
+        ['src/App.kt', 'kotlin'],
+        ['README.md', '.md'],
+      ])('%s answers unsupported-language (%s)', async (file, language) => {
+        const graph = new DependencyGraphService(
+          {} as unknown as AstAnalysisService,
+          {} as unknown as FileSystemService,
+          asLogger(createMockLogger()),
+        );
+        const findFiles = jest.fn().mockResolvedValue([]);
+        const dependencies = buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => path.resolve('/ws') },
+          fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+        } as unknown as AnalysisNamespaceDependencies);
+        const res = await handleMCPRequest(
+          makeRequest({
+            id: `b23b-unsupported-${toolName}`,
+            method: 'tools/call',
+            params: { name: toolName, arguments: { file } },
+          }),
+          buildDeps({
+            ptahAPI: buildPtahAPIStub({
+              workspace: {
+                getInfo: jest
+                  .fn()
+                  .mockResolvedValue({ path: path.resolve('/ws') }),
+              } as unknown as PtahAPI['workspace'],
+              dependencies,
+            }),
+          }),
+        );
+        const result = res.result as {
+          content: Array<{ text: string }>;
+          isError?: boolean;
+        };
+        const body = JSON.parse(result.content[0].text) as Record<
+          string,
+          unknown
+        >;
+
+        expect(result.isError).not.toBe(true);
+        expect(Object.keys(body)[0]).toBe('status');
+        expect(body).toEqual({
+          status: 'unsupported-language',
+          language,
+          supportedLanguages: [
+            'typescript',
+            'javascript',
+            'tsx',
+            'python',
+            'go',
+            'csharp',
+          ],
+          message: expect.stringContaining('Graph languages'),
+          file,
+        });
+        expect(body).not.toHaveProperty('count');
+        // No build was started for it.
+        expect(findFiles).not.toHaveBeenCalled();
+        expect(graph.getBuildState(path.resolve('/ws')).generation).toBe(
+          undefined,
+        );
+      });
+    },
+  );
 
   it('ptah_count_tokens reads a relative path as-is through the sandbox', async () => {
     const read = jest.fn().mockResolvedValue('source');
@@ -948,6 +2352,65 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     );
 
     expect(read).toHaveBeenCalledWith(path.join('src', 'a.ts'));
+  });
+
+  it('ptah_get_diagnostics passes the files scope to the namespace and formats its payload: requested first, siblings capped (TASK_2026_559)', async () => {
+    const requested = 'D:/ws/libs/a/src/changed.ts';
+    const sibling = 'D:/ws/libs/a/src/other.ts';
+    const diagnostics = [
+      ...Array.from({ length: 120 }, (_, i) => ({
+        file: sibling,
+        line: i + 1,
+        severity: 'error',
+        message: `sibling-${i} broken`,
+      })),
+      ...Array.from({ length: 3 }, (_, i) => ({
+        file: requested,
+        line: i + 1,
+        severity: 'error',
+        message: `requested-${i} broken`,
+      })),
+    ];
+    // The namespace returns the scope it resolved against the session root;
+    // the formatter reads it from the payload, not from the tool arguments.
+    const getErrors = jest.fn().mockResolvedValue({
+      status: 'available',
+      source: 'typescript-compiler',
+      diagnostics,
+      requestedFiles: [requested],
+    });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        diagnostics: { getErrors } as unknown as PtahAPI['diagnostics'],
+      }),
+    });
+
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'diag-1',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_diagnostics',
+          arguments: { severity: 'error', files: [requested] },
+        },
+      }),
+      deps,
+    );
+
+    expect(getErrors).toHaveBeenCalledWith([requested]);
+    const text = (res.result as { content: Array<{ text: string }> }).content[0]
+      .text;
+    for (let i = 0; i < 3; i++) {
+      expect(text).toContain(`requested-${i} broken`);
+    }
+    expect(text).toContain('**Errors:** 123');
+    expect(text).toContain(
+      'Shown 50 of 123 (3 in requested files, 73 in sibling files omitted)',
+    );
+    expect(text.indexOf('requested-0 broken')).toBeLessThan(
+      text.indexOf('sibling-0 broken'),
+    );
+    expect(text.length).toBeLessThanOrEqual(8000);
   });
 
   it('invokes onToolResult callback with request id and result text on success', async () => {
@@ -1535,6 +2998,56 @@ describe('protocol-handlers › ptah_agent_report', () => {
     expect(text).toMatch(/unattributed-caller/);
   });
 
+  it.each(['', '   '])(
+    'refuses with unattributed-caller when the URL agent id is %j (empty/whitespace is absent)',
+    async (agentId) => {
+      const report = jest.fn();
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'ar-blank',
+          method: 'tools/call',
+          params: {
+            name: 'ptah_agent_report',
+            arguments: { message: 'blocked' },
+          },
+          _callerAgentId: agentId,
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            agent: { report } as unknown as PtahAPI['agent'],
+          }),
+        }),
+      );
+
+      expect(report).not.toHaveBeenCalled();
+      expect(agentToolResult(res).text).toMatch(/unattributed-caller/);
+    },
+  );
+
+  it('never attributes a report to the caller session when no agent is named', async () => {
+    const report = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-session',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'blocked' },
+        },
+        _callerSessionId: 'tab-abc',
+        _callerWorkspaceRoot: 'D:\\ws-A',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).not.toHaveBeenCalled();
+    expect(agentToolResult(res).text).toMatch(/unattributed-caller/);
+  });
+
   it('renders a router refusal as a refusal, not a success', async () => {
     const report = jest
       .fn()
@@ -2030,5 +3543,3861 @@ describe('protocol-handlers › surface tools', () => {
     expect(text).toContain('committed revision 2');
     expect(text).toContain('do not resend');
     expect(text).toContain('Name: Grace');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call — tool-result budget and per-call debug telemetry
+// (TASK_2026_559 Task 2f.1). Every success text goes through
+// `applyToolResultBudget`; the spool root is the caller's declared workspace
+// root (`_callerWorkspaceRoot`), here a throw-away temp directory that the
+// host's workspace provider knows (an unknown declared root is not trusted).
+// ---------------------------------------------------------------------------
+
+/** A workspace provider whose open folders are `folders`. */
+function knownFolders(
+  ...folders: string[]
+): NonNullable<ProtocolHandlerDependencies['workspaceProvider']> {
+  return { getWorkspaceFolders: () => folders };
+}
+
+describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => {
+  let spoolRoot: string;
+
+  beforeEach(() => {
+    spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-2f-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  });
+
+  function spoolDir(root = spoolRoot): string {
+    return path.join(root, '.ptah', 'tmp', 'mcp-out');
+  }
+
+  /** The one spool file written under `root`. */
+  function onlySpoolFile(root = spoolRoot): string {
+    const files = fs.readdirSync(spoolDir(root));
+    expect(files).toHaveLength(1);
+    return fs.readFileSync(path.join(spoolDir(root), files[0]), 'utf8');
+  }
+
+  function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    deps: ProtocolHandlerDependencies,
+    extra: Partial<MCPRequest> = {},
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: `budget-${name}`,
+        method: 'tools/call',
+        params: { name, arguments: args },
+        _callerWorkspaceRoot: spoolRoot,
+        ...extra,
+      }),
+      { workspaceProvider: knownFolders(spoolRoot), ...deps },
+    );
+  }
+
+  function textOf(res: MCPResponse): string {
+    const content = (res.result as { content: Array<{ text: string }> })
+      .content;
+    expect(content).toHaveLength(1);
+    return content[0].text;
+  }
+
+  /** The metadata of the single `[MCP] tool result` debug line. */
+  function telemetryOf(logger: MockLogger): Record<string, unknown> {
+    const lines = logger.debug.mock.calls.filter(
+      (call) => call[0] === '[MCP] tool result',
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0][1]).toBe('CodeExecutionMCP');
+    return lines[0][2] as Record<string, unknown>;
+  }
+
+  function expectWithinDefaultBudget(text: string): void {
+    expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+  }
+
+  it('reduces a 50k-char JSON result within both limits, adds the trailer, spools the raw byte-equal, and tells the transcript the same text', async () => {
+    const monorepo = {
+      isMonorepo: true,
+      packages: Array.from({ length: 700 }, (_, i) => ({
+        name: `@scope/package-${i}`,
+        path: `libs/group-${i % 7}/package-${i}`,
+        dependencies: ['@scope/shared', `@scope/package-${(i + 1) % 700}`],
+      })),
+    };
+    const raw = JSON.stringify(monorepo);
+    expect(raw.length).toBeGreaterThan(50_000);
+    const logger = createMockLogger();
+    const onToolResult = jest.fn();
+    const deps = buildDeps({
+      logger: asLogger(logger),
+      onToolResult,
+      ptahAPI: buildPtahAPIStub({
+        project: {
+          detectMonorepo: jest.fn().mockResolvedValue(monorepo),
+        } as unknown as PtahAPI['project'],
+      }),
+    });
+
+    const res = await callTool('ptah_project_detect_monorepo', {}, deps);
+
+    const text = textOf(res);
+    expectWithinDefaultBudget(text);
+    expect(text).toMatch(
+      /\[reduced: [^\]]+ — showing \d+ of \d+ tokens — full output: [^\]]+\]$/,
+    );
+    expect(onlySpoolFile()).toBe(raw);
+    expect(onToolResult).toHaveBeenCalledTimes(1);
+    expect(onToolResult).toHaveBeenCalledWith(
+      'budget-ptah_project_detect_monorepo',
+      text,
+      false,
+    );
+    const telemetry = telemetryOf(logger);
+    expect(telemetry).toMatchObject({
+      tool: 'ptah_project_detect_monorepo',
+      resultChars: text.length,
+      isError: false,
+    });
+    expect(telemetry['rawTokens']).toBeGreaterThan(
+      telemetry['returnedTokens'] as number,
+    );
+  });
+
+  it('keeps the failure lines of a 50k-char log', async () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 700; i++) {
+      lines.push(
+        `2026-09-26T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z INFO worker-${i % 4} processed batch ${i} of the nightly import`,
+      );
+      if (i === 180 || i === 420 || i === 610) {
+        lines.push(
+          `2026-09-26T10:00:00.000Z ERROR worker-${i % 4} failed to connect to database replica-${i}: ECONNREFUSED`,
+        );
+      }
+    }
+    lines.push('Summary: 700 batches, 3 failed');
+    const log = lines.join('\n');
+    expect(log.length).toBeGreaterThan(50_000);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        dashboard: {
+          proposeSpec: jest
+            .fn()
+            .mockResolvedValue({ status: 'delivered', text: log }),
+        } as unknown as PtahAPI['dashboard'],
+      }),
+    });
+
+    const text = textOf(
+      await callTool('ptah_dashboard_propose_spec', { spec: {} }, deps),
+    );
+
+    expectWithinDefaultBudget(text);
+    for (const replica of ['replica-180', 'replica-420', 'replica-610']) {
+      expect(text).toContain(
+        `failed to connect to database ${replica}: ECONNREFUSED`,
+      );
+    }
+    expect(text).toContain('[reduced: ');
+    expect(onlySpoolFile()).toBe(log);
+  });
+
+  it('budgets an execute_code success result as well', async () => {
+    const deps = buildDeps();
+
+    const text = textOf(
+      await callTool(
+        'execute_code',
+        {
+          code: "return Array.from({ length: 800 }, (_, i) => ({ id: i, label: 'row-' + i }));",
+        },
+        deps,
+      ),
+    );
+
+    expectWithinDefaultBudget(text);
+    expect(text).toContain('[reduced: ');
+    expect(JSON.parse(onlySpoolFile())).toHaveLength(800);
+  });
+
+  it('returns an under-budget result unchanged, spools nothing, and logs its telemetry at debug', async () => {
+    const logger = createMockLogger();
+    const deps = buildDeps({
+      logger: asLogger(logger),
+      ptahAPI: buildPtahAPIStub({
+        search: {
+          findFiles: jest.fn().mockResolvedValue(['a.ts']),
+        } as unknown as PtahAPI['search'],
+      }),
+    });
+
+    const text = textOf(
+      await callTool('ptah_search_files', { pattern: '*.ts' }, deps),
+    );
+
+    expect(text).not.toContain('[reduced: ');
+    expect(fs.existsSync(spoolDir())).toBe(false);
+    expect(telemetryOf(logger)).toEqual({
+      tool: 'ptah_search_files',
+      callerKind: 'workspace',
+      durationMs: expect.any(Number),
+      resultChars: text.length,
+      rawTokens: countTokensPiecewise(text),
+      returnedTokens: countTokensPiecewise(text),
+      reducer: 'none',
+      truncated: false,
+      isError: false,
+    });
+    // Never at info: one line per call would flood the log.
+    expect(
+      logger.info.mock.calls.some((call) => call[0] === '[MCP] tool result'),
+    ).toBe(false);
+  });
+
+  it('logs a tool error with isError:true and no budget counts', async () => {
+    const logger = createMockLogger();
+    const deps = buildDeps({
+      logger: asLogger(logger),
+      ptahAPI: buildPtahAPIStub({
+        search: {
+          findFiles: jest.fn().mockRejectedValue(new Error('boom')),
+        } as unknown as PtahAPI['search'],
+      }),
+    });
+
+    const res = await callTool('ptah_search_files', { pattern: '*' }, deps);
+
+    expect(telemetryOf(logger)).toEqual({
+      tool: 'ptah_search_files',
+      callerKind: 'workspace',
+      durationMs: expect.any(Number),
+      resultChars: textOf(res).length,
+      rawTokens: null,
+      returnedTokens: null,
+      reducer: 'none',
+      truncated: false,
+      isError: true,
+    });
+  });
+
+  it('logs a JSON-RPC error (unknown tool) with isError:true', async () => {
+    const logger = createMockLogger();
+
+    const res = await callTool(
+      'no_such_tool',
+      {},
+      buildDeps({ logger: asLogger(logger) }),
+    );
+
+    expect(res.error?.code).toBe(-32602);
+    expect(telemetryOf(logger)).toMatchObject({
+      tool: '<unknown>',
+      resultChars: 0,
+      isError: true,
+    });
+  });
+
+  // Review F4: a requested name is caller input and may carry a path or a
+  // secret; the telemetry logs only registered tool names.
+  it('logs an unregistered tool name as <unknown>, never verbatim', async () => {
+    const logger = createMockLogger();
+
+    await callTool(
+      'D:/private/secret-token',
+      {},
+      buildDeps({ logger: asLogger(logger) }),
+      { id: 'budget-unknown' },
+    );
+
+    expect(telemetryOf(logger)['tool']).toBe('<unknown>');
+    for (const mock of [logger.debug, logger.info, logger.warn]) {
+      expect(JSON.stringify(mock.mock.calls)).not.toContain('secret-token');
+    }
+  });
+
+  it('spools under the host provider folder when the caller declared none, without a workspace lookup', async () => {
+    const getInfo = jest.fn().mockResolvedValue({ path: os.tmpdir() });
+    const raw = JSON.stringify({ rows: 'x'.repeat(20_000) });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+        project: {
+          detectMonorepo: jest
+            .fn()
+            .mockResolvedValue({ rows: 'x'.repeat(20_000) }),
+        } as unknown as PtahAPI['project'],
+      }),
+    });
+
+    await callTool('ptah_project_detect_monorepo', {}, deps, {
+      _callerWorkspaceRoot: undefined,
+    });
+
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(onlySpoolFile()).toBe(raw);
+  });
+
+  it('passes the screenshot image block through untouched (only text is budgeted)', async () => {
+    const data = 'A'.repeat(40_000);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        browser: {
+          screenshot: jest.fn().mockResolvedValue({ data, format: 'png' }),
+        } as unknown as PtahAPI['browser'],
+      }),
+    });
+
+    const res = await callTool('ptah_browser_screenshot', {}, deps);
+
+    const content = (
+      res.result as { content: Array<{ type: string; data?: string }> }
+    ).content;
+    expect(content[0]).toEqual({ type: 'image', data, mimeType: 'image/png' });
+    expect(fs.existsSync(spoolDir())).toBe(false);
+  });
+
+  // TASK_2026_559 Batch 21p (review r1 finding 5): over the 32 KiB + 1 KiB
+  // override, the page's own HTML goes through the budget declared as HTML,
+  // so the extracted main content is what the agent sees and the raw HTML is
+  // spooled byte-equal. Replaces the Batch 2f pin (HTML block omitted by the
+  // Markdown outline of the formatted envelope).
+  describe('ptah_browser_content over its budget (Batch 21p)', () => {
+    const TITLE = 'ARTICLE-TITLE-21p';
+    const PARAGRAPH = 'Article paragraph 0: the committee approved the budget.';
+
+    /** A ~200 KB news page: a large nav, the article, a large footer. */
+    function newsPage(articleExtra = ''): { text: string; html: string } {
+      const links = (label: string, href: string): string[] =>
+        Array.from(
+          { length: 2000 },
+          (_, i) => `<a href="/${href}/${i}">${label} ${i}</a>`,
+        );
+      const paragraphs = Array.from(
+        { length: 600 },
+        (_, i) =>
+          `<p>Article paragraph ${i}: the committee approved the budget.</p>`,
+      );
+      const html =
+        '<!doctype html><html><head><title>News</title></head><body>' +
+        `<nav>${links('NAV-NOISE', 'section').join(' ')}</nav>` +
+        `<article><h1>${TITLE}</h1>${articleExtra}${paragraphs.join('\n')}</article>` +
+        `<footer>${links('FOOTER-NOISE', 'legal').join(' ')}</footer>` +
+        '</body></html>';
+      // The page text as the browser reports it: nav first, as rendered.
+      const text = [
+        Array.from({ length: 2000 }, (_, i) => `NAV-NOISE ${i}`).join(' '),
+        TITLE,
+        ...paragraphs.map((p) => p.replace(/<\/?p>/g, '')),
+        Array.from({ length: 2000 }, (_, i) => `FOOTER-NOISE ${i}`).join(' '),
+      ].join('\n');
+      return { text, html };
+    }
+
+    function depsFor(page: { text: string; html: string }) {
+      return buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          browser: {
+            getContent: jest.fn().mockResolvedValue(page),
+          } as unknown as PtahAPI['browser'],
+        }),
+      });
+    }
+
+    function expectWithinBrowserBudget(text: string): void {
+      const budget = getToolResultBudget('ptah_browser_content');
+      expect(budget.chars).toBe(32 * 1024 + 1024);
+      expect(text.length).toBeLessThanOrEqual(budget.chars);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(budget.tokens);
+    }
+
+    it('keeps the article title and paragraphs, drops nav/footer noise, spools the raw HTML byte-equal and names html-extract', async () => {
+      const page = newsPage();
+      expect(page.html.length).toBeGreaterThan(190_000);
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text.startsWith(TITLE)).toBe(true);
+      expect(text).toContain(PARAGRAPH);
+      expect(text).not.toContain('NAV-NOISE');
+      expect(text).not.toContain('FOOTER-NOISE');
+      expect(text).not.toContain('<p>');
+      expect(onlySpoolFile()).toBe(page.html);
+      const [spooled] = fs.readdirSync(spoolDir());
+      const trailer =
+        /\n\n\[reduced: html-extract(?: — partial, cut at a line end)? — showing \d+ of \d+ tokens — full output: ([^\]]+)\]$/.exec(
+          text,
+        );
+      expect(trailer?.[1]).toBe(path.join(spoolDir(), spooled));
+    });
+
+    // Review r4 R4-03: the fallback is the ordinary budget path for the
+    // formatted page. Its Markdown outline keeps the page's structure (every
+    // section heading, and the HTML section a raw prefix never reaches); the
+    // rest of the window is a labelled prefix of the formatted page.
+    it('falls back to the formatted page (outline + labelled prefix + spool) when the extractor refuses the HTML', async () => {
+      // `<xmp>` raw text is not modelled by the extractor: it refuses.
+      const page = newsPage('<xmp>raw <b>text</b></xmp>');
+      const raw = formatBrowserContent(page);
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text).not.toContain('html-extract');
+      expect(text).toMatch(
+        /\n\n\[reduced: markdown-outline\+prefix(?: — partial, cut (?:at a line end|mid-line))? — showing \d+ of \d+ tokens — full output: [^\]]+\]$/,
+      );
+      // The outline comes first: the page's headings, including the late
+      // HTML section and the note that names what was omitted from it.
+      const outlineEnd = text.indexOf('[the full output from its start');
+      expect(outlineEnd).toBeGreaterThan(0);
+      const outline = text.slice(0, outlineEnd);
+      expect(outline).toContain('## Page Content');
+      expect(outline).toContain('### Text');
+      expect(outline).toContain('### HTML');
+      expect(outline).toMatch(/\(code block, \d+ lines, omitted\)/);
+      // Then a large prefix of the formatted page itself.
+      const prefix = text.slice(
+        text.indexOf('\n\n', outlineEnd) + 2,
+        text.lastIndexOf('\n\n[reduced: '),
+      );
+      expect(raw.startsWith(prefix)).toBe(true);
+      expect(prefix.length).toBeGreaterThan(8 * 1024);
+      // One spool file only: the refused attempt wrote nothing.
+      expect(onlySpoolFile()).toBe(raw);
+    });
+
+    it('falls back to the formatted page when the HTML alone is within the budget (large text only)', async () => {
+      const page = {
+        text: 'T'.repeat(60_000),
+        html: `<article><h1>${TITLE}</h1><p>${PARAGRAPH}</p></article>`,
+      };
+      const raw = formatBrowserContent(page);
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expectWithinBrowserBudget(text);
+      expect(text).not.toContain('html-extract');
+      expect(text).toContain('[reduced: markdown-outline+prefix');
+      // The outline keeps the whole (small) HTML section, the article itself,
+      // which the text-first prefix never reaches.
+      expect(text).toContain(`<h1>${TITLE}</h1>`);
+      expect(text).toContain(PARAGRAPH);
+      // The prefix keeps the start of the large text.
+      expect(text).toContain('T'.repeat(1000));
+      expect(onlySpoolFile()).toBe(raw);
+    });
+
+    it('returns a page within the budget unchanged (text and HTML sections), with no spool', async () => {
+      const page = {
+        text: `${TITLE}\n${PARAGRAPH}`,
+        html: `<nav><a href="/x">NAV-NOISE</a></nav><article><h1>${TITLE}</h1><p>${PARAGRAPH}</p></article>`,
+      };
+
+      const text = textOf(
+        await callTool('ptah_browser_content', {}, depsFor(page)),
+      );
+
+      expect(text).toBe(formatBrowserContent(page));
+      expect(fs.existsSync(spoolDir())).toBe(false);
+    });
+  });
+
+  // TASK_2026_559 Batch 18: an over-budget evaluate value is cut by the
+  // formatter so the whole answer fits the budget (the budget step leaves it
+  // unchanged and its trailer inline); the full value is spooled under the
+  // host-owned spool root and named in that trailer (User Decision 7).
+  it('ptah_browser_evaluate: an over-budget value is cut within the budget, spooled whole under the known folder, and named inline', async () => {
+    const value = 'v'.repeat(2000) + 'TAIL-MARKER' + 'w'.repeat(60_000);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        browser: {
+          evaluate: jest.fn().mockResolvedValue({ value, type: 'string' }),
+        } as unknown as PtahAPI['browser'],
+      }),
+    });
+
+    const text = textOf(
+      await callTool('ptah_browser_evaluate', { expression: 'x' }, deps),
+    );
+
+    expectWithinDefaultBudget(text);
+    expect(text).not.toContain('TAIL-MARKER');
+    expect(text).not.toContain('[reduced:');
+    expect(onlySpoolFile()).toBe(value);
+    const [spooled] = fs.readdirSync(spoolDir());
+    expect(text).toContain(
+      `; full value: ${path.join(spoolDir(), spooled)} — for page content use ptah_browser_content with a selector]`,
+    );
+  });
+
+  // Review F1: the declared root is a URL segment (caller input). It decides
+  // the spool location only when it canonicalizes to a folder the host knows.
+  describe('spool root trust (review F1)', () => {
+    let hostRoot: string;
+    let outside: string;
+
+    beforeEach(() => {
+      hostRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-2f-host-'));
+      outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-2f-outside-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(hostRoot, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    const payload = { rows: 'x'.repeat(20_000) };
+    let getInfo: jest.Mock;
+
+    // The production composition: `ptahAPI.workspace.getInfo()` is
+    // session-aware and resolves the CALLER's declared root first, so the
+    // fake does the same. Only the platform provider (`knownFolders`) is a
+    // host-owned record.
+    function oversizedDeps(
+      overrides: Partial<ProtocolHandlerDependencies> = {},
+    ): ProtocolHandlerDependencies {
+      getInfo = jest.fn(async () => ({ path: getCallerWorkspaceRoot() }));
+      return buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          workspace: { getInfo } as unknown as PtahAPI['workspace'],
+          project: {
+            detectMonorepo: jest.fn().mockResolvedValue(payload),
+          } as unknown as PtahAPI['project'],
+        }),
+        workspaceProvider: knownFolders(hostRoot),
+        ...overrides,
+      });
+    }
+
+    async function callWithDeclaredRoot(
+      declared: string,
+      deps: ProtocolHandlerDependencies = oversizedDeps(),
+    ): Promise<void> {
+      await callTool('ptah_project_detect_monorepo', {}, deps, {
+        _callerWorkspaceRoot: declared,
+      });
+      expect(getInfo).not.toHaveBeenCalled();
+    }
+
+    function expectSpooledUnderHostRoot(): void {
+      expect(onlySpoolFile(hostRoot)).toBe(JSON.stringify(payload));
+      expect(fs.existsSync(path.join(outside, '.ptah'))).toBe(false);
+    }
+
+    it('ignores an unknown absolute declared root, and spools under the known folder', async () => {
+      await callWithDeclaredRoot(outside);
+
+      expectSpooledUnderHostRoot();
+    });
+
+    it('ignores a declared root whose parent segments leave the known folder, and spools under the known folder', async () => {
+      const declared = [hostRoot, '..', path.basename(outside)].join(path.sep);
+
+      await callWithDeclaredRoot(declared);
+
+      expectSpooledUnderHostRoot();
+    });
+
+    it('does not trust a subfolder of a known folder, and spools under the known folder', async () => {
+      const sub = path.join(hostRoot, 'sub');
+      fs.mkdirSync(sub);
+
+      await callWithDeclaredRoot(sub);
+
+      expect(fs.existsSync(path.join(sub, '.ptah'))).toBe(false);
+      expectSpooledUnderHostRoot();
+    });
+
+    it('does not trust a junction/symlink under a known folder that points outside it', async () => {
+      const link = path.join(hostRoot, 'link');
+      try {
+        fs.symlinkSync(
+          outside,
+          link,
+          process.platform === 'win32' ? 'junction' : 'dir',
+        );
+      } catch (error: unknown) {
+        // Skipped only when the OS refuses to create the link.
+        console.warn(
+          `skipping junction case: link creation refused (${String(error)})`,
+        );
+        return;
+      }
+
+      await callWithDeclaredRoot(link);
+
+      expectSpooledUnderHostRoot();
+    });
+
+    it('never spools to (or touches) a declared UNC share the host does not know', async () => {
+      const realpath = jest.spyOn(fs.promises, 'realpath');
+      try {
+        await callWithDeclaredRoot('\\\\server\\share');
+        await callWithDeclaredRoot('\\\\?\\UNC\\server\\share');
+
+        const files = fs.readdirSync(spoolDir(hostRoot));
+        expect(files).toHaveLength(2);
+        for (const [arg] of realpath.mock.calls) {
+          expect(String(arg)).not.toMatch(/server/);
+        }
+      } finally {
+        realpath.mockRestore();
+      }
+    });
+
+    it('falls back to the system temp directory when the host has no open folder', async () => {
+      // Spy on the core module itself: the `import * as os` namespace only
+      // exposes non-configurable getters onto it.
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({ workspaceProvider: knownFolders() }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      expect(onlySpoolFile(outside)).toBe(JSON.stringify(payload));
+      expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
+    });
+
+    it('logs a throwing workspace provider at warn and still spools under the system temp directory', async () => {
+      const logger = createMockLogger();
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('provider down');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      expect(onlySpoolFile(outside)).toBe(JSON.stringify(payload));
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('workspace provider failed'),
+        'CodeExecutionMCP',
+      );
+    });
+
+    it('never logs the workspace provider error text', async () => {
+      const logger = createMockLogger();
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('D:/private/secret-token');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      const logged = JSON.stringify(
+        Object.values(logger).flatMap((fn) =>
+          jest.isMockFunction(fn) ? fn.mock.calls : [],
+        ),
+      );
+      expect(logged).not.toContain('secret-token');
+    });
+
+    it('still spools under the system temp directory when the warn log throws', async () => {
+      const logger = createMockLogger();
+      logger.warn.mockImplementation(() => {
+        throw new Error('logger down');
+      });
+      const tmp = jest
+        .spyOn(jest.requireActual<typeof os>('os'), 'tmpdir')
+        .mockReturnValue(outside);
+      try {
+        await callWithDeclaredRoot(
+          hostRoot,
+          oversizedDeps({
+            logger: asLogger(logger),
+            workspaceProvider: {
+              getWorkspaceFolders: () => {
+                throw new Error('provider down');
+              },
+            },
+          }),
+        );
+      } finally {
+        tmp.mockRestore();
+      }
+
+      expect(onlySpoolFile(outside)).toBe(JSON.stringify(payload));
+    });
+
+    it('uses a declared root that canonicalizes to a known folder, as the host recorded it', async () => {
+      const deps = oversizedDeps({
+        workspaceProvider: knownFolders(hostRoot, spoolRoot),
+      });
+      const declared = [spoolRoot, 'sub', '..'].join(path.sep) + path.sep;
+
+      await callWithDeclaredRoot(
+        process.platform === 'win32' ? declared.toUpperCase() : declared,
+        deps,
+      );
+
+      expect(onlySpoolFile(spoolRoot)).toBe(JSON.stringify(payload));
+      expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
+    });
+
+    (process.platform === 'win32' ? it : it.skip)(
+      'matches the \\\\?\\ extended-length spelling of a known folder (win32 only)',
+      async () => {
+        const deps = oversizedDeps({
+          workspaceProvider: knownFolders(hostRoot, spoolRoot),
+        });
+
+        await callWithDeclaredRoot(`\\\\?\\${spoolRoot}`, deps);
+
+        expect(onlySpoolFile(spoolRoot)).toBe(JSON.stringify(payload));
+        expect(fs.existsSync(spoolDir(hostRoot))).toBe(false);
+      },
+    );
+  });
+
+  // Review F2: approval_prompt is a machine-control response read by the
+  // permission machinery — never reduced, and it declares no ceiling.
+  it('returns an oversized approval_prompt input whole and does not declare a result ceiling for it', async () => {
+    const input = { command: 'y'.repeat(50_000) };
+    const res = await callTool(
+      'approval_prompt',
+      { tool_name: 'Bash', input },
+      buildDeps({ webviewManager: undefined }),
+    );
+
+    expect(textOf(res)).toBe(
+      JSON.stringify({ behavior: 'allow', updatedInput: input }),
+    );
+    expect(fs.existsSync(spoolDir())).toBe(false);
+
+    const list = await handleMCPRequest(
+      makeRequest({ id: 'approval-list', method: 'tools/list' }),
+      buildDeps(),
+    );
+    const approval = (
+      list.result as {
+        tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+      }
+    ).tools.find((tool) => tool.name === 'approval_prompt');
+    expect(approval).toBeDefined();
+    expect(approval?._meta?.['anthropic/maxResultSizeChars']).toBeUndefined();
+  });
+
+  // Review F2: in the mixed screenshot response only the text block is
+  // budgeted; the image block stays byte-identical.
+  it('budgets the screenshot text block and leaves its image block byte-identical', async () => {
+    const data = 'B'.repeat(40_000);
+    const filePath = `/shots/${'x'.repeat(20_000)}.png`;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        browser: {
+          screenshot: jest
+            .fn()
+            .mockResolvedValue({ data, format: 'png', filePath }),
+        } as unknown as PtahAPI['browser'],
+      }),
+    });
+
+    const res = await callTool('ptah_browser_screenshot', {}, deps);
+
+    const content = (
+      res.result as {
+        content: Array<{ type: string; data?: string; text?: string }>;
+      }
+    ).content;
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({ type: 'image', data, mimeType: 'image/png' });
+    const caption = content[1].text ?? '';
+    expect(caption.length).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+    );
+    expect(caption).toContain('full output: ');
+    expect(onlySpoolFile()).toContain(filePath);
+  });
+
+  // TASK_2026_559 Batch 17 (User Decision 3): the transcript callback gets a
+  // one-line summary, not a second copy of the base64 image.
+  describe('ptah_browser_screenshot transcript summary and default format', () => {
+    function screenshotDeps(
+      screenshot: jest.Mock,
+      onToolResult: jest.Mock,
+    ): ProtocolHandlerDependencies {
+      return buildDeps({
+        onToolResult,
+        ptahAPI: buildPtahAPIStub({
+          browser: { screenshot } as unknown as PtahAPI['browser'],
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: spoolRoot }),
+          } as unknown as PtahAPI['workspace'],
+        }),
+      });
+    }
+
+    it('hands onToolResult a short summary with no base64 while the image stays inline', async () => {
+      const data = 'Q'.repeat(40_000);
+      const screenshot = jest.fn().mockResolvedValue({ data, format: 'jpeg' });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(onToolResult).toHaveBeenCalledTimes(1);
+      const [, text, isError] = onToolResult.mock.calls[0];
+      expect(isError).toBe(false);
+      expect(text).not.toContain('QQQQ');
+      expect(text.length).toBeLessThan(300);
+      expect(text).not.toContain('\n');
+      expect(text).toBe('Screenshot captured (jpeg, ~29KB)');
+      const content = (
+        res.result as { content: Array<{ type: string; data?: string }> }
+      ).content;
+      expect(content[0]).toEqual({
+        type: 'image',
+        data,
+        mimeType: 'image/jpeg',
+      });
+    });
+
+    it('takes the format of a saveTo extension when no format is given, and names the saved path', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'iVBORw0K', format: 'png' });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        { saveTo: 'home.png' },
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(screenshot).toHaveBeenCalledWith({
+        format: 'png',
+        quality: undefined,
+        fullPage: undefined,
+      });
+      const savedPath = path.join(
+        spoolRoot,
+        '.ptah',
+        'screenshots',
+        'home.png',
+      );
+      expect(fs.existsSync(savedPath)).toBe(true);
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text).toBe(
+        `Screenshot captured (png, ~0KB) | Saved to: ${savedPath}`,
+      );
+    });
+
+    // Batch 17 r1 S1: a png picked by the saveTo extension ignores quality.
+    it('captures a saveTo png even with a quality png cannot use', async () => {
+      const capture = jest
+        .fn()
+        .mockResolvedValue({ data: 'iVBORw0K', format: 'png' });
+      const capabilities: IBrowserCapabilities = {
+        configureSession: jest.fn(),
+        navigate: jest.fn(),
+        screenshot: capture,
+        evaluate: jest.fn(),
+        click: jest.fn(),
+        type: jest.fn(),
+        getContent: jest.fn(),
+        getNetworkRequests: jest.fn(),
+        close: jest.fn(),
+        status: jest.fn(),
+        isConnected: jest.fn(),
+        startRecording: jest.fn(),
+        stopRecording: jest.fn(),
+      };
+      const browser = buildBrowserNamespace({ capabilities });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        { saveTo: 'home.png', quality: 50.5 },
+        buildDeps({
+          onToolResult,
+          ptahAPI: buildPtahAPIStub({
+            browser,
+            workspace: {
+              getInfo: jest.fn().mockResolvedValue({ path: spoolRoot }),
+            } as unknown as PtahAPI['workspace'],
+          }),
+        }),
+      );
+
+      expect(capture).toHaveBeenCalledWith({
+        format: 'png',
+        quality: undefined,
+        fullPage: undefined,
+      });
+      const content = (
+        res.result as { content: Array<{ type: string; mimeType?: string }> }
+      ).content;
+      expect(content[0].mimeType).toBe('image/png');
+    });
+
+    // Batch 17 r1 M1: the transcript summary stays one line under 300 chars
+    // whatever the saved path; the response caption keeps the full path.
+    it('bounds a long saved path in the transcript summary and keeps the file name', async () => {
+      const filePath = `/shots/${'nested/'.repeat(45)}shot.jpg`;
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'jpeg', filePath });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text.length).toBeLessThan(300);
+      expect(text).toMatch(
+        /^Screenshot captured \(jpeg, ~0KB\) \| Saved to: \/shots\/nested\/.*….*\/shot\.jpg$/,
+      );
+      const caption = (res.result as { content: Array<{ text?: string }> })
+        .content[1].text;
+      expect(caption).toContain(filePath);
+    });
+
+    it('keeps the transcript summary on one line when the saved path has line breaks', async () => {
+      const screenshot = jest.fn().mockResolvedValue({
+        data: 'AAAA',
+        format: 'jpeg',
+        filePath: '/shots/a\nb\r\tc.jpg',
+      });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      expect(onToolResult.mock.calls[0][1]).toBe(
+        'Screenshot captured (jpeg, ~0KB) | Saved to: /shots/a?b??c.jpg',
+      );
+    });
+
+    it('bounds the transcript summary even when the file name alone is too long', async () => {
+      const filePath = `/shots/${'n'.repeat(400)}.jpg`;
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'jpeg', filePath });
+      const onToolResult = jest.fn();
+
+      await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = onToolResult.mock.calls[0][1] as string;
+      expect(text.length).toBeLessThan(300);
+      expect(text).toContain('…');
+      expect(text.endsWith('nnn.jpg')).toBe(true);
+    });
+
+    it.each([
+      ['shot.jpg', 'jpeg'],
+      ['shot.JPEG', 'jpeg'],
+      ['shot.webp', 'webp'],
+      ['shot', undefined],
+      ['shot.bmp', undefined],
+    ])(
+      'maps saveTo %p to format %p when no format is given',
+      async (saveTo, expected) => {
+        const screenshot = jest
+          .fn()
+          .mockResolvedValue({ data: 'AAAA', format: expected ?? 'jpeg' });
+
+        await callTool(
+          'ptah_browser_screenshot',
+          { saveTo },
+          screenshotDeps(screenshot, jest.fn()),
+        );
+
+        expect(screenshot.mock.calls[0][0].format).toBe(expected);
+      },
+    );
+
+    it('honours an explicit format over the saveTo extension', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: 'AAAA', format: 'png' });
+
+      await callTool(
+        'ptah_browser_screenshot',
+        { format: 'png', saveTo: 'shot.jpg' },
+        screenshotDeps(screenshot, jest.fn()),
+      );
+
+      expect(screenshot.mock.calls[0][0].format).toBe('png');
+    });
+
+    it('leaves the error path unchanged', async () => {
+      const screenshot = jest
+        .fn()
+        .mockResolvedValue({ data: '', format: 'jpeg', error: 'no page' });
+      const onToolResult = jest.fn();
+
+      const res = await callTool(
+        'ptah_browser_screenshot',
+        {},
+        screenshotDeps(screenshot, onToolResult),
+      );
+
+      const text = textOf(res);
+      expect(text).toContain('Screenshot Failed');
+      expect(text).toContain('no page');
+      expect(onToolResult).toHaveBeenCalledWith(
+        'budget-ptah_browser_screenshot',
+        text,
+        false,
+      );
+    });
+
+    it('states the jpeg / quality 60 default in the tool description', () => {
+      const tool = buildBrowserScreenshotTool();
+      const props = tool.inputSchema.properties as Record<
+        string,
+        { description: string }
+      >;
+      expect(tool.description).toContain('jpeg at quality 60');
+      expect(props['format'].description).toBe(
+        'Image format (default: "jpeg")',
+      );
+      expect(props['quality'].description).toContain('(default: 60)');
+    });
+  });
+
+  // Review F3: a throwing observer never replaces the outcome it observes.
+  it('keeps a screenshot success (with its image) when the transcript callback throws', async () => {
+    const data = 'C'.repeat(1_000);
+    const deps = buildDeps({
+      onToolResult: () => {
+        throw new Error('observer failed');
+      },
+      ptahAPI: buildPtahAPIStub({
+        browser: {
+          screenshot: jest.fn().mockResolvedValue({ data, format: 'png' }),
+        } as unknown as PtahAPI['browser'],
+      }),
+    });
+
+    const res = await callTool('ptah_browser_screenshot', {}, deps);
+
+    const result = res.result as {
+      content: Array<{ type: string; data?: string }>;
+      isError?: boolean;
+    };
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]).toEqual({
+      type: 'image',
+      data,
+      mimeType: 'image/png',
+    });
+  });
+
+  it('keeps the actionable execute_code error when the transcript callback throws', async () => {
+    const deps = buildDeps({
+      onToolResult: () => {
+        throw new Error('observer failed');
+      },
+    });
+
+    const res = await callTool(
+      'execute_code',
+      { code: 'return new Promise(() => undefined);', timeout: 50 },
+      deps,
+    );
+
+    expect(res.error).toBeUndefined();
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Execution timeout (50ms)');
+    expect(result.content[0].text).toContain(
+      'Try breaking the operation into smaller steps',
+    );
+    expect(result.content[0].text).not.toContain('observer failed');
+  });
+
+  // TASK_2026_559 Batch 11b (r1 Minor): the ptah_search_files truncation
+  // notice precedes the list so the budget cannot drop it. Pinned through
+  // both oversized sizes. Review r4 R4-03: below the outline cap the Markdown
+  // outline keeps the header and the notice (the list does not fit whole),
+  // and the rest of the window is a labelled prefix that keeps the first
+  // files; above the cap the plain prefix cut keeps both.
+  it.each([
+    [
+      'the outline plus a labelled prefix below the outline cap',
+      1_000,
+      /^\[reduced: markdown-outline\+prefix /m,
+    ],
+    [
+      'a prefix cut above the outline cap',
+      10_000,
+      /^\[reduced: \S+ — partial, cut /m,
+    ],
+  ])(
+    'keeps the search_files truncation notice through %s (%i files over the limit)',
+    async (_path, limit, trailer) => {
+      const matched = Array.from(
+        { length: limit + 1 },
+        (_, i) => `libs/group-${i % 9}/src/lib/file-${i}.service.ts`,
+      );
+      const findFiles = jest.fn().mockResolvedValue(matched);
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          search: { findFiles } as unknown as PtahAPI['search'],
+        }),
+      });
+
+      const text = textOf(
+        await callTool(
+          'ptah_search_files',
+          { pattern: '**/*.ts', limit },
+          deps,
+        ),
+      );
+
+      const raw = formatSearchFiles(matched.slice(0, limit), true);
+      expect(raw.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expectWithinDefaultBudget(text);
+      expect(text).toContain(
+        `Found: more than ${limit} files (showing first ${limit}; narrow the pattern or raise limit)`,
+      );
+      expect(text).toMatch(trailer);
+      // The first file rows survive, in order, not only the notice.
+      expect(text).toContain(
+        '1. libs/group-0/src/lib/file-0.service.ts\n 2. libs/group-1/src/lib/file-1.service.ts',
+      );
+      expect(onlySpoolFile()).toBe(raw);
+    },
+  );
+
+  // Review r4 R4-03 counterexample A, through the real handler: a long prose
+  // summary followed by a late heading and a short answer. The outline keeps
+  // the late heading and answer; the labelled prefix keeps the start of the
+  // summary. Neither is traded for the other.
+  it('ptah_web_search: a late heading and its answer after a long prose summary survive, next to the start of the summary', async () => {
+    const sentence =
+      'The providers agreed on the retry budget and the cache policy for the rollout. ';
+    const prose = `MARK-SUMMARY-FRONT ${sentence.repeat(250)}`.trimEnd();
+    const summary = `${prose}\n\n## CRITICAL-LATE-HEADING\n\nCRITICAL-ANSWER: use the second provider.`;
+    const result = {
+      query: 'rollout policy',
+      summary,
+      providers: ['serper'],
+      status: 'ok',
+      durationMs: 10,
+      results: [],
+      resultCount: 0,
+      outcomes: [
+        { provider: 'serper', status: 'ok', durationMs: 10, resultCount: 0 },
+      ],
+    };
+    const search = jest.fn().mockResolvedValue(result);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        webSearch: { search } as unknown as PtahAPI['webSearch'],
+      }),
+    });
+
+    const res = await callTool(
+      'ptah_web_search',
+      { query: 'rollout policy' },
+      deps,
+    );
+
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = textOf(res);
+    const raw = formatWebSearch(result);
+    expect(raw.length).toBeGreaterThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expectWithinDefaultBudget(text);
+    expect(text).toContain('## CRITICAL-LATE-HEADING');
+    expect(text).toContain('CRITICAL-ANSWER: use the second provider.');
+    expect(text).toContain('MARK-SUMMARY-FRONT');
+    expect(text).toMatch(/\n\n\[reduced: markdown-outline\+prefix /);
+    expect(onlySpoolFile()).toBe(raw);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tools/list — result budget declaration (TASK_2026_559 Task 2f.2)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › tools/list maxResultSizeChars (TASK_2026_559 2f.2)', () => {
+  const ALL_CAPABILITIES: Partial<ProtocolHandlerDependencies> = {
+    hasIDECapabilities: true,
+    hasSqliteLayer: true,
+  };
+
+  async function listResult(
+    overrides: Partial<ProtocolHandlerDependencies> = ALL_CAPABILITIES,
+  ): Promise<{
+    tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+  }> {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'budget-list', method: 'tools/list' }),
+      buildDeps(overrides),
+    );
+    return res.result as {
+      tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+    };
+  }
+
+  it('declares every listed tool except approval_prompt at its budget-table char ceiling', async () => {
+    const { tools } = await listResult();
+
+    expect(tools.length).toBeGreaterThan(50);
+    for (const tool of tools) {
+      expect(tool._meta?.['anthropic/maxResultSizeChars']).toBe(
+        tool.name === 'approval_prompt'
+          ? undefined
+          : getToolResultBudget(tool.name).chars,
+      );
+    }
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect(
+      byName.get('ptah_browser_content')?._meta?.[
+        'anthropic/maxResultSizeChars'
+      ],
+    ).toBe(32 * 1024 + 1024);
+    expect(
+      byName.get('ptah_search_files')?._meta?.['anthropic/maxResultSizeChars'],
+    ).toBe(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+  });
+
+  it('keeps the existing alwaysLoad key on eager tools', async () => {
+    const { tools } = await listResult();
+    const diagnostics = tools.find((t) => t.name === 'ptah_get_diagnostics');
+
+    expect(diagnostics?._meta).toEqual({
+      'anthropic/alwaysLoad': true,
+      'anthropic/maxResultSizeChars': DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+    });
+  });
+
+  it('is byte-stable across two calls', async () => {
+    for (const overrides of [{}, ALL_CAPABILITIES]) {
+      const first = JSON.stringify(await listResult(overrides));
+      const second = JSON.stringify(await listResult(overrides));
+      expect(second).toBe(first);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Caller identity — tools/list, tools/call context, telemetry (TASK_2026_559 Batch 3)
+//
+// Every caller kind gets the same tool list (User Decision 6: no per-caller
+// narrowing), byte for byte, so the prompt cache holds across callers. The
+// telemetry line carries the caller KIND only — never an id or a root.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › caller identity (TASK_2026_559 Batch 3)', () => {
+  const WS_ROOT = 'D:\\projects\\caller-ws';
+
+  /** The `_caller*` fields the HTTP handler stamps for each URL shape. */
+  const CALLERS: ReadonlyArray<{
+    kind: string;
+    fields: Partial<MCPRequest>;
+  }> = [
+    {
+      kind: 'agent',
+      fields: {
+        _callerAgentId: 'agent-secret-id',
+        _callerWorkspaceRoot: WS_ROOT,
+      },
+    },
+    {
+      kind: 'session',
+      fields: {
+        _callerSessionId: 'session-secret-id',
+        _callerWorkspaceRoot: WS_ROOT,
+      },
+    },
+    { kind: 'workspace', fields: { _callerWorkspaceRoot: WS_ROOT } },
+    { kind: 'anonymous', fields: {} },
+  ];
+
+  const LIST_CONFIGS: ReadonlyArray<Partial<ProtocolHandlerDependencies>> = [
+    {},
+    { hasIDECapabilities: true, hasSqliteLayer: true },
+    { hasIDECapabilities: true, disabledMcpNamespaces: ['browser', 'git'] },
+  ];
+
+  async function listJson(
+    fields: Partial<MCPRequest>,
+    overrides: Partial<ProtocolHandlerDependencies>,
+  ): Promise<string> {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'caller-list', method: 'tools/list', ...fields }),
+      buildDeps(overrides),
+    );
+    expect(res.error).toBeUndefined();
+    return JSON.stringify(res.result);
+  }
+
+  it('returns a byte-identical tools/list for all four caller kinds and across repeated calls', async () => {
+    for (const overrides of LIST_CONFIGS) {
+      const reference = await listJson({}, overrides);
+      for (const { fields } of CALLERS) {
+        expect(await listJson(fields, overrides)).toBe(reference);
+        expect(await listJson(fields, overrides)).toBe(reference);
+      }
+    }
+  });
+
+  it('returns the same derived instructions from initialize for all four caller kinds (Batch 4)', async () => {
+    const initialize = async (fields: Partial<MCPRequest>): Promise<string> => {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'caller-init',
+          method: 'initialize',
+          params: { clientInfo: { name: 'codex-mcp-client', version: '1' } },
+          ...fields,
+        }),
+        buildDeps(),
+      );
+      expect(res.error).toBeUndefined();
+      return (res.result as { instructions: string }).instructions;
+    };
+
+    const reference = await initialize({});
+    expect(reference).toBe(buildServerInstructions());
+    expect(reference.length).toBeLessThanOrEqual(512);
+    expect(reference.endsWith('ptah.help()')).toBe(true);
+    for (const { fields } of CALLERS) {
+      expect(await initialize(fields)).toBe(reference);
+    }
+  });
+
+  it('gives a malformed caller (blank or non-string fields) the same list, not a different identity’s', async () => {
+    const overrides = { hasIDECapabilities: true, hasSqliteLayer: true };
+    const reference = await listJson({}, overrides);
+    const malformed = [
+      { _callerAgentId: '   ' },
+      { _callerSessionId: '' },
+      { _callerWorkspaceRoot: '\t' },
+      { _callerAgentId: 7 } as unknown as Partial<MCPRequest>,
+    ];
+
+    for (const fields of malformed) {
+      expect(await listJson(fields, overrides)).toBe(reference);
+    }
+  });
+
+  it('gives the anonymous caller the full default set (no narrowing)', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'caller-anon', method: 'tools/list' }),
+        buildDeps({ hasIDECapabilities: true, hasSqliteLayer: true }),
+      ),
+    );
+
+    for (const name of [
+      'ptah_workspace_analyze',
+      'execute_code',
+      'approval_prompt',
+      'ptah_task_create',
+      'ptah_lsp_references',
+      'ptah_agent_spawn',
+      'ptah_agent_report',
+      'ptah_git_worktree_add',
+      'ptah_json_validate',
+      'ptah_browser_navigate',
+      'ptah_harness_propose_config',
+      'ptah_code_search_symbols',
+      'ptah_code_reindex',
+    ]) {
+      expect(names).toContain(name);
+    }
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('binds the resolved agent id in the tools/call context beside the raw session and workspace fields', async () => {
+    const seen: Array<Record<string, string | undefined>> = [];
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        tasks: {
+          check: jest.fn(async () => {
+            seen.push({
+              agent: getCallerAgentId(),
+              session: getCallerSessionId(),
+              workspace: getCallerWorkspaceRoot(),
+            });
+            return { ok: true };
+          }),
+        },
+      }),
+    });
+    const call = (fields: Partial<MCPRequest>): Promise<MCPResponse> =>
+      handleMCPRequest(
+        makeRequest({
+          id: 'caller-ctx',
+          method: 'tools/call',
+          params: { name: 'ptah_task_check', arguments: {} },
+          ...fields,
+        }),
+        deps,
+      );
+
+    await call({ _callerAgentId: 'agent-1', _callerWorkspaceRoot: WS_ROOT });
+    await call({ _callerAgentId: '  ', _callerSessionId: 'tab-abc' });
+    await call({});
+
+    expect(seen).toEqual([
+      { agent: 'agent-1', session: undefined, workspace: WS_ROOT },
+      { agent: undefined, session: 'tab-abc', workspace: undefined },
+      { agent: undefined, session: undefined, workspace: undefined },
+    ]);
+  });
+
+  it('logs the caller kind on the telemetry line, and never a caller id or the declared root', async () => {
+    for (const { kind, fields } of CALLERS) {
+      const logger = createMockLogger();
+      const deps = buildDeps({
+        logger: asLogger(logger),
+        ptahAPI: buildPtahAPIStub({
+          tasks: { check: jest.fn().mockResolvedValue({ ok: true }) },
+        }),
+      });
+
+      await handleMCPRequest(
+        makeRequest({
+          id: `caller-telemetry-${kind}`,
+          method: 'tools/call',
+          params: { name: 'ptah_task_check', arguments: {} },
+          ...fields,
+        }),
+        deps,
+      );
+
+      const lines = logger.debug.mock.calls.filter(
+        (call) => call[0] === '[MCP] tool result',
+      );
+      expect(lines).toHaveLength(1);
+      expect(lines[0][2]).toMatchObject({
+        tool: 'ptah_task_check',
+        callerKind: kind,
+        isError: false,
+      });
+      const everything = JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+      ]);
+      expect(everything).not.toContain('agent-secret-id');
+      expect(everything).not.toContain('session-secret-id');
+      expect(everything).not.toContain('caller-ws');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_code_reindex and lazy index freshness (TASK_2026_559 Batch 6)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › ptah_code_reindex and index freshness (TASK_2026_559 Batch 6)', () => {
+  function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    overrides: Partial<ProtocolHandlerDependencies> = {},
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: `b6-${name}`,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+      buildDeps(overrides),
+    );
+  }
+
+  function resultOf(res: MCPResponse): { text: string; isError: boolean } {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError === true };
+  }
+
+  async function listNames(
+    overrides: Partial<ProtocolHandlerDependencies> = {},
+  ): Promise<string[]> {
+    return listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'b6-list', method: 'tools/list' }),
+        buildDeps(overrides),
+      ),
+    );
+  }
+
+  /** Lets fire-and-forget chains run. */
+  async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  it('lists ptah_code_reindex right after ptah_code_search_symbols, under the code namespace only', async () => {
+    const names = await listNames();
+    const search = names.indexOf('ptah_code_search_symbols');
+    expect(search).toBeGreaterThanOrEqual(0);
+    expect(names[search + 1]).toBe('ptah_code_reindex');
+
+    const otherGroupsOff = await listNames({
+      hasIDECapabilities: true,
+      disabledMcpNamespaces: [
+        'ide',
+        'agent',
+        'git',
+        'json',
+        'browser',
+        'harness',
+      ],
+    });
+    expect(otherGroupsOff).toContain('ptah_code_reindex');
+
+    expect(await listNames({ disabledMcpNamespaces: ['code'] })).not.toContain(
+      'ptah_code_reindex',
+    );
+  });
+
+  it('does not mark ptah_code_reindex eager, even with the SQLite layer', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({ id: 'b6-eager', method: 'tools/list' }),
+      buildDeps({ hasSqliteLayer: true, hasIDECapabilities: true }),
+    );
+    const tools = (
+      res.result as {
+        tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+      }
+    ).tools;
+    const tool = tools.find((t) => t.name === 'ptah_code_reindex');
+    expect(tool).toBeDefined();
+    expect(tool?._meta?.['anthropic/alwaysLoad']).toBeUndefined();
+  });
+
+  it('starts a full reindex and returns the started block', async () => {
+    const reindex = jest.fn().mockResolvedValue({
+      started: true,
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexInFlight: true,
+    });
+    const res = await callTool(
+      'ptah_code_reindex',
+      {},
+      { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+    );
+
+    expect(reindex).toHaveBeenCalledWith({});
+    const { text, isError } = resultOf(res);
+    expect(isError).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      started: true,
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexInFlight: true,
+    });
+  });
+
+  it('reindexes one absolute file and returns its stats', async () => {
+    const file = path.resolve('/ws/src/auth.ts');
+    const stats = {
+      filesScanned: 1,
+      symbolsIndexed: 3,
+      errors: 0,
+      durationMs: 9,
+    };
+    const reindex = jest.fn().mockResolvedValue(stats);
+    const res = await callTool(
+      'ptah_code_reindex',
+      { filePath: file },
+      { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+    );
+
+    expect(reindex).toHaveBeenCalledWith({ filePath: file });
+    expect(JSON.parse(resultOf(res).text)).toEqual(stats);
+  });
+
+  it('rejects a relative or non-string filePath without calling reindex', async () => {
+    const reindex = jest.fn();
+    for (const filePath of ['src/auth.ts', 42, '']) {
+      const res = await callTool(
+        'ptah_code_reindex',
+        { filePath },
+        { ptahAPI: buildPtahAPIStub({ code: { reindex } }) },
+      );
+      expect(resultOf(res).isError).toBe(true);
+    }
+    expect(reindex).not.toHaveBeenCalled();
+  });
+
+  it('returns a graceful error result where there is no indexer (VS Code)', async () => {
+    const code = buildCodeNamespace({
+      getMemorySearch: () => undefined,
+      getSymbolIndexer: () => undefined,
+      getWorkspaceRoot: () => '/ws',
+      getHostWorkspaceRoots: () => ['/ws'],
+      logger: { warn: jest.fn() },
+    });
+    const res = await callTool(
+      'ptah_code_reindex',
+      {},
+      { ptahAPI: buildPtahAPIStub({ code }) },
+    );
+
+    const { text, isError } = resultOf(res);
+    expect(isError).toBe(true);
+    expect(text).toContain('CodeSymbolIndexer not available');
+  });
+
+  it('returns an error result when the code namespace is absent', async () => {
+    const res = await callTool('ptah_code_reindex', {});
+    expect(resultOf(res).isError).toBe(true);
+  });
+
+  it('ptah_code_search_symbols runs the freshness check and surfaces the index block', async () => {
+    const indexWorkspace = jest.fn(() => new Promise<never>(() => undefined));
+    const reader: ICodeSymbolReader = {
+      searchSymbols: jest.fn().mockResolvedValue({ hits: [], bm25Only: false }),
+      getIndexFreshness: jest
+        .fn()
+        .mockResolvedValue({ symbolCount: 0, newestUpdatedAt: null }),
+    };
+    const code = buildCodeNamespace({
+      getCodeSymbolSearch: () => reader,
+      getMemorySearch: () => undefined,
+      getSymbolIndexer: () =>
+        ({ indexWorkspace }) as unknown as CodeSymbolIndexer,
+      getWorkspaceRoot: () => '/ws',
+      getHostWorkspaceRoots: () => ['/ws'],
+      logger: { warn: jest.fn() },
+    });
+
+    const res = await callTool(
+      'ptah_code_search_symbols',
+      { query: 'login' },
+      { ptahAPI: buildPtahAPIStub({ code }) },
+    );
+    await flush();
+
+    expect(reader.getIndexFreshness).toHaveBeenCalledWith('/ws');
+    expect(indexWorkspace).toHaveBeenCalledWith('/ws', {
+      userInitiated: false,
+    });
+    const body = JSON.parse(resultOf(res).text) as { index: unknown };
+    expect(body.index).toEqual({
+      symbolCount: 0,
+      indexAgeMs: null,
+      reindexStarted: true,
+      reindexInFlight: true,
+    });
+  });
+});
+
+describe('protocol-handlers › ptah_get_symbol_index paging (TASK_2026_559 Batch 9)', () => {
+  /** A worktree-length root, so entry paths are as long as on this repo (135 chars on average). */
+  const ROOT =
+    'D:/projects/ptah-extension/.claude-worktrees/task-559-mcp-tool-contract';
+  /** Symbols per file, cycled: median 1, 90th percentile 8, as on this repo's own index. */
+  const SYMBOL_COUNTS = [1, 1, 1, 2, 1, 3, 1, 8, 1, 2];
+
+  let spoolRoot: string;
+
+  beforeEach(() => {
+    spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b9-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(spoolRoot, { recursive: true, force: true });
+  });
+
+  /** A 2,655-file index (the audited size), inserted out of path order. */
+  function auditSizedIndex(): SymbolIndexEntry[] {
+    return Array.from({ length: 2_655 }, (_, i) => {
+      const n = 2_654 - i;
+      const id = String(n).padStart(4, '0');
+      return {
+        file: `${ROOT}/libs/backend/library-${n % 23}/src/lib/feature-${n % 7}/component-${id}.service.ts`,
+        symbols: Array.from(
+          { length: SYMBOL_COUNTS[n % SYMBOL_COUNTS.length] },
+          (_, s) => `ComponentService${id}Export${s}`,
+        ),
+      };
+    });
+  }
+
+  type SymbolIndexDependencies = PtahAPI['dependencies'] & {
+    getSymbolIndex: jest.Mock;
+    getGraphCoverage: jest.Mock;
+  };
+
+  function dependenciesOver(
+    entries: SymbolIndexEntry[],
+    coverage?: { graphedFiles: number; discoveredFiles: number },
+  ): SymbolIndexDependencies {
+    return {
+      isBuilt: jest.fn().mockResolvedValue(true),
+      getSymbolIndex: jest.fn(
+        async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
+          pageSymbolIndex(entries, query, ROOT),
+      ),
+      getGraphCoverage: jest
+        .fn()
+        .mockResolvedValue({ ...coverage, coverage: CLEAN_GRAPH_COVERAGE }),
+    } as unknown as SymbolIndexDependencies;
+  }
+
+  function callTool(
+    args: Record<string, unknown>,
+    dependencies: PtahAPI['dependencies'],
+    getInfo: jest.Mock = jest.fn().mockResolvedValue({ path: ROOT }),
+  ): Promise<MCPResponse> {
+    return handleMCPRequest(
+      makeRequest({
+        id: 'b9-symbol-index',
+        method: 'tools/call',
+        params: { name: 'ptah_get_symbol_index', arguments: args },
+        _callerWorkspaceRoot: spoolRoot,
+      }),
+      buildDeps({
+        workspaceProvider: knownFolders(spoolRoot),
+        ptahAPI: buildPtahAPIStub({
+          workspace: { getInfo } as unknown as PtahAPI['workspace'],
+          dependencies,
+        }),
+      }),
+    );
+  }
+
+  function resultOf(res: MCPResponse): { text: string; isError: boolean } {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError === true };
+  }
+
+  interface PageBody {
+    count: number;
+    total: number;
+    offset: number;
+    nextOffset?: number;
+    files: SymbolIndexEntry[];
+  }
+
+  it('keeps a default call on a 2,655-file index within both budget limits, whole and unreduced', async () => {
+    const { text, isError } = resultOf(
+      await callTool({}, dependenciesOver(auditSizedIndex())),
+    );
+
+    expect(isError).toBe(false);
+    expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    expect(text).not.toContain('[reduced:');
+    const body = JSON.parse(text) as PageBody;
+    expect(body.count).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+    expect(body.total).toBe(2_655);
+    expect(body.offset).toBe(0);
+    expect(body.nextOffset).toBe(SYMBOL_INDEX_DEFAULT_LIMIT);
+    const files = body.files.map((entry) => entry.file);
+    expect(files).toEqual([...files].sort());
+  });
+
+  it('passes the defaults to the namespace when the tool gets no arguments', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex());
+    await callTool({}, dependencies);
+    expect(dependencies.getSymbolIndex).toHaveBeenCalledWith(undefined, {
+      limit: SYMBOL_INDEX_DEFAULT_LIMIT,
+      offset: 0,
+    });
+  });
+
+  it('passes a normalised prefix, the limit and the offset to the namespace', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex());
+    await callTool(
+      { pathPrefix: '.\\libs\\backend\\\\library-1\\', limit: 5, offset: 10 },
+      dependencies,
+    );
+    expect(dependencies.getSymbolIndex).toHaveBeenCalledWith(undefined, {
+      pathPrefix: 'libs/backend/library-1/',
+      limit: 5,
+      offset: 10,
+    });
+  });
+
+  it('ends a page early at the budget, with count and nextOffset recomputed, so paging continues where it stopped', async () => {
+    const heavy = Array.from({ length: 100 }, (_, i) => ({
+      file: `${ROOT}/libs/heavy/file-${String(i).padStart(3, '0')}.ts`,
+      symbols: Array.from({ length: 40 }, (_, s) => `HeavyExport${i}x${s}`),
+    }));
+    const dependencies = dependenciesOver(heavy);
+
+    const firstText = resultOf(
+      await callTool({ limit: 50 }, dependencies),
+    ).text;
+    expect(firstText).not.toContain('[reduced:');
+    const first = JSON.parse(firstText) as PageBody;
+    expect(first.count).toBeGreaterThanOrEqual(1);
+    expect(first.count).toBeLessThan(50);
+    expect(first.files).toHaveLength(first.count);
+    expect(first.nextOffset).toBe(first.count);
+    expect(first.total).toBe(100);
+
+    const secondText = resultOf(
+      await callTool({ limit: 50, offset: first.nextOffset }, dependencies),
+    ).text;
+    expect(secondText.length).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+    );
+    const second = JSON.parse(secondText) as PageBody;
+    expect(second.offset).toBe(first.nextOffset);
+    expect(second.files[0].file).toBe(heavy[first.count].file);
+  });
+
+  // Batch 9 revision round 1 (review F1): a file whose entry alone is over the
+  // budget no longer reaches the budget's cut, which made the page invalid JSON.
+  interface OversizedBody {
+    file: string;
+    symbolCount: number;
+    truncated: true;
+    symbolsFile?: string;
+    symbolsFileError?: string;
+    symbols: string[];
+  }
+
+  const hugeEntry = (name: string): SymbolIndexEntry => ({
+    file: `${ROOT}/libs/huge/${name}.ts`,
+    symbols: Array.from({ length: 1_500 }, (_, s) => `HugeExport${s}`),
+  });
+
+  /** A page's text, asserted to be one unreduced, in-budget JSON value. */
+  function parsedPage(text: string): PageBody {
+    expect(text).not.toContain('[reduced:');
+    expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    return JSON.parse(text) as PageBody;
+  }
+
+  /** Every page from offset 0 until nextOffset is absent. */
+  async function allPages(
+    dependencies: PtahAPI['dependencies'],
+  ): Promise<PageBody[]> {
+    const pages: PageBody[] = [];
+    let offset: number | undefined = 0;
+    while (offset !== undefined && pages.length < 50) {
+      const page = parsedPage(
+        resultOf(await callTool({ offset }, dependencies)).text,
+      );
+      pages.push(page);
+      offset = page.nextOffset;
+    }
+    return pages;
+  }
+
+  it('returns an oversized entry in the middle as valid JSON, and paging continues past it with its symbols recoverable', async () => {
+    const entries = [
+      { file: `${ROOT}/libs/huge/a-before.ts`, symbols: ['Before'] },
+      hugeEntry('m-middle'),
+      { file: `${ROOT}/libs/huge/z-after.ts`, symbols: ['After'] },
+    ];
+    const pages = await allPages(dependenciesOver(entries));
+
+    // Every file is visited once, in order.
+    expect(pages.flatMap((page) => page.files.map((f) => f.file))).toEqual(
+      entries.map((entry) => entry.file),
+    );
+    const withHuge = pages.find((page) =>
+      page.files.some((f) => f.file === entries[1].file),
+    ) as PageBody;
+    expect(withHuge.count).toBe(1);
+    expect(withHuge.files).toHaveLength(1);
+    expect(withHuge.nextOffset).toBe(withHuge.offset + 1);
+    const huge = withHuge.files[0] as unknown as OversizedBody;
+    expect(huge.truncated).toBe(true);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(huge.symbols.length).toBeGreaterThan(0);
+    expect(huge.symbols.length).toBeLessThan(1_500);
+    expect(huge.symbols).toEqual(
+      entries[1].symbols.slice(0, huge.symbols.length),
+    );
+    expect(huge.symbolsFileError).toBeUndefined();
+
+    // The whole entry is recoverable from the named file, under the spool root.
+    const symbolsFile = huge.symbolsFile as string;
+    expect(path.resolve(symbolsFile).startsWith(path.resolve(spoolRoot))).toBe(
+      true,
+    );
+    expect(JSON.parse(fs.readFileSync(symbolsFile, 'utf8'))).toEqual(
+      entries[1],
+    );
+  });
+
+  it('returns an oversized final entry as valid JSON with no nextOffset, its symbols recoverable', async () => {
+    const entries = [
+      { file: `${ROOT}/libs/huge/a-first.ts`, symbols: ['First'] },
+      hugeEntry('z-last'),
+    ];
+    const dependencies = dependenciesOver(entries);
+
+    const first = parsedPage(resultOf(await callTool({}, dependencies)).text);
+    expect(first.files.map((f) => f.file)).toEqual([entries[0].file]);
+    expect(first.nextOffset).toBe(1);
+
+    const last = parsedPage(
+      resultOf(await callTool({ offset: first.nextOffset }, dependencies)).text,
+    );
+    expect(last).toMatchObject({ count: 1, total: 2, offset: 1 });
+    expect(last).not.toHaveProperty('nextOffset');
+    const huge = last.files[0] as unknown as OversizedBody;
+    expect(huge.file).toBe(entries[1].file);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(
+      JSON.parse(fs.readFileSync(huge.symbolsFile as string, 'utf8')),
+    ).toEqual(entries[1]);
+  });
+
+  it('returns a lone oversized entry as valid JSON', async () => {
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([hugeEntry('only')]))).text,
+    );
+    expect(page).toMatchObject({ count: 1, total: 1, offset: 0 });
+    expect(page).not.toHaveProperty('nextOffset');
+    expect((page.files[0] as unknown as OversizedBody).truncated).toBe(true);
+  });
+
+  it('names the spool failure inside a valid page when the symbols cannot be saved', async () => {
+    // A file where the spool directory's parent must be: the save fails.
+    fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([hugeEntry('only')]))).text,
+    );
+    const huge = page.files[0] as unknown as OversizedBody;
+    expect(huge.truncated).toBe(true);
+    expect(huge.symbolCount).toBe(1_500);
+    expect(huge.symbolsFile).toBeUndefined();
+    expect(huge.symbolsFileError).toMatch(/^[A-Za-z]+$/);
+    expect(huge.symbols.length).toBeGreaterThan(0);
+  });
+
+  // Round 2 review R2-M1: the reviewer's token-heavy path (6,485 chars, under
+  // the char ceiling but over the token ceiling even with no symbols).
+  const tokenHeavyEntry = (): SymbolIndexEntry => ({
+    file: 'C:/' + Array(810).fill('deepabc').join('/') + '.ts',
+    symbols: ['S'],
+  });
+
+  interface SkippedBody extends PageBody {
+    error?: string;
+    symbolsFile?: string;
+    symbolsFileError?: string;
+  }
+
+  it('skips an entry whose metadata alone is over the budget with a valid JSON error, and paging advances (spool fails)', async () => {
+    fs.writeFileSync(path.join(spoolRoot, '.ptah'), 'not a directory');
+    const heavy = tokenHeavyEntry();
+    expect(heavy.file.length).toBeLessThan(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+    const entries = [heavy, { file: 'C:/z-after.ts', symbols: ['After'] }];
+    const dependencies = dependenciesOver(entries, {
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+
+    const first = parsedPage(
+      resultOf(await callTool({}, dependencies)).text,
+    ) as SkippedBody;
+    expect(first).toMatchObject({
+      count: 0,
+      total: 2,
+      offset: 0,
+      nextOffset: 1,
+      files: [],
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+    expect(first.error).toMatch(/skipped/);
+    expect(first.symbolsFile).toBeUndefined();
+    expect(first.symbolsFileError).toMatch(/^[A-Za-z]+$/);
+
+    const second = parsedPage(
+      resultOf(await callTool({ offset: first.nextOffset }, dependencies)).text,
+    );
+    expect(second.files).toEqual([entries[1]]);
+    expect(second).not.toHaveProperty('nextOffset');
+  });
+
+  it('names the saved entry when a metadata-only-oversized entry was spooled', async () => {
+    const heavy = tokenHeavyEntry();
+    const page = parsedPage(
+      resultOf(await callTool({}, dependenciesOver([heavy]))).text,
+    ) as SkippedBody;
+    expect(page).toMatchObject({ count: 0, total: 1, offset: 0, files: [] });
+    expect(page).not.toHaveProperty('nextOffset');
+    expect(page.error).toMatch(/skipped/);
+    expect(
+      JSON.parse(fs.readFileSync(page.symbolsFile as string, 'utf8')),
+    ).toEqual(heavy);
+  });
+
+  // Batch 9 revision round 1 (review F3, User Decision 14).
+  it('adds no completeness fields when the graph covers every discovered file', async () => {
+    const dependencies = dependenciesOver(auditSizedIndex(), {
+      graphedFiles: 2_655,
+      discoveredFiles: 2_655,
+    });
+    const page = parsedPage(resultOf(await callTool({}, dependencies)).text);
+    expect(dependencies.getGraphCoverage).toHaveBeenCalledWith(undefined);
+    expect(page).not.toHaveProperty('incomplete');
+    expect(page).not.toHaveProperty('graphedFiles');
+    expect(page).not.toHaveProperty('discoveredFiles');
+  });
+
+  // Batch 23b: the paginator carries the (merged) graph coverage in its
+  // header, before `files`, on a whole page and on a skipped-entry page.
+  it('carries the graph coverage in the page header, before files, on every page shape', async () => {
+    const qualified = (entries: SymbolIndexEntry[]) => {
+      const dependencies = dependenciesOver(entries);
+      dependencies.getGraphCoverage.mockResolvedValue({
+        coverage: QUALIFIED_GRAPH_COVERAGE,
+      });
+      return dependencies;
+    };
+    const wholeText = resultOf(
+      await callTool({}, qualified(auditSizedIndex())),
+    ).text;
+    expect(countTokensPiecewise(wholeText)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    const whole = JSON.parse(wholeText) as Record<string, unknown>;
+    expect(Object.keys(whole)).toEqual([
+      'count',
+      'total',
+      'offset',
+      'nextOffset',
+      'coverage',
+      'files',
+    ]);
+    // Batch 22c: the compact qualified block — verdict, then only what is
+    // not at its clean value (`excluded: null` stays: unknown).
+    expect(whole['coverage']).toEqual({
+      clean: false,
+      reasons: ['unsupported'],
+      supportedLanguages: ['typescript', 'javascript'],
+      analyzed: 2,
+      unsupported: 3,
+      excluded: null,
+      unsupportedByLanguage: { python: 3 },
+    });
+
+    const skippedText = resultOf(
+      await callTool({}, qualified([tokenHeavyEntry()])),
+    ).text;
+    expect(countTokensPiecewise(skippedText)).toBeLessThanOrEqual(
+      DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+    );
+    const skipped = parsedPage(skippedText) as SkippedBody &
+      Record<string, unknown>;
+    expect(skipped.error).toMatch(/skipped/);
+    expect(skipped['coverage']).toMatchObject({
+      clean: false,
+      reasons: ['unsupported'],
+    });
+  });
+
+  it('says incomplete, with both counts, when the graph cap dropped files', async () => {
+    const page = parsedPage(
+      resultOf(
+        await callTool(
+          {},
+          dependenciesOver(auditSizedIndex(), {
+            graphedFiles: 5_000,
+            discoveredFiles: 5_354,
+          }),
+        ),
+      ).text,
+    );
+    expect(page).toMatchObject({
+      count: SYMBOL_INDEX_DEFAULT_LIMIT,
+      nextOffset: SYMBOL_INDEX_DEFAULT_LIMIT,
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+    });
+  });
+
+  it('keeps the completeness fields on an empty page', async () => {
+    const page = parsedPage(
+      resultOf(
+        await callTool(
+          { pathPrefix: 'apps/' },
+          dependenciesOver(auditSizedIndex(), {
+            graphedFiles: 5_000,
+            discoveredFiles: 5_354,
+          }),
+        ),
+      ).text,
+    );
+    expect(page).toEqual({
+      count: 0,
+      total: 0,
+      offset: 0,
+      incomplete: true,
+      graphedFiles: 5_000,
+      discoveredFiles: 5_354,
+      // Batch 22c: the compact clean block.
+      coverage: { clean: true, analyzed: 2 },
+      files: [],
+    });
+  });
+
+  it('answers a prefix that matches nothing with an empty page and no nextOffset', async () => {
+    const { text, isError } = resultOf(
+      await callTool(
+        { pathPrefix: 'apps/' },
+        dependenciesOver(auditSizedIndex()),
+      ),
+    );
+    expect(isError).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      count: 0,
+      total: 0,
+      offset: 0,
+      coverage: { clean: true, analyzed: 2 },
+      files: [],
+    });
+  });
+
+  it.each([
+    ['limit 0', { limit: 0 }, '"limit"'],
+    ['a limit over the max', { limit: SYMBOL_INDEX_MAX_LIMIT + 1 }, '"limit"'],
+    ['a fractional limit', { limit: 2.5 }, '"limit"'],
+    ['a string limit', { limit: '10' }, '"limit"'],
+    ['a negative offset', { offset: -1 }, '"offset"'],
+    ['a fractional offset', { offset: 1.5 }, '"offset"'],
+    ['a non-string prefix', { pathPrefix: 5 }, '"pathPrefix"'],
+    ['a .. prefix', { pathPrefix: '../outside' }, '".."'],
+    ['.. inside a Windows prefix', { pathPrefix: 'libs\\..\\..\\x' }, '".."'],
+    ['a drive-relative prefix', { pathPrefix: 'C:libs' }, 'drive-relative'],
+  ])('rejects %s before building the graph', async (_label, args, expected) => {
+    const getInfo = jest.fn();
+    const dependencies = dependenciesOver(auditSizedIndex());
+    const { text, isError } = resultOf(
+      await callTool(args, dependencies, getInfo),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain(expected);
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(dependencies.getSymbolIndex).not.toHaveBeenCalled();
+  });
+});
+
+describe('protocol-handlers › dependency graph background build (TASK_2026_559 Batch 9b)', () => {
+  /** The bound a cold call is held to (the acceptance criterion). */
+  const BOUNDED_WAIT_MS = 2_000;
+  const root = path.resolve('/ws-9b');
+
+  /** Only the timers: the detached build chain is flushed with setImmediate. */
+  const FAKE_TIMERS_ONLY = {
+    doNotFake: [
+      'nextTick',
+      'setImmediate',
+      'clearImmediate',
+      'queueMicrotask',
+      'performance',
+      'Date',
+      'hrtime',
+    ] as Array<
+      | 'nextTick'
+      | 'setImmediate'
+      | 'clearImmediate'
+      | 'queueMicrotask'
+      | 'performance'
+      | 'Date'
+      | 'hrtime'
+    >,
+  };
+
+  interface Deferred<T> {
+    promise: Promise<T>;
+    resolve(value: T): void;
+    reject(error: unknown): void;
+  }
+
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  interface BuildSummary {
+    nodeCount: number;
+    edgeCount: number;
+    unresolvedCount: number;
+    builtAt: number;
+    error?: string;
+  }
+
+  const BUILT: BuildSummary = {
+    nodeCount: 2,
+    edgeCount: 1,
+    unresolvedCount: 0,
+    builtAt: 1,
+  };
+
+  /**
+   * A dependencies namespace whose every build waits on a deferred the test
+   * settles. A build that settles without `error` publishes the graph while
+   * its reserved generation is still the root's (the service's rule);
+   * `evict()` drops the generation and the graph, as the service does.
+   */
+  function harness(options: { built?: boolean } = {}) {
+    const state = {
+      built: options.built === true,
+      generation: undefined as number | undefined,
+      lastGeneration: 0,
+    };
+    const builds: Array<Deferred<BuildSummary>> = [];
+    const buildGraph = jest.fn(
+      (
+        _files: string[],
+        _root: string,
+        _discovered?: number,
+        buildOptions?: { yieldToForeground?: boolean; generation?: number },
+      ) => {
+        const build = deferred<BuildSummary>();
+        builds.push(build);
+        return build.promise.then((summary) => {
+          if (
+            summary.error === undefined &&
+            buildOptions?.generation === state.generation
+          ) {
+            state.built = true;
+          }
+          return summary;
+        });
+      },
+    );
+    // The discovery stub: `discoverSourceFiles` lists what it returns.
+    const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+    const getInfo = jest.fn().mockResolvedValue({ path: root });
+    const logger = createMockLogger();
+    const ptahAPI = buildPtahAPIStub({
+      workspace: { getInfo } as unknown as PtahAPI['workspace'],
+      dependencies: {
+        ...graphToolStubs({ findFiles }),
+        isBuilt: jest.fn(async () => state.built),
+        reserveGraphBuild: jest.fn(() => {
+          state.lastGeneration += 1;
+          state.generation = state.lastGeneration;
+          return state.generation;
+        }),
+        getGraphBuildState: jest.fn(() => ({
+          generation: state.generation,
+          building: false,
+        })),
+        buildGraph,
+        getDependents: jest.fn().mockResolvedValue([path.join(root, 'b.ts')]),
+        getDependencies: jest.fn().mockResolvedValue([path.join(root, 'c.ts')]),
+        getSymbolIndex: jest.fn(
+          async (_root: string | undefined, query: ParsedSymbolIndexQuery) =>
+            pageSymbolIndex(
+              [{ file: path.join(root, 'src/a.ts'), symbols: ['A'] }],
+              query,
+              root,
+            ),
+        ),
+      } as unknown as PtahAPI['dependencies'],
+    });
+    const deps = buildDeps({ ptahAPI, logger: asLogger(logger) });
+    return {
+      state,
+      builds,
+      buildGraph,
+      findFiles,
+      getInfo,
+      logger,
+      deps,
+      evict(): void {
+        state.generation = undefined;
+        state.built = false;
+      },
+    };
+  }
+
+  interface ToolResult {
+    body: Record<string, unknown>;
+    text: string;
+    isError: boolean;
+  }
+
+  function toResult(res: MCPResponse): ToolResult {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    const text = result.content[0].text;
+    return {
+      body: JSON.parse(text) as Record<string, unknown>,
+      text,
+      isError: result.isError === true,
+    };
+  }
+
+  /** Let the detached build chain run to its next wait. */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  describe.each([
+    ['ptah_get_dependents', { file: 'src/a.ts' }, 'dependents'],
+    ['ptah_get_dependencies', { file: 'src/a.ts' }, 'dependencies'],
+    ['ptah_get_symbol_index', {}, 'files'],
+  ])('%s', (toolName, args, answerField) => {
+    function call(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+        }),
+        deps,
+      );
+    }
+
+    /** One call, with the fake clock moved past the bounded wait. */
+    async function callPastWait(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<ToolResult> {
+      const pending = call(deps, id);
+      // The build starts on a later macrotask (a real setImmediate), as in
+      // production, long before the bound's timer fires.
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      return toResult(await pending);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('answers a cold call with a small building status within the bounded wait', async () => {
+      const h = harness();
+      const { body, text, isError } = await callPastWait(h.deps, 'cold');
+
+      expect(isError).toBe(false);
+      expect(Object.keys(body)[0]).toBe('status');
+      expect(body).toEqual({
+        status: 'building',
+        retryAfterMs: expect.any(Number),
+        filesDiscovered: 2,
+        message: expect.stringContaining('retryAfterMs'),
+      });
+      expect(body['retryAfterMs']).toBeGreaterThan(0);
+      expect(text.length).toBeLessThanOrEqual(
+        getToolResultBudget(toolName).chars,
+      );
+      // The build runs in the background, governed, under the read root and
+      // the generation reserved before discovery.
+      expect(h.buildGraph).toHaveBeenCalledWith(
+        [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
+        root,
+        2,
+        { yieldToForeground: true, generation: 1 },
+      );
+    });
+
+    it('answers normally once the background build has finished', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'first')).body['status']).toBe(
+        'building',
+      );
+
+      h.builds[0].resolve(BUILT);
+      await flush();
+      const { body, isError } = toResult(await call(h.deps, 'later'));
+
+      expect(isError).toBe(false);
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers on the first call when the build finishes inside the wait', async () => {
+      const h = harness();
+      const pending = call(h.deps, 'small');
+      await flush();
+      h.builds[0].resolve(BUILT);
+      const { body } = toResult(await pending);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+    });
+
+    it('starts exactly one build for concurrent cold calls', async () => {
+      const h = harness();
+      const pending = Array.from({ length: 5 }, (_, i) =>
+        call(h.deps, `concurrent-${i}`),
+      );
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const results = (await Promise.all(pending)).map(toResult);
+
+      for (const { body } of results) {
+        expect(body['status']).toBe('building');
+      }
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a warm graph at once without starting a build', async () => {
+      const h = harness({ built: true });
+      // No clock movement: a warm call must not wait on any timer.
+      const { body } = toResult(await call(h.deps, 'warm'));
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.buildGraph).not.toHaveBeenCalled();
+      expect(h.findFiles).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed build to the waiting call, then rebuilds on the next call', async () => {
+      const h = harness();
+      const pending = call(h.deps, 'fails');
+      await flush();
+      h.builds[0].resolve({ ...BUILT, error: `EACCES ${root}/secret.ts` });
+      const failed = toResult(await pending);
+
+      expect(failed.isError).toBe(true);
+      expect(Object.keys(failed.body)[0]).toBe('status');
+      expect(failed.body['status']).toBe('failed');
+      // Fixed text: neither the raw error nor a path reaches the caller or the log.
+      expect(failed.text).not.toContain('EACCES');
+      expect(failed.text).not.toContain('secret');
+      const warn = h.logger.warn.mock.calls.find(
+        (c) => c[0] === '[MCP] background dependency-graph build failed',
+      );
+      expect(warn).toBeDefined();
+      expect(JSON.stringify(warn)).not.toContain('secret');
+
+      // The latch is clear: the next call starts a new build.
+      const retried = await callPastWait(h.deps, 'retry');
+      expect(retried.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports a failure that ended between calls once, then rebuilds', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'cold')).body['status']).toBe(
+        'building',
+      );
+      h.builds[0].reject(new Error(`boom at ${root}`));
+      await flush();
+
+      const reported = await callPastWait(h.deps, 'reported');
+      expect(reported.isError).toBe(true);
+      expect(reported.body['status']).toBe('failed');
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+
+      const rebuilt = await callPastWait(h.deps, 'rebuilt');
+      expect(rebuilt.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports a failed discovery as a failed build', async () => {
+      const h = harness();
+      h.findFiles.mockRejectedValueOnce(new Error('glob failed'));
+      const { body, isError } = await callPastWait(h.deps, 'discovery');
+
+      expect(isError).toBe(true);
+      expect(body['status']).toBe('failed');
+      expect(h.buildGraph).not.toHaveBeenCalled();
+    });
+
+    // Review r1 F4: reads use the caller-aware read root, as every other
+    // read tool does; only spool writes are held to host-opened folders.
+    it('builds and answers under a declared worktree root the host did not open', async () => {
+      const h = harness();
+      const worktree = path.resolve('/ws-9b-worktree');
+      // The caller-aware root (`workspace.getInfo`) resolves the declaration.
+      h.getInfo.mockResolvedValue({ path: worktree });
+      const pending = handleMCPRequest(
+        makeRequest({
+          id: 'declared-worktree',
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+          _callerWorkspaceRoot: worktree,
+        }),
+        // The host opened only the parent repository.
+        { ...h.deps, workspaceProvider: knownFolders(root) },
+      );
+      await flush();
+      h.builds[0].resolve(BUILT);
+      const { body, isError } = toResult(await pending);
+
+      expect(isError).toBe(false);
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty(answerField);
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      const [files, graphRoot] = h.buildGraph.mock.calls[0];
+      expect(graphRoot).toBe(worktree);
+      expect(files[0]).toBe(path.join(worktree, 'src/a.ts'));
+      if (answerField !== 'files') {
+        // A relative query resolves against the same root.
+        expect(body['file']).toBe(path.join(worktree, 'src/a.ts'));
+      }
+    });
+  });
+
+  it('returns a cold call within the bound in real time while the build never ends', async () => {
+    const h = harness();
+    const started = Date.now();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'real-time',
+        method: 'tools/call',
+        params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+      }),
+      h.deps,
+    );
+
+    expect(Date.now() - started).toBeLessThanOrEqual(BOUNDED_WAIT_MS);
+    expect(toResult(res).body['status']).toBe('building');
+  });
+
+  describe('job lifecycle (review r1)', () => {
+    function callDependents(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+    }
+
+    async function callPastWait(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<ToolResult> {
+      const pending = callDependents(deps, id);
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      return toResult(await pending);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('keys the latch by the normalized read root: two spellings share one build', async () => {
+      const h = harness();
+      h.getInfo
+        .mockResolvedValueOnce({ path: root })
+        .mockResolvedValueOnce({ path: `${root}${path.sep}` });
+      const first = callDependents(h.deps, 'spelling-1');
+      const second = callDependents(h.deps, 'spelling-2');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+
+      expect(toResult(await first).body['status']).toBe('building');
+      expect(toResult(await second).body['status']).toBe('building');
+      expect(h.findFiles).toHaveBeenCalledTimes(1);
+      expect(h.buildGraph).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F5: an eviction drops the dispatcher's job at once, and the
+    // obsolete job's late failure does not touch its replacement.
+    it('replaces a job obsoleted by an eviction, and ignores its late failure', async () => {
+      const h = harness();
+      expect((await callPastWait(h.deps, 'before')).body['status']).toBe(
+        'building',
+      );
+
+      h.evict();
+      const replaced = await callPastWait(h.deps, 'after-evict');
+      expect(replaced.body['status']).toBe('building');
+      expect(h.findFiles).toHaveBeenCalledTimes(2);
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+
+      // The obsolete build fails late: nothing is reported for it.
+      h.builds[0].reject(new Error('late failure'));
+      await flush();
+      const joined = await callPastWait(h.deps, 'joined');
+      expect(joined.isError).toBe(false);
+      expect(joined.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+
+      // The replacement publishes and answers.
+      h.builds[1].resolve(BUILT);
+      await flush();
+      const answered = toResult(await callDependents(h.deps, 'answered'));
+      expect(answered.body).not.toHaveProperty('status');
+      expect(answered.body).toHaveProperty('dependents');
+    });
+
+    it('does not report the failure of a build an eviction superseded', async () => {
+      const h = harness();
+      await callPastWait(h.deps, 'cold');
+      h.builds[0].reject(new Error('failed'));
+      await flush();
+      h.evict();
+
+      const next = await callPastWait(h.deps, 'after-evict');
+      expect(next.isError).toBe(false);
+      expect(next.body['status']).toBe('building');
+      expect(h.buildGraph).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // Review r1 F3: synchronous parsing must not hold the call past its bound.
+  it('answers within the bound while every file costs synchronous CPU, and the host keeps ticking', async () => {
+    const PARSE_COST_MS = 130;
+    const busy = (ms: number): void => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        // Burn CPU on the host thread, as a synchronous parse does.
+      }
+    };
+    const analyzeSource = jest.fn(async () => {
+      busy(PARSE_COST_MS);
+      return Result.ok({
+        imports: [],
+        exports: [{ name: 'A', kind: 'function' }],
+        functions: [],
+        classes: [],
+      });
+    });
+    const graph = new DependencyGraphService(
+      { analyzeSource } as unknown as AstAnalysisService,
+      {
+        readFile: jest.fn(async () => 'source'),
+      } as unknown as FileSystemService,
+      asLogger(createMockLogger()),
+    );
+    const files = Array.from({ length: 40 }, (_, i) => `src/f${i}.ts`);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: {
+          getInfo: jest.fn().mockResolvedValue({ path: root }),
+        } as unknown as PtahAPI['workspace'],
+        dependencies: buildDependencyNamespace({
+          dependencyGraph: graph,
+          workspaceProvider: { getWorkspaceRoot: () => root },
+          fileSystemProvider: {
+            findFiles: jest.fn().mockResolvedValue(files),
+          } as unknown as IFileSystemProvider,
+        } as unknown as AnalysisNamespaceDependencies),
+      }),
+    });
+
+    // An independent heartbeat: the longest the host went without a timer.
+    let last = Date.now();
+    let maxGap = 0;
+    const heartbeat = setInterval(() => {
+      const now = Date.now();
+      maxGap = Math.max(maxGap, now - last);
+      last = now;
+    }, 10);
+    const started = Date.now();
+    let elapsed = 0;
+    try {
+      const res = await handleMCPRequest(
+        makeRequest({
+          id: 'cpu-bound',
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+      elapsed = Date.now() - started;
+      expect(toResult(res).body['status']).toBe('building');
+    } finally {
+      clearInterval(heartbeat);
+      // Stop the build at its next file, and let it wind down.
+      graph.evict(root);
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, 3 * PARSE_COST_MS),
+      );
+    }
+
+    expect(elapsed).toBeLessThanOrEqual(BOUNDED_WAIT_MS);
+    // One or two parses between ticks, never the whole build (40 × 130 ms).
+    expect(maxGap).toBeLessThan(5 * PARSE_COST_MS);
+    // It was really parsing while the call waited, and stopped when evicted.
+    expect(analyzeSource.mock.calls.length).toBeGreaterThan(2);
+    expect(analyzeSource.mock.calls.length).toBeLessThan(files.length);
+  }, 15_000);
+
+  /**
+   * Eviction and an explicit rebuild while a background build is in flight:
+   * the real graph service and namespace; only the parser and file reads are
+   * stubbed, and every read waits on a gate until the test opens it.
+   */
+  describe('with the real graph service', () => {
+    function realSetup() {
+      const gate = deferred<void>();
+      let gated = true;
+      const readFile = jest.fn(async () => {
+        if (gated) await gate.promise;
+        return 'source';
+      });
+      const graph = new DependencyGraphService(
+        {
+          analyzeSource: jest.fn(async () =>
+            Result.ok({
+              imports: [],
+              exports: [{ name: 'A', kind: 'function' }],
+              functions: [],
+              classes: [],
+            }),
+          ),
+        } as unknown as AstAnalysisService,
+        { readFile } as unknown as FileSystemService,
+        asLogger(createMockLogger()),
+      );
+      // Discovery goes through the provider, as in production.
+      const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+      const dependencies = buildDependencyNamespace({
+        dependencyGraph: graph,
+        workspaceProvider: { getWorkspaceRoot: () => root },
+        fileSystemProvider: { findFiles } as unknown as IFileSystemProvider,
+      } as unknown as AnalysisNamespaceDependencies);
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          workspace: {
+            getInfo: jest.fn().mockResolvedValue({ path: root }),
+          } as unknown as PtahAPI['workspace'],
+          dependencies,
+        }),
+      });
+      return {
+        graph,
+        deps,
+        findFiles,
+        readFile,
+        openGate(): void {
+          gated = false;
+          gate.resolve();
+        },
+        /** Later reads pass; a read already waiting stays stuck forever. */
+        ungateNewReads(): void {
+          gated = false;
+        },
+      };
+    }
+
+    function callSymbolIndex(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_symbol_index', arguments: {} },
+        }),
+        deps,
+      );
+    }
+
+    function callDependents(
+      deps: ProtocolHandlerDependencies,
+      id: string,
+    ): Promise<MCPResponse> {
+      return handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_get_dependents', arguments: { file: 'a.ts' } },
+        }),
+        deps,
+      );
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers(FAKE_TIMERS_ONLY);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('does not publish a build whose root was evicted mid-build, and the next call rebuilds', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'evict-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      s.openGate();
+      await flush();
+      // The stale build finished but did not publish; its latch is clear.
+      expect(s.graph.isBuilt(root)).toBe(false);
+
+      const next = callDependents(s.deps, 'evict-next');
+      await flush();
+      const { body } = toResult(await next);
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    it('keeps an explicit rebuild made during a background build, and answers from it', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'rebuild-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      // An execute_code build of one file, started after the background one.
+      const explicit = s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      s.openGate();
+      await explicit;
+      await flush();
+
+      // The background build (two files) started earlier, so its finished
+      // graph did not replace the explicit one.
+      expect(s.graph.getCoverage(root)).toEqual({
+        graphedFiles: 1,
+        discoveredFiles: 1,
+      });
+      const { body } = toResult(await callDependents(s.deps, 'rebuild-next'));
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F1: the generation is reserved before discovery, so an
+    // eviction while discovery is pending stops the build before it starts.
+    it('does not build or publish when the root is evicted while discovery is pending', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const cold = callDependents(s.deps, 'discover-evict');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      discovery.resolve(['src/a.ts', 'src/b.ts']);
+      await flush();
+      expect(s.readFile).not.toHaveBeenCalled();
+      expect(s.graph.isBuilt(root)).toBe(false);
+
+      // The next call rediscovers and builds afresh.
+      const next = callDependents(s.deps, 'discover-evict-next');
+      await flush();
+      expect(toResult(await next).body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    // Review r1 F1: an explicit build started while discovery is pending
+    // supersedes the background request, whose older list never replaces it.
+    it('keeps an explicit build made while discovery is pending', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const cold = callDependents(s.deps, 'discover-explicit');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      await s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      discovery.resolve(['src/a.ts', 'src/b.ts']);
+      await flush();
+
+      expect(s.graph.getCoverage(root)).toEqual({
+        graphedFiles: 1,
+        discoveredFiles: 1,
+      });
+      // Only the explicit build read a file.
+      expect(s.readFile).toHaveBeenCalledTimes(1);
+      const { body } = toResult(
+        await callDependents(s.deps, 'discover-explicit-next'),
+      );
+      expect(body).not.toHaveProperty('status');
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+    });
+
+    // Review r1 F5: with the obsolete job's read stuck for ever, an eviction
+    // still lets the next call start and finish a replacement build.
+    it('starts a replacement build after an eviction while the old read never settles', async () => {
+      const s = realSetup();
+      const cold = callDependents(s.deps, 'stuck-cold');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      expect(toResult(await cold).body['status']).toBe('building');
+
+      s.graph.evict(root);
+      s.ungateNewReads();
+      const next = callDependents(s.deps, 'stuck-next');
+      await flush();
+      const { body } = toResult(await next);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body).toHaveProperty('dependents');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+      expect(s.graph.isBuilt(root)).toBe(true);
+    });
+
+    // Review r1 F2: an empty graph answers, but does not hide a source file
+    // created after it.
+    it('finds a source file created after an empty graph was built', async () => {
+      const s = realSetup();
+      s.openGate();
+      s.findFiles.mockResolvedValueOnce([]);
+      const empty = callSymbolIndex(s.deps, 'empty');
+      await flush();
+      const emptyBody = toResult(await empty).body;
+      expect(emptyBody).not.toHaveProperty('status');
+      expect(emptyBody['total']).toBe(0);
+      expect(s.graph.isBuilt(root)).toBe(true);
+
+      // A source file appears; the default discovery now lists it.
+      s.findFiles.mockResolvedValue(['src/new.ts']);
+      const later = callSymbolIndex(s.deps, 'after-create');
+      await flush();
+      const { body } = toResult(await later);
+
+      expect(body).not.toHaveProperty('status');
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('new.ts');
+      expect(s.findFiles).toHaveBeenCalledTimes(2);
+    });
+
+    /** Build and answer the empty graph (discovery finds no source file). */
+    async function publishEmptyGraph(
+      s: ReturnType<typeof realSetup>,
+    ): Promise<void> {
+      s.openGate();
+      s.findFiles.mockResolvedValueOnce([]);
+      const empty = callSymbolIndex(s.deps, 'empty-first');
+      await flush();
+      expect(toResult(await empty).body['total']).toBe(0);
+    }
+
+    // Review r2 R2-B1: a refresh of an empty graph whose discovery has not
+    // settled has not confirmed the graph is still empty.
+    it('answers building, not the empty graph, while its refresh is still discovering', async () => {
+      const s = realSetup();
+      await publishEmptyGraph(s);
+
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const held = callSymbolIndex(s.deps, 'empty-held');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const heldResult = toResult(await held);
+      expect(Object.keys(heldResult.body)[0]).toBe('status');
+      expect(heldResult.body['status']).toBe('building');
+      expect(heldResult.isError).toBe(false);
+
+      discovery.resolve(['src/new.ts']);
+      await flush();
+      const { body } = toResult(
+        await callSymbolIndex(s.deps, 'empty-released'),
+      );
+      expect(body).not.toHaveProperty('status');
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('new.ts');
+    });
+
+    // Review r2 R2-B1: an explicit build running over the empty graph is a
+    // pending replacement, so the empty graph does not answer.
+    it('answers building while an explicit build replaces the empty graph', async () => {
+      const s = realSetup();
+      await publishEmptyGraph(s);
+
+      const explicitRead = deferred<void>();
+      s.readFile.mockImplementationOnce(async () => {
+        await explicitRead.promise;
+        return 'source';
+      });
+      const explicit = s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      await flush();
+      expect(s.graph.getBuildState(root).building).toBe(true);
+
+      const during = callSymbolIndex(s.deps, 'empty-explicit');
+      await flush();
+      await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+      const duringResult = toResult(await during);
+      expect(Object.keys(duringResult.body)[0]).toBe('status');
+      expect(duringResult.body['status']).toBe('building');
+      // It did not supersede the explicit build with a background one.
+      expect(s.findFiles).toHaveBeenCalledTimes(1);
+
+      explicitRead.resolve();
+      await explicit;
+      await flush();
+      const { body } = toResult(
+        await callSymbolIndex(s.deps, 'empty-explicit-done'),
+      );
+      expect(body['total']).toBe(1);
+      expect(JSON.stringify(body['files'])).toContain('only.ts');
+    });
+
+    // Review r3 R3-S1: an empty build that finishes after the bounded wait is
+    // delivered to the next call, which does not start another discovery;
+    // the call after that rediscovers as before.
+    //
+    // The real service's build awaits real filesystem I/O (the root's
+    // realpath, the resolver's manifest reads) on the libuv thread pool, which
+    // no fixed count of macrotasks outlasts under load. So the test waits on
+    // the build's own promise, and holds the root lookup far past any such
+    // count to prove it does not depend on winning that race.
+    it('delivers a slow empty build to the next call, then rediscovers', async () => {
+      const s = realSetup();
+      const realRealpath = fs.promises.realpath;
+      const slowRealpath = jest
+        .spyOn(fs.promises, 'realpath')
+        .mockImplementation((async (target: fs.PathLike) => {
+          for (let i = 0; i < 200; i++) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+          return realRealpath(target);
+        }) as typeof fs.promises.realpath);
+      // Each settles when the matching real build has ended.
+      const buildsDone = [deferred<unknown>(), deferred<unknown>()];
+      let buildsStarted = 0;
+      const buildGraph = s.graph.buildGraph.bind(s.graph);
+      jest
+        .spyOn(s.graph, 'buildGraph')
+        .mockImplementation((...args: Parameters<typeof buildGraph>) => {
+          const build = buildGraph(...args);
+          buildsDone[buildsStarted++]?.resolve(build);
+          return build;
+        });
+      try {
+        s.openGate();
+        const slowEmpty = deferred<string[]>();
+        s.findFiles.mockReturnValueOnce(slowEmpty.promise);
+        const first = callSymbolIndex(s.deps, 'slow-empty-first');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        expect(toResult(await first).body['status']).toBe('building');
+
+        slowEmpty.resolve([]);
+        await buildsDone[0].promise;
+        // The dispatcher records the outcome in microtasks after the build.
+        await flush();
+        expect(s.graph.isBuilt(root)).toBe(true);
+
+        // Every later discovery is slow too (held until the end).
+        const heldRediscovery = deferred<string[]>();
+        s.findFiles.mockReturnValue(heldRediscovery.promise);
+        const second = callSymbolIndex(s.deps, 'slow-empty-second');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        const secondResult = toResult(await second);
+        expect(secondResult.isError).toBe(false);
+        expect(secondResult.body).not.toHaveProperty('status');
+        expect(secondResult.body['total']).toBe(0);
+        expect(s.findFiles).toHaveBeenCalledTimes(1);
+
+        const third = callSymbolIndex(s.deps, 'slow-empty-third');
+        await flush();
+        await jest.advanceTimersByTimeAsync(BOUNDED_WAIT_MS);
+        expect(toResult(await third).body['status']).toBe('building');
+        expect(s.findFiles).toHaveBeenCalledTimes(2);
+
+        heldRediscovery.resolve([]);
+        await buildsDone[1].promise;
+        await flush();
+        expect(buildsStarted).toBe(2);
+      } finally {
+        slowRealpath.mockRestore();
+      }
+    });
+
+    // Review r2 R2-M2: the waiting caller of a job a newer build superseded
+    // is answered from the current graph, never with the old job's failure.
+    it('answers a caller waiting on a superseded discovery from the newer graph when that discovery fails', async () => {
+      const s = realSetup();
+      s.openGate();
+      const discovery = deferred<string[]>();
+      s.findFiles.mockReturnValueOnce(discovery.promise);
+      const waiting = callDependents(s.deps, 'obsolete-waiter');
+      await flush();
+
+      await s.deps.ptahAPI.dependencies.buildGraph(
+        [path.join(root, 'src/only.ts')],
+        root,
+      );
+      discovery.reject(new Error('discovery failed'));
+      await flush();
+
+      const result = toResult(await waiting);
+      expect(result.isError).toBe(false);
+      expect(result.body).not.toHaveProperty('status');
+      expect(result.body).toHaveProperty('dependents');
+      // Nothing is left for a later call to report either.
+      const next = toResult(await callDependents(s.deps, 'obsolete-next'));
+      expect(next.isError).toBe(false);
+      expect(next.body).not.toHaveProperty('status');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_agent_status repeat throttle and ptah_agent_read window
+// (TASK_2026_559 Batch 13). The clock is injected through `deps.now`.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › agent status throttle and read window (TASK_2026_559 Batch 13)', () => {
+  const T0 = Date.parse('2026-09-26T10:00:00.000Z');
+  const SESSION_A: Partial<MCPRequest> = { _callerSessionId: 'session-a' };
+  const SESSION_B: Partial<MCPRequest> = { _callerSessionId: 'session-b' };
+
+  function runningAgent(overrides: Record<string, unknown> = {}) {
+    return {
+      agentId: 'lane-1',
+      cli: 'codex',
+      task: 'review batch 13',
+      workingDirectory: 'D:\\projects\\ws',
+      status: 'running',
+      startedAt: '2026-09-26T09:59:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function statusHarness(status: jest.Mock) {
+    const clock = { now: T0 };
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        agent: { status } as unknown as PtahAPI['agent'],
+      }),
+      now: () => clock.now,
+    });
+    const call = (
+      id: string,
+      caller: Partial<MCPRequest> = SESSION_A,
+      args: Record<string, unknown> = { agentId: 'lane-1' },
+    ) =>
+      handleMCPRequest(
+        makeRequest({
+          id,
+          method: 'tools/call',
+          params: { name: 'ptah_agent_status', arguments: args },
+          ...caller,
+        }),
+        deps,
+      );
+    return { clock, call };
+  }
+
+  function textOf(res: MCPResponse): string {
+    return (res.result as { content: Array<{ text: string }> }).content[0].text;
+  }
+
+  const unchangedLine = (iso: string, status: string) =>
+    `Status unchanged since ${iso} (${status}). Wait for <agent-lane-completed> instead of polling.`;
+
+  it('answers a repeat status call for the same agent within 60 s with one line, and the full body again after 60 s', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    const first = textOf(await h.call('s1'));
+    expect(first).toContain('## Agent Status');
+    expect(first).toContain('**Status:** running');
+
+    h.clock.now = T0 + 30_000;
+    expect(textOf(await h.call('s2'))).toBe(
+      unchangedLine('2026-09-26T10:00:00.000Z', 'running'),
+    );
+
+    // A throttled answer does not extend the window.
+    h.clock.now = T0 + 60_001;
+    expect(textOf(await h.call('s3'))).toContain('## Agent Status');
+    expect(status).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns the full body when the status changed inside the window', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockResolvedValueOnce(
+        runningAgent({ status: 'completed', exitCode: 0 }),
+      );
+    const h = statusHarness(status);
+
+    await h.call('c1');
+    h.clock.now = T0 + 5_000;
+    const second = textOf(await h.call('c2'));
+    expect(second).toContain('**Status:** completed');
+    expect(second).toContain('**Exit Code:** 0');
+  });
+
+  it('returns the full body when a CLI session id appeared inside the window', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockResolvedValueOnce(runningAgent({ cliSessionId: 'sess-42' }));
+    const h = statusHarness(status);
+
+    await h.call('i1');
+    h.clock.now = T0 + 5_000;
+    expect(textOf(await h.call('i2'))).toContain('**CLI Session ID:** sess-42');
+  });
+
+  it('never throttles an exited agent', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValue(runningAgent({ status: 'failed', exitCode: 1 }));
+    const h = statusHarness(status);
+
+    for (const [i, offset] of [0, 1_000, 2_000].entries()) {
+      h.clock.now = T0 + offset;
+      const text = textOf(await h.call(`e${i}`));
+      expect(text).toContain('**Status:** failed');
+      expect(text).toContain('**Exit Code:** 1');
+    }
+  });
+
+  it('never hides an error behind the throttle', async () => {
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce(runningAgent())
+      .mockRejectedValueOnce(new Error('No agent found with id lane-1'));
+    const h = statusHarness(status);
+
+    await h.call('x1');
+    h.clock.now = T0 + 1_000;
+    const res = await h.call('x2');
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(res)).toContain('No agent found with id lane-1');
+  });
+
+  it('throttles per caller: another session or agent asking about the same agent gets the full body', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    await h.call('p1', SESSION_A);
+    h.clock.now = T0 + 10_000;
+    expect(textOf(await h.call('p2', SESSION_B))).toContain('## Agent Status');
+    expect(textOf(await h.call('p3', SESSION_A))).toBe(
+      unchangedLine('2026-09-26T10:00:00.000Z', 'running'),
+    );
+    expect(
+      textOf(await h.call('p4', { _callerAgentId: 'parent-lane' })),
+    ).toContain('## Agent Status');
+    expect(textOf(await h.call('p5', { _callerAgentId: 'parent-lane' }))).toBe(
+      unchangedLine('2026-09-26T10:00:10.000Z', 'running'),
+    );
+  });
+
+  it('does not throttle a caller without an agent or session identity, nor the all-agents form', async () => {
+    const status = jest.fn().mockResolvedValue(runningAgent());
+    const h = statusHarness(status);
+
+    await h.call('n1', {});
+    h.clock.now = T0 + 1_000;
+    expect(textOf(await h.call('n2', {}))).toContain('## Agent Status');
+
+    status.mockResolvedValue([runningAgent()]);
+    await h.call('n3', SESSION_A, {});
+    expect(textOf(await h.call('n4', SESSION_A, {}))).toContain(
+      '## Agent Status',
+    );
+  });
+
+  describe('ptah_agent_read', () => {
+    let spoolRoot: string;
+
+    beforeEach(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b13-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    /** `count` short lines `[<tag><n>] ok`, 1-based. */
+    function shortLines(count: number, tag = 'L'): string[] {
+      return Array.from({ length: count }, (_, i) => `[${tag}${i + 1}] ok`);
+    }
+
+    /**
+     * `count` 200-char lines `[L<n>] …`; the last one carries FINAL_FAILURE,
+     * the line a read-once-at-the-end caller must never lose.
+     */
+    function longLines(count: number): string[] {
+      return Array.from({ length: count }, (_, i) => {
+        const head =
+          i === count - 1
+            ? `[L${i + 1}] FINAL_FAILURE exit 1 `
+            : `[L${i + 1}] step ok `;
+        return head + 'x'.repeat(200 - head.length);
+      });
+    }
+
+    /**
+     * A `read` that windows each stream separately, the way
+     * `AgentProcessManager.readOutput` does: the last 200 lines of each by
+     * default, or `tail` lines starting at `offset`.
+     */
+    function streamReader(streams: { stdout: string[]; stderr?: string[] }) {
+      const window = (lines: string[], tail?: number, offset?: number) => {
+        const size = tail ?? 200;
+        const start = offset ?? Math.max(0, lines.length - size);
+        const shown = lines.slice(start, start + size);
+        return {
+          text: shown.length > 0 ? shown.join('\n') + '\n' : '',
+          count: shown.length,
+        };
+      };
+      return jest.fn(
+        async (agentId: string, tail?: number, offset?: number) => {
+          const stderrLines = streams.stderr ?? [];
+          const out = window(streams.stdout, tail, offset);
+          const err = window(stderrLines, tail, offset);
+          const total = streams.stdout.length + stderrLines.length;
+          return {
+            agentId,
+            stdout: out.text,
+            stderr: err.text,
+            lineCount: out.count + err.count,
+            totalLines: total,
+            omittedLines: total - out.count - err.count,
+            stdoutTotalLines: streams.stdout.length,
+            stderrTotalLines: stderrLines.length,
+            truncated: false,
+          };
+        },
+      );
+    }
+
+    const bufferReader = (total: number) =>
+      streamReader({ stdout: shortLines(total) });
+
+    /**
+     * The `[<tag><n>]` markers visible in `text`, and every stated range
+     * `Showing lines A-B of N` for that stream section.
+     */
+    function visibleMarkers(text: string, tag = 'L'): number[] {
+      return [...text.matchAll(new RegExp(`\\[${tag}(\\d+)\\]`, 'g'))].map(
+        (m) => Number(m[1]),
+      );
+    }
+
+    function statedRanges(text: string): Array<[number, number, number]> {
+      return [...text.matchAll(/Showing lines (\d+)-(\d+) of (\d+)/g)].map(
+        (m) => [Number(m[1]), Number(m[2]), Number(m[3])],
+      );
+    }
+
+    /** A range covers exactly the markers shown, in order, with nothing else. */
+    function expectExactRange(
+      markers: number[],
+      [first, last]: [number, number, number],
+    ): void {
+      expect(markers).toEqual(
+        Array.from({ length: last - first + 1 }, (_, i) => first + i),
+      );
+    }
+
+    function callRead(read: jest.Mock, args: Record<string, unknown>) {
+      return handleMCPRequest(
+        makeRequest({
+          id: 'read-1',
+          method: 'tools/call',
+          params: { name: 'ptah_agent_read', arguments: args },
+          _callerWorkspaceRoot: spoolRoot,
+        }),
+        buildDeps({
+          ptahAPI: buildPtahAPIStub({
+            agent: { read } as unknown as PtahAPI['agent'],
+          }),
+          workspaceProvider: knownFolders(spoolRoot),
+        }),
+      );
+    }
+
+    it('passes offset through to the agent namespace and renders the window', async () => {
+      const read = bufferReader(500);
+      const text = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 100, tail: 50 }),
+      );
+      expect(read).toHaveBeenCalledWith('lane-1', 50, 100);
+      expect(text).toContain(
+        'Showing lines 101-150 of 500 (450 omitted; pass offset/tail to page)',
+      );
+    });
+
+    it('rejects a non-numeric or negative offset instead of reading it as zero', async () => {
+      for (const offset of ['100', -1]) {
+        const read = bufferReader(10);
+        const res = await callRead(read, { agentId: 'lane-1', offset });
+        expect((res.result as { isError?: boolean }).isError).toBe(true);
+        expect(textOf(res)).toContain('invalid ptah_agent_read arguments');
+        expect(textOf(res)).toContain('offset');
+        expect(read).not.toHaveBeenCalled();
+      }
+    });
+
+    it('renders the omitted-lines line on the default call', async () => {
+      const read = bufferReader(300);
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+      expect(text).toContain(
+        'Showing lines 101-300 of 300 (100 omitted; pass offset/tail to page)',
+      );
+    });
+
+    /** Within both limits, and left alone by the budget layer (no cut trailer). */
+    function expectFitsUntouched(text: string): void {
+      expect(text.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_BUDGET_CHARS);
+      expect(countTokensPiecewise(text)).toBeLessThanOrEqual(
+        DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
+      );
+      expect(text).not.toContain('[reduced:');
+    }
+
+    /**
+     * Review r2 R2-S1: a read that narrowed a stream's window names, in that
+     * stream's notice, a spool file holding the whole window; returns the
+     * spooled text. The file is under the injected temp root only.
+     */
+    function spooledWindow(text: string, range: string): string {
+      const named = new RegExp(`Lines ${range} in full: (\\S+)`).exec(text);
+      expect(named).not.toBeNull();
+      const file = named?.[1] ?? '';
+      expect(path.dirname(file)).toBe(
+        path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out'),
+      );
+      return fs.readFileSync(file, 'utf8');
+    }
+
+    function expectNoSpool(): void {
+      expect(fs.existsSync(path.join(spoolRoot, '.ptah'))).toBe(false);
+    }
+
+    // Review r1 B1: the default read keeps the NEWEST lines that fit, and
+    // the stated range is exactly what is shown.
+    it.each([5_000, 200])(
+      'keeps the final line of a %i-line buffer of long lines inline, with an exact range',
+      async (total) => {
+        const read = streamReader({ stdout: longLines(total) });
+        const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+        expectFitsUntouched(text);
+        expect(text).toContain(`[L${total}] FINAL_FAILURE`);
+        const ranges = statedRanges(text);
+        expect(ranges).toHaveLength(1);
+        const [first, last, of] = ranges[0];
+        expect([last, of]).toEqual([total, total]);
+        expect(first).toBeGreaterThan(total - 200);
+        expect(text).toContain(
+          `Showing lines ${first}-${total} of ${total} (${
+            first - 1
+          } omitted; pass offset/tail to page)`,
+        );
+        expectExactRange(visibleMarkers(text), ranges[0]);
+        expect(text).toContain(`**Lines:** ${total - first + 1} of ${total} |`);
+        // Review r2 R2-S1: the narrowed window is spooled byte-equal.
+        const window = longLines(total).slice(-200);
+        expect(spooledWindow(text, `${total - 199}-${total}`)).toBe(
+          window.join('\n') + '\n',
+        );
+      },
+    );
+
+    it('does not spool a read that shows its whole window', async () => {
+      const read = streamReader({ stdout: shortLines(300) });
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+      expectFitsUntouched(text);
+      expect(text).not.toContain('in full:');
+      expectNoSpool();
+    });
+
+    it('keeps the first lines of a forward page and states where the next page starts', async () => {
+      const read = streamReader({ stdout: longLines(5_000) });
+      const text = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 1_000 }),
+      );
+
+      expectFitsUntouched(text);
+      const ranges = statedRanges(text);
+      expect(ranges).toHaveLength(1);
+      expect(ranges[0][0]).toBe(1_001);
+      expectExactRange(visibleMarkers(text), ranges[0]);
+      expect(spooledWindow(text, '1001-1200')).toBe(
+        longLines(5_000).slice(1_000, 1_200).join('\n') + '\n',
+      );
+    });
+
+    it('shows the end of a single line too long for the budget, and says so', async () => {
+      const huge = `[L1] start ${'y'.repeat(20_000)} FINAL_FAILURE`;
+      const read = streamReader({ stdout: [huge] });
+      const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+      expectFitsUntouched(text);
+      expect(text).toContain('FINAL_FAILURE');
+      const stated =
+        /Showing the last (\d+) of (\d+) chars of line 1 of 1 \(0 other lines omitted/.exec(
+          text,
+        );
+      expect(stated).not.toBeNull();
+      expect(Number(stated?.[2])).toBe(huge.length);
+      expect(text).toContain(huge.slice(huge.length - Number(stated?.[1])));
+      expect(text).not.toContain('[L1] start');
+    });
+
+    // Review r2 R2-S1: the middle of a clipped line is reachable, in the
+    // spool the notice names, for a tail and for a forward page.
+    it.each([{}, { offset: 0, tail: 1 }])(
+      'spools the whole window when a line is clipped (%o), so its middle is reachable',
+      async (paging) => {
+        const line =
+          'BEGIN ' +
+          'a'.repeat(20_000) +
+          ' MIDDLE_FAILURE ' +
+          'b'.repeat(20_000) +
+          ' END';
+        const read = streamReader({ stdout: [line] });
+        const text = textOf(
+          await callRead(read, { agentId: 'lane-1', ...paging }),
+        );
+
+        expectFitsUntouched(text);
+        expect(text).not.toContain('MIDDLE_FAILURE');
+        expect(spooledWindow(text, '1-1')).toBe(`${line}\n`);
+      },
+    );
+
+    // Review r2 R2-S2: a huge peer stream must not clip a final line that
+    // fits on its own; checked with the huge line in either stream.
+    it.each(['stdout', 'stderr'] as const)(
+      'keeps the whole final line of the short stream when the %s peer holds one huge line',
+      async (hugeStream) => {
+        const short =
+          'FINAL_FAILURE ' + 'summary details; '.repeat(110) + ' OUT_END';
+        const huge = 'y'.repeat(30_000) + ' ERR_END';
+        const read = streamReader(
+          hugeStream === 'stderr'
+            ? { stdout: [short], stderr: [huge] }
+            : { stdout: [huge], stderr: [short] },
+        );
+        const text = textOf(await callRead(read, { agentId: 'lane-1' }));
+
+        expectFitsUntouched(text);
+        expect(text).toContain(short);
+        expect(text).toContain('ERR_END');
+        expect(text).toMatch(
+          /Showing the last \d+ of 30008 chars of line 1 of 1/,
+        );
+        expect(spooledWindow(text, '1-1')).toBe(`${huge}\n`);
+      },
+    );
+
+    // Review r1 S2: each stream states its own range; no combined interval.
+    it('states a separate, exact range for each stream', async () => {
+      const read = streamReader({
+        stdout: shortLines(300, 'O'),
+        stderr: shortLines(250, 'E'),
+      });
+      const paged = textOf(
+        await callRead(read, { agentId: 'lane-1', offset: 100, tail: 2 }),
+      );
+      expect(paged).toContain(
+        'Showing lines 101-102 of 300 (298 omitted; pass offset/tail to page)',
+      );
+      expect(paged).toContain(
+        'Showing lines 101-102 of 250 (248 omitted; pass offset/tail to page)',
+      );
+      expect(paged).not.toMatch(/Showing lines \d+-\d+ of 550/);
+      expect(paged).toContain('**Lines:** 4 of 550 |');
+
+      const tail = textOf(
+        await callRead(read, { agentId: 'lane-1', tail: 50 }),
+      );
+      expect(tail).toContain(
+        'Showing lines 251-300 of 300 (250 omitted; pass offset/tail to page)',
+      );
+      expect(tail).toContain(
+        'Showing lines 201-250 of 250 (200 omitted; pass offset/tail to page)',
+      );
+      expect(tail).toContain('[O300] ok');
+      expect(tail).toContain('[E250] ok');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LSP reports (TASK_2026_559 Batch 26a)
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › LSP reports (TASK_2026_559 Batch 26a)', () => {
+  function lspCapabilities(
+    lsp: Partial<IIDECapabilities['lsp']>,
+  ): IIDECapabilities {
+    return {
+      lsp: {
+        getDefinition: jest.fn().mockResolvedValue([]),
+        getReferences: jest.fn().mockResolvedValue([]),
+        getHover: jest.fn().mockResolvedValue(null),
+        getTypeDefinition: jest.fn().mockResolvedValue([]),
+        getSignatureHelp: jest.fn().mockResolvedValue(null),
+        ...lsp,
+      },
+      editor: {} as IIDECapabilities['editor'],
+      actions: {} as IIDECapabilities['actions'],
+    };
+  }
+
+  async function callLspTool(
+    name: 'ptah_lsp_definitions' | 'ptah_lsp_references',
+    capabilities: IIDECapabilities | undefined,
+    file = '/w/src/a.py',
+  ): Promise<string> {
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({ ide: buildIDENamespace(capabilities) }),
+    });
+    const res = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: { name, arguments: { file, line: 3, col: 4 } },
+      }),
+      deps,
+    );
+    expect(res.error).toBeUndefined();
+    return (res.result as { content: Array<{ text: string }> }).content[0].text;
+  }
+
+  // FB: on the batch base the no-host lookup returned `[]`, rendered as
+  // "Found: 0 definitions" — an empty answer that read as complete.
+  it.each([['ptah_lsp_definitions'], ['ptah_lsp_references']] as const)(
+    '%s: no-host definitions are not Found: 0',
+    async (name) => {
+      const text = await callLspTool(name, undefined);
+
+      expect(text).toContain('Not available on this host');
+      expect(text).toContain('mechanism: none');
+      expect(text).toContain('language: python');
+      expect(text).not.toMatch(/Found:/);
+    },
+  );
+
+  it('shows the mechanism, approximations and cap before the locations', async () => {
+    const report: LspLocationReport = {
+      locations: [
+        { file: '/w/src/zz-first.py', line: 11, column: 2 },
+        { file: '/w/src/zz-second.py', line: 12, column: 3 },
+      ],
+      mechanism: 'text-scan',
+      language: 'python',
+      languageSupported: true,
+      approximations: ['text-scan'],
+      truncated: true,
+    };
+    const getReferencesReport = jest.fn().mockResolvedValue(report);
+    const getReferences = jest.fn();
+
+    const text = await callLspTool(
+      'ptah_lsp_references',
+      lspCapabilities({ getReferencesReport, getReferences }),
+    );
+
+    expect(getReferencesReport).toHaveBeenCalledWith('/w/src/a.py', 3, 4);
+    expect(getReferences).not.toHaveBeenCalled();
+    const order = [
+      'Mechanism: text-scan; language: python',
+      'Approximations: text-scan',
+      'Truncated:',
+      'Found: 2 references',
+      'zz-first.py:11:2',
+      'zz-second.py:12:3',
+    ].map((needle) => text.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('an empty answer for a language the mechanism does not support is qualified', async () => {
+    const getDefinitionReport = jest.fn().mockResolvedValue({
+      locations: [],
+      mechanism: 'symbol-index',
+      language: 'kotlin',
+      languageSupported: false,
+      approximations: [],
+    } satisfies LspLocationReport);
+
+    const text = await callLspTool(
+      'ptah_lsp_definitions',
+      lspCapabilities({ getDefinitionReport }),
+      '/w/src/Main.kt',
+    );
+
+    expect(text).toContain(
+      'Mechanism: symbol-index; language: kotlin (not supported by this mechanism)',
+    );
+    expect(text).toContain(
+      'Found: 0 definitions (qualified as above; not proof that none exist)',
+    );
+  });
+
+  it('a host with only the array API answers provider-defined, the count unqualified', async () => {
+    const getDefinition = jest
+      .fn()
+      .mockResolvedValue([{ file: '/w/src/b.ts', line: 7, column: 1 }]);
+
+    const text = await callLspTool(
+      'ptah_lsp_definitions',
+      lspCapabilities({ getDefinition }),
+      '/w/src/a.ts',
+    );
+
+    expect(getDefinition).toHaveBeenCalledWith('/w/src/a.ts', 3, 4);
+    expect(text).toContain(
+      'Mechanism: provider-defined; language: typescript (support unknown: not reported by the host)',
+    );
+    expect(text).toMatch(/Found: 1 definition\b(?! \()/);
+    expect(text).toContain('b.ts:7:1');
+  });
+
+  // R26A-M1: an array-only host returns [] both for "no match" and for "no
+  // provider for this language"; with support unknown the count is qualified.
+  it.each([
+    ['ptah_lsp_definitions', 'definitions'],
+    ['ptah_lsp_references', 'references'],
+  ] as const)(
+    '%s: an empty answer from an array-only host is qualified',
+    async (name, noun) => {
+      const text = await callLspTool(name, lspCapabilities({}), '/w/src/a.py');
+
+      expect(text).toContain(
+        'language: python (support unknown: not reported by the host)',
+      );
+      expect(text).toContain(
+        `Found: 0 ${noun} (qualified as above; not proof that none exist)`,
+      );
+    },
+  );
+
+  // R26A-M2: zero-based coordinates; line 0 / column 0 are real positions.
+  it.each([
+    ['ptah_lsp_definitions', 'getDefinitionReport'],
+    ['ptah_lsp_references', 'getReferencesReport'],
+  ] as const)('%s: renders line 0 and column 0', async (name, method) => {
+    const report: LspLocationReport = {
+      locations: [
+        { file: '/w/src/a.ts', line: 0, column: 4 },
+        { file: '/w/src/b.ts', line: 3, column: 0 },
+      ],
+      mechanism: 'symbol-index',
+      language: 'typescript',
+      languageSupported: true,
+      approximations: [],
+    };
+    const text = await callLspTool(
+      name,
+      lspCapabilities({ [method]: jest.fn().mockResolvedValue(report) }),
+      '/w/src/a.ts',
+    );
+
+    expect(text).toContain('`/w/src/a.ts:0:4`');
+    expect(text).toContain('`/w/src/b.ts:3:0`');
+  });
+
+  it('legacy location arrays keep zero coordinates and omit only missing ones', () => {
+    const text = formatLspDefinitions([
+      { file: 'a.ts', line: 0, col: 0 },
+      { file: 'b.ts', line: 5 },
+      { file: 'c.ts' },
+    ]);
+
+    expect(text).toContain('`a.ts:0:0`');
+    expect(text).toContain('`b.ts:5`');
+    expect(text).toContain('`c.ts`');
+    expect(formatLspReferences([])).toContain(
+      'Found: 0 references (qualified as above; not proof that none exist)',
+    );
   });
 });

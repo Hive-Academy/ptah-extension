@@ -474,35 +474,28 @@ export function wrapCodeForExecution(code: string): string {
   return `return ${code}`;
 }
 
-/** Maximum result size in characters (50KB) to prevent context window blowup */
-const MAX_RESULT_SIZE = 50 * 1024;
-
 /**
- * Serialize execution result for MCP response
+ * Serialize execution result for MCP response.
+ *
+ * The full text is returned, never cut here: the dispatcher's tool-result
+ * budget (`tool-result-budget.ts`) bounds what the agent sees and spools
+ * the whole text byte-equal, so the output stays recoverable. A cut here ran
+ * before that layer and left an incomplete spool (Batch 30 r1 R30-01).
  */
 export function serializeResult(result: unknown): string {
-  let serialized: string;
-
   if (result === undefined) {
-    serialized = 'undefined';
-  } else if (result === null) {
-    serialized = 'null';
-  } else if (typeof result === 'string') {
-    serialized = result;
-  } else {
-    try {
-      serialized = JSON.stringify(result, null, 2);
-    } catch {
-      serialized = String(result);
-    }
+    return 'undefined';
   }
-
-  if (serialized.length > MAX_RESULT_SIZE) {
-    const originalLength = serialized.length;
-    serialized =
-      serialized.substring(0, MAX_RESULT_SIZE) +
-      `\n\n[TRUNCATED: Result was ${originalLength} chars, showing first ${MAX_RESULT_SIZE} chars. Use more specific queries to reduce output size.]`;
+  if (result === null) {
+    return 'null';
   }
-
-  return serialized;
+  if (typeof result === 'string') {
+    return result;
+  }
+  try {
+    // A function or symbol has no JSON form (JSON.stringify gives undefined).
+    return JSON.stringify(result, null, 2) ?? String(result);
+  } catch {
+    return String(result);
+  }
 }

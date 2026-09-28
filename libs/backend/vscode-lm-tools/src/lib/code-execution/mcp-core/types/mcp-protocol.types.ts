@@ -143,6 +143,14 @@ export interface ExecuteCodeParams {
 
   /** Execution timeout in milliseconds (default: 15000, max: 30000) */
   timeout?: number;
+
+  /**
+   * Language of a string result that is source code (an id or extension,
+   * e.g. `tsx`, `.py`). An over-budget result is then outlined as that
+   * language instead of cut; ignored for non-string results. Unvalidated
+   * input: the dispatcher checks its shape.
+   */
+  resultLanguage?: unknown;
 }
 
 /**

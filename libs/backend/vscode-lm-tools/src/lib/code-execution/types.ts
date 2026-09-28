@@ -15,10 +15,19 @@ import type {
 } from '@ptah-extension/shared';
 import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
 import type {
+  Approximation,
+  DiagnosticsCoverageFields,
+  LanguageCoverage,
+  NotCheckedFiles,
+  UnsupportedLanguageAnswer,
+} from '@ptah-extension/platform-core';
+import type {
   WorkspaceInfo,
   ProjectInfo,
   WorkspaceStructureAnalysis,
   StructuralSummaryResult,
+  GraphBuildState,
+  GraphCoverage,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
 import type { DashboardNamespace } from './namespace-builders/dashboard-namespace.builder';
@@ -199,7 +208,32 @@ export interface DiagnosticsPayload {
   status: 'available' | 'unavailable';
   source: string;
   reason?: string;
+  /**
+   * What the answer covered (TASK_2026_559 Batch 25b), on both arms: the
+   * provider's own coverage, or, when the provider reports none (the VS Code
+   * provider reads whatever the installed language extensions publish),
+   * `checks: 'provider-defined'` with every count unknown. The formatter
+   * prints a bare "No issues found" only when this passes the clean-answer
+   * rule and the check is a type check.
+   */
+  coverage: LanguageCoverage;
+  /** The files the answer did not check, and why; absent when none. */
+  notChecked?: readonly NotCheckedFiles[];
+  /**
+   * The provider's opt-in `go vet` run, its unplaced findings count and its
+   * truncation flag (Batch 37b), forwarded as given on both arms. The
+   * formatter names each as a limitation; none of them is ever a clean answer.
+   */
+  goVet?: DiagnosticsCoverageFields['goVet'];
+  unmappedFindings?: number;
+  diagnosticsTruncated?: boolean;
   diagnostics: DiagnosticInfo[];
+  /**
+   * The `files` scope of the call as absolute paths, relative entries resolved
+   * against the session root the provider was given. Absent for an unscoped
+   * call. The formatter lists diagnostics in these files first and in full.
+   */
+  requestedFiles?: string[];
 }
 
 /**
@@ -266,10 +300,15 @@ export interface AgentNamespace {
   /**
    * Read agent output (stdout + stderr)
    * @param agentId - Agent ID
-   * @param tail - Optional: only return last N lines
+   * @param tail - Optional: lines per stream (default 200, the last ones)
+   * @param offset - Optional: 0-based first line of a forward window
    * @returns Agent output
    */
-  read: (agentId: string, tail?: number) => Promise<AgentOutput>;
+  read: (
+    agentId: string,
+    tail?: number,
+    offset?: number,
+  ) => Promise<AgentOutput>;
 
   /**
    * Send a message to a running agent.
@@ -776,11 +815,36 @@ export interface DependenciesNamespace {
    * Build an import-based dependency graph for the given files
    * @param filePaths - Absolute paths of files to include
    * @param workspaceRoot - Workspace root for relative path resolution
+   * @param discoveredFiles - Files found before `filePaths` was capped, so
+   *   {@link getGraphCoverage} can report the graph as incomplete; defaults
+   *   to `filePaths.length`
+   * @param options - `yieldToForeground` for a build nobody awaits: it waits
+   *   on the background-work governor before each chunk. Leave it unset when
+   *   awaiting the build inside a turn, or the turn waits for itself.
+   *   `generation` from {@link reserveGraphBuild}: the build runs under that
+   *   reservation instead of taking a new generation when it starts.
    * @returns The built dependency graph summary
    */
   buildGraph: (
     filePaths: string[],
     workspaceRoot: string,
+    discoveredFiles?: number,
+    options?: {
+      yieldToForeground?: boolean;
+      generation?: number;
+      /**
+       * Set when discovery stopped at this many files
+       * ({@link GraphSourceDiscovery.truncated}): the coverage census is
+       * `truncated`.
+       */
+      censusLimit?: number;
+      /**
+       * Set when discovery could not read part of the tree
+       * ({@link GraphSourceDiscovery.unreadable}): the coverage census is
+       * `unknown`, never clean.
+       */
+      censusUnknown?: boolean;
+    },
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -788,6 +852,45 @@ export interface DependenciesNamespace {
     builtAt: number;
     error?: string;
   }>;
+
+  /**
+   * Discover the source files a graph of `workspaceRoot` is built from: every
+   * file with an extension a language is recognised by (graph-capable or
+   * not, so the census counts what the graph cannot analyse), with the
+   * default workspace excludes and the vendor trees (`.venv`, `vendor`,
+   * `obj`, `bin`, ...) excluded inside the bounded walk.
+   * @param limit - Census limit (integer 1-50,000, default 50,000). One more
+   *   file than this is asked for; when it exists, discovery is `truncated`.
+   * @returns Absolute paths, at most `limit` of them.
+   */
+  discoverSourceFiles: (
+    workspaceRoot: string,
+    limit?: number,
+  ) => Promise<GraphSourceDiscovery>;
+
+  /**
+   * The `unsupported-language` answer for a file the dependency graph cannot
+   * hold (its language draws no graph edges on this host, or it is not
+   * source), or `undefined` when the graph can hold it. Decided by the
+   * extension alone.
+   */
+  unsupportedGraphLanguage: (
+    filePath: string,
+  ) => UnsupportedLanguageAnswer | undefined;
+
+  /**
+   * Reserve a build generation for `workspaceRoot` before discovering its
+   * files; pass it to {@link buildGraph} as `options.generation`. A later
+   * build or reservation of the root, or its eviction, supersedes it: a
+   * superseded build is never published.
+   */
+  reserveGraphBuild: (workspaceRoot: string) => number;
+
+  /**
+   * The root's current build generation (`undefined` when none, or after an
+   * eviction) and whether a build of it is running.
+   */
+  getGraphBuildState: (workspaceRoot: string) => GraphBuildState;
 
   /**
    * Get dependencies of a file (what it imports)
@@ -805,15 +908,23 @@ export interface DependenciesNamespace {
   getDependents: (filePath: string) => Promise<string[]>;
 
   /**
-   * Get exported symbols per file from the dependency graph
+   * Get exported symbols per file from the dependency graph.
+   *
+   * Without `query`: every entry, unpaged, as before. With `query`: one page
+   * of the entries under `pathPrefix`, ordered by path (see
+   * {@link SymbolIndexQuery}). An invalid `query` throws a `RangeError`.
    * @param workspaceRoot - Optional workspace root to scope the index to a
    *   single workspace's graph; omit to use the sole graph (or a merged union
-   *   when several workspaces are open).
-   * @returns Map entries of [filePath, exportedSymbolNames[]]
+   *   when several workspaces are open). A relative `pathPrefix` resolves
+   *   against it, else against the session's workspace root.
    */
-  getSymbolIndex: (
-    workspaceRoot?: string,
-  ) => Promise<Array<{ file: string; symbols: string[] }>>;
+  getSymbolIndex: {
+    (workspaceRoot?: string): Promise<SymbolIndexEntry[]>;
+    (
+      workspaceRoot: string | undefined,
+      query: SymbolIndexQuery,
+    ): Promise<SymbolIndexPage>;
+  };
 
   /**
    * Check if the dependency graph has been built
@@ -822,6 +933,96 @@ export interface DependenciesNamespace {
    * @returns true if buildGraph() has been called
    */
   isBuilt: (workspaceRoot?: string) => Promise<boolean>;
+
+  /**
+   * How many files the graph was built from, against how many were
+   * discovered (`graphedFiles < discoveredFiles` means a cap dropped files),
+   * and its language `coverage`.
+   * @param workspaceRoot - That workspace's graph; omit for every graph
+   *   combined (the scope of the merged symbol index).
+   * @returns No file counts and an unknown `coverage` (census `unknown`,
+   *   never clean) when no graph is built
+   */
+  getGraphCoverage: (workspaceRoot?: string) => Promise<GraphQueryCoverage>;
+
+  /**
+   * Coverage of the graph that answers {@link getDependencies} and
+   * {@link getDependents} for `filePath` (resolved and routed the same way),
+   * and the graph's own spelling of the file when it holds it.
+   * @returns No file counts and an unknown `coverage` when no graph answers
+   *   that file
+   */
+  getGraphCoverageForFile: (filePath: string) => Promise<GraphFileCoverage>;
+}
+
+/** What {@link DependenciesNamespace.discoverSourceFiles} found. */
+export interface GraphSourceDiscovery {
+  /** Absolute paths of the discovered files, at most `limit`. */
+  files: string[];
+  /** More than `limit` files exist: the ones past it were never seen. */
+  truncated: boolean;
+  /** The census limit the discovery ran with. */
+  limit: number;
+  /**
+   * Paths discovery could not read (directories, links), by error code;
+   * absent when everything was read. `files` then holds only what was found,
+   * so the census is unknown.
+   */
+  unreadable?: { paths: number; byCode: Record<string, number> };
+}
+
+/** Coverage of the graph a dependency query is answered by. */
+export interface GraphQueryCoverage extends Partial<GraphCoverage> {
+  /** Language coverage of that graph; census `unknown` when none answers. */
+  coverage: LanguageCoverage;
+}
+
+/** {@link GraphQueryCoverage} for one queried file. */
+export interface GraphFileCoverage extends GraphQueryCoverage {
+  /**
+   * The graph's own spelling of the file (its node key), when the answering
+   * graph holds it; absent when the file is not in that graph.
+   */
+  nodePath?: string;
+}
+
+/** One file of the symbol index and the names it exports. */
+export interface SymbolIndexEntry {
+  file: string;
+  symbols: string[];
+  /**
+   * Export forms found in the file that could not be read (`line N:
+   * <source>`, e.g. `exports[key] = v`): `symbols` may be incomplete (it can
+   * be empty). The graph's coverage counts the file `failed`
+   * (`unsupported-syntax`). Absent when every export was read.
+   */
+  unextractedExports?: string[];
+}
+
+/** Paging and filtering of {@link DependenciesNamespace.getSymbolIndex}. */
+export interface SymbolIndexQuery {
+  /**
+   * Keep only files whose absolute path starts with this prefix: absolute, or
+   * relative to the workspace root. `\` and `/` are equivalent; Windows paths
+   * compare case-insensitively. `..` segments are rejected.
+   */
+  pathPrefix?: string;
+  /** Maximum entries in the page (integer, 1-1000, default 30). */
+  limit?: number;
+  /** Entries to skip, after the prefix filter (integer ≥ 0, default 0). */
+  offset?: number;
+}
+
+/** A page of the symbol index, ordered by path. */
+export interface SymbolIndexPage {
+  files: SymbolIndexEntry[];
+  /** Entries in `files`. */
+  count: number;
+  /** Entries matching `pathPrefix`, across all pages. */
+  total: number;
+  offset: number;
+  /** Offset of the next page; absent on the last page. */
+  nextOffset?: number;
 }
 
 /**
@@ -971,28 +1172,32 @@ export interface AstNamespace {
   /**
    * Query functions from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of function definitions
+   * @returns Parse status and coverage, then the function definitions
    */
-  queryFunctions: (filePath: string) => Promise<AstFunctionInfo[]>;
+  queryFunctions: (filePath: string) => Promise<AstFunctionsResult>;
 
   /**
    * Query classes from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of class definitions
+   * @returns Parse status and coverage, then the class definitions
    */
-  queryClasses: (filePath: string) => Promise<AstClassInfo[]>;
+  queryClasses: (filePath: string) => Promise<AstClassesResult>;
 
   /**
    * Query imports from a file
    * @param filePath - Absolute or relative file path
-   * @returns Array of import statements
+   * @returns Parse status and coverage, then the import statements
    */
-  queryImports: (filePath: string) => Promise<AstImportInfo[]>;
+  queryImports: (filePath: string) => Promise<AstImportsResult>;
 
   /**
    * Query exports from a file
    * @param filePath - Absolute or relative file path
    * @returns Array of export statements
+   * @throws When the file has export forms the extractor could not read
+   *   (the array would be incomplete): the message carries the coverage
+   *   (`unsupported-syntax`) and those forms; `analyze` returns the known
+   *   exports with the disclosure.
    */
   queryExports: (filePath: string) => Promise<AstExportInfo[]>;
 
@@ -1004,9 +1209,53 @@ export interface AstNamespace {
 }
 
 /**
+ * Parse honesty every `ptah.ast` operation that parses a file reports first
+ * (`analyze` since Batch 24a; `parse`, `queryFunctions`, `queryClasses` and
+ * `queryImports` since Batch 24c), so a recovered parse never reads as a
+ * complete answer.
+ */
+export interface AstParseHonesty {
+  /** Recovery is a partial answer; unknown means parser metadata was absent. */
+  parseStatus: 'ok' | 'recovered' | 'unknown';
+  /** Bounded ERROR/MISSING tally; null when the original parse was not observed. */
+  errorNodeCount: number | null;
+  errorNodeCountCapped: boolean;
+  /** Serialized ahead of paths and lists so result budgets retain coverage. */
+  coverage: LanguageCoverage;
+}
+
+/** `ptah.ast.queryFunctions` result: parse honesty, then the functions. */
+export interface AstFunctionsResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  functions: AstFunctionInfo[];
+}
+
+/** `ptah.ast.queryClasses` result: parse honesty, then the classes. */
+export interface AstClassesResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  classes: AstClassInfo[];
+}
+
+/** `ptah.ast.queryImports` result: parse honesty, then the imports. */
+export interface AstImportsResult extends AstParseHonesty {
+  file: string;
+  language: string;
+  imports: AstImportInfo[];
+}
+
+/**
  * Complete code insights from AST analysis
  */
-export interface AstCodeInsights {
+export interface AstCodeInsights extends AstParseHonesty {
+  /**
+   * Export forms seen but not represented in `exports` (`line N: <source>`).
+   * Present only when non-empty; coverage then counts the file as failed with
+   * reason `unsupported-syntax`, so the answer is never clean.
+   */
+  unextractedExports?: string[];
+
   /** File that was analyzed */
   file: string;
 
@@ -1084,11 +1333,27 @@ export interface AstImportInfo {
  * Export information extracted from AST
  */
 export interface AstExportInfo {
-  /** Exported symbol name */
+  /**
+   * Exported name: a named default declaration keeps its name, any other
+   * default export is `default`, `export { a as b }` is `b`, `export *` is `*`.
+   */
   name: string;
 
-  /** Type of export (function, class, variable, type, interface, unknown) */
-  kind: 'function' | 'class' | 'variable' | 'type' | 'interface' | 'unknown';
+  /**
+   * Type of export. `unknown`: a binding exported without its declaration
+   * (`export { a }`, `export default a`); `namespace`: a TS namespace or
+   * `export * as ns`; `wildcard`: a plain `export *` (names live in `source`).
+   */
+  kind:
+    | 'function'
+    | 'class'
+    | 'variable'
+    | 'type'
+    | 'interface'
+    | 'enum'
+    | 'namespace'
+    | 'wildcard'
+    | 'unknown';
 
   /** Whether this is a default export */
   isDefault?: boolean;
@@ -1098,12 +1363,15 @@ export interface AstExportInfo {
 
   /** Source module if re-export */
   source?: string;
+
+  /** Local (or source-module) name when it differs from `name` */
+  localName?: string;
 }
 
 /**
  * Result of parsing a file to AST
  */
-export interface AstParseResult {
+export interface AstParseResult extends AstParseHonesty {
   /** File that was parsed */
   file: string;
 
@@ -1186,6 +1454,24 @@ export interface LSPNamespace {
     line: number,
     col: number,
   ) => Promise<Location[]>;
+
+  /**
+   * Definition lookup with how it was answered. Prefer this over
+   * `getDefinition`: an empty `locations` means "none found" only when
+   * `mechanism` is not `'none'` and nothing in the report qualifies it.
+   */
+  getDefinitionReport: (
+    file: string,
+    line: number,
+    col: number,
+  ) => Promise<LspLocationReport>;
+
+  /** Reference lookup with how it was answered (see `getDefinitionReport`). */
+  getReferencesReport: (
+    file: string,
+    line: number,
+    col: number,
+  ) => Promise<LspLocationReport>;
 
   /**
    * Get hover information for symbol at position (types, documentation)
@@ -1347,6 +1633,46 @@ export interface TestingNamespace {
    * @returns Coverage info or null if not available
    */
   getCoverage: (file: string) => Promise<CoverageInfo | null>;
+}
+
+/**
+ * How a definition or reference lookup was answered.
+ * - `provider-defined`: the host's own providers (VS Code language services);
+ *   the host did not describe its mechanism further.
+ * - `symbol-index`: the workspace code-symbol index.
+ * - `declaration-scan`: an index-free tree-sitter declaration scan, following
+ *   the file's imports.
+ * - `graph-scoped-scan`: a word scan narrowed to files the dependency graph
+ *   links to the declaration.
+ * - `text-scan`: a bounded word scan of workspace files.
+ * - `none`: no lookup mechanism exists on this host; nothing was searched.
+ */
+export type LspMechanism =
+  | 'provider-defined'
+  | 'symbol-index'
+  | 'declaration-scan'
+  | 'graph-scoped-scan'
+  | 'text-scan'
+  | 'none';
+
+/**
+ * A definition or reference answer that says how it was produced, so an empty
+ * list is never mistaken for "the symbol has none".
+ */
+export interface LspLocationReport {
+  locations: Location[];
+  mechanism: LspMechanism;
+  /** Registry language of the queried file, or `null` when none claims it. */
+  language: string | null;
+  /**
+   * Whether `mechanism` supports `language`; `null` when the host did not
+   * say (`provider-defined`).
+   */
+  languageSupported: boolean | null;
+  /** Approximations the answer rests on (e.g. `text-scan`). */
+  approximations: readonly Approximation[];
+  /** A scan or result cap was hit; more locations may exist. */
+  truncated?: boolean;
 }
 
 /**
@@ -1560,21 +1886,14 @@ export interface CoverageInfo {
  * Represents the current stage of an orchestration workflow
  */
 export type OrchestrationPhase =
-  | 'planning'
-  | 'design'
-  | 'implementation'
-  | 'qa'
-  | 'complete';
+  'planning' | 'design' | 'implementation' | 'qa' | 'complete';
 
 /**
  * Checkpoint type for orchestration workflow
  * Identifies the type of user approval checkpoint
  */
 export type CheckpointType =
-  | 'requirements'
-  | 'architecture'
-  | 'batch-complete'
-  | null;
+  'requirements' | 'architecture' | 'batch-complete' | null;
 
 /**
  * Checkpoint status for orchestration workflow
@@ -1630,9 +1949,7 @@ export interface OrchestrationState {
  * Determines what the orchestrator should do next
  */
 export type OrchestrationActionType =
-  | 'invoke-agent'
-  | 'present-checkpoint'
-  | 'complete';
+  'invoke-agent' | 'present-checkpoint' | 'complete';
 
 /**
  * Next action recommendation for orchestration workflow

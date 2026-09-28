@@ -124,7 +124,21 @@
       "executor": "nx:run-commands",
       "dependsOn": ["pre-package"],
       "options": {
-        "command": "cd dist/apps/ptah-extension-vscode && npx @vscode/vsce package --allow-missing-repository --allow-star-activation"
+        "commands": [
+          {
+            "command": "node apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs --self-test",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "cd dist/apps/ptah-extension-vscode && npx --no-install @vscode/vsce package --allow-missing-repository --allow-star-activation",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "node apps/ptah-extension-vscode/scripts/verify-packed-wasm.cjs",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
       }
     },
     "prune-lockfile": {

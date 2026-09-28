@@ -33,6 +33,9 @@ export function createCliRpcHostProfile(
       workspaceLifecycle: true,
       editorLauncher: true,
       filePicker: interactive,
+      // Serves the `go vet` consent RPC; `container.ts` attaches the checker it
+      // governs. Consent itself is off until the user grants it.
+      goVetDiagnostics: true,
     }),
     hostHandlers: {},
     wiring: {

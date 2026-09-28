@@ -87,6 +87,7 @@ import {
   buildMemoryNamespace,
   buildCorpusNamespace,
   buildCodeNamespace,
+  startIndexFreshnessCheck,
   buildDashboardNamespace,
   createDashboardBroadcast,
   buildSurfaceNamespace,
@@ -557,6 +558,7 @@ export class PtahAPIBuilder {
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
       workspaceProvider: sessionAwareWorkspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const astDeps = {
@@ -571,6 +573,17 @@ export class PtahAPIBuilder {
         return getWorkspaceRootLazy();
       },
     };
+
+    const code = this.buildNamespaceSafe('code', () =>
+      buildCodeNamespace({
+        getCodeSymbolSearch: () => this.codeSymbolReader,
+        getMemorySearch: () => this.memorySearch,
+        getSymbolIndexer: () => this.symbolIndexer,
+        getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        getHostWorkspaceRoots: () => this.getHostWorkspaceRoots(),
+        logger: this.logger,
+      }),
+    );
 
     return {
       workspace: this.buildNamespaceSafe('workspace', () =>
@@ -602,7 +615,12 @@ export class PtahAPIBuilder {
       ),
       ast: this.buildNamespaceSafe('ast', () => buildAstNamespace(astDeps)),
       ide: this.buildNamespaceSafe('ide', () =>
-        buildIDENamespace(this.resolveIDECapabilities()),
+        // The desktop host answers definitions from the symbol index, so a
+        // definition lookup (direct tool or execute_code) starts the lazy
+        // freshness check without waiting on it (TASK_2026_559).
+        buildIDENamespace(this.resolveIDECapabilities(), {
+          onDefinitionLookup: () => startIndexFreshnessCheck(code, this.logger),
+        }),
       ),
       orchestration: this.buildNamespaceSafe('orchestration', () =>
         buildOrchestrationNamespace(orchestrationDeps),
@@ -788,14 +806,7 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
-      code: this.buildNamespaceSafe('code', () =>
-        buildCodeNamespace({
-          getCodeSymbolSearch: () => this.codeSymbolReader,
-          getMemorySearch: () => this.memorySearch,
-          getSymbolIndexer: () => this.symbolIndexer,
-          getWorkspaceRoot: () => this.getWorkspaceRoot(),
-        }),
-      ),
+      code,
       tasks: this.buildNamespaceSafe('tasks', () =>
         buildTasksNamespace({
           getWriter: () => this.taskWriter,
@@ -955,6 +966,27 @@ export class PtahAPIBuilder {
       getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),
       getProviderRoot: () => this.workspaceProvider.getWorkspaceRoot(),
     });
+  }
+
+  /**
+   * Workspace roots the host itself recorded: the session-derived root
+   * (caller session → active session → platform provider, with the
+   * caller-declared tier left out) and the platform's open folders. A
+   * caller-declared root (an MCP URL segment, so caller input) is never in
+   * this list unless the host recorded the same root itself.
+   */
+  private getHostWorkspaceRoots(): string[] {
+    const mgr = this.sdkSessionLifecycleManager;
+    const sessionRoot = resolveWorkspaceRootWithPrecedence({
+      getCallerSessionId,
+      getSessionWorkspace: (id) => mgr?.getSessionWorkspace(id),
+      getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),
+      getProviderRoot: () => this.workspaceProvider.getWorkspaceRoot(),
+    });
+    return [
+      ...(sessionRoot ? [sessionRoot] : []),
+      ...this.workspaceProvider.getWorkspaceFolders(),
+    ].filter((root) => typeof root === 'string' && root.trim() !== '');
   }
 
   /**

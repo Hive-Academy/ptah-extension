@@ -1,9 +1,19 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { SupportedLanguage, LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
+import {
+  SupportedLanguage,
+  LANGUAGE_QUERIES_MAP,
+  GRAMMAR_FILE_MAP,
+} from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
+import type { ParseQuality } from './ast-analysis.interfaces';
 import { resolveWasmPath } from './wasm-bundle-dir';
+import {
+  MAX_PARSE_BYTES,
+  ParserRefusalError,
+  exceedsParseLimit,
+} from './parser-refusal';
 import {
   Parser,
   Language,
@@ -53,6 +63,21 @@ export interface QueryCapture {
   endPosition: { row: number; column: number };
 }
 
+/** How deep a capture's node is converted: 3 levels, except a declarator. */
+const CAPTURE_DEPTH = 3;
+/**
+ * A C/C++ declarator capture (`@….declarator`) keeps its whole chain, since
+ * its declared name can sit any number of pointer, parenthesis, function and
+ * scope levels down (`int (*needle())(int)`); `cDeclaratorName` walks it.
+ */
+const DECLARATOR_CAPTURE_DEPTH = 64;
+
+function captureDepth(captureName: string): number {
+  return captureName === 'declarator' || captureName.endsWith('.declarator')
+    ? DECLARATOR_CAPTURE_DEPTH
+    : CAPTURE_DEPTH;
+}
+
 /**
  * Represents a single match from a tree-sitter query.
  */
@@ -63,13 +88,60 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
+/** Metadata belongs to this parse, never to mutable service-wide state. */
+type QueryResults = Map<string, QueryMatch[]> & Partial<ParseQuality>;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** One language's loaded grammar and the long-lived parser bound to it. */
+interface LoadedLanguage {
+  readonly grammar: Language;
+  readonly parser: Parser;
+}
+
+function parseQuality(root: SyntaxNode): ParseQuality {
+  let errorNodeCount = 0;
+  const pending = [root];
+  while (pending.length > 0 && errorNodeCount < 20) {
+    const node = pending.pop();
+    if (!node) break;
+    if (node.type === 'ERROR' || node.isMissing) errorNodeCount++;
+    // Clean subtrees cannot contain ERROR or MISSING nodes.
+    if (node.hasError !== false) {
+      for (const child of node.children) pending.push(child);
+    }
+  }
+  return {
+    parseStatus: root.hasError || errorNodeCount > 0 ? 'recovered' : 'ok',
+    errorNodeCount,
+    errorNodeCountCapped: errorNodeCount === 20,
+  };
+}
+
 @injectable()
 export class TreeSitterParserService {
-  private readonly parserCache: Map<SupportedLanguage, Parser> = new Map();
-  private readonly languageGrammars: Map<SupportedLanguage, Language> =
+  /**
+   * Per-language latch: the first use of a language starts its load and
+   * every later or concurrent use awaits the same promise, so a grammar loads
+   * at most once. A failed load stays failed (for that language only) until
+   * `dispose()`, instead of re-reading a broken grammar for every file.
+   */
+  private readonly languageLoads: Map<
+    SupportedLanguage,
+    Promise<Result<LoadedLanguage, Error>>
+  > = new Map();
+  /** Loaded languages, so `dispose()` can free their parsers synchronously. */
+  private readonly loadedLanguages: Map<SupportedLanguage, LoadedLanguage> =
     new Map();
   private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
   private readonly treeCacheMaxSize = 100;
+  /**
+   * Service lifetime, bumped by `dispose()`. Work records the generation it
+   * started in and never publishes into a later one.
+   */
+  private generation = 0;
   private isInitialized = false;
   private initPromise: Promise<Result<void, Error>> | null = null;
 
@@ -80,15 +152,15 @@ export class TreeSitterParserService {
   }
 
   /**
-   * Initializes the service by loading the web-tree-sitter WASM runtime and
-   * language grammars. This method is idempotent -- subsequent calls after a
-   * successful initialization return immediately.
+   * Loads the web-tree-sitter WASM runtime. Idempotent: concurrent callers
+   * share one promise, and a failure allows a retry on the next call.
    *
-   * Uses a promise guard to prevent concurrent initialization: if multiple
-   * callers invoke initialize() before it completes, they all await the same
-   * Promise instead of triggering duplicate Parser.init() calls.
+   * Grammars are not loaded here. Each one loads on its language's first use
+   * behind a per-language latch ({@link loadLanguage}), so a host that never
+   * parses a language never pays for its grammar, and a grammar that fails to
+   * load disables only its own language.
    *
-   * @returns A Result indicating success or failure of initialization.
+   * @returns A Result indicating success or failure of the runtime load.
    */
   async initialize(): Promise<Result<void, Error>> {
     if (this.isInitialized) {
@@ -102,174 +174,156 @@ export class TreeSitterParserService {
       return this.initPromise;
     }
 
-    this.initPromise = this._doInitialize();
+    this.initPromise = this._doInitialize(this.generation);
     return this.initPromise;
   }
 
-  private async _doInitialize(): Promise<Result<void, Error>> {
-    this.logger.info(
-      'Initializing web-tree-sitter WASM runtime and grammars...',
-    );
-    const jsWasmPath = resolveWasmPath('tree-sitter-javascript.wasm');
-    const tsWasmPath = resolveWasmPath('tree-sitter-typescript.wasm');
-    const pyWasmPath = resolveWasmPath('tree-sitter-python.wasm');
-    const goWasmPath = resolveWasmPath('tree-sitter-go.wasm');
-    const csWasmPath = resolveWasmPath('tree-sitter-c-sharp.wasm');
-    const runtimeWasmPath = resolveWasmPath('tree-sitter.wasm');
-
+  /**
+   * Loads the runtime for service `generation`. Work that began before a
+   * `dispose()` never publishes into the new lifetime: a late success does not
+   * mark the service initialized, and a late failure does not clear the latch
+   * of an initialization started after the dispose.
+   */
+  private async _doInitialize(
+    generation: number,
+  ): Promise<Result<void, Error>> {
+    this.logger.info('Initializing web-tree-sitter WASM runtime...');
+    const located: string[] = [];
     try {
       await Parser.init({
-        locateFile: (file: string) => resolveWasmPath(file),
+        locateFile: (file: string) => {
+          const wasmPath = resolveWasmPath(file);
+          located.push(wasmPath);
+          return wasmPath;
+        },
       });
-      const jsLanguage = await Language.load(jsWasmPath);
-      const tsLanguage = await Language.load(tsWasmPath);
-      const pyLanguage = await Language.load(pyWasmPath);
-      const goLanguage = await Language.load(goWasmPath);
-      const csLanguage = await Language.load(csWasmPath);
-
-      this.languageGrammars.set('javascript', jsLanguage);
-      this.languageGrammars.set('typescript', tsLanguage);
-      this.languageGrammars.set('python', pyLanguage);
-      this.languageGrammars.set('go', goLanguage);
-      this.languageGrammars.set('csharp', csLanguage);
-
+      if (generation !== this.generation) {
+        return Result.err(this.disposedError('the WASM runtime'));
+      }
       this.isInitialized = true;
-      this.logger.info(
-        'web-tree-sitter WASM runtime and grammars initialized successfully.',
-      );
+      this.logger.info('web-tree-sitter WASM runtime initialized.');
       return Result.ok(undefined);
-    } catch (error) {
-      this.isInitialized = false;
-      this.initPromise = null; // Allow retry on failure
-      const initError = this._handleAndLogError(
-        `TreeSitterParserService WASM initialization failed. Attempted paths: runtime=${runtimeWasmPath}, JS=${jsWasmPath}, TS=${tsWasmPath}, PY=${pyWasmPath}, GO=${goWasmPath}, CS=${csWasmPath}`,
-        error,
-      );
-      return Result.err(initError);
-    }
-  }
-
-  /**
-   * Retrieves the pre-loaded language grammar. Ensures service is initialized.
-   * @param language The language grammar to retrieve.
-   * @returns A Result containing the Language object or an error if not initialized or not found.
-   */
-  private async _getPreloadedGrammar(
-    language: SupportedLanguage,
-  ): Promise<Result<Language, Error>> {
-    if (!this.isInitialized) {
-      this.logger.debug(
-        `_getPreloadedGrammar: Service not initialized. Triggering initialize().`,
-      );
-      const initResult = await this.initialize();
-      if (initResult.isErr()) {
-        return Result.err(
-          new Error(
-            `Initialization failed before getting preloaded grammar: ${
-              initResult.error?.message ?? 'Unknown error'
-            }`,
-          ),
-        );
-      }
-      if (!this.isInitialized) {
-        return Result.err(
-          this._handleAndLogError(
-            'Initialization race condition or unexpected error',
-            new Error(
-              'isInitialized still false after successful initialize() call',
-            ),
-          ),
-        );
-      }
-      this.logger.debug(`_getPreloadedGrammar: Initialization completed.`);
-    }
-
-    const grammar = this.languageGrammars.get(language);
-    if (!grammar) {
-      return Result.err(
-        this._handleAndLogError(
-          `Grammar for language ${language} not found in pre-loaded cache after successful initialization`,
-          new Error(`Grammar not found: ${language}`),
-        ),
-      );
-    }
-    return Result.ok(grammar);
-  }
-
-  /**
-   * Attempts to retrieve a parser from the cache.
-   * Parsers are created with their language already set in _createAndCacheParser(),
-   * and since we cache one parser per language, no re-verification is needed.
-   * @param language - The language of the parser to retrieve.
-   * @returns A Result containing the cached parser if found, or null if not cached.
-   */
-  private _getCachedParser(
-    language: SupportedLanguage,
-  ): Result<Parser | null, Error> {
-    if (!this.parserCache.has(language)) {
-      return Result.ok(null);
-    }
-
-    const cachedParser = this.parserCache.get(language) as Parser;
-    return Result.ok(cachedParser);
-  }
-
-  /**
-   * Creates a new parser instance, loads its language, and caches it.
-   * @param language - The language for the new parser.
-   * @returns A Result containing the newly created parser or an error.
-   */
-  private async _createAndCacheParser(
-    language: SupportedLanguage,
-  ): Promise<Result<Parser, Error>> {
-    this.logger.info(`Creating new parser for language: ${language}`);
-
-    const grammarResult = await this._getPreloadedGrammar(language);
-    if (grammarResult.isErr()) {
-      return Result.err(
-        grammarResult.error ?? new Error('Unknown grammar error'),
-      );
-    }
-
-    try {
-      const parser = new Parser();
-      parser.setLanguage(grammarResult.value ?? null);
-      this.parserCache.set(language, parser);
-      this.logger.info(
-        `Successfully created and cached parser for language: ${language}`,
-      );
-      return Result.ok(parser);
     } catch (error: unknown) {
+      if (generation === this.generation) {
+        this.isInitialized = false;
+        this.initPromise = null; // Allow retry on failure
+      }
+      // Without the runtime no grammar can load: every language is unavailable.
       return Result.err(
         this._handleAndLogError(
-          `Failed to create or set language for new parser for ${language}`,
-          error,
+          `TreeSitterParserService WASM runtime initialization failed (located: ${
+            located.join(', ') || 'none'
+          })`,
+          new ParserRefusalError('grammar-unavailable', messageOf(error), {
+            cause: error,
+          }),
         ),
       );
     }
   }
 
   /**
-   * Retrieves or creates a Tree-sitter parser instance for the specified language.
-   * Uses caching to avoid redundant loading.
-   * @param language - The language for the parser.
-   * @returns A Result containing the parser instance or an error.
+   * The runtime, then `language`'s grammar and parser, loaded once, for the
+   * caller that started in service `generation`. A runtime failure is returned
+   * without touching the latch, so it is retried; a grammar failure is latched
+   * for that language only. A caller from before a `dispose()` is refused
+   * before it can start or join any work of the new lifetime.
    */
-  private async getOrCreateParser(
+  private async loadLanguage(
     language: SupportedLanguage,
-  ): Promise<Result<Parser | null, Error>> {
-    const cachedResult = this._getCachedParser(language);
-
-    if (cachedResult.isErr()) {
-      return Result.err(cachedResult.error ?? new Error('Unknown cache error'));
+    generation: number,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    if (generation !== this.generation) {
+      return Result.err(this.disposedError(`the ${language} grammar`));
     }
-
-    const cachedParser = cachedResult.value;
-    if (cachedParser) {
-      return Result.ok(cachedParser);
+    const initResult = await this.initialize();
+    if (generation !== this.generation) {
+      return Result.err(this.disposedError(`the ${language} grammar`));
     }
+    if (initResult.isErr()) {
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    }
+    let load = this.languageLoads.get(language);
+    if (!load) {
+      load = this._loadLanguage(language, generation);
+      this.languageLoads.set(language, load);
+    }
+    return load;
+  }
 
-    return this._createAndCacheParser(language);
+  private async _loadLanguage(
+    language: SupportedLanguage,
+    generation: number,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    const grammarPath = resolveWasmPath(GRAMMAR_FILE_MAP[language]);
+    let parser: Parser | undefined;
+    try {
+      const grammar = await Language.load(grammarPath);
+      parser = new Parser();
+      parser.setLanguage(grammar);
+      if (generation !== this.generation) {
+        // dispose() ran while the grammar loaded: nothing may keep it alive.
+        parser.delete();
+        return Result.err(this.disposedError(`the ${language} grammar`));
+      }
+      const loaded: LoadedLanguage = { grammar, parser };
+      this.loadedLanguages.set(language, loaded);
+      this.logger.info(`Loaded tree-sitter grammar for ${language}.`);
+      return Result.ok(loaded);
+    } catch (error: unknown) {
+      parser?.delete();
+      return Result.err(
+        this._handleAndLogError(
+          `Grammar for ${language} is unavailable (${grammarPath}); other languages are unaffected`,
+          new ParserRefusalError('grammar-unavailable', messageOf(error), {
+            cause: error,
+          }),
+        ),
+      );
+    }
+  }
+
+  /**
+   * Everything a parse of `content` needs, or the refusal: `too-large` over
+   * {@link MAX_PARSE_BYTES} (checked before any load), `grammar-unavailable`
+   * when the runtime or the language's grammar cannot load. The generation
+   * is read synchronously, at the call, so a `dispose()` during any of the
+   * awaits below refuses this call.
+   */
+  private async prepare(
+    content: string,
+    language: SupportedLanguage,
+  ): Promise<Result<LoadedLanguage, Error>> {
+    if (exceedsParseLimit(content)) {
+      return Result.err(
+        new ParserRefusalError(
+          'too-large',
+          `Source for ${language} is larger than ${MAX_PARSE_BYTES} bytes; not parsed`,
+        ),
+      );
+    }
+    return this.loadLanguage(language, this.generation);
+  }
+
+  /**
+   * `prepared`, unless `dispose()` freed its parser between the preparation
+   * and the caller resuming: every caller checks this right after its await.
+   */
+  private live(
+    prepared: Result<LoadedLanguage, Error>,
+    language: SupportedLanguage,
+  ): Result<LoadedLanguage, Error> {
+    const loaded = prepared.value;
+    if (!loaded || this.loadedLanguages.get(language) === loaded) {
+      return prepared;
+    }
+    return Result.err(this.disposedError(`the ${language} grammar`));
+  }
+
+  private disposedError(what: string): Error {
+    return new Error(
+      `TreeSitterParserService was disposed while preparing ${what}`,
+    );
   }
 
   /**
@@ -332,24 +386,11 @@ export class TreeSitterParserService {
       `Parsing content for language: ${language} to generate generic AST`,
     );
 
-    const initResult = await this.initialize();
-    if (initResult.isErr()) {
-      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
     }
-
-    const parserResult = await this.getOrCreateParser(language);
-    if (parserResult.isErr()) {
-      return Result.err(
-        parserResult.error ?? new Error('Unknown parser error'),
-      );
-    }
-    const parser = parserResult.value;
-
-    if (!parser) {
-      return Result.err(
-        new Error('Parser instance is null or undefined before parsing.'),
-      );
-    }
+    const { parser } = prepared.value;
 
     let tree: Tree | null = null;
     try {
@@ -397,38 +438,11 @@ export class TreeSitterParserService {
   ): Promise<Result<QueryMatch[], Error>> {
     this.logger.debug(`Running query for language: ${language}`);
 
-    const initResult = await this.initialize();
-    if (initResult.isErr()) {
-      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
     }
-
-    const parserResult = await this.getOrCreateParser(language);
-    if (parserResult.isErr()) {
-      return Result.err(
-        parserResult.error ?? new Error('Unknown parser error'),
-      );
-    }
-    const parser = parserResult.value;
-
-    const grammarResult = await this._getPreloadedGrammar(language);
-    if (grammarResult.isErr()) {
-      return Result.err(
-        grammarResult.error ?? new Error('Unknown grammar error'),
-      );
-    }
-    const grammar = grammarResult.value;
-
-    if (!parser) {
-      return Result.err(
-        new Error('Parser instance is null or undefined before parsing.'),
-      );
-    }
-
-    if (!grammar) {
-      return Result.err(
-        new Error('Grammar instance is null or undefined before querying.'),
-      );
-    }
+    const { parser, grammar } = prepared.value;
 
     let tree: Tree | null = null;
     let tsQuery: Query | undefined;
@@ -444,7 +458,11 @@ export class TreeSitterParserService {
         pattern: match.patternIndex,
         captures: match.captures.map((capture: TsQueryCapture) => ({
           name: capture.name,
-          node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+          node: this._convertNodeToGenericAst(
+            capture.node,
+            0,
+            captureDepth(capture.name),
+          ),
           text: capture.node.text,
           startPosition: {
             row: capture.node.startPosition.row,
@@ -555,54 +573,33 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @param queries An array of { key, queryString } entries to execute
    * @returns A Result containing a Map<key, QueryMatch[]> on success, or an Error on failure.
-   *          An empty `queries` array returns `Result.ok(new Map())` immediately.
-   *          An empty or falsy `content` string also returns `Result.ok(new Map())` immediately.
+   *          Parse quality is attached even when no query entries are requested.
+   *          Empty content is a clean empty parse without allocating a tree.
    */
   async queryMulti(
     content: string,
     language: SupportedLanguage,
     queries: { key: string; queryString: string }[],
-  ): Promise<Result<Map<string, QueryMatch[]>, Error>> {
-    if (!content || queries.length === 0) {
-      return Result.ok(new Map());
+  ): Promise<Result<QueryResults, Error>> {
+    if (!content) {
+      return Result.ok(
+        Object.assign(new Map<string, QueryMatch[]>(), {
+          parseStatus: 'ok' as const,
+          errorNodeCount: 0,
+          errorNodeCountCapped: false,
+        }),
+      );
     }
 
     this.logger.debug(
       `Running queryMulti for language: ${language} with ${queries.length} queries`,
     );
 
-    const initResult = await this.initialize();
-    if (initResult.isErr()) {
-      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
     }
-
-    const parserResult = await this.getOrCreateParser(language);
-    if (parserResult.isErr()) {
-      return Result.err(
-        parserResult.error ?? new Error('Unknown parser error'),
-      );
-    }
-    const parser = parserResult.value;
-
-    const grammarResult = await this._getPreloadedGrammar(language);
-    if (grammarResult.isErr()) {
-      return Result.err(
-        grammarResult.error ?? new Error('Unknown grammar error'),
-      );
-    }
-    const grammar = grammarResult.value;
-
-    if (!parser) {
-      return Result.err(
-        new Error('Parser instance is null or undefined before parsing.'),
-      );
-    }
-
-    if (!grammar) {
-      return Result.err(
-        new Error('Grammar instance is null or undefined before querying.'),
-      );
-    }
+    const { parser, grammar } = prepared.value;
 
     let tree: Tree | null = null;
     const createdQueries: (Query | undefined)[] = [];
@@ -614,7 +611,10 @@ export class TreeSitterParserService {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
 
-      const resultMap = new Map<string, QueryMatch[]>();
+      const resultMap = Object.assign(
+        new Map<string, QueryMatch[]>(),
+        parseQuality(tree.rootNode),
+      );
 
       for (const entry of queries) {
         const tsQuery = new Query(grammar, entry.queryString);
@@ -627,7 +627,11 @@ export class TreeSitterParserService {
             pattern: match.patternIndex,
             captures: match.captures.map((capture: TsQueryCapture) => ({
               name: capture.name,
-              node: this._convertNodeToGenericAst(capture.node, 0, 3),
+              node: this._convertNodeToGenericAst(
+                capture.node,
+                0,
+                captureDepth(capture.name),
+              ),
               text: capture.node.text,
               startPosition: {
                 row: capture.node.startPosition.row,
@@ -678,24 +682,13 @@ export class TreeSitterParserService {
       `parseAndCache: Parsing and caching tree for ${filePath} (${language})`,
     );
 
-    const initResult = await this.initialize();
-    if (initResult.isErr()) {
-      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      // The cached tree describes older content; never reuse it after a refusal.
+      this.deleteCachedTree(filePath);
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
     }
-
-    const parserResult = await this.getOrCreateParser(language);
-    if (parserResult.isErr()) {
-      return Result.err(
-        parserResult.error ?? new Error('Unknown parser error'),
-      );
-    }
-    const parser = parserResult.value;
-
-    if (!parser) {
-      return Result.err(
-        new Error('Parser instance is null or undefined before parsing.'),
-      );
-    }
+    const { parser } = prepared.value;
 
     try {
       const tree = parser.parse(content);
@@ -772,24 +765,12 @@ export class TreeSitterParserService {
       `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`,
     );
 
-    const initResult = await this.initialize();
-    if (initResult.isErr()) {
-      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    const prepared = this.live(await this.prepare(content, language), language);
+    if (!prepared.value) {
+      this.deleteCachedTree(filePath);
+      return Result.err(prepared.error ?? new Error('Unknown grammar error'));
     }
-
-    const parserResult = await this.getOrCreateParser(language);
-    if (parserResult.isErr()) {
-      return Result.err(
-        parserResult.error ?? new Error('Unknown parser error'),
-      );
-    }
-    const parser = parserResult.value;
-
-    if (!parser) {
-      return Result.err(
-        new Error('Parser instance is null or undefined before parsing.'),
-      );
-    }
+    const { parser } = prepared.value;
 
     try {
       cachedEntry.tree.edit(
@@ -837,6 +818,11 @@ export class TreeSitterParserService {
       );
       return this.parseAndCache(filePath, content, language);
     }
+  }
+
+  private deleteCachedTree(filePath: string): void {
+    this.treeCache.get(filePath)?.tree.delete();
+    this.treeCache.delete(filePath);
   }
 
   /**
@@ -897,11 +883,13 @@ export class TreeSitterParserService {
       entry.tree.delete();
     }
     this.treeCache.clear();
-    for (const [, parser] of this.parserCache) {
-      parser.delete();
+    for (const [, loaded] of this.loadedLanguages) {
+      loaded.parser.delete();
     }
-    this.parserCache.clear();
-    this.languageGrammars.clear();
+    this.loadedLanguages.clear();
+    // Loads still in flight see the new generation and free their parser.
+    this.languageLoads.clear();
+    this.generation++;
 
     this.isInitialized = false;
     this.initPromise = null;

@@ -1,6 +1,14 @@
 export interface SymbolChunkInsert {
   /** Normalized: "code:<kind>:<absoluteFilePath>:<symbolName>" */
   readonly subject: string;
+  /**
+   * The symbol's kind and name as stored. The subject cannot carry a name
+   * that holds a `:` unambiguously (its last `:` separates the name from the
+   * path), so a producer that knows both sets them and the sink stores them
+   * as given; when absent the sink parses them out of `subject`.
+   */
+  readonly kind?: string;
+  readonly symbolName?: string;
   /** Chunk text for embedding: "<kind> <name> in <relPath>:<startLine>-<endLine>" */
   readonly text: string;
   readonly tokenCount: number;

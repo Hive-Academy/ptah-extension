@@ -1,5 +1,9 @@
+// tool-description.builder reads the language registry (Batch 24c) from the
+// workspace-intelligence barrel, whose DI services need the reflect polyfill.
+import 'reflect-metadata';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import { buildAgentSpawnTool } from './tool-description.builder';
+import { getToolResultBudget } from './tool-result-budget';
 import { buildMcpAgentSpawnTool } from '../mcp-stdio/tool-builders';
 
 describe('agent spawn surface parity', () => {
@@ -18,7 +22,16 @@ describe('agent spawn surface parity', () => {
 
     expect(http.name).toBe('ptah_agent_spawn');
     expect(stdio.name).toBe('agent_spawn');
-    expect({ ...stdio, name: http.name }).toEqual(http);
+    // The HTTP `tools/list` stamps the result ceiling onto the builder's
+    // definition (`declareResultBudgets`); the stdio builder declares the
+    // same ceiling itself, so the two served definitions are equal.
+    expect({ ...stdio, name: http.name }).toEqual({
+      ...http,
+      _meta: {
+        ...http._meta,
+        'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
+      },
+    });
   });
 
   it('requires only task on both surfaces', () => {

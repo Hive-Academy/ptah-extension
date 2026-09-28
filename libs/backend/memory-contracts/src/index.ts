@@ -17,6 +17,7 @@ export type {
   MemoryType,
 } from './lib/curator-llm.port';
 export type {
+  CodeIndexFreshness,
   CodeSymbolHit,
   CodeSymbolHitPage,
   ICodeSymbolReader,

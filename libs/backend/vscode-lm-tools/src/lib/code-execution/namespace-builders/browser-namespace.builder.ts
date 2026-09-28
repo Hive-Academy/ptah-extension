@@ -143,6 +143,13 @@ const BLOCKED_SCHEMES = [
 ];
 const BLOCKED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'];
 const MAX_EXPRESSION_LENGTH = 64 * 1024; // 64KB
+/**
+ * Screenshot defaults when the caller names no format or quality. JPEG at
+ * quality 60 is several times smaller than PNG for rendered UI, and every
+ * screenshot is sent back to the model inline (TASK_2026_559 User Decision 3).
+ */
+const DEFAULT_SCREENSHOT_FORMAT = 'jpeg';
+const DEFAULT_SCREENSHOT_QUALITY = 60;
 
 /**
  * Validate a URL against the security blocklist.
@@ -208,11 +215,38 @@ export function buildBrowserNamespace(
 ): BrowserNamespace {
   const { capabilities, getAllowLocalhost } = deps;
 
-  if (!capabilities) {
+  // A host may register a placeholder under the browser token that has none
+  // of these methods (the CLI does); treat it as no browser at all so every
+  // tool answers with the not-available message instead of a TypeError.
+  if (!capabilities || !implementsBrowserCapabilities(capabilities)) {
     return buildGracefulBrowserNamespace();
   }
 
   return buildCapabilityBackedBrowserNamespace(capabilities, getAllowLocalhost);
+}
+
+const BROWSER_CAPABILITY_METHODS: ReadonlyArray<keyof IBrowserCapabilities> = [
+  'configureSession',
+  'navigate',
+  'screenshot',
+  'evaluate',
+  'click',
+  'type',
+  'getContent',
+  'getNetworkRequests',
+  'close',
+  'status',
+  'isConnected',
+  'startRecording',
+  'stopRecording',
+];
+
+function implementsBrowserCapabilities(
+  capabilities: IBrowserCapabilities,
+): boolean {
+  return BROWSER_CAPABILITY_METHODS.every(
+    (method) => typeof capabilities[method] === 'function',
+  );
 }
 
 function buildCapabilityBackedBrowserNamespace(
@@ -274,12 +308,30 @@ function buildCapabilityBackedBrowserNamespace(
     },
 
     screenshot: async (params): Promise<BrowserScreenshotResult> => {
-      try {
-        return await capabilities.screenshot(params);
-      } catch (error) {
+      const format = params?.format ?? DEFAULT_SCREENSHOT_FORMAT;
+      // png is lossless and ignores quality, so any value passed with it is
+      // dropped unchecked; jpeg/webp need an integer 0-100 (CDP's range).
+      const quality =
+        format === 'png'
+          ? undefined
+          : (params?.quality ?? DEFAULT_SCREENSHOT_QUALITY);
+      if (
+        quality !== undefined &&
+        (!Number.isInteger(quality) || quality < 0 || quality > 100)
+      ) {
         return {
           data: '',
-          format: params?.format ?? 'png',
+          format,
+          error: 'Invalid quality. Must be an integer between 0 and 100.',
+        };
+      }
+
+      try {
+        return await capabilities.screenshot({ ...params, format, quality });
+      } catch (error: unknown) {
+        return {
+          data: '',
+          format,
           error: error instanceof Error ? error.message : String(error),
         };
       }

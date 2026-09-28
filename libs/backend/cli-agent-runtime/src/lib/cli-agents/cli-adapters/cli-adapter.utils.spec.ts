@@ -22,13 +22,12 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockCrossSpawn(...args),
 }));
 
-const mockExecFile = jest.fn(
-  (...args: unknown[]) =>
-    (args.at(-1) as (error: null, stdout: string, stderr: string) => void)(
-      null,
-      '',
-      '',
-    ),
+const mockExecFile = jest.fn((...args: unknown[]) =>
+  (args.at(-1) as (error: null, stdout: string, stderr: string) => void)(
+    null,
+    '',
+    '',
+  ),
 );
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -133,6 +132,116 @@ describe('buildTaskPrompt', () => {
     expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
     expect(prompt).not.toContain('Ignored fallback guidance.');
     expect(prompt.split(toolPolicy)).toHaveLength(2);
+  });
+
+  describe('resume context (Batch 14)', () => {
+    const role: AgentRoleDefinition = {
+      name: 'backend-developer',
+      description: 'Writes server code',
+      body: 'Follow the repository patterns.',
+      sourcePath: '/ws/.claude/agents/backend-developer.md',
+      bytes: 30,
+    };
+    const base = {
+      task: 'Continue the implementation.',
+      workingDirectory: '/ws',
+      systemPrompt: 'S'.repeat(1000),
+      projectGuidance: 'PROJECT GUIDANCE',
+      role,
+      files: ['src/a.ts'],
+      taskFolder: '/tf',
+      deliverables: ['/tf/report.md'],
+    };
+
+    it('keeps the fresh spawn snapshot and removes only the restored prefix', () => {
+      const fresh = { ...base, resumeRestoresContext: true };
+      expect(buildTaskPrompt(fresh, 'cursor')).toMatchInlineSnapshot(`
+        "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+
+        ---
+
+        ## Role: backend-developer
+
+        You are running as the \`backend-developer\` role; the definition below governs this task and outranks any generic persona above.
+
+        Follow the repository patterns.
+
+        ---
+
+        Tool policy: prefer direct \`ptah_*\` tools over \`execute_code\`. \`ptah.files\` is read-only; use native CLI write/edit tools for file creation or edits, never \`execute_code\`.
+        Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:
+        - Verify only the projects you changed (\`-p <project>\`); never a workspace-wide test, lint or build.
+        - Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.
+        - For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.
+        - Prefer AST/summary tools and targeted reads over whole-file reads.
+
+        Continue the implementation.
+
+        Focus on these files:
+        - src/a.ts
+
+        Write deliverable files to: /tf
+
+        ## Before you exit
+        Write every one of these files before your final message. The session that spawned you checks each path the moment you exit, and a clean exit with a missing or empty file is reported as work NOT done:
+        - /tf/report.md
+        Then call \`ptah_agent_report\` once with: what you produced, the absolute path of each file you wrote, and anything you could NOT do. That call reaches the session that spawned you immediately — it is how the orchestrator learns what you did without reading your whole output. If it returns \`delivered: false\`, put the same summary in your final message instead.
+        Never end a turn claiming success for a file you did not write."
+      `);
+      const resumed = { ...fresh, resumeSessionId: 'session-1' };
+      const prompt = buildTaskPrompt(resumed, 'cursor');
+      expect(prompt).not.toContain(base.systemPrompt);
+      expect(prompt).not.toContain(base.projectGuidance);
+      expect(prompt).not.toContain('## Role:');
+      expect(prompt).not.toContain(role.body);
+      expect(prompt).toBe(
+        buildTaskPrompt(
+          {
+            ...base,
+            systemPrompt: undefined,
+            projectGuidance: undefined,
+            role: undefined,
+          },
+          'cursor',
+        ),
+      );
+      expect(prompt).toContain(toolPolicy);
+      expect(prompt).toContain(base.task);
+      expect(prompt).toContain(renderLaneCompletionContract(base));
+    });
+
+    it('omits project guidance when it is the restored system context', () => {
+      const resumed = {
+        ...base,
+        systemPrompt: undefined,
+        resumeRestoresContext: true,
+        resumeSessionId: 'session-1',
+      };
+      expect(buildTaskPrompt(resumed, 'cursor')).not.toContain(
+        base.projectGuidance,
+      );
+    });
+
+    it('keeps the prefix for non-restoring and unspecified adapters on resume', () => {
+      const resumed = { ...base, resumeSessionId: 'session-1' };
+      const restoring = { ...resumed, resumeRestoresContext: true };
+      const nonRestoring = { ...resumed, resumeRestoresContext: false };
+      const fullPrompt = buildTaskPrompt(base, 'cursor');
+      expect(buildTaskPrompt(nonRestoring, 'cursor')).toBe(fullPrompt);
+      expect(buildTaskPrompt(resumed, 'cursor')).toBe(fullPrompt);
+      expect(buildTaskPrompt(restoring, 'cursor')).not.toBe(fullPrompt);
+    });
+
+    it('keeps the prefix for a restoring adapter without a resume session id', () => {
+      const fresh = { ...base, resumeRestoresContext: true };
+      const resumed = { ...fresh, resumeSessionId: 'session-1' };
+      expect(buildTaskPrompt(fresh, 'cursor')).toBe(
+        buildTaskPrompt(base, 'cursor'),
+      );
+      expect(buildTaskPrompt(resumed, 'cursor')).not.toBe(
+        buildTaskPrompt(fresh, 'cursor'),
+      );
+    });
   });
 
   describe('role section order', () => {
@@ -784,7 +893,11 @@ describe('probeCliVersion', () => {
       const child = createFakeChild();
       mockCrossSpawn.mockReturnValueOnce(child);
 
-      const probe = probeCliVersion('/usr/local/bin/hung-cli', ['--version'], 50);
+      const probe = probeCliVersion(
+        '/usr/local/bin/hung-cli',
+        ['--version'],
+        50,
+      );
       // Advance past the timeout without emitting stdout or close.
       jest.advanceTimersByTime(51);
       await expect(probe).resolves.toBeUndefined();

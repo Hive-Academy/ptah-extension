@@ -132,7 +132,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       );
     });
 
-    it('should detect language from file extension (TypeScript .tsx)', async () => {
+    it('selects the TSX grammar for a .tsx file (Batch 29b r1)', async () => {
       // Arrange
       const filePath = 'D:\\test\\component.tsx';
       const fileContent = 'const Component = () => <div>Hello</div>;';
@@ -148,10 +148,38 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       // Assert
       expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
         fileContent,
-        'typescript',
+        'tsx',
         filePath,
       );
     });
+
+    it.each([
+      ['D:\\test\\App.java', 'java'],
+      ['D:\\test\\lib.rs', 'rust'],
+      ['D:\\test\\model.py', 'python'],
+      // Batch 31: C sources are parsed with the C++ grammar (Decision 19).
+      ['D:\\test\\Widget.php', 'php'],
+      ['D:\\test\\widget.rb', 'ruby'],
+      ['D:\\test\\widget.c', 'cpp'],
+      ['D:\\test\\widget.h', 'cpp'],
+      ['D:\\test\\app.cpp', 'cpp'],
+    ])(
+      'selects the grammar the shared extension map names for %s (Batch 30, 31)',
+      async (filePath, language) => {
+        mockFileSystem.readFile.mockResolvedValue('x');
+        mockAstAnalyzer.analyzeSource.mockResolvedValue(
+          Result.ok({ functions: [], classes: [], imports: [] }),
+        );
+
+        await service.extractCodeInsights(filePath);
+
+        expect(mockAstAnalyzer.analyzeSource).toHaveBeenCalledWith(
+          'x',
+          language,
+          filePath,
+        );
+      },
+    );
 
     it('should detect language from file extension (JavaScript)', async () => {
       // Arrange

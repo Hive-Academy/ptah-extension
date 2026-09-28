@@ -17,6 +17,16 @@ import {
   type CodeExecutionDependencies,
 } from './code-execution.engine';
 import type { PtahAPI } from '../types';
+import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
+import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import {
+  buildCodeNamespace,
+  startIndexFreshnessCheck,
+} from '../namespace-builders/code-namespace.builder';
+import {
+  buildIDENamespace,
+  type IIDECapabilities,
+} from '../namespace-builders/ide-namespace.builder';
 
 function createMockLogger(): jest.Mocked<Logger> {
   return {
@@ -123,11 +133,15 @@ describe('serializeResult', () => {
     expect(typeof result).toBe('string');
   });
 
-  it('truncates large results with explicit marker', () => {
-    const big = 'x'.repeat(60 * 1024);
-    const out = serializeResult(big);
-    expect(out.length).toBeLessThan(big.length + 1024);
-    expect(out).toContain('[TRUNCATED:');
+  it('never cuts a large result: the dispatcher budget bounds and spools it (Batch 30 r1 R30-01)', () => {
+    const big = 'x'.repeat(200 * 1024);
+    expect(serializeResult(big)).toBe(big);
+    const bigObject = { rows: Array.from({ length: 5000 }, (_, i) => i) };
+    expect(serializeResult(bigObject)).toBe(JSON.stringify(bigObject, null, 2));
+  });
+
+  it('answers a value with no JSON form by its String() form', () => {
+    expect(serializeResult(Symbol('s'))).toBe('Symbol(s)');
   });
 
   it('does not truncate results under the limit', () => {
@@ -237,5 +251,82 @@ describe('executeCode', () => {
       'CodeExecutionMCP',
       expect.objectContaining({ resultType: 'string' }),
     );
+  });
+});
+
+/**
+ * TASK_2026_559 regression: symbol lookups made through `execute_code` start
+ * the lazy index-freshness check exactly as the direct MCP tools do. The ptah
+ * API is composed the way `PtahAPIBuilder` composes it; only the platform
+ * capabilities, the reader and the indexer are doubles.
+ */
+describe('executeCode — index freshness through the namespaces', () => {
+  function composeApi(logger: jest.Mocked<Logger>) {
+    const reader: ICodeSymbolReader = {
+      searchSymbols: jest.fn().mockResolvedValue({ hits: [], bm25Only: false }),
+      getIndexFreshness: jest
+        .fn()
+        .mockResolvedValue({ symbolCount: 0, newestUpdatedAt: null }),
+    };
+    const indexWorkspace = jest.fn(() => new Promise<never>(() => undefined));
+    const getDefinition = jest.fn().mockResolvedValue([]);
+    const code = buildCodeNamespace({
+      getCodeSymbolSearch: () => reader,
+      getMemorySearch: () => undefined,
+      getSymbolIndexer: () =>
+        ({ indexWorkspace }) as unknown as CodeSymbolIndexer,
+      getWorkspaceRoot: () => '/ws',
+      getHostWorkspaceRoots: () => ['/ws'],
+      logger,
+    });
+    const ide = buildIDENamespace(
+      {
+        lsp: { getDefinition } as unknown as IIDECapabilities['lsp'],
+        editor: {} as IIDECapabilities['editor'],
+        actions: {} as IIDECapabilities['actions'],
+      },
+      { onDefinitionLookup: () => startIndexFreshnessCheck(code, logger) },
+    );
+    const ptahAPI = { ide, code } as unknown as PtahAPI;
+    return { ptahAPI, reader, indexWorkspace, getDefinition };
+  }
+
+  async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  it('a definition lookup starts the freshness check and a lazy reindex', async () => {
+    const logger = createMockLogger();
+    const { ptahAPI, reader, indexWorkspace, getDefinition } =
+      composeApi(logger);
+
+    const result = await executeCode(
+      "(async function() { return await ptah.ide.lsp.getDefinition('/ws/a.ts', 1, 1); })()",
+      5000,
+      { ptahAPI, logger },
+    );
+    await flush();
+
+    expect(result).toEqual([]);
+    expect(getDefinition).toHaveBeenCalledWith('/ws/a.ts', 1, 1);
+    expect(reader.getIndexFreshness).toHaveBeenCalledTimes(1);
+    expect(indexWorkspace).toHaveBeenCalledWith('/ws', {
+      userInitiated: false,
+    });
+  });
+
+  it('a symbol search starts the freshness check and a lazy reindex', async () => {
+    const logger = createMockLogger();
+    const { ptahAPI, reader, indexWorkspace } = composeApi(logger);
+
+    await executeCode(
+      "(async function() { return await ptah.code.searchSymbols('foo'); })()",
+      5000,
+      { ptahAPI, logger },
+    );
+    await flush();
+
+    expect(reader.getIndexFreshness).toHaveBeenCalledTimes(1);
+    expect(indexWorkspace).toHaveBeenCalledTimes(1);
   });
 });

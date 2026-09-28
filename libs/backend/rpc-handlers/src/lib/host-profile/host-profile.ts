@@ -80,6 +80,7 @@ const ALL_DISABLED: HostCapabilities = {
   fileViewer: false,
   commandExecution: false,
   appUpdater: false,
+  goVetDiagnostics: false,
 };
 
 /**

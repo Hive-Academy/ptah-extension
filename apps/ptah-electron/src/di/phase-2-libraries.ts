@@ -175,7 +175,17 @@ export function registerPhase2Libraries(
   // Override the Phase 0 diagnostics stub with the real TypeScript compiler
   // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
   // registered. PtahAPIBuilder resolves DIAGNOSTICS_PROVIDER in Phase 4 (later).
-  registerTypeScriptDiagnosticsProvider(container, logger);
+  //
+  // The getter attaches the opt-in `go vet` checker (TASK_2026_559 Batch 37b1d,
+  // O2 §2 "DI timing"). It is lazy because `registerSdkServices`, which owns
+  // SDK_PROCESS_SPAWNER, runs a few lines below; the checker reads it at its
+  // first run. Consent stays off until the user grants it per workspace
+  // (`diagnostics:go-vet-consent-set`, served because this host's profile
+  // enables `goVetDiagnostics`), so nothing is spawned before that.
+  registerTypeScriptDiagnosticsProvider(container, logger, {
+    getProcessSpawner: () =>
+      container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+  });
   registerAuthProvidersServices(container, logger);
   // MUST precede registerSdkServices: PluginLoaderService injects the external
   // consent store as its allowlist source. Its late `initialize()` runs from

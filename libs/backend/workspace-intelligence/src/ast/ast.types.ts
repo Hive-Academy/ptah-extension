@@ -25,6 +25,13 @@ export interface GenericAstNode {
 export type SupportedLanguage =
   | 'javascript'
   | 'typescript'
+  | 'tsx'
   | 'python'
   | 'go'
-  | 'csharp';
+  | 'csharp'
+  | 'java'
+  | 'rust'
+  | 'php'
+  | 'ruby'
+  | 'cpp'
+  | 'kotlin';

@@ -736,7 +736,26 @@ describe('buildAgentNamespace — thin delegates', () => {
       stderr: '',
     });
     await buildAgentNamespace(deps).read('x', 50);
-    expect(mocks.processManager.readOutput).toHaveBeenCalledWith('x', 50);
+    expect(mocks.processManager.readOutput).toHaveBeenCalledWith(
+      'x',
+      50,
+      undefined,
+    );
+  });
+
+  // TASK_2026_559 Batch 13: offset reaches readOutput.
+  it('read() forwards offset', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.readOutput.mockReturnValue({
+      stdout: 'hi',
+      stderr: '',
+    });
+    await buildAgentNamespace(deps).read('x', undefined, 120);
+    expect(mocks.processManager.readOutput).toHaveBeenCalledWith(
+      'x',
+      undefined,
+      120,
+    );
   });
 
   it('message() routes through sendToAgent and RETURNS the outcome', async () => {

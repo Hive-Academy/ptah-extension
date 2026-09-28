@@ -291,6 +291,7 @@ export type {
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+  PTAH_MCP_SUBSTITUTION_SECTION,
 } from './lib/prompt-harness';
 export { PluginLoaderService } from './lib/helpers';
 export {

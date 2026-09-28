@@ -68,6 +68,7 @@
           "axios",
           "exa-js",
           "gpt-tokenizer",
+          "marked",
           "web-tree-sitter",
           "@tavily/core",
           "chrome-launcher",

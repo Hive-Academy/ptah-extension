@@ -109,6 +109,10 @@ export interface IFileSystemProvider {
    * @param exclude - Optional array of exclusion glob patterns
    * @param maxResults - Maximum number of results
    * @returns Array of absolute file paths
+   * @throws When part of the tree could not be read, never an incomplete list
+   *   presented as complete. The Electron and CLI adapters reject a bounded
+   *   call with `IncompleteFileSearchError` (what was found, and how many
+   *   paths failed by error code); ENOENT races are not failures.
    */
   findFiles(
     pattern: string,

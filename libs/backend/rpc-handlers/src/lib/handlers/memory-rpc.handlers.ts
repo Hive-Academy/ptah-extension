@@ -24,6 +24,10 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import {
+  CODE_SYMBOL_INDEXER,
+  type CodeSymbolIndexer,
+} from '@ptah-extension/workspace-intelligence';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import type {
   MemoryChunkWire,
@@ -148,6 +152,16 @@ export class MemoryRpcHandlers {
     private readonly diagnostics: MemoryDiagnosticsService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    /**
+     * The code index's live coverage (TASK_2026_559 Batch 24b r1 B2): a purge
+     * deletes indexed rows behind the indexer's back, so it invalidates that
+     * coverage first. Optional: a host without the SQLite index has none.
+     */
+    @inject(CODE_SYMBOL_INDEXER, { isOptional: true })
+    private readonly codeIndex: Pick<
+      CodeSymbolIndexer,
+      'invalidateCoverage'
+    > | null = null,
   ) {}
 
   /**
@@ -503,6 +517,9 @@ export class MemoryRpcHandlers {
             'UNAUTHORIZED_WORKSPACE',
           );
         }
+        // Before the delete, and whether or not it succeeds: a partial
+        // delete also leaves counted files without their rows.
+        this.codeIndex?.invalidateCoverage(workspaceRoot);
         try {
           const deleted = this.codeSymbols.purgeJunk(workspaceRoot);
           this.logger.info('[memory] purgeJunk complete', {

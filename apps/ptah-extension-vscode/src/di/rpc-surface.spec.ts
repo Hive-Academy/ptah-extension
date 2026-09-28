@@ -54,6 +54,10 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'db:openBindingFolder',
   'db:reloadVec',
   'db:reset',
+  // Per-workspace `go vet` consent (TASK_2026_559 Batch 37b, O2 §3/§5.3): VS
+  // Code has no consent surface, so `goVetDiagnostics` stays off here.
+  'diagnostics:go-vet-consent-get',
+  'diagnostics:go-vet-consent-set',
   'embedder:retry',
   'embedder:status',
   'file:exists',

@@ -34,6 +34,12 @@ import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
+// The workspace-intelligence barrel loads tree-sitter (ESM); only its DI token
+// is used here, so the same token is provided without loading the barrel.
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  CODE_SYMBOL_INDEXER: Symbol.for('PtahCodeSymbolIndexer'),
+}));
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { MemoryRpcHandlers } from './memory-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -205,14 +211,18 @@ function makeMemoryDiagnostics() {
 // Test setup helper
 // ---------------------------------------------------------------------------
 
-function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
-  return buildHandlersWithStore(workspaceFolders, makeMemoryStore());
+function buildHandlers(
+  workspaceFolders: string[] = ['/workspace/project'],
+  codeIndex?: { invalidateCoverage: jest.Mock },
+) {
+  return buildHandlersWithStore(workspaceFolders, makeMemoryStore(), codeIndex);
 }
 
 /** Same wiring as {@link buildHandlers}, over a caller-supplied store (mock or real). */
 function buildHandlersWithStore<TStore extends object>(
   workspaceFolders: string[],
   store: TStore,
+  codeIndex?: { invalidateCoverage: jest.Mock },
 ) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
@@ -233,6 +243,9 @@ function buildHandlersWithStore<TStore extends object>(
   child.registerInstance(MEMORY_TOKENS.MEMORY_CURATOR, curator);
   child.registerInstance(MEMORY_TOKENS.MEMORY_DIAGNOSTICS_SERVICE, diagnostics);
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
+  if (codeIndex !== undefined) {
+    child.registerInstance(CODE_SYMBOL_INDEXER, codeIndex);
+  }
   child.register(MemoryRpcHandlers, { useClass: MemoryRpcHandlers });
 
   const handlers = child.resolve(MemoryRpcHandlers);
@@ -1516,6 +1529,61 @@ describe('MemoryRpcHandlers — memory:purgeJunk workspace refusal', () => {
 
     expect(codeSymbols.purgeJunk).toHaveBeenCalledWith('/workspace/project');
     expect(result).toEqual({ deleted: 7 });
+  });
+
+  // TASK_2026_559 Batch 24b r1 B2: the purge deletes indexed rows, so the
+  // code index's live coverage is invalidated first — before the delete, and
+  // also when the delete fails part-way.
+  it('invalidates the code index coverage before deleting', async () => {
+    const order: string[] = [];
+    const codeIndex = {
+      invalidateCoverage: jest.fn(() => order.push('invalidate')),
+    };
+    const { rpcHandler, codeSymbols } = buildHandlers(
+      ['/workspace/project'],
+      codeIndex,
+    );
+    codeSymbols.purgeJunk.mockImplementation(() => {
+      order.push('purge');
+      return 1;
+    });
+
+    await rpcHandler.call('memory:purgeJunk', {
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(codeIndex.invalidateCoverage).toHaveBeenCalledWith(
+      '/workspace/project',
+    );
+    expect(order).toEqual(['invalidate', 'purge']);
+  });
+
+  it('keeps the invalidation when the delete throws', async () => {
+    const codeIndex = { invalidateCoverage: jest.fn() };
+    const { rpcHandler, codeSymbols } = buildHandlers(
+      ['/workspace/project'],
+      codeIndex,
+    );
+    codeSymbols.purgeJunk.mockImplementation(() => {
+      throw new Error('disk I/O error');
+    });
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', {
+        workspaceRoot: '/workspace/project',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect(codeIndex.invalidateCoverage).toHaveBeenCalledTimes(1);
+  });
+
+  it('never invalidates on a refused purge', async () => {
+    const codeIndex = { invalidateCoverage: jest.fn() };
+    const { rpcHandler } = buildHandlers(['/workspace/project'], codeIndex);
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', { workspaceRoot: '/somewhere/else' }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(codeIndex.invalidateCoverage).not.toHaveBeenCalled();
   });
 });
 

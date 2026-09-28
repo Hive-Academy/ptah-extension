@@ -23,7 +23,10 @@
  * ts-jest transform) via the real barrel. Mirrors the stubbing pattern
  * already used by `ast-namespace.builder.spec.ts`.
  */
+import 'reflect-metadata';
+
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ...jest.requireActual('@ptah-extension/workspace-intelligence'),
   EXTENSION_LANGUAGE_MAP: {
     '.ts': 'typescript',
     '.tsx': 'typescript',

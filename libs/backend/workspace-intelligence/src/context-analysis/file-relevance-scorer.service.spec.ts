@@ -7,6 +7,7 @@
 import 'reflect-metadata';
 import { FileRelevanceScorerService } from './file-relevance-scorer.service';
 import { IndexedFile, FileType } from '../types/workspace.types';
+import type { SymbolIndex } from '../ast/dependency-graph.service';
 
 describe('FileRelevanceScorerService', () => {
   let service: FileRelevanceScorerService;
@@ -540,6 +541,76 @@ describe('FileRelevanceScorerService', () => {
 
       expect(result.score).toBeLessThanOrEqual(100);
       expect(result.score).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  // TASK_2026_559 Batch 11: a repeated query word used to list its match once
+  // per repetition in the reasons.
+  describe('Reason dedupe', () => {
+    const tokenFile: IndexedFile = {
+      path: '/workspace/src/auth/auth-token.service.ts',
+      relativePath: 'src/auth/auth-token.service.ts',
+      type: FileType.Source,
+      size: 2000,
+      language: 'typescript',
+      estimatedTokens: 500,
+    };
+
+    const countOf = (reasons: string[], reason: string): number =>
+      reasons.filter((r) => r === reason).length;
+
+    it('lists each matched term once for the query "auth auth token"', () => {
+      const result = service.scoreFile(tokenFile, 'auth auth token');
+
+      expect(countOf(result.reasons, 'Filename contains "auth"')).toBe(1);
+      expect(countOf(result.reasons, 'Filename contains "token"')).toBe(1);
+      expect(new Set(result.reasons).size).toBe(result.reasons.length);
+    });
+
+    it('keeps the score of a repeated-word query unchanged', () => {
+      // auth x2 and token in the filename (3 x 10), source file (3),
+      // authentication task pattern (7): the score before the dedupe.
+      expect(service.scoreFile(tokenFile, 'auth auth token').score).toBe(40);
+      expect(service.scoreFile(tokenFile, 'auth token').score).toBe(30);
+    });
+
+    it('treats repeated words differing only in case as one term', () => {
+      const result = service.scoreFile(tokenFile, 'Auth AUTH auth token');
+
+      expect(countOf(result.reasons, 'Filename contains "auth"')).toBe(1);
+      expect(new Set(result.reasons).size).toBe(result.reasons.length);
+    });
+
+    it('dedupes path matches of a repeated word', () => {
+      const guardFile: IndexedFile = {
+        path: '/workspace/src/auth/guards/permission.guard.ts',
+        relativePath: 'src/auth/guards/permission.guard.ts',
+        type: FileType.Source,
+        size: 1000,
+        language: 'typescript',
+        estimatedTokens: 250,
+      };
+
+      const result = service.scoreFile(guardFile, 'guards guards');
+
+      expect(countOf(result.reasons, 'Path contains "guards"')).toBe(1);
+    });
+
+    it('lists an export matched by two query words once, score unchanged', () => {
+      const symbolIndex: SymbolIndex = new Map([
+        [tokenFile.path, [{ name: 'AuthTokenService', kind: 'class' }]],
+      ]);
+
+      const result = service.scoreFile(tokenFile, 'auth token', symbolIndex);
+
+      expect(
+        countOf(
+          result.reasons,
+          "Export symbol 'AuthTokenService' matches query",
+        ),
+      ).toBe(1);
+      // 20 (two filename words) + 3 (source) + 7 (auth task) + 30 (two symbol matches, capped at 30).
+      expect(result.score).toBe(60);
     });
   });
 });

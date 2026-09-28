@@ -10,6 +10,19 @@
 
 import * as path from 'path';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import {
+  DASHBOARD_LIMITS,
+  describeDashboardLimits,
+} from '@ptah-extension/shared/mcp-apps-contracts';
+import {
+  DASHBOARD_CONTRACT_RULES,
+  describeDashboardContract,
+} from './dashboard-contract-help';
+import {
+  TASK_CHECK_ENTRY_CAP,
+  TASK_LIST_DEFAULT_LIMIT,
+  TASK_LIST_MAX_LIMIT,
+} from './tasks-namespace.builder';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
@@ -27,6 +40,9 @@ export interface SystemNamespaceDependencies {
   fileSystemProvider: IFileSystemProvider;
 }
 
+/** The dashboard contract, rendered once at the zod schema (Batch 16 r1). */
+const DASHBOARD_CONTRACT_HELP = describeDashboardContract();
+
 /**
  * Help documentation for Ptah namespaces
  */
@@ -37,11 +53,12 @@ WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
 JSON: ptah.json.* (validate/repair JSON files)
 GIT: ptah.git.* (worktree operations)
-IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
+IDE: ptah.ide.* (lsp, editor, actions, testing) — host-dependent: full in VS Code; the desktop app has an LSP fallback for definitions/references; the CLI has no IDE host at all
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
+TASKS: ptah.tasks.* (task specs: create, update, get, paged list, check)
 DASHBOARD: ptah.dashboard.* (propose a declarative dashboard spec to the surface)
 SURFACE: ptah.surface.* (create, replace, patch, delete and read scoped surface state)
 
@@ -50,16 +67,34 @@ Use ptah.help('namespace') for details on any namespace.`,
   dashboard: `ptah.dashboard - Declarative dashboards
 
 Also exposed as the MCP tool ptah_dashboard_propose_spec, which is the surface to
-prefer: its input schema is generated from the zod contract, so it teaches you the
-exact shape and the current limits. The two surfaces are the same one method.
+prefer. Its advertised schema outlines only the envelope; this topic is the full
+contract. The two surfaces are the same one method.
 
 - proposeSpec(spec, { sessionId?, toolCallId }) - Validate a spec and push it to
     the surface. Returns { status: 'accepted', specId, revision, bytes, text } or
     { status: 'rejected', reason }.
 
-You emit JSON from a FIXED catalog and never write HTML. Component kinds: stat,
-line-chart, bar-chart, table, list. Envelope: { schemaVersion, catalogVersion,
-specId, revision, generatedAt, title, components }.
+You emit JSON from a FIXED catalog; you never write HTML, CSS or a template, and
+there is no escape hatch that would let you.
+
+SHAPE (rendered at runtime from the zod contract, so it is always current). "?"
+marks an optional field; every object is closed, so an unknown key rejects the
+spec; every string is at most ${DASHBOARD_LIMITS.maxStringLength} chars unless stated. children is
+layout nesting.
+${DASHBOARD_CONTRACT_HELP.text}
+
+RULES the shape cannot show (each is enforced):
+${DASHBOARD_CONTRACT_RULES.map((rule) => `- ${rule}`).join('\n')}
+
+Use { data: { resultId } } rather than embedding a large dataset. Text fields are
+{ text } and are rendered as PLAIN TEXT -
+there is no markdown and no HTML anywhere in this contract, so markup in a text
+field is shown to the user literally. Put a link in a dashboard.open-url action instead.
+
+Limits: ${describeDashboardLimits()}.
+
+Every call replaces the previous spec in full: send a complete spec each time and
+bump revision.
 
 Validation is ALL-OR-NOTHING. An unknown schemaVersion, an unknown catalogVersion,
 an unknown component kind, a duplicate component id or any breached budget rejects
@@ -105,6 +140,41 @@ and store nothing. Anonymous patch/delete return 'surface state unavailable for
 this caller'; anonymous reads return 'no surface state for this caller'. A
 missing store returns 'surface state unavailable on this host'. v1 surfaces
 (v1:<specId>) are readable here but managed by ptah_dashboard_propose_spec.`,
+
+  tasks: `ptah.tasks - Task specs under .ptah/specs/
+
+Also exposed as MCP tools: ptah_task_create, ptah_task_update, ptah_task_get,
+ptah_task_list, ptah_task_check. Every method returns { ok: false, error, code? }
+instead of throwing.
+
+- create({ title, type, description?, dependsOn?, labels?, estimate?, parent?,
+    duplicates?, relatesTo? }) - Allocate an id and write a valid carrier.
+- update({ taskId, status?, labels?, ... }) - Change status and/or metadata;
+    every field is a full replacement. TASK_CONFLICT means re-read and retry.
+- get({ taskId }) - One full task: metadata, carrier body, folder documents,
+    and derived relations (children, blocks, related, ...).
+- ptah.tasks.list({ status?, type?, limit?, cursor?, fields? }) - A page of
+    tasks, newest created first (undated last, ties by id).
+    limit: ${TASK_LIST_DEFAULT_LIMIT} by default, at most ${TASK_LIST_MAX_LIMIT}.
+    Returns { ok, fields, tasks, count, total, nextCursor?, excludedCount,
+    specsDirExists }. count = rows on THIS page; total = every task matching
+    the filters. Through MCP a page may hold fewer than limit rows so it fits
+    the response budget whole.
+    nextCursor is present only when more rows follow; pass it back unchanged
+    as cursor, with the same filters. A cursor that is malformed, altered, or
+    whose position changed (a task there renamed, added or removed) returns
+    code INVALID_CURSOR: call again without cursor. A status change (e.g. a
+    returned task completed mid-walk) never invalidates a cursor; a host
+    restart does. A cursor past the last row returns an empty page.
+    fields: 'summary' (default) rows carry id, status, type, title, labels,
+    created, updated; estimate/parent/executor only when set; dependsOn,
+    duplicates, relatesTo only when non-empty; frontmatterValid only when
+    false. No description or validation issues. fields: 'full' returns every
+    field. A row too large for one response appears as { id, oversized: true }
+    with a note; read it with get().
+- check() - Tree health: { healthy, taskCount, invalid, invalidTotal, excluded,
+    excludedTotal }. invalid and excluded hold at most ${TASK_CHECK_ENTRY_CAP} entries each;
+    the totals and healthy count the full set.`,
 
   harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
 
@@ -168,25 +238,44 @@ HANDING BACK TO THE USER:
 - installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
     config to the target files. Defaults to ['claude','vscode'].`,
 
-  ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
+  ide: `ptah.ide - IDE capabilities (host-dependent, richest in VS Code)
 
 Sub-namespaces:
-- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info)
-- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range)
-- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring)
-- ptah.ide.testing - Test execution (discover, run, coverage)
+- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info).
+    VS Code uses its language server. The desktop (Electron) app registers a
+    real fallback for getDefinition(Report)/getReferences(Report): a
+    name-based/graph-scoped scan (see ptah.help('ide.lsp') for the mechanism
+    field). The CLI registers no IDE host at all: every ptah.ide.lsp method
+    returns an empty/null "not available" answer (mechanism: 'none'), same as
+    getHover/getTypeDefinition/getSignatureHelp on every non-VS-Code host.
+- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range).
+    Requires VS Code; returns graceful defaults (null/[]) elsewhere.
+- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring).
+    Requires VS Code; returns false/unavailable elsewhere.
+- ptah.ide.testing - Test execution (discover, run, coverage).
+    Requires VS Code with a TestController; returns graceful defaults elsewhere.
 
 Use ptah.help('ide.lsp'), ptah.help('ide.editor'), etc. for method details.`,
 
   'ide.lsp': `ptah.ide.lsp - Language Server Protocol
 
-- getDefinition(file, line, col) - Go to definition
-- getReferences(file, line, col) - Find all references
+- getDefinitionReport(file, line, col) - Go to definition, saying how it was
+    answered: { locations, mechanism, language, languageSupported,
+    approximations, truncated? }. mechanism is 'provider-defined' (VS Code's
+    language server), 'symbol-index', 'declaration-scan', 'graph-scoped-scan',
+    'text-scan' (desktop app, name-based) or 'none' (nothing was searched).
+    Prefer it to getDefinition: an empty locations list means "none found" only
+    when mechanism is not 'none' and nothing in the report qualifies it.
+- getReferencesReport(file, line, col) - Find all references, as the same report.
+- getDefinition(file, line, col) - Go to definition (locations only)
+- getReferences(file, line, col) - Find all references (locations only)
 - getHover(file, line, col) - Get type info and docs
 - getTypeDefinition(file, line, col) - Go to type definition
 - getSignatureHelp(file, line, col) - Function signatures
 
-All methods use 0-based line/column. Returns [] if unavailable.`,
+All methods use 0-based line/column. The locations-only methods return [] when
+unavailable, which is indistinguishable from "none found"; the report methods
+are not.`,
 
   'ide.editor': `ptah.ide.editor - Editor State
 
@@ -310,23 +399,33 @@ Used for persisting workflow state across sessions (planning, design, implementa
   ast: `ptah.ast - Code Structure Analysis (Tree-Sitter)
 
 - analyze(file) - Full structural analysis: functions, classes, imports, exports with line ranges
-- parse(file) - Raw tree-sitter AST with node tree {type, text, start, end, children}
-- queryFunctions(file) - Extract all functions with name, parameters, startLine/endLine
-- queryClasses(file) - Extract all classes with name, startLine/endLine
-- queryImports(file) - Extract all imports with source module and imported symbols
-- queryExports(file) - Extract all exports with name and kind (class/variable/function)
-- getSupportedLanguages() - List supported languages (currently: javascript, typescript)
+- parse(file) - Raw tree-sitter AST: { ...parse status, file, language, ast, nodeCount },
+    ast = {type, text, start, end, children}
+- queryFunctions(file) - { ...parse status, file, language, functions }: name, parameters, startLine/endLine
+- queryClasses(file) - { ...parse status, file, language, classes }: name, startLine/endLine
+- queryImports(file) - { ...parse status, file, language, imports }: source module and imported symbols
+- queryExports(file) - Array of exports with name, kind (function/class/variable/interface/type/enum/namespace/wildcard/unknown), isDefault, and source/localName for re-exports and aliases
+- getSupportedLanguages() - The languages this host parses
+
+Parse status (analyze, parse and the three structural queries) comes first:
+parseStatus 'ok' | 'recovered' | 'unknown', errorNodeCount, errorNodeCountCapped
+and coverage. 'recovered' means tree-sitter parsed around syntax errors (or
+syntax the grammar lacks, such as JSX in .tsx): the lists may be partial.
 
 Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.
 Prefer ptah.ast over reading full files when you only need structural information (40-60% token savings).`,
 
   dependencies: `ptah.dependencies - Import-Based Dependency Graph
 
-- buildGraph(filePaths, workspaceRoot) - Build dependency graph from file list
+- buildGraph(filePaths, workspaceRoot, discoveredFiles?) - Build dependency graph from file list (discoveredFiles: count before you capped the list)
 - getDependencies(file) - Get what a file imports (outgoing edges)
 - getDependents(file) - Get what imports this file (incoming edges)
-- getSymbolIndex() - Get exported symbols per file
+- getSymbolIndex(workspaceRoot?) - Get exported symbols per file, all at once
+- getSymbolIndex(workspaceRoot, { pathPrefix?, limit?, offset? }) - One page of it: { files, count, total, offset, nextOffset? }
 - isBuilt() - Check if the dependency graph has been built
+- getGraphCoverage(workspaceRoot?) - { graphedFiles, discoveredFiles } of the built graph (graphedFiles < discoveredFiles: the graph is partial)
+- getGraphCoverageForFile(file) - The same, for the graph that answers getDependencies/getDependents for that file
+- reserveGraphBuild(workspaceRoot) / getGraphBuildState(workspaceRoot) - Build-generation bookkeeping used by the dependency tools' background build; not needed for an awaited buildGraph
 
 Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
 

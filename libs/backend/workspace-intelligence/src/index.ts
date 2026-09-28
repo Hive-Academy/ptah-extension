@@ -80,6 +80,10 @@ export {
   type StructuralSummaryResult,
 } from './context-analysis/context-enrichment.service';
 export {
+  resolveEnrichLanguage,
+  type EnrichLanguage,
+} from './context-analysis/enrich-language';
+export {
   WorkspaceAnalyzerService,
   type WorkspaceInfo,
   type ContextRecommendations,
@@ -91,15 +95,42 @@ export {
   type EditDelta,
 } from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
+export { formatAstAnalysisResult } from './ast/ast-result-format';
+export {
+  extractExportsFromMatches,
+  exportSymbolNames,
+  type ExportExtraction,
+} from './ast/export-extraction';
 export {
   DependencyGraphService,
   type DependencyGraph,
   type FileNode,
+  type GraphBuildState,
+  type GraphCoverage,
   type SymbolIndex,
 } from './ast/dependency-graph.service';
 export * from './ast/ast.types';
 export * from './ast/ast-analysis.interfaces';
 export * from './ast/tree-sitter.config';
+export {
+  CODE_FILE_NAMES,
+  LANGUAGE_REGISTRY,
+  NON_SOURCE_EXTENSIONS,
+  NON_SOURCE_FILE_NAMES,
+  classifyFileForCoverage,
+  extensionHasCapability,
+  hasCapability,
+  isCParsedAsCpp,
+  languageForExtension,
+  recognisedSourceExtensions,
+  supportedLanguagesFor,
+  type CoverageFileClass,
+  type GraphEdgesCapability,
+  type LanguageCapabilities,
+  type LanguageCapability,
+  type LanguageRegistryEntry,
+} from './ast/language-registry';
+export { cDeclaratorName, type DeclaredName } from './ast/c-declarator';
 export {
   CodeSymbolIndexer,
   type CodeSymbolIndexerOptions,
@@ -115,3 +146,34 @@ export {
   CODE_SYMBOL_INDEXER,
 } from './di';
 export { TypeScriptDiagnosticsProvider } from './diagnostics/type-script-diagnostics-provider';
+// Batch 25b's end-to-end spec drives the real provider over a fake inner one.
+export {
+  LanguageAwareDiagnosticsProvider,
+  type SyntaxParser,
+} from './diagnostics/language-aware-diagnostics-provider';
+// Batch 37a: the opt-in `go vet` checker; 37b wires it and the consent RPC.
+export {
+  GoVetChecker,
+  GO_VET_COVERAGE,
+  GO_VET_TIMEOUT_MS,
+  goVetReasonText,
+  type GoVetCheckRequest,
+  type GoVetCheckResult,
+  type GoVetCheckerDependencies,
+  type GoVetOutcome,
+  type GoVetReason,
+  type GoVetSkippedFile,
+} from './diagnostics/external-checkers/go-vet-checker';
+export {
+  GoVetConsentStore,
+  GO_VET_CONSENT_DIR,
+  type GoVetConsentRecord,
+  type GoVetConsentStaleReason,
+  type GoVetConsentState,
+} from './diagnostics/external-checkers/go-vet-consent-store';
+export {
+  resolveGoBinary,
+  isSameGoBinary,
+  type GoBinaryIdentity,
+  type ResolvedGoBinary,
+} from './diagnostics/external-checkers/go-binary-resolver';

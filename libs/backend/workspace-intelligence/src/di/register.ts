@@ -11,7 +11,16 @@ import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IPlatformInfo,
+  IProcessSpawner,
+  IStateStorage,
+} from '@ptah-extension/platform-core';
 import { TypeScriptDiagnosticsProvider } from '../diagnostics/type-script-diagnostics-provider';
+import { LanguageAwareDiagnosticsProvider } from '../diagnostics/language-aware-diagnostics-provider';
+import { GoVetChecker } from '../diagnostics/external-checkers/go-vet-checker';
+import { GoVetConsentStore } from '../diagnostics/external-checkers/go-vet-consent-store';
 import { PatternMatcherService } from '../file-indexing/pattern-matcher.service';
 import { IgnorePatternResolverService } from '../file-indexing/ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
@@ -63,32 +72,79 @@ import { configureArchitectureRules } from '../quality/rules/architecture-rules'
  * @param logger - Logger instance
  */
 /**
- * Replace the platform's diagnostics STUB with the real TypeScript compiler
- * provider.
+ * Replace the platform's diagnostics STUB with the real provider: the
+ * TypeScript compiler provider, wrapped once, here, by the language-aware
+ * provider that syntax-checks requested Python/Go/C# files and names every
+ * file it did not check (TASK_2026_559 Batch 25a). The function name is kept
+ * so both hosts' call sites stay as they are.
  *
  * A second call, not a step inside `registerWorkspaceIntelligenceServices`,
  * because it is an OVERRIDE: the stub under
  * `PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER` is registered in each host's platform
- * phase, and the provider below needs `FILE_SYSTEM_PROVIDER`, which
- * `registerWorkspaceIntelligenceServices` registers. Call it immediately after
- * that function and before anything resolves the token.
+ * phase, and the provider below needs `FILE_SYSTEM_PROVIDER` and the
+ * tree-sitter parser, which `registerWorkspaceIntelligenceServices`
+ * registers. Call it immediately after that function and before anything
+ * resolves the token.
  *
  * It lives here rather than in each composition root because the constructor
- * argument and the ordering rule are this lib's own facts, and all three hosts
+ * arguments and the ordering rule are this lib's own facts, and all three hosts
  * had their own copy of both.
+ *
+ * **`go vet` (Batch 37b1a, O2 §2 "DI timing").** A host that passes
+ * `getProcessSpawner` gets the opt-in `go vet` checker attached. The spawner
+ * is registered AFTER this call in both hosts, so it is a lazy getter, read at
+ * the first run (a throw there is `failed/no-spawner`). The consent store is
+ * built now over `WORKSPACE_STATE_STORAGE`, which both hosts register before
+ * this lib, with the user-data directory `PLATFORM_INFO.globalStoragePath`
+ * (equal to the `userDataPath` both hosts give their workspace storage:
+ * `registerPlatformElectronServices` / `registerPlatformCliServices` set it
+ * from the same option). Consent is denied by default: nothing spawns until
+ * the user grants it for the workspace, and the checker reads it before every
+ * spawn. A host that passes nothing keeps Go at the Tier 0 syntax check.
  */
 export function registerTypeScriptDiagnosticsProvider(
   container: DependencyContainer,
   logger: Logger,
+  options: { readonly getProcessSpawner?: () => IProcessSpawner } = {},
 ): void {
+  const fileSystem = container.resolve<IFileSystemProvider>(
+    PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
+  );
+  const goVet =
+    options.getProcessSpawner === undefined
+      ? undefined
+      : createGoVetChecker(container, logger, options.getProcessSpawner);
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
-    useValue: new TypeScriptDiagnosticsProvider(
-      container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+    useValue: new LanguageAwareDiagnosticsProvider(
+      new TypeScriptDiagnosticsProvider(fileSystem),
+      fileSystem,
+      container.resolve<TreeSitterParserService>(
+        TOKENS.TREE_SITTER_PARSER_SERVICE,
+      ),
+      undefined,
+      goVet,
     ),
   });
   logger.info(
-    '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
+    goVet === undefined
+      ? '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with LanguageAwareDiagnosticsProvider (TypeScript compiler + syntax-only checks)'
+      : '[Workspace Intelligence] Overrode DIAGNOSTICS_PROVIDER with LanguageAwareDiagnosticsProvider (TypeScript compiler + syntax-only checks + opt-in go vet)',
   );
+}
+
+function createGoVetChecker(
+  container: DependencyContainer,
+  logger: Logger,
+  getSpawner: () => IProcessSpawner,
+): GoVetChecker {
+  const userDataPath = container.resolve<IPlatformInfo>(
+    PLATFORM_TOKENS.PLATFORM_INFO,
+  ).globalStoragePath;
+  const consentStore = new GoVetConsentStore(
+    container.resolve<IStateStorage>(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE),
+    { userDataPath },
+  );
+  return new GoVetChecker({ consentStore, getSpawner, userDataPath, logger });
 }
 
 export function registerWorkspaceIntelligenceServices(

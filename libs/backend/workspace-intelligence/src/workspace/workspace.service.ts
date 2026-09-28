@@ -23,16 +23,61 @@ import {
   normalizeWorkspaceRoot,
 } from '@ptah-extension/platform-core';
 import type {
+  DirectoryEntry,
   IWorkspaceProvider,
   IDisposable,
 } from '@ptah-extension/platform-core';
-import { ProjectDetectorService } from '../project-analysis/project-detector.service';
+import {
+  ProjectDetectorService,
+  type WorkspaceProject,
+} from '../project-analysis/project-detector.service';
 import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
 import { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
 import { MonorepoDetectorService } from '../project-analysis/monorepo-detector.service';
 import { FileSystemService } from '../services/file-system.service';
 import { ProjectType, Framework, MonorepoType } from '../types/workspace.types';
 import { WorkspaceInfo } from '@ptah-extension/shared';
+
+/** How much of a monorepo's member list an analysis covers. */
+export interface ProjectDiscovery {
+  /** Member projects found, inspected or not. */
+  totalProjects: number;
+  /** Member projects inspected (the length of `projects`). */
+  inspectedProjects: number;
+  /** False when projects were left out or something could not be read. */
+  complete: boolean;
+  /** One line per omission or unreadable declaration. */
+  issues: string[];
+}
+
+/**
+ * The framework a UI project type implies, used when framework detection on
+ * the project's own files finds none (an Nx app with only a project.json).
+ */
+const UI_TYPE_FRAMEWORK: Partial<Record<ProjectType, Framework>> = {
+  [ProjectType.React]: Framework.React,
+  [ProjectType.Angular]: Framework.Angular,
+  [ProjectType.Vue]: Framework.Vue,
+  [ProjectType.NextJS]: Framework.NextJS,
+};
+
+/** Project types whose framework evidence is their own package.json. */
+const JS_APP_TYPES: ReadonlySet<ProjectType> = new Set([
+  ProjectType.Node,
+  ProjectType.React,
+  ProjectType.Angular,
+  ProjectType.Vue,
+  ProjectType.NextJS,
+]);
+
+/** Detected frameworks that refine, rather than contradict, a UI type. */
+const UI_TYPE_REFINEMENTS: Partial<Record<ProjectType, readonly Framework[]>> =
+  {
+    [ProjectType.React]: [Framework.React, Framework.NextJS],
+    [ProjectType.Angular]: [Framework.Angular],
+    [ProjectType.Vue]: [Framework.Vue, Framework.Nuxt],
+    [ProjectType.NextJS]: [Framework.NextJS],
+  };
 
 /**
  * Extended workspace information with analysis results
@@ -42,12 +87,24 @@ export interface WorkspaceAnalysisResult {
   info: WorkspaceInfo;
   /** Detected project type */
   projectType: ProjectType;
-  /** Detected framework (if any) */
+  /**
+   * Detected framework (if any). Never set for a monorepo: its frameworks are
+   * the per-project frameworks in {@link projects}.
+   */
   framework?: Framework;
   /** Whether workspace is a monorepo */
   isMonorepo: boolean;
   /** Monorepo type (if applicable) */
   monorepoType?: MonorepoType;
+  /**
+   * A monorepo's inspected member projects with their own type and
+   * framework; empty otherwise.
+   */
+  projects: WorkspaceProject[];
+  /** How complete {@link projects} is; set for a monorepo only. */
+  projectDiscovery?: ProjectDiscovery;
+  /** Project types whose source extensions the file statistics count. */
+  statisticsTypes: ProjectType[];
   /** Project version (from package.json, Cargo.toml, etc.) */
   version?: string;
   /** Project description */
@@ -68,8 +125,14 @@ export interface WorkspaceAnalysisResult {
 export interface ProjectInfo {
   /** Project name */
   name: string;
-  /** Project type */
+  /** Project type (a monorepo root reports its language, never an app's framework) */
   type: ProjectType;
+  /** Monorepo tool, when the workspace is a monorepo */
+  monorepoType?: MonorepoType;
+  /** A monorepo's inspected member projects with their own type and framework */
+  projects?: WorkspaceProject[];
+  /** How complete {@link projects} is, for a monorepo */
+  projectDiscovery?: ProjectDiscovery;
   /** Workspace path */
   path: string;
   /** Project version */
@@ -244,10 +307,10 @@ export class WorkspaceService implements IDisposable {
    * Update workspace analysis (re-analyze workspace)
    *
    * Performs complete workspace analysis:
-   * 1. Detect project type
-   * 2. Detect framework
-   * 3. Analyze dependencies
-   * 4. Check for monorepo
+   * 1. Check for monorepo (a monorepo lists each app's own type)
+   * 2. Detect project type
+   * 3. Detect framework (single-app workspaces only)
+   * 4. Analyze dependencies
    * 5. Count files
    * 6. Check for git repository
    *
@@ -368,16 +431,34 @@ export class WorkspaceService implements IDisposable {
   ): Promise<WorkspaceAnalysisResult | undefined> {
     try {
       const workspaceName = path.basename(workspacePath);
-      const projectType =
-        await this.projectDetector.detectProjectType(workspacePath);
-      const framework = await this.frameworkDetector.detectFramework(
-        workspacePath,
-        projectType,
-      );
+      // Monorepo first: a monorepo root's manifest aggregates every app's
+      // dependencies, so single-app detection on it names whichever framework
+      // it ranks first. A monorepo reports its tool plus each app's own type.
       const monorepoResult =
         await this.monorepoDetector.detectMonorepo(workspacePath);
       const isMonorepo = monorepoResult.isMonorepo;
       const monorepoType = isMonorepo ? monorepoResult.type : undefined;
+      const composition = isMonorepo
+        ? await this.projectDetector.detectMonorepoComposition(
+            workspacePath,
+            await this.monorepoDetector.detectDeclaredMembers(
+              workspacePath,
+              monorepoResult.type,
+            ),
+          )
+        : undefined;
+      const projects = composition
+        ? await this.withProjectFrameworks(workspacePath, composition.projects)
+        : [];
+      const projectType =
+        composition?.rootType ??
+        (await this.projectDetector.detectProjectType(workspacePath));
+      const framework = composition
+        ? undefined
+        : await this.frameworkDetector.detectFramework(
+            workspacePath,
+            projectType,
+          );
       const dependencyInfo = await this.dependencyAnalyzer.analyzeDependencies(
         workspacePath,
         projectType,
@@ -407,6 +488,26 @@ export class WorkspaceService implements IDisposable {
         framework,
         isMonorepo,
         monorepoType,
+        projects,
+        projectDiscovery: composition
+          ? {
+              totalProjects: composition.totalProjects,
+              inspectedProjects: composition.projects.length,
+              complete: composition.complete,
+              issues: [...composition.issues],
+            }
+          : undefined,
+        // A monorepo keeps every statistic single-app detection of its root
+        // would have produced, plus those of each project's type.
+        statisticsTypes: composition
+          ? [
+              ...new Set([
+                composition.manifestRootType,
+                composition.rootType,
+                ...projects.map((project) => project.type),
+              ]),
+            ]
+          : [projectType],
         version,
         description,
         dependencies: dependencyInfo.dependencies.map((d) => d.name),
@@ -434,6 +535,47 @@ export class WorkspaceService implements IDisposable {
   }
 
   /**
+   * Fill each monorepo project's framework the way single-app detection
+   * would for that project's own directory (so an Express or NestJS app keeps
+   * its framework, not just `node`).
+   *
+   * An executor-declared framework is kept as is. For a UI type, a detected
+   * framework that contradicts the type (React tooling in an Angular app's
+   * dependencies) gives way to the type's own framework.
+   */
+  private async withProjectFrameworks(
+    workspacePath: string,
+    projects: readonly WorkspaceProject[],
+  ): Promise<WorkspaceProject[]> {
+    const resolved: WorkspaceProject[] = [];
+    for (const project of projects) {
+      if (
+        project.framework ||
+        project.type === ProjectType.Unknown ||
+        project.type === ProjectType.General
+      ) {
+        resolved.push(project);
+        continue;
+      }
+      // A JavaScript app is sniffed as `node` so its own package.json is read
+      // in the detector's refinement order (next, nuxt, angular, react, vue,
+      // express): sniffed as `vue`, a nuxt + vue app would never reach Nuxt.
+      const detected = await this.frameworkDetector.detectFramework(
+        path.join(workspacePath, ...project.path.split('/')),
+        JS_APP_TYPES.has(project.type) ? ProjectType.Node : project.type,
+      );
+      const refinements = UI_TYPE_REFINEMENTS[project.type];
+      const framework = refinements
+        ? detected && refinements.includes(detected)
+          ? detected
+          : UI_TYPE_FRAMEWORK[project.type]
+        : detected;
+      resolved.push(framework ? { ...project, framework } : project);
+    }
+    return resolved;
+  }
+
+  /**
    * Get detailed project information
    *
    * Provides comprehensive project metadata including:
@@ -458,12 +600,15 @@ export class WorkspaceService implements IDisposable {
     const workspacePath = analysis.info.path;
     const fileStatistics = await this.getFileStatistics(
       workspacePath,
-      analysis.projectType,
+      analysis.statisticsTypes,
     );
 
     return {
       name: analysis.info.name,
       type: analysis.projectType,
+      monorepoType: analysis.monorepoType,
+      projects: analysis.projects,
+      projectDiscovery: analysis.projectDiscovery,
       path: analysis.info.path,
       version: analysis.version,
       description: analysis.description,
@@ -698,18 +843,20 @@ export class WorkspaceService implements IDisposable {
   }
 
   /**
-   * Get file statistics by extension for a project type
+   * Get file statistics by extension for a set of project types
    *
-   * Counts files by extension relevant to the project type.
-   * Example: .py files for Python, .java files for Java, etc.
+   * Counts files by the extensions relevant to each type, in one walk.
+   * Example: .py files for Python, .java files for Java, etc. A single-app
+   * workspace passes its one type; a monorepo passes its root's types plus
+   * each project's, so no count the single-app answer had is lost.
    *
    * @param workspacePath - Workspace folder path
-   * @param projectType - Detected project type
-   * @returns Map of extension to file count
+   * @param projectTypes - Project types whose extensions are counted
+   * @returns Map of extension to file count (0 included)
    */
   private async getFileStatistics(
     workspacePath: string,
-    projectType: ProjectType,
+    projectTypes: readonly ProjectType[],
   ): Promise<Record<string, number>> {
     const statistics: Record<string, number> = {};
 
@@ -730,17 +877,17 @@ export class WorkspaceService implements IDisposable {
       [ProjectType.Unknown]: [],
     };
 
-    const extensions = extensionsByType[projectType];
+    for (const projectType of projectTypes) {
+      for (const ext of extensionsByType[projectType]) {
+        statistics[ext] = 0;
+      }
+    }
 
-    if (extensions.length === 0) {
+    if (Object.keys(statistics).length === 0) {
       return statistics;
     }
 
-    for (const ext of extensions) {
-      const count = await this.countFilesByExtension(workspacePath, [ext]);
-      statistics[ext] = count;
-    }
-
+    await this.countFilesByExtension(workspacePath, statistics);
     return statistics;
   }
 
@@ -774,38 +921,39 @@ export class WorkspaceService implements IDisposable {
   }
 
   /**
-   * Count files by extension in workspace
+   * Count files by extension in workspace, in place
    *
    * @param dirPath - Directory path to search
-   * @param extensions - File extensions to count (e.g., ['.py', '.js'])
-   * @returns Total count of files matching extensions
+   * @param statistics - Extension → count; only extensions already present
+   *   as keys are counted (e.g. `{ '.py': 0, '.js': 0 }`)
    */
   private async countFilesByExtension(
     dirPath: string,
-    extensions: string[],
-  ): Promise<number> {
+    statistics: Record<string, number>,
+  ): Promise<void> {
+    let entries: DirectoryEntry[];
     try {
-      const entries = await this.fileSystem.readDirectory(dirPath);
-      let count = 0;
+      entries = await this.fileSystem.readDirectory(dirPath);
+    } catch {
+      // An unreadable subtree counts as empty, as it always has here.
+      entries = [];
+    }
 
-      for (const entry of entries) {
-        if (
-          entry.type === FileType.Directory &&
-          !this.shouldSkipDirectory(entry.name)
-        ) {
-          const subPath = path.join(dirPath, entry.name);
-          count += await this.countFilesByExtension(subPath, extensions);
-        } else if (entry.type === FileType.File) {
-          const ext = this.getFileExtension(entry.name);
-          if (extensions.includes(ext)) {
-            count++;
-          }
+    for (const entry of entries) {
+      if (
+        entry.type === FileType.Directory &&
+        !this.shouldSkipDirectory(entry.name)
+      ) {
+        await this.countFilesByExtension(
+          path.join(dirPath, entry.name),
+          statistics,
+        );
+      } else if (entry.type === FileType.File) {
+        const ext = this.getFileExtension(entry.name);
+        if (ext in statistics) {
+          statistics[ext]++;
         }
       }
-
-      return count;
-    } catch {
-      return 0;
     }
   }
 

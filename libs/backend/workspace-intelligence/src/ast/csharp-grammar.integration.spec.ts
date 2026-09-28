@@ -189,11 +189,13 @@ describe('C# grammar integration (real tree-sitter WASM)', () => {
       ]);
     });
 
-    it('reports the alias as the imported symbol, not as a second source', () => {
+    it('reports the alias as the alias, not as a second source', () => {
       const aliased = insights.imports.find(
         (i) => i.source === 'System.Text.StringBuilder',
       );
-      expect(aliased?.importedSymbols).toEqual(['Alias']);
+      // Batch 32a contract: the alias binds the source itself.
+      expect(aliased).toMatchObject({ kind: 'alias', alias: 'Alias' });
+      expect(aliased?.importedSymbols).toBeUndefined();
       // The `!name` negation in the query exists to prevent exactly this.
       expect(insights.imports.map((i) => i.source)).not.toContain('Alias');
     });
@@ -296,7 +298,27 @@ describe('C# grammar integration (real tree-sitter WASM)', () => {
     });
   });
 
-  it('produces no exports — C# has no export statement', () => {
-    expect(insights.exports).toBeUndefined();
+  // Batch 34: C# has no export statement; its public symbols are the
+  // `public` declarations (`csharp-public-symbols.ts`). Interface members
+  // are public by default; `private`, `internal` and the members of an
+  // internal type are not listed, and names repeat once per kind.
+  it('lists the public declarations as exports (Batch 34)', () => {
+    expect(insights.exports?.map((e) => `${e.kind}:${e.name}`)).toEqual([
+      'class:InvoiceCreated',
+      'class:Money',
+      'interface:IInvoiceStore',
+      'function:FindAsync',
+      'variable:Count',
+      'enum:InvoiceState',
+      'class:LineItem',
+      'function:Total',
+      'class:Invoice',
+      'variable:Id',
+      'function:Map',
+      'function:Send',
+      'class:Extensions',
+      'function:Net',
+    ]);
+    expect(insights.unextractedExports).toBeUndefined();
   });
 });
