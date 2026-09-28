@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const AdmZip = require('adm-zip');
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -77,28 +77,6 @@ function packagedVsixPath() {
 
 function isLicence(file) {
   return file.startsWith('wasm/LICENSE.');
-}
-
-/**
- * A CLI argument is untrusted: after `path.resolve`, accept it only inside the
- * package output directory or as an existing `.vsix` file, so an argument
- * cannot aim the archive reader at an arbitrary path (typescript:S8707).
- */
-function resolveCliVsixPath(argument) {
-  const resolved = path.resolve(argument);
-  const insideDist =
-    resolved === DIST_DIR || resolved.startsWith(DIST_DIR + path.sep);
-  const existingVsix =
-    path.extname(resolved) === '.vsix' &&
-    fs.existsSync(resolved) &&
-    fs.statSync(resolved).isFile();
-  if (!insideDist && !existingVsix) {
-    process.stderr.write(
-      `verify-packed-wasm: refusing "${resolved}": pass a path inside ${DIST_DIR} or an existing .vsix file\n`,
-    );
-    process.exit(1);
-  }
-  return resolved;
 }
 
 function verifyVsix(vsixPath, required, vendored = []) {
@@ -206,24 +184,18 @@ function selfTest(required, vendored) {
       /ENOENT/,
     );
 
-    // Exercise the process exit code used by Nx, not only the internal result.
+    // The gate the CLI runs: a problem fails it, a complete archive passes.
     fixture(required[0]);
-    const failed = spawnSync(process.execPath, [__filename, archivePath], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 30000,
-    });
-    assert.equal(failed.status, 1);
-    assert.ok(
-      failed.stderr.includes(`${required[0]} is missing from the VSIX`),
+    assert.throws(
+      () => checkVsix(archivePath, required),
+      (error) =>
+        error.message.includes(`${required[0]} is missing from the VSIX`),
     );
     fixture();
-    const passed = spawnSync(process.execPath, [__filename, archivePath], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 30000,
-    });
-    assert.equal(passed.status, 0, passed.stderr);
+    assert.match(
+      checkVsix(archivePath, required),
+      /^\[verify-packed-wasm\] PASS /,
+    );
 
     const project = JSON.parse(
       fs.readFileSync(
@@ -250,25 +222,25 @@ function selfTest(required, vendored) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   console.log(
-    `VSIX WASM self-test PASS: complete ZIP; ${required.length} missing and ${required.length} empty asset negatives; ${vendored.length} missing and ${vendored.length} changed vendored-file negatives; wrong prefix, corrupt/missing archive, CLI exits and package ordering`,
+    `VSIX WASM self-test PASS: complete ZIP; ${required.length} missing and ${required.length} empty asset negatives; ${vendored.length} missing and ${vendored.length} changed vendored-file negatives; wrong prefix, corrupt/missing archive, gate pass/fail and package ordering`,
   );
 }
 
+/** Verify one archive; throw on any problem, else return the PASS line. */
+function checkVsix(vsixPath, required, vendored = []) {
+  const problems = verifyVsix(vsixPath, required, vendored);
+  if (problems.length)
+    throw new Error(
+      `Packed VSIX WASM verification failed:\n${problems.join('\n')}`,
+    );
+  return `[verify-packed-wasm] PASS ${path.basename(vsixPath)}: ${required.length} active WASM assets present and non-empty; ${vendored.length} vendored files match their reviewed SHA-256; ${fs.statSync(vsixPath).size} archive bytes`;
+}
+
+// The only archive checked is the one the package target wrote into
+// DIST_DIR; no path is taken from the command line (typescript:S8707).
 if (require.main === module) {
   const required = requiredWasmFiles();
   const vendored = requiredVendored();
   if (process.argv[2] === '--self-test') selfTest(required, vendored);
-  else {
-    const vsixPath = process.argv[2]
-      ? resolveCliVsixPath(process.argv[2])
-      : packagedVsixPath();
-    const problems = verifyVsix(vsixPath, required, vendored);
-    if (problems.length)
-      throw new Error(
-        `Packed VSIX WASM verification failed:\n${problems.join('\n')}`,
-      );
-    console.log(
-      `[verify-packed-wasm] PASS ${path.basename(vsixPath)}: ${required.length} active WASM assets present and non-empty; ${vendored.length} vendored files match their reviewed SHA-256; ${fs.statSync(vsixPath).size} archive bytes`,
-    );
-  }
+  else console.log(checkVsix(packagedVsixPath(), required, vendored));
 }
