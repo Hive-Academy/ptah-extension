@@ -2092,14 +2092,17 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_task_list: 830,
       ptah_agent_report: 799,
       ptah_harness_install_mcp_server: 780,
-      ptah_get_dependents: 722,
+      // +12 (Batch 33): the registry graphEdges list gained ", python, go".
+      ptah_get_dependents: 734,
       // Pre-24b budget restored (Batch 24c fix round, review r1 on ruling
       // R2): the shortened text measures 699 chars (2026-09-27) and still
       // carries every required item (coverage legend, both registry lists,
       // the Batch 24d kinds, the code-index / export-index distinction),
       // asserted item by item in tool-description.builder.spec.ts.
-      ptah_code_search_symbols: 702,
-      ptah_get_dependencies: 689,
+      // +12 (Batch 33): the registry publicSymbols list gained ", python, go".
+      ptah_code_search_symbols: 714,
+      // +12 (Batch 33): the registry graphEdges list gained ", python, go".
+      ptah_get_dependencies: 701,
       ptah_dashboard_propose_spec: 671,
       ptah_lsp_definitions: 639,
       ptah_task_update: 635,
@@ -2113,7 +2116,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_get_diagnostics: 535,
       ptah_lsp_references: 529,
       ptah_web_search: 506,
-      ptah_ast_analyze: 503,
+      // +12 (Batch 33): the registry publicSymbols list gained ", python, go".
+      ptah_ast_analyze: 515,
       ptah_task_create: 498,
       ptah_agent_status: 445,
       ptah_memory_search: 438,

@@ -722,7 +722,8 @@ describe('buildDependencyNamespace', () => {
       clean: false,
       census: 'unknown',
       analyzed: null,
-      supportedLanguages: ['typescript', 'javascript', 'tsx'],
+      // Python and Go since Batch 33.
+      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
     });
     expect(out.coverage.reasons[0]).toBe('census?');
   });
@@ -820,17 +821,22 @@ describe('buildDependencyNamespace', () => {
   });
 
   describe('unsupportedGraphLanguage (TASK_2026_559 Batch 23b)', () => {
-    it.each([['src/a.ts'], ['src/view.tsx'], ['src/a.js'], ['src/a.jsx']])(
-      '%s is graph-capable: no answer',
-      (file) => {
-        expect(
-          buildDependencyNamespace(makeMocks()).unsupportedGraphLanguage(file),
-        ).toBeUndefined();
-      },
-    );
+    it.each([
+      ['src/a.ts'],
+      ['src/view.tsx'],
+      ['src/a.js'],
+      ['src/a.jsx'],
+      ['src/tool.py'],
+      ['src/main.go'],
+    ])('%s is graph-capable: no answer', (file) => {
+      expect(
+        buildDependencyNamespace(makeMocks()).unsupportedGraphLanguage(file),
+      ).toBeUndefined();
+    });
 
     it.each([
-      ['tool.py', 'python', 'python files (.py)'],
+      // Kotlin never gets graph edges (Decision 19).
+      ['App.kt', 'kotlin', 'kotlin files (.kt)'],
       ['Main.java', 'java', 'java files (.java)'],
       ['esm.mjs', 'javascript', 'javascript files (.mjs)'],
       ['build.zig', '.zig', 'Files with extension ".zig"'],
@@ -843,7 +849,7 @@ describe('buildDependencyNamespace', () => {
       expect(answer).toEqual({
         status: 'unsupported-language',
         language,
-        supportedLanguages: ['typescript', 'javascript', 'tsx'],
+        supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
         message: expect.stringContaining(subject),
       });
       expect(answer?.message).toContain(

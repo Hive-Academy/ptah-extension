@@ -4188,7 +4188,7 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 
 ---
 
-## Batch 33: Python + Go graphs — PENDING
+## Batch 33: Python + Go graphs — COMPLETE (fixes verified by the Batch 34.1 review)
 
 - Recommended executor: Codex CLI lane, Lane G2
 - Fallback executor: backend-developer (sub-agent)
@@ -4221,6 +4221,24 @@ From `reviews/batch-20b-code-logic-review-r5-final.md` (Batch 20.2 committed wit
 - `node_modules/.bin/nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence --skip-nx-cache 2>&1 | tail -40` passes
 - validate-deps passes; degradation audit TOTAL 300; other common checks
 - FB evidence; the Claude reviewer approves
+
+### Batch 33 review history (User Decisions 24, 27, 28)
+
+- Author: backend-developer subagent. Reviewer: Codex (G2 session), cross-side.
+- r1 (`reviews/batch-33-code-logic-review-r1.md`): REVISE 4/10 — Blocking R33-01 (Python namespace/regular-package
+  roots), R33-02 (Poetry/PEP 508 local deps certified external), R33-04 (Go replace precedence/version/absolute),
+  R33-10 (= R32B-01 still open: overlapping independent tsconfig paths); Serious R33-05 (Unicode Go exports),
+  R33-06 (Python `__all__`/conditional public symbols), R33-07 (= R32B-04 still open: bytes lost on read/close
+  errors), R33-08 (exponential tsconfig DAG); Moderate R33-03 (top-level case rule), R33-09 (Go escaped paths).
+  32b verification: R32B-02, -03, -05, -06 CLOSED; R32B-01 and R32B-04 STILL OPEN → R32B-01 escalated to the user →
+  User Decision 28 (conservative rule). R32A-04 (Python aliases) CLOSED.
+- One fix round (report "## Fix round (review r1)"): all ten fixed; uncertain cases disclosed (`module-selection-unknown`,
+  `unresolvedMembers`, `conflicting-configs`, incomplete public-symbol files). resolver-context.ts split under the
+  facade rule (go-context.ts, python-context.ts; 597 lines). Four description pins raised +12 chars each for ", python,
+  go" (recorded reason: registry language lists); ptah_get_symbol_index at 996/1000 → handled in 34.1.
+- Team-leader verification (2026-09-28): workspace-intelligence, vscode-lm-tools, ptah-electron lint/typecheck pass;
+  tests pass except the protocol-dispatcher "slow empty build" flake (298/298 alone twice; fixed on the task branch
+  by 38a 751c7bd78); electron-ide-capabilities 110/110; validate-deps pass; audit TOTAL 300.
 
 ---
 

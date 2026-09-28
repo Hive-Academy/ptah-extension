@@ -35,6 +35,17 @@ function context(
     baseUrls: mapping.baseUrls ?? [],
     externalPackages: new Set(mapping.externalPackages ?? []),
     localPackages: new Map(Object.entries(mapping.localPackages ?? {})),
+    // Read by the Python and Go resolvers only.
+    filesByDirectory: new Map(),
+    directories: new Set(),
+    directoriesByFoldedPath: new Map(),
+    python: {
+      sourceRoots: [],
+      packageDirs: new Map(),
+      dependencies: new Set(),
+      localDependencies: new Map(),
+    },
+    go: { local: [], external: new Set(), unknown: new Set() },
     gaps: [],
     manifestsRead: 0,
   };

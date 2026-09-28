@@ -2011,7 +2011,7 @@ export function buildGetSymbolIndexTool(): MCPToolDefinition {
       'List exported symbols per file from the graph export index (' +
       languagesNote('graphEdges') +
       ' files; not the SQLite code index of ptah_code_search_symbols), one page at a time, ordered by path. Use to find where a symbol is exported from or map the exports of a directory (narrow with pathPrefix). Returns { count, total, offset, nextOffset?, files }; pass nextOffset as offset for the next page (absent on the last page). ' +
-      `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file of all its symbols) or symbolsFileError. ` +
+      `Defaults: no prefix, limit ${SYMBOL_INDEX_DEFAULT_LIMIT} (max ${SYMBOL_INDEX_MAX_LIMIT}), offset 0. A page ends early at the result size limit; a file too large on its own comes alone, with truncated: true, symbolCount, and symbolsFile (a JSON file of its symbols) or symbolsFileError. ` +
       INCOMPLETE_GRAPH_NOTE +
       ' While the graph builds in the background (minutes on a large workspace) the result is { status: "building", retryAfterMs }: call again after retryAfterMs.',
     inputSchema: {

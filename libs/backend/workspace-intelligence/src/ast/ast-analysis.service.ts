@@ -222,6 +222,7 @@ export class AstAnalysisService {
         : this.extractReExportSources(map.get('imports') ?? []);
       const { exports, unextracted } = extractExportsFromMatches(
         map.get('exports') ?? [],
+        { fileName: filePath },
       );
 
       const insights: CodeInsights = {

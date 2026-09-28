@@ -677,7 +677,8 @@ describe('Batch 24c fix round — shortened code index descriptions keep their r
     '999999=at least', // saturation
   ];
 
-  it('ptah_code_search_symbols keeps every required item within 702 chars', () => {
+  // 702 + 12 (Batch 33): the registry publicSymbols list gained ", python, go".
+  it('ptah_code_search_symbols keeps every required item within 714 chars', () => {
     const { description } = buildCodeSearchSymbolsTool();
     const required = [
       'SQLite code index', // which store it searches
@@ -696,7 +697,7 @@ describe('Batch 24c fix round — shortened code index descriptions keep their r
       ...LEGEND_ITEMS,
     ];
     expect(required.filter((item) => !description.includes(item))).toEqual([]);
-    expect(description.length).toBeLessThanOrEqual(702);
+    expect(description.length).toBeLessThanOrEqual(714);
   });
 
   it('ptah_code_reindex keeps every required item within 536 chars', () => {

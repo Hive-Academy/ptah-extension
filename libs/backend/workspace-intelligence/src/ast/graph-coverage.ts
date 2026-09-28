@@ -86,6 +86,11 @@ export interface GraphResolutionCounts {
    * `case-folded` approximation). Absent: every edge matched exactly.
    */
   readonly caseFolded?: boolean;
+  /**
+   * Approximations of linked edges the resolvers declared (a Go import
+   * linked to every file of its package: `go:package-edges`), each once.
+   */
+  readonly edgeApproximations?: readonly Approximation[];
 }
 
 /** Everything {@link buildGraphCoverage} needs about one build. */
@@ -265,6 +270,7 @@ export function buildGraphCoverage(
       ? (['resolver-context-partial'] as const)
       : []),
     ...(resolution.caseFolded === true ? (['case-folded'] as const) : []),
+    ...(resolution.edgeApproximations ?? []),
   ];
   const truncated = input.censusLimit !== undefined;
   return withCoverageVerdict({

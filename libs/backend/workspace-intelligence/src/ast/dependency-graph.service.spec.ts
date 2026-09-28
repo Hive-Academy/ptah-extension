@@ -448,7 +448,7 @@ describe('DependencyGraphService — builds in flight', () => {
   // not at all; a superseded build leaves neither behind.
   it('superseded build publishes neither graph nor coverage', async () => {
     const { svc, release } = gatedService();
-    const earlier = svc.buildGraph([...A_FILES, 'D:/ws-a/tool.py'], WS_A, 50);
+    const earlier = svc.buildGraph([...A_FILES, 'D:/ws-a/Tool.kt'], WS_A, 50);
     const later = svc.buildGraph(['D:/ws-a/b.ts'], WS_A);
     release();
     const [earlierGraph] = await Promise.all([earlier, later]);
@@ -835,7 +835,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(report?.languages).toEqual({
       clean: true,
       reasons: [],
-      supportedLanguages: ['typescript', 'javascript', 'tsx'],
+      supportedLanguages: ['typescript', 'javascript', 'tsx', 'python', 'go'],
       census: 'complete',
       analyzed: 2,
       unchecked: 0,
@@ -1335,7 +1335,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
   it('parses only graph-capable files and counts the rest', async () => {
     const { svc, analyzeSource } = serviceWith(INSIGHTS);
     await svc.buildGraph(
-      [...A_FILES, 'D:/ws-a/tool.py', 'D:/ws-a/build.zig', 'D:/ws-a/README.md'],
+      [...A_FILES, 'D:/ws-a/Tool.kt', 'D:/ws-a/build.zig', 'D:/ws-a/README.md'],
       WS_A,
     );
 
@@ -1346,7 +1346,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
     expect(report?.languages).toMatchObject({
       analyzed: 2,
       unsupported: 1,
-      unsupportedByLanguage: { python: 1 },
+      unsupportedByLanguage: { kotlin: 1 },
       unrecognised: 1,
       nonSource: 1,
     });
@@ -1382,7 +1382,7 @@ describe('DependencyGraphService — language coverage (TASK_2026_559 Batch 23a)
 
   it('merges every root when none is given, and routes a file to its root', async () => {
     const { svc } = serviceWith(INSIGHTS);
-    await svc.buildGraph([...A_FILES, 'D:/ws-a/x.py'], WS_A);
+    await svc.buildGraph([...A_FILES, 'D:/ws-a/X.kt'], WS_A);
     await svc.buildGraph(B_FILES, WS_B, 4);
 
     const merged = svc.getCoverageReport();

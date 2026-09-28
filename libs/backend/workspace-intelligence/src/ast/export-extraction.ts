@@ -48,10 +48,24 @@
  * Records are unique by name, kind and source: overload signatures collapse to
  * one function, while TypeScript declaration merging (an interface and a
  * namespace sharing a name) keeps one record per kind.
+ *
+ * Other languages (Batch 33, review r1 R33-05 and R33-06):
+ * - `export.visibility_upper` on a name (Go): the match is an export only
+ *   when the name starts with a Unicode upper-case letter (`\p{Lu}`), the
+ *   Go rule the query language's regex predicate cannot express;
+ * - `export.py_candidate` on a name and the other `export.py_*` captures
+ *   (Python): decoded together by `python-public-symbols.ts`, which needs
+ *   the file name to recognise a package `__init__.py`.
  */
 
 import type { ExportInfo } from './ast-analysis.interfaces';
 import type { CodePosition, GenericAstNode } from './ast.types';
+import {
+  PYTHON_CAPTURES,
+  emptyPythonCaptures,
+  pythonPublicSymbols,
+  type PythonCandidate,
+} from './python-public-symbols';
 import type { QueryCapture, QueryMatch } from './tree-sitter-parser.service';
 
 /** Decoded exports plus the export forms the decoder could not represent. */
@@ -116,9 +130,16 @@ export function exportRowRange(info: ExportInfo): ExportRowRange | undefined {
   return EXPORT_ROWS.get(info);
 }
 
+/** Go: an exported identifier starts with a Unicode upper-case letter. */
+const UPPERCASE_INITIAL = /^\p{Lu}/u;
+
 /** Decode export-query matches into unique export records, in source order. */
 export function extractExportsFromMatches(
   matches: readonly QueryMatch[],
+  options: {
+    /** The file's path or name (Python: a package `__init__.py`). */
+    readonly fileName?: string;
+  } = {},
 ): ExportExtraction {
   const exportedPatterns = capturesNamed(matches, 'export.binding_pattern');
   const exports: ExportInfo[] = [];
@@ -127,12 +148,27 @@ export function extractExportsFromMatches(
   const decodedTargets: QueryCapture[] = [];
   /** Unreadable export forms by row, first text per row. */
   const unextracted = new Map<number, string>();
+  const python = emptyPythonCaptures();
+  const pythonCandidates: PythonCandidate[] = [];
+  let pythonSeen = false;
 
   for (const match of matches) {
     const captures = new Map<string, QueryCapture>();
+    let pythonCapture = false;
     for (const capture of match.captures) {
       captures.set(capture.name, capture);
+      const bucket = PYTHON_CAPTURES[capture.name];
+      if (bucket !== undefined) {
+        python[bucket].push(capture);
+        pythonCapture = true;
+      }
     }
+    if (pythonCapture) {
+      pythonSeen = true;
+      continue;
+    }
+    const visibility = captures.get('export.visibility_upper');
+    if (visibility && !UPPERCASE_INITIAL.test(visibility.text)) continue;
     const decoded = decodeMatch(captures, exportedPatterns);
     const target = captures.get('export.commonjs_target');
     if (decoded === UNNAMEABLE) {
@@ -149,11 +185,31 @@ export function extractExportsFromMatches(
       continue;
     }
     const info = decoded;
+    if (captures.has('export.py_candidate')) {
+      pythonSeen = true;
+      pythonCandidates.push({ info, rows: rowRangeOf(match) });
+      continue;
+    }
     const key = `${info.name}\u0000${info.kind}\u0000${info.source ?? ''}`;
     if (!seen.has(key)) {
       seen.add(key);
       exports.push(info);
       EXPORT_ROWS.set(info, rowRangeOf(match));
+    }
+  }
+
+  if (pythonSeen) {
+    const decided = pythonPublicSymbols(
+      pythonCandidates,
+      python,
+      options.fileName,
+    );
+    for (const { info, rows } of decided.exports) {
+      exports.push(info);
+      EXPORT_ROWS.set(info, rows);
+    }
+    for (const capture of decided.unextracted) {
+      addUnextracted(unextracted, capture);
     }
   }
 

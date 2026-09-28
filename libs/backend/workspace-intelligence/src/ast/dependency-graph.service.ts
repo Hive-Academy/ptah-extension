@@ -33,6 +33,7 @@ import {
 import { LANGUAGE_MODULES } from './languages';
 import {
   MAX_TARGETS_PER_IMPORT,
+  type GraphEdgeApproximation,
   type ImportResolution,
 } from './import-resolution/import-resolver';
 import {
@@ -779,6 +780,7 @@ export class DependencyGraphService {
     let edgeCapHit = false;
     let caseFolded = false;
     let contextDependent = false;
+    const edgeApproximations = new Set<GraphEdgeApproximation>();
     let sliceStart = Date.now();
     /** False once a background build was superseded: stop linking. */
     const continueLinking = async (): Promise<boolean> => {
@@ -810,6 +812,9 @@ export class DependencyGraphService {
         context:
           context.gaps.length > 0 || contextDependent ? 'partial' : 'complete',
         ...(caseFolded ? { caseFolded: true } : {}),
+        ...(edgeApproximations.size > 0
+          ? { edgeApproximations: [...edgeApproximations] }
+          : {}),
       },
       reExporters,
     });
@@ -826,6 +831,10 @@ export class DependencyGraphService {
           : { kind: 'unresolved-internal', targets: [] };
         if (resolution.caseFolded === true) caseFolded = true;
         if (resolution.contextDependent === true) contextDependent = true;
+        if (resolution.unresolvedMembers !== undefined) {
+          unresolvedCount += resolution.unresolvedMembers;
+          unresolvedInternal += resolution.unresolvedMembers;
+        }
         let targets = resolution.targets;
         if (
           resolution.truncated === true ||
@@ -842,6 +851,10 @@ export class DependencyGraphService {
             `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
           );
           continue;
+        }
+        // Declared once targets link; an unresolved import approximates nothing.
+        if (resolution.approximation !== undefined) {
+          edgeApproximations.add(resolution.approximation);
         }
 
         for (const target of targets) {

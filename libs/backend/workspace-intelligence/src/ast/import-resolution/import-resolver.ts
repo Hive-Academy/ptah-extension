@@ -5,6 +5,7 @@
  * (`LanguageModule.importResolver`), and `DependencyGraphService` dispatches
  * on the importing file's language.
  */
+import type { Approximation } from '@ptah-extension/platform-core';
 import type { ImportInfo } from '../ast-analysis.interfaces';
 import type { ResolverContext } from './resolver-context';
 
@@ -40,7 +41,22 @@ export interface ImportResolution {
    * context is `partial`.
    */
   readonly contextDependent?: true;
+  /**
+   * The targets stand for the import at a coarser grain than the file that
+   * declares what is used (a Go import links every file of the package:
+   * `go:package-edges`). Disclosed in the graph's coverage when it links.
+   */
+  readonly approximation?: GraphEdgeApproximation;
+  /**
+   * Requested members (Python `from m import a, b`) that no graphed file or
+   * module provides, although others resolved: each counts as an
+   * `unresolved-internal` import beside the targets (review r1 R33-01).
+   */
+  readonly unresolvedMembers?: number;
 }
+
+/** Approximations a resolver can attach to the edges it returns. */
+export type GraphEdgeApproximation = Extract<Approximation, 'go:package-edges'>;
 
 /** Resolves the imports of one language. Pure: reads only `ctx`. */
 export interface ImportResolver {

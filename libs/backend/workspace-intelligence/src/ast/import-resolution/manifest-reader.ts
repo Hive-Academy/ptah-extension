@@ -95,21 +95,35 @@ const SUPERSEDED = (bytesRead: number): ManifestRead => ({
 export async function readManifest(
   request: ManifestReadRequest,
 ): Promise<ManifestRead> {
+  // Every byte a handle read returns is counted here as it arrives, so a
+  // read or close that fails afterwards still charges it (review r1 R33-07).
+  const consumed: ConsumedBytes = { bytes: 0 };
   let outcome: ManifestRead;
   try {
-    outcome = await lookUpAndRead(request);
+    outcome = await lookUpAndRead(request, consumed);
   } catch {
-    // A manifest that cannot be looked up, opened or read is the
-    // `manifest-unreadable` gap (context `partial`).
-    outcome = { kind: 'gap', gap: 'manifest-unreadable', bytesRead: 0 };
+    // A manifest that cannot be looked up, opened, read or closed is the
+    // `manifest-unreadable` gap (context `partial`); the bytes it consumed
+    // before failing are still charged.
+    outcome = {
+      kind: 'gap',
+      gap: 'manifest-unreadable',
+      bytesRead: consumed.bytes,
+    };
   }
   return !request.isCurrent() && outcome.kind !== 'superseded'
     ? SUPERSEDED(outcome.bytesRead)
     : outcome;
 }
 
+/** Bytes consumed by one manifest's reads so far. */
+interface ConsumedBytes {
+  bytes: number;
+}
+
 async function lookUpAndRead(
   request: ManifestReadRequest,
+  consumed: ConsumedBytes,
 ): Promise<ManifestRead> {
   const { fileSystem, filePath, realRoot, isCurrent } = request;
   const realFile = toForwardSlashes(await fileSystem.realpath(filePath));
@@ -141,7 +155,7 @@ async function lookUpAndRead(
     ) {
       return { kind: 'gap', gap: 'manifest-changed', bytesRead: 0 };
     }
-    return await boundedRead(handle, request);
+    return await boundedRead(handle, request, consumed);
   } finally {
     await handle.close();
   }
@@ -154,6 +168,7 @@ async function lookUpAndRead(
 async function boundedRead(
   handle: ManifestHandle,
   request: ManifestReadRequest,
+  consumed: ConsumedBytes,
 ): Promise<ManifestRead> {
   const bound = Math.max(
     0,
@@ -171,6 +186,7 @@ async function boundedRead(
     );
     if (chunk <= 0) break;
     bytesRead += chunk;
+    consumed.bytes = bytesRead;
   }
   if (bytesRead > bound) {
     const gap = limitGap(bytesRead, request.remainingBytes);

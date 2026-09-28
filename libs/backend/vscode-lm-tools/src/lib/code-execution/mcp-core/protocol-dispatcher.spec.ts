@@ -2126,7 +2126,8 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         'src/app.ts',
         'src/util.ts',
         'src/LIB.TS',
-        'src/tool.py',
+        // Kotlin never gets graph edges (Decision 19); Python has them since 33.
+        'src/App.kt',
         'stats/analysis.R',
         'bin/cli.js',
       ].forEach(write);
@@ -2205,7 +2206,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
           reasons: ['unsupported'],
           analyzed: 3,
           unsupported: 2,
-          unsupportedByLanguage: { python: 1, r: 1 },
+          unsupportedByLanguage: { kotlin: 1, r: 1 },
           excluded: null,
         },
         dependents: [app],
@@ -2228,12 +2229,13 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
 
   // Batch 23b FB "dependents of a python file is not a silent empty list":
   // a file the graph cannot hold is answered unsupported-language, through
-  // the real namespace, and starts no graph build.
+  // the real namespace, and starts no graph build. Python is graphed since
+  // Batch 33, so a Kotlin file (never graphed, Decision 19) stands in.
   describe.each([['ptah_get_dependents'], ['ptah_get_dependencies']])(
     '%s for a file the graph cannot hold',
     (toolName) => {
       it.each([
-        ['src/tool.py', 'python'],
+        ['src/App.kt', 'kotlin'],
         ['README.md', '.md'],
       ])('%s answers unsupported-language (%s)', async (file, language) => {
         const graph = new DependencyGraphService(
@@ -2278,7 +2280,13 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
         expect(body).toEqual({
           status: 'unsupported-language',
           language,
-          supportedLanguages: ['typescript', 'javascript', 'tsx'],
+          supportedLanguages: [
+            'typescript',
+            'javascript',
+            'tsx',
+            'python',
+            'go',
+          ],
           message: expect.stringContaining('Graph languages'),
           file,
         });
