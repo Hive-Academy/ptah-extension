@@ -214,23 +214,18 @@ const EXPECTED_REQUIRED_KEYS: readonly string[] = [
   'syntaxDiagnostics:python',
   'syntaxDiagnostics:ruby',
   'syntaxDiagnostics:rust',
-  // publicSymbols/graphEdges: python/go(33); csharp/java(34); rust(35); php/ruby/cpp(36)
-  'graphEdges:cpp',
+  // publicSymbols/graphEdges: python/go(33); csharp(34.1). Decision 27
+  // DEFERS the Java graph (34.2), Rust (35) and PHP/Ruby/C++ (36a-c) to a
+  // follow-up task: no graphEdges/publicSymbols key for java, rust, php,
+  // ruby or cpp. Those languages' graph answers must disclose them as
+  // unsupported instead (Batch 38 gate, see the deferred-language describe
+  // block below).
   'graphEdges:csharp',
   'graphEdges:go',
-  'graphEdges:java',
-  'graphEdges:php',
   'graphEdges:python',
-  'graphEdges:ruby',
-  'graphEdges:rust',
-  'publicSymbols:cpp',
   'publicSymbols:csharp',
   'publicSymbols:go',
-  'publicSymbols:java',
-  'publicSymbols:php',
   'publicSymbols:python',
-  'publicSymbols:ruby',
-  'publicSymbols:rust',
   // typeCheck: go(37b)
   'typeCheck:go',
   // the ten literal honesty keys (owner: 27)
@@ -267,9 +262,9 @@ function categoryOf(key: string): string {
 }
 
 describe('language-honesty matrix — structure (TASK_2026_559 Batch 27, Task 27.2, r1-hardened)', () => {
-  it('the required-key set matches an INDEPENDENT literal snapshot of Decision 18/19 (not a copy of itself)', () => {
+  it('the required-key set matches an INDEPENDENT literal snapshot of Decision 18/19/27 (not a copy of itself)', () => {
     expect(sortedRequiredKeys()).toEqual(EXPECTED_REQUIRED_KEYS);
-    expect(EXPECTED_REQUIRED_KEYS).toHaveLength(58);
+    expect(EXPECTED_REQUIRED_KEYS).toHaveLength(48);
   });
 
   it('every required key falls into a recognised category (typeCheck included; nothing silently unhandled)', () => {
@@ -319,6 +314,14 @@ describe('language-honesty matrix — structure (TASK_2026_559 Batch 27, Task 27
       }
     }
     expect(duplicates).toEqual([]);
+  });
+
+  it('Task 38.1: the union of every activation fragment equals REQUIRED_KEYS exactly — no key missing, none extra', () => {
+    const activated = new Set(fragments.flatMap((f) => f.keys));
+    const required = new Set(REQUIRED_KEYS);
+    const missing = [...required].filter((k) => !activated.has(k)).sort();
+    const extra = [...activated].filter((k) => !required.has(k)).sort();
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] });
   });
 
   it('100% recall: every activated key is either a full contract or names its approximation', () => {
@@ -840,6 +843,112 @@ async function csharpGraphHonesty(): Promise<void> {
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
+
+/**
+ * Task 38.1 Gate item 2 (User Decision 27): a graph answer containing a
+ * Java, Kotlin, Rust, PHP, Ruby or C/C++ file must count that file as
+ * unsupported and must never read as clean — through the REAL
+ * `DependencyGraphService`, not a classifier stub. One real TS file proves
+ * the graph still does real work alongside the deferred file (contrast: not
+ * every file is unsupported).
+ */
+const DEFERRED_GRAPH_LANGUAGES: ReadonlyArray<{
+  readonly language: 'java' | 'kotlin' | 'rust' | 'php' | 'ruby' | 'cpp';
+  readonly relativePath: string;
+  readonly source: string;
+}> = [
+  {
+    language: 'java',
+    relativePath: 'deferred/App.java',
+    source: 'package deferred;\npublic class App { }\n',
+  },
+  {
+    language: 'kotlin',
+    relativePath: 'deferred/App.kt',
+    source: 'fun main() = println("hi")\n',
+  },
+  {
+    language: 'rust',
+    relativePath: 'deferred/app.rs',
+    source: 'fn main() {}\n',
+  },
+  {
+    language: 'php',
+    relativePath: 'deferred/App.php',
+    source: '<?php\nclass App {\n}\n',
+  },
+  {
+    language: 'ruby',
+    relativePath: 'deferred/app.rb',
+    source: 'class App\nend\n',
+  },
+  {
+    language: 'cpp',
+    relativePath: 'deferred/app.cpp',
+    source: 'int main() { return 0; }\n',
+  },
+];
+
+async function deferredLanguageGraphHonesty(
+  subject: (typeof DEFERRED_GRAPH_LANGUAGES)[number],
+): Promise<void> {
+  const root = fs
+    .mkdtempSync(path.join(os.tmpdir(), 'ptah-38-deferred-'))
+    .replace(/\\/g, '/');
+  try {
+    const supportedFile = `${root}/src/index.ts`;
+    const deferredFile = `${root}/${subject.relativePath}`;
+    fs.mkdirSync(path.dirname(supportedFile), { recursive: true });
+    fs.writeFileSync(supportedFile, 'export const value = 1;\n');
+    fs.mkdirSync(path.dirname(deferredFile), { recursive: true });
+    fs.writeFileSync(deferredFile, subject.source);
+
+    const svc = new DependencyGraphService(
+      analysis,
+      realFileSystem(),
+      silentLogger(),
+    );
+    await svc.buildGraph([supportedFile, deferredFile], root);
+
+    if (svc.getDependents(deferredFile).length !== 0) {
+      throw new Error(
+        `${subject.language}: a deferred-language file was given graph dependents`,
+      );
+    }
+    if (svc.getDependencies(deferredFile).length !== 0) {
+      throw new Error(
+        `${subject.language}: a deferred-language file was given graph dependencies`,
+      );
+    }
+    const languages = svc.getCoverageReport(root)?.languages;
+    if (
+      !languages ||
+      languages.unsupported !== 1 ||
+      languages.unsupportedByLanguage?.[subject.language] !== 1
+    ) {
+      throw new Error(
+        `${subject.language} was not disclosed as unsupported: ${JSON.stringify(languages)}`,
+      );
+    }
+    if (isCleanAnswer(languages)) {
+      throw new Error(
+        `${subject.language}: coverage read as clean while a deferred-language file was present`,
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe('language-honesty matrix — deferred-language graphs are disclosed, never clean (Task 38.1, Decision 27)', () => {
+  it.each(DEFERRED_GRAPH_LANGUAGES.map((s) => [s.language, s] as const))(
+    '%s: a graph run counts the file as unsupported and the answer is not clean',
+    async (_language, subject) => {
+      await deferredLanguageGraphHonesty(subject);
+    },
+    30_000,
+  );
+});
 
 /** One grammar language's honesty source: clean, and a broken contrast. */
 interface GrammarHonestySource {

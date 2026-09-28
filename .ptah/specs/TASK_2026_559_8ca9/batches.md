@@ -4652,7 +4652,28 @@ per-batch limit (≤ 6 files, ≤ 2 libs/apps, one scoped command), so 37b1 runs
 
 ---
 
-## Batch 38: Completion gate — PENDING
+## Batch 38: Completion gate — COMPLETE
+
+### Batch 38 record (2026-09-28)
+
+- Author: senior-tester subagent (report `batch-38-executor-report.md`). Required keys reduced 58 → 48 per User
+  Decision 27; union-equality test fails on a missing and on an extra key (FB shown); a parametrised test proves java,
+  kotlin, rust, php, ruby and cpp files are `unsupported` in graph answers and the answer is not clean; the 24a
+  parse-honesty gate already landed (24c) and is exercised.
+- Closing reviews (User Decision 29, two independent reviewers): Claude `code-logic-reviewer` APPROVE 8/10
+  (`reviews/batch-38-closing-review-claude.md`); GLM APPROVE 9/10 (`reviews/batch-38-closing-review-glm.md`). The
+  opencode lane failed twice ("Unknown error") after it had read the parallel Claude review, so the GLM review was
+  re-run fresh on the `Glm` ptah-cli lane (same model family, cross-side, told not to read the other review).
+  Both verified the Batch 34.1 closing fix round: R34G-01, R34G-02, R34G-04, R34C-01 CLOSED; R34G-03 non-adoption
+  correct (C# using-namespace-directive does not import nested namespaces). R38G-01 (stale Required-keys table in
+  `implementation-plan-languages.md`) and R38G-02 (stale batch list in `required-keys.ts` header) fixed by the team
+  leader; R38G-03/04 Minor (test wording/style) carried.
+- Carried item (d), full dependent-project run (2026-09-28): `nx run-many -t=test` over the 17 listed projects → 16
+  have a test target (memory-contracts has none; its typecheck passes); 3,300 tests pass; 1 failure =
+  rpc-handlers `harness-skill-selection-rpc.service.spec.ts` "never writes state.json", the known environment flake
+  (`%TEMP%/.ptah/harness/state.json` exists; the task does not change `rpc-handlers/src/lib/harness`).
+- Carried item (e): `go-vet-hostile.integration.spec.ts` skips visibly without Go (8 skipped, console warning); NO CI
+  workflow installs Go, so the real-Go hostile spec has never run. Open for the user (see Mode 3 notes).
 
 - Recommended executor: senior-tester (sub-agent), Lane T
 - Fallback executor: backend-developer

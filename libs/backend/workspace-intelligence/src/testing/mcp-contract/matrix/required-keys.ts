@@ -1,7 +1,7 @@
 /**
  * The fixed key set for the language-honesty matrix (TASK_2026_559 Batch 27,
  * Task 27.2). Written once here; every activating batch (27, 29b, 30, 30k,
- * 31, 33, 34, 35, 36a-c, 37b) contributes its own
+ * 31, 33, 34, 37b) contributes its own
  * `matrix/activations/<batch>.ts` fragment that claims a subset of these
  * keys. `required-keys.ts` itself is never edited by a later batch — only
  * new fragment files are added (Decomposition note, `batches.md` "Lane
@@ -17,6 +17,16 @@
  *
  * Decision 19: Kotlin graph support is explicitly not required, so there is
  * no `graphEdges:kotlin` or `publicSymbols:kotlin` key.
+ *
+ * Decision 27 (2026-09-28, amends Decisions 18(b) and 19 Q4): the Java graph
+ * (Task 34.2), Rust (35) and PHP/Ruby/C++ (36a-c) dependency graphs are
+ * DEFERRED to a follow-up task. There is no `graphEdges:java`,
+ * `publicSymbols:java`, `graphEdges:rust`, `publicSymbols:rust`,
+ * `graphEdges:php`, `publicSymbols:php`, `graphEdges:ruby`,
+ * `publicSymbols:ruby`, `graphEdges:cpp` or `publicSymbols:cpp` key. Their
+ * grammars, outline, code index and syntax diagnostics stay required
+ * (already landed); their graph answers must disclose those languages as
+ * unsupported, never as a clean empty answer (Batch 38 gate).
  */
 
 /** Decision 18/19 option choices the matrix and its fixtures assume. */
@@ -100,18 +110,10 @@ export const CAPABILITY_TABLE: readonly CapabilityRow[] = [
   { capability: 'syntaxDiagnostics', languages: ['kotlin'], owner: '30k' },
 
   { capability: 'publicSymbols', languages: ['python', 'go'], owner: '33' },
-  { capability: 'publicSymbols', languages: ['csharp', 'java'], owner: '34' },
-  { capability: 'publicSymbols', languages: ['rust'], owner: '35' },
-  {
-    capability: 'publicSymbols',
-    languages: ['php', 'ruby', 'cpp'],
-    owner: '36',
-  },
+  { capability: 'publicSymbols', languages: ['csharp'], owner: '34' },
 
   { capability: 'graphEdges', languages: ['python', 'go'], owner: '33' },
-  { capability: 'graphEdges', languages: ['csharp', 'java'], owner: '34' },
-  { capability: 'graphEdges', languages: ['rust'], owner: '35' },
-  { capability: 'graphEdges', languages: ['php', 'ruby', 'cpp'], owner: '36' },
+  { capability: 'graphEdges', languages: ['csharp'], owner: '34' },
 
   { capability: 'typeCheck', languages: ['go'], owner: '37b' },
 ];
