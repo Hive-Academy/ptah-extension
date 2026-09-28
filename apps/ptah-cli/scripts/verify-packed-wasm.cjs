@@ -91,22 +91,16 @@ const REQUIRED_LICENCES = manifest.assets
   });
 
 function extractEntry(cwd, name, entry) {
-  return execFileSync('tar', ['-xzf', name, '-O', entry], {
-    cwd,
-    maxBuffer: 20 * 1024 * 1024,
-    timeout: 60000,
-  });
+  const options = { cwd, maxBuffer: 20 * 1024 * 1024, timeout: 60000 };
+  return execFileSync('tar', ['-xzf', name, '-O', entry], options); // NOSONAR - local build script: PATH lookup is required (MSYS tar on Windows); name/entry are internal, never user input
 }
 
 function verifyTarball(tarballPath) {
   // A bare filename avoids MSYS tar treating a Windows drive as a remote host.
   const cwd = path.dirname(tarballPath);
   const name = path.basename(tarballPath);
-  const listing = execFileSync('tar', ['-tzf', name], {
-    cwd,
-    encoding: 'utf8',
-    timeout: 60000,
-  });
+  const options = { cwd, encoding: 'utf8', timeout: 60000 };
+  const listing = execFileSync('tar', ['-tzf', name], options); // NOSONAR - local build script: PATH lookup is required (MSYS tar on Windows); name is the internal tarball filename
   const entries = new Set(
     listing
       .split(/\r?\n/)
@@ -177,12 +171,13 @@ function main() {
     }
   }
   // npm is a .cmd wrapper on Windows; only this fixed command uses a shell.
-  const packOut = execFileSync('npm pack', {
+  const packOptions = {
     cwd: DIST_DIR,
     encoding: 'utf8',
     shell: true,
     timeout: 120000,
-  });
+  };
+  const packOut = execFileSync('npm pack', packOptions); // NOSONAR - local build script: npm is a .cmd wrapper on Windows, so a fixed command via shell is the only portable form
   const name = packOut.trim().split(/\r?\n/).filter(Boolean).pop();
   if (!name || path.basename(name) !== name || !name.endsWith('.tgz')) {
     throw new Error('npm pack did not return a tarball filename');
@@ -228,10 +223,8 @@ function selfTest() {
       fs.writeFileSync(path.join(fixture, entry), vendoredLicence(entry));
     const archive = path.join(dir, 'fixture.tgz');
     function pack() {
-      execFileSync('tar', ['-czf', 'fixture.tgz', 'package'], {
-        cwd: dir,
-        timeout: 60000,
-      });
+      const options = { cwd: dir, timeout: 60000 };
+      execFileSync('tar', ['-czf', 'fixture.tgz', 'package'], options); // NOSONAR - local build script: PATH lookup is required (MSYS tar on Windows); arguments are fixed literals
       return verifyTarball(archive);
     }
     assert.deepEqual(pack(), []);

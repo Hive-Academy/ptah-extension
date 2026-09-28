@@ -79,6 +79,28 @@ function isLicence(file) {
   return file.startsWith('wasm/LICENSE.');
 }
 
+/**
+ * A CLI argument is untrusted: after `path.resolve`, accept it only inside the
+ * package output directory or as an existing `.vsix` file, so an argument
+ * cannot aim the archive reader at an arbitrary path (typescript:S8707).
+ */
+function resolveCliVsixPath(argument) {
+  const resolved = path.resolve(argument);
+  const insideDist =
+    resolved === DIST_DIR || resolved.startsWith(DIST_DIR + path.sep);
+  const existingVsix =
+    path.extname(resolved) === '.vsix' &&
+    fs.existsSync(resolved) &&
+    fs.statSync(resolved).isFile();
+  if (!insideDist && !existingVsix) {
+    process.stderr.write(
+      `verify-packed-wasm: refusing "${resolved}": pass a path inside ${DIST_DIR} or an existing .vsix file\n`,
+    );
+    process.exit(1);
+  }
+  return resolved;
+}
+
 function verifyVsix(vsixPath, required, vendored = []) {
   if (!fs.statSync(vsixPath).isFile()) throw new Error('VSIX must be a file');
   const archive = new AdmZip(vsixPath);
@@ -238,7 +260,7 @@ if (require.main === module) {
   if (process.argv[2] === '--self-test') selfTest(required, vendored);
   else {
     const vsixPath = process.argv[2]
-      ? path.resolve(process.argv[2])
+      ? resolveCliVsixPath(process.argv[2])
       : packagedVsixPath();
     const problems = verifyVsix(vsixPath, required, vendored);
     if (problems.length)

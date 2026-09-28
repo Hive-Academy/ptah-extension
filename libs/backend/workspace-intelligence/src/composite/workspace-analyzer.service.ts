@@ -71,7 +71,7 @@ function monorepoFrameworks(projects: readonly WorkspaceProject[]): string[] {
       frameworks.add(project.framework);
     }
   }
-  return [...frameworks].sort();
+  return [...frameworks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**

@@ -136,7 +136,9 @@ export const REQUIRED_KEYS: readonly string[] = [
 
 /** `REQUIRED_KEYS`, deduplicated and lexicographically sorted. */
 export function sortedRequiredKeys(): readonly string[] {
-  return [...new Set(REQUIRED_KEYS)].sort();
+  return [...new Set(REQUIRED_KEYS)].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
 }
 
 /** Owner lookup for a `<capability>:<language>` key (honesty keys have no owner row). */

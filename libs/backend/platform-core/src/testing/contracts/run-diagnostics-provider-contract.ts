@@ -183,7 +183,7 @@ function relativeView(
         file: inside ? file.slice(normRoot.length + 1) : `OUTSIDE:${file}`,
         entries: entry.diagnostics
           .map((d) => `${d.line}:${d.severity}:${d.code ?? ''}:${d.message}`)
-          .sort(),
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
       };
     })
     .sort((a, b) => a.file.localeCompare(b.file));
@@ -327,15 +327,24 @@ export function runDiagnosticsProviderContract(
 
     /** TASK_2026_559 Batch 25a: the floor-rule amendment holds for every answer. */
     it('never reports a syntax-only check as a type-check (any answer)', async () => {
-      setup.seed?.([
-        {
-          file: '/tmp/d.ts',
-          diagnostics: [{ message: 'z', line: 1, severity: 'error' }],
-        },
-      ]);
-      expect(
-        syntaxOnlyClaimViolations(await setup.provider.getDiagnostics()),
-      ).toEqual([]);
+      // Seeded file labels must not name a publicly writable directory
+      // (typescript:S5443): a private mkdtemp path is used and removed.
+      const seededRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-diag-floor-'),
+      );
+      try {
+        setup.seed?.([
+          {
+            file: path.join(seededRoot, 'd.ts'),
+            diagnostics: [{ message: 'z', line: 1, severity: 'error' }],
+          },
+        ]);
+        expect(
+          syntaxOnlyClaimViolations(await setup.provider.getDiagnostics()),
+        ).toEqual([]);
+      } finally {
+        fs.rmSync(seededRoot, { recursive: true, force: true });
+      }
     });
 
     /**

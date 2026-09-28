@@ -445,7 +445,9 @@ function selfTest() {
     );
     copyWasm(path.join(dir, 'active'), manifest);
     assert.deepEqual(
-      fs.readdirSync(path.join(dir, 'active/wasm')).sort(),
+      fs
+        .readdirSync(path.join(dir, 'active/wasm'))
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
       [
         ...manifest.assets
           .filter((asset) => asset.active)
@@ -453,7 +455,7 @@ function selfTest() {
         ...activeVendoredFiles()
           .map(({ file }) => path.posix.basename(file))
           .filter((file) => file.startsWith('LICENSE.')),
-      ].sort(),
+      ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     );
     // The vendored Kotlin grammar ships with its reviewed licence notice.
     const kotlin = manifest.assets.find((asset) => asset.id === 'kotlin');

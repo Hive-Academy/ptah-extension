@@ -293,6 +293,8 @@ export function describeDashboardContract(): DashboardContractDescription {
 
   return {
     text: lines.join('\n'),
-    unhandledKeywords: [...renderer.unhandled].sort(),
+    unhandledKeywords: [...renderer.unhandled].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    ),
   };
 }

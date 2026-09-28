@@ -110,7 +110,7 @@ const RECORD_KEYS = ['goBinary', 'grantedAt', 'rootId', 'rootRealpath', 'v'];
 const BINARY_KEYS = ['mtimeMs', 'path', 'size'];
 
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return (
     keys.length === expected.length &&
     keys.every((key, index) => key === expected[index])

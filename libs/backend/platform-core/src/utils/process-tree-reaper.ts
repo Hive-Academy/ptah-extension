@@ -28,13 +28,19 @@ function resolveTaskkill(): string {
 /**
  * Only ESRCH proves the group is gone. EPERM means it still exists but this
  * process may not signal it, which must not end the poll.
+ *
+ * Duck-typed, never `instanceof Error`: the errors come from `process.kill`,
+ * which Node creates outside a VM caller's realm, so `instanceof` fails there
+ * (observed under Jest on the Linux CI runner: the poll's ESRCH fast path
+ * never fired, and a harmless ESRCH for an already-gone process reached
+ * `onError` as a kill failure).
  */
 function isEsrch(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (('code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH') ||
-      error.message.includes('ESRCH'))
-  );
+  const { code, message } = (error ?? {}) as {
+    code?: unknown;
+    message?: unknown;
+  };
+  return code === 'ESRCH' || String(message).includes('ESRCH');
 }
 
 /**

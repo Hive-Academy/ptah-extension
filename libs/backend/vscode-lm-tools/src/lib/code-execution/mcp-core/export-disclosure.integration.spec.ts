@@ -72,7 +72,13 @@ jest.mock('web-tree-sitter', () => {
   return actual;
 });
 
-const ROOT = 'D:/ws-24d';
+// Rooted without a device, so the path is absolute on POSIX (`/ws-24d`) and on
+// Windows (drive-less rooted) alike: `buildGraph` passes files through
+// `toAbsoluteWorkspacePath`, whose `path.isAbsolute` is host-scoped, and a
+// `D:/...` literal is not absolute to a POSIX runner — the root was then
+// prefixed onto the already-absolute fixture and every read failed (CI Linux:
+// `failedByReason: { read: N }` instead of `unsupported-syntax`).
+const ROOT = '/ws-24d';
 
 /** The r5 probe: a computed CommonJS key the extractor cannot name. */
 const COMPUTED_ONLY = 'const key = "actual";\nexports[key] = 1;';

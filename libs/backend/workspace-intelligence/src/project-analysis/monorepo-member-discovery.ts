@@ -183,7 +183,7 @@ export async function discoverMemberDirectories(
           !(searching && SEARCH_SKIPPED_DIRS.has(entry.name)),
       )
       .map((entry) => entry.name)
-      .sort();
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   const matched = new Set<string>();
   const expand = async (
@@ -297,7 +297,9 @@ export async function discoverMemberDirectories(
     await scan('', 0);
   }
 
-  const candidates = [...matched].filter((rel) => !projects.has(rel)).sort();
+  const candidates = [...matched]
+    .filter((rel) => !projects.has(rel))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (candidates.length > MAX_DISCOVERY_CANDIDATES) {
     complete = false;
     issues.push(
@@ -329,6 +331,6 @@ export async function discoverMemberDirectories(
 
   const directories = [...projects]
     .filter((rel) => !excludes.some((exclude) => exclude.test(rel)))
-    .sort();
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return { directories, complete, issues };
 }

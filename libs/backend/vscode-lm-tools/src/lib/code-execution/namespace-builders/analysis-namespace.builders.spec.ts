@@ -877,18 +877,25 @@ describe('buildDependencyNamespace', () => {
   describe('discoverSourceFiles (TASK_2026_559 Batch 23b)', () => {
     it('asks for one past the census limit with the vendor excludes inside the walk', async () => {
       const deps = makeMocks();
+      // Host-scoped paths, as the buildGraph spec above: a `D:/...` literal is
+      // not absolute to a POSIX runner, so `toAbsoluteWorkspacePath`
+      // (host-scoped `path.isAbsolute`) prefixes the root onto it a second
+      // time there. The pass-through branch needs a path absolute on the host
+      // running the test.
+      const root = path.join(path.sep, 'ws');
+      const alreadyAbsolute = path.join(root, 'src', 'a.ts');
       deps._fileSystemProvider.findFiles.mockResolvedValue([
-        'D:/ws/src/a.ts',
+        alreadyAbsolute,
         'src/b.py',
       ]);
 
       const out =
-        await buildDependencyNamespace(deps).discoverSourceFiles('D:/ws');
+        await buildDependencyNamespace(deps).discoverSourceFiles(root);
 
       const [glob, excludes, maxResults, cwd] =
         deps._fileSystemProvider.findFiles.mock.calls[0];
       expect(maxResults).toBe(50_001);
-      expect(cwd).toBe('D:/ws');
+      expect(cwd).toBe(root);
       expect(excludes).toEqual([
         ...DEFAULT_WORKSPACE_EXCLUDES,
         ...GRAPH_VENDOR_EXCLUDES,
@@ -925,7 +932,7 @@ describe('buildDependencyNamespace', () => {
       }
       expect(glob).not.toMatch(/[{,]ts[,}]/);
       expect(out).toEqual({
-        files: ['D:/ws/src/a.ts', path.join('D:/ws', 'src/b.py')],
+        files: [alreadyAbsolute, path.join(root, 'src/b.py')],
         truncated: false,
         limit: GRAPH_CENSUS_LIMIT,
       });
@@ -933,18 +940,23 @@ describe('buildDependencyNamespace', () => {
 
     it('is truncated at limit + 1 files and returns only limit of them', async () => {
       const deps = makeMocks();
+      const root = path.join(path.sep, 'ws');
       deps._fileSystemProvider.findFiles.mockResolvedValue(
-        Array.from({ length: 4 }, (_, i) => `D:/ws/f${i}.ts`),
+        Array.from({ length: 4 }, (_, i) => path.join(root, `f${i}.ts`)),
       );
 
       const out = await buildDependencyNamespace(deps).discoverSourceFiles(
-        'D:/ws',
+        root,
         3,
       );
 
       expect(deps._fileSystemProvider.findFiles.mock.calls[0][2]).toBe(4);
       expect(out).toEqual({
-        files: ['D:/ws/f0.ts', 'D:/ws/f1.ts', 'D:/ws/f2.ts'],
+        files: [
+          path.join(root, 'f0.ts'),
+          path.join(root, 'f1.ts'),
+          path.join(root, 'f2.ts'),
+        ],
         truncated: true,
         limit: 3,
       });
