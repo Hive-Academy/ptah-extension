@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_74a4
 
-Total tasks: 14 | Batches: 7 | Complete: 4/7 (Batch 4 visual "after" evidence open, due after Batch 3)
+Total tasks: 14 | Batches: 7 | Complete: 5/7 (Batch 4 visual "after" evidence open, capture now unblocked by Batch 3)
 
 BUGFIX, plan-free. Decomposed from task.md, context.md ("Orchestrator scope decisions" 1-7, binding),
 research-report.md and research-addendum.md, stress-tested against base 722d921ab on disk.
@@ -157,7 +157,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Codex CLI-lane logic review returns APPROVE
 - R1, R3, R4 addressed as described
 
-## Batch 2b: Unreported runs never freeze on a mid-run rate drop - COMPLETE (SHA_PENDING)
+## Batch 2b: Unreported runs never freeze on a mid-run rate drop - COMPLETE (5b22a67b1)
 
 - Origin: code-logic-review-b2-r1.md moderate finding (pre-existing on base): `isGrown` (session-stats-owner.service.ts:926-948) enforces DOLLAR monotonicity. On a `costSource: 'unreported'` run (Codex / proxy; dollars come from the rate card, not the provider) a mid-run rate decrease (runtime pricing map re-registered when a provider catalog hydrates) makes every later result `rejected-non-monotonic`, freezing the session snapshot (tokens, cost, duration) at the earlier turn. Orchestrator decision: IN SCOPE (user asked for totals reflecting the actual model costs).
 - Recommended executor: backend-developer (sub-agent)
@@ -203,7 +203,7 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` passes
 - CLI-lane logic review returns APPROVE
 
-## Batch 3: Webview consumers read turnCost - IN_PROGRESS
+## Batch 3: Webview consumers read turnCost - COMPLETE (SHA_PENDING)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -214,7 +214,7 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/chat-streaming`
 - Contract from Batch 2 (binding, `libs/shared/src/lib/types/agent-adapter.types.ts` `ResultStatsPayload`): one payload per NEW turn (duplicates are not published), so `turnCost` always applies to the latest assistant message; `turnCost: null` = UNKNOWN, rendered as unavailable, never $0 and never replaced by a previous or summed value; the session header installs only the backend `sessionStats` snapshot.
 
-### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - IN_PROGRESS
+### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts
@@ -225,7 +225,7 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 - Validation notes: R2.
 - Implementation details: define `SessionStatsResultEvent` from `ResultStatsPayload` in `@ptah-extension/shared` (e.g. `Omit<ResultStatsPayload, 'sessionId' | 'modelUsage'> & {...}` preserving the existing `TurnModelUsage` narrowing) so a future wire rename fails typecheck; `SessionStatsSnapshotEvent` uses `turnCost?: undefined`; `isSnapshotOnly` checks `turnCost`. `StreamingHandlerService.handleSessionStats` takes `turnCost` and writes it to `pendingStats.cost` and, when finalized, to the last assistant message `cost`. No change to chat-types, message-finalization or chat-transcript (they carry the per-message value already).
 
-### Task 3.2: Webview regression tests - IN_PROGRESS
+### Task 3.2: Webview regression tests - COMPLETE
 
 - Depends on: Task 3.1
 - Files:
@@ -295,7 +295,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard` passes
 - Codex CLI-lane logic review APPROVE and visual-reviewer "after" screenshots (dark + light) accepted against "before"
 
-## Batch 5: TUI session cost from the backend snapshot - PENDING
+## Batch 5: TUI session cost from the backend snapshot - IN_PROGRESS
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -305,7 +305,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - Reviewer: code-logic review on a CLI lane (codex).
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-tui`
 
-### Task 5.1: deriveStats uses sessionStats, never a per-turn or per-row figure - PENDING
+### Task 5.1: deriveStats uses sessionStats, never a per-turn or per-row figure - IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\apps\ptah-tui\src\hooks\use-sessions.ts
@@ -323,17 +323,18 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - `npx nx run-many -t typecheck,test,lint -p ptah-tui` passes
 - Codex CLI-lane logic review returns APPROVE
 
-## Batch 6: Cross-cutting contract and parity guards - PENDING
+## Batch 6: Cross-cutting contract and parity guards - IN_PROGRESS
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: senior-tester (fresh invocation)
 - Execution mode: sequential
 - Rationale: tests only, spanning the live owner, the disk aggregator and the per-agent badge; needs judgment on fixtures, not production edits.
 - Tasks: 2 | Depends on: Batches 1, 2 and 2b
+- Started in parallel by the orchestrator, assigned to senior-tester: its dependencies (Batch 1 e928d2a91, Batch 2 f1c4a365f, Batch 2b 5b22a67b1) are committed, and its files (libs/backend/agent-sdk session-cost-contract.spec.ts, libs/frontend/chat-execution-tree agent-stats.service.spec.ts, test-report.md) do not overlap with Batches 3, 5 or the Batch 4 visual evidence. Commits stay sequential and are made by the team-leader.
 - Reviewer: code-logic review on a CLI lane (codex) - are the guards real (would they catch the regression)?
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree`
 
-### Task 6.1: Live-vs-disk parity and end-to-end [1m] pricing (scope 6e, 6d live path) - PENDING
+### Task 6.1: Live-vs-disk parity and end-to-end [1m] pricing (scope 6e, 6d live path) - IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-cost-contract.spec.ts (new)
 - Plan reference: context.md scope decisions 2, 5, 6(d)(e); research-addendum.md:3-14
@@ -342,7 +343,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - Validation notes: A1, R10.
 - Implementation details: one fixture session = parent ledger (main-loop per-call usage, model A) + one subagent ledger (model B); drive the live owner with the equivalent cumulative `modelUsage` (A + B rows, `usageCostSource: 'unreported'`, same rate card via the pricing lookup) over several results; assert owner snapshot `totalCost` == `aggregateSessionUsage` ledger `totalCost` (toBeCloseTo), token classes equal, and `recordAgent` for the subagent changes `agentSessionCount` only. Second case: a live `modelUsage` key `claude-opus-5-5[1m]` on the unreported path prices at `claude-opus-5-5` rates end to end (turnCost and snapshot non-null).
 
-### Task 6.2: agent-stats.service sums per-call costs (scope 6f) - PENDING
+### Task 6.2: agent-stats.service sums per-call costs (scope 6f) - IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat-execution-tree\src\lib\agent-stats.service.spec.ts
 - Plan reference: context.md scope decision 6(f); A2

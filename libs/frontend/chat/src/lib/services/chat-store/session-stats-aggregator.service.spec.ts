@@ -16,7 +16,12 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
+import {
+  SessionStatsAggregatorService,
+  type SessionStatsEvent,
+  type SessionStatsResultEvent,
+} from './session-stats-aggregator.service';
+import { CostBadgeComponent } from '@ptah-extension/chat-ui';
 import {
   ConversationRegistry,
   SurfaceSessionStatsRegistry,
@@ -81,7 +86,7 @@ function makeSnapshot(
 
 const baseStats = {
   sessionId: SESS_1,
-  cost: 0.5,
+  turnCost: 0.5,
   tokens: { input: 100, output: 50, cacheRead: 10, cacheCreation: 5 },
   duration: 1000,
 };
@@ -565,10 +570,10 @@ describe('SessionStatsAggregatorService', () => {
       expect(streamHandleStatsMock).not.toHaveBeenCalled();
     });
 
-    it('still treats a zero or null cost as a present footer field', () => {
+    it('still treats a zero or null turnCost as a present footer field', () => {
       const event = {
         sessionId: SESS_1,
-        cost: null,
+        turnCost: null,
         tokens: { input: 0, output: 0 },
         duration: 0,
         sessionStats: snapshot(3, 0),
@@ -632,6 +637,76 @@ describe('SessionStatsAggregatorService', () => {
       });
 
       expect(installSessionStatsMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // TASK_2026_575: `turnCost` is the turn's own spend and goes to the message
+  // footer; the header shows only the backend snapshot, exactly as sent. The
+  // two are separate figures and the webview never adds one into the other.
+  describe('per-turn cost vs session total (TASK_2026_575)', () => {
+    const turn = (
+      turnCost: number | null,
+      revision: number,
+      totalCost: number,
+    ): SessionStatsEvent => ({
+      ...baseStats,
+      turnCost,
+      sessionStats: makeSnapshot(SESS_1, revision, totalCost),
+    });
+
+    it('forwards turn costs 10 then 5 and installs the header snapshot 15 exactly as sent', () => {
+      const first = turn(10, 1, 10);
+      const second = turn(5, 2, 15);
+
+      service.handleSessionStats(first);
+      service.handleSessionStats(second);
+
+      // Each turn's own cost reaches the footer path unchanged.
+      const forwarded = streamHandleStatsMock.mock.calls.map(
+        ([event]) => (event as SessionStatsResultEvent).turnCost,
+      );
+      expect(forwarded).toEqual([10, 5]);
+
+      // The header gets the backend snapshot object itself: 15, not the
+      // sum of turn costs (20) and not the last turn's cost (5).
+      const installed = installSessionStatsMock.mock.calls.map(
+        ([, snapshot]) => snapshot as SessionStatsEntry,
+      );
+      expect(installed).toEqual([first.sessionStats, second.sessionStats]);
+      const headerTotal = installed[installed.length - 1].totalCost;
+      expect(headerTotal).toBe(15);
+      expect(headerTotal).not.toBe(20);
+      expect(headerTotal).not.toBe(5);
+      expect(forwarded[forwarded.length - 1]).not.toBe(headerTotal);
+    });
+
+    it('a snapshot-only event installs the header without touching any message cost', () => {
+      service.handleSessionStats(turn(10, 1, 10));
+      streamHandleStatsMock.mockClear();
+
+      const sessionStats = makeSnapshot(SESS_1, 2, 12);
+      service.handleSessionStats({ sessionId: SESS_1, sessionStats });
+
+      expect(installSessionStatsMock).toHaveBeenLastCalledWith(
+        'tab-1',
+        sessionStats,
+      );
+      expect(streamHandleStatsMock).not.toHaveBeenCalled();
+    });
+
+    it('forwards an unknown turn cost as null, which the footer renders as unavailable, never $0', () => {
+      service.handleSessionStats(turn(null, 1, 10));
+
+      const [[event]] = streamHandleStatsMock.mock.calls;
+      const turnCost = (event as SessionStatsResultEvent).turnCost;
+      expect(turnCost).toBeNull();
+
+      const fixture = TestBed.createComponent(CostBadgeComponent);
+      fixture.componentRef.setInput('cost', turnCost);
+      fixture.detectChanges();
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('cost unavailable');
+      expect(text).not.toContain('$0');
     });
   });
 
@@ -741,7 +816,7 @@ describe('SessionStatsAggregatorService', () => {
       };
       service.handleSessionStats({
         ...baseStats,
-        cost: 2.07,
+        turnCost: 2.07,
         sessionStats,
         modelUsage: [
           {
