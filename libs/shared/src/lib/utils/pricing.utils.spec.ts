@@ -14,7 +14,9 @@ import {
   getModelContextWindow,
   getModelPricingDescription,
   getPricingMap,
+  normalizeModelKey,
   registerProviderPricing,
+  stripModelVariantTags,
   resetPricingMapForTesting,
   resolveModelDisplayName,
   updatePricingMap,
@@ -240,6 +242,109 @@ describe('pricing.utils', () => {
       expect(console.warn).toHaveBeenCalledWith(
         expect.stringContaining('totally-unknown-model-xyz'),
       );
+    });
+  });
+
+  describe('variant-tagged and provider-prefixed ids (TASK_2026_575)', () => {
+    const OPUS = {
+      inputCostPerToken: 5e-6,
+      outputCostPerToken: 25e-6,
+      cacheReadCostPerToken: 0.5e-6,
+      cacheCreationCostPerToken: 6.25e-6,
+      provider: 'anthropic',
+    };
+    const OPUS_1M = {
+      inputCostPerToken: 10e-6,
+      outputCostPerToken: 37.5e-6,
+      provider: 'anthropic',
+    };
+    const TOKENS = {
+      input: 1000,
+      output: 500,
+      cacheHit: 2000,
+      cacheCreation: 400,
+    };
+    // 1000*5e-6 + 500*25e-6 + 2000*0.5e-6 + 400*6.25e-6
+    const OPUS_COST = 0.005 + 0.0125 + 0.001 + 0.0025;
+
+    beforeEach(() => {
+      registerProviderPricing({ 'claude-opus-5-5': OPUS });
+    });
+
+    it.each([
+      'claude-opus-5-5[1m]',
+      'anthropic/claude-opus-5-5[1m]',
+      'claude-opus-5-5-20260101[1m]',
+      'Claude-Opus-5-5[1M]',
+      'anthropic/claude-opus-5-5-20260101[1m]',
+    ])('prices %s at the base model rates', (modelId) => {
+      expect(findModelPricing(modelId)).toEqual(OPUS);
+      expect(calculateMessageCost(modelId, TOKENS)).toBeCloseTo(OPUS_COST, 6);
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('prefers an exact catalog entry for the tagged id over the base model', () => {
+      registerProviderPricing({ 'claude-opus-5-5[1m]': OPUS_1M });
+
+      expect(findModelPricing('claude-opus-5-5[1m]')).toEqual(OPUS_1M);
+      expect(findModelPricing('anthropic/claude-opus-5-5[1m]')).toEqual(
+        OPUS_1M,
+      );
+      expect(findModelPricing('claude-opus-5-5')).toEqual(OPUS);
+      expect(
+        calculateMessageCost('claude-opus-5-5[1m]', { input: 1000, output: 0 }),
+      ).toBe(0.01);
+    });
+
+    it.each(['claude-opus-5-5-codex[1m]', 'foo[1m]', '[1m]'])(
+      'keeps %s unpriced (a line variant or unknown model is not a snapshot)',
+      (modelId) => {
+        expect(findModelPricing(modelId)).toBeNull();
+        expect(calculateMessageCost(modelId, TOKENS)).toBeNull();
+      },
+    );
+
+    it('does not give a [1m] id the base model context window', () => {
+      registerProviderPricing({
+        'claude-opus-5-5': { ...OPUS, maxTokens: 200_000 },
+      });
+      expect(getModelContextWindow('claude-opus-5-5')).toBe(200_000);
+      expect(getModelContextWindow('claude-opus-5-5[1m]')).toBe(1_000_000);
+    });
+  });
+
+  describe('stripModelVariantTags', () => {
+    it.each([
+      ['claude-opus-5-5[1m]', 'claude-opus-5-5'],
+      ['claude-opus-5-5[1m][fast]', 'claude-opus-5-5'],
+      ['anthropic/claude-opus-5-5[1m]', 'anthropic/claude-opus-5-5'],
+      ['claude-opus-5-5', 'claude-opus-5-5'],
+      ['claude-[1m]-opus', 'claude-[1m]-opus'],
+    ])('%s -> %s', (input, expected) => {
+      expect(stripModelVariantTags(input)).toBe(expected);
+    });
+  });
+
+  describe('normalizeModelKey', () => {
+    it.each([
+      ['claude-opus-5-5', 'claude-opus-5-5'],
+      ['  Claude-Opus-5-5[1M]  ', 'claude-opus-5-5'],
+      ['anthropic/claude-opus-5-5[1m]', 'claude-opus-5-5'],
+      ['openrouter/anthropic/claude-opus-5-5', 'claude-opus-5-5'],
+      ['claude-opus-5-5-20260101[1m]', 'claude-opus-5-5'],
+      ['gpt-4o-2024-08-06', 'gpt-4o'],
+      ['claude-opus-5-5-codex[1m]', 'claude-opus-5-5-codex'],
+      ['gpt-5.3-codex', 'gpt-5.3-codex'],
+    ])('%s -> %s', (input, expected) => {
+      expect(normalizeModelKey(input)).toBe(expected);
+    });
+
+    it('is exported from the @ptah-extension/shared barrel', async () => {
+      const barrel = await import('../../index');
+      expect(typeof barrel.normalizeModelKey).toBe('function');
+      expect(typeof barrel.stripModelVariantTags).toBe('function');
+      expect(barrel.normalizeModelKey).toBe(normalizeModelKey);
+      expect(barrel.stripModelVariantTags).toBe(stripModelVariantTags);
     });
   });
 
