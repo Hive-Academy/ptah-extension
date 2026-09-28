@@ -49,6 +49,13 @@ export interface DashboardSessionEntry {
    * never render it as $0.
    */
   readonly totalCost: number | null;
+  /**
+   * Sum of the usage whose price IS known. Equals `totalCost` when pricing is
+   * full; a lower bound when pricing is partial; `null` when nothing is
+   * priced. Displayed only through {@link sessionCostEstimate}, which labels
+   * it as a lower bound whenever it stands in for an unknown total.
+   */
+  readonly knownCost: number | null;
   readonly tokens: {
     readonly input: number;
     readonly output: number;
@@ -77,13 +84,62 @@ export interface DashboardSessionEntry {
   readonly pricingCoverage: SessionStatsPricingCoverage | null;
 }
 
+/** The cost figure a session shows, and whether it is only a lower bound. */
+export interface SessionCostEstimate {
+  /** `null` when nothing in the session has a price — shown as unknown. */
+  readonly cost: number | null;
+  /** True when some usage has no price: the real cost is at least `cost`. */
+  readonly isLowerBound: boolean;
+}
+
+/**
+ * The one rule for which figure a session contributes and displays: the full
+ * `totalCost` when every contribution is priced, else the priced subtotal
+ * (`knownCost`) marked as a lower bound, else unknown. The subtotal is never
+ * presented as a total.
+ *
+ * Relies on the wire contract that a non-null `totalCost` means every
+ * contribution is priced (`SessionStatsEntry.totalCost`; the backend sets it
+ * only for `pricingCoverage: 'full'`). A missing coverage value is therefore
+ * not treated as partial: older producers omit it on fully priced totals.
+ * An explicit `'partial'` beside a total is still marked.
+ */
+export function sessionCostEstimate(
+  session: Pick<
+    DashboardSessionEntry,
+    'totalCost' | 'knownCost' | 'pricingCoverage'
+  >,
+): SessionCostEstimate {
+  if (session.totalCost !== null) {
+    return {
+      cost: session.totalCost,
+      isLowerBound: session.pricingCoverage === 'partial',
+    };
+  }
+  if (session.knownCost !== null) {
+    return { cost: session.knownCost, isLowerBound: true };
+  }
+  return { cost: null, isLowerBound: false };
+}
+
 /**
  * Aggregate totals computed from displayed sessions.
  * Single-pass computation for efficiency.
  */
 export interface AggregateTotals {
-  /** Sum of the known session estimates; `null` when no session has one. */
+  /**
+   * Sum of every readable session's estimate (full total, or the priced
+   * subtotal of a partially priced session); `null` when no session has one.
+   * A lower bound whenever {@link totalCostIsLowerBound} is true.
+   */
   readonly totalCost: number | null;
+  /**
+   * True when the real spend may exceed `totalCost`: a contributing session is
+   * only partially priced, or a readable session with usage has no price at
+   * all. Always shown next to the total. CLI-lane spend is never recorded, so
+   * it is neither summed nor counted here.
+   */
+  readonly totalCostIsLowerBound: boolean;
   readonly totalTokens: number;
   readonly totalInput: number;
   readonly totalOutput: number;
@@ -103,8 +159,17 @@ export interface AggregateTotals {
   readonly untimestampedCount: number;
   /** Sessions with usage but no known price — excluded from `totalCost`. */
   readonly unknownCostSessionCount: number;
-  /** Sessions where only part of the usage has a price. */
+  /**
+   * Sessions where only part of the usage has a price. Their priced subtotal
+   * IS included in `totalCost`, which is then a lower bound.
+   */
   readonly partiallyPricedSessionCount: number;
+  /**
+   * Readable sessions that ran CLI agents. Their spend is never recorded, so
+   * it is not in `totalCost` and does not set `totalCostIsLowerBound`; this
+   * count exists only to say so next to the total (scope decision 3).
+   */
+  readonly cliAgentSessionCount: number;
 }
 
 /** Progress of the stats pages for the active load. */
@@ -263,12 +328,14 @@ export class SessionAnalyticsStateService {
       totalMessages = 0,
       totalSubagents = 0;
     let costContributorCount = 0;
+    let totalCostIsLowerBound = false;
     let pendingSessionCount = 0,
       errorSessionCount = 0,
       partialSessionCount = 0,
       untimestampedCount = 0,
       unknownCostSessionCount = 0,
-      partiallyPricedSessionCount = 0;
+      partiallyPricedSessionCount = 0,
+      cliAgentSessionCount = 0;
 
     for (const s of sessions) {
       if (s.status === 'pending') {
@@ -283,15 +350,19 @@ export class SessionAnalyticsStateService {
         partialSessionCount++;
       }
       untimestampedCount += s.untimestampedCount;
-      if (s.totalCost !== null) {
-        totalCost += s.totalCost;
+      const estimate = sessionCostEstimate(s);
+      if (estimate.cost !== null) {
+        totalCost += estimate.cost;
         costContributorCount++;
+        if (estimate.isLowerBound) totalCostIsLowerBound = true;
       } else if (s.status === 'ok') {
         unknownCostSessionCount++;
+        totalCostIsLowerBound = true;
       }
-      if (s.status === 'ok' && s.pricingCoverage === 'partial') {
+      if (s.status === 'ok' && estimate.isLowerBound) {
         partiallyPricedSessionCount++;
       }
+      if (s.cliAgents.length > 0) cliAgentSessionCount++;
       totalInput += s.tokens.input;
       totalOutput += s.tokens.output;
       totalCacheRead += s.tokens.cacheRead;
@@ -302,6 +373,7 @@ export class SessionAnalyticsStateService {
 
     return {
       totalCost: costContributorCount > 0 ? totalCost : null,
+      totalCostIsLowerBound: costContributorCount > 0 && totalCostIsLowerBound,
       totalTokens:
         totalInput + totalOutput + totalCacheRead + totalCacheCreation,
       totalInput,
@@ -319,6 +391,7 @@ export class SessionAnalyticsStateService {
       untimestampedCount,
       unknownCostSessionCount,
       partiallyPricedSessionCount,
+      cliAgentSessionCount,
     };
   });
 
@@ -557,6 +630,8 @@ export class SessionAnalyticsStateService {
         ? resolveModelDisplayName(stats.model, models)
         : 'Unknown',
       totalCost: stats?.totalCost ?? null,
+      // Older producers send no `knownCost`; a full total is its own subtotal.
+      knownCost: stats?.knownCost ?? stats?.totalCost ?? null,
       tokens: stats?.tokens ?? {
         input: 0,
         output: 0,
@@ -608,6 +683,7 @@ function unreadableStats(sessionId: string): SessionStatsEntry {
     sessionId,
     model: null,
     totalCost: null,
+    knownCost: null,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
     messageCount: 0,
     status: 'error',

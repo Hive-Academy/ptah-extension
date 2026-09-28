@@ -9,6 +9,8 @@ import { DecimalPipe } from '@angular/common';
 import { LucideAngularModule, Bot, X } from 'lucide-angular';
 import { DashboardSessionEntry } from '../../services/session-analytics-state.service';
 import {
+  LOWER_BOUND_COST_TITLE,
+  costValueClass,
   formatCost,
   formatEstimatedCost,
   formatSessionCost,
@@ -16,7 +18,10 @@ import {
   formatRelativeTime,
   formatFullDate,
   formatDuration,
+  sessionCostPerMessage,
   sessionCoverageNotes,
+  sessionHasKnownCost,
+  sessionShowsLowerBound,
 } from '../../utils/format.utils';
 import { computeTokenSegments } from '../../utils/token-segments';
 
@@ -52,6 +57,7 @@ export class SessionDetailModalComponent {
   readonly XIcon = X;
 
   readonly estimateLabel = 'Estimated from recorded usage and current rate card';
+  readonly lowerBoundTitle = LOWER_BOUND_COST_TITLE;
 
   readonly formatCost = formatCost;
   readonly formatEstimatedCost = formatEstimatedCost;
@@ -59,10 +65,22 @@ export class SessionDetailModalComponent {
   readonly formatRelativeTime = formatRelativeTime;
   readonly formatFullDate = formatFullDate;
   readonly formatDuration = formatDuration;
+  readonly costValueClass = costValueClass;
 
   readonly costText = computed(() => {
     const s = this.session();
     return s ? formatSessionCost(s) : '';
+  });
+
+  readonly costClass = computed(() => {
+    const s = this.session();
+    return costValueClass(s !== null && sessionHasKnownCost(s));
+  });
+
+  /** The shown cost is a priced subtotal: marked "at least". */
+  readonly isLowerBound = computed(() => {
+    const s = this.session();
+    return s !== null && sessionShowsLowerBound(s);
   });
 
   readonly coverageNotes = computed(() => {
@@ -79,8 +97,7 @@ export class SessionDetailModalComponent {
 
   readonly costPerMessage = computed(() => {
     const s = this.session();
-    if (!s || s.totalCost === null || s.messageCount <= 0) return null;
-    return s.totalCost / s.messageCount;
+    return s ? sessionCostPerMessage(s) : null;
   });
 
   /** Milliseconds between the session's creation and last activity. */

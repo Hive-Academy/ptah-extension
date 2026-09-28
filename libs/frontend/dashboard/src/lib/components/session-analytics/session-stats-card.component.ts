@@ -8,13 +8,18 @@ import {
 import { LucideAngularModule, Bot, MessageSquare } from 'lucide-angular';
 import { DashboardSessionEntry } from '../../services/session-analytics-state.service';
 import {
+  LOWER_BOUND_COST_TITLE,
+  costValueClass,
   formatCost,
   formatEstimatedCost,
   formatSessionCost,
   formatTokenCount,
   formatRelativeTime,
   formatFullDate,
+  sessionCostPerMessage,
   sessionCoverageNotes,
+  sessionHasKnownCost,
+  sessionShowsLowerBound,
 } from '../../utils/format.utils';
 import { computeTokenSegments } from '../../utils/token-segments';
 
@@ -29,7 +34,8 @@ import { computeTokenSegments } from '../../utils/token-segments';
  * Stats states: pending (page not arrived — loaders, `aria-busy`), error
  * ("Stats unavailable"), partial coverage (a "Partial" badge whose title says
  * why). Cost is a current-rate-card estimate; an unknown price reads
- * "Unknown", never $0.
+ * "Unknown" in a neutral colour, never $0. A partially priced session shows
+ * its priced subtotal behind a "≥" (at least) marker.
  *
  * The whole card is a button that emits `open` so the parent can surface the
  * full session-detail modal.
@@ -51,14 +57,25 @@ export class SessionStatsCardComponent {
   readonly MessageSquareIcon = MessageSquare;
 
   readonly estimateLabel = 'Estimated from recorded usage and current rate card';
+  readonly lowerBoundTitle = LOWER_BOUND_COST_TITLE;
 
   readonly formatCost = formatCost;
   readonly formatEstimatedCost = formatEstimatedCost;
   readonly formatTokenCount = formatTokenCount;
   readonly formatRelativeTime = formatRelativeTime;
   readonly formatDate = formatFullDate;
+  readonly costValueClass = costValueClass;
 
   readonly costText = computed(() => formatSessionCost(this.session()));
+
+  readonly costClass = computed(() =>
+    costValueClass(sessionHasKnownCost(this.session())),
+  );
+
+  /** The shown cost is a priced subtotal: marked "at least". */
+  readonly isLowerBound = computed(() =>
+    sessionShowsLowerBound(this.session()),
+  );
 
   readonly coverageNotes = computed(() =>
     sessionCoverageNotes(this.session()),
@@ -78,11 +95,9 @@ export class SessionStatsCardComponent {
     );
   });
 
-  readonly costPerMessage = computed(() => {
-    const s = this.session();
-    if (s.totalCost === null || s.messageCount <= 0) return null;
-    return s.totalCost / s.messageCount;
-  });
+  readonly costPerMessage = computed(() =>
+    sessionCostPerMessage(this.session()),
+  );
 
   readonly totalTokens = computed(() => {
     const t = this.session().tokens;

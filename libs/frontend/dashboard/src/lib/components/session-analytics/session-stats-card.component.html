@@ -54,13 +54,18 @@
         Est. Cost
       </div>
       <div
-        class="text-sm font-semibold text-success tabular-nums leading-tight mt-0.5"
+        class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
+        [class]="costClass()"
         data-testid="session-card-cost"
       >
         @if (session().status === 'pending') {
           <span class="loading loading-dots loading-xs" aria-hidden="true"></span>
           <span class="sr-only">Loading</span>
         } @else {
+          @if (isLowerBound()) {
+            <span [title]="lowerBoundTitle" aria-hidden="true" data-testid="session-card-lower-bound">&ge;</span>
+            <span class="sr-only">At least</span>
+          }
           {{ costText() }}
         }
       </div>
@@ -79,7 +84,14 @@
       <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">
         $ / Msg
       </div>
-      <div class="text-sm font-semibold text-base-content-muted tabular-nums leading-tight mt-0.5">
+      <div
+        class="text-sm font-semibold text-base-content-muted tabular-nums leading-tight mt-0.5"
+        data-testid="session-card-cost-per-message"
+      >
+        @if (isLowerBound() && costPerMessage() !== null) {
+          <span [title]="lowerBoundTitle" aria-hidden="true">&ge;</span>
+          <span class="sr-only">At least</span>
+        }
         {{ formatCost(costPerMessage()) }}
       </div>
     </div>
@@ -128,7 +140,7 @@
             <span title="Input / Output tokens">
               {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
             </span>
-            <span class="text-success font-medium">{{ formatEstimatedCost(m.costUSD) }}</span>
+            <span class="font-medium" [class]="costValueClass(m.costUSD !== null)">{{ formatEstimatedCost(m.costUSD) }}</span>
           </span>
         </div>
       }

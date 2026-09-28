@@ -115,14 +115,28 @@
             <li data-testid="analytics-unknown-cost">
               Cost unknown for {{ aggregates().unknownCostSessionCount }}
               {{ aggregates().unknownCostSessionCount === 1 ? 'session' : 'sessions' }}
-              (no current rate-card price); the total leaves them out.
+              (no current rate-card price);
+              @if (aggregates().totalCost !== null) {
+                the total leaves {{ aggregates().unknownCostSessionCount === 1 ? 'it' : 'them' }}
+                out, so it is a lower bound.
+              } @else {
+                no session in range has a price, so the total is unknown.
+              }
+            </li>
+          }
+          @if (aggregates().cliAgentSessionCount > 0) {
+            <li data-testid="analytics-cli-agents">
+              CLI agent runs in {{ aggregates().cliAgentSessionCount }}
+              {{ aggregates().cliAgentSessionCount === 1 ? 'session' : 'sessions' }}
+              record no cost and are not in the total.
             </li>
           }
           @if (aggregates().partiallyPricedSessionCount > 0) {
             <li data-testid="analytics-partial-pricing">
               Some usage in {{ aggregates().partiallyPricedSessionCount }}
               {{ aggregates().partiallyPricedSessionCount === 1 ? 'session' : 'sessions' }}
-              has no rate-card price; the total is a lower bound.
+              has no rate-card price; the priced part is included (marked &ge;), so
+              the total is a lower bound.
             </li>
           }
         </ul>

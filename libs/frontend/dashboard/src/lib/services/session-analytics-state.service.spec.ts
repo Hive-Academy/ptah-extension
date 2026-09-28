@@ -23,7 +23,10 @@ import {
   type SessionStatsBatchResult,
 } from '@ptah-extension/shared';
 
-import { SessionAnalyticsStateService } from './session-analytics-state.service';
+import {
+  SessionAnalyticsStateService,
+  sessionCostEstimate,
+} from './session-analytics-state.service';
 import {
   DAY_MS,
   analyticsTestDoubles,
@@ -415,6 +418,130 @@ describe('SessionAnalyticsStateService', () => {
       expect(agg.errorSessionCount).toBe(0);
     });
 
+    it('adds the known spend of a partially priced session to the total (scope 6c)', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(3));
+      await flush();
+      answerStats(statsCalls()[0], (id) => {
+        if (id === sessionId(0)) {
+          return { totalCost: 2, knownCost: 2, pricingCoverage: 'full' };
+        }
+        if (id === sessionId(1)) {
+          return { totalCost: null, knownCost: 3, pricingCoverage: 'partial' };
+        }
+        return { totalCost: null, knownCost: null, pricingCoverage: 'none' };
+      });
+      await done;
+
+      const agg = service.aggregates();
+      expect(agg.totalCost).toBeCloseTo(5);
+      expect(agg.avgCostPerSession).toBeCloseTo(2.5);
+      expect(agg.partiallyPricedSessionCount).toBe(1);
+      expect(agg.unknownCostSessionCount).toBe(1);
+      expect(agg.totalCostIsLowerBound).toBe(true);
+    });
+
+    it('passes knownCost from the stats-batch reply through to the entry unchanged (A7)', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(3));
+      await flush();
+      answerStats(statsCalls()[0], (id) => {
+        if (id === sessionId(0)) {
+          return { totalCost: null, knownCost: 1.15, pricingCoverage: 'partial' };
+        }
+        if (id === sessionId(1)) {
+          // An older producer: no knownCost field at all.
+          return { totalCost: 0.75, pricingCoverage: 'full' };
+        }
+        return { totalCost: null, knownCost: null, pricingCoverage: 'none' };
+      });
+      await done;
+
+      const entries = service.displayedSessions();
+      expect(entries[0]).toMatchObject({ totalCost: null, knownCost: 1.15 });
+      expect(entries[1]).toMatchObject({ totalCost: 0.75, knownCost: 0.75 });
+      expect(entries[2]).toMatchObject({ totalCost: null, knownCost: null });
+      expect(sessionCostEstimate(entries[0])).toEqual({
+        cost: 1.15,
+        isLowerBound: true,
+      });
+      expect(sessionCostEstimate(entries[1])).toEqual({
+        cost: 0.75,
+        isLowerBound: false,
+      });
+      expect(sessionCostEstimate(entries[2])).toEqual({
+        cost: null,
+        isLowerBound: false,
+      });
+    });
+
+    it('raises no lower-bound flag when every session is fully priced', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(2));
+      await flush();
+      answerStats(statsCalls()[0], (id) => ({
+        totalCost: id === sessionId(0) ? 2 : 1,
+        knownCost: id === sessionId(0) ? 2 : 1,
+        pricingCoverage: 'full',
+      }));
+      await done;
+
+      const agg = service.aggregates();
+      expect(agg.totalCost).toBeCloseTo(3);
+      expect(agg.totalCostIsLowerBound).toBe(false);
+      expect(agg.partiallyPricedSessionCount).toBe(0);
+      expect(agg.unknownCostSessionCount).toBe(0);
+    });
+
+    it('flags the total as a lower bound when an unpriced session is left out', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(2));
+      await flush();
+      answerStats(statsCalls()[0], (id) =>
+        id === sessionId(0)
+          ? { totalCost: 2, knownCost: 2, pricingCoverage: 'full' }
+          : { totalCost: null, knownCost: null, pricingCoverage: 'none' },
+      );
+      await done;
+
+      const agg = service.aggregates();
+      expect(agg.totalCost).toBeCloseTo(2);
+      expect(agg.totalCostIsLowerBound).toBe(true);
+      expect(agg.unknownCostSessionCount).toBe(1);
+      expect(agg.partiallyPricedSessionCount).toBe(0);
+    });
+
+    it('adds nothing for CLI-lane-only sessions and never turns them into $0 (A6)', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(2));
+      await flush();
+      answerStats(statsCalls()[0], (id) =>
+        id === sessionId(0)
+          ? { totalCost: 2, knownCost: 2, pricingCoverage: 'full' }
+          : {
+              status: 'empty',
+              totalCost: null,
+              knownCost: null,
+              pricingCoverage: 'none',
+              cliAgents: ['codex'],
+              tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+              messageCount: 0,
+            },
+      );
+      await done;
+
+      const cliOnly = service.displayedSessions()[1];
+      expect(cliOnly.cliAgents).toEqual(['codex']);
+      expect(sessionCostEstimate(cliOnly).cost).toBeNull();
+      const agg = service.aggregates();
+      expect(agg.totalCost).toBeCloseTo(2);
+      expect(agg.avgCostPerSession).toBeCloseTo(2);
+      expect(agg.totalCostIsLowerBound).toBe(false);
+      // Counted only to say its spend is not recorded, never as unknown cost.
+      expect(agg.cliAgentSessionCount).toBe(1);
+      expect(agg.unknownCostSessionCount).toBe(0);
+    });
+
     it('leaves the total null, not 0, when no session has a price', async () => {
       const done = service.loadDashboardData();
       answerList(listCalls()[0], sessions(2));
@@ -428,6 +555,8 @@ describe('SessionAnalyticsStateService', () => {
       expect(service.aggregates().totalCost).toBeNull();
       expect(service.aggregates().avgCostPerSession).toBeNull();
       expect(service.aggregates().unknownCostSessionCount).toBe(2);
+      // No figure, so nothing to mark.
+      expect(service.aggregates().totalCostIsLowerBound).toBe(false);
     });
   });
 });
