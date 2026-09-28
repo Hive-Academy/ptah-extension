@@ -77,10 +77,12 @@ graphs are deferred to a follow-up; until then those files are reported as `unsu
       degradation audit before each commit. All pass, except known flakes that pass when run alone.
 - [x] `nx run-many -t=test,lint,typecheck -p @ptah-extension/workspace-intelligence @ptah-extension/vscode-lm-tools --skip-nx-cache`
       passes (Batch 38 gate).
-- [x] `nx run-many -t=test` over the 17 dependent projects: 3,300 tests pass. 1 failure is the known environment flake
-      (rpc-handlers `harness-skill-selection`, caused by an existing `%TEMP%/.ptah/harness/state.json`).
-      memory-contracts has no test target; its typecheck passes.
-- [x] `npx nx run degradation-audit:lint --skip-nx-cache`: TOTAL 300, unchanged (re-run at f028e46a3).
+- [x] After merging `origin/main` (54f173258): `nx run-many -t=test,lint,typecheck` over the 17 dependent projects:
+      88 of 89 tasks pass, 3,383 tests pass. The 1 failure is the known environment flake (rpc-handlers
+      `harness-skill-selection`, caused by an existing `%TEMP%/.ptah/harness/state.json`; this PR does not change
+      that code). memory-contracts has no test target; its lint and typecheck pass.
+- [x] `npx nx run degradation-audit:lint --skip-nx-cache`: TOTAL 293 after the merge (300 before it; main removed 7
+      sites). No baseline raised.
 - [x] `npx nx run ptah-electron:validate-deps --skip-nx-cache` passes.
 - [x] `node scripts/copy-wasm.js --self-test` and the three packed-verifier self-tests pass.
 - [x] Parity: all 52 MCP tools at the base commit are still served; `ptah_code_reindex` is added.
