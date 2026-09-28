@@ -3031,18 +3031,20 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
         'run-1',
       );
       const payloads: ResultStatsPayload[] = [];
-      const result = () =>
+      // The second result grows by one output token: identical tokens at a
+      // new rate would be a duplicate on an unreported run, not a new turn.
+      const result = (output: number) =>
         cumulativeResult({
           model: FOUR_CLASS_MODEL,
           totalCostUsd: 0,
           costUSD: 0,
           input: 1000,
-          output: 0,
+          output,
           cacheRead: 10000,
           cacheCreation: 0,
         });
       const sdkQuery = (async function* () {
-        yield result(); // raw 1000 x 0.001 + 10000 x 0.0001 = $2; own $1
+        yield result(0); // raw 1000 x 0.001 + 10000 x 0.0001 = $2; own $1
         registerProviderPricing({
           [FOUR_CLASS_MODEL]: {
             inputCostPerToken: 0.002,
@@ -3051,7 +3053,9 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
             cacheCreationCostPerToken: 0.0005,
           },
         });
-        yield result(); // raw $2 + $0.50 = $2.50; own 10000 x 0.00005 = $0.50
+        // raw $2 + $0.50 + $0.002 = $2.502; own 10000 x 0.00005 + 1 x 0.002
+        // = $0.502
+        yield result(1);
       })();
 
       try {
@@ -3079,7 +3083,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
 
       expect(payloads.map((p) => p.turnCost)).toEqual([1, null]);
       expect(payloads[1].sessionStats?.totalCost).toBeCloseTo(
-        PREFIX_COST + 0.5,
+        PREFIX_COST + 0.502,
         6,
       );
       expect(harness.logger.warn).toHaveBeenCalledWith(

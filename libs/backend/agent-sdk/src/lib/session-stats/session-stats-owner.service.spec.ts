@@ -1103,10 +1103,11 @@ describe('SessionStatsOwnerService.replaceRun turnCost (TASK_2026_575)', () => {
   describe('a mid-run rate change (unreported, restored base)', () => {
     // The runtime pricing map can change during a run (a catalog hydration
     // re-registers rates) and every result is priced with the rate current at
-    // that moment. A run's RAW cumulative must still grow (`isGrown`), so the
-    // net-of-base cost can only fall when rates move in opposite directions
-    // across token classes: here input (all of it restored base) gets dearer
-    // while cache reads (all of them this run's own) get cheaper.
+    // that moment. Here the RAW cumulative still grows while the net-of-base
+    // cost falls, because rates move in opposite directions across token
+    // classes: input (all of it restored base) gets dearer while cache reads
+    // (all of them this run's own) get cheaper. A plain rate drop is covered
+    // below.
     const base = saved(0, {
       [MODEL]: { input: 1000, output: 0, cacheRead: 0 },
     });
@@ -1115,13 +1116,15 @@ describe('SessionStatsOwnerService.replaceRun turnCost (TASK_2026_575)', () => {
       outputCostPerToken: 0,
       cacheReadCostPerToken: 0.001,
     };
-    const priced = (raw: number, rate: ModelPricing) =>
+    // `output` is free at every rate here; growing it makes a later result a
+    // new turn (identical tokens at a new rate would be a `duplicate`).
+    const priced = (raw: number, rate: ModelPricing, output = 0) =>
       run(
         raw,
         [
           {
             input: 1000,
-            output: 0,
+            output,
             cacheRead: 1000,
             costUSD: raw,
             pricing: rate,
@@ -1138,7 +1141,7 @@ describe('SessionStatsOwnerService.replaceRun turnCost (TASK_2026_575)', () => {
         cacheReadCostPerToken: 0.0005,
       };
       const first = offer(priced(2, RATE_1)); // raw $2.00, own $1.00
-      const second = offer(priced(2.5, RATE_2)); // raw $2.50, own $0.50
+      const second = offer(priced(2.5, RATE_2, 1)); // raw $2.50, own $0.50
 
       expect(first.turnCost).toBe(1);
       expect(first.runCostDecreased).toBe(false);
@@ -1157,12 +1160,155 @@ describe('SessionStatsOwnerService.replaceRun turnCost (TASK_2026_575)', () => {
         cacheReadCostPerToken: 0.001 - 4e-10, // own cost down by $4e-7
       };
       const first = offer(priced(2, RATE_1));
-      const second = offer(priced(3, NOISE));
+      const second = offer(priced(3, NOISE, 1));
 
       expect(first.turnCost).toBe(1);
       expect(second.outcome).toBe('accepted');
       expect(second.turnCost).toBe(0);
       expect(second.runCostDecreased).toBe(false);
+    });
+  });
+
+  // R11 (TASK_2026_575 Batch 2b): on an `'unreported'` run the dollars are a
+  // rate-card function of the tokens, so tokens alone decide monotonicity and
+  // duplicates. A mid-run rate drop must never freeze the snapshot: the run's
+  // total is priced at the rate card in force at its latest accepted result.
+  describe('a mid-run rate drop on an unreported run never freezes the snapshot', () => {
+    const R1: ModelPricing = { inputCostPerToken: 0.01, outputCostPerToken: 0.1 };
+    const R2: ModelPricing = {
+      inputCostPerToken: 0.005,
+      outputCostPerToken: 0.05,
+    };
+    const at = (rate: ModelPricing, input: number, output: number) =>
+      input * rate.inputCostPerToken + output * rate.outputCostPerToken;
+    /** A cumulative unreported result priced at `rate`, as the transformer does. */
+    const unreported = (
+      rate: ModelPricing,
+      input: number,
+      output: number,
+      durationMs = 1000,
+    ): RunUsageResult => {
+      const cost = at(rate, input, output);
+      return {
+        ...run(
+          cost,
+          [{ input, output, cacheRead: 0, costUSD: cost, pricing: rate }],
+          { unreported: true },
+        ),
+        durationMs,
+      };
+    };
+
+    it('(a) no base: the rate-drop turn is accepted with an unknown cost and the snapshot keeps advancing', () => {
+      const { offer } = freshRun();
+      const t1 = offer(unreported(R1, 100, 10)); // $2
+      const t2 = offer(unreported(R1, 200, 20)); // $4
+      const t3 = offer(unreported(R2, 300, 30)); // $3 at the cheaper rate
+      const t4 = offer(unreported(R2, 400, 40)); // $4
+
+      expect([t1.turnCost, t2.turnCost]).toEqual([2, 2]);
+      expect(t3.outcome).toBe('accepted');
+      expect(t3.turnCost).toBeNull();
+      expect(t3.runCostDecreased).toBe(true);
+      expect(t3.snapshot?.tokens).toMatchObject({ input: 300, output: 30 });
+      expect(t3.snapshot?.durationMs).toBe(3000);
+      expect(t3.snapshot?.totalCost).toBeCloseTo(at(R2, 300, 30), 6);
+
+      expect(t4.outcome).toBe('accepted');
+      expect(t4.turnCost).toBeCloseTo(at(R2, 100, 10), 6);
+      expect(t4.runCostDecreased).toBe(false);
+      expect(t4.snapshot?.tokens).toMatchObject({ input: 400, output: 40 });
+      expect(t4.snapshot?.durationMs).toBe(4000);
+      expect(t4.snapshot?.totalCost).toBeCloseTo(at(R2, 400, 40), 6);
+    });
+
+    it('(b) restored base: the net tokens are repriced at the new rate and the snapshot keeps advancing', async () => {
+      const base = saved(10, { [MODEL]: { input: 100, output: 10 } });
+      const { offer } = await resumed(prefix(10, { savedCostState: base }));
+      // Raw cumulatives include the restored 100/10; the run's own spend is
+      // the token difference repriced with the row's current rate.
+      const t1 = offer(unreported(R1, 200, 20)); // net 100/10 = $2
+      const t2 = offer(unreported(R1, 300, 30)); // net 200/20 = $4
+      const t3 = offer(unreported(R2, 400, 40)); // net 300/30 at R2 = $3
+      const t4 = offer(unreported(R2, 500, 50)); // net 400/40 at R2 = $4
+
+      expect([t1.turnCost, t2.turnCost]).toEqual([2, 2]);
+      expect(t3.outcome).toBe('accepted');
+      expect(t3.turnCost).toBeNull();
+      expect(t3.runCostDecreased).toBe(true);
+      // Prefix 100 input + this run's net 300/30.
+      expect(t3.snapshot?.tokens).toMatchObject({ input: 400, output: 30 });
+      expect(t3.snapshot?.totalCost).toBeCloseTo(10 + at(R2, 300, 30), 6);
+
+      expect(t4.outcome).toBe('accepted');
+      expect(t4.turnCost).toBeCloseTo(at(R2, 100, 10), 6);
+      expect(t4.runCostDecreased).toBe(false);
+      expect(t4.snapshot?.tokens).toMatchObject({ input: 500, output: 40 });
+      expect(t4.snapshot?.totalCost).toBeCloseTo(10 + at(R2, 400, 40), 6);
+    });
+
+    it('(c) identical tokens repriced at a new rate are a duplicate: no turn cost, snapshot unchanged', () => {
+      const { offer } = freshRun();
+      const first = offer(unreported(R1, 200, 20)); // $4
+      const cheaper = offer(unreported(R2, 200, 20)); // same tokens, $2
+      const dearer = offer(
+        unreported({ inputCostPerToken: 0.02, outputCostPerToken: 0.2 }, 200, 20),
+      ); // same tokens, $8
+
+      for (const repriced of [cheaper, dearer]) {
+        expect(repriced).toMatchObject({
+          outcome: 'duplicate',
+          turnCost: null,
+          runCostDecreased: false,
+        });
+        // Priced at the rate in force at the latest ACCEPTED result.
+        expect(repriced.snapshot?.totalCost).toBe(4);
+        expect(repriced.snapshot?.revision).toBe(first.snapshot?.revision);
+        expect(repriced.snapshot?.durationMs).toBe(1000);
+      }
+    });
+
+    it('(d) a token counter going down is still rejected-non-monotonic', () => {
+      const { offer } = freshRun();
+      offer(unreported(R1, 200, 20));
+      const shrunk = offer(unreported(R2, 190, 30));
+      // The run's only model is missing from the next result.
+      const dropped = offer(
+        run(1, [{ model: 'zz-other', input: 500, output: 50, pricing: R2 }], {
+          unreported: true,
+        }),
+      );
+
+      expect(shrunk).toMatchObject({
+        outcome: 'rejected-non-monotonic',
+        turnCost: null,
+      });
+      expect(dropped.outcome).toBe('rejected-non-monotonic');
+      expect(dropped.snapshot?.totalCost).toBe(4);
+    });
+
+    it('(e) a reported run whose SDK total goes down is still rejected-non-monotonic', () => {
+      const { offer } = freshRun();
+      offer(run(10, [{ input: 100 }]));
+      const lower = offer(run(8, [{ input: 150 }]));
+      const sameTokensNewTotal = offer(run(9, [{ input: 100 }]));
+
+      expect(lower).toMatchObject({
+        outcome: 'rejected-non-monotonic',
+        turnCost: null,
+      });
+      // Reported dollars stay authoritative: same tokens, different total is
+      // not a duplicate.
+      expect(sameTokensNewTotal.outcome).toBe('rejected-non-monotonic');
+      expect(lower.snapshot?.totalCost).toBe(10);
+    });
+
+    it('mixed cost sources keep the stricter dollar check', () => {
+      const { offer } = freshRun();
+      offer(unreported(R1, 200, 20)); // $4
+      const reportedLower = offer(run(3, [{ input: 300, output: 30 }]));
+
+      expect(reportedLower.outcome).toBe('rejected-non-monotonic');
     });
   });
 });

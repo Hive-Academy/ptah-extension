@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_74a4
 
-Total tasks: 14 | Batches: 7 | Complete: 3/7 (Batch 4 visual "after" evidence open, due after Batch 3)
+Total tasks: 14 | Batches: 7 | Complete: 4/7 (Batch 4 visual "after" evidence open, due after Batch 3)
 
 BUGFIX, plan-free. Decomposed from task.md, context.md ("Orchestrator scope decisions" 1-7, binding),
 research-report.md and research-addendum.md, stress-tested against base 722d921ab on disk.
@@ -41,7 +41,7 @@ Assumptions:
 | R7 TUI shows `payload.cost` as the session cost (`apps/ptah-tui/src/hooks/use-sessions.ts:153`); after the rename it would silently fall back to one model row's process-cumulative cost. | MEDIUM | Batch 5 switches the TUI to the backend `sessionStats` snapshot. |
 | R8 Analytics lower bound must stay labeled: `knownCost` is "never a substitute for totalCost" (`rpc-session.types.ts:204-209`). | MEDIUM | Task 4.1 sums `totalCost ?? knownCost` into a total explicitly flagged partial/lower-bound; the marker renders whenever any partially priced session contributes. |
 | R9 Visual "before" evidence must come from the base build, before Batch 4 lands. | MEDIUM | Batch 4 pre-step: visual-reviewer captures dark + light "before" screenshots of the analytics page at base 722d921ab first. |
-| R11 (added at Batch 2 commit, from code-logic-review-b2-r1.md; pre-existing on base) `isGrown` enforces dollar monotonicity on `'unreported'` runs, so a mid-run rate drop rejects every later result and freezes the session snapshot. | MEDIUM | Batch 2b |
+| R11 (added at Batch 2 commit, from code-logic-review-b2-r1.md; pre-existing on base) `isGrown` enforces dollar monotonicity on `'unreported'` runs, so a mid-run rate drop rejects every later result and freezes the session snapshot. | MEDIUM | Batch 2b - resolved: `isGrown`/`isSameUsage` compare tokens only when both results are unreported (`dollarsAreObserved`); pinned by owner spec tests (a)-(e). |
 | R10 Pinning tests that cannot fail on base: live-vs-disk parity (e) and agent-stats sum (f) describe behaviour that is already correct on base. | LOW | Batch 6 states they are guards (not failing-first) and must fail when the guarded behaviour is broken on purpose (executor shows a deliberate mutation making each fail, then reverts). |
 
 Edge cases:
@@ -103,7 +103,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 - Codex CLI-lane logic review returns APPROVE
 - Edge cases for model ids above are covered
 
-## Batch 2: Per-turn cost delta and the turnCost wire field - COMPLETE (SHA_PENDING)
+## Batch 2: Per-turn cost delta and the turnCost wire field - COMPLETE (f1c4a365f)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer (fresh invocation)
@@ -157,7 +157,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Codex CLI-lane logic review returns APPROVE
 - R1, R3, R4 addressed as described
 
-## Batch 2b: Unreported runs never freeze on a mid-run rate drop - PENDING
+## Batch 2b: Unreported runs never freeze on a mid-run rate drop - COMPLETE (SHA_PENDING)
 
 - Origin: code-logic-review-b2-r1.md moderate finding (pre-existing on base): `isGrown` (session-stats-owner.service.ts:926-948) enforces DOLLAR monotonicity. On a `costSource: 'unreported'` run (Codex / proxy; dollars come from the rate card, not the provider) a mid-run rate decrease (runtime pricing map re-registered when a provider catalog hydrates) makes every later result `rejected-non-monotonic`, freezing the session snapshot (tokens, cost, duration) at the earlier turn. Orchestrator decision: IN SCOPE (user asked for totals reflecting the actual model costs).
 - Recommended executor: backend-developer (sub-agent)
@@ -168,7 +168,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Reviewer: code-logic review on a CLI lane, cross-side - accounting monotonicity and duplicate detection.
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
 
-### Task 2b.1: Monotonicity and duplicate checks by cost source - PENDING
+### Task 2b.1: Monotonicity and duplicate checks by cost source - COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.ts
 - Plan reference: code-logic-review-b2-r1.md (isGrown finding); context.md user request; Batch 2 `acceptedTurnCost` contract
@@ -177,7 +177,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Validation notes: new risk R11 (below). Policy (define and document on `isGrown`/`isSameUsage`): for `costSource === 'unreported'` the run's dollars are a pure function of its tokens and the CURRENT rate card, so (1) `isGrown` checks only token counters (per model, every previous model still present) and ignores `totalCost` and per-model `costUSD`; (2) `isSameUsage` compares tokens only, so identical tokens repriced at a new rate are a `duplicate` (not published, no footer overwrite) rather than a fresh turn; (3) the accepted snapshot reprices the whole run's net tokens at the current rates (what `subtractRunBase` already does) - the documented policy is "an unreported run's total is priced at the rate card in force at its latest accepted result"; (4) `acceptedTurnCost` unchanged: a turn whose net run cost went down by more than 1e-6 returns `turnCost: null` + `runCostDecreased: true` (logged), an increase stays a normal delta. Mixed cost-source across results of one run is not expected; if `prev.costSource !== next.costSource` keep the stricter (dollar) check.
 - Implementation details: pass the cost source into `isGrown` / `isSameUsage` (from `next.costSource`), branch on `'unreported'`. No change to `publish`, `recordAgent`, `subtractRunBase` or the wire type. Update the JSDoc of both functions.
 
-### Task 2b.2: Failing-first regression tests - PENDING
+### Task 2b.2: Failing-first regression tests - COMPLETE
 
 - Depends on: Task 2b.1
 - Files:
@@ -190,12 +190,20 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 
 ### Batch 2b verification
 
+Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk --skip-nx-cache` - passed (3 tasks, EXIT 0). Verified on disk: private `dollarsAreObserved(a, b)` (false only when both results are 'unreported'); `isSameUsage` / `isGrown` skip total and per-model dollar checks only in that case; policy documented on both ("an unreported run's total is priced at the rate card in force at its latest accepted result"); `acceptedTurnCost`, `publish`, `subtractRunBase` and the wire type unchanged; no stub markers or skipped tests in the diff. New owner tests (a)-(e) plus the mixed-source guard. Failing-first on f1c4a365f reported by the executor: (a), (b) Expected "accepted" Received "rejected-non-monotonic"; (c) failed on the duplicate expectation; (d), (e), mixed are guards that pass on both. Three existing tests (two owner, one transformer at stream-transformer.spec.ts ~3017) grew one output token so the later result is a real new turn; assertions unchanged apart from the exact +0.002 of that token. Logic review (Glm CLI lane, cross-side): code-logic-review-b2b.md APPROVE 9/10, 0 blocking/serious/moderate, 3 minor accepted by the orchestrator.
+
+Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not implemented):
+
+- F1 Unreported run whose model goes unpriced -> priced with identical tokens stays a `duplicate`, so the snapshot keeps its partial (labeled lower-bound) total until tokens grow. Possible fix: on an unreported duplicate, reprice `run.current` into the snapshot without publishing a turn.
+- F2 (pre-existing policy) A rate RISE on an unreported run bills the repricing of earlier tokens to the current turn's `turnCost` (telescoping keeps the session total exact; the per-turn figure absorbs the difference). Documented policy; a per-turn "repriced" split would need a wire change.
+- (informational) The mixed-source stricter check matters only if `costSource` ever becomes changeable mid-run; today it is frozen per query stream.
+
 - Files exist and contain the work; policy documented on `isGrown` / `isSameUsage`
 - Executor names the tests that failed on the Batch 2 commit and shows the failing assertion
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` passes
 - CLI-lane logic review returns APPROVE
 
-## Batch 3: Webview consumers read turnCost - PENDING
+## Batch 3: Webview consumers read turnCost - IN_PROGRESS
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -206,7 +214,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/chat-streaming`
 - Contract from Batch 2 (binding, `libs/shared/src/lib/types/agent-adapter.types.ts` `ResultStatsPayload`): one payload per NEW turn (duplicates are not published), so `turnCost` always applies to the latest assistant message; `turnCost: null` = UNKNOWN, rendered as unavailable, never $0 and never replaced by a previous or summed value; the session header installs only the backend `sessionStats` snapshot.
 
-### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - PENDING
+### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts
@@ -217,7 +225,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Validation notes: R2.
 - Implementation details: define `SessionStatsResultEvent` from `ResultStatsPayload` in `@ptah-extension/shared` (e.g. `Omit<ResultStatsPayload, 'sessionId' | 'modelUsage'> & {...}` preserving the existing `TurnModelUsage` narrowing) so a future wire rename fails typecheck; `SessionStatsSnapshotEvent` uses `turnCost?: undefined`; `isSnapshotOnly` checks `turnCost`. `StreamingHandlerService.handleSessionStats` takes `turnCost` and writes it to `pendingStats.cost` and, when finalized, to the last assistant message `cost`. No change to chat-types, message-finalization or chat-transcript (they carry the per-message value already).
 
-### Task 3.2: Webview regression tests - PENDING
+### Task 3.2: Webview regression tests - IN_PROGRESS
 
 - Depends on: Task 3.1
 - Files:
@@ -321,7 +329,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - Fallback executor: senior-tester (fresh invocation)
 - Execution mode: sequential
 - Rationale: tests only, spanning the live owner, the disk aggregator and the per-agent badge; needs judgment on fixtures, not production edits.
-- Tasks: 2 | Depends on: Batches 1 and 2
+- Tasks: 2 | Depends on: Batches 1, 2 and 2b
 - Reviewer: code-logic review on a CLI lane (codex) - are the guards real (would they catch the regression)?
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree`
 
