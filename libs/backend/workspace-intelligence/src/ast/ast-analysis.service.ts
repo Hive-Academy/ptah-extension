@@ -1,12 +1,13 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { GenericAstNode, SupportedLanguage } from './ast.types';
+import { CodePosition, GenericAstNode, SupportedLanguage } from './ast.types';
 import {
   CodeInsights,
   FunctionInfo,
   ClassInfo,
   ImportInfo,
+  DeclarationInfo,
 } from './ast-analysis.interfaces';
 import {
   TreeSitterParserService,
@@ -14,8 +15,53 @@ import {
   QueryCapture,
 } from './tree-sitter-parser.service';
 import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
-import { extractExportsFromMatches } from './export-extraction';
+import {
+  extractExportsFromMatches,
+  moduleStringValue,
+} from './export-extraction';
 import { cDeclaratorName } from './c-declarator';
+import { LANGUAGE_MODULES } from './languages';
+import type { LanguageExtraction } from './languages/types';
+
+/** `@declaration.<kind>` or `@declaration.<kind>.file` (`languages/types.ts`). */
+const DECLARATION_CAPTURE =
+  /^declaration\.(package|namespace|module)(\.file)?$/;
+
+/** A declaration with the exact range scope containment is computed on. */
+interface ScopedDeclaration {
+  readonly kind: DeclarationInfo['kind'];
+  /** The name as written in this declaration. */
+  readonly ownName: string;
+  /** The full name inside the file (enclosing names joined). */
+  readonly name: string;
+  readonly start: CodePosition;
+  readonly end: CodePosition;
+}
+
+function comparePositions(a: CodePosition, b: CodePosition): number {
+  return a.row - b.row || a.column - b.column;
+}
+
+function encloses(outer: ScopedDeclaration, position: CodePosition): boolean {
+  return (
+    comparePositions(outer.start, position) <= 0 &&
+    comparePositions(position, outer.end) <= 0
+  );
+}
+
+/** The position just past the last character of `content`. */
+function endOfContent(content: string): CodePosition {
+  const lines = content.split('\n');
+  return { row: lines.length - 1, column: lines[lines.length - 1].length };
+}
+
+/** A TS/JS module string's text without its surrounding quotes. */
+function unquoteModuleString(text: string): string {
+  return (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+    ? text.slice(1, -1)
+    : text;
+}
 
 /**
  * Node types for JavaScript/TypeScript AST analysis.
@@ -112,11 +158,17 @@ export class AstAnalysisService {
 
     try {
       const langQueries = LANGUAGE_QUERIES_MAP[language];
+      const extraction = LANGUAGE_MODULES[language].extraction;
       const queryEntries = [
         { key: 'functions', queryString: langQueries.functionQuery },
         { key: 'classes', queryString: langQueries.classQuery },
         { key: 'imports', queryString: langQueries.importQuery },
         { key: 'exports', queryString: langQueries.exportQuery },
+        // Batch 32a: an extra entry of the same parse, not a second parse.
+        {
+          key: 'declarations',
+          queryString: extraction?.declarations?.query,
+        },
       ].filter(
         (e): e is { key: string; queryString: string } => !!e.queryString,
       );
@@ -151,9 +203,23 @@ export class AstAnalysisService {
       const classes: ClassInfo[] = this.extractClassesFromMatches(
         map.get('classes') ?? [],
       );
-      const imports: ImportInfo[] = this.extractImportsFromMatches(
-        map.get('imports') ?? [],
-      );
+      const scopes = extraction?.declarations
+        ? this.extractDeclarationsFromMatches(
+            map.get('declarations') ?? [],
+            extraction.declarations.scopeSeparator,
+            endOfContent(content),
+          )
+        : [];
+      const imports: ImportInfo[] = extraction
+        ? this.extractContractImports(
+            map.get('imports') ?? [],
+            extraction,
+            scopes,
+          )
+        : this.extractImportsFromMatches(map.get('imports') ?? []);
+      const reExportSources = extraction
+        ? []
+        : this.extractReExportSources(map.get('imports') ?? []);
       const { exports, unextracted } = extractExportsFromMatches(
         map.get('exports') ?? [],
       );
@@ -169,6 +235,19 @@ export class AstAnalysisService {
         ...(unextracted.length > 0 ? { unextractedExports: unextracted } : {}),
         ...(unextractedDeclarations.length > 0
           ? { unextractedDeclarations }
+          : {}),
+        ...(reExportSources.length > 0 ? { reExportSources } : {}),
+        ...(extraction?.declarations
+          ? {
+              declarations: scopes.map(
+                ({ kind, name, start, end }): DeclarationInfo => ({
+                  kind,
+                  name,
+                  startLine: start.row,
+                  endLine: end.row,
+                }),
+              ),
+            }
           : {}),
       };
 
@@ -404,13 +483,7 @@ export class AstAnalysisService {
 
       const sourceCapture = captures.get('import.source');
       if (sourceCapture) {
-        let source = textWithoutComments(sourceCapture);
-        if (
-          (source.startsWith('"') && source.endsWith('"')) ||
-          (source.startsWith("'") && source.endsWith("'"))
-        ) {
-          source = source.slice(1, -1);
-        }
+        const source = unquoteModuleString(textWithoutComments(sourceCapture));
         const defaultCapture = captures.get('import.default');
         const namedCapture = captures.get('import.named');
         const namespaceCapture = captures.get('import.namespace');
@@ -444,6 +517,120 @@ export class AstAnalysisService {
       }
     }
 
+    return imports;
+  }
+
+  /**
+   * Batch 32b: the module of every TS/JS re-export statement
+   * (`@import.reexport_source`), as its decoded value, once each, in source
+   * order.
+   */
+  private extractReExportSources(matches: QueryMatch[]): string[] {
+    const sources = new Set<string>();
+    for (const match of matches) {
+      for (const capture of match.captures) {
+        if (capture.name === 'import.reexport_source') {
+          sources.add(moduleStringValue(capture.node));
+        }
+      }
+    }
+    return [...sources];
+  }
+
+  /**
+   * Batch 32a declarations: decodes `@declaration.*` matches, extends a
+   * file-scoped declaration to `fileEnd`, and joins each declaration's name
+   * onto the names of the declarations whose range contains it. Returned in
+   * source order (outer before inner at the same start).
+   */
+  private extractDeclarationsFromMatches(
+    matches: QueryMatch[],
+    scopeSeparator: string,
+    fileEnd: CodePosition,
+  ): ScopedDeclaration[] {
+    const raw: Omit<ScopedDeclaration, 'name'>[] = [];
+    for (const match of matches) {
+      const nameCapture = match.captures.find(
+        (c) => c.name === 'declaration.name',
+      );
+      let declaring: RegExpExecArray | null = null;
+      let node: QueryCapture | undefined;
+      for (const capture of match.captures) {
+        const parsed = DECLARATION_CAPTURE.exec(capture.name);
+        if (parsed) {
+          declaring = parsed;
+          node = capture;
+        }
+      }
+      if (!nameCapture || !declaring || !node) continue;
+      raw.push({
+        kind: declaring[1] as DeclarationInfo['kind'],
+        ownName: nameCapture.text,
+        start: node.startPosition,
+        end: declaring[2] ? fileEnd : node.endPosition,
+      });
+    }
+    raw.sort(
+      (a, b) =>
+        comparePositions(a.start, b.start) || comparePositions(b.end, a.end),
+    );
+
+    const scoped: ScopedDeclaration[] = [];
+    for (const declaration of raw) {
+      // Every earlier declaration that still contains this one is an
+      // ancestor; the last of them is the nearest (source order).
+      const parent = [...scoped]
+        .reverse()
+        .find(
+          (outer) =>
+            encloses(outer, declaration.start) &&
+            encloses(outer, declaration.end),
+        );
+      scoped.push({
+        ...declaration,
+        name: parent
+          ? `${parent.name}${scopeSeparator}${declaration.ownName}`
+          : declaration.ownName,
+      });
+    }
+    return scoped;
+  }
+
+  /**
+   * Batch 32a imports: each distinct `@import.statement` node is decoded once
+   * by the language, in source order, and every import it yields gets the
+   * statement's line and the names of the declarations enclosing it.
+   */
+  private extractContractImports(
+    matches: QueryMatch[],
+    extraction: LanguageExtraction,
+    scopes: readonly ScopedDeclaration[],
+  ): ImportInfo[] {
+    const statements = new Map<string, GenericAstNode>();
+    for (const match of matches) {
+      for (const capture of match.captures) {
+        if (capture.name !== 'import.statement') continue;
+        const { row, column } = capture.startPosition;
+        statements.set(`${row}:${column}`, capture.node);
+      }
+    }
+
+    const imports: ImportInfo[] = [];
+    const ordered = [...statements.values()].sort((a, b) =>
+      comparePositions(a.startPosition, b.startPosition),
+    );
+    for (const statement of ordered) {
+      const scopePath = scopes
+        .filter((scope) => encloses(scope, statement.startPosition))
+        .map((scope) => scope.ownName);
+      for (const extracted of extraction.extractImports(statement)) {
+        imports.push({
+          ...extracted,
+          line: statement.startPosition.row,
+          scopePath: [...scopePath],
+        });
+      }
+    }
     return imports;
   }
 

@@ -16,7 +16,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Result } from '@ptah-extension/shared';
-import { isCleanAnswer } from '@ptah-extension/platform-core';
+import {
+  isCleanAnswer,
+  type LanguageCoverage,
+} from '@ptah-extension/platform-core';
 import type {
   BackgroundWorkAdmission,
   Logger,
@@ -24,8 +27,10 @@ import type {
 import {
   DependencyGraphService,
   graphPathIdentity,
+  type DependencyGraph,
 } from './dependency-graph.service';
 import type { AstAnalysisService } from './ast-analysis.service';
+import { TS_JS_IMPORT_RESOLVER } from './import-resolution/ts-js-import-resolver';
 import type { FileSystemService } from '../services/file-system.service';
 import type {
   ExportInfo,
@@ -1735,5 +1740,447 @@ describe('DependencyGraphService — partial export extraction (R5-01)', () => {
       unchecked: 0,
       failed: 1,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_559 Batch 32b: resolver dispatch, resolver context, re-exports.
+// ---------------------------------------------------------------------------
+
+/** A throw-away workspace root on disk (real path, forward slashes). */
+function tempRoot(files: Record<string, string>): string {
+  const root = fs
+    .realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-32b-')))
+    .replace(/\\/g, '/');
+  for (const [relative, content] of Object.entries(files)) {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  }
+  return root;
+}
+
+/** The language coverage published for `root`; fails the test when none is. */
+function languagesOf(
+  svc: DependencyGraphService,
+  root: string,
+): LanguageCoverage {
+  const languages = svc.getCoverageReport(root)?.languages;
+  if (languages === undefined) throw new Error('no coverage published');
+  return languages;
+}
+
+function reExport(name: string, source: string): ExportInfo {
+  return {
+    name,
+    kind: name === '*' ? 'wildcard' : 'unknown',
+    isReExport: true,
+    source,
+  };
+}
+
+describe('DependencyGraphService — resolver context (TASK_2026_559 Batch 32b)', () => {
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  // FB: the MCP namespace passes no tsconfig `paths` (`undefined`); on the
+  // batch base an alias import then never resolved. The resolver context
+  // now reads the root tsconfig itself (JSONC: comments, trailing commas),
+  // and a package the root package.json declares is proven external.
+  it('tsconfig alias resolves on the MCP path', async () => {
+    const root = tempRoot({
+      'package.json': '{ "dependencies": { "lodash": "^4.17.21" } }',
+      'tsconfig.base.json': [
+        '{',
+        '  // Workspace aliases',
+        '  "compilerOptions": {',
+        '    /* resolved from the root */',
+        '    "paths": { "@app/*": ["src/*"], },',
+        '  },',
+        '}',
+      ].join('\n'),
+    });
+    roots.push(root);
+    const a = `${root}/a.ts`;
+    const util = `${root}/src/util.ts`;
+    const svc = makeServiceWith({
+      [a]: insights([imp('@app/util'), imp('lodash')], []),
+      [util]: insights([], [exp('util')]),
+    });
+
+    await svc.buildGraph([a, util], root, undefined);
+
+    expect(svc.getDependents(util)).toEqual([a]);
+    const languages = languagesOf(svc, root);
+    expect(languages.resolution).toEqual({
+      external: 1,
+      unresolvedInternal: 0,
+      truncatedImports: 0,
+      edgeCapHit: false,
+      context: 'complete',
+    });
+    expect(isCleanAnswer(languages)).toBe(true);
+  });
+
+  it('resolves a bare specifier through the tsconfig baseUrl', async () => {
+    const root = tempRoot({
+      'tsconfig.json': '{ "compilerOptions": { "baseUrl": "./src" } }',
+    });
+    roots.push(root);
+    const a = `${root}/a.ts`;
+    const helper = `${root}/src/utils/helper.ts`;
+    const svc = makeServiceWith({
+      [a]: insights([imp('utils/helper')], []),
+      [helper]: insights([], []),
+    });
+
+    await svc.buildGraph([a, helper], root);
+
+    expect(svc.getDependents(helper)).toEqual([a]);
+  });
+
+  // Limits disclosed: a manifest over 256 KiB is not read, so the context is
+  // partial and the coverage says so (never clean).
+  it('discloses a manifest over the size limit as a partial context', async () => {
+    const root = tempRoot({
+      'tsconfig.json': `{ "compilerOptions": {} ${' '.repeat(256 * 1024)}}`,
+    });
+    roots.push(root);
+    const a = `${root}/a.ts`;
+    const b = `${root}/b.ts`;
+    const svc = makeServiceWith({
+      [a]: insights([imp('./b')], []),
+      [b]: insights([], []),
+    });
+
+    await svc.buildGraph([a, b], root);
+
+    const languages = languagesOf(svc, root);
+    expect(languages.resolution?.context).toBe('partial');
+    expect(languages.approximations).toEqual(['resolver-context-partial']);
+    expect(isCleanAnswer(languages)).toBe(false);
+    expect(svc.getDependents(b)).toEqual([a]);
+  });
+
+  // R32B-01 (review r1 scenario): a root tsconfig.json that extends the base
+  // and overrides `paths` wins, as TypeScript's own resolver decides.
+  it('resolves an alias through the overriding child tsconfig, not the base', async () => {
+    const root = tempRoot({
+      'tsconfig.base.json':
+        '{ "compilerOptions": { "baseUrl": ".", "paths": { "@x": ["old.ts"] } } }',
+      'tsconfig.json':
+        '{ "extends": "./tsconfig.base.json", "compilerOptions": { "paths": { "@x": ["new.ts"] } } }',
+    });
+    roots.push(root);
+    const main = `${root}/main.ts`;
+    const oldFile = `${root}/old.ts`;
+    const newFile = `${root}/new.ts`;
+    const svc = makeServiceWith({
+      [main]: insights([imp('@x')], []),
+      [oldFile]: insights([], []),
+      [newFile]: insights([], []),
+    });
+
+    await svc.buildGraph([main, oldFile, newFile], root);
+
+    expect(svc.getDependencies(main)).toEqual([newFile]);
+    expect(svc.getDependents(newFile)).toEqual([main]);
+    expect(svc.getDependents(oldFile)).toEqual([]);
+    expect(isCleanAnswer(languagesOf(svc, root))).toBe(true);
+  });
+
+  it('discloses independent root tsconfigs that map an alias differently', async () => {
+    const root = tempRoot({
+      'tsconfig.app.json':
+        '{ "compilerOptions": { "paths": { "@x": ["a.ts"] } } }',
+      'tsconfig.lib.json':
+        '{ "compilerOptions": { "paths": { "@x": ["b.ts"] } } }',
+    });
+    roots.push(root);
+    const main = `${root}/main.ts`;
+    const svc = makeServiceWith({
+      [main]: insights([imp('@x')], []),
+      [`${root}/a.ts`]: insights([], []),
+      [`${root}/b.ts`]: insights([], []),
+    });
+
+    await svc.buildGraph([main, `${root}/a.ts`, `${root}/b.ts`], root);
+
+    expect(svc.getDependencies(main)).toEqual([]);
+    const languages = languagesOf(svc, root);
+    expect(languages.resolution?.context).toBe('partial');
+    expect(isCleanAnswer(languages)).toBe(false);
+  });
+
+  // R32B-02 (review r1 scenario): a `file:` dependency is the workspace's own
+  // package, linked to its entry file, never certified external.
+  it('links a file: dependency to the local package, not to an external', async () => {
+    const root = tempRoot({
+      'package.json':
+        '{ "dependencies": { "local": "file:./packages/local" } }',
+    });
+    roots.push(root);
+    const main = `${root}/main.ts`;
+    const entry = `${root}/packages/local/index.ts`;
+    const svc = makeServiceWith({
+      [main]: insights([imp('local')], []),
+      [entry]: insights([], [exp('x')]),
+    });
+
+    await svc.buildGraph([main, entry], root);
+
+    expect(svc.getDependents(entry)).toEqual([main]);
+    expect(languagesOf(svc, root).resolution).toMatchObject({
+      external: 0,
+      unresolvedInternal: 0,
+      context: 'complete',
+    });
+  });
+
+  it('never reads a workspace: dependency it cannot locate as clean', async () => {
+    const root = tempRoot({
+      'package.json': '{ "dependencies": { "shared": "workspace:*" } }',
+    });
+    roots.push(root);
+    const main = `${root}/main.ts`;
+    const svc = makeServiceWith({ [main]: insights([imp('shared')], []) });
+
+    await svc.buildGraph([main], root);
+
+    const languages = languagesOf(svc, root);
+    expect(languages.resolution).toMatchObject({
+      external: 0,
+      unresolvedInternal: 1,
+    });
+    expect(isCleanAnswer(languages)).toBe(false);
+  });
+});
+
+describe('DependencyGraphService — multi-target expansion (TASK_2026_559 Batch 32b)', () => {
+  const SOURCE = 'D:/ws-m/source.ts';
+  const TARGETS = Array.from({ length: 500 }, (_, i) => `D:/ws-m/t${i}.ts`);
+  const FILES = [SOURCE, ...TARGETS];
+
+  /** The TS resolver answers `./package` with every target (a package edge). */
+  function expandingResolver(onResolve: () => void = () => undefined) {
+    return jest
+      .spyOn(TS_JS_IMPORT_RESOLVER, 'resolve')
+      .mockImplementation((imp, fromFile) => {
+        if (imp.source !== './package') {
+          throw new Error(`unexpected import ${imp.source} in ${fromFile}`);
+        }
+        onResolve();
+        return { kind: 'package', targets: TARGETS };
+      });
+  }
+
+  function expansionService() {
+    return makeServiceWith({ [SOURCE]: insights([imp('./package')], []) });
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  // Limits disclosed: one import expands to at most 200 targets.
+  it('links at most 200 targets per import and counts the import truncated', async () => {
+    expandingResolver();
+    const svc = expansionService();
+
+    await svc.buildGraph(FILES, 'D:/ws-m');
+
+    expect(svc.getDependencies(SOURCE)).toEqual(TARGETS.slice(0, 200));
+    const languages = languagesOf(svc, 'D:/ws-m');
+    expect(languages.resolution).toMatchObject({
+      truncatedImports: 1,
+      unresolvedInternal: 0,
+      external: 0,
+    });
+    expect(isCleanAnswer(languages)).toBe(false);
+  });
+
+  // Cancellation mid-expansion: a background build yields inside one
+  // import's target list and stops there once it is superseded.
+  it('stops a superseded background build in the middle of one expansion', async () => {
+    let resolved = false;
+    expandingResolver(() => {
+      resolved = true;
+    });
+    const svc = expansionService();
+    let clock = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => ++clock);
+    let beatsAfterResolve = 0;
+    let handle: ReturnType<typeof setImmediate> | undefined;
+    const beat = (): void => {
+      if (resolved && ++beatsAfterResolve === 2) svc.evict('D:/ws-m');
+      handle = setImmediate(beat);
+    };
+    handle = setImmediate(beat);
+    let graph: DependencyGraph | undefined;
+    try {
+      graph = await svc.buildGraph(FILES, 'D:/ws-m', undefined, undefined, {
+        yieldToForeground: true,
+      });
+    } finally {
+      if (handle !== undefined) clearImmediate(handle);
+    }
+
+    const linked = graph?.edges.get(SOURCE)?.size ?? 0;
+    expect(linked).toBeGreaterThan(0);
+    expect(linked).toBeLessThan(200);
+    expect(svc.isBuilt('D:/ws-m')).toBe(false);
+    expect(svc.getCoverageReport('D:/ws-m')).toBeUndefined();
+  });
+});
+
+describe('DependencyGraphService — case rule (TASK_2026_559 Batch 32b)', () => {
+  it('uses a unique case-folded match and discloses it', async () => {
+    const svc = makeServiceWith({
+      'D:/ws-a/a.ts': insights([imp('./Util')], []),
+      'D:/ws-a/util.ts': insights([], []),
+    });
+    await svc.buildGraph(['D:/ws-a/a.ts', 'D:/ws-a/util.ts'], WS_A);
+
+    expect(svc.getDependents('D:/ws-a/util.ts')).toEqual(['D:/ws-a/a.ts']);
+    const languages = languagesOf(svc, WS_A);
+    expect(languages.approximations).toEqual(['case-folded']);
+  });
+
+  it('prefers an exact match over case-folded ones', async () => {
+    const svc = makeServiceWith({
+      'D:/ws-a/a.ts': insights([imp('./util')], []),
+      'D:/ws-a/util.ts': insights([], []),
+      'D:/ws-a/Util.ts': insights([], []),
+    });
+    await svc.buildGraph(
+      ['D:/ws-a/a.ts', 'D:/ws-a/util.ts', 'D:/ws-a/Util.ts'],
+      WS_A,
+    );
+
+    expect(svc.getDependencies('D:/ws-a/a.ts')).toEqual(['D:/ws-a/util.ts']);
+    expect(
+      svc.getCoverageReport(WS_A)?.languages.approximations,
+    ).toBeUndefined();
+  });
+
+  it('leaves an ambiguous case-folded match unresolved-internal', async () => {
+    const svc = makeServiceWith({
+      'D:/ws-a/a.ts': insights([imp('./UTIL')], []),
+      'D:/ws-a/util.ts': insights([], []),
+      'D:/ws-a/Util.ts': insights([], []),
+    });
+    await svc.buildGraph(
+      ['D:/ws-a/a.ts', 'D:/ws-a/util.ts', 'D:/ws-a/Util.ts'],
+      WS_A,
+    );
+
+    expect(svc.getDependencies('D:/ws-a/a.ts')).toEqual([]);
+    expect(svc.getCoverageReport(WS_A)?.languages.resolution).toMatchObject({
+      unresolvedInternal: 1,
+      external: 0,
+    });
+  });
+});
+
+describe('DependencyGraphService — re-export edges (26b closing R26B-C-B1, 32a R32A-05)', () => {
+  const LEAF = 'D:/ws-r/leaf.ts';
+  const BARREL = 'D:/ws-r/lib/index.ts';
+  const OUTER = 'D:/ws-r/outer.ts';
+  const CONSUMER = 'D:/ws-r/consumer.ts';
+  const FILES = [LEAF, BARREL, OUTER, CONSUMER];
+
+  it.each([
+    ['a named re-export', reExport('X', '../leaf')],
+    ['a wildcard re-export', reExport('*', '../leaf')],
+  ])(
+    'lists the barrel and its consumers as dependents of the source (%s)',
+    async (_label, barrelExport) => {
+      const svc = makeServiceWith({
+        [LEAF]: insights([], [exp('X')]),
+        [BARREL]: insights([], [barrelExport]),
+        // outer.ts re-exports the barrel: a chain of barrels.
+        [OUTER]: insights([], [reExport('*', './lib')]),
+        [CONSUMER]: insights([imp('./outer')], []),
+      });
+      await svc.buildGraph(FILES, 'D:/ws-r');
+
+      expect(svc.getDependencies(BARREL)).toEqual([LEAF]);
+      expect(svc.getDependents(LEAF).sort()).toEqual(
+        [BARREL, CONSUMER, OUTER].sort(),
+      );
+      // A plain import does not pass a file's dependents on.
+      expect(svc.getDependents(OUTER)).toEqual([CONSUMER]);
+    },
+  );
+
+  it('drops the barrel consumers with the barrel when the barrel is invalidated', async () => {
+    const svc = makeServiceWith({
+      [LEAF]: insights([], [exp('X')]),
+      [BARREL]: insights([], [reExport('X', '../leaf')]),
+      [CONSUMER]: insights([imp('./lib')], []),
+    });
+    await svc.buildGraph([LEAF, BARREL, CONSUMER], 'D:/ws-r');
+    expect(svc.getDependents(LEAF).sort()).toEqual([BARREL, CONSUMER].sort());
+
+    svc.invalidateFile(BARREL);
+
+    expect(svc.getDependents(LEAF)).toEqual([]);
+  });
+
+  // R32A-05: an empty clause (`export {}` + from) exports no name but still
+  // loads its module; the analysis reports it in `reExportSources` (its
+  // real-grammar extraction is pinned in `ast-analysis.service.spec.ts`).
+  it('an empty re-export clause makes an edge and passes dependents on', async () => {
+    const side = 'D:/ws-r/side.ts';
+    const entry = 'D:/ws-r/entry.ts';
+    const svc = makeServiceWith({
+      [side]: insights([], [exp('s')]),
+      [entry]: {
+        ...insights([], []),
+        reExportSources: ['./side'],
+      } as CodeInsights,
+      [CONSUMER]: insights([imp('./entry')], []),
+    });
+    await svc.buildGraph([side, entry, CONSUMER], 'D:/ws-r');
+
+    expect(svc.getDependencies(entry)).toEqual([side]);
+    expect(svc.getDependents(side).sort()).toEqual([CONSUMER, entry].sort());
+    expect(svc.getCoverageReport('D:/ws-r')?.languages.resolution).toEqual({
+      external: 0,
+      unresolvedInternal: 0,
+      truncatedImports: 0,
+      edgeCapHit: false,
+      context: 'complete',
+    });
+  });
+
+  // R32B-05: both channels carry the decoded value, so one re-export
+  // statement is one dependency, never an extra unresolved one.
+  it('links a re-export reported by both channels once', async () => {
+    const svc = makeServiceWith({
+      [LEAF]: insights([], [exp('X')]),
+      [BARREL]: {
+        ...insights([], [reExport('X', '../leaf')]),
+        reExportSources: ['../leaf'],
+      },
+    });
+    await svc.buildGraph([LEAF, BARREL], 'D:/ws-r');
+
+    expect(svc.getDependencies(BARREL)).toEqual([LEAF]);
+    expect(languagesOf(svc, 'D:/ws-r').resolution).toMatchObject({
+      external: 0,
+      unresolvedInternal: 0,
+    });
+  });
+
+  it('counts an unresolvable re-export source like an import', async () => {
+    const svc = makeServiceWith({
+      [BARREL]: insights([], [reExport('X', './gone'), reExport('*', 'pkg')]),
+    });
+    await svc.buildGraph([BARREL], 'D:/ws-r');
+
+    expect(
+      svc.getCoverageReport('D:/ws-r')?.languages.resolution,
+    ).toMatchObject({ external: 1, unresolvedInternal: 1 });
   });
 });

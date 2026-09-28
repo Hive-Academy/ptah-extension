@@ -221,7 +221,7 @@ function decodeMatch(
             name,
             kind,
             isReExport: true,
-            source: unquote(namespaceSource.text),
+            source: moduleStringValue(namespaceSource.node),
           };
     }
     const isDefault = statement !== undefined && hasChild(statement, 'default');
@@ -251,7 +251,7 @@ function decodeMatch(
       name: '*',
       kind: 'wildcard',
       isReExport: true,
-      source: unquote(wildcardSource.text),
+      source: moduleStringValue(wildcardSource.node),
     };
   }
 
@@ -281,7 +281,7 @@ function decodeModuleSystemExport(
         name: aliasName.text,
         kind: 'namespace',
         isReExport: true,
-        source: unquote(aliasSource.text),
+        source: moduleStringValue(aliasSource.node),
       };
     }
     const aliasTarget = captures.get('export.import_alias_target');
@@ -390,7 +390,7 @@ function decodeSpecifier(
   const sourceNode = statement?.children.find(
     (child) => child.type === 'string',
   );
-  const source = sourceNode ? unquote(sourceNode.text) : undefined;
+  const source = sourceNode ? moduleStringValue(sourceNode) : undefined;
   return {
     name: exported,
     kind: 'unknown',
@@ -536,6 +536,19 @@ function contains(outer: QueryCapture, inner: QueryCapture): boolean {
 
 function isBefore(a: CodePosition, b: CodePosition): boolean {
   return a.row < b.row || (a.row === b.row && a.column < b.column);
+}
+
+/**
+ * The semantic value of a module string (`'./leaf'` → `./leaf`): its
+ * escape sequences decoded as the runtime does (Batch 32b r1 R32B-05). A
+ * string with an escape that has no exact value keeps its unquoted text.
+ */
+export function moduleStringValue(node: GenericAstNode): string {
+  const raw = unquote(node.text);
+  // A string node whose children were not converted cannot be decoded.
+  const decodable =
+    node.type === 'string' && (raw === '' || node.children.length > 0);
+  return (decodable ? nameOf(node) : undefined) ?? raw;
 }
 
 function unquote(text: string): string {

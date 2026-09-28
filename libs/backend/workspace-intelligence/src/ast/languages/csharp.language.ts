@@ -1,5 +1,6 @@
 /** C# language module. C# has no export statements: `exportQuery` is empty. */
-import type { LanguageModule } from './types';
+import type { GenericAstNode } from '../ast.types';
+import type { ExtractedImport, LanguageModule } from './types';
 
 /**
  * C# queries. Node and field names were verified against the actual
@@ -122,7 +123,65 @@ const CSHARP_IMPORT_QUERY = `
 (using_directive
   name: (identifier) @import.named
   (identifier) @import.source)
+
+; Whole directives for the Batch 32a extraction contract (\`extractImports\`).
+(using_directive) @import.statement
 `;
+
+/**
+ * Block namespaces nest (their names concatenate with `.`); a file-scoped
+ * `namespace N;` node ends at its `;`, so it is marked to cover the rest of
+ * the file.
+ */
+const CSHARP_DECLARATION_QUERY = `
+(namespace_declaration
+  name: (_) @declaration.name) @declaration.namespace
+
+(file_scoped_namespace_declaration
+  name: (_) @declaration.name) @declaration.namespace.file
+`;
+
+/**
+ * `global` and `static` are anonymous keyword children of the directive;
+ * `=` separates an alias (before it) from the aliased name (after it).
+ * Precedence follows `ImportKind`: `global using static N.T` is `global`,
+ * and `isStatic` keeps the static trait (review r1 R32A-03).
+ */
+function extractCSharpImport(directive: GenericAstNode): ExtractedImport[] {
+  const tokens = new Set(
+    directive.children.filter((c) => !c.isNamed).map((c) => c.type),
+  );
+  const parts = directive.children.filter(
+    (c) => c.isNamed && c.type !== 'comment',
+  );
+  const equals = directive.children.findIndex(
+    (c) => !c.isNamed && c.type === '=',
+  );
+  const aliasNode =
+    equals >= 0
+      ? directive.children
+          .slice(0, equals)
+          .filter((c) => c.isNamed && c.type !== 'comment')
+          .pop()
+      : undefined;
+  const target = parts[parts.length - 1];
+  if (!target || target === aliasNode) return [];
+  const kind = tokens.has('global')
+    ? 'global'
+    : tokens.has('static')
+      ? 'static'
+      : aliasNode
+        ? 'alias'
+        : 'module';
+  return [
+    {
+      source: target.text,
+      kind,
+      ...(tokens.has('static') ? { isStatic: true as const } : {}),
+      ...(aliasNode ? { alias: aliasNode.text } : {}),
+    },
+  ];
+}
 
 export const CSHARP_LANGUAGE: LanguageModule = {
   id: 'csharp',
@@ -134,6 +193,10 @@ export const CSHARP_LANGUAGE: LanguageModule = {
     classQuery: CSHARP_CLASS_QUERY,
     importQuery: CSHARP_IMPORT_QUERY,
     exportQuery: '',
+  },
+  extraction: {
+    extractImports: extractCSharpImport,
+    declarations: { query: CSHARP_DECLARATION_QUERY, scopeSeparator: '.' },
   },
   capabilities: {
     outline: true,

@@ -74,11 +74,18 @@ export interface GraphResolutionCounts {
   /** The aggregate edge cap stopped linking. */
   readonly edgeCapHit: boolean;
   /**
-   * `partial` when the resolver lacked context that could change an answer
-   * (TS/JS: no tsconfig `paths` while bare specifiers were counted external,
-   * so an alias import could not be told apart from a package).
+   * `partial` when the resolver lacked context that could change an answer:
+   * the build's `ResolverContext` could not read every manifest within its
+   * bounds or found a mapping it does not model (workspace packages), or an
+   * import was external only as far as that context knows (a TS/JS bare
+   * specifier that is neither a builtin nor a declared package).
    */
   readonly context: 'complete' | 'partial';
+  /**
+   * Some import resolved only through a unique case-insensitive match (the
+   * `case-folded` approximation). Absent: every edge matched exactly.
+   */
+  readonly caseFolded?: boolean;
 }
 
 /** Everything {@link buildGraphCoverage} needs about one build. */
@@ -253,8 +260,12 @@ export function buildGraphCoverage(
   const { selection, resolution } = input;
   const failedByReason = saturateReasons(input.failedByReason);
   const failed = saturatingSum(Object.values(failedByReason)) ?? 0;
-  const approximations: Approximation[] =
-    resolution.context === 'partial' ? ['resolver-context-partial'] : [];
+  const approximations: Approximation[] = [
+    ...(resolution.context === 'partial'
+      ? (['resolver-context-partial'] as const)
+      : []),
+    ...(resolution.caseFolded === true ? (['case-folded'] as const) : []),
+  ];
   const truncated = input.censusLimit !== undefined;
   return withCoverageVerdict({
     supportedLanguages: supportedLanguagesFor('graphEdges'),
@@ -290,38 +301,6 @@ export function buildGraphCoverage(
     },
     ...limitApproximations(approximations),
   });
-}
-
-/**
- * Where an import the graph could not resolve to a graphed file points:
- * - `internal`: a relative or absolute path, a package-local `#` import
- *   (package.json `imports`), or a specifier a supplied tsconfig `paths`
- *   pattern claims (`claimedByAlias`) — a workspace file the graph lacks;
- * - `external`: proven outside the workspace without any resolver context —
- *   a `node:` builtin specifier;
- * - `context-dependent`: any other bare specifier (a bare `fs` included:
- *   with a `baseUrl`, TypeScript looks for a local module first). It is most
- *   likely a package, but a tsconfig `paths`/`baseUrl` or workspace package
- *   mapping the build has not read (Batch 32b) could make it a workspace
- *   file, so it is counted external and makes the resolution context
- *   `partial`.
- */
-export function classifyUnresolvedSpecifier(
-  specifier: string,
-  claimedByAlias: boolean,
-): 'internal' | 'external' | 'context-dependent' {
-  if (
-    specifier.startsWith('.') ||
-    specifier.startsWith('/') ||
-    specifier.startsWith('#') ||
-    claimedByAlias
-  ) {
-    return 'internal';
-  }
-  if (specifier.startsWith('node:')) {
-    return 'external';
-  }
-  return 'context-dependent';
 }
 
 /**

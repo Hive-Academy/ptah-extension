@@ -12,7 +12,6 @@ import {
   GRAPH_EDGE_CAP,
   GRAPH_PARSE_CAP,
   buildGraphCoverage,
-  classifyUnresolvedSpecifier,
   invalidatedCoverage,
   limitLanguageCounts,
   mergeGraphCoverages,
@@ -270,24 +269,6 @@ describe('buildGraphCoverage', () => {
       python: COVERAGE_COUNT_MAX,
     });
     expect(coverage.resolution?.external).toBe(COVERAGE_COUNT_MAX);
-  });
-});
-
-describe('classifyUnresolvedSpecifier (r1 B2, M1)', () => {
-  it.each([
-    ['./missing', false, 'internal'],
-    ['../up/x', false, 'internal'],
-    ['/abs/x', false, 'internal'],
-    ['#b', false, 'internal'],
-    ['@app/gone', true, 'internal'],
-    ['node:fs', false, 'external'],
-    ['node:fs/promises', false, 'external'],
-    ['fs', false, 'context-dependent'],
-    ['lodash', false, 'context-dependent'],
-    ['utils/b', false, 'context-dependent'],
-    ['@scope/pkg', false, 'context-dependent'],
-  ] as const)('%s (alias claim %s) is %s', (specifier, claimed, kind) => {
-    expect(classifyUnresolvedSpecifier(specifier, claimed)).toBe(kind);
   });
 });
 

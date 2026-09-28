@@ -16,6 +16,7 @@ export const TSX_LANGUAGE: LanguageModule = {
   recognitionOnlyExtensions: [],
   grammarFile: 'tree-sitter-tsx.wasm',
   queries: TYPESCRIPT_LANGUAGE.queries,
+  importResolver: TYPESCRIPT_LANGUAGE.importResolver,
   capabilities: {
     outline: true,
     enrichSummary: true,

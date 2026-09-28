@@ -6,6 +6,7 @@
  */
 import type { LanguageModule } from './types';
 import type { GraphEdgesCapability } from '../language-registry';
+import { TS_JS_IMPORT_RESOLVER } from '../import-resolution/ts-js-import-resolver';
 
 /**
  * JavaScript/TypeScript function query
@@ -91,6 +92,12 @@ export const JS_TS_IMPORT_QUERY = `
 ; Side-effect imports: import 'module'
 (import_statement
   source: (string) @import.source) @import.side_effect
+
+; Batch 32b: the module every re-export statement loads, whatever it exports
+; (the empty clause included), decoded into \`CodeInsights.reExportSources\`.
+; It carries no @import.source, so both import decoders skip it.
+(export_statement
+  source: (string) @import.reexport_source)
 `;
 
 /**
@@ -260,12 +267,12 @@ export const JS_TS_EXPORT_QUERY = `
 `;
 
 /**
- * TS/JS edges are drawn from `import` statements only, so graph dependents do
- * NOT bound where a declaration can be referenced: a global script, a
- * re-export (`export { X } from`), `require`, dynamic `import()` and a path
- * alias the build did not map all reach it without an edge (Batch 26b review
- * r1 B2). Claim `referenceScopeComplete` only once the resolver models every
- * one of them (Batch 32b+).
+ * TS/JS edges are drawn from `import` and re-export statements (Batch 32b), so
+ * graph dependents still do NOT bound where a declaration can be referenced:
+ * a global script, `require`, dynamic `import()` and a path alias the
+ * resolver context could not read all reach it without an edge (Batch 26b
+ * review r1 B2). Claim `referenceScopeComplete` only once the resolver models
+ * every one of them.
  */
 export const FILE_EDGES: GraphEdgesCapability = {
   granularity: 'file',
@@ -283,6 +290,7 @@ export const JAVASCRIPT_LANGUAGE: LanguageModule = {
     importQuery: JS_TS_IMPORT_QUERY,
     exportQuery: JS_TS_EXPORT_QUERY,
   },
+  importResolver: TS_JS_IMPORT_RESOLVER,
   capabilities: {
     outline: true,
     enrichSummary: true,

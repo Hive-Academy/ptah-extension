@@ -316,10 +316,24 @@ describe('Java and Rust grammar integration (real tree-sitter WASM, Batch 30)', 
     });
 
     it('captures single-type, static and on-demand imports', () => {
+      // Batch 32a contract: kind, line, and the file-scoped package as scope.
+      const scopePath = ['com.example.app'];
       expect(java.imports).toEqual([
-        { source: 'java.util.List' },
-        { source: 'java.lang.Math.max' },
-        { source: 'java.io', importedSymbols: ['*'] },
+        { source: 'java.util.List', kind: 'module', line: 2, scopePath },
+        {
+          source: 'java.lang.Math.max',
+          kind: 'static',
+          isStatic: true,
+          line: 3,
+          scopePath,
+        },
+        {
+          source: 'java.io',
+          kind: 'wildcard',
+          importedSymbols: ['*'],
+          line: 4,
+          scopePath,
+        },
       ]);
     });
 
@@ -352,13 +366,39 @@ describe('Java and Rust grammar integration (real tree-sitter WASM, Batch 30)', 
     });
 
     it('captures grouped, aliased, wildcard and plain use, mod declarations and extern crates', () => {
+      // Batch 32a contract: grouped trees split per path, one kind each.
+      const scopePath: string[] = [];
       expect(rust.imports).toEqual([
-        { source: 'std::collections::{HashMap, HashSet}' },
-        { source: 'crate::util::helper', importedSymbols: ['h'] },
-        { source: 'super::*' },
-        { source: 'std::fmt' },
-        { source: 'serde' },
-        { source: 'parser' },
+        {
+          source: 'std::collections::HashMap',
+          kind: 'module',
+          line: 0,
+          scopePath,
+        },
+        {
+          source: 'std::collections::HashSet',
+          kind: 'module',
+          line: 0,
+          scopePath,
+        },
+        {
+          source: 'crate::util::helper',
+          kind: 'alias',
+          alias: 'h',
+          line: 1,
+          scopePath,
+        },
+        {
+          source: 'super',
+          kind: 'relative',
+          relativeLevel: 2,
+          importedSymbols: ['*'],
+          line: 2,
+          scopePath,
+        },
+        { source: 'std::fmt', kind: 'module', line: 3, scopePath },
+        { source: 'serde', kind: 'module', line: 4, scopePath },
+        { source: 'parser', kind: 'mod-decl', line: 5, scopePath },
       ]);
     });
 
