@@ -57,7 +57,7 @@ const route: ProvidersEffectiveRoute = {
   lastSuccessfulProbeAt: '2026-09-22T10:00:00Z', lastFailedProbeAt: null, probedAt: '2026-09-22T10:00:00Z', fromCache: false,
 };
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
-const connection = (id: string): ProvidersConnection => ({ id, name: id, authMode: 'apiKey', configured: true, hasKey: true, custom: false, defaultsResolvable: true });
+const connection = (id: string): ProvidersConnection => ({ id, name: id, authMode: 'apiKey', configured: true, hasKey: true, custom: false, defaultsResolvable: true, accountLabel: null, tokenStale: false });
 const draft: ProviderWizardCommit = { providerId: 'first', displayName: 'First', authMode: 'apiKey', customName: null,
   customProtocol: null, credential: { kind: 'apiKey', value: 'private-draft-key' }, existingKeyReused: false,
   baseUrl: null, verified: { probeId: 'probe', checkedAt: '2026-09-22T10:00:00Z', latencyMs: 1, modelUsed: 'one' },

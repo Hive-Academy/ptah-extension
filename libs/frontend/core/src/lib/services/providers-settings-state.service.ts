@@ -39,7 +39,10 @@ import type {
   ProvidersExternalAuthAction,
   ProvidersJudgingSettings,
   ProvidersMainSources,
-  ProvidersOrchestrationField,
+  ProvidersCliTest,
+  ProvidersCustomEntry,
+  ProvidersDetectedClis,
+  ProvidersOrchestration,
   ProvidersSettingsPatch,
   SaveOperation,
 } from './providers-settings.types';
@@ -59,6 +62,10 @@ export type {
   ProvidersConnectionDraft,
   ProvidersExternalAuthAction,
   ProvidersExternalAuth,
+  ProvidersOrchestration,
+  ProvidersCliTest,
+  ProvidersCustomEntry,
+  ProvidersDetectedClis,
 } from './providers-settings.types';
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
@@ -87,8 +94,9 @@ export class ProvidersSettingsStateService {
   private readonly judgingStore = createSectionStore<ProvidersJudgingSettings>();
   private readonly cliStore =
     createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
-  private readonly orchestrationStore =
-    createSectionStore<Pick<RpcMethodResult<'agent:getConfig'>, ProvidersOrchestrationField>>();
+  private readonly orchestrationStore = createSectionStore<ProvidersOrchestration>();
+  private readonly customEntriesStore = createSectionStore<readonly ProvidersCustomEntry[]>();
+  private readonly detectionStore = createSectionStore<ProvidersDetectedClis>();
   private readonly tiersStore =
     createSectionStore<RpcMethodResult<'provider:getModelTiers'>>();
   private readonly connectionsStore = createSectionStore<readonly ProvidersConnection[]>();
@@ -108,6 +116,9 @@ export class ProvidersSettingsStateService {
   readonly judging = this.view(this.judgingStore);
   readonly cliAgents = this.view(this.cliStore);
   readonly orchestration = this.view(this.orchestrationStore);
+  /** Last explicit CLI re-detection (`redetectClis`); `loading` while it runs. */
+  readonly cliDetection = this.view(this.detectionStore);
+  private readonly customEntries = this.view(this.customEntriesStore);
   readonly tiers = this.view(this.tiersStore);
   readonly verification = this.setup.verification;
   readonly connections = this.view(this.connectionsStore);
@@ -234,10 +245,15 @@ export class ProvidersSettingsStateService {
     await this.read(this.delegatedModelsStore, () => this.require('agent:listCliModels', undefined));
   }
 
-  private readonly cliTestStore = createSectionStore<{ id: string; success: boolean }>();
+  private readonly cliTestStore = createSectionStore<ProvidersCliTest>();
   readonly cliTest = this.view(this.cliTestStore);
+  /** `reason` is the host's sanitized `error`, kept only for a failed test; no other RPC text enters state. */
   async testCliConnection(id: string): Promise<void> {
-    await this.read(this.cliTestStore, async () => ({ id, success: (await this.require('ptahCli:testConnection', { id })).success }));
+    await this.read(this.cliTestStore, async () => {
+      const result = await this.require('ptahCli:testConnection', { id });
+      return { id, success: result.success, latencyMs: result.latencyMs ?? null,
+        reason: result.success ? null : result.error ?? null };
+    });
   }
   /**
    * An empty key clears the stored secret. Read-back checks the secrets store alone
@@ -251,15 +267,29 @@ export class ProvidersSettingsStateService {
     }], context);
   }
 
+  /** Non-secret metadata of a user-defined connection, read with the connections; null until loaded. */
+  customEntry(id: string): ProvidersCustomEntry | null {
+    return this.customEntries().data?.find((entry) => entry.id === id) ?? null;
+  }
+
   async refreshConnections(): Promise<void> {
+    // One host read feeds both sections; each keeps its own generation and workspace scope.
+    const custom = this.require('provider:listCustomEntries', {})
+      .then((result) => setCustomProviderEntries(result.entries).accepted);
+    await Promise.all([
+      this.read(this.customEntriesStore, async () => (await custom).map(({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }) =>
+        ({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }))),
+      this.readConnections(custom),
+    ]);
+  }
+  private async readConnections(custom: Promise<readonly ProvidersCustomEntry[]>): Promise<void> {
     await this.read(this.connectionsStore, async (): Promise<readonly ProvidersConnection[]> => {
-      const [status, custom, auth] = await Promise.all([
+      const [status, accepted, auth] = await Promise.all([
         this.require('auth:getApiKeyStatus', {}),
-        this.require('provider:listCustomEntries', {}),
+        custom,
         this.require('auth:getAuthStatus', {}),
       ]);
-      const validated = setCustomProviderEntries(custom.entries);
-      const customIds = new Set(validated.accepted.map((entry) => entry.id));
+      const customIds = new Set(accepted.map((entry) => entry.id));
       const entries = getAllAnthropicProviders();
       const savedSetupIds = new Set(await Promise.all(entries.filter((entry) => entry.isLocal).map(async (entry) => {
         const endpoint = await this.require('llm:getProviderBaseUrl', { provider: entry.id });
@@ -277,10 +307,13 @@ export class ProvidersSettingsStateService {
           custom: customIds.has(entry.id), defaultsResolvable: !!entry.defaultTiers,
           authMode: entry.nativeAuth ? 'cli' : entry.authType === 'oauth' ? 'oauth'
             : entry.isLocal ? entry.requiresProxy ? 'local-proxy' : 'local-native' : 'apiKey',
+          accountLabel: entry.id === 'github-copilot' && auth.copilotAuthenticated === true ? auth.copilotUsername ?? null : null,
+          tokenStale: entry.id === 'openai-codex' && auth.codexTokenStale === true,
         };
       });
       connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
-        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false });
+        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false,
+        accountLabel: null, tokenStale: false });
       return connections;
     });
   }
@@ -403,21 +436,40 @@ export class ProvidersSettingsStateService {
       return { model: scopes.entries.find((entry) => entry.key === model), effort: scopes.entries.find((entry) => entry.key === effort) };
     });
   }
+  /**
+   * A failed read drops the previous value: a stale Cursor flag would read as a current "Set".
+   * The section shows its error and Retry instead.
+   */
   async refreshOrchestration(): Promise<void> {
-    await this.read(this.orchestrationStore, async () => {
+    await readSection(this.orchestrationStore, this.workspace, async (): Promise<ProvidersOrchestration> => {
       const config = await this.require('agent:getConfig', undefined);
       return {
-        codexModel: config.codexModel,
-        copilotModel: config.copilotModel,
-        cursorModel: config.cursorModel,
-        antigravityModel: config.antigravityModel,
-        opencodeModel: config.opencodeModel,
-        piModel: config.piModel,
-        codexReasoningEffort: config.codexReasoningEffort,
-        copilotReasoningEffort: config.copilotReasoningEffort,
+        codexModel: config.codexModel, copilotModel: config.copilotModel, cursorModel: config.cursorModel,
+        antigravityModel: config.antigravityModel, opencodeModel: config.opencodeModel, piModel: config.piModel,
+        codexReasoningEffort: config.codexReasoningEffort, copilotReasoningEffort: config.copilotReasoningEffort,
         piReasoningEffort: config.piReasoningEffort,
+        detectedClis: config.detectedClis, disabledClis: config.disabledClis,
+        preferredAgentOrder: config.preferredAgentOrder, maxConcurrentAgents: config.maxConcurrentAgents,
+        copilotAutoApprove: config.copilotAutoApprove,
+        cursorApiKeyConfigured: config.cursorApiKeyConfigured, cursorApiKeyStored: config.cursorApiKeyStored,
+        cursorApiKeyEnvSet: config.cursorApiKeyEnvSet,
       };
+    }, false);
+  }
+  /**
+   * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
+   * leaves `cliDetection()` in error and rereads nothing. Each call decides on its own detection
+   * result, not the shared section, which an overlapping call may have replaced.
+   */
+  async redetectClis(): Promise<void> {
+    let detected = false;
+    await this.read(this.detectionStore, async () => {
+      const { clis } = await this.require('agent:detectClis', undefined);
+      detected = true;
+      return clis;
     });
+    if (!detected) return;
+    await Promise.all([this.refreshOrchestration(), this.refreshCliAgents(), this.refreshCliModels()]);
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,

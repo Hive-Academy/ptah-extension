@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { setCustomProviderEntries } from '@ptah-extension/shared';
 import type {
   AuthGetEffectiveRouteResult,
   AuthVerifyDraftConnectionResult,
@@ -1404,6 +1405,134 @@ describe('ProvidersSettingsStateService', () => {
       // The orchestration section reports its own read error (Retry), not a stale value.
       expect(service.orchestration()).toMatchObject({ status: 'error', error: 'Could not load this section. Retry.' });
       expect(JSON.stringify(service.commit())).not.toContain('keychain');
+    });
+  });
+
+  describe('reads for the redesigned Settings page (Component 7)', () => {
+    // refreshConnections registers custom entries in the shared provider registry.
+    afterEach(() => setCustomProviderEntries([]));
+    const detected = [{ cli: 'codex', installed: true, messagingMode: 'none' }];
+    const fullConfig = {
+      codexModel: 'gpt-x', copilotModel: '', cursorModel: '', antigravityModel: '', opencodeModel: '', piModel: '',
+      codexReasoningEffort: 'high', copilotReasoningEffort: '', piReasoningEffort: '',
+      detectedClis: detected, disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'ptah-cli-1'],
+      maxConcurrentAgents: 3, copilotAutoApprove: false,
+      cursorApiKeyConfigured: true, cursorApiKeyStored: true, cursorApiKeyEnvSet: false,
+      // Fields the page does not render never enter the section.
+      mcpPort: 51820, disabledMcpNamespaces: ['browser'],
+    };
+
+    it('projects the CLI matrix inputs and Cursor flags, and nothing else', async () => {
+      handlers.set('agent:getConfig', async () => success(fullConfig));
+      await service.refreshOrchestration();
+      const { mcpPort, disabledMcpNamespaces, ...expected } = fullConfig;
+      void mcpPort; void disabledMcpNamespaces;
+      expect(service.orchestration()).toEqual({ status: 'ready', data: expected, error: null });
+    });
+
+    it('drops a stale "Set" Cursor flag when agent:getConfig fails, and shows Retry', async () => {
+      handlers.set('agent:getConfig', async () => success(fullConfig));
+      await service.refreshOrchestration();
+      handlers.set('agent:getConfig', async () => new RpcResult(false, undefined, 'keychain unavailable'));
+      await service.refreshOrchestration();
+      expect(service.orchestration()).toEqual({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+    });
+
+    it('re-detects CLIs, then rereads orchestration, CLI agents and CLI models', async () => {
+      const order: string[] = [];
+      const record = (method: RpcMethodName, data: unknown) => handlers.set(method, async () => {
+        order.push(method);
+        return success(data);
+      });
+      record('agent:detectClis', { clis: detected });
+      record('agent:getConfig', fullConfig);
+      record('ptahCli:list', { agents: [] });
+      record('settings:get', { success: true, value: [] });
+      await service.redetectClis();
+      expect(order[0]).toBe('agent:detectClis');
+      expect([...order.slice(1)].sort()).toEqual(['agent:getConfig', 'ptahCli:list', 'settings:get']);
+      expect(service.cliDetection()).toMatchObject({ status: 'ready', data: detected });
+      expect(service.orchestration().data?.detectedClis).toEqual(detected);
+    });
+
+    it('rereads nothing when detection fails and reports it on cliDetection', async () => {
+      handlers.set('agent:detectClis', async () => new RpcResult(false, undefined, 'raw detection failure'));
+      call.mockClear();
+      await service.redetectClis();
+      expect(call.mock.calls.map(([method]) => method)).toEqual(['agent:detectClis']);
+      expect(service.cliDetection()).toEqual({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+    });
+
+    it.each([
+      ['the first fails and the second succeeds', false, true],
+      ['the first succeeds and the second fails', true, false],
+    ])('overlapping re-detects each cascade on their own result: %s', async (_label, firstOk, secondOk) => {
+      const first = deferred<RpcResult<unknown>>();
+      const second = deferred<RpcResult<unknown>>();
+      const pending = [first, second];
+      handlers.set('agent:detectClis', () => {
+        const next = pending.shift();
+        if (!next) throw new Error('Unexpected detection');
+        return next.promise;
+      });
+      handlers.set('agent:getConfig', async () => success(fullConfig));
+      const outcome = (ok: boolean) => ok ? success({ clis: detected }) : new RpcResult(false, undefined, 'raw failure');
+      call.mockClear();
+      const calls = [service.redetectClis(), service.redetectClis()];
+      // Resolve in reverse order so the shared section ends up describing the other call.
+      second.resolve(outcome(secondOk));
+      first.resolve(outcome(firstOk));
+      await Promise.all(calls);
+      // Exactly one call detected successfully, so exactly one cascade ran.
+      expect(call.mock.calls.filter(([method]) => method === 'agent:getConfig')).toHaveLength(1);
+      expect(call.mock.calls.filter(([method]) => method === 'ptahCli:list')).toHaveLength(1);
+      expect(call.mock.calls.filter(([method]) => method === 'settings:get')).toHaveLength(1);
+    });
+
+    it('keeps the test latency and only the host-sanitized reason of a failed CLI test', async () => {
+      handlers.set('ptahCli:testConnection', async () => success({ success: false, latencyMs: 812, error: 'Invalid API key' }));
+      await service.testCliConnection('agent-1');
+      expect(service.cliTest().data).toEqual({ id: 'agent-1', success: false, latencyMs: 812, reason: 'Invalid API key' });
+      handlers.set('ptahCli:testConnection', async () => success({ success: true, latencyMs: 90, error: 'ignored' }));
+      await service.testCliConnection('agent-1');
+      expect(service.cliTest().data).toEqual({ id: 'agent-1', success: true, latencyMs: 90, reason: null });
+      handlers.set('ptahCli:testConnection', async () => success({ success: true }));
+      await service.testCliConnection('agent-2');
+      expect(service.cliTest().data).toEqual({ id: 'agent-2', success: true, latencyMs: null, reason: null });
+      handlers.set('ptahCli:testConnection', async () => new RpcResult(false, undefined, 'raw transport text'));
+      await service.testCliConnection('agent-3');
+      expect(service.cliTest().status).toBe('error');
+      expect(JSON.stringify(service.cliTest())).not.toContain('raw transport text');
+    });
+
+    it('labels the signed-in Copilot account and flags a stale Codex token', async () => {
+      handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'apiKey', hasApiKey: false,
+        copilotAuthenticated: true, copilotUsername: 'octocat', codexAuthenticated: true, codexTokenStale: true }));
+      await service.refreshConnections();
+      const byId = (id: string) => service.connections().data?.find((entry) => entry.id === id);
+      expect(byId('github-copilot')).toMatchObject({ accountLabel: 'octocat', tokenStale: false, configured: true });
+      expect(byId('openai-codex')).toMatchObject({ accountLabel: null, tokenStale: true, configured: false });
+      expect(byId('anthropic')).toMatchObject({ accountLabel: null, tokenStale: false });
+      handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'apiKey', hasApiKey: false,
+        copilotAuthenticated: false, copilotUsername: 'octocat' }));
+      await service.refreshConnections();
+      expect(byId('github-copilot')?.accountLabel).toBeNull();
+    });
+
+    it('reads custom connection metadata with the connections, in one host call', async () => {
+      const stored = { id: 'my-endpoint', name: 'My endpoint', baseUrl: 'https://llm.example.test', lane: 'openai',
+        authEnvVar: 'ANTHROPIC_AUTH_TOKEN', keyPrefix: 'sk-', helpUrl: 'https://help.example.test',
+        modelsEndpoint: '/v1/models', pricing: null, createdAt: '2026-09-29T00:00:00Z' };
+      handlers.set('provider:listCustomEntries', async () => success({ entries: [stored] }));
+      expect(service.customEntry('my-endpoint')).toBeNull();
+      call.mockClear();
+      await service.refreshConnections();
+      expect(call.mock.calls.filter(([method]) => method === 'provider:listCustomEntries')).toHaveLength(1);
+      expect(service.customEntry('my-endpoint')).toEqual({ id: 'my-endpoint', name: 'My endpoint',
+        baseUrl: 'https://llm.example.test', lane: 'openai', modelsEndpoint: '/v1/models',
+        helpUrl: 'https://help.example.test', pricing: null });
+      expect(service.customEntry('unknown')).toBeNull();
+      expect(service.connections().data?.find((entry) => entry.id === 'my-endpoint')?.custom).toBe(true);
     });
   });
 });

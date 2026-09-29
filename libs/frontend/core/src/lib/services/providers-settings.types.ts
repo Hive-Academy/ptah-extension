@@ -4,6 +4,7 @@ import type {
   AuthVerifyDraftConnectionParams,
   PtahCliConfig,
   RpcMethodParams,
+  RpcMethodResult,
   ScopedSettingEntry,
   SettingScope,
   SkillLaneIdDto,
@@ -90,6 +91,37 @@ export interface ProvidersSettingsPatch {
   )[];
 }
 
+/**
+ * Orchestration settings the Settings page renders: the per-CLI models and efforts, the CLI
+ * matrix inputs, and the Cursor credential flags (never the key). `detectedClis` is the host's
+ * last detection; `redetectClis()` refreshes it.
+ */
+export type ProvidersOrchestration = Pick<
+  RpcMethodResult<'agent:getConfig'>,
+  | ProvidersOrchestrationField
+  | 'detectedClis'
+  | 'disabledClis'
+  | 'preferredAgentOrder'
+  | 'maxConcurrentAgents'
+  | 'copilotAutoApprove'
+  | 'cursorApiKeyConfigured'
+  | 'cursorApiKeyStored'
+  | 'cursorApiKeyEnvSet'
+>;
+export type ProvidersDetectedClis = RpcMethodResult<'agent:detectClis'>['clis'];
+/** Result of the last Ptah CLI connection test. `reason` is the host's sanitized error text only. */
+export interface ProvidersCliTest {
+  readonly id: string;
+  readonly success: boolean;
+  readonly latencyMs: number | null;
+  readonly reason: string | null;
+}
+/** Non-secret metadata of a user-defined connection, for its Advanced settings. */
+export type ProvidersCustomEntry = Pick<
+  RpcMethodResult<'provider:listCustomEntries'>['entries'][number],
+  'id' | 'name' | 'baseUrl' | 'lane' | 'modelsEndpoint' | 'helpUrl' | 'pricing'
+>;
+
 /** Non-secret connection metadata. Connectivity comes separately from route/probe evidence. */
 export interface ProvidersConnection {
   readonly id: string;
@@ -99,6 +131,10 @@ export interface ProvidersConnection {
   readonly custom: boolean;
   readonly defaultsResolvable: boolean;
   readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
+  /** Signed-in account shown for GitHub Copilot; null for every other connection or when signed out. */
+  readonly accountLabel: string | null;
+  /** The OpenAI Codex login exists but its token expired. Always false for other connections. */
+  readonly tokenStale: boolean;
 }
 export type ProvidersCliModels = Readonly<Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>>;
 export type ProvidersMainSources = Readonly<Partial<Record<'model' | 'effort', ScopedSettingEntry>>>;

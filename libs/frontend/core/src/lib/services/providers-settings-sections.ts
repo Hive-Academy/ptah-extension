@@ -76,14 +76,17 @@ export function effortFreshSectionView<T>(
 }
 
 /**
- * Loads a store. Previous data of the same workspace stays visible while loading and after a
- * failure. A superseded read, or one that finishes after a workspace switch, publishes nothing.
- * The failure itself never enters state: only the fixed retry text does.
+ * Loads a store. Previous data of the same workspace stays visible while loading and, unless
+ * `retainOnError` is false, after a failure. Pass false when a stale value would be read as a
+ * current fact (a credential shown as set). A superseded read, or one that finishes after a
+ * workspace switch, publishes nothing. The failure itself never enters state: only the fixed
+ * retry text does.
  */
 export async function readSection<T>(
   store: SectionStore<T>,
   workspace: WorkspaceScope,
   request: () => Promise<T>,
+  retainOnError = true,
 ): Promise<void> {
   const generation = ++store.generation;
   const scopeKey = workspace.scopeKey();
@@ -97,7 +100,7 @@ export async function readSection<T>(
   } catch (error: unknown) {
     void error;
     if (generation === store.generation && scopeKey === workspace.scopeKey())
-      store.value.set({ status: 'error', data: previous, error: SECTION_LOAD_ERROR });
+      store.value.set({ status: 'error', data: retainOnError ? previous : null, error: SECTION_LOAD_ERROR });
   }
 }
 
