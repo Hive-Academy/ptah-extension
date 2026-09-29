@@ -20,6 +20,17 @@ import {
 } from './provider-model-picker.component';
 import { PROVIDER_MODELS_LOADER } from './provider-models-loader.port';
 
+// The searchable field's panel is positioned by Floating UI, which measures
+// real layout that jsdom does not have.
+jest.mock('@floating-ui/dom', () => {
+  const actual = jest.requireActual('@floating-ui/dom');
+  return {
+    ...actual,
+    computePosition: jest.fn().mockResolvedValue({ x: 0, y: 0 }),
+    autoUpdate: jest.fn().mockReturnValue(() => undefined),
+  };
+});
+
 describe('ProviderModelPickerComponent', () => {
   let listModels: jest.Mock<Promise<ProviderListModelsResult>, [string?]>;
 
@@ -890,6 +901,247 @@ describe('ProviderModelPickerComponent', () => {
     it('hides the manual-entry disclosure entirely when the control is disabled', async () => {
       const fixture = await create({ provider: first.id, disabled: true });
       expect(el(fixture, 'provider-model-picker-manual-entry')).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // #38 — tool-use indicators, always on (both modes).
+  // ---------------------------------------------------------------------
+  describe('tool-use indicators (#38)', () => {
+    const [first] = ANTHROPIC_PROVIDERS;
+
+    it('summarises the catalogue as "N models · M support tool use"', async () => {
+      listModels.mockResolvedValue(
+        result([
+          model({ id: 'm-1', name: 'One', supportsToolUse: true }),
+          model({ id: 'm-2', name: 'Two', supportsToolUse: false }),
+          model({ id: 'm-3', name: 'Three', supportsToolUse: true }),
+        ]),
+      );
+      const fixture = await create({ provider: first.id });
+
+      expect(
+        el(
+          fixture,
+          'provider-model-picker-tooluse-summary',
+        )?.textContent?.trim(),
+      ).toBe('3 models · 2 support tool use');
+    });
+
+    it('uses singular wording for one model', async () => {
+      listModels.mockResolvedValue(
+        result([model({ id: 'm-1', supportsToolUse: true })]),
+      );
+      const fixture = await create({ provider: first.id });
+
+      expect(
+        el(
+          fixture,
+          'provider-model-picker-tooluse-summary',
+        )?.textContent?.trim(),
+      ).toBe('1 model · 1 supports tool use');
+    });
+
+    it('counts only the loaded catalogue, not a pinned out-of-catalogue id', async () => {
+      listModels.mockResolvedValue(
+        result([model({ id: 'm-1', supportsToolUse: false })]),
+      );
+      const fixture = await create({
+        provider: first.id,
+        model: 'vendor/pinned',
+      });
+
+      expect(
+        el(
+          fixture,
+          'provider-model-picker-tooluse-summary',
+        )?.textContent?.trim(),
+      ).toBe('1 model · 0 support tool use');
+    });
+
+    it('renders no summary for an empty catalogue', async () => {
+      listModels.mockResolvedValue(result([]));
+      const fixture = await create({ provider: first.id });
+      expect(el(fixture, 'provider-model-picker-tooluse-summary')).toBeNull();
+    });
+
+    it('shows the summary without requiresToolUse (not only as a warning)', async () => {
+      const fixture = await create({
+        provider: first.id,
+        requiresToolUse: false,
+      });
+      expect(
+        el(fixture, 'provider-model-picker-tooluse-summary'),
+      ).not.toBeNull();
+      expect(el(fixture, 'provider-model-picker-tooluse-warning')).toBeNull();
+    });
+
+    it('marks tool-capable options in the native select', async () => {
+      listModels.mockResolvedValue(
+        result([
+          model({ id: 'm-1', name: 'One', supportsToolUse: true }),
+          model({ id: 'm-2', name: 'Two', supportsToolUse: false }),
+        ]),
+      );
+      const fixture = await create({ provider: first.id });
+
+      const labels = Array.from(
+        select(fixture, 'provider-model-picker-model').options,
+      ).map((o) => o.textContent?.trim());
+      expect(labels.slice(1)).toEqual(['One · tool use', 'Two']);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // #34 / D12 — opt-in search. Off by default so the Memory and Thoth
+  // Skills consumers keep the native select.
+  // ---------------------------------------------------------------------
+  describe('searchable (D12)', () => {
+    const [first] = ANTHROPIC_PROVIDERS;
+
+    beforeEach(() => {
+      Object.defineProperty(Element.prototype, 'scrollIntoView', {
+        writable: true,
+        configurable: true,
+        value: jest.fn(),
+      });
+      listModels.mockResolvedValue(
+        result([
+          model({ id: 'claude-sonnet-4', name: 'Claude Sonnet 4' }),
+          model({
+            id: 'gpt-5-mini',
+            name: 'GPT-5 mini',
+            supportsToolUse: false,
+          }),
+          model({ id: 'kimi-k2', name: 'Kimi K2' }),
+        ]),
+      );
+    });
+
+    function search(fixture: { nativeElement: unknown }): HTMLInputElement {
+      return el(fixture, 'provider-model-picker-search') as HTMLInputElement;
+    }
+
+    function optionLabels(fixture: { nativeElement: unknown }): string[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[role="option"] .truncate',
+        ),
+      ).map((o) => o.textContent?.trim() ?? '');
+    }
+
+    it('keeps the native select and renders no search field by default', async () => {
+      const fixture = await create({ provider: first.id, model: 'kimi-k2' });
+
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect).not.toBeNull();
+      expect(modelSelect.tagName).toBe('SELECT');
+      expect(modelSelect.value).toBe('kimi-k2');
+      expect(el(fixture, 'provider-model-picker-search')).toBeNull();
+    });
+
+    it('replaces the model select with the search field when enabled', async () => {
+      const fixture = await create({
+        provider: first.id,
+        model: 'kimi-k2',
+        searchable: true,
+        label: 'Main agent',
+      });
+
+      expect(el(fixture, 'provider-model-picker-model')).toBeNull();
+      const input = search(fixture);
+      expect(input).not.toBeNull();
+      expect(input.value).toBe('Kimi K2');
+      expect(input.getAttribute('aria-label')).toBe('Main agent model');
+      // The provider control, summary and manual entry are unaffected.
+      expect(el(fixture, 'provider-model-picker-provider')).not.toBeNull();
+      expect(
+        el(fixture, 'provider-model-picker-tooluse-summary')?.textContent,
+      ).toContain('3 models · 2 support tool use');
+      expect(el(fixture, 'provider-model-picker-manual-entry')).not.toBeNull();
+    });
+
+    it('filters the catalogue by name or id as the user types', async () => {
+      const fixture = await create({ provider: first.id, searchable: true });
+      const input = search(fixture);
+
+      input.value = 'gpt';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(optionLabels(fixture)).toEqual(['GPT-5 mini']);
+
+      input.value = 'k2';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(optionLabels(fixture)).toEqual(['Kimi K2']);
+    });
+
+    it('emits the chosen model with the current provider', async () => {
+      const fixture = await create({ provider: first.id, searchable: true });
+      const emitted: ProviderModelSelection[] = [];
+      fixture.componentInstance.selectionChange.subscribe((s) =>
+        emitted.push(s),
+      );
+
+      const input = search(fixture);
+      input.value = 'sonnet';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      (
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[role="option"]',
+        ) as HTMLElement
+      ).click();
+      fixture.detectChanges();
+
+      expect(emitted).toEqual([
+        { provider: first.id, model: 'claude-sonnet-4' },
+      ]);
+      expect(search(fixture).value).toBe('Claude Sonnet 4');
+    });
+
+    it('keeps a pinned out-of-catalogue id visible and findable', async () => {
+      const fixture = await create({
+        provider: first.id,
+        model: 'vendor/custom-id',
+        searchable: true,
+      });
+      const input = search(fixture);
+      expect(input.value).toBe('vendor/custom-id · not in current catalog');
+
+      input.value = 'custom';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(optionLabels(fixture)).toEqual([
+        'vendor/custom-id · not in current catalog',
+      ]);
+    });
+
+    it('disables the search field while disabled', async () => {
+      const fixture = await create({
+        provider: first.id,
+        searchable: true,
+        disabled: true,
+      });
+      expect(search(fixture).disabled).toBe(true);
+    });
+
+    it('disables the search field while the catalogue is loading', async () => {
+      let release: (r: ProviderListModelsResult) => void = () => undefined;
+      listModels.mockReturnValue(
+        new Promise<ProviderListModelsResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+      const fixture = TestBed.createComponent(ProviderModelPickerComponent);
+      fixture.componentRef.setInput('searchable', true);
+      fixture.detectChanges();
+      expect(search(fixture).disabled).toBe(true);
+
+      release(result([]));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(search(fixture).disabled).toBe(false);
     });
   });
 
