@@ -21,6 +21,7 @@ import {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
+import { ProvidersCommitService, type ProvidersCommitHooks } from './providers-commit.service';
 import {
   createSectionStore,
   effortFreshSectionView,
@@ -41,10 +42,8 @@ import type {
   ProvidersJudgingSettings,
   ProvidersMainSources,
   ProvidersOrchestrationField,
-  ProvidersSettingsCommit,
   ProvidersSettingsPatch,
   SaveOperation,
-  SaveOutcome,
 } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
@@ -72,19 +71,12 @@ const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachab
  * never sent one for either) and writes no main-agent tiers (those pin ANTHROPIC_DEFAULT_*_MODEL).
  */
 const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
-const EMPTY_COMMIT: ProvidersSettingsCommit = {
-  status: 'idle',
-  saved: [],
-  unsaved: [],
-  unconfirmed: [],
-  refreshFailed: false,
-  message: null,
-};
 
 /** Page-owned lifecycle: call open() on entry. No constructor I/O or polling. */
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly commits = inject(ProvidersCommitService);
   private readonly effortChanges = inject(EffortSettingsChangeService);
   private readonly opened = signal(false);
   private readonly effortRevision = signal(0);
@@ -112,7 +104,6 @@ export class ProvidersSettingsStateService {
   private readonly mainSourcesStore = createSectionStore<ProvidersMainSources>();
   private readonly externalAuthStore = createSectionStore<ProvidersExternalAuth>();
   private externalAuthGeneration = 0;
-  private readonly commitState = signal<ProvidersSettingsCommit>(EMPTY_COMMIT);
   private probeGeneration = 0;
   private probeId: string | null = null;
   private verifiedProviderId: string | null = null;
@@ -136,7 +127,7 @@ export class ProvidersSettingsStateService {
   readonly cliModels = this.view(this.cliModelsStore);
   readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
   readonly externalAuth = this.view(this.externalAuthStore);
-  readonly commit = this.commitState.asReadonly();
+  readonly commit = this.commits.commit;
   /**
    * A scalar identity makes two active badges impossible. Derived from the effective route
    * (`driverProviderId` of a ready, resolved route). `auth:getEffectiveRoute` never reports
@@ -348,7 +339,7 @@ export class ProvidersSettingsStateService {
 
   /**
    * Store setup without selecting it, then optionally activate only after all earlier writes succeed.
-   * Resolves `false` when refused because another save is in flight (see `runCommit`).
+   * Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`).
    */
   async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
     // A blocked result below would overwrite the in-flight save's feedback.
@@ -358,8 +349,7 @@ export class ProvidersSettingsStateService {
       probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
       this.verifiedProviderId !== draft.providerId;
     if (invalid) {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection'],
-        message: 'Verify this draft and review Global setup storage before saving.' });
+      this.commits.block(['Connection'], 'Verify this draft and review Global setup storage before saving.');
       return true;
     }
     const operations: SaveOperation[] = [];
@@ -371,8 +361,7 @@ export class ProvidersSettingsStateService {
         defaultTiers: mappings,
       });
       if (!parsed.success) {
-        this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Custom connection'],
-          message: 'Use a lower-case connection ID with dashes, an HTTP(S) endpoint and explicit models for all three tiers.' });
+        this.commits.block(['Custom connection'], 'Use a lower-case connection ID with dashes, an HTTP(S) endpoint and explicit models for all three tiers.');
         return true;
       }
       const exists = this.connections().data?.some((entry) => entry.id === draft.providerId && entry.custom);
@@ -394,7 +383,7 @@ export class ProvidersSettingsStateService {
     const tiers = Object.entries(mappings) as [RpcMethodParams<'provider:setModelTier'>['tier'], string][];
     const defaults = getAnthropicProvider(draft.providerId)?.defaultTiers;
     if (!nativeAnthropic && !custom && tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection models'], message: 'Choose explicit models where no provider default is available.' });
+      this.commits.block(['Connection models'], 'Choose explicit models where no provider default is available.');
       return true;
     }
     // Main-agent tiers, for Connect only as well as activation: provider:setModelTier persists
@@ -428,7 +417,7 @@ export class ProvidersSettingsStateService {
     // first is safe (an inactive provider's tiers never touch the running env), and a failed or
     // conflicting tier write stops activation through the activation stage.
     if (draft.activation === 'use-main-agent') {
-      operations.push(...this.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
+      operations.push(...this.commits.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
         draft.providerId === 'anthropic' ? draft.credential?.value : undefined) })
         .map((operation): SaveOperation => ({ ...operation, stage: 'activation' })));
     }
@@ -444,12 +433,11 @@ export class ProvidersSettingsStateService {
     if (this.commit().status === 'saving') return false;
     const connection = this.connections().data?.find((entry) => entry.id === providerId);
     if (!connection || this.connections().status !== 'ready') {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Main agent connection'],
-        message: 'Refresh this connection before activating it.' });
+      this.commits.block(['Main agent connection'], 'Refresh this connection before activating it.');
       return true;
     }
     const auth = this.activationAuth(providerId, connection.authMode, applyTo);
-    return this.runCommit(this.operations({ auth }), context,
+    return this.runCommit(this.commits.operations({ auth }), context,
       () => this.authWritable(applyTo, auth.anthropicProviderId !== undefined));
   }
 
@@ -630,7 +618,7 @@ export class ProvidersSettingsStateService {
     patch: ProvidersSettingsPatch,
     context: ProvidersEditContext,
   ): Promise<boolean> {
-    const operations = this.operations(patch);
+    const operations = this.commits.operations(patch);
     return this.runCommit(operations, context, () => {
       const authTarget = patch.auth?.applyTo ?? 'global';
       if (
@@ -757,240 +745,12 @@ export class ProvidersSettingsStateService {
     }
   }
 
-  private operations(patch: ProvidersSettingsPatch): SaveOperation[] {
-    const operations: SaveOperation[] = [];
-    if (patch.auth) {
-      const params = { ...patch.auth };
-      operations.push({
-        fields: Object.entries(params)
-          .filter(([key, value]) => key !== 'applyTo' && value !== undefined)
-          .map(([key]) => key),
-        write: async () =>
-          (await this.require('auth:saveSettings', params)).success,
-      });
-    }
-    if (patch.model) {
-      const params = { ...patch.model };
-      operations.push({
-        fields: ['Main agent model'],
-        write: async () => {
-          await this.require('config:model-switch', params);
-          return true;
-        },
-        readBack: async () =>
-          (await this.require('config:model-get', {})).model === params.model,
-      });
-    }
-    if (patch.effort) {
-      const params = { ...patch.effort };
-      operations.push({
-        fields: ['Main agent reasoning effort'],
-        write: async () => {
-          await this.require('config:effort-set', params);
-          return true;
-        },
-        readBack: async () =>
-          (await this.require('config:effort-get', {})).effort ===
-          params.effort,
-      });
-    }
-    for (const field of ['curatorProvider', 'curatorModel'] as const) {
-      const value = patch.memory?.[field];
-      if (value !== undefined)
-        operations.push({
-          fields: [`memory.${field}`],
-          write: async () => {
-            await this.require('memory:setTriggers', {
-              triggers: { [field]: value },
-            });
-            return true;
-          },
-          readBack: async () =>
-            (await this.require('memory:getTriggers', {})).triggers[field] ===
-            value,
-        });
-    }
-    for (const lane of [
-      'archaeologist',
-      'synthesis',
-      'judge',
-      'replay',
-    ] as const) {
-      for (const field of ['provider', 'model'] as const) {
-        const value = patch.lanes?.[lane]?.[field];
-        if (value !== undefined)
-          operations.push({
-            fields: [`skillSynthesis.${lane}.${field}`],
-            write: async () => {
-              await this.require('skillSynthesis:setLanes', {
-                lanes: { [lane]: { [field]: value } },
-              });
-              return true;
-            },
-            readBack: async () =>
-              (await this.require('skillSynthesis:getLanes', {})).lanes[lane][
-                field
-              ] === value,
-          });
-      }
-    }
-    for (const field of [
-      'judgeProvider',
-      'judgeModel',
-      'enhanceTimeoutMs',
-    ] as const) {
-      const requested = patch.judging?.[field];
-      if (requested === undefined) continue;
-      // model-resolver.ts:171 recognizes only 'inherit', not the picker's ''.
-      const value =
-        field === 'judgeModel' && typeof requested === 'string'
-          ? requested.trim() || 'inherit'
-          : requested;
-      operations.push({
-        fields: [`skillSynthesis.${field}`],
-        write: async () => {
-          const settings = { [field]: value };
-          return (
-            await this.require('skillSynthesis:updateSettings', { settings })
-          ).updated;
-        },
-        readBack: async () => {
-          const settings = (
-            await this.require('skillSynthesis:getSettings', {})
-          ).settings;
-          return (
-            (field === 'enhanceTimeoutMs'
-              ? settings.enhanceTimeoutMs.value
-              : settings[field]) === value
-          );
-        },
-      });
-    }
-    for (const field of [
-      'codexModel',
-      'copilotModel',
-      'cursorModel',
-      'antigravityModel',
-      'opencodeModel',
-      'piModel',
-      'codexReasoningEffort',
-      'copilotReasoningEffort',
-      'piReasoningEffort',
-    ] as const) {
-      const value = patch.orchestration?.[field];
-      if (value !== undefined)
-        operations.push({
-          fields: [`agentOrchestration.${field}`],
-          write: async () =>
-            (await this.require('agent:setConfig', { [field]: value })).success,
-          readBack: async () =>
-            (await this.require('agent:getConfig', undefined))[field] === value,
-        });
-    }
-    for (const tier of patch.tiers ?? []) {
-      const params = { ...tier };
-      operations.push({
-        fields: [
-          `provider.${params.providerId ?? 'active'}.modelTier.${params.tier}`,
-        ],
-        write: async () =>
-          (await this.require('provider:setModelTier', params)).success,
-        readBack: async () =>
-          (
-            await this.require('provider:getModelTiers', {
-              providerId: params.providerId,
-              scope: params.scope,
-            })
-          )[params.tier] === params.modelId,
-      });
-    }
-    for (const command of patch.cli ?? []) {
-      const key = `ptahCliAgents.${'id' in command.params ? command.params.id : 'new'}`;
-      const fields =
-        command.action === 'delete'
-          ? [key]
-          : Object.entries(command.params)
-              .filter(([field, value]) => field !== 'id' && value !== undefined)
-              .map(([field]) => `${key}.${field}`);
-      operations.push({
-        fields,
-        write: async () => {
-          switch (command.action) {
-            case 'create':
-              // Existing PtahCliConfigComponent's host contract: OAuth instances carry this non-secret marker.
-              return (await this.require('ptahCli:create', { ...command.params,
-                apiKey: command.params.providerId === 'github-copilot' ? 'copilot-oauth' : command.params.apiKey,
-              })).success;
-            case 'update':
-              return (await this.require('ptahCli:update', command.params))
-                .success;
-            case 'delete':
-              return (await this.require('ptahCli:delete', command.params))
-                .success;
-          }
-        },
-      });
-    }
-    return operations;
-  }
-
-  /**
-   * Resolves `false` without touching `commit()` when another save is in flight: the caller must
-   * tell the user the request was refused (D3). Otherwise resolves `true` once `commit()` describes
-   * this request. `saved` only ever holds acknowledged writes whose read-back, if any, matched (D15).
-   */
-  private async runCommit(
-    operations: readonly SaveOperation[],
-    context: ProvidersEditContext,
-    allowed = () => true,
-  ): Promise<boolean> {
-    if (this.commit().status === 'saving') return false;
-    this.commitState.set({ ...EMPTY_COMMIT, status: 'saving' });
-    await this.refreshScopes();
-    if (!this.contextMatches(context) || !allowed()) {
-      this.commitState.set({
-        ...EMPTY_COMMIT,
-        status: 'blocked',
-        unsaved: operations.flatMap((operation) => operation.fields),
-        message:
-          'Review the current workspace and supported save target before saving.',
-      });
-      return true;
-    }
-    const saved: string[] = [],
-      unsaved: string[] = [],
-      unconfirmed: string[] = [],
-      conflicted: string[] = [];
-    let setupFailed = false,
-      anyFailed = false;
-    for (const operation of operations) {
-      const skipped =
-        operation.stage === 'activation'
-          ? anyFailed
-          : operation.stage !== undefined && setupFailed;
-      const outcome: SaveOutcome =
-        skipped || !this.contextMatches(context)
-          ? 'unsaved'
-          : await this.settle(operation, context);
-      if (outcome === 'conflict') conflicted.push(...operation.fields);
-      (outcome === 'saved'
-        ? saved
-        : outcome === 'unconfirmed'
-          ? unconfirmed
-          : unsaved
-      ).push(...operation.fields);
-      if (outcome !== 'saved') {
-        anyFailed = true;
-        if (operation.stage === 'setup') setupFailed = true;
-      }
-    }
-    // Always refresh, even after rejection: host handlers can fail after a partial write.
-    await this.refresh();
-    if (!this.contextMatches(context)) {
-      unconfirmed.push(...saved);
-      saved.length = 0;
-    }
-    const refreshFailed = [
+  /** The commit pipeline reads and refreshes the sections this facade owns, in this order. */
+  private readonly commitHooks: ProvidersCommitHooks = {
+    refreshScopes: () => this.refreshScopes(),
+    refresh: () => this.refresh(),
+    scopes: () => this.scopes(),
+    sectionsReady: () => [
       this.route(),
       this.scopes(),
       this.mainSources(),
@@ -1003,65 +763,15 @@ export class ProvidersSettingsStateService {
       this.cliModels(),
       this.orchestration(),
       this.connections(),
-    ].some((state) => state.status !== 'ready');
-    const status = unconfirmed.length
-      ? 'unconfirmed'
-      : unsaved.length
-        ? saved.length
-          ? 'partial'
-          : 'failed'
-        : 'saved';
-    this.commitState.set({
-      status,
-      saved,
-      unsaved,
-      unconfirmed,
-      refreshFailed,
-      message: [
-        conflicted.length
-          ? `Changed elsewhere since setup opened, not overwritten: ${conflicted.join(', ')}. Reopen setup to review the current value.`
-          : '',
-        refreshFailed ? 'Some settings could not be refreshed. Retry those sections.' : '',
-      ].filter(Boolean).join(' ') || null,
-    });
-    return true;
-  }
-
-  /**
-   * D15: a rejected write (`false`, `'conflict'`) is not saved and a thrown one is unconfirmed (it
-   * may have written; never claim a rollback). Neither runs read-back, so read-back can never
-   * promote a failed write to saved. Only an acknowledged write in the same context is read back.
-   */
-  private async settle(operation: SaveOperation, context: ProvidersEditContext): Promise<SaveOutcome> {
-    let written: boolean | 'conflict';
-    try {
-      written = await operation.write();
-    } catch (error: unknown) {
-      // RPC errors may contain credentials. Neither their message nor object enters UI state.
-      void error;
-      return 'unconfirmed';
-    }
-    // 'conflict': nothing was written; surface it instead of overwriting a newer value.
-    if (written === 'conflict') return 'conflict';
-    if (!written) return 'unsaved';
-    if (!this.contextMatches(context)) return 'unconfirmed';
-    if (!operation.readBack) return 'saved';
-    try {
-      const matches = await operation.readBack();
-      if (!this.contextMatches(context)) return 'unconfirmed';
-      return matches ? 'saved' : 'unsaved';
-    } catch (error: unknown) {
-      void error;
-      return 'unconfirmed';
-    }
-  }
-
-  private contextMatches(context: ProvidersEditContext): boolean {
-    return (
-      this.workspace.scopeKey() === context.scopeKey &&
-      this.scopes().status === 'ready' &&
-      this.scopes().data?.activePath === context.activePath
-    );
+    ].every((state) => state.status === 'ready'),
+  };
+  /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
+  private runCommit(
+    operations: readonly SaveOperation[],
+    context: ProvidersEditContext,
+    allowed?: () => boolean,
+  ): Promise<boolean> {
+    return this.commits.run(operations, context, this.commitHooks, allowed);
   }
   private freshEffortView<T>(store: SectionStore<T>, readRevision: () => number) {
     return effortFreshSectionView(store, readRevision, this.workspace, this.effortChanges);
