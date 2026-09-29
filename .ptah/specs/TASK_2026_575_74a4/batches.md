@@ -239,6 +239,8 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 
 ### Batch 3 verification
 
+Result: committed 8bbe3418c after code-logic-review-b3.md APPROVE 9/10. Mode 3 recheck: no `stats.cost` / `payload.cost` read of the wire payload remains in libs/ or apps/ (only `pendingStats.cost` / message `cost`, the per-message field by design).
+
 - Files exist and contain the work; no `stats.cost` read remains in the two services
 - Executor names the tests that failed on base
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/chat-streaming` passes
@@ -365,3 +367,25 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 - Both spec files exist with real fixtures; mutation evidence reported per guard
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree` passes
 - Codex CLI-lane logic review returns APPROVE
+
+## Completion (Mode 3) - VERIFIED
+
+- All 9 SHAs (7 batches + docs 3d055eaf5, 2d5ada38a) resolve and are ancestors of HEAD; all 37 non-spec files changed since 722d921ab exist; working tree clean.
+- Final scoped run: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,@ptah-extension/chat,@ptah-extension/chat-streaming,@ptah-extension/chat-execution-tree,@ptah-extension/dashboard,ptah-tui --parallel=3` - 8 projects + 31 dependency tasks, EXIT 0; `npx nx run ptah-extension-webview:typecheck` EXIT 0.
+- Old wire field: no reader of `ResultStatsPayload.cost` / `session:stats` `cost` left in libs/ or apps/.
+- Parity: N/A - no surface replaced, consolidated, rebuilt or redesigned; the analytics page was edited in place (copy, a marker and colour only; scope decision 7).
+- Visual: screenshots/before (base 722d921ab) and screenshots/after, dark + light, 1280 + 480; visual-review.md APPROVE 9/10.
+- Write path: the only persistence change deletes the dead `SessionMetadataStore.addStats` / `propagateStatsToParent` (it had no production caller on base, and nothing references it now); cost-state persistence is unchanged.
+
+## Gate 3 QA - Style review - COMPLETE
+
+- User choice: style review. Round 0: code-style-review.md (CLI lane) APPROVE 8/10, 2 serious + 3 minor.
+- Both serious fixed by behaviour-preserving moves (no logic change): run-result monotonicity helpers (`isSameUsage`, `isGrown`, `dollarsAreObserved`) moved to libs/backend/agent-sdk/src/lib/session-stats/run-result-monotonicity.ts (session-stats-owner.service.ts 986 -> 902 lines); dashboard domain models (`DashboardStatsStatus`, `DashboardSessionEntry`, `SessionCostEstimate`, `sessionCostEstimate`) moved to libs/frontend/dashboard/src/lib/models/session-analytics.models.ts, consumers and barrel re-pointed, no re-export shims.
+- Round 1: code-style-review-r1.md APPROVE 9/10, 0 serious.
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/dashboard --parallel=2` and `npx nx run ptah-extension-webview:typecheck` pass.
+
+Deferred (accepted minors, not implemented):
+
+- Heterogeneous wire-payload type derivations across consumers (each consumer derives the `session:stats` payload type its own way).
+- Untyped `payload as SessionStatsPush` cast in apps/ptah-tui/src/hooks/use-sessions.ts:336; a type guard would be better.
+- Partial-cost formatting diverges between the TUI and the webview.

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_575_74a4
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Make session and analytics cost accounting correct and pinned by tests
 description: >-
