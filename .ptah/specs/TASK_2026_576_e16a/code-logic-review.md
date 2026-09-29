@@ -856,3 +856,206 @@ None that rise above Minor.
 - **Blocking issues**: 0. **Serious issues**: 0 (the round-0 Serious finding is resolved). **Moderate issues**: 1 (the two-read lock-window gap, carried to Batch 5 by design, matching round 0's accepted disposition).
 - **Top risk (updated)**: none against this batch's own scope. The residual, explicitly-carried risk is that Batch 5 must actually wrap `classifyForDiscard` inside the same `GitRepoWriteLock.run()` call as the rest of `discardChanges` — if it wraps only the final `checkout`/`restore`/`clean` calls, the two-read race this round's fix made loud (rather than silent) becomes reachable again in a subtly different shape (a `LOCKED` failure on a read that could have been avoided by locking earlier).
 - **What a robust implementation would add**: nothing blocking. Batch 5's reviewer should explicitly confirm the lock scope named above, since it is the one place this round's fix and next batch's responsibility meet.
+
+---
+
+# Batch 7 — Existing dock: RC1 results surfaced, RC3 stale list, commit-hook e2e (`TASK_2026_576_e16a`)
+
+- **Author**: in-process subagent (`frontend-developer`)
+- **Reviewer**: in-process subagent (`code-logic-reviewer`)
+- **Same-side review — disclosed fallback**: the cross-side antigravity attempt failed (quota exhausted, HTTP 429), as it has repeatedly; Glm is unavailable (Ollama Cloud usage limit). Weaker evidence than a cross-side review.
+
+## Summary
+
+| Metric              | Value                                       |
+| ------------------- | ------------------------------------------- |
+| Overall score       | 8/10 (revise round 1; was 6/10)             |
+| Assessment          | APPROVED                                    |
+| Blocking issues     | 0                                           |
+| Serious issues      | 0 (was 2; both resolved in revise round 1)  |
+| Moderate issues     | 0 (was 3; all resolved in revise round 1)   |
+| Failure modes found | 4 (round 0; see recheck for current status) |
+
+Scope reviewed, read in full: `libs/frontend/git-ui/src/lib/source-control/source-control-panel.component.ts` (+ spec, 42/42 pass, ran `npx nx test git-ui --testFile=source-control-panel.component.spec.ts` myself), `source-control-file.component.ts`, `libs/frontend/git-ui/src/lib/git-dock/git-dock.component.ts` (+ spec), `apps/ptah-electron-e2e/src/specs/git/commit-hook-failure.spec.ts` (new). Cross-checked against batches.md Batch 7 (Tasks 7.1/7.2, V2, the Batch 6 carry-over), task-description.md Requirements 1.1/1.2 (RC1) and 1.4 (RC3), and implementation-plan.md:439-464 (Component 7).
+
+The core RC1 contract is implemented correctly and is the best-tested part of the diff: every mutation (`stageFile`/`unstageFile`/`discardChanges`/`stageAll`/`unstageAll`/`commit`) is awaited via `mutationFailureText`/`commitFeedbackFor`, a transport failure and a `data.success:false` failure are both surfaced and never read as success, `LOCKED` always renders `GIT_LOCKED_MESSAGE` and never raw stderr, `gitStatus.refresh()` runs after every mutation (proven by the "refreshes the status after every mutation" spec with call-order assertions), hook output is bound through Angular interpolation (`{{ feedback.hookOutput }}`) rather than `innerHTML` so it cannot execute markup, and per-row/per-section errors are keyed by `workspaceRoot` so they cannot leak across workspaces (proven by the "never shows one workspace's row error against another workspace" spec). The Batch 6 carry-over spec (fourth `rpcCall` argument = 615,000 for the five mutations, absent for `git:showFile`) is present and passing (`source-control-panel.component.spec.ts:981-1048`). The dock's stale-list binding (V2) and the "not a Git repository" wording rule are both correct and both directly tested (`git-dock.component.spec.ts:339-409`). The e2e spec is well constructed, honestly discloses its Batch-5 dependency, and is not weakened (it exercises a real hook, not a mock, and includes a causation control).
+
+Two gaps keep this out of APPROVED. First, none of the five per-row/per-section mutation buttons (Stage/Unstage/Discard on a row, Stage all/Unstage all) disable themselves or otherwise guard against re-entry while their own request is in flight — a double-click sends two concurrent RPCs sharing the exact same error-map key, and the final displayed state is whichever response settles last, not whichever action the user actually intended to see. Second, the commit workflow's own in-flight/message state was only half workspace-scoped: `commitFeedbackState` and the row/section `errors` map were correctly pinned to the workspace they came from (new in this batch), but `isCommitting` and `commitMessage` were not, so a commit still running for workspace A visibly blocks and appears to be running against workspace B if the user switches mid-commit.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `source-control-panel.component.ts:832-842` (`onStageAll`/`onUnstageAll`) and `:799-824` (`onStageFile`/`onUnstageFile`/`onDiscardFile`): none of these guard against a second call for the same key while the first is still pending, and `source-control-file.component.ts` has no `[disabled]` binding on the Stage/Unstage/Discard buttons at all (no occurrence of `disabled` in that template). Two rapid clicks on the same row's Stage button fire two concurrent `sourceControl.stageFile(path)` calls sharing the identical `rowErrorKey(section, path)`. `runMutation`'s `setError(key, failure)` (`:892-899`) is a last-write-wins map update with no ordering guarantee tied to which request was issued first — if the two responses resolve out of order (plausible: the backend's `GitRepoWriteLock`, per Batch 5, serializes the actual git calls but the RPC/IPC round trip and JS microtask scheduling do not guarantee response order matches request order), the row can end up showing an error for an action that actually succeeded, or no error for one that failed. This is a silent failure in the sense the user is told exactly one outcome (whichever write happened to land last) with no indication a race occurred.
+- `source-control-panel.component.ts:844-871` (`onCommit`): `isCommitting` is a single, workspace-agnostic signal. If the user switches the active workspace while a commit is in flight for the previous workspace, `[disabled]="!canCommit"` (line 239) and the "Committing…" spinner (line 242-244) render against the _new_ workspace's commit button even though nothing is running for it — the new workspace's commit action appears busy/blocked for a repository it has no request against. When the stale commit resolves, `isCommitting.set(false)` (line 869) silently re-enables it, with no indication to the user that the busy state they saw was never theirs.
+
+### 2. What user action produces unexpected behaviour?
+
+- Double-clicking (or two fast taps on a touch/trackpad device producing near-simultaneous click events before Angular's zone-triggered change detection re-renders) any of Stage / Unstage / Discard / Stage all / Unstage all reissues the mutation a second time with no protection, per finding 1 above. `onCommit` is at least protected by the template's `[disabled]="!canCommit"` binding using `isCommitting()`, but the guard lives only in the template, not as an early-return inside `onCommit()` itself (`:844-846` only checks `!message || stagedFiles().length === 0`, never `this.isCommitting()`); a caller that invokes `onCommit()` twice in the same synchronous tick — a genuine risk for any programmatic trigger, and for the two click events a browser can occasionally deliver in one animation frame — would run the RPC twice before the disabled attribute has a chance to reflect.
+- Switching the active workspace while a commit is pending (see finding 2) makes the _new_ workspace's commit control appear busy for no reason of its own, and leaves the commit message textarea holding text from the _previous_ workspace, since `commitMessage` (`:666`, a plain `ngModel`-bound string, not a signal) is never reset or keyed by `workspaceRoot()`. A user who types a message in workspace A, switches to workspace B without clearing it, and stages something in B could click Commit and send A's leftover message text as B's commit message — not caught by any validation, because a non-empty string is a non-empty string regardless of which workspace it was typed for.
+
+### 3. What input data produces a wrong answer?
+
+- None found in the mutation-result classification itself (`mutationFailureText`, `commitFeedbackFor`): every branch (`!result.success`, `!data`, `data.success`, `data.code === 'LOCKED'`, `data.error` present/absent) is covered and matches the RC1 contract, and the specs exercise each branch including the `{success:true}`-with-no-`data`/`{success:true, data:undefined}` cases the plan specifically called out replacing.
+- The workspace-scoping gap in finding 2 is a state bug, not a bad-input bug — no external input produces it, only ordinary UI interaction (workspace switch) during an in-flight request.
+
+### 4. What happens when a dependency fails?
+
+- `gitStatus.refresh()` is called `void`-fire-and-forget after every mutation (`:870`, `:889`) rather than awaited. If `refresh()` itself throws synchronously or returns a rejecting promise that is not internally caught, that rejection becomes an unhandled promise rejection with no user-visible effect — the mutation's own success/failure state was already recorded correctly, so the user is not misled about the mutation, but a refresh failure here is invisible (no re-thrown error, no logged failure) and would leave the file list stale until the next successful read. This is consistent with the plan's design (refresh is a background reconciliation, not the source of truth for the mutation's own outcome) but is worth naming: nothing in this batch's files handles or observes a `refresh()` rejection.
+- A thrown `call()`/`this.sourceControl.commit(...)` (IPC closed, etc.) is caught and converted to a transport-failure message via `thrownFailureText` in both `runMutation` (`:878-890`) and `onCommit` (`:852-864`) — correctly surfaced, not swallowed.
+
+### 5. What is missing that the requirements never mentioned?
+
+- Neither the plan nor the batch's quality requirements mention re-entrancy protection for the row/section mutation buttons or workspace-scoping for `isCommitting`/`commitMessage`, but the team-leader's own review focus for this batch explicitly asks about "concurrency (a double-click on commit, a workspace switch mid-commit)" — the two gaps above are exactly that question, found by tracing the code rather than inferred from a written requirement.
+- No spec anywhere in this batch (or the dock's) exercises a double-click / rapid re-click on a row or bulk-action button, nor a workspace switch while a commit is pending. The existing "never shows one workspace's row error against another workspace" spec (`:902-920`) covers the _error-map_ scoping correctly but does not touch `isCommitting`/`commitMessage`, so the gap has no regression guard.
+
+## Failure modes
+
+### Row/section mutation buttons have no in-flight guard
+
+- Trigger: a user double-clicks (or the browser delivers two closely-spaced click events for) Stage, Unstage, Discard on a file row, or Stage all / Unstage all, before Angular's next change-detection cycle.
+- Symptom: two concurrent RPCs for the same path/section; the error state shown afterward (present or absent) depends on which response settles last, not on which action actually reflects git's current state, and the backend receives a redundant mutation call.
+- Evidence: `libs/frontend/git-ui/src/lib/source-control/source-control-file.component.ts` template (no `disabled` attribute anywhere on the Stage/Unstage/Discard buttons, e.g. lines 95-135); `source-control-panel.component.ts:799-842` (`onStageFile`/`onUnstageFile`/`onDiscardFile`/`onStageAll`/`onUnstageAll`, none check or set an in-flight flag before calling `runMutation`); `runMutation` (`:878-890`) has no reentrancy guard keyed by `key`.
+- Current handling: none.
+- Recommendation: track in-flight keys (e.g. a `ReadonlySet<string>` signal alongside `errors`), disable the corresponding button(s) while their key is in flight, and have `runMutation`/`onStageAll`/`onUnstageAll` no-op (or queue) a call for a key that is already pending.
+
+### `isCommitting` and `commitMessage` are not scoped to the active workspace
+
+- Trigger: the user starts a commit in workspace A, then switches the dock's active workspace to B before A's `commit` RPC settles (possible any time the commit takes noticeably longer than the switch, which RC2's own 60s-hook scenario makes routine).
+- Symptom: workspace B's commit button shows "Committing…" and is disabled for a request it has nothing to do with; when A's commit resolves, B's button silently re-enables with no explanation of what happened. Separately, and independent of an in-flight commit, `commitMessage` is never reset on a workspace switch, so text typed for A can still be sitting in the textarea when B is displayed.
+- Evidence: `source-control-panel.component.ts:666-667` (`commitMessage`, `isCommitting` declared with no workspace key); contrast with `commitFeedbackState`/`commitFeedback` (`:677-685`), which are correctly pinned to `feedback.workspaceRoot === this.workspaceRoot()`, and with the row/section `errors` map (`:676`, keyed via `rowErrorKey`/`sectionErrorKey` which embed `this.workspaceRoot()`) — both added or reused correctly in this same batch, showing the pattern was known and applied inconsistently.
+- Current handling: none for `isCommitting`; none for `commitMessage`.
+- Recommendation: key `isCommitting` the same way `commitFeedback` is keyed (e.g. only treat the button as busy when the in-flight commit's captured `workspaceRoot` equals the current `workspaceRoot()`), and reset or scope `commitMessage` per workspace (at minimum, clear it on a `workspaceRoot()` change, matching how VS Code's own SCM input box is per-repository).
+
+### `gitStatus.refresh()` failures after a mutation are unobserved
+
+- Trigger: `GitStatusService.refresh()` rejects or throws for any reason (transport failure, thrown exception) immediately after a stage/unstage/discard/commit call.
+- Symptom: the mutation's own success/failure is still shown correctly, but the file list is not refreshed and no indication of the refresh failure reaches the user or the log from this batch's code.
+- Evidence: `source-control-panel.component.ts:870, 889` (`void this.gitStatus.refresh()`).
+- Current handling: none in the reviewed files; whether `GitStatusService.refresh()` catches internally is outside this batch's scope (not one of the four files under review), so this is recorded as a residual risk rather than a confirmed defect.
+- Recommendation: confirm (in the owning service, out of this batch's scope) that `refresh()` never rejects; if it can, add a `.catch()` here so a refresh failure cannot become an unhandled rejection.
+
+### None found in the RC3 stale-list wording and dock binding
+
+- Trigger: n/a.
+- Symptom: n/a.
+- Evidence: `git-dock.component.ts:65-141` — the `@if (gitStatus.isLoading())` / `@else if (!isGitRepo() && statusUnavailable())` / `@else if (!isGitRepo())` chain renders the "unavailable" notice before ever reaching "not a Git repository", so a transient/failed read can never be mislabelled as "not a Git repository" (matches RC3's third bullet exactly and is directly tested: `git-dock.component.spec.ts:378-409`). The panel's own stale rendering (`source-control-panel.component.ts:335-368`) correctly distinguishes "no earlier good read" (list hidden, notice only) from "stale but showing last-known" (list shown, marked with `data-stale`, `aria-describedby` pointing at the notice, `border-warning` styling) — both paths are exercised by dedicated specs.
+- Current handling: correct.
+- Recommendation: none — recorded to make the "no finding" scope auditable.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### Row and bulk-action mutation buttons can be re-triggered while already in flight
+
+- File: `libs/frontend/git-ui/src/lib/source-control/source-control-file.component.ts` (no disabled state on Stage/Unstage/Discard, lines 93-135); `libs/frontend/git-ui/src/lib/source-control/source-control-panel.component.ts:799-842, 878-890` (no reentrancy guard in `onStageFile`/`onUnstageFile`/`onDiscardFile`/`onStageAll`/`onUnstageAll`/`runMutation`)
+- Scenario: a user double-clicks any row or bulk action, or clicks it again before the first request's error/success state has rendered.
+- Impact: two concurrent identical RPCs; the row/section's final displayed error state is determined by response arrival order, not request order, so a user can see a stale error for an action that actually succeeded, directly undermining RC1's promise that "the UI shall show `data.error` next to the affected row or section" — the error shown may not correspond to the action's real, current outcome.
+- Fix: add an in-flight key set; disable the corresponding button(s) while the key is pending; make `runMutation` a no-op for a key already in flight.
+
+### Commit in-flight state and message text leak across a workspace switch
+
+- File: `libs/frontend/git-ui/src/lib/source-control/source-control-panel.component.ts:666-667, 844-871`
+- Scenario: user starts a commit in workspace A and switches the active workspace to B before the RPC settles (routine given RC2's 60s hook scenario).
+- Impact: workspace B's commit control is disabled and shows "Committing…" for a request that has nothing to do with B, and the commit message textarea can silently carry workspace A's typed text into workspace B's context — a direct instance of the "workspace switch mid-commit" scenario this batch's own review focus calls out, and inconsistent with the workspace-scoping this same batch correctly applied to `commitFeedbackState` and the row/section `errors` map.
+- Fix: scope `isCommitting` to the workspace the in-flight commit was issued against (mirror the `commitFeedback` computed's `workspaceRoot` pinning); reset or key `commitMessage` per `workspaceRoot()`.
+
+## Moderate and minor issues
+
+- Moderate: `gitStatus.refresh()` is `void`-called (fire-and-forget) after every mutation with no `.catch()` in this batch's code (`source-control-panel.component.ts:870, 889`); acceptable if `GitStatusService.refresh()` cannot reject, but that guarantee is not established by anything in the four files under review here.
+- Moderate: duplicate `aria-label` text across two list regions — `source-control-file.component.ts:189` builds the dismiss-error `aria-label` as `'Dismiss error for ' + fileName()` with no section qualifier, so the same file appearing in both "Staged files" and "Changed files" (e.g. partially staged) would produce two dismiss buttons with an identical accessible name, distinguishable only by ancestor list context. Minor in practice (screen readers announce list membership when navigating by list), but avoidable.
+- Minor: `onCommit()`'s only re-entry protection is the template's `[disabled]` binding (`:239`), not an internal `if (this.isCommitting()) return;` guard inside the handler itself — defense-in-depth gap noted separately from the row/bulk-action finding above because commit at least has the template guard, unlike the row buttons which have none.
+
+## Data flow
+
+1. User triggers a row/bulk mutation → `onStageFile`/`onUnstageFile`/`onDiscardFile`/`onStageAll`/`onUnstageAll` builds a workspace-pinned key and calls `runMutation` — OK for a single in-flight call; gap for concurrent re-entry (Serious issue above).
+2. `runMutation` awaits `call()`, classifies the result via `mutationFailureText`, writes `errors` under `key` — OK: transport failure, `data.success:false` with `LOCKED`/other code, and success (clearing the key) are all classified correctly and proven by spec.
+3. `void this.gitStatus.refresh()` — OK for the happy path; unobserved-rejection gap noted (Moderate).
+4. Template renders `rowError`/`sectionError` from the `errors` map, scoped by `workspaceRoot()`-embedded keys — OK, proven correct across a workspace switch.
+5. `onCommit` captures `workspaceRoot`, sets a workspace-agnostic `isCommitting(true)`, awaits `sourceControl.commit`, builds `commitFeedbackFor` (workspace-pinned), clears the message only on success, sets `isCommitting(false)` — OK for feedback scoping; gap in `isCommitting`/`commitMessage` scoping (Serious issue above).
+6. `GitDockComponent` binds `files`/`statusUnavailable`/`staleReason` from `GitStatusService` straight through to the panel, and separately decides, before the panel ever mounts, whether to show the panel, the "unavailable" notice, or "not a Git repository" — OK, the three-way `@if`/`@else if` chain never lets a failed-but-previously-good read read as "not a Git repository", proven by dedicated specs.
+7. `commit-hook-failure.spec.ts` drives a real Electron app against a real repository with a real failing `pre-commit` hook, asserts the message is kept, the hook's own marker text is visible in the `role="log"` region, no success indicator appears, and git's own state (`rev-list --count HEAD`, `stagedDiff()`) is unchanged — then swaps in a passing hook and re-commits from the same screen as a causation control, pinning the eventual success to the hash git actually wrote — OK; the spec explicitly and correctly documents that it cannot pass before Batch 5 (Task 5.2) ships `hookOutput`, which is disclosed rather than hidden or worked around.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                 | Status   | Gap                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| RC1 / 1.1: `data.error` shown next to the row/section until dismissed or the next action succeeds           | COMPLETE | none for a single, non-overlapping action; see Serious issue for overlapping actions on the same key    |
+| RC1 / 1.1: status list refreshes after every mutation, success or failure                                   | COMPLETE | `refresh()` rejection is unobserved (Moderate)                                                          |
+| RC1 / 1.2: hook-rejected commit keeps the message, shows hook output, shows no success                      | COMPLETE | proven by both a unit spec (mocked `HOOK_FAILED`) and the new real-hook e2e                             |
+| RC1 / 1.2: a spec with a real failing hook, not a mocked `{success:true}`, proves it                        | COMPLETE | `commit-hook-failure.spec.ts`; correctly gated on Batch 5 landing, disclosed in the spec's own comment  |
+| RC3 / 1.4: last good list stays, marked stale                                                               | COMPLETE | none                                                                                                    |
+| RC3 / 1.4: a failed read never renders "not a Git repository"                                               | COMPLETE | none — the dock's `@if`/`@else if` ordering and its specs prove this directly                           |
+| V2: dock passes `staleReason` through to the panel                                                          | COMPLETE | none                                                                                                    |
+| Batch 6 carry-over: spec asserts 615,000 for the five mutations, default for `git:showFile`                 | COMPLETE | present and passing                                                                                     |
+| Implicit: concurrent/duplicate user actions on the same row, section or commit produce one coherent outcome | PARTIAL  | see the two Serious issues above; not named as an acceptance criterion but squarely within RC1's intent |
+
+Implicit requirements not addressed: reentrancy protection for row/bulk mutation buttons; workspace-scoping for `isCommitting`/`commitMessage`.
+
+## Edge cases
+
+| Case                                                                    | Handled | How                                                                                                                              | Concern                                                  |
+| ----------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Transport failure on a mutation shown as transport error, not success   | YES     | `mutationFailureText`/spec "reports a transport failure as a transport error, never as a commit"                                 | none                                                     |
+| `{success:true}` with no usable `data` treated as failure               | YES     | spec "treats a transport success without a git result as a failure"                                                              | none                                                     |
+| `LOCKED` code renders `GIT_LOCKED_MESSAGE`, never raw stderr            | YES     | spec "shows a held lock as the lock message on the row, never the raw stderr"                                                    | none                                                     |
+| Row error cleared on that row's next success                            | YES     | spec "clears a row error on the next success of that row"                                                                        | none                                                     |
+| Row/section error never leaks across a workspace switch                 | YES     | spec "never shows one workspace's row error against another workspace"                                                           | none                                                     |
+| Stale list stays visible with a warning border and `aria-describedby`   | YES     | spec "keeps the last known list visible, marked stale, when a later read failed"                                                 | none                                                     |
+| "Not a Git repository" only for a readable, genuinely-not-a-repo result | YES     | dock specs "never calls a failed read..." / "says 'not a Git repository' only for..."                                            | none                                                     |
+| Double-click / rapid re-click on a row or bulk action                   | NO      | no in-flight guard, no disabled state, no spec                                                                                   | see Serious issue                                        |
+| Workspace switch while a commit is in flight                            | NO      | `isCommitting`/`commitMessage` not workspace-scoped, no spec                                                                     | see Serious issue                                        |
+| Hook output rendered as text, not HTML                                  | YES     | Angular interpolation (`{{ feedback.hookOutput }}`) inside a `<pre>`, no `innerHTML`/`bypassSecurityTrust*` anywhere in the diff | none                                                     |
+| Real hook failure end-to-end, not a mock                                | YES     | `commit-hook-failure.spec.ts`, correctly gated on and disclosing its Batch 5 dependency                                          | cannot pass until Batch 5 lands, by design and disclosed |
+
+## Verdict
+
+- Recommendation: REVISE
+- Confidence: MEDIUM (same-side review only — no cross-vendor CLI lane was available, per the disclosed fallback)
+- Top risk: a user who double-clicks a row action, or switches workspaces while a commit is running, gets a UI state that does not correspond to the actual outcome of their action — exactly the class of defect RC1 exists to eliminate ("the user never sees success... when git failed" generalizes to "the user never sees a state that isn't theirs").
+- What a robust implementation would add: (1) an in-flight key set gating the row/bulk-action buttons and short-circuiting `runMutation` for an already-pending key; (2) workspace-scoping for `isCommitting` and `commitMessage`, mirroring the pattern already used for `commitFeedbackState` and the `errors` map in this same batch; (3) a `.catch()` on the post-mutation `gitStatus.refresh()` call, or a documented guarantee upstream that it cannot reject; (4) a spec for each of the two Serious scenarios so the fix has a regression guard.
+
+## Revise round 1 recheck
+
+- **Scope of recheck**: `source-control-panel.component.ts` (+ `.spec.ts`) and `source-control-file.component.ts` only, per the author's summary. The dock files and the e2e spec are unchanged and their round-0 findings ("None found in the RC3 stale-list wording and dock binding") stand as originally recorded. Read both changed source files in full, and the new/changed spec content (lines 980-1199 of `source-control-panel.component.spec.ts`), directly — not from the author's summary alone.
+- **Same-side review — disclosed fallback (unchanged)**: the cross-side antigravity attempt failed (quota exhausted, HTTP 429), as it has repeatedly; Glm is unavailable (Ollama Cloud usage limit). Weaker evidence than a cross-side review.
+
+**S1 — Row and bulk-action mutation buttons can be re-triggered while already in flight: RESOLVED.**
+
+- A `pending` key set (`source-control-panel.component.ts:694`) now gates every row and bulk mutation. `runMutation` (`:953-968`) re-checks `isPending(key)` and no-ops if already true, in addition to each handler's own pre-check (`onStageFile`/`onUnstageFile`/`onDiscardFile:867,877,887`, `onStageAll`/`onUnstageAll:900,907`) — a defense-in-depth pair, not just a template-level disabled attribute.
+- `canRunRow` (`:830-836`) and `canRunBulk` (`:723-729`) correctly cross-block each other: a bulk action disables every row (proven by "never overlaps a bulk action with another mutation of the same workspace" and "holds both bulk actions while a row action is in flight"), and a row action disables both bulk buttons but not other rows (proven by "runs a row action once however often it is activated while in flight" asserting `button('Unstage file').disabled` stays `false` while Stage is pending). This matches the intended design (a bulk action touches every row, so it must not overlap any row action; two independent row actions on different files may still run concurrently, which is correct since they target different paths).
+- Traced the throw path myself: `runMutation`'s `try { failure = mutationFailureText(await call()) } catch (error) { failure = thrownFailureText(error) }` is followed unconditionally by `this.setError(key, failure); this.setPending(key, false); this.refreshStatus();` — there is no early return inside the `catch`, so a rejected call always clears `pending` for that key. Verified live, not just by reading: "lets a failed in-flight row action be retried once it settles" rejects the deferred promise, asserts `discard().disabled` returns to `false`, then clicks again and gets a second real call (`toHaveBeenCalledTimes(2)`) with the row error cleared on the retry's success. No stuck-disabled state on a throw.
+- `source-control-file.component.ts` now threads a single `busy` input (`:224`) to `[disabled]` and `[attr.aria-busy]` on all three row buttons (`:103-104, 119-120, 136-137`), consistent with `canRunRow` covering the row (not the specific action) — a Stage and a Discard on the same row correctly share one in-flight guard, since both target the same file.
+- Ran `npx nx test git-ui --testFile=source-control-panel.component.spec.ts` and `--testFile=source-control-file.component.spec.ts` myself (not reusing the author's numbers): 50/50 and 18/18 pass respectively, up from 42/42 and the prior file-component count at round 0.
+
+**S2 — Commit in-flight state and message text leak across a workspace switch: RESOLVED.**
+
+- `commitDrafts` (`Map<workspaceRoot, string>`, `:682-684`), `committingRoots` (`Set<workspaceRoot>`, `:686`) and `commitFeedbackByRoot` (`Map<workspaceRoot, CommitFeedback>`, `:696-698`) replace the round-0 single-instance `commitMessage`/`isCommitting` state. The `commitMessage` getter/setter (`:701-706`), `isCommitting` computed (`:709-711`) and `commitFeedback` computed (`:714-716`) all key off `this.workspaceRoot()`, matching the pattern already used correctly for the row/section `errors` map at round 0.
+- Traced `onCommit` (`:913-944`): `workspaceRoot` is captured once, synchronously, before the `await` (`:919`), and every subsequent state write (`setCommitting`, `setCommitFeedback`, `setCommitDraft`) uses that captured value, not `this.workspaceRoot()` read again later — so a commit started in A and resolving after the user has switched to B correctly updates only A's entries. Verified by "keeps the commit state and message of each workspace to itself across a switch mid-commit": while A's commit is pending, switching to B shows B's own (empty) draft and an enabled, non-busy commit button; typing into B's textarea and letting A's commit resolve afterward leaves B's textarea untouched and shows no success indicator on B; switching back to A shows A's draft cleared (its own success cleared it) and A's success line. A second spec ("keeps the message of a workspace whose commit failed while another was displayed") proves the same for a failure arriving while a different workspace is displayed.
+- `setCommitDraft`/`setCommitFeedback`/`setCommitting` (`:990-1012`) all delete a workspace's map/set entry once it has no message/feedback/in-flight state, so these maps do not grow unboundedly across a long session's worth of workspace switches — checked directly against the "cost that grows with the session" hunt category, not assumed from the diff's small size.
+
+**Moderate 1 — `refresh()` fire-and-forget with no `.catch()`: RESOLVED.**
+
+- `refreshStatus()` (`:976-981`) now wraps `this.gitStatus.refresh().catch(() => { /* degradation-audit: ... */ })`, with a comment explaining today's `GitStatusService.refresh()` cannot reject (round-0's residual-risk framing was correct) while defending against a future rejection becoming unhandled. Verified live: "survives a rejected status refresh after a mutation" makes `gitStatus.refresh` reject and asserts the mutation's own error is still shown and the row button re-enables (`disabled` back to `false`) — i.e., a refresh rejection does not leave the row stuck busy, directly answering the coordinator's "stuck-disabled on a throw" concern for this path too.
+
+**Moderate 2 — Duplicate dismiss-error `aria-label` across staged/unstaged rows for the same file: RESOLVED.**
+
+- `dismissErrorLabel` (`source-control-file.component.ts:271-276`) now reads `` `Dismiss error for ${fileName()} in ${staged() ? 'staged changes' : 'changes'}` ``, disambiguating the two rows a partially-staged file can have. Verified by the panel spec asserting the exact string `'Dismiss error for a.ts in staged changes'` (`source-control-panel.component.spec.ts:832`).
+
+**Moderate 3 — this review's round-0 numbering listed three Moderate items; the third (`onCommit`'s missing internal re-entry guard) was filed as the Minor below and is resolved there.** No separate third Moderate remained open.
+
+**Minor — `onCommit()` had no internal re-entry guard, relying solely on the template's `[disabled]` binding: RESOLVED.**
+
+- `onCommit()` now opens with `if (!this.canCommit) return;` (`:916`), with a comment explicitly naming the scenario this closes ("also covers a second activation that lands before the next render"). Verified live: "starts one commit however often Commit is activated while it runs" clicks the commit button three times (forcing `disabled = false` between clicks to bypass the template guard) and asserts exactly one `sourceControl.commit` call.
+
+**New findings from the recheck**: none. No stuck-disabled state was found on any throw path (mutation throw, commit throw, or `refresh()` rejection — all three are exercised by a spec that asserts the control returns to enabled) or on a workspace switch (a workspace that was never visited starts with empty `pending`/`committingRoots`/`commitDrafts`/`commitFeedbackByRoot` entries, so it can never inherit another workspace's busy state; a workspace's own entries are deleted, not merely zeroed, once nothing is outstanding for it, so revisiting a workspace after all its state cleared is indistinguishable from a fresh one). No regression found in the round-0 "no finding" areas (RC3 stale-list wording, dock binding, hook-output rendering as text, `LOCKED` message handling, error-map workspace scoping) — none of those code paths were touched by this revision, confirmed by reading the full diff rather than assuming from the file list.
+
+## Verdict (revise round 1)
+
+- Recommendation: APPROVE
+- Confidence: MEDIUM (same-side review only — no cross-vendor CLI lane was available, per the disclosed fallback)
+- Top risk: none of Blocking/Serious/Moderate severity remains open in the four reviewed files. The only residual note is process-level, not logic: `GitStatusService.refresh()`'s "cannot reject today" guarantee that `refreshStatus()`'s comment relies on lives outside these four files and was not re-verified here (it was accepted as a documented, defended-against assumption at round 0 and remains one).
+- What a robust implementation would add: nothing blocking. A future nice-to-have would be a real-DOM (not `dispatchEvent`-driven) double-click timing test for the row/bulk buttons, since the current specs prove the logic guard directly (bypassing `disabled` by hand) rather than proving the browser's own event timing can never race ahead of Angular's change detection — the logic guard makes that timing question moot either way, so this is a test-depth nicety, not an open defect.

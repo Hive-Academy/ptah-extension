@@ -1,0 +1,12 @@
+{
+  "dark": {
+    "width": 24,
+    "height": 24,
+    "ariaLabel": "Dismiss error for utils.ts in changes"
+  },
+  "light": {
+    "width": 24,
+    "height": 24,
+    "ariaLabel": "Dismiss error for utils.ts in changes"
+  }
+}

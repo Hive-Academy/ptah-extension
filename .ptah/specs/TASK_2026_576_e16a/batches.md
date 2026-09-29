@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 5/69
+Total tasks: 87 | Batches: 69 | Complete: 6/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -308,7 +308,7 @@ Edge cases:
 - Carried: real-git suite evidence is Windows-only — Batch 8 OS matrix must run it on Linux and macOS before R3 is
   closed. `REBASE_DIRS` looseness (Batch 14) and `GitChangeKind` doc comment (Batch 15) stay carried as in round 1.
 
-## Batch 4: GitInfoService facade A — RC4 status/discard, RC7 diff flags, RC3 tri-state probe — COMPLETE
+## Batch 4: GitInfoService facade A — RC4 status/discard, RC7 diff flags, RC3 tri-state probe — COMPLETE (d0e585e24)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -362,7 +362,7 @@ Edge cases:
 - Out of scope, noted: `stashShow` does not use `DIFF_FLAGS` (read-only); checkout's dirty check still uses plain
   porcelain.
 
-## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — PENDING
+## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -372,7 +372,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 4
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/rpc-handlers`
 
-### Task 5.1: Wrap locked operations in `GitRepoWriteLock` (RC6) — PENDING
+### Task 5.1: Wrap locked operations in `GitRepoWriteLock` (RC6) — IN_PROGRESS
 
 - File: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
 - Plan reference: implementation-plan.md:252-289, 356
@@ -387,7 +387,7 @@ Edge cases:
   reviewer must confirm this lock scope.
 - Implementation details: stage, unstage, discard, commit, checkout, applyHunks (whole ladder `:1559-1892`), stash apply/pop/drop, pull run inside one `run()`; mutating spawns go through `execWrite`.
 
-### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — PENDING
+### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — IN_PROGRESS
 
 - Depends on: Task 5.1
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.hooks.real-git.spec.ts
@@ -397,7 +397,7 @@ Edge cases:
 - Validation notes: V7 — lock fingerprint = `mtimeMs` + `size`, plus `ino` from `fs.statSync(p, { bigint: true })` only when non-zero; recovery after tree exit only, commit only, logged. R6 — record commit start delay; >1 s → note it for an explicit `lane` option. 60 s hook case tagged `slow`.
 - Implementation details: `GIT_HOOK_TIMEOUT_MS` for commit, checkout, stash apply/pop, pull, push; `GIT_FETCH_TIMEOUT_MS` for fetch; gitdir cached per workspace via `rev-parse --git-dir`; `TIMEOUT`/`CANCELLED` codes.
 
-### Task 5.3: Write-lock real-git spec and handler pass-through (Component 8) — PENDING
+### Task 5.3: Write-lock real-git spec and handler pass-through (Component 8) — IN_PROGRESS
 
 - Depends on: Task 5.1
 - Files:
@@ -416,6 +416,13 @@ Edge cases:
 - Files exist; scoped command passes (slow case may be skipped locally, noted)
 - CLI-lane logic reviewer accepting verdict
 - V7 and R6 handling stated in the report
+- **Carried from Batch 7 (team-leader decision, gate for Batch 5 COMPLETE):** the committed e2e
+  `apps/ptah-electron-e2e/src/specs/git/commit-hook-failure.spec.ts` (failing hook via `core.hooksPath` keeps the
+  message and shows `hookOutput` in `role="log"`; passing-hook control commits) must be run against a fresh
+  `ptah-electron` build with Batch 5 in place and pass. It is the end-to-end proof that Batch 5's `hookOutput`
+  reaches the renderer through the handler. Report the exact command and the pass line. A failure here is a Batch 5
+  defect (producer side) unless the evidence points at the panel, in which case it returns to frontend-developer
+  against Task 7.1.
 
 ## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — COMPLETE (53e48e6ce)
 
@@ -488,7 +495,7 @@ Edge cases:
 - Minor carried, no action: `safeRpc` in `git-branches.service.ts` is pre-existing dead code; removal belongs to the
   cutover deletion (Batch 64) or any batch that next edits that file.
 
-## Batch 7: Existing dock — RC1 results surfaced, RC3 stale list, commit hook e2e — PENDING
+## Batch 7: Existing dock — RC1 results surfaced, RC3 stale list, commit hook e2e — COMPLETE
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane with image input (not the image-less lane)
@@ -498,7 +505,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 6 (Batch 5 for the e2e run)
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-electron-e2e`
 
-### Task 7.1: Panel awaits every result, shows errors and hook output — PENDING
+### Task 7.1: Panel awaits every result, shows errors and hook output — COMPLETE
 
 - Files:
   - MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/source-control-panel.component.ts
@@ -515,7 +522,7 @@ Edge cases:
 - Validation notes: transport failure shown as transport error, never success. Replace the `{success:true}` commit mock (`spec:48`).
 - Implementation details: stale notice "Git status is unavailable (<reason>) — showing the last known changes" replaces the list-hiding notice at `:139-141`.
 
-### Task 7.2: Dock binding for stale list (V2) and commit-hook e2e — PENDING
+### Task 7.2: Dock binding for stale list (V2) and commit-hook e2e — COMPLETE
 
 - Depends on: Task 7.1
 - Files:
@@ -532,6 +539,41 @@ Edge cases:
 
 - Files exist; scoped command passes
 - CLI-lane logic reviewer and visual-reviewer accepting verdicts; before/after screenshots (dark + light) saved in the task folder `screenshots/b7/`
+
+### Batch 7 result (team-leader)
+
+- Verified on disk: `source-control-panel.component.ts` — `mutationFailureText` reports a transport failure as
+  "Could not reach git: …", never success; `LOCKED` → `GIT_LOCKED_MESSAGE`; `runMutation` awaits, records the
+  row/section error (or clears it on success), then `refreshStatus()` (`gitStatus.refresh().catch`); in-flight
+  guard via `pending` keys + `canRunRow`/`canRunBulk`; `onCommit` returns unless `canCommit`, keeps the draft on every
+  failure, shows `hookOutput` in `<pre role="log" tabindex="0">`, success shows hash + subject; draft, committing state
+  and feedback are keyed by `workspaceRoot`. `source-control-file.component.ts` — `error`/`busy` inputs, dismissible
+  row error (`role="alert"`, 24×24 dismiss, unique label per section). `git-dock.component.ts` binds
+  `statusUnavailable()` + `staleReason()` and shows "Git status is unavailable (…)" instead of "not a Git repository"
+  when a read failed. Panel spec pins 615,000 on the six mutations and no fourth argument on `git:showFile` (Batch 6
+  carry-over closed). No TODO/STUB/PLACEHOLDER markers.
+- Accepted additions beyond the file list: `apps/ptah-extension-webview/src/app/git-error-tint-contrast.spec.ts`
+  (AA gate for `bg-error/10` over base-100/200/300 in anubis + anubis-light, min 11.52:1), added on visual review.
+- Verification: executor and team-leader ran `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui
+ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
+- Review: code-logic-review.md `# Batch 7` round 0 NEEDS_REVISION 6/10 (2 serious) → revise round 1 APPROVED 8/10.
+  visual-review.md `# Batch 7` round 0 CHANGES_REQUIRED 7/10 (target size, no contrast gate) → round 1 APPROVED
+  (24×24 in both themes, contrast gate 8/8, row error captured). Before (722d921ab) / after / after-r1, dark + light,
+  in `screenshots/b7/`; measurement JSON in `screenshots/b7-*.json`. **Same-side review, disclosed fallback**
+  (antigravity HTTP 429, Glm unavailable); confidence MEDIUM. Prototype covers 1 of 5 states; the commit-result
+  deviation is sanctioned by design-spec §0.
+- **Decision — e2e run:** Batch 7 is committed now; `commit-hook-failure.spec.ts` cannot pass until Batch 5 returns
+  `hookOutput`. Its passing run is a **Batch 5 verification gate** (recorded under "Batch 5 verification"), not
+  Batch 8: Batch 5 produces the field, and Batch 8 is CI YAML only. Rationale for not holding: Batch 7 is
+  file-disjoint from Batch 5, reviewed and approved; holding it would leave approved work uncommitted in a tree
+  another executor is editing. If the e2e fails on panel evidence, Task 7.1 reopens.
+- **Follow-up — intermittent row-error render timing** (visual-review.md "Row-level error", Minor, not a merge
+  blocker): one capture run showed the row error appear only seconds after a confirmed `git:stage` failure; a second
+  run rendered it correctly. **Owner: senior-tester at the P1 QA step (before the P1 handover)** — add a
+  deterministic Electron e2e for a failing row stage (error visible, dismissible, button re-enabled) next to
+  `commit-hook-failure.spec.ts`. If it reproduces, it goes back to frontend-developer against Task 7.1.
+- Carried, pre-existing (reproduce on 722d921ab, not Batch 7): rail-width squeeze after a narrow resize; focus-ring
+  legibility re-capture. Both belong to the cutover visual review (Batches 58-61).
 
 ## Batch 8: Cross-platform real-git CI job — PENDING
 
@@ -559,7 +601,8 @@ Edge cases:
 ### P1 boundary — handover
 
 After Batch 8 is COMPLETE the team-leader verifies P1 (all eight SHAs resolve, B7 screenshots present, `git diff main --stat`
-touches only P1 files) and returns. The orchestrator reports to the user for the P1 PR. **Batches 9-69 stay PENDING until
+touches only P1 files), confirms the Batch 5 e2e gate (`commit-hook-failure.spec.ts` pass) and the Batch 7
+follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user for the P1 PR. **Batches 9-69 stay PENDING until
 the user confirms the P1 PR is merged.**
 
 ---

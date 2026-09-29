@@ -32,7 +32,10 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import type { GitFileStatus } from '@ptah-extension/shared';
+import type {
+  GitFileStatus,
+  GitStatusUnavailableReason,
+} from '@ptah-extension/shared';
 import { GitStatusService } from '../services/git-status.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { DiffTabsService } from '../services/diff-tabs.service';
@@ -95,7 +98,10 @@ function makeGitStatusStub() {
     activeWorkspacePath: jest.fn(() => '/ws/a'),
     isLoading: jest.fn(() => false),
     isGitRepo: jest.fn(() => true),
-    isStatusUnavailable: jest.fn(() => false),
+    statusUnavailable: jest.fn<GitStatusUnavailableReason | null, []>(
+      () => null,
+    ),
+    staleReason: jest.fn<GitStatusUnavailableReason | null, []>(() => null),
   };
 }
 
@@ -162,7 +168,8 @@ class SourceControlPanelStubComponent {
   readonly files = input.required<GitFileStatus[]>();
   readonly editorTargets = input<readonly never[]>([]);
   readonly workspaceRoot = input('');
-  readonly statusUnavailable = input(false);
+  readonly statusUnavailable = input<GitStatusUnavailableReason | null>(null);
+  readonly staleReason = input<GitStatusUnavailableReason | null>(null);
   readonly diffRequested = output<OpenDiffRequest>();
   readonly fileClicked = output<OpenInRequest>();
 }
@@ -327,6 +334,78 @@ describe('GitDockComponent', () => {
       'src/a.ts',
       undefined,
     );
+  });
+
+  // -- TASK_2026_576 RC3 / V2: stale list binding ----------------------------
+
+  function renderedPanel(
+    fixture: ReturnType<typeof createRenderedDock>,
+  ): SourceControlPanelStubComponent | null {
+    return (
+      (fixture.debugElement.query(By.directive(SourceControlPanelStubComponent))
+        ?.componentInstance as SourceControlPanelStubComponent | undefined) ??
+      null
+    );
+  }
+
+  it('keeps the file list mounted and passes the stale reason when a read failed after a good one', () => {
+    const lastKnown = [
+      { path: 'src/a.ts', status: 'M', staged: false } as GitFileStatus,
+    ];
+    gitStatus.files.mockReturnValue(lastKnown as never[]);
+    gitStatus.statusUnavailable.mockReturnValue('timeout');
+    gitStatus.staleReason.mockReturnValue('timeout');
+
+    const fixture = createRenderedDock();
+    const panel = renderedPanel(fixture);
+
+    expect(panel).not.toBeNull();
+    expect(panel?.files()).toBe(lastKnown);
+    expect(panel?.staleReason()).toBe('timeout');
+    expect(panel?.statusUnavailable()).toBe('timeout');
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'not a Git repository',
+    );
+  });
+
+  it('passes no stale reason for a fresh read', () => {
+    const panel = renderedPanel(createRenderedDock());
+
+    expect(panel?.staleReason()).toBeNull();
+    expect(panel?.statusUnavailable()).toBeNull();
+  });
+
+  it('never calls a failed read "not a Git repository" when nothing was ever read', () => {
+    gitStatus.isGitRepo.mockReturnValue(false);
+    gitStatus.statusUnavailable.mockReturnValue('error');
+
+    const fixture = createRenderedDock();
+    const text = (fixture.nativeElement.textContent ?? '').replace(/\s+/g, ' ');
+
+    expect(renderedPanel(fixture)).toBeNull();
+    expect(text).not.toContain('not a Git repository');
+    const notice = fixture.nativeElement.querySelector(
+      '[data-testid="git-dock-status-unavailable"]',
+    ) as HTMLElement | null;
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect((notice?.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      'Git status is unavailable (git reported an error).',
+    );
+  });
+
+  it('says "not a Git repository" only for a readable result without a repo', () => {
+    gitStatus.isGitRepo.mockReturnValue(false);
+
+    const fixture = createRenderedDock();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'The active workspace is not a Git repository.',
+    );
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="git-dock-status-unavailable"]',
+      ),
+    ).toBeNull();
   });
 
   it('renders one accessible tab per open diff, in open order', () => {
