@@ -21,7 +21,10 @@ import type {
   Logger,
   RpcHandler,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  SettingsPersistError,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IStateStorage,
@@ -399,13 +402,19 @@ export class AgentRpcHandlers {
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };
       } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:setConfig failed',
-          error instanceof Error ? error : new Error(errorMessage),
+          error instanceof Error ? error : new Error(String(error)),
         );
-        return { success: false, error: errorMessage };
+        // Raw errors can carry paths or credentials, so the client gets fixed
+        // text. SettingsPersistError's message is fixed by construction.
+        return {
+          success: false,
+          error:
+            error instanceof SettingsPersistError
+              ? error.message
+              : 'Could not save the orchestration settings.',
+        };
       }
     });
   }

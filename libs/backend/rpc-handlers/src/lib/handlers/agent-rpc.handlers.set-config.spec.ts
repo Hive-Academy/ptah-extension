@@ -34,6 +34,7 @@ import type {
   IStateStorage,
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
+import { SettingsPersistError } from '@ptah-extension/platform-core';
 import type {
   CliDetectionService,
   AgentProcessManager,
@@ -261,7 +262,7 @@ describe('agent:setConfig Cursor secrets', () => {
     },
   );
 
-  it('preserves unrelated field errors in a request that also updates the Cursor key', async () => {
+  it('reports unrelated field errors with fixed text in a request that also updates the Cursor key', async () => {
     const h = makeHarness();
     const error = new Error('Cannot persist workflows.disabled');
     h.workspace.setConfiguration.mockImplementation(async (_section, key) => {
@@ -280,11 +281,45 @@ describe('agent:setConfig Cursor secrets', () => {
       'provider.cursor.apiKey',
       undefined,
     );
-    expect(result).toEqual({ success: false, error: error.message });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
     expect(h.logger.error).toHaveBeenCalledWith(
       'RPC: agent:setConfig failed',
       error,
     );
+  });
+});
+
+describe('agent:setConfig outer-catch error text (TASK_2026_555 Batch 12c)', () => {
+  const fakeKey = 'sk-test-FAKEKEY123';
+  const leakyMessage = `write failed for ${fakeKey} at C:\\Users\\someone\\.ptah\\settings.json`;
+
+  it('never returns the raw error text (key or path) to the client', async () => {
+    const h = makeHarness();
+    const error = new Error(leakyMessage);
+    h.workspace.setConfiguration.mockRejectedValue(error);
+    const result = await h.setConfig({ piModel: 'openai/gpt-4o' });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    expect(JSON.stringify(result)).not.toContain(fakeKey);
+    expect(JSON.stringify(result)).not.toContain('someone');
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: agent:setConfig failed',
+      error,
+    );
+  });
+
+  it('passes a SettingsPersistError through (fixed text by construction)', async () => {
+    const h = makeHarness();
+    const error = new SettingsPersistError('EACCES');
+    h.workspace.setConfiguration.mockRejectedValue(error);
+    const result = await h.setConfig({ piModel: 'openai/gpt-4o' });
+    expect(result).toEqual({ success: false, error: error.message });
+    expect(result.error).toBe('Settings could not be saved to disk (EACCES)');
   });
 });
 

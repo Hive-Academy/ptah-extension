@@ -36,6 +36,7 @@ import {
 import { probeCustomProvider } from '../utils/custom-provider-probe';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import { SettingsPersistError } from '@ptah-extension/platform-core';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -81,6 +82,15 @@ import {
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+/**
+ * Client-facing text for a failed tier write. Raw errors can carry paths or
+ * credentials, so only SettingsPersistError (fixed text by construction)
+ * passes through; everything else gets the per-RPC fixed message.
+ */
+function clientTierError(error: unknown, fixedMessage: string): string {
+  return error instanceof SettingsPersistError ? error.message : fixedMessage;
+}
 
 /**
  * RPC handlers for provider model operations
@@ -613,7 +623,7 @@ export class ProviderRpcHandlers {
         );
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: clientTierError(error, 'Could not save the model tier.'),
         };
       }
     });
@@ -705,7 +715,7 @@ export class ProviderRpcHandlers {
         );
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: clientTierError(error, 'Could not reset the model tier.'),
         };
       }
     });
