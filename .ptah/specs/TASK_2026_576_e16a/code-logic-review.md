@@ -171,6 +171,164 @@ None.
 
 ---
 
+# Batch 6 — Frontend services: RC3 stale-keep, RC8 renderer timeouts (`TASK_2026_576_e16a`)
+
+- **Author**: in-process subagent (`frontend-developer`)
+- **Reviewer**: in-process subagent (`code-logic-reviewer`)
+- **Same-side review — disclosed fallback**: both CLI lanes unavailable (Ollama Cloud usage limit on Glm; antigravity quota exhausted, HTTP 429). Weaker evidence than a cross-side review.
+
+## Summary
+
+| Metric              | Value                                 |
+| ------------------- | ------------------------------------- |
+| Overall score       | 8/10 (revise round 1; was 7/10)       |
+| Verdict             | APPROVED                              |
+| Blocking issues     | 0                                     |
+| Serious issues      | 0 (was 1; resolved in revise round 1) |
+| Moderate issues     | 2                                     |
+| Failure modes found | 3 (1 resolved, see recheck)           |
+
+Scope reviewed: `libs/frontend/git-ui/src/lib/services/git-status.service.ts` (+ spec), `git-branches.service.ts` (+ spec), `git-stash.service.ts` (+ spec), `source-control.service.ts` (no spec file exists). Read in full, cross-checked against batches.md Batch 6 (Tasks 6.1-6.3, A15, V1), implementation-plan.md:436-457, and task-description.md Requirements 1.4 (RC3) and 1.10 (RC8). Ran `npx nx test git-ui --skip-nx-cache`: 27 suites / 432 tests pass.
+
+The stale-keep logic (`nextSnapshot`/`hasLastGoodData`) in `git-status.service.ts` is centralized correctly — every write to the live signals goes through `setSignals`, and every snapshot transition goes through `nextSnapshot`, so there is no code path that bypasses the RC3 rule once a `GitInfoResult` is actually delivered to `applyGitInfo`. The renderer-timeout wiring (Task 6.2/6.3) is consistent: `615_000`/`315_000` match `gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS)`/`gitRpcTimeoutFor(GIT_FETCH_TIMEOUT_MS)` from `libs/shared/src/lib/constants/git-operation.constants.ts:12-40`, every hook-adjacent mutation across the three services was migrated, and `git:showFile` correctly keeps the 30s default per the plan. The one serious gap is upstream of the reviewed diff's own logic: a transport-level `git:info` failure (RPC timeout, thrown exception, or a malformed success response) never reaches `applyGitInfo` at all, so it is never marked stale — silently defeating RC3 for exactly the failure class ("cannot take the lock", "times out") the requirement names.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- `git-status.service.ts:451` (`fetchGitInfo`'s `catch {}` block) and the `if (result.success && ...)` guard at `:440-450`: when the `git:info` **RPC call itself** fails — transport `success:false`, a thrown exception, or a response missing `data.branch`/`data.files` — the function does nothing beyond resetting `_isLoading`. It never calls `applyGitInfo`, so `staleReason`/`isStale` stay at whatever they were before the call (frequently `null`). The UI keeps showing the previous list as if it were current and fresh, not stale. This is the literal case RC3 (Requirement 1.4) names — "times out or cannot take the lock" — happening one layer up from where the reviewed code's stale-keep runs. It predates this batch (the diff does not touch `fetchGitInfo`), but Task 6.1's file list is exactly this file, and the acceptance criterion does not carve out an exception for a channel-level failure.
+- `git-branches.service.ts:581-587` / `git-stash.service.ts` mutation catch blocks: on a thrown exception the caller gets `{ success: false, error }`, which is correctly surfaced as failure (not silent) — no issue here, called out only to contrast with the `git:info` path above, which is silent.
+
+### 2. What user action produces unexpected behaviour?
+
+- A user watching the status panel while the backend is slow enough to blow the (default 30s, unchanged) `git:info` RPC timeout sees no stale indicator appear at all — the list simply stops updating with no visible signal, which reads as "nothing changed" rather than "status is unavailable." This is a direct instance of finding 1.
+- Switching away from a workspace mid-fetch and back (`git-status.service.ts:253-284`, `switchWorkspace`) is handled correctly: `fetchGitInfo`'s generation/active-path re-check at `:431-436` discards a stale in-flight response, and cache restore via `setSignals(cached ?? EMPTY_SNAPSHOT)` on switch-back is exercised by the "restores the stale marker per workspace on switch" spec — no race found here.
+
+### 3. What input data produces a wrong answer?
+
+- None found in the reviewed stale-keep/timeout logic itself. `hasLastGoodData` (`git-status.service.ts:96-108`) correctly treats a snapshot as "good" both when `statusUnavailable === null` and when it is already stale-but-backed-by-good-data (`staleReason !== null`), so repeated failures do not lose the original good data (proven by the "keeps the last good data across repeated failures" spec). The one genuine "not a repository" case (`isGitRepo:false`, no previous good data) is never converted into a stale-keep, matching RC3's "isGitRepo:false with no statusUnavailable is the only not-a-repo" rule.
+
+### 4. What happens when a dependency fails?
+
+- Backend `git:info` returns a typed `statusUnavailable` reason: handled correctly, stale-keep applies (Task 6.1 core logic, verified by 8 spec cases).
+- Backend/transport fails below the typed-result layer (RPC timeout, dropped message, host bridge not ready): handled incorrectly — see finding 1. Nothing in Batch 6 fixes this; it sits in the same file the batch modified but outside the lines this batch touched.
+- Push/pull/fetch/checkout/stash RPCs fail (transport or git-level): handled correctly — every mutation path in `git-branches.service.ts` and `git-stash.service.ts` returns a typed `{ success:false, error }` from its `catch`, and `remoteAction`'s `try/catch` at `:556-588` never lets a rejection escape as an unhandled promise or a false "success".
+
+### 5. What is missing that the requirements never mentioned?
+
+- A unit spec asserting `SourceControlService`'s actual timeout literal. `libs/frontend/git-ui/src/lib/services/source-control.service.spec.ts` does not exist; Task 6.3's own validation note explicitly defers coverage to Task 7.1 (the panel spec in the still-`PENDING` Batch 7). Until Batch 7 lands, a typo in `MUTATION_RPC_TIMEOUT_MS` (e.g. wrong constant, or a `615_000` hardcoded value that silently diverges from `gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS)` after a future constant change) would not fail any test in this batch's own scoped verification (`nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` — the git-ui project includes the file but no spec exercises it). This is a real hole in "tests that would fail if the wrong constant were used" for exactly the file V1 was created to fix.
+- No behavioural requirement gap found in the branch/stash timeout wiring itself.
+
+## Failure modes
+
+### RPC-layer `git:info` failure never marked stale
+
+- Trigger: `git:info` RPC times out (30s default, unchanged), throws, or returns a response missing `data.branch`/`data.files`.
+- Symptom: status panel silently stops updating; no stale banner, no `staleReason`, `isStale()` stays `false`.
+- Evidence: `git-status.service.ts:415-458` (`fetchGitInfo`), specifically the `catch {}` at `:451` and the compound guard at `:440-450` that only calls `applyGitInfo` on a well-formed success.
+- Current handling: no-op beyond `_isLoading.set(false)`.
+- Recommendation: on `!result.success` or a malformed `data`, synthesize an `unavailable('error')`-shaped result (or a dedicated `'transport'` reason) and route it through `applyGitInfo` so the existing stale-keep machinery marks it, instead of leaving the panel silently frozen.
+
+### Source-control mutation timeout has no regression guard yet
+
+- Trigger: a future edit to `source-control.service.ts` changes or removes `MUTATION_RPC_TIMEOUT_MS`.
+- Symptom: stage/unstage/discard/commit silently revert to the 30s default renderer timeout, reproducing exactly the RC8/V1 defect this batch fixes, with no test failure anywhere in the git-ui project.
+- Evidence: no `source-control.service.spec.ts` exists; `git-status.service.spec.ts`, `git-branches.service.spec.ts`, `git-stash.service.spec.ts` do not import or exercise `source-control.service.ts`.
+- Current handling: none in this batch; Task 6.3's own note defers coverage to Task 7.1.
+- Recommendation: acceptable as a scoped, plan-acknowledged deferral (not a Batch 6 defect) provided Batch 7 is not skipped and its panel spec does assert the four mutation calls' fourth argument; flag to the team-leader so Batch 7 is not treated as optional.
+
+### None found in the branch/stash/checkout timeout wiring
+
+- Trigger: n/a.
+- Symptom: n/a.
+- Evidence: `git-branches.service.ts:482-556` (checkout, push, pull, fetch, `remoteAction`) and `git-stash.service.ts:65-72,282-296` (`STASH_MUTATION_RPC_TIMEOUT_MS` applied to apply/pop/drop) all thread `gitRpcTimeoutFor(...)` through to the actual `rpcCall`, and every failure branch (`catch`, `!response.success`) returns a typed failure rather than throwing or defaulting to a false success.
+- Current handling: correct.
+- Recommendation: none — recorded to make the "no finding" scope auditable rather than omit a category.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### Transport-level `git:info` failure defeats RC3's own guarantee
+
+- File: `libs/frontend/git-ui/src/lib/services/git-status.service.ts:440-458`
+- Scenario: the `git:info` RPC times out at the renderer's default 30s ceiling (this call site does not pass a `timeoutMs`, so it is unaffected by Batch 6's changes), or the transport layer returns `success:false`/a malformed payload.
+- Impact: the requirement this batch exists to satisfy (RC3 / Requirement 1.4: "When git status exits non-zero, times out, or cannot take the lock... the UI shall keep showing the last good file list, marked as stale") is not met for this specific, named failure mode — timeout — when the timeout happens at the RPC-transport layer rather than being caught and typed by the backend first. The user sees an unmarked, silently aging list.
+- Fix: in `fetchGitInfo`'s failure branches (`catch` and the `!result.success` path), call `this.applyGitInfo({ ...EMPTY-ish GitInfoResult shape carrying statusUnavailable: 'timeout' | 'error' }, workspaceAtFetchTime)` (or an equivalent explicit path) instead of no-op, so `nextSnapshot`/`hasLastGoodData` run and `staleReason` is set.
+
+## Moderate and minor issues
+
+- Moderate: `source-control.service.ts` has zero spec coverage of the new `MUTATION_RPC_TIMEOUT_MS` argument (see Failure modes above); acceptable only because Task 6.3 explicitly defers it to Task 7.1, which is still `PENDING`.
+- Minor: `git-branches.service.ts:590-614` (`safeRpc`) is dead code — grep of the file finds the method defined but never called. Pre-existing (not touched by this diff), out of Batch 6's scope, but worth a note since it was named in the executor's declared deviations ("timeout added to `remoteAction` instead of `safeRpc`") — `safeRpc` being unused makes that deviation moot rather than a real alternative that was passed over.
+
+## Data flow
+
+1. `GitStatusService.fetchGitInfo()` issues `git:info` with the default 30s timeout — OK for the happy path; gap noted above for the transport-failure branch.
+2. Backend result reaches `applyGitInfo(data, workspaceRoot)` (`:369-401`) — OK: correctly resolves `target` (active vs. background) and routes through `nextSnapshot`.
+3. `nextSnapshot(data, previous)` (`:118-140`) — OK: clears staleness on a good result, marks staleness only when `hasLastGoodData(previous)` is true, otherwise passes the failure through as-is (never fabricates "not a repository").
+4. `setSignals`/cache write (`:404-411`, `:376-390`) — OK: single choke point for live signals and per-workspace cache, exercised by 8 dedicated RC3 spec cases including cross-workspace isolation and removal.
+5. `GitBranchesService`/`GitStashService`/`SourceControlService` mutation calls — OK: every hook-adjacent call now threads `gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS)` or `gitRpcTimeoutFor(GIT_FETCH_TIMEOUT_MS)` through to `rpcCall`'s fourth argument, verified by literal-value assertions (`615_000`/`315_000`) in the specs for branches and stash; source-control has no spec (see Moderate finding).
+
+## Requirements fulfilment
+
+| Requirement                                                                               | Status                                  | Gap                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RC3 / 1.4: typed `statusUnavailable` keeps last good list, marked stale                   | COMPLETE                                | none for the typed-result path                                                                                                                                      |
+| RC3 / 1.4: "not a Git repository" only when `isGitRepo:false` with no `statusUnavailable` | COMPLETE                                | none                                                                                                                                                                |
+| RC3 / 1.4: transient/transport status failure never shown as an unmarked-fresh list       | PARTIAL                                 | `fetchGitInfo` RPC-layer failures bypass stale-keep entirely (Serious issue above)                                                                                  |
+| RC8 / 1.10: push/pull/checkout use hook timeout, fetch uses fetch timeout                 | COMPLETE                                | none                                                                                                                                                                |
+| RC8 / 1.10: stash apply/pop use hook timeout                                              | COMPLETE                                | drop also included (justified: shares the same write lock per Task 5.1)                                                                                             |
+| V1: `SourceControlService` mutations use the hook timeout                                 | COMPLETE (code); PARTIAL (verification) | no spec asserts the literal; deferred to Task 7.1 by design                                                                                                         |
+| A15: widening `statusUnavailable` breaks no consumer                                      | COMPLETE                                | git-ui typecheck passes fresh (`nx test git-ui --skip-nx-cache`: 432/432; typecheck not separately re-run but no diagnostics surfaced by the type changes reviewed) |
+
+Implicit requirements not addressed: none beyond the transport-failure gap above.
+
+## Edge cases
+
+| Case                                                                              | Handled | How                                                                                | Concern                           |
+| --------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------- | --------------------------------- |
+| Stale-keep only when a previous good entry exists (edge case list, Tasks 6.1/7.1) | YES     | `hasLastGoodData` gate in `nextSnapshot`                                           | none                              |
+| Repeated failures keep the original good data                                     | YES     | spec "keeps the last good data across repeated failures"                           | none                              |
+| Workspace switch restores per-workspace stale marker                              | YES     | spec "restores the stale marker per workspace on switch"                           | none                              |
+| Background workspace failure never leaks into the active workspace                | YES     | spec "keeps last good data for a background workspace from its own cache only"     | none                              |
+| Never-seen workspace failure never shows another workspace's data                 | YES     | spec "never keeps another workspace's data for a workspace with no previous entry" | none                              |
+| Workspace removal clears the stale marker                                         | YES     | spec "clears the stale marker when the active workspace state is removed"          | none                              |
+| Transport failure (RPC timeout / thrown) on `git:info`                            | NO      | `fetchGitInfo` catch/guard no-ops                                                  | see Serious issue                 |
+| Wrong timeout constant in `source-control.service.ts` goes undetected by tests    | NO      | no spec file                                                                       | see Moderate issue, plan-deferred |
+| push/pull/checkout/stash timeouts use the correct literal                         | YES     | spec assertions on `615_000`/`315_000`                                             | none                              |
+
+## Revise round 1 recheck
+
+- **Scope of recheck**: only `libs/frontend/git-ui/src/lib/services/git-status.service.ts` and `git-status.service.spec.ts` changed since the round-0 review above (confirmed via `git diff` against this file pair only). All other Batch 6 files (`git-branches.service.ts`, `git-stash.service.ts`, `source-control.service.ts` and their specs) are unchanged from round 0 and their findings stand as originally recorded.
+- **Same-side review — disclosed fallback (unchanged)**: both CLI lanes remain unavailable (Ollama Cloud usage limit on Glm; antigravity quota exhausted, HTTP 429). Weaker evidence than a cross-side review.
+
+**Finding status: RESOLVED.** The Serious issue "Transport-level `git:info` failure defeats RC3's own guarantee" (round 0, `git-status.service.ts:440-458`) is fixed.
+
+Verified by direct read of the new code and by execution, not by the author's summary alone:
+
+- `readFailureReason(success, error)` (`git-status.service.ts:143-159`) classifies a failed `git:info` read as `'timeout'` only when `error` starts with `'RPC timeout'`, else `'error'`. Cross-checked against the actual producer: `libs/frontend/core/src/lib/services/rpc-call.util.ts:128-132` resolves a renderer-side timeout as `{ success: false, error: `RPC timeout: ${method}` }` — the literal prefix matches exactly (`RPC timeout: git:info`), so the classification is not a guess about wording that could silently drift; a rename of that error string on the producer side would silently reclassify every renderer timeout as `'error'` instead of `'timeout'` (both are valid `GitStatusUnavailableReason` values and both still trigger stale-keep, so this is a labelling risk, not a functional regression — noted as a new Minor finding below, not Serious).
+- `fetchGitInfo` (`:439-479`) now has three failure exits — `!isCurrent()` early return, the malformed-payload `else` branch, and the `catch` block — and the malformed-payload and `catch` branches both call `markReadFailed(...)`, guarded by `isCurrent()` in the `catch` branch specifically (the malformed-payload branch is already inside the `isCurrent()`-gated block). This correctly prevents a late-arriving failure for an abandoned fetch (superseded generation, or a workspace the user switched away from) from corrupting the currently-active workspace's signals — proven by the new specs "discards a failure for a workspace the user has left" and "discards a thrown failure superseded by a newer same-workspace read", both of which I traced by hand against `isCurrent`'s two-part check (`_activeWorkspacePath() === workspaceAtFetchTime && generation === this.fetchGeneration`) and found sound.
+- `markReadFailed(reason)` (`:483-506`) reuses `hasLastGoodData`/`currentSnapshot`/`setSignals` — the same choke points already audited in round 0 — rather than introducing a parallel code path, so the RC3 invariants proven in round 0 (never fabricate "not a repository", never lose the original good data across repeated failures) extend to this new caller for free. Confirmed by reading the function body: it is a no-op when `!active || !hasLastGoodData(previous)`, otherwise builds `stale` via a spread of `previous` (never `EMPTY_SNAPSHOT`) with `statusUnavailable`/`staleReason` set to `reason`.
+- Cache/`fetchedAt` reasoning checked directly: `markReadFailed` writes `this._workspaceGitState.set(active, { ...stale, lastUpdated: Date.now() })` with no `fetchedAt` key. `GitWorkspaceState.fetchedAt` is `fetchedAt?: number` (`:49`, unchanged), and the freshness gate in `switchWorkspace` (`:286-289`) treats a `undefined` `fetchedAt` as not fresh (`fetchedAt !== undefined && Date.now() - fetchedAt < CACHE_TTL_MS`). So a workspace whose last read failed always re-fetches on switch-back rather than serving stale-looking-fresh cached data — verified against the "does not re-trust failed-read data as fresh on switch back" spec, which asserts `git:info` is called again with the correct `workspaceRoot` after a switch away and back.
+- Ran `npx nx test git-ui --skip-nx-cache` myself (not reusing the author's number): 27 suites, **443 tests pass** (up from 432 at round 0). The +11 reconciles exactly against the new `describe('when the git:info read itself fails', ...)` block: timeout, transport failure, thrown exception, three malformed-payload cases (`it.each`), no-last-good-data, clears-on-recovery, switch-back re-read, left-workspace discard, and superseded-by-newer-read discard = 11 new `it` cases, none removed. Ran `ptah_get_diagnostics` scoped to both changed files: zero diagnostics in either file (the 14 errors reported are pre-existing, in unrelated sibling files — `diff-view.component.spec.ts`, `git-dock.component.spec.ts`, `monaco-loader.service.ts`, `source-control-file.component.spec.ts`, `capability-id-codec.ts` — none touched by this batch).
+- No regression found: `nextSnapshot`/`hasLastGoodData`/`setSignals`/the per-workspace isolation proven in round 0 are untouched by this diff (only `isCurrent()` was extracted as a named helper from the same two-line check, and `applyGitInfo`'s body is unchanged apart from that extraction not applying to it at all — `isCurrent` is local to `fetchGitInfo`).
+
+**New findings from the recheck:**
+
+- Minor: `readFailureReason`'s `'timeout'` vs `'error'` classification depends on string-matching the literal `'RPC timeout'` prefix from `rpc-call.util.ts:132`, which is not a shared constant or exported symbol — the two files agree only by convention today (`git-status.service.ts:135-141` has a comment acknowledging this: "that prefix is the only signal it gives"). If the producer's error string ever changes, every renderer-level timeout on `git:info` would silently reclassify as `'error'` rather than `'timeout'`; both still correctly trigger stale-keep (no functional regression), so this is a labelling-accuracy risk only. No test would catch a coordinated rename of the string on both sides. File: `git-status.service.ts:135-141`, `libs/frontend/core/src/lib/services/rpc-call.util.ts:132`. Recommend exporting the prefix (or a type guard) from `rpc-call.util.ts` for the reverse dependency instead of duplicating the literal, but this does not block approval.
+- No other new findings. The Moderate findings from round 0 (no `source-control.service.spec.ts` regression guard for `MUTATION_RPC_TIMEOUT_MS`, dead `safeRpc` in `git-branches.service.ts`) are unchanged, since neither file was touched in this revision round.
+
+## Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: MEDIUM (same-side review only — no cross-vendor CLI lane was available, per the disclosed fallback)
+- **Top risk** (updated): the round-0 Serious finding is resolved; the residual top risk is now the round-0 Moderate finding that `source-control.service.ts`'s `MUTATION_RPC_TIMEOUT_MS` has no spec asserting the literal, so a future typo there would not be caught until Task 7.1 (still `PENDING`) lands.
+- **What a robust implementation would add**: (1) a `source-control.service.spec.ts` (or bringing Task 7.1 forward) asserting the fourth `rpcCall` argument on all four mutations; (2) export the `'RPC timeout'` prefix from `rpc-call.util.ts` as a shared symbol so `readFailureReason`'s classification cannot silently drift from its producer.
+
+---
+
 # Batch 2 — Pure collaborators: write lock and porcelain v2 status parser (`TASK_2026_576_e16a`)
 
 - **Author**: in-process subagents (`backend-developer` x2, fallback after the antigravity lanes failed on quota)

@@ -385,6 +385,387 @@ describe('GitStatusService git:info result handling (TASK_2026_437)', () => {
 
 // ============================================================================
 
+describe('GitStatusService keeps last good data when status is unavailable (TASK_2026_576 RC3)', () => {
+  let service: GitStatusService;
+
+  const GOOD_FILES = [
+    { path: 'kept.ts', status: 'M', staged: true, isDirectory: false },
+    { path: 'other.ts', status: 'A', staged: false, isDirectory: false },
+  ] as GitInfoResult['files'];
+  const GOOD_BRANCH = {
+    branch: 'feature/kept',
+    upstream: 'origin/feature/kept',
+    ahead: 1,
+    behind: 0,
+  };
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+  }
+
+  function unavailable(
+    reason: NonNullable<GitInfoResult['statusUnavailable']>,
+  ): GitInfoResult {
+    return gitInfo({
+      branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+      statusUnavailable: reason,
+    });
+  }
+
+  function push(data: GitInfoResult, workspaceRoot: string): void {
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: { ...data, workspaceRoot },
+    });
+  }
+
+  beforeEach(() => {
+    mockRpcCall.mockReset();
+    TestBed.configureTestingModule({
+      providers: [
+        GitStatusService,
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+    service = TestBed.inject(GitStatusService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it.each(['timeout', 'error', 'locked', 'output-too-large'] as const)(
+    'keeps the previous files, branch and repo flag on a %s result and marks them stale',
+    async (reason) => {
+      mockRpcCall.mockResolvedValue(
+        rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+      );
+      service.switchWorkspace('/ws/a');
+      await flush();
+      expect(service.isStale()).toBe(false);
+
+      mockRpcCall.mockResolvedValue(rpcOk(unavailable(reason)));
+      await service.refresh();
+
+      expect(service.files()).toEqual(GOOD_FILES);
+      expect(service.branch()).toEqual(GOOD_BRANCH);
+      expect(service.isGitRepo()).toBe(true);
+      expect(service.statusUnavailable()).toBe(reason);
+      expect(service.staleReason()).toBe(reason);
+      expect(service.isStale()).toBe(true);
+    },
+  );
+
+  it('keeps the last good data across repeated failures and clears stale on the next good result', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('timeout')));
+    await service.refresh();
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('locked')));
+    await service.refresh();
+
+    expect(service.files()).toEqual(GOOD_FILES);
+    expect(service.staleReason()).toBe('locked');
+
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo({ files: [] })));
+    await service.refresh();
+
+    expect(service.files()).toEqual([]);
+    expect(service.branchName()).toBe('main');
+    expect(service.statusUnavailable()).toBeNull();
+    expect(service.staleReason()).toBeNull();
+    expect(service.isStale()).toBe(false);
+  });
+
+  it('shows the unavailable result as is when no previous good entry exists', async () => {
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('timeout')));
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    expect(service.files()).toEqual([]);
+    expect(service.isGitRepo()).toBe(true);
+    expect(service.statusUnavailable()).toBe('timeout');
+    expect(service.staleReason()).toBeNull();
+    expect(service.isStale()).toBe(false);
+  });
+
+  it('does not keep a previous "not a repository" result as last good data', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ isGitRepo: false, files: [] })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.isGitRepo()).toBe(false);
+
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('error')));
+    await service.refresh();
+
+    // A status failure is never shown as "not a repository".
+    expect(service.isGitRepo()).toBe(true);
+    expect(service.statusUnavailable()).toBe('error');
+    expect(service.isStale()).toBe(false);
+  });
+
+  it('keeps last good data for a background workspace from its own cache only', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/b');
+    await flush();
+    service.startListening();
+    await flush();
+
+    // Background /ws/a fails: its own cached data is kept, /ws/b is untouched.
+    push(unavailable('locked'), '/ws/a');
+    expect(service.branchName()).toBe('main');
+    expect(service.isStale()).toBe(false);
+
+    service.switchWorkspace('/ws/a'); // fresh cache → no fetch
+    expect(service.files()).toEqual(GOOD_FILES);
+    expect(service.branch()).toEqual(GOOD_BRANCH);
+    expect(service.staleReason()).toBe('locked');
+  });
+
+  it("never keeps another workspace's data for a workspace with no previous entry", async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    service.startListening();
+    await flush();
+
+    // A failed result for never-seen /ws/c while /ws/a is active.
+    push(unavailable('timeout'), '/ws/c');
+    expect(service.files()).toEqual(GOOD_FILES);
+    expect(service.isStale()).toBe(false);
+
+    service.switchWorkspace('/ws/c'); // fresh cache → no fetch
+    expect(service.files()).toEqual([]);
+    expect(service.statusUnavailable()).toBe('timeout');
+    expect(service.staleReason()).toBeNull();
+  });
+
+  it('restores the stale marker per workspace on switch', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('timeout')));
+    await service.refresh();
+    expect(service.isStale()).toBe(true);
+
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    service.switchWorkspace('/ws/b');
+    expect(service.isStale()).toBe(false); // uncached reset
+    await flush();
+    expect(service.isStale()).toBe(false);
+
+    service.switchWorkspace('/ws/a'); // fresh cache → no fetch
+    expect(service.staleReason()).toBe('timeout');
+    expect(service.files()).toEqual(GOOD_FILES);
+  });
+
+  it('clears the stale marker when the active workspace state is removed', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    mockRpcCall.mockResolvedValue(rpcOk(unavailable('error')));
+    await service.refresh();
+
+    service.removeWorkspaceState('/ws/a');
+
+    expect(service.isStale()).toBe(false);
+    expect(service.files()).toEqual([]);
+  });
+
+  describe('when the git:info read itself fails', () => {
+    async function loadGood(): Promise<void> {
+      mockRpcCall.mockResolvedValue(
+        rpcOk(gitInfo({ branch: GOOD_BRANCH, files: GOOD_FILES })),
+      );
+      service.switchWorkspace('/ws/a');
+      await flush();
+    }
+
+    function expectKeptAndStale(reason: string): void {
+      expect(service.files()).toEqual(GOOD_FILES);
+      expect(service.branch()).toEqual(GOOD_BRANCH);
+      expect(service.isGitRepo()).toBe(true);
+      expect(service.statusUnavailable()).toBe(reason);
+      expect(service.staleReason()).toBe(reason);
+      expect(service.isStale()).toBe(true);
+      expect(service.isLoading()).toBe(false);
+    }
+
+    it('keeps the last list and marks it stale with "timeout" on an RPC timeout', async () => {
+      await loadGood();
+      // rpcCall resolves its own timeout rather than rejecting.
+      mockRpcCall.mockResolvedValue({
+        success: false,
+        error: 'RPC timeout: git:info',
+      });
+
+      await service.refresh();
+
+      expectKeptAndStale('timeout');
+    });
+
+    it('keeps the last list and marks it stale with "error" on a transport failure', async () => {
+      await loadGood();
+      mockRpcCall.mockResolvedValue({ success: false, error: 'disconnected' });
+
+      await service.refresh();
+
+      expectKeptAndStale('error');
+    });
+
+    it('keeps the last list and marks it stale with "error" when git:info throws', async () => {
+      await loadGood();
+      mockRpcCall.mockRejectedValue(new Error('transport down'));
+
+      await service.refresh();
+
+      expectKeptAndStale('error');
+    });
+
+    it.each([
+      ['no data', { success: true }],
+      [
+        'no files',
+        { success: true, data: { branch: GOOD_BRANCH, isGitRepo: true } },
+      ],
+      ['no branch', { success: true, data: { files: [], isGitRepo: true } }],
+    ])(
+      'keeps the last list and marks it stale with "error" on a malformed payload (%s)',
+      async (_label, response) => {
+        await loadGood();
+        mockRpcCall.mockResolvedValue(response);
+
+        await service.refresh();
+
+        expectKeptAndStale('error');
+      },
+    );
+
+    it('invents no repository and no stale mark when there is no last good data', async () => {
+      mockRpcCall.mockResolvedValue({
+        success: false,
+        error: 'RPC timeout: git:info',
+      });
+      service.switchWorkspace('/ws/a');
+      await flush();
+
+      expect(service.isGitRepo()).toBe(false);
+      expect(service.files()).toEqual([]);
+      expect(service.statusUnavailable()).toBeNull();
+      expect(service.isStale()).toBe(false);
+
+      mockRpcCall.mockRejectedValue(new Error('transport down'));
+      await service.refresh();
+
+      expect(service.isGitRepo()).toBe(false);
+      expect(service.isStale()).toBe(false);
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('clears the stale mark when the next read succeeds', async () => {
+      await loadGood();
+      mockRpcCall.mockResolvedValue({
+        success: false,
+        error: 'RPC timeout: git:info',
+      });
+      await service.refresh();
+      expect(service.isStale()).toBe(true);
+
+      mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+      await service.refresh();
+
+      expect(service.isStale()).toBe(false);
+      expect(service.staleReason()).toBeNull();
+      expect(service.statusUnavailable()).toBeNull();
+      expect(service.branchName()).toBe('main');
+      expect(service.changedFileCount()).toBe(1);
+    });
+
+    it('does not re-trust failed-read data as fresh on switch back', async () => {
+      await loadGood();
+      mockRpcCall.mockResolvedValue({ success: false, error: 'disconnected' });
+      await service.refresh();
+
+      mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+      service.switchWorkspace('/ws/b');
+      await flush();
+      mockRpcCall.mockClear();
+
+      service.switchWorkspace('/ws/a');
+      expect(service.staleReason()).toBe('error'); // restored from cache
+      expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:info', {
+        workspaceRoot: '/ws/a',
+      });
+    });
+
+    it('discards a failure for a workspace the user has left', async () => {
+      await loadGood();
+      let finishA: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementationOnce(
+        () => new Promise((resolve) => (finishA = resolve)),
+      );
+      const pendingA = service.refresh();
+
+      mockRpcCall.mockResolvedValue(
+        rpcOk(gitInfo({ branch: { ...GOOD_BRANCH, branch: 'b-main' } })),
+      );
+      service.switchWorkspace('/ws/b');
+      await flush();
+
+      finishA({ success: false, error: 'RPC timeout: git:info' });
+      await pendingA;
+
+      // /ws/b is untouched ...
+      expect(service.branchName()).toBe('b-main');
+      expect(service.isStale()).toBe(false);
+      // ... and /ws/a's cache did not pick up the late failure.
+      mockRpcCall.mockClear();
+      service.switchWorkspace('/ws/a');
+      expect(service.isStale()).toBe(false);
+      expect(service.files()).toEqual(GOOD_FILES);
+    });
+
+    it('discards a thrown failure superseded by a newer same-workspace read', async () => {
+      await loadGood();
+      let failOlder: (reason: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => (failOlder = reject)),
+      );
+      const older = service.refresh();
+
+      mockRpcCall.mockResolvedValueOnce(rpcOk(gitInfo()));
+      await service.refresh();
+
+      failOlder(new Error('transport down'));
+      await older;
+
+      expect(service.isStale()).toBe(false);
+      expect(service.branchName()).toBe('main');
+    });
+  });
+});
+
+// ============================================================================
+
 describe('GitStatusService as a MessageHandler (C1)', () => {
   let service: GitStatusService;
 

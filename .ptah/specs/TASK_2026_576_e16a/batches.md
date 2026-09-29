@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 2/69
+Total tasks: 87 | Batches: 69 | Complete: 3/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -168,7 +168,7 @@ Edge cases:
   vscode-core barrel (`libs/backend/vscode-core/src/index.ts`). The first batch whose consumer sits outside
   vscode-core (Batch 5, rpc-handlers) must add them. Do not pass `-- --maxWorkers` to run-many with typecheck (TS5023).
 
-## Batch 2: Pure collaborators — write lock and porcelain v2 status parser — COMPLETE
+## Batch 2: Pure collaborators — write lock and porcelain v2 status parser — COMPLETE (5ceb04e19)
 
 - Recommended executor: CLI lanes x 2 (one per task)
 - Fallback executor: backend-developer (sub-agent), sequential
@@ -343,7 +343,7 @@ Edge cases:
 - CLI-lane logic reviewer accepting verdict
 - V7 and R6 handling stated in the report
 
-## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — IN_PROGRESS (revise round 1: transport-level `git:info` failure not marked stale)
+## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — COMPLETE
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -354,7 +354,7 @@ Edge cases:
 - Concurrency-eligible with: Batches 2, 3, 4, 5
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 6.1: `GitStatusService` keeps last good data with `staleReason` — IN_PROGRESS
+### Task 6.1: `GitStatusService` keeps last good data with `staleReason` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-status.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-status.service.spec.ts
 - Plan reference: implementation-plan.md:436-439
@@ -363,7 +363,7 @@ Edge cases:
 - Validation notes: A15.
 - Implementation details: expose `staleReason` and `isStale` signals; spec cases for keep, no-previous, workspace switch.
 
-### Task 6.2: Branch/stash renderer timeouts — IN_PROGRESS
+### Task 6.2: Branch/stash renderer timeouts — COMPLETE
 
 - Files:
   - MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-branches.service.ts
@@ -375,7 +375,7 @@ Edge cases:
 - Validation notes: the private wrapper at `git-branches.service.ts:562-571` must accept and forward a timeout.
 - Implementation details: spec asserts the timeout argument per call.
 
-### Task 6.3: `SourceControlService` mutation timeouts (V1) — IN_PROGRESS
+### Task 6.3: `SourceControlService` mutation timeouts (V1) — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/source-control.service.ts
 - Plan reference: implementation-plan.md:440-443 (RC8 intent; file added by team-leader, V1)
@@ -388,6 +388,31 @@ Edge cases:
 
 - Files exist; git-ui scoped command passes
 - CLI-lane logic reviewer accepting verdict
+
+### Batch 6 result (team-leader)
+
+- Verified on disk: `git-status.service.ts` (`nextSnapshot`/`hasLastGoodData` stale-keep, `staleReason`/`isStale`,
+  `markReadFailed` for transport failure / renderer timeout / malformed payload, `isCurrent()` guard, failed-read
+  cache entry written without `fetchedAt`), `git-branches.service.ts` (checkout/push/pull 615,000 ms, fetch
+  315,000 ms via `remoteAction`), `git-stash.service.ts` (apply/pop/drop hook timeout), `source-control.service.ts`
+  (stage/unstage x2 each, discard, commit use `MUTATION_RPC_TIMEOUT_MS`; `git:showFile` keeps 30 s). No
+  TODO/STUB markers in the diff.
+- Accepted deviations: timeout threaded through `remoteAction` (the only push/pull/fetch path); `git-stash.service.spec.ts`
+  edited though unlisted (exact-args assertion); stash drop uses the hook timeout (same write lock).
+- Team-leader verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui --skip-nx-cache`
+  -> typecheck, test, lint pass (executor: 27 suites / 443 tests).
+- Review: code-logic-review.md `# Batch 6`, in-process code-logic-reviewer. Round 0 APPROVED 7/10 with 1 serious
+  (transport-level `git:info` failure never marked stale) -> fixed in revise round 1, recheck RESOLVED, APPROVED
+  8/10. **Same-side review, disclosed fallback** (Glm Ollama limit, antigravity 429); confidence MEDIUM.
+- Moderate carried: no spec pins `source-control.service.ts` `MUTATION_RPC_TIMEOUT_MS` -> owned by Task 7.1 (made an
+  explicit quality requirement there). Batch 7 is not optional.
+- Minor carried, no action (decision): `'RPC timeout'` prefix is an unshared literal between `git-status.service.ts`
+  and `libs/frontend/core/src/lib/services/rpc-call.util.ts:132`. Not fixed now: it is labelling-only (both
+  `'timeout'` and `'error'` trigger stale-keep), a fix needs a third lib (frontend/core) outside this batch, and the
+  producer string is already pinned by `rpc-call.util.spec.ts:183, 281` (`toContain('RPC timeout')`), so a rename
+  fails a test. If a later batch edits `rpc-call.util.ts`, export the prefix there and import it in git-status.
+- Minor carried, no action: `safeRpc` in `git-branches.service.ts` is pre-existing dead code; removal belongs to the
+  cutover deletion (Batch 64) or any batch that next edits that file.
 
 ## Batch 7: Existing dock — RC1 results surfaced, RC3 stale list, commit hook e2e — PENDING
 
@@ -408,6 +433,11 @@ Edge cases:
 - Plan reference: implementation-plan.md:432-435, 438, 450-456
 - Pattern to follow: handlers at `source-control-panel.component.ts:457-496`
 - Quality requirements: `!(result.success && result.data?.success)` → dismissible per-row/section error; `gitStatus.refresh()` after every mutation; commit failure keeps the message and shows `hookOutput` in a keyboard-scrollable `<pre role="log">`; success shows hash + subject. Error text is backend `error` or `GIT_LOCKED_MESSAGE`, never absolute paths.
+- Carried from Batch 6 (review moderate, V1 regression guard): the panel spec (or a new
+  `libs/frontend/git-ui/src/lib/services/source-control.service.spec.ts`, counted against the batch's file budget)
+  must assert that `stageFile`, `unstageFile`, `stageAll`, `unstageAll`, `discardChanges` and `commit` pass
+  `gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS)` (615,000) as the fourth `rpcCall` argument, and that `git:showFile` does
+  not. Batch 7 is not complete without it.
 - Validation notes: transport failure shown as transport error, never success. Replace the `{success:true}` commit mock (`spec:48`).
 - Implementation details: stale notice "Git status is unavailable (<reason>) — showing the last known changes" replaces the list-hiding notice at `:139-141`.
 

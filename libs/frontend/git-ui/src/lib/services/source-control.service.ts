@@ -4,6 +4,7 @@ import {
   rpcCall,
   type RpcCallResult,
 } from '@ptah-extension/core';
+import { GIT_HOOK_TIMEOUT_MS, gitRpcTimeoutFor } from '@ptah-extension/shared';
 import type {
   GitStageResult,
   GitUnstageResult,
@@ -12,6 +13,15 @@ import type {
   GitShowFileResult,
 } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
+
+/**
+ * Renderer timeout for every index / working-tree mutation. Commit runs its
+ * hooks under the backend hook timeout, and stage, unstage and discard take
+ * the same repository write lock, so they can queue behind that commit
+ * (TASK_2026_576 RC8, V1). The margin lets the backend's typed result arrive
+ * before the renderer gives up.
+ */
+const MUTATION_RPC_TIMEOUT_MS = gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS);
 
 /**
  * SourceControlService - Frontend RPC wrapper for git source control operations.
@@ -37,10 +47,15 @@ export class SourceControlService {
    * @param path - Relative path from workspace root
    */
   async stageFile(path: string): Promise<RpcCallResult<GitStageResult>> {
-    return rpcCall<GitStageResult>(this.vscodeService, 'git:stage', {
-      paths: [path],
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitStageResult>(
+      this.vscodeService,
+      'git:stage',
+      {
+        paths: [path],
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**
@@ -48,30 +63,45 @@ export class SourceControlService {
    * @param path - Relative path from workspace root
    */
   async unstageFile(path: string): Promise<RpcCallResult<GitUnstageResult>> {
-    return rpcCall<GitUnstageResult>(this.vscodeService, 'git:unstage', {
-      paths: [path],
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitUnstageResult>(
+      this.vscodeService,
+      'git:unstage',
+      {
+        paths: [path],
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**
    * Stage all changed files in the workspace.
    */
   async stageAll(): Promise<RpcCallResult<GitStageResult>> {
-    return rpcCall<GitStageResult>(this.vscodeService, 'git:stage', {
-      paths: ['.'],
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitStageResult>(
+      this.vscodeService,
+      'git:stage',
+      {
+        paths: ['.'],
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**
    * Unstage all staged files in the workspace.
    */
   async unstageAll(): Promise<RpcCallResult<GitUnstageResult>> {
-    return rpcCall<GitUnstageResult>(this.vscodeService, 'git:unstage', {
-      paths: ['.'],
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitUnstageResult>(
+      this.vscodeService,
+      'git:unstage',
+      {
+        paths: ['.'],
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**
@@ -80,10 +110,15 @@ export class SourceControlService {
    * @param path - Relative path from workspace root
    */
   async discardChanges(path: string): Promise<RpcCallResult<GitDiscardResult>> {
-    return rpcCall<GitDiscardResult>(this.vscodeService, 'git:discard', {
-      paths: [path],
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitDiscardResult>(
+      this.vscodeService,
+      'git:discard',
+      {
+        paths: [path],
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**
@@ -91,10 +126,15 @@ export class SourceControlService {
    * @param message - Commit message
    */
   async commit(message: string): Promise<RpcCallResult<GitCommitResult>> {
-    return rpcCall<GitCommitResult>(this.vscodeService, 'git:commit', {
-      message,
-      ...this.scopeParams(),
-    });
+    return rpcCall<GitCommitResult>(
+      this.vscodeService,
+      'git:commit',
+      {
+        message,
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
   }
 
   /**

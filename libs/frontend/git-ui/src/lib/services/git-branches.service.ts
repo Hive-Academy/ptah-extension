@@ -7,7 +7,12 @@ import {
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type { MessageHandler } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  GIT_FETCH_TIMEOUT_MS,
+  GIT_HOOK_TIMEOUT_MS,
+  MESSAGE_TYPES,
+  gitRpcTimeoutFor,
+} from '@ptah-extension/shared';
 import type {
   BranchRef,
   GitBranchesResult,
@@ -482,6 +487,8 @@ export class GitBranchesService implements MessageHandler {
         this.vscodeService,
         'git:checkout',
         { ...this.scopeParams(), ...params },
+        // Checkout runs post-checkout hooks under the backend hook timeout.
+        gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS),
       );
       if (response.success && response.data) {
         return response.data;
@@ -504,7 +511,13 @@ export class GitBranchesService implements MessageHandler {
    * Refreshes branch state (ahead/behind counts) on success.
    */
   push(): Promise<GitPushResult> {
-    return this.remoteAction('git:push', 'push', false);
+    // pre-push hooks run under the backend hook timeout.
+    return this.remoteAction(
+      'git:push',
+      'push',
+      false,
+      gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS),
+    );
   }
 
   /**
@@ -512,29 +525,45 @@ export class GitBranchesService implements MessageHandler {
    * last commit on success, since HEAD moves.
    */
   pull(): Promise<GitPullResult> {
-    return this.remoteAction('git:pull', 'pull', true);
+    // post-merge hooks run under the backend hook timeout.
+    return this.remoteAction(
+      'git:pull',
+      'pull',
+      true,
+      gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS),
+    );
   }
 
   /** Fetch (and prune) remotes. Refreshes branches so behind counts update. */
   fetch(): Promise<GitFetchResult> {
-    return this.remoteAction('git:fetch', 'fetch', false);
+    return this.remoteAction(
+      'git:fetch',
+      'fetch',
+      false,
+      gitRpcTimeoutFor(GIT_FETCH_TIMEOUT_MS),
+    );
   }
 
   /**
    * Shared shape of push / pull / fetch: one workspace-scoped RPC whose
    * failures — transport or git — are folded into `{ success: false, error }`
    * so callers never need to catch.
+   *
+   * @param timeoutMs Renderer timeout; always longer than the backend's own
+   *   git timeout for `method`, so the backend's typed result arrives first.
    */
   private async remoteAction(
     method: 'git:push' | 'git:pull' | 'git:fetch',
     label: string,
     headMoves: boolean,
+    timeoutMs: number,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const response = await rpcCall<{ success: boolean; error?: string }>(
         this.vscodeService,
         method,
         this.scopeParams(),
+        timeoutMs,
       );
       if (response.success && response.data) {
         if (response.data.success)

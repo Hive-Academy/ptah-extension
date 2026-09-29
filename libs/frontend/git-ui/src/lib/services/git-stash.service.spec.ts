@@ -158,7 +158,7 @@ describe('GitStashService', () => {
     ['pop', 'git:stashPop'],
     ['drop', 'git:stashDrop'],
   ] as const)(
-    '%s calls %s and reloads list, stash count and status',
+    '%s calls %s with the hook timeout and reloads list, stash count and status',
     async (kind, method) => {
       routeRpc({
         [method]: () => ({ success: true }),
@@ -166,11 +166,17 @@ describe('GitStashService', () => {
       });
       const result = await service.mutate(kind, ENTRIES[1]);
       expect(result).toEqual({ success: true });
-      expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), method, {
-        workspaceRoot: '/ws/a',
-        index: 1,
-        expectedHash: ENTRIES[1].hash,
-      });
+      // 600 s backend hook timeout + 15 s renderer margin (TASK_2026_576 RC8).
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        method,
+        {
+          workspaceRoot: '/ws/a',
+          index: 1,
+          expectedHash: ENTRIES[1].hash,
+        },
+        615_000,
+      );
       expect(service.entries()).toEqual([ENTRIES[0]]);
       expect(gitBranches.refreshForCauses).toHaveBeenCalledWith(['refs-stash']);
       expect(gitStatus.refresh).toHaveBeenCalled();
