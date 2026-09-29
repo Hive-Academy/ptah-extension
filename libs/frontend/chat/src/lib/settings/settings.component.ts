@@ -19,7 +19,11 @@ import {
   ArrowLeftRight,
   Globe,
 } from 'lucide-angular';
+import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent, type ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
+import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
+import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
+import { SettingsToastComponent } from './feedback/settings-toast.component';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
@@ -76,7 +80,13 @@ import {
     WebSearchConfigComponent,
     VoiceConfigComponent,
     GoVetConsentConfigComponent,
+    SettingsToastComponent,
     LucideAngularModule,
+  ],
+  // Page-scoped: the toast timer dies with the page; one models loader for every tab.
+  providers: [
+    SettingsSaveFeedbackService,
+    { provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader },
   ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,

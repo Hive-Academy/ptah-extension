@@ -1,0 +1,234 @@
+import { signal, type WritableSignal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import {
+  ProvidersSettingsStateService,
+  type ProvidersSettingsCommit,
+} from '@ptah-extension/core';
+import {
+  SAVE_REFUSED_MESSAGE,
+  SETTINGS_TOAST_TIMEOUT_MS,
+  SettingsSaveFeedbackService,
+  type SettingsSaveRequest,
+} from './settings-save-feedback.service';
+
+const EMPTY: ProvidersSettingsCommit = {
+  status: 'idle',
+  saved: [],
+  unsaved: [],
+  unconfirmed: [],
+  refreshFailed: false,
+  message: null,
+};
+
+describe('SettingsSaveFeedbackService', () => {
+  let commit: WritableSignal<ProvidersSettingsCommit>;
+  let service: SettingsSaveFeedbackService;
+
+  /** A write that moves `commit()` through saving to `outcome`, like a real state command. */
+  function writeResolving(outcome: Partial<ProvidersSettingsCommit>): jest.Mock<Promise<boolean>> {
+    return jest.fn(async () => {
+      commit.set({ ...EMPTY, status: 'saving' });
+      await Promise.resolve();
+      commit.set({ ...EMPTY, ...outcome });
+      return true;
+    });
+  }
+
+  function request(overrides: Partial<SettingsSaveRequest> = {}): SettingsSaveRequest {
+    return {
+      label: 'main agent model',
+      scope: 'workspace',
+      write: writeResolving({ status: 'saved', saved: ['model'] }),
+      undo: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    commit = signal<ProvidersSettingsCommit>(EMPTY);
+    TestBed.configureTestingModule({
+      providers: [
+        SettingsSaveFeedbackService,
+        { provide: ProvidersSettingsStateService, useValue: { commit } },
+      ],
+    });
+    service = TestBed.inject(SettingsSaveFeedbackService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.useRealTimers();
+  });
+
+  it('shows a polite success toast naming the field and scope, with Undo when undo is given', async () => {
+    await service.save(request({ undo: jest.fn().mockResolvedValue(true) }));
+
+    expect(service.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved main agent model to This workspace.',
+      canUndo: true,
+    });
+  });
+
+  it('labels each scope as the Save-to choice does', async () => {
+    await service.save(request({ scope: 'app' }));
+    expect(service.toast()?.message).toBe('Saved main agent model to Desktop app.');
+    await service.save(request({ scope: 'global' }));
+    expect(service.toast()?.message).toBe('Saved main agent model to All Ptah apps.');
+  });
+
+  it('offers no Undo when the request has none', async () => {
+    await service.save(request());
+    expect(service.toast()?.canUndo).toBe(false);
+  });
+
+  it('Undo performs a second real write through save(), and the result offers no further Undo', async () => {
+    const undo = writeResolving({ status: 'saved', saved: ['model'] });
+    const write = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ write, undo }));
+
+    await service.undo();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(service.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved main agent model to This workspace.',
+      canUndo: false,
+    });
+    await service.undo();
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed Undo write reports failure and offers no Undo', async () => {
+    const undo = writeResolving({ status: 'failed', unsaved: ['model'] });
+    await service.save(request({ undo }));
+
+    await service.undo();
+
+    expect(service.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save main agent model. Not saved: model.',
+      canUndo: false,
+    });
+  });
+
+  it('a failed save is an alert listing unsaved fields and the commit message, with no Undo', async () => {
+    const undo = jest.fn().mockResolvedValue(true);
+    await service.save(
+      request({
+        write: writeResolving({
+          status: 'failed',
+          unsaved: ['model', 'effort'],
+          message: 'Some settings could not be refreshed. Retry those sections.',
+        }),
+        undo,
+      }),
+    );
+
+    expect(service.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save main agent model. Not saved: model, effort. Some settings could not be refreshed. Retry those sections.',
+      canUndo: false,
+    });
+    expect(undo).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['partial', { status: 'partial', saved: ['model'], unsaved: ['effort'] }, 'Not saved: effort.'],
+    ['unconfirmed', { status: 'unconfirmed', unconfirmed: ['model'] }, 'Not confirmed: model.'],
+    ['blocked', { status: 'blocked', unsaved: ['model'], message: 'Review the current workspace.' }, 'Not saved: model. Review the current workspace.'],
+  ] as const)('a %s commit is an alert without Undo', async (_name, outcome, detail) => {
+    await service.save(
+      request({ write: writeResolving(outcome), undo: jest.fn().mockResolvedValue(true) }),
+    );
+
+    expect(service.toast()).toEqual({
+      tone: 'alert',
+      message: `Could not save main agent model. ${detail}`,
+      canUndo: false,
+    });
+  });
+
+  it('refuses re-entry while a save is in flight without calling write', async () => {
+    commit.set({ ...EMPTY, status: 'saving' });
+    const write = jest.fn().mockResolvedValue(true);
+
+    await service.save(request({ write }));
+
+    expect(write).not.toHaveBeenCalled();
+    expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
+    expect(service.saving()).toBe(true);
+  });
+
+  it('a refused write (false) never shows success, even while commit() still shows an earlier saved commit', async () => {
+    // An earlier save left commit() at `saved` and its toast on screen.
+    await service.save(request({ undo: jest.fn().mockResolvedValue(true) }));
+    expect(commit().status).toBe('saved');
+    expect(service.toast()?.tone).toBe('status');
+
+    // This call is refused by the state service (another save won the race): commit() is untouched.
+    const refusedUndo = jest.fn().mockResolvedValue(true);
+    await service.save(
+      request({ label: 'effort', write: jest.fn().mockResolvedValue(false), undo: refusedUndo }),
+    );
+
+    expect(commit().status).toBe('saved');
+    expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
+    await service.undo();
+    expect(refusedUndo).not.toHaveBeenCalled();
+  });
+
+  it('a write that throws reports the save as unconfirmed, with no Undo', async () => {
+    await service.save(
+      request({
+        write: jest.fn().mockRejectedValue(new Error('boom')),
+        undo: jest.fn().mockResolvedValue(true),
+      }),
+    );
+
+    expect(service.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not confirm whether main agent model was saved.',
+      canUndo: false,
+    });
+  });
+
+  it('auto-dismisses after 8 s with one timer, replaced (not stacked) by the next toast', async () => {
+    await service.save(request());
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(SETTINGS_TOAST_TIMEOUT_MS - 1000);
+    await service.save(request({ scope: 'global' }));
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(1000);
+    expect(service.toast()?.message).toBe('Saved main agent model to All Ptah apps.');
+    jest.advanceTimersByTime(SETTINGS_TOAST_TIMEOUT_MS);
+    expect(service.toast()).toBeNull();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('dismiss clears the toast, the Undo and the timer', async () => {
+    const undo = jest.fn().mockResolvedValue(true);
+    await service.save(request({ undo }));
+
+    service.dismiss();
+
+    expect(service.toast()).toBeNull();
+    expect(jest.getTimerCount()).toBe(0);
+    await service.undo();
+    expect(undo).not.toHaveBeenCalled();
+  });
+
+  it('clears the timer when its injector is destroyed', async () => {
+    await service.save(request());
+    expect(jest.getTimerCount()).toBe(1);
+
+    TestBed.resetTestingModule();
+
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
