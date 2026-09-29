@@ -190,3 +190,177 @@ jobs:
         run: npm run test:scripts
 
       - run: npx nx affected -t build
+
+  # Batch 8 (TASK_2026_576_e16a, Component 9 / R3): the real-git suites for
+  # RC5 (git-watcher) and RC4/RC7 (git-info.service paths + diff-config) are
+  # evidenced on Windows only in Batches 3 and 4 -- POSIX-only fixture names
+  # (`a"b`, `a\b`, trailing space) are skipped there. This job proves the
+  # same suites on Linux and macOS to close that carried risk. Selection is
+  # by filename pattern, not an explicit file list, so every current and
+  # future `*.real-git.spec.ts` file (including the ones Batch 5 is still
+  # adding under vscode-core) is picked up without another edit here.
+  git-real-git:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # 30 min covers a from-scratch npm ci plus a native rebuild on the
+    # slowest runner (windows-latest); the main job budgets 60 for the full
+    # affected graph, this job only ever runs two projects' real-git specs.
+    timeout-minutes: 30
+    # Same skip guard as the main job: closed/merged PRs and the bot bump
+    # branches from the publish-*.yml workflows never need this evidence.
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    # Force bash everywhere: windows-latest defaults `run:` steps to pwsh,
+    # and the `npm ci || npm install` fallback below relies on POSIX `||`
+    # semantics being identical across all three runners. Git Bash ships on
+    # windows-latest.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The real-git specs each set local (per-repo) user.name/user.email and
+      # pin their own default branch via `git init -b main` or an explicit
+      # `symbolic-ref HEAD refs/heads/main`, so they do not depend on this --
+      # but a bare `git commit` still fails if no identity resolves at all on
+      # a fresh runner, and Batch 5 is still adding real-git specs this job
+      # does not control. Configuring the runner's global identity and
+      # default branch is a cheap safety net so a future spec that forgets
+      # its own local config does not fail with "unknown user" instead of a
+      # real assertion.
+      #
+      # Round-1 review (moderate): setting `init.defaultBranch main` globally
+      # could in principle mask a spec that relies on discovering the default
+      # branch name instead of pinning it, hiding a defect that only shows up
+      # on a user machine defaulting to `master`. Scoped to `git-real-git`
+      # only (not the `main` job, not a user's machine) and every current
+      # real-git spec pins its branch explicitly rather than reading the
+      # default, so there is nothing today for this to mask; kept as a
+      # runner-determinism safety net per the paragraph above, not removed,
+      # per the reviewer's own "acceptable in CI" framing -- flagged here so
+      # a future real-git spec that DOES rely on branch auto-detection is a
+      # deliberate choice, not an accident of this step.
+      - name: Configure git identity and default branch
+        run: |
+          git config --global user.email "ci-real-git@ptah.test"
+          git config --global user.name "ptah-ci-real-git"
+          git config --global init.defaultBranch main
+          git config --global commit.gpgsign false
+
+      # Same cache strategy as the main job (keyed on runner.os + lockfile
+      # hash), but namespaced `node-modules-realgit-...` so this job's save
+      # never collides with the main job's save of the plain
+      # `node-modules-${{ runner.os }}-...` key when both run concurrently on
+      # ubuntu-latest (round-1 review, serious finding: the two jobs
+      # previously raced on the identical key, and `main` additionally
+      # populates node_modules/.prisma via prisma:generate, which this job
+      # does not run -- a shared cache entry could hand either job the
+      # other's incomplete artifact set).
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-realgit-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Same fallback as the main job: npm/cli#4828 -- a Windows-generated
+        # lockfile can omit transitive deps under sass-embedded's catch-all
+        # packages, breaking a plain `npm ci` on Linux.
+        run: npm ci || npm install --no-audit --no-fund
+
+      - name: Install Linux platform binaries
+        if: matrix.os == 'ubuntu-latest'
+        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
+
+      # better-sqlite3 ships a prebuilt binary per Node ABI/OS; rebuilding is
+      # cheap and idempotent, and guards a cache hit populated for a
+      # different Node ABI or OS (same rationale as the main job's step).
+      - name: Rebuild native modules for runner Node ABI
+        run: npm rebuild better-sqlite3
+
+      - name: Cache Nx task results
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .nx/cache
+          key: nx-realgit-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            nx-realgit-${{ runner.os }}-
+
+      # `nx test ptah-electron` already declares build-main,
+      # build-embedder-worker, build-integrity-worker,
+      # build-state-storage-worker, build-voice-worker and
+      # build-workspace-watch-host as `dependsOn` (apps/ptah-electron/project.json:425-432),
+      # so Nx builds the native watch host before running its real-git spec
+      # on every OS without any extra step here.
+      #
+      # `--testPathPatterns` (plural) is deliberate, not a typo:
+      # `@nx/jest:jest`'s schema (node_modules/@nx/jest/dist/src/executors/jest/schema.json:160)
+      # only declares `testPathPatterns`; the singular `--testPathPattern`
+      # Jest CLI spelling is not a recognized option, so Nx drops it into
+      # `extraArgs` and jest.impl.js:66 still passes `testPathPatterns: []`
+      # to `runCLI`, which Jest treats as "match everything" rather than
+      # "match nothing". Proven locally (round-1 review caught this as
+      # blocking): with the singular flag,
+      # `nx test @ptah-extension/vscode-core --testPathPattern=real-git --listTests`
+      # lists all 47 suites in the project; with the plural flag it lists
+      # exactly the 4 `*.real-git.spec.ts` files that exist on disk today
+      # (git-info.service.hooks/paths/diff-config/write-lock.real-git.spec.ts
+      # -- the first and last are Batch 5's, proving new real-git specs are
+      # picked up with no workflow edit). `nx test ptah-electron
+      # --testPathPatterns=real-git --listTests` lists exactly
+      # `git-watcher.real-git.spec.ts`.
+      #
+      # `--passWithNoTests=false` is explicit on both steps: neither
+      # project.json sets it, but Jest's own default here is to exit 0 on
+      # zero matches ("No tests found, exiting with code 0" -- verified
+      # locally against a deliberately-unmatched pattern on both projects).
+      # Without this flag a typo'd pattern, or every real-git file being
+      # renamed out from under this filter, would report green having run
+      # nothing. With the flag, the same unmatched-pattern run exits 1
+      # (verified locally); the current real patterns are unaffected (still
+      # 4 and 1 suites respectively).
+      #
+      # `slow` real-git cases (Task 5.2's 60 s hook timeout case, per
+      # implementation-plan.md:488-494) are convention-tagged by including
+      # the literal substring `[slow]` in the test name; `--testNamePattern`
+      # excludes them everywhere except ubuntu-latest, matching Component 9's
+      # "skips the slow tag except on ubuntu-latest". `--testNamePattern` is
+      # a genuinely separate Jest/Nx option from the path filter above (both
+      # singular and plural forms of that one are accepted by Jest itself;
+      # only the path-pattern option is Nx-schema-restricted to the plural),
+      # so it still reaches Jest unchanged under the corrected invocation.
+      # Batch 5 owns adding `[slow]` to that test's `it(...)` description; if
+      # it does not, the case simply runs on all three OSes instead of being
+      # skipped on two, which fails closed (extra coverage) rather than open.
+      - name: vscode-core real-git specs
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            npx nx test @ptah-extension/vscode-core --testPathPatterns=real-git --passWithNoTests=false
+          else
+            npx nx test @ptah-extension/vscode-core --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
+          fi
+
+      - name: ptah-electron real-git specs
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            npx nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false
+          else
+            npx nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
+          fi

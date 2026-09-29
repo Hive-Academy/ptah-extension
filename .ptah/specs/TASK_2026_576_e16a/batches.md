@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 6/69
+Total tasks: 87 | Batches: 69 | Complete: 7/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -416,6 +416,10 @@ Edge cases:
 - Files exist; scoped command passes (slow case may be skipped locally, noted)
 - CLI-lane logic reviewer accepting verdict
 - V7 and R6 handling stated in the report
+- **Carried from Batch 8 (gate for Batch 5 COMPLETE):** `npx nx run ptah-electron:validate-deps` passes. Wiring
+  `GitRepoWriteLock` into `git-info.service.ts` bundles `git/git-write-lock.ts`, whose bare `'async_hooks'` import
+  fails the check and the husky pre-commit hook. Change it to `'node:async_hooks'` (add `git-write-lock.ts` to this
+  batch's files).
 - **Carried from Batch 7 (team-leader decision, gate for Batch 5 COMPLETE):** the committed e2e
   `apps/ptah-electron-e2e/src/specs/git/commit-hook-failure.spec.ts` (failing hook via `core.hooksPath` keeps the
   message and shows `hookOutput` in `role="log"`; passing-hook control commits) must be run against a fresh
@@ -495,7 +499,7 @@ Edge cases:
 - Minor carried, no action: `safeRpc` in `git-branches.service.ts` is pre-existing dead code; removal belongs to the
   cutover deletion (Batch 64) or any batch that next edits that file.
 
-## Batch 7: Existing dock — RC1 results surfaced, RC3 stale list, commit hook e2e — COMPLETE
+## Batch 7: Existing dock — RC1 results surfaced, RC3 stale list, commit hook e2e — COMPLETE (104dced82)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane with image input (not the image-less lane)
@@ -575,7 +579,7 @@ ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
 - Carried, pre-existing (reproduce on 722d921ab, not Batch 7): rail-width squeeze after a narrow resize; focus-ring
   legibility re-capture. Both belong to the cutover visual review (Batches 58-61).
 
-## Batch 8: Cross-platform real-git CI job — PENDING
+## Batch 8: Cross-platform real-git CI job — COMPLETE
 
 - Recommended executor: devops-engineer (sub-agent)
 - Fallback executor: CLI lane
@@ -585,7 +589,7 @@ ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
 - Tasks: 1 | Depends on: Batches 3, 4, 5
 - Verification: YAML lint of the workflow (`npx --yes yaml-lint .github/workflows/ci.yml` or the repo's existing workflow lint) and a dry read of the job matrix; the job itself runs on the P1 PR.
 
-### Task 8.1: `git-real-git` OS-matrix job — PENDING
+### Task 8.1: `git-real-git` OS-matrix job — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/.github/workflows/ci.yml
 - Plan reference: implementation-plan.md:481-493
@@ -598,7 +602,58 @@ ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
 
 - File exists with the job; lint passes; CLI-lane reviewer accepting verdict
 
+### Batch 8 result (team-leader)
+
+- **Scheduling (orchestrator decision, recorded):** Batch 8 was assigned in parallel with Batch 5, despite the
+  declared "Depends on: 3, 4, 5". The reason is that its only file (`.github/workflows/ci.yml`) is disjoint from
+  Batch 5's files (`libs/backend/vscode-core/**`, `libs/backend/rpc-handlers/**`). Spec selection is by filename
+  pattern, so Batch 5's new `*.real-git.spec.ts` files are picked up with no workflow edit. The Batch 8 commit
+  deliberately excludes every Batch 5 path.
+- Verified on disk: `ci.yml` is additive only (the `main` job is untouched). It adds the new `git-real-git` job with
+  matrix ubuntu/windows/macos, `fail-fast: false`, `timeout-minutes: 30` and `defaults.run.shell: bash`. It uses the
+  same closed-PR/bot `if:` guard as `main`. It sets a global git identity, `init.defaultBranch main` and
+  `commit.gpgsign false`. The cache keys are namespaced (`node-modules-realgit-…`, `nx-realgit-…`). The job keeps the
+  `npm ci` fallback, the Linux-only platform binaries and `npm rebuild better-sqlite3`. Both test steps use
+  `--testPathPatterns=real-git --passWithNoTests=false`; on windows/macos they add
+  `--testNamePattern='^(?!.*\[slow\]).*$'`.
+- Deviation from Task 8.1 text (accepted): the plan's singular `--testPathPattern` is replaced by the plural. The
+  singular is not in the `@nx/jest` schema (`node_modules/@nx/jest/dist/src/executors/jest/schema.json:160` declares
+  only `testPathPatterns`) and selected all 47 suites.
+- Team-leader re-verification: js-yaml parses (jobs `main`, `git-real-git`; 10 steps). `--listTests` selects exactly
+  4 vscode-core specs (hooks, paths, diff-config, write-lock; hooks and write-lock are Batch 5 in-progress files) and
+  1 ptah-electron spec (`git-watcher.real-git.spec.ts`). actionlint is not installed, and Actions cannot run locally.
+- `[slow]` convention: Batch 5 tags its 60 s hook-timeout case with `[slow]` in the `it(...)` name. If the tag is
+  missing, the case runs on all three OSes, which is extra coverage rather than a gap.
+- Review: `reviews/batch-8-code-logic-review.md`, **cross-side** (CLI lane antigravity). Round 0 CHANGES_REQUIRED
+  5/10 (1 blocking: singular testPathPattern; 1 serious: cache-key collision with `main`; 2 moderate:
+  passWithNoTests, global defaultBranch). Round 1 APPROVED 9/10 with all findings resolved. The reviewer re-ran
+  `--listTests` (4 + 1) and the zero-match exit 1. From this batch on, cross-side reviews are separate files under
+  `reviews/`.
+- **Commit blocked by the pre-commit hook (not by Batch 8 content), 2026-09-29.** Husky runs
+  `ptah-electron:validate-deps` against the **working tree**, which fails with "MISSING: async_hooks". The cause is
+  Batch 5's uncommitted wiring: `git-info.service.ts:75` now imports `GitRepoWriteLock`, so `git/git-write-lock.ts:1`
+  (Batch 2, `import { AsyncLocalStorage } from 'async_hooks'`, a bare specifier) enters the Electron main bundle for
+  the first time, and `validate-deps` reads the bare name as an undeclared package. At HEAD the lock is not imported,
+  so the check passes. Repo convention is `'node:async_hooks'` (`skill-synthesis/.../skill-budget.store.ts:65`,
+  `vscode-lm-tools/.../mcp-request-context.ts:18`). **Fix owner: Batch 5 executor.** Change `git-write-lock.ts:1` to
+  `'node:async_hooks'` and add that file to Batch 5's file list. The Batch 5 verification must include
+  `npx nx run ptah-electron:validate-deps`. Hooks were not bypassed, and Batch 5 files were not stashed (they are
+  being edited live). **Resolved:** the Batch 5 executor changed `git-write-lock.ts:1` to `'node:async_hooks'`.
+  The team-leader re-ran `npx nx run ptah-electron:validate-deps --skip-nx-cache` on the working tree ("All external
+  imports are covered"), then committed Batch 8 with hooks enforced. `git-write-lock.ts` stays unstaged and ships
+  with Batch 5.
+- R3 status: **not closed yet**. The Linux and macOS evidence for the Batch 3/4 real-git suites exists only after
+  the job's first real run on the P1 PR.
+
 ### P1 boundary — handover
+
+P1 boundary checklist additions (from Batch 8):
+
+- [ ] The first real run of `git-real-git` happens on the P1 PR. All three matrix legs must be green before R3
+      (Linux/macOS real-git evidence, carried from Batches 3 and 4) is closed. Record the run URL here.
+- [ ] Tell the user to consider making `git-real-git` (all three matrix legs) a required status check in the GitHub
+      branch protection for `main`. This is a repository setting outside the workflow file, so no batch can do it.
+- [ ] Batch 5 must be COMPLETE before the P1 PR, because two of the four selected vscode-core specs are Batch 5's.
 
 After Batch 8 is COMPLETE the team-leader verifies P1 (all eight SHAs resolve, B7 screenshots present, `git diff main --stat`
 touches only P1 files), confirms the Batch 5 e2e gate (`commit-hook-failure.spec.ts` pass) and the Batch 7
