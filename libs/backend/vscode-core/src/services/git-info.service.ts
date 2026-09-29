@@ -15,6 +15,8 @@ import {
   execGit,
   execGitBuffer,
   GitOutputLimitError,
+  GitTimeoutError,
+  isIndexLockFailure,
   GIT_STATUS_MAX_OUTPUT_BYTES,
   WORKTREE_GIT_TIMEOUT_MS,
   type ExecGitOptions,
@@ -23,9 +25,11 @@ import {
 } from '../utils/exec-git';
 import {
   parseWorktreeList,
-  type GitBranchInfo,
   type GitFileStatus,
   type GitInfoResult,
+  type GitStatusUnavailableReason,
+  type GitMutationFailureCode,
+  GIT_LOCKED_MESSAGE,
   type GitWorktreeInfo,
   type GitStageResult,
   type GitUnstageResult,
@@ -64,6 +68,42 @@ import {
   GitReviewReaderService,
   type ReviewFileRequest,
 } from './git-review-reader.service';
+import { parseStatusV2Z } from './git/git-status-parser';
+
+/** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
+const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
+const STATUS_ARGS = [...STATUS_Z, '--branch', '--untracked-files=all'];
+
+/**
+ * Why a status read produced no answer. The watcher and the UI keep the last
+ * good list on any of these; none of them means "not a repository".
+ */
+function unavailableReason(
+  error: unknown,
+  stderr = '',
+): GitStatusUnavailableReason {
+  if (error instanceof GitOutputLimitError) return 'output-too-large';
+  if (error instanceof GitTimeoutError) return 'timeout';
+  return isIndexLockFailure(stderr) ? 'locked' : 'error';
+}
+
+function statusUnavailable(reason: GitStatusUnavailableReason): GitInfoResult {
+  return {
+    isGitRepo: true,
+    branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+    files: [],
+    statusUnavailable: reason,
+  };
+}
+
+/** Client-facing discard failure when git status could not be read. */
+const DISCARD_STATUS_FAILED =
+  'Could not read file status; nothing was discarded.';
+
+/** `probeRepo`'s answer: definite, or unknown with the reason git gave none. */
+type RepoProbe =
+  | { state: 'yes' | 'no' }
+  | { state: 'unknown'; reason: GitStatusUnavailableReason };
 
 /**
  * git's own binary heuristic: a NUL byte anywhere in the first 8000 bytes.
@@ -101,8 +141,20 @@ const BINARY_PATCH_MARKER = /^Binary files .* differ$/m;
  */
 const APPLY_OFFSET_RE = /\(offset (-?\d+) lines?\)/g;
 
-/** `git diff` flags shared by the read path and the write path. */
-const DIFF_FLAGS = ['-U3', '--no-color', '--no-ext-diff'] as const;
+/**
+ * `git diff` flags shared by the read path and the write path. The explicit
+ * prefixes override `diff.noprefix` / `diff.srcPrefix` / `diff.dstPrefix`, and
+ * `--no-textconv` defeats textconv drivers: the patch must be one `git apply`
+ * accepts, whatever the user's diff config says.
+ */
+const DIFF_FLAGS = [
+  '-U3',
+  '--no-color',
+  '--no-ext-diff',
+  '--no-textconv',
+  '--src-prefix=a/',
+  '--dst-prefix=b/',
+] as const;
 
 /**
  * Positional (non-flag) arguments after the git verb.
@@ -143,10 +195,16 @@ function positionalArgs(args: readonly string[]): string[] {
  *   `symbolic-ref HEAD refs/heads/x` REPOINTS HEAD, which is precisely what the
  *   branch cache holds. Two positionals is the write form.
  *
+ * Leading `-c <key>=<value>` config pairs are skipped before the verb is read,
+ * so `git -c core.x=y commit` classifies as `commit`, not as `-c`.
+ *
  * Exported for the classification table in `git-info.service.spec.ts`. It is
  * not re-exported from the lib barrel.
  */
-export function isMutatingGitCommand(args: readonly string[]): boolean {
+export function isMutatingGitCommand(argv: readonly string[]): boolean {
+  let verbAt = 0;
+  while (argv[verbAt] === '-c' && verbAt + 2 < argv.length) verbAt += 2;
+  const args = verbAt === 0 ? argv : argv.slice(verbAt);
   const [command, sub] = args;
   switch (command) {
     // Unconditionally read-only: these verbs have no writing form.
@@ -371,10 +429,10 @@ export class GitInfoService {
   }
 
   /**
-   * Workspaces already told their status output passed the cap. One entry
-   * per workspace root that ever hit it; bounded like `invalidatedAt`.
+   * `${kind}|${workspacePath}` for status warnings already logged once (output
+   * past the cap, unparseable records); bounded like `invalidatedAt`.
    */
-  private readonly outputLimitLogged = new Set<string>();
+  private readonly statusWarned = new Set<string>();
 
   /**
    * Settled results of the cheap-to-invalidate read methods, held until
@@ -589,36 +647,48 @@ export class GitInfoService {
     workspacePath: string,
     priority: ExecGitOptions['priority'] = 'normal',
   ): Promise<GitInfoResult> {
-    const isRepo = await this.isGitRepo(workspacePath, priority);
-    if (!isRepo) {
+    const probe = await this.probeRepo(workspacePath, priority);
+    if (probe.state === 'no') {
       return {
         isGitRepo: false,
         branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
         files: [],
       };
     }
+    // Git could not say whether this is a repository (slow, missing, broken):
+    // report status as unavailable, never as "not a repository".
+    if (probe.state === 'unknown') {
+      this.logger.warn(
+        `[GitInfoService] repository probe for ${workspacePath} gave no answer (${probe.reason})`,
+      );
+      return statusUnavailable(probe.reason);
+    }
 
     try {
-      const { stdout, exitCode } = await this.execGit(
-        ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
+      const { stdout, stderr, exitCode } = await this.execGit(
+        [...STATUS_ARGS],
         workspacePath,
         { priority, maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES },
       );
 
       if (exitCode !== 0) {
-        this.logger.warn('[GitInfoService] git status exited with code', {
-          exitCode,
-          workspacePath,
-        } as unknown as Error);
-        return {
-          isGitRepo: true,
-          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
-          files: [],
-        };
+        this.logger.warn(
+          `[GitInfoService] git status exited with code ${exitCode} for ${workspacePath}`,
+        );
+        return statusUnavailable(unavailableReason(undefined, stderr));
       }
 
-      const branch = this.parseBranchInfo(stdout);
-      const files = this.parseFileStatus(stdout);
+      const parsed = parseStatusV2Z(stdout);
+      if (parsed.skippedRecords > 0) {
+        this.warnOnce(
+          `skipped|${workspacePath}`,
+          `[GitInfoService] git status for ${workspacePath} had ` +
+            `${parsed.skippedRecords} unparseable record(s); they were left out`,
+        );
+      }
+      const branch = parsed.branch;
+      // `!` (ignored) records are never changes, whatever flags produced them.
+      const files = parsed.files.filter((file) => file.status !== '!');
       const [stagedStats, worktreeStats] = await Promise.all([
         this.readNumstat(workspacePath, true, priority),
         this.readNumstat(workspacePath, false, priority),
@@ -643,19 +713,12 @@ export class GitInfoService {
         // Not a failure to retry and not a clean tree: the repository's own
         // status is too large to read. Said once per workspace, because the
         // watcher would otherwise repeat it on every refresh.
-        if (!this.outputLimitLogged.has(workspacePath)) {
-          this.outputLimitLogged.add(workspacePath);
-          this.logger.warn(
-            `[GitInfoService] git status output for ${workspacePath} passed ` +
-              `${error.limitBytes} bytes; status is unavailable for this repository`,
-          );
-        }
-        return {
-          isGitRepo: true,
-          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
-          files: [],
-          statusUnavailable: 'output-too-large',
-        };
+        this.warnOnce(
+          `limit|${workspacePath}`,
+          `[GitInfoService] git status output for ${workspacePath} passed ` +
+            `${error.limitBytes} bytes; status is unavailable for this repository`,
+        );
+        return statusUnavailable('output-too-large');
       }
       // INLINE, not context. `Logger.error`'s console transport renders only
       // `context.error` (the slot for a real `Error` instance) and
@@ -669,12 +732,14 @@ export class GitInfoService {
         `[GitInfoService] getGitInfo failed for ${workspacePath}: ${message}`,
         error instanceof Error ? error : undefined,
       );
-      return {
-        isGitRepo: true,
-        branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
-        files: [],
-      };
+      return statusUnavailable(unavailableReason(error));
     }
+  }
+
+  private warnOnce(key: string, message: string): void {
+    if (this.statusWarned.has(key)) return;
+    this.statusWarned.add(key);
+    this.logger.warn(message);
   }
 
   /** Read a PR-style comparison without checking out either ref. */
@@ -863,9 +928,11 @@ export class GitInfoService {
   }
 
   /**
-   * Discard working tree changes for files.
-   * For tracked files: git checkout -- <paths...>
-   * For untracked files: git clean -f -- <paths...>
+   * Discard working tree changes for files, classified by the same `-z`
+   * status parser as `getGitInfo` (verbatim paths, never trimmed):
+   * - staged rename: `git restore --staged --worktree --source=HEAD -- <origPath> <path>`
+   * - other tracked: `git checkout -- <paths...>`
+   * - untracked: `git clean -f -- <paths...>`
    *
    * WARNING: This is a destructive operation that cannot be undone.
    */
@@ -875,54 +942,33 @@ export class GitInfoService {
   ): Promise<GitDiscardResult> {
     try {
       this.validatePaths(paths);
-      const { stdout: statusOutput } = await this.execGit(
-        ['status', '--porcelain', '--', ...paths],
-        workspacePath,
-      );
+      const classified = await this.classifyForDiscard(workspacePath, paths);
+      if ('error' in classified) return { success: false, ...classified };
+      const { trackedPaths, renamePaths, untrackedPaths } = classified;
 
-      const untrackedPaths: string[] = [];
-      const trackedPaths: string[] = [];
-
-      for (const line of statusOutput.split('\n')) {
-        if (!line.trim()) continue;
-        if (line.startsWith('?? ')) {
-          untrackedPaths.push(line.substring(3).trim());
-        } else {
-          trackedPaths.push(line.substring(3).trim());
-        }
-      }
-      if (trackedPaths.length > 0) {
-        const { exitCode, stderr } = await this.execGit(
-          ['checkout', '--', ...trackedPaths],
-          workspacePath,
-        );
-
-        if (exitCode !== 0) {
-          return {
-            success: false,
-            error: stderr.trim() || 'Failed to discard tracked file changes',
-          };
-        }
-      }
+      const steps: Array<[string[], string[], string]> = [
+        [['checkout'], trackedPaths, 'Failed to discard tracked file changes'],
+        [
+          ['restore', '--staged', '--worktree', '--source=HEAD'],
+          renamePaths,
+          'Failed to discard staged renames',
+        ],
+        [['clean', '-f'], untrackedPaths, 'Failed to remove untracked files'],
+      ];
       if (untrackedPaths.length > 0) {
         this.logger.warn(
           '[GitInfoService] Removing untracked files via git clean (irreversible)',
-          {
-            workspacePath,
-            paths: untrackedPaths,
-          } as unknown as Error,
+          { workspacePath, paths: untrackedPaths } as unknown as Error,
         );
-
+      }
+      for (const [command, stepPaths, fallback] of steps) {
+        if (stepPaths.length === 0) continue;
         const { exitCode, stderr } = await this.execGit(
-          ['clean', '-f', '--', ...untrackedPaths],
+          [...command, '--', ...stepPaths],
           workspacePath,
         );
-
         if (exitCode !== 0) {
-          return {
-            success: false,
-            error: stderr.trim() || 'Failed to remove untracked files',
-          };
+          return { success: false, error: stderr.trim() || fallback };
         }
       }
 
@@ -936,6 +982,80 @@ export class GitInfoService {
       } as unknown as Error);
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * Split `paths` into checkout, staged-rename (`origPath, path` pairs) and
+   * clean sets. A pathspec hides a rename whose other side it does not name —
+   * the UI sends only the new path, which then reads as a staged add — so a
+   * staged add is looked up once in the unfiltered, tracked-only status.
+   * Either read failing fails the whole discard before anything is touched:
+   * without the rename's source, `checkout` would "succeed" doing nothing.
+   */
+  private async classifyForDiscard(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<
+    | {
+        trackedPaths: string[];
+        renamePaths: string[];
+        untrackedPaths: string[];
+      }
+    | { error: string; code: GitMutationFailureCode }
+  > {
+    const readFailure = (stderr: string, exitCode: number) => {
+      this.logger.warn(
+        `[GitInfoService] discard status read failed for ${workspacePath} (exit ${exitCode}): ${stderr.trim()}`,
+      );
+      return isIndexLockFailure(stderr)
+        ? { code: 'LOCKED' as const, error: GIT_LOCKED_MESSAGE }
+        : { code: 'GIT_ERROR' as const, error: DISCARD_STATUS_FAILED };
+    };
+    const status = await this.execGit(
+      [...STATUS_Z, '--untracked-files=all', '--', ...paths],
+      workspacePath,
+    );
+    if (status.exitCode !== 0) {
+      return readFailure(status.stderr, status.exitCode);
+    }
+    const tracked = new Set<string>();
+    const untracked = new Set<string>();
+    const stagedAdds = new Set<string>();
+    for (const file of parseStatusV2Z(status.stdout).files) {
+      if (file.status === '!') continue; // ignored: never a change
+      if (file.status === '??') untracked.add(file.path);
+      else tracked.add(file.path);
+      if (file.staged && (file.status === 'A' || file.status === 'R')) {
+        stagedAdds.add(file.path);
+      }
+    }
+    const renamePaths: string[] = [];
+    if (stagedAdds.size > 0) {
+      const all = await this.execGit(
+        [...STATUS_Z, '--untracked-files=no'],
+        workspacePath,
+        { maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES },
+      );
+      if (all.exitCode !== 0) return readFailure(all.stderr, all.exitCode);
+      for (const file of parseStatusV2Z(all.stdout).files) {
+        if (
+          file.staged &&
+          file.status === 'R' &&
+          file.origPath &&
+          stagedAdds.has(file.path)
+        ) {
+          renamePaths.push(file.origPath, file.path);
+          // `restore` also resets any worktree edit on the renamed path.
+          tracked.delete(file.path);
+          tracked.delete(file.origPath);
+        }
+      }
+    }
+    return {
+      trackedPaths: [...tracked],
+      renamePaths,
+      untrackedPaths: [...untracked],
+    };
   }
 
   /**
@@ -2883,19 +3003,36 @@ export class GitInfoService {
     workspacePath: string,
     priority: ExecGitOptions['priority'] = 'normal',
   ): Promise<boolean> {
+    return (await this.probeRepo(workspacePath, priority)).state === 'yes';
+  }
+
+  /**
+   * Tri-state repository probe. Only git's own "not a git repository" (exit
+   * 128) or an explicit `false` is a `no`; a timeout, a missing binary, a
+   * spawn error or any other exit is `unknown`, which callers must never
+   * report as "not a repository".
+   */
+  private async probeRepo(
+    workspacePath: string,
+    priority: ExecGitOptions['priority'],
+  ): Promise<RepoProbe> {
     try {
-      const { stdout, exitCode } = await this.execGit(
+      const { stdout, stderr, exitCode } = await this.execGit(
         ['rev-parse', '--is-inside-work-tree'],
         workspacePath,
         { priority },
       );
-      return exitCode === 0 && stdout.trim() === 'true';
-    } catch {
-      // degradation-audit: optional-capability - this is the probe that asks
-      // whether git is usable here at all; false means "treat this folder as
-      // not a repository", which is exactly the answer a missing git binary
-      // or a non-repo path should produce.
-      return false;
+      if (exitCode === 0) {
+        return { state: stdout.trim() === 'true' ? 'yes' : 'no' };
+      }
+      if (exitCode === 128 && /not a git repository/i.test(stderr)) {
+        return { state: 'no' };
+      }
+      return { state: 'unknown', reason: unavailableReason(undefined, stderr) };
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - git could not answer at all;
+      // the caller reports status as unavailable with this reason.
+      return { state: 'unknown', reason: unavailableReason(error) };
     }
   }
 
@@ -3015,150 +3152,5 @@ export class GitInfoService {
       });
     }
     return result;
-  }
-
-  /**
-   * Parse branch info from git status --porcelain=v2 --branch output.
-   * Lines starting with # contain branch metadata:
-   *   # branch.oid <commit>
-   *   # branch.head <branch-name>
-   *   # branch.upstream <upstream>
-   *   # branch.ab +<ahead> -<behind>
-   */
-  private parseBranchInfo(output: string): GitBranchInfo {
-    const info: GitBranchInfo = {
-      branch: '',
-      upstream: null,
-      ahead: 0,
-      behind: 0,
-    };
-
-    const lines = output.split('\n');
-    for (const line of lines) {
-      if (line.startsWith('# branch.head ')) {
-        const head = line.substring('# branch.head '.length);
-        info.branch = head === '(detached)' ? 'HEAD' : head;
-      } else if (line.startsWith('# branch.upstream ')) {
-        info.upstream = line.substring('# branch.upstream '.length);
-      } else if (line.startsWith('# branch.ab ')) {
-        const match = line.match(/# branch\.ab \+(\d+) -(\d+)/);
-        if (match) {
-          info.ahead = parseInt(match[1], 10);
-          info.behind = parseInt(match[2], 10);
-        }
-      }
-    }
-
-    return info;
-  }
-
-  /**
-   * Parse file status from git status --porcelain=v2 output.
-   *
-   * Format for ordinary changed entries (type 1):
-   *   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-   *
-   * Format for renamed/copied entries (type 2):
-   *   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><tab><origPath>
-   *
-   * Format for unmerged entries:
-   *   u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
-   *
-   * Format for untracked entries:
-   *   ? <path>
-   *
-   * XY field: X=index status, Y=worktree status
-   */
-  private parseFileStatus(output: string): GitFileStatus[] {
-    const files: GitFileStatus[] = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-      if (line.startsWith('1 ')) {
-        const xy = line.substring(2, 4);
-        const indexStatus = xy[0];
-        const worktreeStatus = xy[1];
-
-        const parts = line.split(' ');
-        const filePath = parts.slice(8).join(' ');
-        if (indexStatus !== '.') {
-          files.push({
-            path: filePath,
-            status: this.mapStatusCode(indexStatus),
-            staged: true,
-          });
-        }
-        if (worktreeStatus !== '.') {
-          files.push({
-            path: filePath,
-            status: this.mapStatusCode(worktreeStatus),
-            staged: false,
-          });
-        }
-      } else if (line.startsWith('2 ')) {
-        const xy = line.substring(2, 4);
-        const indexStatus = xy[0];
-        const worktreeStatus = xy[1];
-
-        const tabIndex = line.indexOf('\t');
-        const beforeTab = tabIndex >= 0 ? line.substring(0, tabIndex) : line;
-        const beforeTabParts = beforeTab.split(' ');
-        const filePath = beforeTabParts.slice(9).join(' ');
-        // The post-tab segment is the pre-rename source path. Discarding it
-        // makes a staged rename undiffable: the original side must be read at
-        // HEAD under the OLD path, which exists nowhere else in this output.
-        const origPath =
-          tabIndex >= 0 ? line.substring(tabIndex + 1) : undefined;
-        if (indexStatus !== '.') {
-          files.push({
-            path: filePath,
-            status: this.mapStatusCode(indexStatus),
-            staged: true,
-            ...(origPath && { origPath }),
-          });
-        }
-        if (worktreeStatus !== '.') {
-          files.push({
-            path: filePath,
-            status: this.mapStatusCode(worktreeStatus),
-            staged: false,
-            ...(origPath && { origPath }),
-          });
-        }
-      } else if (line.startsWith('u ')) {
-        const parts = line.split(' ');
-        const filePath = parts.slice(10).join(' ');
-        files.push({ path: filePath, status: 'M', staged: false });
-      } else if (line.startsWith('? ')) {
-        const rawPath = line.substring(2);
-        const isDir = rawPath.endsWith('/');
-        const filePath = isDir ? rawPath.slice(0, -1) : rawPath;
-        files.push({
-          path: filePath,
-          status: '??',
-          staged: false,
-          ...(isDir && { isDirectory: true }),
-        });
-      }
-    }
-
-    return files;
-  }
-
-  private mapStatusCode(code: string): GitFileStatus['status'] {
-    switch (code) {
-      case 'M':
-        return 'M';
-      case 'A':
-        return 'A';
-      case 'D':
-        return 'D';
-      case 'R':
-        return 'R';
-      case 'C':
-        return 'C';
-      default:
-        return 'M';
-    }
   }
 }

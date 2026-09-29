@@ -471,8 +471,13 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   describe('isMutatingGitCommand()', () => {
     it.each([
       // Every read this service actually performs.
-      [['status', '--porcelain=v2', '--branch', '--untracked-files=all']],
+      [['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all']],
+      [['status', '--porcelain=v2', '-z', '--untracked-files=all', '--', 'a']],
       [['status', '--porcelain', '--', 'a.ts']],
+      // Leading `-c k=v` pairs are skipped before the verb is read.
+      [['-c', 'core.quotepath=off', 'status']],
+      [['-c', 'a.b=1', '-c', 'c.d=2', 'diff', '--', 'a.ts']],
+      [['-c', 'x.y=z', 'remote', '-v']],
       [['for-each-ref', '--format=x', 'refs/heads/']],
       [['symbolic-ref', '--short', 'HEAD']],
       [['stash', 'list', '--format=x']],
@@ -532,6 +537,12 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       [['symbolic-ref', 'HEAD', 'refs/heads/main']],
       // An unknown verb is a mutation by default.
       [['some-future-plumbing', '--flag']],
+      // `-c` pairs never hide a writing verb, and a bare `-c` is no verb.
+      [['-c', 'core.hooksPath=/x', 'commit', '-m', 'msg']],
+      [['-c', 'a=1', '-c', 'b=2', 'stash', 'pop']],
+      [['-c', 'x.y=z', 'remote', 'add', 'origin', 'url']],
+      [['-c', 'x.y=z']],
+      [['restore', '--staged', '--worktree', '--source=HEAD', '--', 'a', 'b']],
     ])('classifies %j as a mutation', (args: string[]) => {
       expect(isMutatingGitCommand(args)).toBe(true);
     });
@@ -639,7 +650,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
         args[0] === 'rev-parse'
           ? makeSpawnResult({ stdout: 'true\n', exitCode: 0 })
-          : makeSpawnResult({ stdout: '# branch.head main\n', exitCode: 0 }),
+          : makeSpawnResult({ stdout: '# branch.head main\0', exitCode: 0 }),
       );
 
       await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
@@ -1377,7 +1388,7 @@ describe('GitInfoService.diffFile()', () => {
   });
 });
 
-describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
+describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () => {
   let service: GitInfoService;
   const WS = '/fake/workspace';
 
@@ -1386,12 +1397,13 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
     service = new GitInfoService(makeLogger() as never);
   });
 
-  it('populates origPath from the post-tab segment of a type-2 rename line', async () => {
+  it('populates origPath from the NUL field after a type-2 rename record', async () => {
     const status = [
       '# branch.head main',
-      '2 R. N... 100644 100644 100644 abc123 def456 R100 src/new-name.ts\tsrc/old-name.ts',
+      '2 R. N... 100644 100644 100644 abc123 def456 R100 src/new-name.ts',
+      'src/old-name.ts',
       '',
-    ].join('\n');
+    ].join('\0');
 
     queueSpawn([
       { stdout: 'true\n', exitCode: 0 }, // isGitRepo
@@ -1414,7 +1426,7 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
       '# branch.head main',
       '1 .M N... 100644 100644 100644 abc123 def456 src/a.ts',
       '',
-    ].join('\n');
+    ].join('\0');
 
     queueSpawn([
       { stdout: 'true\n', exitCode: 0 },
@@ -1432,7 +1444,7 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
       '? .github/workflows/ci.yml',
       '? libs/new-lib/src/index.ts',
       '',
-    ].join('\n');
+    ].join('\0');
 
     queueSpawn([
       { stdout: 'true\n', exitCode: 0 },
@@ -1444,6 +1456,7 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
     expect(mockSpawn.mock.calls[1][1]).toEqual([
       'status',
       '--porcelain=v2',
+      '-z',
       '--branch',
       '--untracked-files=all',
     ]);
@@ -1464,6 +1477,180 @@ describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
       },
     ]);
   });
+
+  it('keeps quote, backslash and edge-space paths verbatim and never lists ignored records', async () => {
+    const status = [
+      '# branch.head main',
+      '1 .M N... 100644 100644 100644 abc123 def456 a"b.txt',
+      '1 .M N... 100644 100644 100644 abc123 def456 a\\b.txt',
+      '1 .M N... 100644 100644 100644 abc123 def456  lead and trail ',
+      '! build/out.js',
+      '',
+    ].join('\0');
+    queueSpawn([
+      { stdout: 'true\n', exitCode: 0 },
+      { stdout: status, exitCode: 0 },
+    ]);
+
+    const info = await service.getGitInfo(WS);
+
+    expect(info.files.map((file) => file.path)).toEqual([
+      'a"b.txt',
+      'a\\b.txt',
+      ' lead and trail ',
+    ]);
+  });
+
+  it('warns once per workspace about unparseable records and keeps the rest', async () => {
+    const logger = makeLogger();
+    service = new GitInfoService(logger as never);
+    const status = ['# branch.head main', 'garbage', '? new.txt', ''].join(
+      '\0',
+    );
+    const run = () => {
+      queueSpawn([
+        { stdout: 'true\n', exitCode: 0 },
+        { stdout: status, exitCode: 0 },
+        { stdout: '', exitCode: 0 }, // both numstat reads
+      ]);
+      return service.getGitInfo(WS);
+    };
+
+    const first = await run();
+    await run();
+
+    expect(first.files.map((file) => file.path)).toEqual(['new.txt']);
+    const warnings = logger.warn.mock.calls.filter(([message]) =>
+      String(message).includes('unparseable'),
+    );
+    expect(warnings).toHaveLength(1);
+  });
+});
+
+describe('GitInfoService.discardChanges() — -z classification (RC4)', () => {
+  const WS = '/fake/workspace';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('restores a staged rename named by its new path from HEAD, both sides', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const { calls } = queueSpawn([
+      // Pathspec-limited status: the rename reads as a staged add + edit.
+      {
+        stdout: '1 AM N... 000000 100644 100644 0000000 abc123 new name.txt\0',
+        exitCode: 0,
+      },
+      // Unfiltered tracked-only status reveals the rename pair.
+      {
+        stdout:
+          '2 RM N... 100644 100644 100644 abc123 abc123 R100 new name.txt\0old name.txt\0',
+        exitCode: 0,
+      },
+      { stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await service.discardChanges(WS, ['new name.txt']);
+
+    expect(result).toEqual({ success: true });
+    expect(calls).toEqual([
+      [
+        'status',
+        '--porcelain=v2',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        'new name.txt',
+      ],
+      ['status', '--porcelain=v2', '-z', '--untracked-files=no'],
+      [
+        'restore',
+        '--staged',
+        '--worktree',
+        '--source=HEAD',
+        '--',
+        'old name.txt',
+        'new name.txt',
+      ],
+    ]);
+  });
+
+  it('checks out tracked paths and cleans untracked ones without trimming them', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const { calls } = queueSpawn([
+      {
+        stdout: [
+          '1 .M N... 100644 100644 100644 abc123 def456  spaced ',
+          '? new file.txt ',
+          '! ignored.log',
+          '',
+        ].join('\0'),
+        exitCode: 0,
+      },
+      { stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await service.discardChanges(WS, [
+      ' spaced ',
+      'new file.txt ',
+      'ignored.log',
+    ]);
+
+    expect(result).toEqual({ success: true });
+    expect(calls.slice(1)).toEqual([
+      ['checkout', '--', ' spaced '],
+      ['clean', '-f', '--', 'new file.txt '],
+    ]);
+  });
+
+  it('fails without touching files when the status read fails', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const { calls } = queueSpawn([
+      { stdout: '', stderr: 'fatal: bad things\n', exitCode: 128 },
+    ]);
+
+    const result = await service.discardChanges(WS, ['a.txt']);
+
+    // Typed and sanitized: git's raw stderr never reaches the client.
+    expect(result).toEqual({
+      success: false,
+      code: 'GIT_ERROR',
+      error: 'Could not read file status; nothing was discarded.',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'GIT_ERROR',
+      'fatal: unable to read tree\n',
+      'Could not read file status; nothing was discarded.',
+    ],
+    [
+      'LOCKED',
+      "fatal: Unable to create '/fake/workspace/.git/index.lock': File exists.\n",
+      'Another git process is using this repository.',
+    ],
+  ])(
+    'fails with %s and runs no write when the rename lookup read fails',
+    async (code, stderr, error) => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { calls } = queueSpawn([
+        {
+          stdout: '1 AM N... 000000 100644 100644 0000000 abc123 new.txt\0',
+          exitCode: 0,
+        },
+        { stdout: '', stderr, exitCode: 128 },
+      ]);
+
+      const result = await service.discardChanges(WS, ['new.txt']);
+
+      expect(result).toEqual({ success: false, code, error });
+      // Both status reads, and no checkout/restore/clean after them.
+      expect(calls.map((args) => args[0])).toEqual(['status', 'status']);
+    },
+  );
 });
 
 /**
@@ -1641,7 +1828,7 @@ describe('GitInfoService — single-flight read runs (TASK_2026_437)', () => {
         const name = `run${state.spawns}`;
         stdout =
           verb === 'status'
-            ? `# branch.head ${name}\n`
+            ? `# branch.head ${name}\0`
             : `refs/heads/${name}\t${name}\t*\tabc1234\t\t\t1700000000\n`;
       }
 
@@ -1954,7 +2141,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
   });
 
   it('refreshGitInfo lowers every git child of the run to background priority', async () => {
-    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const spawnProcess = makeVerbSpawner('# branch.head main\0');
     const service = new GitInfoService(
       makeLogger() as never,
       { spawnProcess } as never,
@@ -1974,7 +2161,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
   });
 
   it('a user-driven getGitInfo keeps normal priority', async () => {
-    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const spawnProcess = makeVerbSpawner('# branch.head main\0');
     const service = new GitInfoService(
       makeLogger() as never,
       { spawnProcess } as never,
@@ -1989,7 +2176,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
   it('reads line counts for the first 200 untracked files only', async () => {
     const untracked = Array.from({ length: 250 }, (_, i) => `? new/f${i}.ts`);
     const spawnProcess = makeVerbSpawner(
-      ['# branch.head main', ...untracked, ''].join('\n'),
+      ['# branch.head main', ...untracked, ''].join('\0'),
     );
     const service = new GitInfoService(
       makeLogger() as never,
@@ -2020,7 +2207,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
   it('reports an oversized status as unavailable, not as a clean tree, and warns once', async () => {
     const logger = makeLogger();
-    const spawnProcess = makeVerbSpawner('# branch.head main\n');
+    const spawnProcess = makeVerbSpawner('# branch.head main\0');
     const service = new GitInfoService(
       logger as never,
       {

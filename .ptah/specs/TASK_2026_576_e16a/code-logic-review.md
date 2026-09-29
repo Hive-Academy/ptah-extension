@@ -666,3 +666,193 @@ Every gap the round-1 team-leader decision named is now closed with evidence rea
 - **Blocking issues**: 0. **Serious issues**: 0. **Moderate issues**: 0 (both round-0 moderates — the HEAD real-git gap and the silent commondir fallback — are resolved; the minor doc-comment finding is also resolved).
 - **Top risk (updated)**: none rises to a reviewable risk against Requirement 1.7 for this batch's own scope. The residual, lowest-priority item is the pre-existing, explicitly-carried `REBASE_DIRS` depth looseness (owned by Batch 14) and the general observation that submodule-internal state changes remain invisible to the watcher by the pre-existing `nestedRepoDetection` design — correctly documented now, not a defect.
 - **What a robust implementation would add**: nothing blocking; optionally, a CI note that the real-git suite (9 cases, ~40-50 s locally on Windows) should also be confirmed on the Linux/macOS legs of Batch 8's OS matrix before R3 is considered fully closed, since this review's evidence is Windows-only.
+
+---
+
+# Batch 4 — GitInfoService facade A: RC4 status/discard, RC7 diff flags, RC3 tri-state probe (`TASK_2026_576_e16a`)
+
+- **Author**: in-process subagent, backend-developer.
+- **Reviewer**: in-process subagent, code-logic-reviewer.
+- **Same-side review — disclosed fallback**: the cross-side antigravity attempt failed (quota exhausted, HTTP 429) again; Glm is unavailable (Ollama Cloud usage limit). Weaker evidence than a cross-side review.
+
+## Summary
+
+| Metric              | Value            |
+| ------------------- | ---------------- |
+| Overall score       | 6/10             |
+| Verdict             | CHANGES_REQUIRED |
+| Blocking issues     | 0                |
+| Serious issues      | 1                |
+| Moderate issues     | 2                |
+| Failure modes found | 3                |
+
+Scope reviewed (read in full, not diff-only): `libs/backend/vscode-core/src/services/git-info.service.ts` (`git diff` against `main`), `git-info.service.spec.ts`, the three new spec files (`git-info.service.status-unavailable.spec.ts`, `git-info.service.paths.real-git.spec.ts`, `git-info.service.diff-config.real-git.spec.ts`), and the M1/M2 carry-over in `exec-git.ts`/`exec-git.spec.ts`. Cross-checked against batches.md Batch 4/Task 4.1, implementation-plan.md:325-347 (Component 4) and :363-378 (Component 5, RC3/RC4/RC7 responsibilities), and task-description.md Requirements 1.4 (RC3), 1.5-1.6 (RC4), 1.9 (RC7). Ran the five changed/new spec files directly (`git-info.service.spec.ts` 152/152; `git-info.service.status-unavailable.spec.ts` — 3 runs, stable; `git-info.service.paths.real-git.spec.ts` 10/10 on Windows; `git-info.service.diff-config.real-git.spec.ts` 3/3; `exec-git.spec.ts` 69/69, 3 runs, stable) and `ptah_get_diagnostics` scoped to all seven files (0 errors, 0 warnings).
+
+The tri-state probe (RC3), the `-z` porcelain parser wiring, the `-c`-skipping classifier, and the M1/M2 exec-git fixes are all correctly implemented and are proven by real-git and mocked-seam specs that genuinely exercise the claimed behaviour rather than restating it. The one Serious defect is in the new `classifyForDiscard` helper (`git-info.service.ts:983-1052`): when its second, unfiltered status read — the one needed to find a staged rename's original path — itself fails (a real possibility today, since discard does not yet run inside `GitRepoWriteLock`, which lands only in Batch 5), the code silently falls back to treating the renamed file as an ordinary tracked path and runs `git checkout --` on it instead of `git restore --staged --worktree --source=HEAD --`. `checkout --` cannot unstage a rename; the operation still reports `{ success: true }` while the staged rename survives untouched. This is exactly the "reports success, does nothing" shape Requirement 1.6 exists to close, and no spec — including the new real-git rename-discard case — exercises the failing-second-read branch.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- **Staged-rename discard degrades to a no-op checkout without reporting anything** (`git-info.service.ts:1022-1046`, `classifyForDiscard`). The second `execGit(['status', '--porcelain=v2', '-z', '--untracked-files=no'], workspacePath)` call (no pathspec, unlike the first) has no `maxOutputBytes` override and no dependency on the write lock. If it returns a non-zero exit — plausible today from a concurrent `git commit` holding a genuine (non-optional) `.git/index.lock`, since `GIT_OPTIONAL_LOCKS=0` only stops `status` from taking its _own_ opportunistic lock and does nothing to make it tolerant of someone else's mandatory one — the code does `all.exitCode === 0 ? parseStatusV2Z(all.stdout).files : []`, i.e. it treats a failed second read exactly like an empty repository. The rename's `stagedAdds` entry is never resolved to a `renamePaths` pair, so it stays in `tracked` (added earlier from the first, pathspec-scoped read that reported it as a plain `A`). `discardChanges` then runs `git checkout -- <newPath>`, which — because the file is staged as an add, not yet committed to any content the working tree could differ from — succeeds (`exitCode 0`) without touching the index at all. The caller gets `{ success: true }`; the staged rename is fully intact afterward.
+- **`readXy`/`parseStatusV2Z` interactions are unaffected by this batch and remain the (already-audited, Batch 2) fail-count-and-skip model** — not a new silent-failure surface, listed only to state it was re-checked and found unchanged.
+
+### 2. What user action produces unexpected behaviour?
+
+- A user renames a tracked file (via the UI or externally), the rename is staged, they add an unrelated worktree edit on top, then click "Discard" on that one row while another mutation (most plausibly a concurrent commit from the same or another Ptah surface, or the agent's own `git commit` running through the same `GitInfoService` instance) holds `index.lock`. The discard button reports success; the file list still shows the staged rename afterward (or, worse, does not refresh in time to show it, per the pre-existing "always refresh after mutation" contract in Requirement 1.1 which this batch does not touch). The user has no path to notice the operation did nothing beyond re-opening the source-control panel.
+- This is not a hypothetical ordering: Task 5.1 (the very next batch) is the one that wraps `discardChanges` and friends in `GitRepoWriteLock`. Until that lands, two Ptah-initiated git mutations against the same repository are exactly the RC6 scenario the plan itself names as unserialized, and the failure mode above is a direct, testable consequence of that gap intersecting the new discard path.
+
+### 3. What input data produces a wrong answer?
+
+- The scenario in Q1/Q2 is the only "wrong answer" (as opposed to a reported error) this review found. Every other new code path — `unavailableReason`, `probeRepo`, `parseStatusV2Z` filtering of `!` records, `isMutatingGitCommand`'s `-c`-pair skip — was traced against adversarial inputs (dubious-ownership stderr, safe.directory stderr, bare `-c`, chained `-c` pairs, exit 128 with an unrelated message, a thrown `ENOENT`) and in every case produces either a correct classification or an explicit `unavailable`/`unknown` result, never a fabricated success.
+- One looseness, not exploitable today: `classifyForDiscard`'s first (pathspec-scoped) read and second (unfiltered) read are two independent snapshots of repository state, taken without any lock between them. If a third process (or the watcher's own status refresh, which does not mutate, so this is theoretical for reads but real for another mutation) changes the rename's staged state between the two calls — e.g. the rename is unstaged by another agent turn in the gap between call 1 and call 2 — `stagedAdds.has(file.path)` in the second read could miss or (less likely) wrongly match a path that no longer has the same staged shape it had a moment ago. This is a narrower instance of the same "two reads, no lock" root cause as the Serious finding above, folded in here rather than raised separately because it requires a second concurrent mutation with a very specific timing window and produces an inert (not misleading) discard rather than a "false success" specifically — the risk is dominated by the Serious finding.
+
+### 4. What happens when a dependency fails?
+
+- `execGit` rejecting or timing out on the **first** `classifyForDiscard` read: handled correctly — `status.exitCode !== 0` returns `{ error: status.stderr.trim() || 'Failed to read file status' }`, which `discardChanges` turns into `{ success: false, ...classified }`. A thrown rejection (timeout, ENOENT) is not caught inside `classifyForDiscard` itself, but propagates up through `discardChanges`'s outer `try/catch` (`:941-1020`, unchanged in this diff) to the existing `{ success: false, error: message }` path — verified by reading the surrounding `try` block, which was not shown as changed in the diff and still wraps the whole method body.
+- `execGit` failing on the **second** (unfiltered) read: handled incorrectly — see the Serious finding. This is the one dependency-failure branch in this batch that degrades to a false success rather than an explicit failure.
+- `probeRepo`'s underlying `rev-parse` failing in every shape tested (timeout, ENOENT, exit 128 dubious-ownership, exit 128 not-a-repository, exit 1, index-lock stderr): all five map to the documented tri-state contract and are proven 1:1 by `git-info.service.status-unavailable.spec.ts:103-132`, including the assertion that the public `isGitRepo()` boolean stays `false` for every "unknown" case (never fabricating `true`) while `getGitInfo` reports `isGitRepo: true` with a reason (never fabricating "not a repository"). This is the strongest part of the batch.
+
+### 5. What is missing that the requirements never mentioned?
+
+- No spec — mocked or real-git — exercises `classifyForDiscard`'s second read failing. The three new spec files all assume a healthy, uncontended repository; `git-info.service.status-unavailable.spec.ts` covers `getGitInfo`'s own failure paths (the tri-state probe and the main status read) but not `discardChanges`'s internal second read, which is a structurally different call site added by this same batch. This is the gap that let the Serious finding land unnoticed.
+- The plan (implementation-plan.md:334, "no `.trim()` on paths") is honoured everywhere paths flow through `classifyForDiscard`/`discardChanges` — verified by grep: no `.trim()` call touches `file.path`/`file.origPath`/`paths` anywhere in the new code. Confirmed, not a gap.
+- `readPatch`'s pathspec comment (`:1540-1546`, unchanged by this diff but adjacent to the new `DIFF_FLAGS`) already handles the "rename needs both paths" problem for diffing; `classifyForDiscard`'s new "rename needs both paths for discard" problem is the same shape solved independently rather than through a shared helper. Not a defect — the two call sites have different failure-tolerance requirements (a failed diff read can return `null`; a failed discard classification must not silently degrade) — but worth naming as an opportunity the plan did not ask for and this batch did not take.
+
+## Failure modes
+
+### Staged-rename discard silently degrades to an inert checkout when the second classification read fails
+
+- Trigger: a staged rename plus a worktree edit on the new path, discarded while `classifyForDiscard`'s second `status --untracked-files=no` call (no pathspec, no lock) fails — most plausibly a concurrent Ptah-initiated write holding `.git/index.lock` before Batch 5's `GitRepoWriteLock` wraps `discardChanges`.
+- Symptom: `discardChanges` resolves `{ success: true }`; the staged rename and its worktree edit are both still present afterward. The user has no indication the operation did not do what "discard" implies for that row.
+- Evidence: `git-info.service.ts:1022-1046` (the `if (stagedAdds.size > 0)` block, specifically `all.exitCode === 0 ? parseStatusV2Z(all.stdout).files : []` at line ~1033) feeding into `git-info.service.ts:958-980` (`discardChanges`'s `steps` loop, which runs `checkout --` on whatever is left in `trackedPaths`).
+- Current handling: none — the failure is swallowed into an empty array with no log line, no `warnOnce`, and no propagation to the caller.
+- Recommendation: when the second read's `exitCode !== 0`, return `{ error: ... }` from `classifyForDiscard` for that path set (matching the existing "first read fails" contract at `:1017-1019`) rather than proceeding as if no staged rename existed. Add a spec (mocked `execGit`, matching the pattern in `git-info.service.status-unavailable.spec.ts`) that fails the second call and asserts `discardChanges` returns `{ success: false }`, not a silent no-op success.
+
+### Two-read classification window has no lock between reads (subsumed by the finding above, listed for completeness)
+
+- Trigger: a concurrent mutation changes the staged shape of the same file between `classifyForDiscard`'s first and second `execGit` calls.
+- Symptom: a stale classification decision (an inert discard, not a destructive one — see Q3).
+- Evidence: `git-info.service.ts:996-1046`, two independent `execGit` calls with no intervening lock.
+- Current handling: none; will be closed incidentally once Batch 5 wraps `discardChanges` in `GitRepoWriteLock` (Task 5.1), since the write lock's purpose is exactly to serialize this class of operation.
+- Recommendation: acceptable to carry into Batch 5 rather than fix here, provided Batch 5's reviewer confirms `discardChanges`'s whole body — including `classifyForDiscard` — runs inside one `lock.run()` call, not just the final `checkout`/`restore`/`clean` calls.
+
+### None found in the tri-state probe, DIFF_FLAGS/apply-patch pairing, `-c`-skip classifier, or M1/M2 exec-git fixes
+
+- Trigger: n/a.
+- Symptom: n/a.
+- Evidence: `probeRepo` (`git-info.service.ts:3010-3038`) checked against exit 0/true, exit 0/false, exit 128 not-a-repository, exit 128 dubious-ownership, exit 128 other, exit 1, thrown timeout, thrown ENOENT — every case maps correctly per `git-info.service.status-unavailable.spec.ts:78-138`, run three times with no flake. `DIFF_FLAGS`'s `--src-prefix=a/ --dst-prefix=b/ --no-textconv` (`:149-156`) is proven against `diff.noprefix=true`, custom `diff.srcPrefix`/`diff.dstPrefix`, and a real textconv driver in `git-info.service.diff-config.real-git.spec.ts`, all three passing, and `applyArgsFor` (`:2020-2029`) relies on `git apply`'s default `-p1`, which matches the now-explicit `a/`/`b/` prefixes regardless of the user's config — traced by hand, not just by the spec's own assertions. `isMutatingGitCommand`'s `-c k=v` skip (`:385-390`) was hand-traced against every boundary case in the spec (a bare trailing `-c`, a bare `-c k=v` with nothing after, chained `-c` pairs before a read verb, chained `-c` pairs before a write verb) and found free of off-by-one errors. The M1/M2 exec-git fixes (`exec-git.ts:664-977`) were re-derived from the Batch 1 review's own recommended fix text and match it exactly; both new specs (`exec-git.spec.ts:1242-1266`, `:1268-1283`) exercise the code paths they claim to, not a restatement.
+- Current handling: correct.
+- Recommendation: none — recorded so the "no finding" scope is auditable.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+### `discardChanges` reports success for a staged rename it did not actually discard
+
+- File: `libs/backend/vscode-core/src/services/git-info.service.ts:983-1052` (`classifyForDiscard`), consumed by `:958-980` (`discardChanges`)
+- Scenario: a staged rename with a worktree edit is discarded while `classifyForDiscard`'s second, unfiltered status read fails (concurrent index.lock holder, transient I/O error, or any other non-zero exit from that specific `execGit` call).
+- Impact: the user (or the agent, via the same code path) is told the discard succeeded. The staged rename and any worktree edit on top of it are left exactly as they were. This directly contradicts Requirement 1.6 ("staged rename discard shall succeed with no pathspec error") in spirit — it does not surface a pathspec error, but it also does not perform the discard, which is a worse outcome than an explicit error because nothing in the UI or the RPC result distinguishes it from a real success.
+- Fix: in `classifyForDiscard`, when the second read's `exitCode !== 0`, return `{ error: all.stderr.trim() || 'Failed to resolve staged rename source' }` instead of falling through with an empty file list, and add a spec that fails that second call and asserts `discardChanges` returns `{ success: false }`.
+
+## Moderate and minor issues
+
+- Moderate: no spec (mocked or real-git) exercises `classifyForDiscard`'s second read failing — this is the gap that let the Serious finding above ship untested; flagged separately from the finding itself because closing it is also the verification step for the fix.
+- Moderate: `classifyForDiscard`'s two `execGit` calls run outside any lock and can observe two different snapshots of the same repository's staged state (see Failure modes, second entry). Acceptable to carry into Batch 5 provided the reviewer there confirms the whole `discardChanges` body, not just its final writes, runs inside `GitRepoWriteLock.run()`.
+- Minor: the second, unfiltered `classifyForDiscard` read (`git-info.service.ts:1030-1032`) reads the status of the entire repository with no `maxOutputBytes` override, which for a very large repository is both slower and more failure-prone than the first, pathspec-scoped read that already knows exactly which rename it needs. Not incorrect (it does inherit the `DEFAULT_GIT_MAX_OUTPUT_BYTES` 64 MB ceiling, twice the 32 MB status cap, so it is less likely to trip the byte limit than the primary status read, not more) — but it is more exec-git work than the operation strictly needs, and it is the path the Serious finding's trigger runs through.
+
+## Data flow
+
+1. `getGitInfo` calls `probeRepo` — OK: tri-state result, `unknown` never reported as `isGitRepo:false`, proven by 5 adversarial cases plus the two definite-answer cases.
+2. On `probe.state === 'yes'`, `execGit([...STATUS_ARGS], ...)` runs the `-z` status read — OK: non-zero exit and thrown errors both route through `unavailableReason`/`statusUnavailable`, never returning an empty-but-unmarked list.
+3. `parseStatusV2Z(stdout)` — OK (Batch 2's already-audited parser, re-verified unchanged here); `!` records filtered post-parse (`:664-666`) — OK, matches the Batch 2 carry-over note that `!` handling stays dormant until `--ignored` is added, and is proven dormant by the new "never lists an ignored file" real-git case.
+4. `discardChanges` → `classifyForDiscard`'s **first** read (pathspec-scoped) — OK: failure returns an explicit `{ error }`.
+5. `classifyForDiscard`'s **second** read (unfiltered, only when a staged add/rename candidate exists) — GAP: failure is swallowed into an empty list rather than propagated (Serious finding).
+6. `discardChanges`'s `steps` loop (`checkout` → `restore --staged --worktree --source=HEAD` → `clean -f`) — OK for every path correctly classified; silently incomplete for a rename misclassified as `tracked` by step 5's gap.
+7. `readPatch`/`applyHunks` under the new `DIFF_FLAGS` — OK: the a/b prefix override and `--no-textconv` are proven against three hostile configs, and `applyArgsFor`'s reliance on `git apply`'s default `-p1` is consistent with the now-explicit prefixes.
+8. M1/M2 in `acquireUnlessAborted` — OK: pre-aborted entry check and gate-rejection propagation both verified against new, targeted specs that reproduce the exact failure shapes the Batch 1 review named.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                                      | Status                                    | Gap                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RC3 / 1.4: `statusUnavailable` distinguishes timeout, error, lock; transient probe failure never renders "not a repository"      | COMPLETE                                  | none                                                                                                                                                              |
+| RC4 / 1.5: non-ASCII, quote, backslash, leading/trailing-space names: status, numstat, diff, stage, unstage, discard all succeed | COMPLETE                                  | none — proven on POSIX-appropriate subsets on Windows and the full set implied on POSIX hosts                                                                     |
+| RC4 / 1.6: staged rename discard succeeds with no pathspec error                                                                 | PARTIAL                                   | succeeds on the happy path (proven); silently does nothing (not an error, but not a success either) when the second classification read fails — see Serious issue |
+| RC7 / 1.9: hunk stage/unstage/revert succeed under `diff.noprefix`, custom prefixes, textconv                                    | COMPLETE                                  | none                                                                                                                                                              |
+| Carried M1: pre-aborted-signal entry check in `acquireUnlessAborted`                                                             | COMPLETE                                  | none                                                                                                                                                              |
+| Carried M2: rejection handler on `acquired.then`                                                                                 | COMPLETE                                  | none                                                                                                                                                              |
+| Net line delta of `git-info.service.ts` ≤ 0 (parser deletion offsets wrapper additions)                                          | Not independently verified by this review | `git diff --stat` was not run for this specific metric; team-leader's own verification step should confirm it, this review focused on behaviour                   |
+
+Implicit requirements not addressed: none beyond the untested second-read failure path named above.
+
+## Edge cases
+
+| Case                                                                                  | Handled | How                                                                                                     | Concern                                                                |
+| ------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `rev-parse` exit 128, "not a git repository"                                          | YES     | `probeRepo` → `state: 'no'`                                                                             | none                                                                   |
+| `rev-parse` exit 128, dubious ownership / safe.directory                              | YES     | `probeRepo` → `state: 'unknown', reason: 'error'`, never `'no'`                                         | none                                                                   |
+| `rev-parse` timeout / thrown ENOENT                                                   | YES     | `probeRepo` → `state: 'unknown'` with mapped reason                                                     | none                                                                   |
+| Status exit non-zero / timeout / lock                                                 | YES     | `unavailableReason` maps to `timeout`/`locked`/`error`, list kept empty with reason, not silently clean | none                                                                   |
+| Non-ASCII / quoted / backslash / space-padded file name, full read-write-discard loop | YES     | real-git spec, `-z` output never C-quoted                                                               | none (POSIX-only names correctly skipped on Windows, confirmed by run) |
+| Staged rename discarded by new-path name, second classification read succeeds         | YES     | real-git spec "discards a staged rename named by its new path"                                          | none                                                                   |
+| Staged rename discarded by new-path name, second classification read fails            | NO      | falls through to `checkout --`, reports success, does nothing                                           | Serious issue above                                                    |
+| Ignored (`!`) file never listed, discard on it is a safe no-op                        | YES     | real-git spec "never lists an ignored file"                                                             | none                                                                   |
+| `diff.noprefix` / custom prefixes / textconv, hunk stage/unstage/revert               | YES     | real-git spec, three configs                                                                            | none                                                                   |
+| Pre-aborted signal at `acquireUnlessAborted` entry                                    | YES     | new exec-git spec, slot released, next call still gets it                                               | none                                                                   |
+| Gate `acquire()` rejection                                                            | YES     | new exec-git spec, rejection propagates instead of hanging                                              | none                                                                   |
+
+## Flakiness check (item 7)
+
+Ran each changed/new spec file 2-3 times independently (`git-info.service.spec.ts` once at 152/152; `git-info.service.status-unavailable.spec.ts` x3; `git-info.service.paths.real-git.spec.ts` once at 10/10, `--runInBand`; `git-info.service.diff-config.real-git.spec.ts` once at 3/3; `exec-git.spec.ts` x3 at 69/69). No failure reproduced in this scope, so the one unnamed failure in 775 across the full `vscode-core` suite was not isolated to these files by this review. The most plausible candidate this review can point to, based on code reading rather than reproduction, is the two new `exec-git.spec.ts` cases that spy on `GitProcessGate.prototype.acquire` (`:1242-1266`, `:1268-1283`): both call `acquire.mockRestore()` before their `expect()` assertions, which is the correct order and did not fail in any run here, but it is the only new code in this batch that touches shared `jest.spyOn` state on a class prototype rather than an instance, and a future edit that moved `mockRestore()` after an `expect()` would reintroduce a mock leak into whichever test runs next in the same file. Not itself a finding against the current diff — the current code has the ordering right — but worth the team-leader's attention if the "1 in 775" failure recurs and its name can be captured.
+
+## Verdict
+
+- **Recommendation**: REVISE
+- **Confidence**: MEDIUM (same-side review only — no cross-vendor CLI lane was available, per the disclosed fallback; the Serious finding itself is HIGH confidence, traced through the actual code path and cross-checked against `GIT_OPTIONAL_LOCKS` semantics rather than inferred)
+- **Top risk**: a staged-rename discard can report success while leaving the rename fully staged, with no test coverage of the branch that causes it, in the exact window (before Batch 5's write lock lands) where a concurrent Ptah mutation makes that branch reachable.
+- **What a robust implementation would add**: (1) propagate the second classification read's failure as `{ error }` instead of an empty-list fallback; (2) a spec (mocked, following the `status-unavailable.spec.ts` pattern) that fails that second read and asserts `discardChanges` returns `{ success: false }`; (3) Batch 5's reviewer should confirm `classifyForDiscard` runs inside the same `GitRepoWriteLock.run()` call as the rest of `discardChanges`, not just the final writes.
+
+## Revise round 1 recheck
+
+- **Scope of recheck**: `git-info.service.ts`, `git-info.service.spec.ts`, `git-info.service.paths.real-git.spec.ts` only, per the coordinator's changed-file list. `git-info.service.status-unavailable.spec.ts` and `git-info.service.diff-config.real-git.spec.ts` are unchanged from round 0 (confirmed: no diff against the round-0 read for the former since it is untracked and its content is byte-identical to what was reviewed; the latter's `git diff` shows no new hunks) and their round-0 findings stand as recorded above.
+- **Same-side review — disclosed fallback (unchanged)**: the cross-side antigravity attempt failed (quota exhausted, HTTP 429) again; Glm is unavailable (Ollama Cloud usage limit). Weaker evidence than a cross-side review.
+
+### Finding status: RESOLVED
+
+**Serious — "`discardChanges` reports success for a staged rename it did not actually discard"** (round 0, `git-info.service.ts:983-1052`). Verified by direct read of the new code, not the author's summary alone:
+
+- `classifyForDiscard` (`git-info.service.ts:995-1055`) now has a shared `readFailure(stderr, exitCode)` closure (`:1006-1013`) called from **both** the first, pathspec-scoped read (`:1018-1020`, unchanged trigger from round 0) and the second, unfiltered rename-lookup read (`:1039`, new in this round — previously `all.exitCode === 0 ? parseStatusV2Z(all.stdout).files : []` silently treated a failed second read as an empty repository). Both call sites now `return readFailure(...)` before any of `tracked`/`untracked`/`renamePaths` is touched, and `discardChanges` (`:945-946`) checks `'error' in classified` and returns before the `steps` loop ever runs — so a failing second read can no longer reach `checkout`, `restore` or `clean`. Traced by hand, not inferred from the diff summary.
+- `readFailure` classifies via `isIndexLockFailure(stderr)` (the same Batch-1-audited predicate `probeRepo`/`unavailableReason` already use) into `{ code: 'LOCKED', error: GIT_LOCKED_MESSAGE }` or `{ code: 'GIT_ERROR', error: DISCARD_STATUS_FAILED }` — both are valid members of the existing `GitMutationFailureCode` union (`libs/shared/src/lib/types/rpc/rpc-git.types.ts:244-245`; `GitDiscardResult.code` already carried this type since Batch 1, so this is a compatible extension, not a new field). Raw `stderr` is passed only to `this.logger.warn(...)` (`:1007-1009`) — confirmed it never reaches the two sanitized `error` strings returned to the caller, closing the "raw stderr to the client" half of the original concern as a side effect.
+- `DISCARD_STATUS_FAILED` (`:100-101`, `'Could not read file status; nothing was discarded.'`) and `GIT_LOCKED_MESSAGE` (imported from `libs/shared/src/lib/constants/git-operation.constants.ts:35-36`, `'Another git process is using this repository.'`) are both accurate to what actually happens now — nothing was discarded is true precisely because the early return happens before any write.
+- The second read now also passes `{ maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES }` (`:1037`), closing the round-0 Minor finding about the unfiltered read inheriting a larger, unstated default cap than the primary status read.
+- New unit coverage, read directly (not summarized): `git-info.service.spec.ts` — "fails without touching files when the status read fails" (first-read `GIT_ERROR`, 1 call total, no write) and the parametrized "fails with %s and runs no write when the rename lookup read fails" (`GIT_ERROR` and `LOCKED`, both asserting exactly `['status', 'status']` as the call sequence — i.e. two reads, zero writes). Both were run (`npx nx test vscode-core --testFile=git-info.service.spec.ts`, 152/152) and inspected for their assertions, not just their pass/fail status.
+- New real-git coverage, read and run directly: `git-info.service.paths.real-git.spec.ts:220-258`, "fails a staged-rename discard, touching nothing, when the rename lookup read fails" — stages a real rename via `git mv`, appends a worktree edit, then spies on the service's own `execGit` seam to fail only the `--untracked-files=no` call with real `index.lock` stderr while every other call goes through the real git binary. Asserts `{ success: false, code: 'LOCKED', error: 'Another git process is using this repository.' }`, byte-identical `git status --porcelain=v2` before and after, `new.txt`'s content unchanged (`'hello\nextra\n'`), and `old.txt` not recreated. This is exactly the failure-injection case round 0's finding said was missing, and it exercises the real `classifyForDiscard`/`discardChanges` code path against real git, not a full mock. Ran it directly: `npx nx test vscode-core --testFile=git-info.service.paths.real-git.spec.ts --runInBand` → 11/11 (10 from round 0 plus this one), on Windows.
+- Net line delta: `git diff --stat main -- libs/backend/vscode-core/src/services/git-info.service.ts` reports 227 insertions / 235 deletions, i.e. **-8 net lines**, matching the author's claim and satisfying the Task 4.1 quality requirement ("`git-info.service.ts` does not grow in net lines") that round 0 had left unverified.
+- `ptah_get_diagnostics` scoped to all three changed files: 0 errors, 0 warnings.
+- Ran the full scoped verification independently rather than trusting the author's numbers: `npx nx test vscode-core --skip-nx-cache` → **45/45 suites, 778/778 tests, exit 0** (up from 775 total before this round's two new tests plus the one from round 0's diff-config addition were counted differently; the reported 778 matches the author's own number exactly). No failure reproduced — the earlier "1 unnamed failure in 775" did not recur in this run.
+
+### Finding status: unchanged (carried, as accepted in round 0)
+
+- **Moderate — "two-read classification window has no lock between reads"**: still open by design. `classifyForDiscard`'s two `execGit` calls (`:1014-1017`, `:1034-1038`) still run outside any lock; nothing in this round's diff wraps them. The author's own summary explicitly carries this to Batch 5 ("the whole `discardChanges` body inside one `lock.run()`"), matching round 0's accepted disposition. Re-confirmed by reading the current code: no `GitRepoWriteLock` import or usage anywhere in `discardChanges`/`classifyForDiscard` yet.
+- The round-0 Moderate "no spec exercises the second read failing" is now RESOLVED by the new unit and real-git cases above, folded into the Serious finding's resolution rather than tracked separately.
+- The round-0 Minor about the exec-git `GitProcessGate.prototype` spy ordering is unaffected by this round's diff (no changes to `exec-git.ts`/`exec-git.spec.ts` in this round) and is not re-litigated here.
+
+### New findings from the recheck
+
+None that rise above Minor.
+
+- Minor, informational only: the new real-git failure-injection case (`git-info.service.paths.real-git.spec.ts:231-245`) proves the fix against a spied `execGit` seam rather than a genuine concurrent `git commit` holding a real `index.lock`. This is the correct and only practical way to write a deterministic test for this race (a real concurrent-process race would be inherently flaky), and the spy's stderr text is copied verbatim from real git's own lock message, so the classification path (`isIndexLockFailure`) is exercised faithfully. Noted only so the distinction between "proven against a faithful simulation" and "proven against a real concurrent second process" is auditable; it does not weaken the finding's resolution.
+- No other new findings. The full diff of all three changed files was read in full, not only the hunks the author's summary called out; no unrelated regression was found in `getGitInfo`, `probeRepo`, `parseStatusV2Z` usage, `-c`-skip classification, or `DIFF_FLAGS`, none of which changed in this round.
+
+### Updated verdict
+
+- **Score**: 8/10 (was 6/10 at round 0)
+- **Recommendation**: APPROVE
+- **Confidence**: MEDIUM (same-side review only — no cross-vendor CLI lane was available at either round, per the disclosed fallback; the resolution itself is HIGH confidence, verified by direct code read, targeted test runs, and an independent full-suite run rather than by trusting the author's summary)
+- **Blocking issues**: 0. **Serious issues**: 0 (the round-0 Serious finding is resolved). **Moderate issues**: 1 (the two-read lock-window gap, carried to Batch 5 by design, matching round 0's accepted disposition).
+- **Top risk (updated)**: none against this batch's own scope. The residual, explicitly-carried risk is that Batch 5 must actually wrap `classifyForDiscard` inside the same `GitRepoWriteLock.run()` call as the rest of `discardChanges` — if it wraps only the final `checkout`/`restore`/`clean` calls, the two-read race this round's fix made loud (rather than silent) becomes reachable again in a subtly different shape (a `LOCKED` failure on a read that could have been avoided by locking earlier).
+- **What a robust implementation would add**: nothing blocking. Batch 5's reviewer should explicitly confirm the lock scope named above, since it is the one place this round's fix and next batch's responsibility meet.

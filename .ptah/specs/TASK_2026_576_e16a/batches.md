@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 4/69
+Total tasks: 87 | Batches: 69 | Complete: 5/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -229,7 +229,7 @@ Edge cases:
 - Carried to Batch 4: `!` records are unreachable under today's flags (no `--ignored`); Task 4.1 keeps the argv as
   planned and must not treat `'!'` entries as changes if `--ignored` is ever added.
 
-## Batch 3: Electron git watcher redesign (RC5) — COMPLETE
+## Batch 3: Electron git watcher redesign (RC5) — COMPLETE (e4cadb68d)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -308,7 +308,7 @@ Edge cases:
 - Carried: real-git suite evidence is Windows-only — Batch 8 OS matrix must run it on Linux and macOS before R3 is
   closed. `REBASE_DIRS` looseness (Batch 14) and `GitChangeKind` doc comment (Batch 15) stay carried as in round 1.
 
-## Batch 4: GitInfoService facade A — RC4 status/discard, RC7 diff flags, RC3 tri-state probe — PENDING
+## Batch 4: GitInfoService facade A — RC4 status/discard, RC7 diff flags, RC3 tri-state probe — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -318,7 +318,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batches 1, 2
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 4.1: Wire parser, DIFF_FLAGS, `-c` classifier skip, `probeRepo`, reasoned `statusUnavailable` — PENDING
+### Task 4.1: Wire parser, DIFF_FLAGS, `-c` classifier skip, `probeRepo`, reasoned `statusUnavailable` — COMPLETE
 
 - Files:
   - MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
@@ -339,6 +339,29 @@ Edge cases:
 - CLI-lane logic reviewer accepting verdict
 - Net line delta of `git-info.service.ts` reported (≤0)
 
+### Batch 4 result (team-leader)
+
+- Verified on disk: `git-info.service.ts` reads status with `STATUS_ARGS` (`status --porcelain=v2 -z --branch
+--untracked-files=all`) through `parseStatusV2Z`; the old `parseBranchInfo`/`parseFileStatus`/`mapStatusCode` are
+  gone; `!` records filtered; skipped records warned once per workspace (`warnOnce`). `probeRepo` is tri-state (only
+  exit 128 "not a git repository" or `false` is `no`); `unknown` and a failing status return `statusUnavailable(reason)`,
+  never `isGitRepo:false`. `classifyForDiscard` uses `-z` status, never trims paths, returns `LOCKED`/`GIT_ERROR`
+  before any write when either read fails, and stages a rename discard as `restore --staged --worktree --source=HEAD --
+<origPath> <path>`. `DIFF_FLAGS` gains `--no-textconv --src-prefix=a/ --dst-prefix=b/`; `isMutatingGitCommand` skips
+  leading `-c k=v`. exec-git M1 (pre-aborted entry check) and M2 (rejection handler) fixed with spec cases. No
+  TODO/STUB/PLACEHOLDER markers. Net delta of `git-info.service.ts`: 227 insertions / 235 deletions (-8).
+- Evidence: executor `nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core --skip-nx-cache` exit 0,
+  45/45 suites, 778/778; reviewer re-ran the suite uncached (778/778); team-leader re-ran the scoped command (pass).
+  Real-git specs 14/14 on Windows; POSIX-only names (`a"b`, `a\b`, trailing space) are skipped on Windows — Batch 8
+  OS matrix must run them on Linux/macOS.
+- Review: code-logic-review.md `# Batch 4`, in-process code-logic-reviewer. Round 0 REVISE 6/10 (serious: staged-rename
+  discard reported success when the rename-lookup read failed). Round 1 APPROVED 8/10, 0 blocking, 0 serious, 1 carried
+  moderate. **Same-side review, disclosed fallback** (antigravity HTTP 429, Glm unavailable); confidence MEDIUM.
+- Carried moderate (owner Task 5.1): the two status reads in `classifyForDiscard` run with no lock between them.
+  Recorded in Task 5.1's validation notes.
+- Out of scope, noted: `stashShow` does not use `DIFF_FLAGS` (read-only); checkout's dirty check still uses plain
+  porcelain.
+
 ## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — PENDING
 
 - Recommended executor: backend-developer (sub-agent)
@@ -358,7 +381,10 @@ Edge cases:
 - Validation notes: push, fetch and worktree ops are not locked. Carried from Batch 2 review (MOD-1): every locked
   body must await everything it starts before returning — no `void`/unawaited promises, timers or event callbacks
   that spawn git — otherwise that work runs outside the FIFO while still holding the reentrance context. Report how
-  the applyHunks ladder satisfies this; the Batch 5 reviewer checks it.
+  the applyHunks ladder satisfies this; the Batch 5 reviewer checks it. Carried from Batch 4 review (moderate): the
+  whole `discardChanges` body, including `classifyForDiscard` and both of its status reads, runs inside one
+  `lock.run()` — wrapping only the final `checkout`/`restore`/`clean` calls reopens the two-read race. The Batch 5
+  reviewer must confirm this lock scope.
 - Implementation details: stage, unstage, discard, commit, checkout, applyHunks (whole ladder `:1559-1892`), stash apply/pop/drop, pull run inside one `run()`; mutating spawns go through `execWrite`.
 
 ### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — PENDING

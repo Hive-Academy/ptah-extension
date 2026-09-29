@@ -1239,6 +1239,53 @@ describe('git process supervision', () => {
       await third;
     });
 
+    it('rejects a signal already aborted when the slot wait begins and releases the slot it is later granted', async () => {
+      process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+      resetGitProcessGateForTests();
+      const controller = new AbortController();
+      // The abort lands inside `acquire`, after the entry check in
+      // `execGitBuffer`: the wait sees a signal that will never fire again.
+      const realAcquire = GitProcessGate.prototype.acquire;
+      const acquire = jest
+        .spyOn(GitProcessGate.prototype, 'acquire')
+        .mockImplementationOnce(function (this: GitProcessGate, ...args) {
+          controller.abort();
+          return realAcquire.apply(this, args);
+        });
+
+      const error = await execGit(['commit'], WS, {
+        ...BG,
+        signal: controller.signal,
+      }).catch((reason: unknown) => reason);
+      acquire.mockRestore();
+
+      expect(error).toBeInstanceOf(GitCancelledError);
+      expect(mockSpawn).not.toHaveBeenCalled();
+      // The slot granted to the cancelled call went straight back.
+      await drain();
+      const next = execGit(['status'], WS, BG);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      held[0].emit('close', 0);
+      await next;
+    });
+
+    it('settles with the gate rejection instead of hanging', async () => {
+      const failure = new Error('gate failed');
+      const acquire = jest
+        .spyOn(GitProcessGate.prototype, 'acquire')
+        .mockRejectedValueOnce(failure);
+      const controller = new AbortController();
+
+      const error = await execGit(['status'], WS, {
+        signal: controller.signal,
+      }).catch((reason: unknown) => reason);
+      acquire.mockRestore();
+
+      expect(error).toBe(failure);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
     it('kills a running child on abort and holds its slot until it closes', async () => {
       process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
       resetGitProcessGateForTests();

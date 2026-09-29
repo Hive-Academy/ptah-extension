@@ -654,6 +654,11 @@ export async function execGitBuffer(
  * Wait for a gate slot, rejecting at once if `signal` aborts first. The gate
  * cannot drop a queued waiter, so a slot granted after the abort is released
  * the moment it arrives: a cancelled call never holds one.
+ *
+ * A signal that is already aborted never fires `abort` again, so it is
+ * rejected on entry rather than waiting on an event that cannot come. A gate
+ * that rejects (it does not today) settles the call with that rejection
+ * instead of leaving it pending forever.
  */
 function acquireUnlessAborted(
   acquired: Promise<GitSlotRelease>,
@@ -666,12 +671,19 @@ function acquireUnlessAborted(
       cancelled = true;
       reject(new GitCancelledError(subcommand));
     };
-    signal.addEventListener('abort', onAbort, { once: true });
-    void acquired.then((release) => {
-      signal.removeEventListener('abort', onAbort);
-      if (cancelled) release();
-      else resolve(release);
-    });
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+    acquired.then(
+      (release) => {
+        signal.removeEventListener('abort', onAbort);
+        if (cancelled) release();
+        else resolve(release);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
   });
 }
 
