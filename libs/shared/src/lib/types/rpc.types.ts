@@ -160,6 +160,8 @@ import type {
   AuthVerifyDraftConnectionResult,
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
+  AuthDeleteStoredKeyParams,
+  AuthDeleteStoredKeyResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -1468,6 +1470,10 @@ export interface RpcMethodRegistry {
   'auth:setApiKey': {
     params: { provider: string; apiKey: string };
     result: { success: boolean; error?: string };
+  };
+  'auth:deleteStoredKey': {
+    params: AuthDeleteStoredKeyParams;
+    result: AuthDeleteStoredKeyResult;
   };
   'auth:getStatus': {
     params: Record<string, never>;
@@ -3735,6 +3741,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'file:save-dialog': true,
   'config:model-set': true,
   'auth:setApiKey': true,
+  'auth:deleteStoredKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
   'settings:get': true,

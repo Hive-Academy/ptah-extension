@@ -68,8 +68,13 @@ import type {
   AuthVerifyDraftConnectionResult,
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
+  AuthDeleteStoredKeyParams,
+  AuthDeleteStoredKeyResult,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema } from './auth-rpc.schema';
+import {
+  AuthSettingsSchema,
+  AuthDeleteStoredKeySchema,
+} from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /** Provider registry ids used to tag interactive-login push events. */
@@ -158,6 +163,7 @@ export class AuthRpcHandlers {
     'auth:getStatus',
     'auth:saveSettings',
     'auth:setApiKey',
+    'auth:deleteStoredKey',
     'auth:testConnection',
     'auth:copilotLogin',
     'auth:copilotLogout',
@@ -283,6 +289,7 @@ export class AuthRpcHandlers {
     this.registerGetStatus();
     this.registerSaveSettings();
     this.registerSetApiKey();
+    this.registerDeleteStoredKey();
     this.registerTestConnection();
     this.registerCopilotLogin();
     this.registerCopilotLogout();
@@ -307,6 +314,7 @@ export class AuthRpcHandlers {
         'auth:getStatus',
         'auth:saveSettings',
         'auth:setApiKey',
+        'auth:deleteStoredKey',
         'auth:testConnection',
         'auth:copilotLogin',
         'auth:copilotLogout',
@@ -1261,6 +1269,71 @@ export class AuthRpcHandlers {
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  /**
+   * auth:deleteStoredKey - Delete one stored credential without activating, re-scoping or resetting.
+   */
+  private registerDeleteStoredKey(): void {
+    this.rpcHandler.registerMethod<
+      AuthDeleteStoredKeyParams,
+      AuthDeleteStoredKeyResult
+    >('auth:deleteStoredKey', async (params) => {
+      try {
+        this.logger.debug('RPC: auth:deleteStoredKey called', {
+          providerId: params?.providerId,
+        });
+
+        const parsed = AuthDeleteStoredKeySchema.safeParse(params);
+        if (!parsed.success) {
+          this.logger.warn('RPC: auth:deleteStoredKey rejected invalid params');
+          return {
+            success: false,
+            error: 'Unknown provider id',
+          };
+        }
+
+        const { providerId } = parsed.data;
+        try {
+          if (providerId === 'anthropic') {
+            await this.authSecretsService.setCredential('apiKey', '');
+          } else {
+            await this.authSecretsService.deleteProviderKey(providerId);
+          }
+        } catch {
+          // Secret-store errors can carry credentials; discard their details (D4 / 555).
+          this.logger.error('RPC: auth:deleteStoredKey secret deletion failed');
+          return {
+            success: false,
+            error: 'Could not delete the stored key.',
+          };
+        }
+
+        try {
+          this.providerModels.clearCache(providerId);
+          this.invalidateAuthStatusCache();
+        } catch {
+          this.logger.warn(
+            'RPC: auth:deleteStoredKey cache invalidation failed',
+          );
+        }
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:deleteStoredKey failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerDeleteStoredKey' },
+        );
+        return {
+          success: false,
+          error: 'Could not delete the stored key.',
         };
       }
     });

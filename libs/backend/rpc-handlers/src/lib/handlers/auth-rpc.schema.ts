@@ -58,6 +58,27 @@ export const AuthSettingsSchema = z.object({
 
 export type AuthSettingsInput = z.infer<typeof AuthSettingsSchema>;
 
+/**
+ * Validated shape for the `auth:deleteStoredKey` RPC method.
+ *
+ * `providerId` must be `'anthropic'` or an id in the merged provider registry.
+ */
+export const AuthDeleteStoredKeySchema = z.object({
+  providerId: z
+    .string()
+    .min(1)
+    .refine(
+      (id) => id === 'anthropic' || getAnthropicProvider(id) !== undefined,
+      {
+        message: 'Unknown provider id',
+      },
+    ),
+});
+
+export type AuthDeleteStoredKeyInput = z.infer<
+  typeof AuthDeleteStoredKeySchema
+>;
+
 /** The three auth methods exposed to the rest of the handler. */
 export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 

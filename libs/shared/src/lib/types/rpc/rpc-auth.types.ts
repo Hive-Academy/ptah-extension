@@ -529,3 +529,15 @@ export interface AuthCancelDraftVerificationParams {
 export interface AuthCancelDraftVerificationResult {
   cancelled: boolean;
 }
+
+/** Parameters for auth:deleteStoredKey RPC method */
+export interface AuthDeleteStoredKeyParams {
+  providerId: string;
+}
+
+/** Response from auth:deleteStoredKey RPC method */
+export interface AuthDeleteStoredKeyResult {
+  success: boolean;
+  error?: string;
+}
+
