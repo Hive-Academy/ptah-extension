@@ -848,4 +848,141 @@ describe('CursorCliAdapter', () => {
       expect(adapter.parseOutput('\x1b[32mok\x1b[0m')).toBe('ok');
     });
   });
+
+  // 551: the resolved Cursor API key must never reach a logger argument, an
+  // output chunk or a segment through any Cursor error path.
+  describe('Cursor API key redaction (551)', () => {
+    const SECRET = 'sk-cursor-secret-551';
+    const defaultOptions = {
+      task: 'Refactor module',
+      workingDirectory: '/proj',
+    };
+
+    function makeLogger(): {
+      logger: Logger;
+      debugMock: jest.Mock;
+      errorMock: jest.Mock;
+    } {
+      const debugMock = jest.fn();
+      const errorMock = jest.fn();
+      const logger = {
+        debug: debugMock,
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: errorMock,
+      } as unknown as Logger;
+      return { logger, debugMock, errorMock };
+    }
+
+    /** Agent whose every send() hands back a fresh run, recorded in `runs`. */
+    function agentWithFreshRuns(runs: FakeRunControls[]): void {
+      mockCreate.mockImplementation(async () => ({
+        agentId: 'agent-abc',
+        send: (...args: unknown[]) => {
+          mockSend(...args);
+          const next = createFakeRun('agent-abc');
+          runs.push(next);
+          currentRun = next;
+          return Promise.resolve(next.run);
+        },
+        close: mockClose,
+      }));
+    }
+
+    it('runTurn rejection: no logger arg, output chunk or segment contains the key', async () => {
+      process.env['CURSOR_API_KEY'] = SECRET;
+      const { logger, errorMock } = makeLogger();
+      const guarded = new CursorCliAdapter(logger, resolveKey);
+      mockCreate.mockImplementationOnce(async () => {
+        throw new Error(
+          `auth failed: invalid API key ${SECRET} in request headers`,
+        );
+      });
+
+      const handle = await guarded.runSdk(defaultOptions);
+      const output: string[] = [];
+      const segments: unknown[] = [];
+      handle.onOutput((data) => output.push(data));
+      handle.onSegment?.((seg) => segments.push(seg));
+
+      const code = await handle.done;
+      expect(code).toBe(1);
+
+      const logged = JSON.stringify(errorMock.mock.calls);
+      expect(logged).not.toContain(SECRET);
+      expect(logged).toContain('[REDACTED]');
+      expect(output.join('')).not.toContain(SECRET);
+      expect(output.join('')).toContain('[REDACTED]');
+      expect(JSON.stringify(segments)).not.toContain(SECRET);
+      expect(JSON.stringify(segments)).toContain('[REDACTED]');
+    });
+
+    it('run.cancel() rejection: the log and the rethrown error carry the marker, not the key', async () => {
+      process.env['CURSOR_API_KEY'] = SECRET;
+      const runs: FakeRunControls[] = [];
+      agentWithFreshRuns(runs);
+      const { logger, errorMock } = makeLogger();
+      const guarded = new CursorCliAdapter(logger, resolveKey);
+
+      const handle = await guarded.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      runs[0]?.cancel.mockRejectedValueOnce(
+        new Error(`cancel failed for key ${SECRET}`),
+      );
+
+      let thrown: unknown;
+      try {
+        await handle.interrupt?.();
+      } catch (error: unknown) {
+        thrown = error;
+      }
+
+      const logged = JSON.stringify(errorMock.mock.calls);
+      expect(logged).not.toContain(SECRET);
+      expect(logged).toContain('[REDACTED]');
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).not.toContain(SECRET);
+      expect((thrown as Error).message).toContain('[REDACTED]');
+
+      runs[0]?.end();
+      await handle.done;
+    });
+
+    it('detect resolver failure carrying the key: no logger call contains it', async () => {
+      delete process.env['CURSOR_API_KEY'];
+      const { logger, debugMock } = makeLogger();
+      const guarded = new CursorCliAdapter(logger, resolveKey);
+      resolveKey.mockRejectedValue(
+        new Error(`cannot read cursor key ${SECRET} from the store`),
+      );
+
+      await expect(guarded.detect()).resolves.toMatchObject({
+        installed: false,
+      });
+
+      const logged = JSON.stringify(debugMock.mock.calls);
+      expect(logged).not.toContain(SECRET);
+    });
+
+    it('listModels failure carrying the key: no logger call contains it', async () => {
+      process.env['CURSOR_API_KEY'] = SECRET;
+      const { logger, debugMock, errorMock } = makeLogger();
+      const guarded = new CursorCliAdapter(logger, resolveKey);
+      mockModelsList.mockRejectedValue(
+        new Error(`models request rejected for ${SECRET}`),
+      );
+
+      const models = await guarded.listModels();
+      expect(models.some((m) => m.id === 'composer-2.5')).toBe(true);
+
+      expect(JSON.stringify(debugMock.mock.calls)).not.toContain(SECRET);
+      expect(JSON.stringify(errorMock.mock.calls)).not.toContain(SECRET);
+    });
+  });
 });

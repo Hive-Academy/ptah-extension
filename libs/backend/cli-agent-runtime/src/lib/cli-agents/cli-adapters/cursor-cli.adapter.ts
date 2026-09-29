@@ -34,7 +34,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
-import { summarizeCliSdkError } from './sdk-error-summary';
+import { summarizeCliSdkError, redactSecrets } from './sdk-error-summary';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -286,6 +286,10 @@ export class CursorCliAdapter implements CliAdapter {
     let activeRun: CursorRun | undefined;
     let activeTurn: Promise<number> | undefined;
     let agent: CursorSdkAgent | undefined;
+    // Secrets redacted from every error path in this handle's scope. Set by
+    // the turn that resolved the key, so `interrupt` — which runs outside the
+    // turn — still redacts with the same value (551).
+    let secretRedactions: readonly string[] = [];
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
@@ -317,6 +321,7 @@ export class CursorCliAdapter implements CliAdapter {
         segment.emit({ type: 'error', content: msg });
         return 1;
       }
+      secretRedactions = [apiKey];
 
       try {
         if (!agent) {
@@ -377,12 +382,20 @@ export class CursorCliAdapter implements CliAdapter {
         if (abortController.signal.aborted) {
           return 1;
         }
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        // 551: the SDK error text can echo the request and carry the key, so
+        // the log detail and the streamed summary both get the redacted text.
+        const errorMessage = redactSecrets(
+          error instanceof Error ? error.message : String(error),
+          secretRedactions,
+        );
         this.logger?.error('[CursorCliAdapter] SDK run failed', {
           detail: errorMessage,
         });
-        const summary = summarizeCliSdkError(error, 'Cursor');
+        const summary = summarizeCliSdkError(
+          error,
+          'Cursor',
+          secretRedactions,
+        );
         output.emit(`\n${summary}\n`);
         segment.emit({ type: 'error', content: summary });
         return 1;
@@ -426,13 +439,19 @@ export class CursorCliAdapter implements CliAdapter {
       try {
         await run.cancel();
       } catch (error: unknown) {
-        const detail = error instanceof Error ? error.message : String(error);
+        // 551: cancel failures can echo the request and carry the key. The
+        // logged detail and the rethrown message both carry the redacted
+        // text; a fresh Error also keeps the leaked text out of the stack.
+        const detail = redactSecrets(
+          error instanceof Error ? error.message : String(error),
+          secretRedactions,
+        );
         this.logger?.error('[CursorCliAdapter] run.cancel() failed', {
           detail,
         });
         // Rethrow: the router must report `unsupported` with this reason rather
         // than a false `interrupt-resume` for a turn that is still running.
-        throw error instanceof Error ? error : new Error(detail);
+        throw new Error(detail);
       }
       if (turn) {
         await turn;
