@@ -335,7 +335,7 @@ describe('PtahCliRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Unknown provider: xyz');
+      expect(result.error).toBe('Could not create the Ptah CLI agent.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
@@ -410,7 +410,7 @@ describe('PtahCliRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Agent not found: a1');
+      expect(result.error).toBe('Could not save the Ptah CLI agent.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
@@ -444,7 +444,7 @@ describe('PtahCliRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('disk full');
+      expect(result.error).toBe('Could not delete the Ptah CLI agent.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
@@ -505,7 +505,7 @@ describe('PtahCliRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('network down');
+      expect(result.error).toBe('Could not test the connection.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
@@ -586,8 +586,80 @@ describe('PtahCliRpcHandlers', () => {
 
       expect(result.models).toEqual([]);
       expect(result.isStatic).toBe(true);
-      expect(result.error).toBe('kaboom');
+      expect(result.error).toBe('Could not load the model list.');
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Batch 12b: no raw error text in any RPC result
+  // -------------------------------------------------------------------------
+
+  describe('outer catches never return the thrown error text (Batch 12b)', () => {
+    const FAKE_KEY = 'sk-test-FAKEKEY123';
+    const FAKE_PATH = 'C:\\Users\\someone\\.ptah\\settings.json';
+    const leakyError = () =>
+      new Error(`write ${FAKE_PATH} failed for key ${FAKE_KEY}`);
+
+    it.each<
+      [
+        string,
+        (h: Harness) => void,
+        Record<string, unknown>,
+        string,
+      ]
+    >([
+      [
+        'ptahCli:create',
+        (h) => h.registry.createAgent.mockRejectedValue(leakyError()),
+        { name: 'A', providerId: 'z-ai', apiKey: FAKE_KEY },
+        'Could not create the Ptah CLI agent.',
+      ],
+      [
+        'ptahCli:update',
+        (h) => h.registry.updateAgent.mockRejectedValue(leakyError()),
+        { id: 'a1', apiKey: FAKE_KEY },
+        'Could not save the Ptah CLI agent.',
+      ],
+      [
+        'ptahCli:delete',
+        (h) => h.registry.deleteAgent.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+        'Could not delete the Ptah CLI agent.',
+      ],
+      [
+        'ptahCli:testConnection',
+        (h) => h.registry.testConnection.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+        'Could not test the connection.',
+      ],
+      [
+        'ptahCli:listModels',
+        (h) => h.registry.listAgents.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+        'Could not load the model list.',
+      ],
+    ])('%s returns fixed text and no key or path', async (method, arrange, params, fixed) => {
+      const h = makeHarness();
+      arrange(h);
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method,
+        params,
+        correlationId: 'corr-leak',
+      });
+
+      const serialized = JSON.stringify(response);
+      expect(serialized).not.toContain(FAKE_KEY);
+      expect(serialized).not.toContain('someone');
+      expect(serialized).not.toContain('settings.json');
+      expect((response.data as { error?: string }).error).toBe(fixed);
+      // The error object still reaches Sentry for diagnosis.
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('failed') }),
+        expect.anything(),
+      );
     });
   });
 });

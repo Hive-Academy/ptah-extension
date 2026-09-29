@@ -1674,9 +1674,69 @@ describe('AuthRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('network down');
+      expect(result.error).toBe('GitHub sign-in failed. Try again.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
+
+    it('never returns the thrown error text: no token or path in the result (Batch 12b)', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockRejectedValue(
+        new Error(
+          `token sk-test-FAKEKEY123 rejected; wrote C:\\Users\\someone\\.ptah\\settings.json`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'auth:copilotLogin',
+        params: {},
+        correlationId: 'corr-leak',
+      });
+
+      const serialized = JSON.stringify(response);
+      expect(serialized).not.toContain('sk-test-FAKEKEY123');
+      expect(serialized).not.toContain('someone');
+      expect(serialized).not.toContain('settings.json');
+      expect((response.data as { error?: string }).error).toBe(
+        'GitHub sign-in failed. Try again.',
+      );
+    });
+  });
+
+  describe('auth:setApiKey error text (Batch 12b)', () => {
+    const FAKE_KEY = 'sk-test-FAKEKEY123';
+    const leakyError = () =>
+      new Error(
+        `keychain write of ${FAKE_KEY} failed at C:\\Users\\someone\\.ptah\\settings.json`,
+      );
+
+    it.each([
+      ['saving a key', FAKE_KEY, 'setProviderKey'],
+      ['clearing a key', '', 'deleteProviderKey'],
+    ] as const)(
+      'returns fixed text and never the key or path when %s fails',
+      async (_label, apiKey, method) => {
+        const h = makeHarness();
+        (h.authSecrets[method] as jest.Mock).mockRejectedValue(leakyError());
+        h.handlers.register();
+
+        const response = await h.rpcHandler.handleMessage({
+          method: 'auth:setApiKey',
+          params: { provider: 'z-ai', apiKey },
+          correlationId: 'corr-leak',
+        });
+
+        const serialized = JSON.stringify(response);
+        expect(serialized).not.toContain(FAKE_KEY);
+        expect(serialized).not.toContain('someone');
+        expect(serialized).not.toContain('settings.json');
+        expect(response.data).toEqual({
+          success: false,
+          error: 'Could not save the API key.',
+        });
+        expect(h.sentry.captureException).toHaveBeenCalled();
+      },
+    );
   });
 
   describe('auth:copilotLogout', () => {

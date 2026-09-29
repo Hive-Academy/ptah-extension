@@ -1139,9 +1139,12 @@ export class AuthRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'AuthRpcHandlers.registerCopilotLogin' },
         );
+        // Fixed copy: a thrown error's text can carry tokens or local paths.
+        // The known user-actionable outcomes (device code expired, access
+        // denied) resolve `false` above and never reach this catch.
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Login failed',
+          error: 'GitHub sign-in failed. Try again.',
         };
       }
     });
@@ -1266,9 +1269,10 @@ export class AuthRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'AuthRpcHandlers.registerSetApiKey' },
         );
+        // Fixed copy: a secret-store error can echo the key it was given.
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: 'Could not save the API key.',
         };
       }
     });

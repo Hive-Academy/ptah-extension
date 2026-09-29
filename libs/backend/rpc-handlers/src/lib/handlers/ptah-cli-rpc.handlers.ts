@@ -35,6 +35,19 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
+ * Fixed client-facing text for each RPC's unexpected-failure catch. A thrown
+ * error's message can carry an API key or a local path, so it goes to the log
+ * and Sentry only, never into the RPC result.
+ */
+const PTAH_CLI_RPC_ERRORS = {
+  create: 'Could not create the Ptah CLI agent.',
+  update: 'Could not save the Ptah CLI agent.',
+  delete: 'Could not delete the Ptah CLI agent.',
+  testConnection: 'Could not test the connection.',
+  listModels: 'Could not load the model list.',
+} as const;
+
+/**
  * RPC handlers for Ptah CLI management operations
  */
 @injectable()
@@ -149,7 +162,7 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error : new Error(errorMessage),
             { errorSource: 'PtahCliRpcHandlers.registerCreate' },
           );
-          return { success: false, error: errorMessage };
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.create };
         }
       },
     );
@@ -208,7 +221,7 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error : new Error(errorMessage),
             { errorSource: 'PtahCliRpcHandlers.registerUpdate' },
           );
-          return { success: false, error: errorMessage };
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.update };
         }
       },
     );
@@ -244,7 +257,7 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error : new Error(errorMessage),
             { errorSource: 'PtahCliRpcHandlers.registerDelete' },
           );
-          return { success: false, error: errorMessage };
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.delete };
         }
       },
     );
@@ -285,7 +298,9 @@ export class PtahCliRpcHandlers {
           error instanceof Error ? error : new Error(errorMessage),
           { errorSource: 'PtahCliRpcHandlers.registerTestConnection' },
         );
-        return { success: false, error: errorMessage };
+        // Only this outer catch is fixed; the registry's own result above
+        // keeps its already-sanitized `error` (the UI's `reason`).
+        return { success: false, error: PTAH_CLI_RPC_ERRORS.testConnection };
       }
     });
   }
@@ -356,7 +371,11 @@ export class PtahCliRpcHandlers {
           error instanceof Error ? error : new Error(errorMessage),
           { errorSource: 'PtahCliRpcHandlers.registerListModels' },
         );
-        return { models: [], isStatic: true, error: errorMessage };
+        return {
+          models: [],
+          isStatic: true,
+          error: PTAH_CLI_RPC_ERRORS.listModels,
+        };
       }
     });
   }
