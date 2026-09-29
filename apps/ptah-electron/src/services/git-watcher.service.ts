@@ -17,11 +17,22 @@
  *      externally — one push per coalesced window, never one per file
  *      (TASK_2026_437 INV-5).
  *
- * Watches (git side, dedicated non-recursive `fs.watch` handles):
- * - .git/HEAD      (branch switches, checkouts)
- * - .git/index     (staging area changes: git add/reset)
- * - .git/refs/     (new commits, remote updates, tag creation)
- * - .git/worktrees/ (worktree add/remove — re-lists the nested-root seed)
+ * ## The git directory is one recursive subscription (TASK_2026_576 RC5)
+ *
+ * The repository side is a second `IWorkspaceWatcher` subscription, rooted at
+ * the COMMON git directory (`<gitdir>/commondir`, or the gitdir itself). In a
+ * linked worktree the own gitdir `<common>/worktrees/<name>` lies beneath it,
+ * so the one subscription sees the worktree's HEAD and index and the shared
+ * refs. Directory watching survives git's lock-then-rename writes, sees files
+ * that did not exist at start (`MERGE_HEAD`, `packed-refs`) and nested refs
+ * (`refs/heads/feature/x`), on every OS with the same engine. Each path is
+ * mapped by the pure `classifyGitDirChange`:
+ * - HEAD and the in-progress-operation pseudo-refs → `'head'`;
+ * - the index → `'index'`;
+ * - refs, `packed-refs`, `FETCH_HEAD` → `'refs'` (`refs/stash` → `'refs-stash'`);
+ * - another worktree's administration → re-list the nested-root seed.
+ * An `overflow` or `truncated` batch schedules one refresh with causes
+ * `head`, `index` and `refs`.
  *
  * ## The workspace feed is a batched port (TASK_2026_437 C10, INV-1)
  *
@@ -51,6 +62,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
+import { classifyGitDirChange } from './git-dir-change-classifier';
 import type {
   IDisposable,
   IWorkspaceWatcher,
@@ -90,8 +102,59 @@ const FILE_CONTENT_CHANGED = MESSAGE_TYPES.FILE_CONTENT_CHANGED;
 /** `WATCH_IGNORED_DIRS` as the port's array channel, built once. */
 const WATCH_IGNORED_DIR_NAMES: readonly string[] = [...WATCH_IGNORED_DIRS];
 
+/**
+ * Git-directory content that never changes what `git status` reports, and is
+ * large or write-heavy: the object store, reflogs, hooks, LFS objects,
+ * rerere records and the fsmonitor socket directory.
+ *
+ * `modules/` holds each submodule's own git directory. A submodule's working
+ * tree is a nested repository, which the workspace subscription already
+ * excludes through `nestedRepoDetection`; its git directory is excluded here
+ * for the same reason, so the submodule's own commits, fetches and gc — another
+ * repository's activity — do not drive refreshes of this one. What the
+ * superproject records about a submodule (its gitlink) changes in this
+ * repository's own index and refs, which stay watched.
+ *
+ * Anchored globs rather than `excludeDirNames`, which matches a name at ANY
+ * depth: a branch named `feature/logs` or `hooks` is `refs/heads/.../logs`,
+ * and a directory-name rule would silently hide it. A linked worktree keeps
+ * its own reflogs under `worktrees/<name>/logs`. The anchored `/**` globs also
+ * reach the watch host's native ignore set, so the engine never walks them.
+ */
+const GIT_DIR_EXCLUDED_TOP_LEVEL = [
+  'objects',
+  'logs',
+  'hooks',
+  'lfs',
+  'modules',
+  'rr-cache',
+  'fsmonitor--daemon',
+] as const;
+
+const GIT_DIR_EXCLUDE_GLOBS: readonly string[] = [
+  ...GIT_DIR_EXCLUDED_TOP_LEVEL.map((name) => `${name}/**`),
+  'worktrees/*/logs/**',
+  // Git writes `<name>.lock` and renames it over `<name>`; the rename reports
+  // the final name, so the lock file is noise.
+  '**/*.lock',
+];
+
+/** Causes an incomplete git-directory batch refreshes: everything it may hide. */
+const GIT_DIR_OVERFLOW_CAUSES: readonly GitChangeKind[] = [
+  'head',
+  'index',
+  'refs',
+];
+
+/** The git directories one workspace is watched through. */
+interface GitDirs {
+  /** The worktree's own gitdir: `.git`, or `<common>/worktrees/<name>`. */
+  readonly ownGitDir: string;
+  /** Where refs, `packed-refs` and `worktrees/` live; the subscription root. */
+  readonly commonDir: string;
+}
+
 export class GitWatcherService {
-  private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private workspacePath: string | null = null;
@@ -153,6 +216,12 @@ export class GitWatcherService {
   private workspaceSubscription: IDisposable | null = null;
 
   /**
+   * The live recursive subscription on the common git directory, or null for
+   * a non-git workspace or when subscribing failed.
+   */
+  private gitDirSubscription: IDisposable | null = null;
+
+  /**
    * The absolute nested repository roots the live subscription was created
    * with, sorted. A worktree re-list that yields the same set does not
    * resubscribe.
@@ -184,6 +253,13 @@ export class GitWatcherService {
 
   /** Debounce interval for .git changes (ms). Git operations fire multiple events. */
   private static readonly GIT_DEBOUNCE_MS = 500;
+
+  /**
+   * Batch interval for the git-directory subscription (ms): the port's floor.
+   * Git writes a whole operation within milliseconds and the git-ops debounce
+   * coalesces what follows, so no leading-edge hold is needed here.
+   */
+  private static readonly GIT_DIR_BATCH_INTERVAL_MS = 250;
 
   /** Debounce interval for workspace file changes (ms). Longer to avoid noise. */
   private static readonly WORKSPACE_DEBOUNCE_MS = 2000;
@@ -291,36 +367,7 @@ export class GitWatcherService {
 
     void this.refreshNestedRepoRoots(workspacePath, this.armGeneration);
 
-    this.watchFile(path.join(gitDir, 'HEAD'), () =>
-      this.scheduleGitOpsRefresh('head'),
-    );
-    this.watchFile(path.join(gitDir, 'index'), () =>
-      this.scheduleGitOpsRefresh('index'),
-    );
-
-    const refsDir = path.join(gitDir, 'refs');
-    if (fs.existsSync(refsDir)) {
-      this.watchDirectory(refsDir, (filename) =>
-        this.scheduleGitOpsRefresh(
-          filename === 'stash' ? 'refs-stash' : 'refs',
-        ),
-      );
-    }
-    const worktreesDir = path.join(gitDir, 'worktrees');
-    if (fs.existsSync(worktreesDir)) {
-      this.watchDirectory(worktreesDir, () =>
-        this.scheduleNestedRootsRefresh(),
-      );
-    }
-    this.watchFile(path.join(gitDir, 'packed-refs'), () =>
-      this.scheduleGitOpsRefresh('refs'),
-    );
-    this.watchFile(path.join(gitDir, 'ORIG_HEAD'), () =>
-      this.scheduleGitOpsRefresh('head'),
-    );
-    this.watchFile(path.join(gitDir, 'FETCH_HEAD'), () =>
-      this.scheduleGitOpsRefresh('refs'),
-    );
+    this.subscribeGitDir(this.resolveGitDirs(gitDir));
 
     // Defer the initial fetch slightly so the `git status` shell-out does not
     // compete with the switch that just armed these watchers.
@@ -370,6 +417,51 @@ export class GitWatcherService {
       });
       return null;
     }
+  }
+
+  /**
+   * The own gitdir and the common git directory it shares refs with.
+   *
+   * `<gitdir>/commondir` exists in a linked worktree's gitdir and holds a path,
+   * normally `../..`, resolved against the gitdir. Absent, the gitdir is its
+   * own common directory. Both are canonicalised, so the paths the watch
+   * engine reports (real paths on macOS, long names on Windows) share a prefix
+   * with them.
+   */
+  private resolveGitDirs(gitDir: string): GitDirs {
+    const ownGitDir = canonicalPath(gitDir);
+    const commondirFile = path.join(gitDir, 'commondir');
+    let commonDir = ownGitDir;
+    try {
+      const target = fs.readFileSync(commondirFile, 'utf8').trim();
+      if (target.length > 0) {
+        const resolved = path.resolve(gitDir, target);
+        if (fs.existsSync(resolved)) {
+          commonDir = canonicalPath(resolved);
+        } else {
+          // A pruned or moved main repository. Watching the own gitdir still
+          // covers this worktree's HEAD and index; shared refs then surface
+          // through the workspace feed and explicit refreshes.
+          this.logger.warn(
+            '[GitWatcher] commondir target is missing; watching the worktree own git dir instead',
+            { commondirFile, commonDir: resolved, ownGitDir },
+          );
+        }
+      }
+    } catch (err) {
+      // degradation-audit: optional-capability - no `commondir` file is the
+      // normal (non-linked) repository: the gitdir is the common directory.
+      // Any other read failure watches the gitdir alone, which still covers
+      // HEAD and the index; shared refs then surface through the workspace
+      // feed and explicit refreshes.
+      if (!isMissingFileError(err)) {
+        this.logger.warn('[GitWatcher] Failed to read commondir', {
+          commondirFile,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { ownGitDir, commonDir };
   }
 
   /**
@@ -438,14 +530,12 @@ export class GitWatcherService {
       this.nestedRootsRefreshTimer = null;
     }
 
-    this.disposeWorkspaceSubscription(this.workspaceSubscription);
+    this.disposeSubscription(this.workspaceSubscription, 'workspace');
     this.workspaceSubscription = null;
     this.subscribedNestedRoots = [];
 
-    for (const watcher of this.watchers) {
-      watcher.close();
-    }
-    this.watchers = [];
+    this.disposeSubscription(this.gitDirSubscription, 'git directory');
+    this.gitDirSubscription = null;
 
     this.pendingCauses.clear();
   }
@@ -458,7 +548,7 @@ export class GitWatcherService {
    * during the overlap only re-arms the same debounce.
    *
    * Excluded here, in the watch host: `WATCH_IGNORED_DIRS` (the workspace's own
-   * `.git` among them — the dedicated `.git` watchers own it, and routing them
+   * `.git` among them — the git-directory subscription owns it, and routing it
    * through this exclusion would stop every commit, stage and checkout from
    * being detected), agent worktree directories, and nested repositories — the
    * `nestedRoots` seed plus any `.git` entry the host sees below the root.
@@ -485,7 +575,7 @@ export class GitWatcherService {
       this.subscribedNestedRoots = nestedRoots;
     } catch (err) {
       // degradation-audit: optional-capability - the workspace feed only
-      // schedules refreshes; the dedicated .git watchers and every explicit
+      // schedules refreshes; the git-directory subscription and every explicit
       // RPC read still work without it. A previous subscription stays live.
       this.logger.warn('[GitWatcher] Failed to watch workspace root', {
         workspaceRoot,
@@ -493,84 +583,95 @@ export class GitWatcherService {
       });
       return;
     }
-    this.disposeWorkspaceSubscription(previous);
-  }
-
-  private disposeWorkspaceSubscription(subscription: IDisposable | null): void {
-    if (!subscription) return;
-    try {
-      subscription.dispose();
-    } catch (err) {
-      // degradation-audit: optional-capability - a subscription that fails to
-      // dispose is still unreachable: its batches are generation-gated.
-      this.logger.warn(
-        '[GitWatcher] Failed to dispose workspace subscription',
-        {
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-    }
+    this.disposeSubscription(previous, 'workspace');
   }
 
   /**
-   * Watch a single file for changes. Caller supplies the scheduler
-   * callback (e.g. `scheduleGitOpsRefresh` or `scheduleUpdate`) since
-   * coalescing semantics differ per watcher kind.
+   * One recursive subscription on the common git directory for the armed
+   * workspace, released in {@link stop}.
+   *
+   * No nested-repository detection: inside a git directory `.git` names
+   * nothing, and `modules/` (submodule repositories) is excluded outright.
    */
-  private watchFile(filePath: string, onChange: () => void): void {
-    if (!fs.existsSync(filePath)) return;
-
+  private subscribeGitDir(dirs: GitDirs): void {
+    const generation = this.armGeneration;
     try {
-      const watcher = fs.watch(filePath, () => {
-        onChange();
-      });
-
-      watcher.on('error', (err) => {
-        this.logger.warn('[GitWatcher] File watcher error', {
-          filePath,
-          error: err.message,
-        });
-      });
-
-      this.watchers.push(watcher);
+      this.gitDirSubscription = this.workspaceWatcher.watch(
+        dirs.commonDir,
+        {
+          excludeGlobs: GIT_DIR_EXCLUDE_GLOBS,
+          excludeDirNames: [],
+          excludeSegmentRules: [],
+          nestedRepoDetection: false,
+          minBatchIntervalMs: GitWatcherService.GIT_DIR_BATCH_INTERVAL_MS,
+        },
+        (batch) => this.onGitDirBatch(generation, dirs, batch),
+      );
     } catch (err) {
-      this.logger.warn('[GitWatcher] Failed to watch file', {
-        filePath,
+      // degradation-audit: optional-capability - without the git-directory
+      // feed, commits, stages and checkouts made outside Ptah are not pushed
+      // on their own; the workspace feed still schedules a status refresh on
+      // every working-tree edit, and every explicit RPC read and Ptah-driven
+      // git action still refreshes.
+      this.logger.warn('[GitWatcher] Failed to watch git directory', {
+        gitDir: dirs.commonDir,
         error: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
   /**
-   * Watch a directory (non-recursive) for changes. Caller supplies the
-   * scheduler callback. The callback receives the changed entry's filename
-   * (or null when the platform doesn't surface it) so the caller can refine
-   * the broadcast kind — e.g. distinguishing `refs/stash` from other refs.
+   * One coalesced batch from the git-directory subscription: each distinct
+   * change kind schedules the git-ops refresh once, and any worktree
+   * administration change re-lists the nested-root seed once.
+   *
+   * An incomplete batch (`overflow`, `truncated`) may hide any of them, so it
+   * schedules one refresh with every git cause and one worktree re-list; the
+   * re-list resubscribes only when the set of worktrees actually changed.
    */
-  private watchDirectory(
-    dirPath: string,
-    onChange: (filename: string | null) => void,
+  private onGitDirBatch(
+    generation: number,
+    dirs: GitDirs,
+    batch: WorkspaceChangeBatch,
   ): void {
-    try {
-      const watcher = fs.watch(
-        dirPath,
-        { recursive: false },
-        (_event, filename) => {
-          onChange(typeof filename === 'string' ? filename : null);
-        },
+    if (this.isDisposed || generation !== this.armGeneration) return;
+
+    if (batch.overflow || batch.truncated) {
+      for (const kind of GIT_DIR_OVERFLOW_CAUSES) {
+        this.scheduleGitOpsRefresh(kind);
+      }
+      this.scheduleNestedRootsRefresh();
+      return;
+    }
+
+    const kinds = new Set<GitChangeKind>();
+    let worktreeAdmin = false;
+    for (const change of batch.changes) {
+      const kind = classifyGitDirChange(
+        change.path,
+        dirs.ownGitDir,
+        dirs.commonDir,
       );
+      if (kind === 'worktree-admin') worktreeAdmin = true;
+      else if (kind !== null) kinds.add(kind);
+    }
+    for (const kind of kinds) {
+      this.scheduleGitOpsRefresh(kind);
+    }
+    if (worktreeAdmin) this.scheduleNestedRootsRefresh();
+  }
 
-      watcher.on('error', (err) => {
-        this.logger.warn('[GitWatcher] Directory watcher error', {
-          dirPath,
-          error: err.message,
-        });
-      });
-
-      this.watchers.push(watcher);
+  private disposeSubscription(
+    subscription: IDisposable | null,
+    label: 'workspace' | 'git directory',
+  ): void {
+    if (!subscription) return;
+    try {
+      subscription.dispose();
     } catch (err) {
-      this.logger.warn('[GitWatcher] Failed to watch directory', {
-        dirPath,
+      // degradation-audit: optional-capability - a subscription that fails to
+      // dispose is still unreachable: its batches are generation-gated.
+      this.logger.warn(`[GitWatcher] Failed to dispose ${label} subscription`, {
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -945,6 +1046,35 @@ export class GitWatcherService {
       });
     }
   }
+}
+
+/**
+ * `p` with symlinks and (on Windows) short names resolved, or `p` unchanged
+ * when it cannot be resolved — a path that vanished is watched as spelled and
+ * the subscription reports the failure.
+ */
+function canonicalPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    // degradation-audit: optional-capability - canonicalising only aligns the
+    // spelling with the engine's; the unresolved path is still a valid root.
+    return path.resolve(p);
+  }
+}
+
+/**
+ * A structural check, not `instanceof Error`: a Node system error raised in
+ * another realm (a sandboxed test runner, for one) is not an instance of this
+ * realm's `Error`.
+ */
+function isMissingFileError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    err.code === 'ENOENT'
+  );
 }
 
 /** Both sorted: equal lengths and equal entries. */

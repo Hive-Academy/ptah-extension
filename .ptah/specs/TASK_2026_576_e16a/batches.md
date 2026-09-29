@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 3/69
+Total tasks: 87 | Batches: 69 | Complete: 4/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -229,7 +229,7 @@ Edge cases:
 - Carried to Batch 4: `!` records are unreachable under today's flags (no `--ignored`); Task 4.1 keeps the argv as
   planned and must not treat `'!'` entries as changes if `--ignored` is ever added.
 
-## Batch 3: Electron git watcher redesign (RC5) — IN_PROGRESS
+## Batch 3: Electron git watcher redesign (RC5) — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -240,7 +240,7 @@ Edge cases:
 - Concurrency-eligible with: Batches 2, 4, 5, 6, 7
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron`
 
-### Task 3.1: One recursive `IWorkspaceWatcher` subscription on the common git dir + pure classifier — IN_PROGRESS
+### Task 3.1: One recursive `IWorkspaceWatcher` subscription on the common git dir + pure classifier — COMPLETE
 
 - Files:
   - MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.ts
@@ -259,6 +259,54 @@ Edge cases:
 - Files exist; scoped command passes (real-git spec runs locally)
 - CLI-lane logic reviewer accepting verdict
 - Report states that the e2e `git-watcher.spec.ts` file is untouched
+
+### Batch 3 result (team-leader, round 1) — NOT ACCEPTED, revision requested
+
+- Verified on disk: the five Task 3.1 files exist; no `fs.watch(` call, TODO/STUB/PLACEHOLDER marker remains in
+  `git-watcher.service.ts` or `git-dir-change-classifier.ts`; e2e `apps/ptah-electron-e2e/src/specs/git-watcher.spec.ts`
+  has no changes (R3). Executor: scoped `typecheck,test,lint -p ptah-electron` exit 0; reviewer re-ran the three specs
+  (109/109 unit, 6/6 real-git on Windows).
+- Review: code-logic-review.md `# Batch 3`, in-process code-logic-reviewer, APPROVED 8/10, 0 blocking, 0 serious,
+  2 moderate. **Same-side review, disclosed fallback** (antigravity HTTP 429, Glm unavailable); confidence MEDIUM.
+- Team-leader decision: not committed. task-description.md:192-198 (Requirement 1.7) names HEAD first, names
+  `refs/remotes/origin/x`, and requires "repeated writes after git's lock-and-rename". The real-git spec is the only
+  proof of that seam, and Batch 8 runs it on Linux, macOS and Windows to close R3; a HEAD case missing from it leaves
+  the most common external operation (branch switch) proven by inference only. The fix is small and stays inside files
+  this batch owns, so it is required now rather than carried.
+- Required revision (Task 3.1, round 2), files limited to `git-watcher.real-git.spec.ts` and `git-watcher.service.ts`:
+  1. Real-git case: `git symbolic-ref HEAD refs/heads/<existing other branch>` (writes only `HEAD` through
+     `HEAD.lock` and rename) → `expectPush(main, 'head', ...)`; then, in the same test, a second write back to
+     `refs/heads/main` → a second `'head'` push (the "repeated writes" clause). Restore HEAD to `main` at the end.
+  2. Real-git case: `git switch -q <other>` (or `git checkout -q <other>`) → `'head'` push; switch back to `main`.
+  3. Real-git case: `git update-ref refs/remotes/origin/x HEAD` (a remote-tracking ref created after start, directory
+     absent before) → `'refs'` push; assert the directory did not exist first, as the nested-ref case does.
+  4. `resolveGitDirs`: when `commondir` exists but its target does not, log one debug/warn line naming the fallback to
+     the own git dir (reviewer moderate 2); cover it in `git-watcher.service.spec.ts` only if that file needs no other
+     change — otherwise the log line alone.
+  5. Correct the `modules/**` doc comment (`git-watcher.service.ts:~105-114`) to state the primary reason: submodule
+     worktrees are already excluded by `nestedRepoDetection`.
+  - Keep every existing case; do not touch Batch 4/7 files (`libs/backend/vscode-core/**`, `libs/frontend/git-ui/**`,
+    e2e). Verify with the three specs (`--runInBand` for real-git) and `npx nx run-many -t typecheck,test,lint -p ptah-electron`.
+- Carried with owner (no action this round): minor `REBASE_DIRS` depth looseness in `classifyOwn` — owner Batch 14
+  (next batch in `apps/ptah-electron/src/services/`, edits `git-watcher.service.ts`); stale doc comment on shared
+  `GitChangeKind` (`libs/shared/src/lib/types/messages/git-status.ts:3-17`) — owner Batch 15 (next batch editing
+  shared git types).
+
+### Batch 3 result (team-leader, round 2) — ACCEPTED
+
+- Verified on disk: real-git spec now has 9 cases, including "repeated HEAD writes (lock-and-rename each time) each
+  push a head change" (`git-watcher.real-git.spec.ts:274`), "a branch switch pushes a head change" (`:286`, `finally`
+  restores `main`) and "a remote-tracking ref created after start pushes a refs change" (`:301`);
+  `resolveGitDirs` warns "commondir target is missing" (`git-watcher.service.ts:446`) with a unit case
+  (`git-watcher.service.spec.ts:1139`); `modules/**` comment leads with the `nestedRepoDetection` reason
+  (`git-watcher.service.ts:105-117`). No `fs.watch(`/TODO/STUB/PLACEHOLDER markers; e2e `git-watcher.spec.ts`
+  unchanged against `main` (R3).
+- Evidence: executor ran the three specs (119/119, real-git 9/9) and `npx nx run-many -t typecheck,test,lint -p ptah-electron`
+  exit 0; reviewer re-ran the three specs (119/119) and the real-git suite twice more (9/9 each, Windows).
+- Review: code-logic-review.md `# Batch 3` "Round 2 recheck", APPROVED 9/10, 0 blocking/serious/moderate.
+  **Same-side review, disclosed fallback** (no cross-vendor lane available); confidence MEDIUM.
+- Carried: real-git suite evidence is Windows-only — Batch 8 OS matrix must run it on Linux and macOS before R3 is
+  closed. `REBASE_DIRS` looseness (Batch 14) and `GitChangeKind` doc comment (Batch 15) stay carried as in round 1.
 
 ## Batch 4: GitInfoService facade A — RC4 status/discard, RC7 diff flags, RC3 tri-state probe — PENDING
 
@@ -343,7 +391,7 @@ Edge cases:
 - CLI-lane logic reviewer accepting verdict
 - V7 and R6 handling stated in the report
 
-## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — COMPLETE
+## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — COMPLETE (53e48e6ce)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
