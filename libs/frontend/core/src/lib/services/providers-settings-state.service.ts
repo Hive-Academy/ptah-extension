@@ -2,14 +2,10 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import {
   SCOPED_SETTING_KEYS,
   getAllAnthropicProviders,
-  getAnthropicProvider,
   setCustomProviderEntries,
-  CustomProviderEntryInputSchema,
   type AuthCancelDraftVerificationParams,
   type AuthCancelDraftVerificationResult,
-  type AuthSaveSettingsParams,
   type AuthVerifyDraftConnectionParams,
-  type AuthVerifyDraftConnectionResult,
   type ConfigGetScopesResult,
   type ConfigClearScopeOverrideResult,
   type RpcMethodName,
@@ -23,12 +19,15 @@ import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
 import { ProvidersCommitService, type ProvidersCommitHooks } from './providers-commit.service';
 import {
+  ProvidersConnectionSetupService,
+  type ProvidersConnectionSetupHooks,
+} from './providers-connection-setup.service';
+import {
   createSectionStore,
   effortFreshSectionView,
   readSection,
   requireRpcData,
   sectionView,
-  SECTION_LOAD_ERROR,
   type SectionStore,
 } from './providers-settings-sections';
 import type {
@@ -37,7 +36,6 @@ import type {
   ProvidersConnectionDraft,
   ProvidersEditContext,
   ProvidersEffectiveRoute,
-  ProvidersExternalAuth,
   ProvidersExternalAuthAction,
   ProvidersJudgingSettings,
   ProvidersMainSources,
@@ -65,18 +63,13 @@ export type {
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
-/**
- * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
- * `anthropicProviderId` ('anthropic' is virtual and fails AuthSettingsSchema; the pre-#575 UI
- * never sent one for either) and writes no main-agent tiers (those pin ANTHROPIC_DEFAULT_*_MODEL).
- */
-const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
 
 /** Page-owned lifecycle: call open() on entry. No constructor I/O or polling. */
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly commits = inject(ProvidersCommitService);
+  private readonly setup = inject(ProvidersConnectionSetupService);
   private readonly effortChanges = inject(EffortSettingsChangeService);
   private readonly opened = signal(false);
   private readonly effortRevision = signal(0);
@@ -98,15 +91,9 @@ export class ProvidersSettingsStateService {
     createSectionStore<Pick<RpcMethodResult<'agent:getConfig'>, ProvidersOrchestrationField>>();
   private readonly tiersStore =
     createSectionStore<RpcMethodResult<'provider:getModelTiers'>>();
-  private readonly probeStore = createSectionStore<AuthVerifyDraftConnectionResult>();
   private readonly connectionsStore = createSectionStore<readonly ProvidersConnection[]>();
   private readonly cliModelsStore = createSectionStore<ProvidersCliModels>();
   private readonly mainSourcesStore = createSectionStore<ProvidersMainSources>();
-  private readonly externalAuthStore = createSectionStore<ProvidersExternalAuth>();
-  private externalAuthGeneration = 0;
-  private probeGeneration = 0;
-  private probeId: string | null = null;
-  private verifiedProviderId: string | null = null;
   private scopeKeys: readonly string[] = Object.keys(
     SCOPED_SETTING_KEYS,
   ).filter((key) => !key.includes('<'));
@@ -122,11 +109,11 @@ export class ProvidersSettingsStateService {
   readonly cliAgents = this.view(this.cliStore);
   readonly orchestration = this.view(this.orchestrationStore);
   readonly tiers = this.view(this.tiersStore);
-  readonly verification = this.view(this.probeStore);
+  readonly verification = this.setup.verification;
   readonly connections = this.view(this.connectionsStore);
   readonly cliModels = this.view(this.cliModelsStore);
   readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
-  readonly externalAuth = this.view(this.externalAuthStore);
+  readonly externalAuth = this.setup.externalAuth;
   readonly commit = this.commits.commit;
   /**
    * A scalar identity makes two active badges impossible. Derived from the effective route
@@ -298,159 +285,32 @@ export class ProvidersSettingsStateService {
     });
   }
 
-  /** Only supported host login operations run; launch acknowledgements are not authentication. */
-  async performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
-    const generation = ++this.externalAuthGeneration;
-    const empty: ProvidersExternalAuth = { providerId, signInState: 'idle', accountLabel: null, cliInstalled: null, message: null };
-    if (action === 'sign-in-cancel' || !providerId ||
-      !['github-copilot', 'openai-codex', 'claude-cli'].includes(providerId) ||
-      (providerId === 'claude-cli' && action !== 'cli-check')) {
-      ++this.externalAuthStore.generation;
-      this.externalAuthStore.scopeKey = this.workspace.scopeKey();
-      this.externalAuthStore.value.set({ status: 'ready', error: null, data: {
-        ...empty, message: action === 'sign-in-cancel'
-          ? 'This host cannot cancel external sign-in. Close the external sign-in window to stop it.'
-          : !providerId ? 'Choose the named sign-in action on the Providers page. The setup dialog does not identify the requested account.'
-          : providerId === 'claude-cli' ? 'Run claude login in your terminal, then choose Check again. If missing, install with npm install -g @anthropic-ai/claude-code.' : 'Complete login outside Ptah, then check again.',
-      } });
-      return;
-    }
-    this.externalAuthStore.scopeKey = this.workspace.scopeKey();
-    this.externalAuthStore.value.set({ status: 'loading', error: null, data: { ...empty, signInState: 'in-flight' } });
-    await this.read(this.externalAuthStore, async (): Promise<ProvidersExternalAuth> => {
-      if (action !== 'cli-check') {
-        const result = providerId === 'github-copilot'
-          ? await this.require('auth:copilotLogin', {}, 310000)
-          : await this.require('auth:codexLogin', {}, 310000);
-        if (!result.success) throw new Error('Sign-in unavailable');
-      }
-      const result = await this.require('auth:getAuthStatus', { providerId });
-      if (generation !== this.externalAuthGeneration) throw new Error('Superseded sign-in');
-      const signedIn = providerId === 'github-copilot' ? result.copilotAuthenticated === true
-        : providerId === 'openai-codex' ? result.codexAuthenticated === true && !result.codexTokenStale : false;
-      return { ...empty, signInState: signedIn ? 'signed-in' : 'idle',
-        cliInstalled: providerId === 'claude-cli' ? result.claudeCliInstalled ?? null : null,
-        message: signedIn ? 'Sign-in detected. Verify the connection before using it.'
-          : 'Login has not been confirmed. Complete external login, then check again.',
-      };
-    });
-    await Promise.all([this.refreshConnections(), this.refreshRoute()]);
-  }
 
+
+  /** Only supported host login operations run; launch acknowledgements are not authentication. */
+  performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
+    return this.setup.performExternalAuth(providerId, action, this.setupHooks);
+  }
   /**
    * Store setup without selecting it, then optionally activate only after all earlier writes succeed.
    * Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`).
    */
-  async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
-    // A blocked result below would overwrite the in-flight save's feedback.
-    if (this.commit().status === 'saving') return false;
-    const probe = this.verification();
-    const invalid = (draft.providerId === 'anthropic' && draft.activation === 'connect-only') || draft.saveTo !== 'global' || this.connections().status !== 'ready' ||
-      probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
-      this.verifiedProviderId !== draft.providerId;
-    if (invalid) {
-      this.commits.block(['Connection'], 'Verify this draft and review Global setup storage before saving.');
-      return true;
-    }
-    const operations: SaveOperation[] = [];
-    const custom = draft.authMode === 'custom';
-    const mappings = { sonnet: draft.tiers.everyday, opus: draft.tiers.complex, haiku: draft.tiers.fast };
-    if (custom) {
-      const parsed = CustomProviderEntryInputSchema.safeParse({
-        id: draft.providerId, name: draft.customName, baseUrl: draft.baseUrl, lane: draft.customProtocol,
-        defaultTiers: mappings,
-      });
-      if (!parsed.success) {
-        this.commits.block(['Custom connection'], 'Use a lower-case connection ID with dashes, an HTTP(S) endpoint and explicit models for all three tiers.');
-        return true;
-      }
-      const exists = this.connections().data?.some((entry) => entry.id === draft.providerId && entry.custom);
-      operations.push({ fields: ['Custom connection'], stage: 'setup', write: async () => {
-        if (exists) await this.require('provider:updateCustomEntry', { id: draft.providerId, changes: parsed.data });
-        else await this.require('provider:addCustomEntry', { entry: parsed.data });
-        return true;
-      } });
-    }
-    if (draft.providerId !== 'anthropic' && draft.credential?.value.trim()) {
-      // llm:setApiKey ALSO selects the main route. auth:setApiKey only stores the provider key.
-      operations.push({ fields: ['Connection credential'], stage: 'setup',
-        write: async () => (await this.require('auth:setApiKey', { provider: draft.providerId, apiKey: draft.credential?.value ?? '' })).success });
-    }
-    if (!custom && draft.baseUrl) operations.push({ fields: ['Connection endpoint'], stage: 'setup',
-      write: async () => (await this.require('llm:setProviderBaseUrl', { provider: draft.providerId, baseUrl: draft.baseUrl ?? '' })).success });
-    // Native Anthropic auth keeps the SDK's own model defaults: no tiers are collected, validated or written.
-    const nativeAnthropic = NATIVE_ANTHROPIC_IDS.has(draft.providerId) || draft.authMode === 'cli';
-    const tiers = Object.entries(mappings) as [RpcMethodParams<'provider:setModelTier'>['tier'], string][];
-    const defaults = getAnthropicProvider(draft.providerId)?.defaultTiers;
-    if (!nativeAnthropic && !custom && tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
-      this.commits.block(['Connection models'], 'Choose explicit models where no provider default is available.');
-      return true;
-    }
-    // Main-agent tiers, for Connect only as well as activation: provider:setModelTier persists
-    // provider.<id>.mainAgent.modelTier.<tier> and changes the running env only when <id> is the active
-    // provider (ProviderModelsService.setModelTier). Only tiers the user EDITED in the wizard are sent;
-    // unchanged tiers are left to the host's fill-if-unset auto-map. No `cliAgent` writes: those are
-    // read by PtahCliRegistry.resolveEffectiveTiers for every CLI agent on this provider.
-    if (!nativeAnthropic && !custom) {
-      const wizardKey = { sonnet: 'everyday', opus: 'complex', haiku: 'fast' } as const;
-      for (const [tier, model] of tiers) {
-        const key = wizardKey[tier];
-        if (!draft.editedTiers.includes(key)) continue;
-        // Tiers depend on the setup writes, not on each other: one conflict reports that tier only (552).
-        operations.push({ fields: [`Main agent ${tier} model`], stage: 'tier',
-          write: async () => {
-            // Compare-and-set: the edit was made against the snapshot the wizard loaded. If another
-            // window changed the stored value since, report a conflict instead of overwriting it.
-            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
-            if ((stored[tier] ?? null) !== (draft.tierSnapshot[key] ?? null)) return 'conflict';
-            if (!model) return (await this.require('provider:clearModelTier', { providerId: draft.providerId, tier, scope: 'mainAgent' })).success;
-            return (await this.require('provider:setModelTier', { providerId: draft.providerId, tier, modelId: model, scope: 'mainAgent' })).success;
-          },
-          readBack: async () => {
-            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
-            return (stored[tier] ?? '') === model;
-          } });
-      }
-    }
-    // Activate LAST. auth:saveSettings auto-maps UNSET tiers, so running it first would fill a tier the
-    // wizard snapshot saw as empty and turn the user's own edit into a false conflict. Writing the edits
-    // first is safe (an inactive provider's tiers never touch the running env), and a failed or
-    // conflicting tier write stops activation through the activation stage.
-    if (draft.activation === 'use-main-agent') {
-      operations.push(...this.commits.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
-        draft.providerId === 'anthropic' ? draft.credential?.value : undefined) })
-        .map((operation): SaveOperation => ({ ...operation, stage: 'activation' })));
-    }
-    return this.runCommit(operations, context, () => draft.activation !== 'use-main-agent' ||
-      this.authWritable(draft.saveTo, !nativeAnthropic));
+  connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.connectProvider(draft, context, this.setupHooks);
   }
-
   /**
    * Select an existing connection for the main agent. Tier mapping is left to `auth:saveSettings`,
    * whose autoMapProviderTiers fills only UNSET main-agent tiers; the user's existing tiers stay.
    */
-  async activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<boolean> {
-    if (this.commit().status === 'saving') return false;
-    const connection = this.connections().data?.find((entry) => entry.id === providerId);
-    if (!connection || this.connections().status !== 'ready') {
-      this.commits.block(['Main agent connection'], 'Refresh this connection before activating it.');
-      return true;
-    }
-    const auth = this.activationAuth(providerId, connection.authMode, applyTo);
-    return this.runCommit(this.commits.operations({ auth }), context,
-      () => this.authWritable(applyTo, auth.anthropicProviderId !== undefined));
+  activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.activateConnection(providerId, applyTo, context, this.setupHooks);
   }
-
-  private activationAuth(providerId: string, authMode: ProvidersConnection['authMode'], applyTo: SettingScope,
-    anthropicApiKey?: string): AuthSaveSettingsParams {
-    if (providerId === 'anthropic') return { authMethod: 'apiKey', ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}), applyTo };
-    if (authMode === 'cli' || NATIVE_ANTHROPIC_IDS.has(providerId)) return { authMethod: 'claudeCli', applyTo };
-    return { authMethod: 'thirdParty', anthropicProviderId: providerId, applyTo };
+  /** Probe is non-mutating. A caller-owned credential is never copied into a signal. */
+  verifyDraft(params: AuthVerifyDraftConnectionParams): Promise<void> {
+    return this.setup.verifyDraft(params);
   }
-
-  private authWritable(target: SettingScope, withProvider: boolean): boolean {
-    return this.writeScopes('authMethod').includes(target) &&
-      (!withProvider || this.writeScopes('anthropicProviderId').includes(target));
+  cancelVerification(params?: AuthCancelDraftVerificationParams): Promise<AuthCancelDraftVerificationResult> {
+    return this.setup.cancelVerification(params);
   }
 
   /** Supply concrete provider/auth-key paths, never the allowlist's <...> families. */
@@ -694,56 +554,6 @@ export class ProvidersSettingsStateService {
     );
   }
 
-  /** Probe is non-mutating. A caller-owned credential is never copied into a signal. */
-  async verifyDraft(params: AuthVerifyDraftConnectionParams): Promise<void> {
-    const generation = ++this.probeGeneration;
-    const previous = this.probeId;
-    this.probeId = params.probeId;
-    this.verifiedProviderId = null;
-    // A failed best-effort abort cannot publish an old result: both generations are checked below.
-    if (previous) void this.abortProbe(previous);
-    this.probeStore.value.set({ status: 'unloaded', data: null, error: null });
-    await this.read(this.probeStore, async () => {
-      const result = await this.require(
-        'auth:verifyDraftConnection',
-        params,
-        Math.max(30000, params.timeoutMs ?? 30000) + 5000,
-      );
-      if (
-        generation !== this.probeGeneration ||
-        result.probeId !== params.probeId
-      )
-        throw new Error('Superseded check');
-      return result;
-    });
-    if (generation === this.probeGeneration) {
-      this.probeId = null;
-      if (this.verification().data?.outcome === 'verified') this.verifiedProviderId = params.providerId;
-    }
-  }
-  async cancelVerification(params?: AuthCancelDraftVerificationParams): Promise<AuthCancelDraftVerificationResult> {
-    const id = params?.probeId ?? this.probeId;
-    if (params && id !== this.probeId) return this.require('auth:cancelDraftVerification', params);
-    const generation = ++this.probeGeneration;
-    ++this.probeStore.generation;
-    this.probeId = null;
-    this.verifiedProviderId = null;
-    this.probeStore.scopeKey = this.workspace.scopeKey();
-    this.probeStore.value.set({ status: 'unloaded', data: null, error: null });
-    try {
-      return id ? await this.require('auth:cancelDraftVerification', { probeId: id }) : { cancelled: false };
-    } catch (error: unknown) {
-      void error;
-      if (generation === this.probeGeneration) {
-      this.probeStore.value.set({
-        status: 'error',
-        data: null,
-        error: SECTION_LOAD_ERROR,
-      });
-      }
-      throw new Error('Could not cancel this check.');
-    }
-  }
 
   /** The commit pipeline reads and refreshes the sections this facade owns, in this order. */
   private readonly commitHooks: ProvidersCommitHooks = {
@@ -764,6 +574,14 @@ export class ProvidersSettingsStateService {
       this.orchestration(),
       this.connections(),
     ].every((state) => state.status === 'ready'),
+  };
+  /** Connection setup reads the catalogue and write targets, and commits through the same hooks. */
+  private readonly setupHooks: ProvidersConnectionSetupHooks = {
+    connections: () => this.connections(),
+    writeScopes: (key) => this.writeScopes(key),
+    commit: this.commitHooks,
+    refreshConnections: () => this.refreshConnections(),
+    refreshRoute: () => this.refreshRoute(),
   };
   /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
   private runCommit(
@@ -788,17 +606,5 @@ export class ProvidersSettingsStateService {
     timeout?: number,
   ): Promise<RpcMethodResult<T>> {
     return requireRpcData(this.rpc, method, params, timeout);
-  }
-  /** Best-effort abort. A failure cannot publish a stale result: generations are re-checked. */
-  private async abortProbe(probeId: string): Promise<void> {
-    try {
-      await this.require('auth:cancelDraftVerification', { probeId });
-    } catch (error: unknown) {
-      // `require()` throws a fixed message, so no credential is logged.
-      console.warn(
-        '[ProvidersSettingsStateService] Draft verification abort failed:',
-        error,
-      );
-    }
   }
 }
