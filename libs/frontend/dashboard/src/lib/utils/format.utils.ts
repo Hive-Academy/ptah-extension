@@ -1,7 +1,7 @@
 import {
   sessionCostEstimate,
   type DashboardSessionEntry,
-} from '../services/session-analytics-state.service';
+} from '../models/session-analytics.models';
 
 /** Tooltip for the "≥" marker on a cost that covers only the priced usage. */
 export const LOWER_BOUND_COST_TITLE =

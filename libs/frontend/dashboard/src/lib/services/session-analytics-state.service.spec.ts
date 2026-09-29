@@ -23,10 +23,8 @@ import {
   type SessionStatsBatchResult,
 } from '@ptah-extension/shared';
 
-import {
-  SessionAnalyticsStateService,
-  sessionCostEstimate,
-} from './session-analytics-state.service';
+import { SessionAnalyticsStateService } from './session-analytics-state.service';
+import { sessionCostEstimate } from '../models/session-analytics.models';
 import {
   DAY_MS,
   analyticsTestDoubles,

@@ -6,7 +6,7 @@ import {
   output,
 } from '@angular/core';
 import { LucideAngularModule, Bot, MessageSquare } from 'lucide-angular';
-import { DashboardSessionEntry } from '../../services/session-analytics-state.service';
+import { DashboardSessionEntry } from '../../models/session-analytics.models';
 import {
   LOWER_BOUND_COST_TITLE,
   costValueClass,

@@ -4,7 +4,7 @@
  * bound, an unpriced one reads "Unknown", and nothing unknown is ever $0 or
  * coloured like an amount.
  */
-import type { DashboardSessionEntry } from '../services/session-analytics-state.service';
+import type { DashboardSessionEntry } from '../models/session-analytics.models';
 import {
   costValueClass,
   formatSessionCost,

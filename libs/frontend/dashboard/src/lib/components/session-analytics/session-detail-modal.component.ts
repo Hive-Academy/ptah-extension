@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { LucideAngularModule, Bot, X } from 'lucide-angular';
-import { DashboardSessionEntry } from '../../services/session-analytics-state.service';
+import { DashboardSessionEntry } from '../../models/session-analytics.models';
 import {
   LOWER_BOUND_COST_TITLE,
   costValueClass,

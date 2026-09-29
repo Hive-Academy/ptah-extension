@@ -4,7 +4,7 @@
  * unknown cost is neutral, never the success colour.
  */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { DashboardSessionEntry } from '../../services/session-analytics-state.service';
+import type { DashboardSessionEntry } from '../../models/session-analytics.models';
 import { SessionDetailModalComponent } from './session-detail-modal.component';
 
 function entry(over: Partial<DashboardSessionEntry> = {}): DashboardSessionEntry {

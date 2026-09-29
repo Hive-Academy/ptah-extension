@@ -19,8 +19,8 @@ export {
 
 export {
   SessionAnalyticsStateService,
-  type DashboardSessionEntry,
   type AggregateTotals,
 } from './lib/services/session-analytics-state.service';
+export { type DashboardSessionEntry } from './lib/models/session-analytics.models';
 export { ProviderAccountStateService } from './lib/services/provider-account-state.service';
 export { ProviderAccountCardComponent } from './lib/components/provider-account-card/provider-account-card.component';

@@ -4,7 +4,7 @@
  * neutral colour, and never $0 for a CLI-lane-only session.
  */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { DashboardSessionEntry } from '../../services/session-analytics-state.service';
+import type { DashboardSessionEntry } from '../../models/session-analytics.models';
 import { SessionStatsCardComponent } from './session-stats-card.component';
 
 function entry(over: Partial<DashboardSessionEntry> = {}): DashboardSessionEntry {
