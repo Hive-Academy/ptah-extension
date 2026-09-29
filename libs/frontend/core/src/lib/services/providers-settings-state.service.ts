@@ -7,7 +7,6 @@ import {
   CustomProviderEntryInputSchema,
   type AuthCancelDraftVerificationParams,
   type AuthCancelDraftVerificationResult,
-  type AuthGetEffectiveRouteResult,
   type AuthSaveSettingsParams,
   type AuthVerifyDraftConnectionParams,
   type AuthVerifyDraftConnectionResult,
@@ -18,160 +17,53 @@ import {
   type RpcMethodResult,
   type ScopedSettingEntry,
   type SettingScope,
-  type SkillLaneIdDto,
-  type SkillSynthesisSettingsDto,
-  type SkillSynthesisSettingsWriteDto,
   type PtahCliConfig,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
+import {
+  createSectionStore,
+  effortFreshSectionView,
+  readSection,
+  requireRpcData,
+  sectionView,
+  SECTION_LOAD_ERROR,
+  type SectionStore,
+} from './providers-settings-sections';
+import type {
+  ProvidersCliModels,
+  ProvidersConnection,
+  ProvidersConnectionDraft,
+  ProvidersEditContext,
+  ProvidersEffectiveRoute,
+  ProvidersExternalAuth,
+  ProvidersExternalAuthAction,
+  ProvidersJudgingSettings,
+  ProvidersMainSources,
+  ProvidersOrchestrationField,
+  ProvidersSettingsCommit,
+  ProvidersSettingsPatch,
+  SaveOperation,
+  SaveOutcome,
+} from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
-export interface ProvidersSettingsSection<T> {
-  readonly status: 'unloaded' | 'loading' | 'ready' | 'error';
-  /** null means not loaded; an empty collection is a successful empty read. */
-  readonly data: T | null;
-  readonly error: 'Could not load this section. Retry.' | null;
-}
+export type {
+  ProvidersSettingsSection,
+  ProvidersEffectiveRoute,
+  ProvidersJudgingSettings,
+  ProvidersJudgingPatch,
+  ProvidersEditContext,
+  ProvidersSettingsCommit,
+  ProvidersSettingsPatch,
+  ProvidersConnection,
+  ProvidersCliModels,
+  ProvidersMainSources,
+  ProvidersConnectionDraft,
+  ProvidersExternalAuthAction,
+  ProvidersExternalAuth,
+} from './providers-settings.types';
 
-/** No raw stored auth method, including in resolver blocker strings. */
-export type ProvidersEffectiveRoute = Omit<
-  AuthGetEffectiveRouteResult,
-  'storedAuthMethodDiagnostic'
->;
-export type ProvidersJudgingSettings = Pick<
-  SkillSynthesisSettingsDto,
-  'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
->;
-export type ProvidersJudgingPatch = Partial<
-  Pick<
-    SkillSynthesisSettingsWriteDto,
-    'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
-  >
->;
-export interface ProvidersEditContext {
-  readonly scopeKey: string;
-  readonly activePath: string | null;
-}
-export interface ProvidersSettingsCommit {
-  readonly status:
-    | 'idle'
-    | 'saving'
-    | 'saved'
-    | 'partial'
-    | 'failed'
-    | 'unconfirmed'
-    | 'blocked';
-  readonly saved: readonly string[];
-  readonly unsaved: readonly string[];
-  /** A rejected/timeout RPC can have written before failing. Never call it rolled back. */
-  readonly unconfirmed: readonly string[];
-  readonly refreshFailed: boolean;
-  readonly message: string | null;
-}
-
-type OrchestrationField =
-  | 'codexModel'
-  | 'copilotModel'
-  | 'cursorModel'
-  | 'antigravityModel'
-  | 'opencodeModel'
-  | 'piModel'
-  | 'codexReasoningEffort'
-  | 'copilotReasoningEffort'
-  | 'piReasoningEffort';
-export interface ProvidersSettingsPatch {
-  readonly auth?: AuthSaveSettingsParams;
-  readonly model?: RpcMethodParams<'config:model-switch'>;
-  readonly effort?: RpcMethodParams<'config:effort-set'>;
-  readonly memory?: { curatorProvider?: string; curatorModel?: string };
-  readonly lanes?: Partial<
-    Record<SkillLaneIdDto, { provider?: string; model?: string }>
-  >;
-  readonly judging?: ProvidersJudgingPatch;
-  readonly orchestration?: Partial<
-    Pick<RpcMethodParams<'agent:setConfig'>, OrchestrationField>
-  >;
-  readonly tiers?: readonly RpcMethodParams<'provider:setModelTier'>[];
-  readonly cli?: readonly (
-    | { action: 'create'; params: RpcMethodParams<'ptahCli:create'> }
-    | { action: 'update'; params: RpcMethodParams<'ptahCli:update'> }
-    | { action: 'delete'; params: RpcMethodParams<'ptahCli:delete'> }
-  )[];
-}
-
-/** Non-secret connection metadata. Connectivity comes separately from route/probe evidence. */
-export interface ProvidersConnection {
-  readonly id: string;
-  readonly name: string;
-  readonly hasKey: boolean;
-  readonly configured: boolean;
-  readonly custom: boolean;
-  readonly defaultsResolvable: boolean;
-  readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
-}
-export type ProvidersCliModels = Readonly<Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>>;
-export type ProvidersMainSources = Readonly<Partial<Record<'model' | 'effort', ScopedSettingEntry>>>;
-/** Transient wizard command. The service never retains its credential in a signal. */
-export interface ProvidersConnectionDraft {
-  readonly providerId: string;
-  readonly displayName: string;
-  readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
-  readonly customName: string | null;
-  readonly customProtocol: 'openai' | 'anthropic' | null;
-  readonly credential: { kind: 'apiKey'; value: string } | null;
-  readonly baseUrl: string | null;
-  readonly verified: { readonly probeId: string } | null;
-  readonly tiers: { readonly everyday: string; readonly complex: string; readonly fast: string };
-  /** Stored main-agent tiers as the wizard loaded them; the compare-and-set baseline for edits. */
-  readonly tierSnapshot: { readonly everyday: string | null; readonly complex: string | null; readonly fast: string | null };
-  /** Tiers the user changed from the snapshot. Only these are written. */
-  readonly editedTiers: readonly ('everyday' | 'complex' | 'fast')[];
-  readonly saveTo: SettingScope;
-  readonly activation: 'connect-only' | 'use-main-agent';
-}
-export type ProvidersExternalAuthAction = 'sign-in' | 'sign-in-cancel' | 'cli-login' | 'cli-check';
-export interface ProvidersExternalAuth {
-  readonly providerId: string | null;
-  readonly signInState: 'idle' | 'in-flight' | 'signed-in' | 'failed';
-  readonly accountLabel: string | null;
-  readonly cliInstalled: boolean | null;
-  readonly message: string | null;
-}
-
-function section<T>() {
-  return {
-    value: signal<ProvidersSettingsSection<T>>({
-      status: 'unloaded',
-      data: null,
-      error: null,
-    }),
-    generation: 0,
-    scopeKey: '',
-  };
-}
-type SectionStore<T> = ReturnType<typeof section<T>>;
-/**
- * Dependency stage of a connection-setup write. An operation without a stage is independent.
- * - `setup` (credential, endpoint, custom entry) is skipped when an earlier `setup` write did not save.
- * - `tier` is skipped only when a `setup` write did not save, never because another tier conflicted.
- * - `activation` is skipped when any earlier write did not save, including a tier conflict.
- */
-type SaveStage = 'setup' | 'tier' | 'activation';
-interface SaveOperation {
-  readonly fields: readonly string[];
-  /**
-   * `true`: the host acknowledged the write. `false`: the host rejected it, nothing to confirm.
-   * `'conflict'`: nothing was written because the stored value changed since the draft was read.
-   * A throw means the write may or may not have landed.
-   */
-  readonly write: () => Promise<boolean | 'conflict'>;
-  /** Runs only after an acknowledged write; it can confirm or refute it, never rescue a failed one. */
-  readonly readBack?: () => Promise<boolean>;
-  readonly stage?: SaveStage;
-}
-type SaveOutcome = 'saved' | 'unsaved' | 'unconfirmed' | 'conflict';
-const LOAD_ERROR = 'Could not load this section. Retry.';
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
 /**
@@ -198,27 +90,27 @@ export class ProvidersSettingsStateService {
   private readonly effortRevision = signal(0);
   private readonly sourcesRevision = signal(0);
   private readonly workspace = inject(WorkspaceScopeService);
-  private readonly routeStore = section<ProvidersEffectiveRoute>();
-  private readonly scopesStore = section<ConfigGetScopesResult>();
-  private readonly modelStore = section<RpcMethodResult<'config:model-get'>>();
+  private readonly routeStore = createSectionStore<ProvidersEffectiveRoute>();
+  private readonly scopesStore = createSectionStore<ConfigGetScopesResult>();
+  private readonly modelStore = createSectionStore<RpcMethodResult<'config:model-get'>>();
   private readonly effortStore =
-    section<RpcMethodResult<'config:effort-get'>>();
+    createSectionStore<RpcMethodResult<'config:effort-get'>>();
   private readonly memoryStore =
-    section<RpcMethodResult<'memory:getTriggers'>['triggers']>();
+    createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
   private readonly lanesStore =
-    section<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
-  private readonly judgingStore = section<ProvidersJudgingSettings>();
+    createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
+  private readonly judgingStore = createSectionStore<ProvidersJudgingSettings>();
   private readonly cliStore =
-    section<RpcMethodResult<'ptahCli:list'>['agents']>();
+    createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
   private readonly orchestrationStore =
-    section<Pick<RpcMethodResult<'agent:getConfig'>, OrchestrationField>>();
+    createSectionStore<Pick<RpcMethodResult<'agent:getConfig'>, ProvidersOrchestrationField>>();
   private readonly tiersStore =
-    section<RpcMethodResult<'provider:getModelTiers'>>();
-  private readonly probeStore = section<AuthVerifyDraftConnectionResult>();
-  private readonly connectionsStore = section<readonly ProvidersConnection[]>();
-  private readonly cliModelsStore = section<ProvidersCliModels>();
-  private readonly mainSourcesStore = section<ProvidersMainSources>();
-  private readonly externalAuthStore = section<ProvidersExternalAuth>();
+    createSectionStore<RpcMethodResult<'provider:getModelTiers'>>();
+  private readonly probeStore = createSectionStore<AuthVerifyDraftConnectionResult>();
+  private readonly connectionsStore = createSectionStore<readonly ProvidersConnection[]>();
+  private readonly cliModelsStore = createSectionStore<ProvidersCliModels>();
+  private readonly mainSourcesStore = createSectionStore<ProvidersMainSources>();
+  private readonly externalAuthStore = createSectionStore<ProvidersExternalAuth>();
   private externalAuthGeneration = 0;
   private readonly commitState = signal<ProvidersSettingsCommit>(EMPTY_COMMIT);
   private probeGeneration = 0;
@@ -336,7 +228,7 @@ export class ProvidersSettingsStateService {
    * Tiers are the MAIN-AGENT mapping: the wizard's Models step edits what the main agent uses on this
    * connection. CLI sub-agent tiers (`cliAgent`) belong to the CLI agent editor, not to connection setup.
    */
-  private readonly setupStore = section<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
+  private readonly setupStore = createSectionStore<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
   readonly connectionSetup = this.view(this.setupStore);
   async refreshConnectionSetup(providerId: string): Promise<void> {
     this.setupStore.value.set({ status: 'unloaded', data: null, error: null });
@@ -358,13 +250,13 @@ export class ProvidersSettingsStateService {
    * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
    * Loaded on demand: the host may fetch remote catalogues.
    */
-  private readonly delegatedModelsStore = section<RpcMethodResult<'agent:listCliModels'>>();
+  private readonly delegatedModelsStore = createSectionStore<RpcMethodResult<'agent:listCliModels'>>();
   readonly delegatedModelOptions = this.view(this.delegatedModelsStore);
   async refreshDelegatedModelOptions(): Promise<void> {
     await this.read(this.delegatedModelsStore, () => this.require('agent:listCliModels', undefined));
   }
 
-  private readonly cliTestStore = section<{ id: string; success: boolean }>();
+  private readonly cliTestStore = createSectionStore<{ id: string; success: boolean }>();
   readonly cliTest = this.view(this.cliTestStore);
   async testCliConnection(id: string): Promise<void> {
     await this.read(this.cliTestStore, async () => ({ id, success: (await this.require('ptahCli:testConnection', { id })).success }));
@@ -858,7 +750,7 @@ export class ProvidersSettingsStateService {
       this.probeStore.value.set({
         status: 'error',
         data: null,
-        error: LOAD_ERROR,
+        error: SECTION_LOAD_ERROR,
       });
       }
       throw new Error('Could not cancel this check.');
@@ -1172,61 +1064,20 @@ export class ProvidersSettingsStateService {
     );
   }
   private freshEffortView<T>(store: SectionStore<T>, readRevision: () => number) {
-    const scoped = this.view(store);
-    return computed<ProvidersSettingsSection<T>>(() => {
-      const state = scoped();
-      if (state.status === 'unloaded') return state;
-      if (this.effortChanges.pending() || readRevision() !== this.effortChanges.revision()) {
-        return { status: 'loading', data: null, error: null };
-      }
-      return state.status === 'ready' ? state : { ...state, data: null };
-    });
+    return effortFreshSectionView(store, readRevision, this.workspace, this.effortChanges);
   }
   private view<T>(store: SectionStore<T>) {
-    return computed<ProvidersSettingsSection<T>>(() => {
-      const state = store.value();
-      return store.scopeKey === this.workspace.scopeKey()
-        ? state
-        : { status: 'unloaded', data: null, error: null };
-    });
+    return sectionView(store, this.workspace);
   }
-  private async read<T>(
-    store: SectionStore<T>,
-    request: () => Promise<T>,
-  ): Promise<void> {
-    const generation = ++store.generation;
-    const scopeKey = this.workspace.scopeKey();
-    const previous = store.scopeKey === scopeKey ? store.value().data : null;
-    store.scopeKey = scopeKey;
-    store.value.set({ status: 'loading', data: previous, error: null });
-    try {
-      const data = await request();
-      if (
-        generation === store.generation &&
-        scopeKey === this.workspace.scopeKey()
-      )
-        store.value.set({ status: 'ready', data, error: null });
-    } catch (error: unknown) {
-      void error;
-      if (
-        generation === store.generation &&
-        scopeKey === this.workspace.scopeKey()
-      )
-        store.value.set({ status: 'error', data: previous, error: LOAD_ERROR });
-    }
+  private read<T>(store: SectionStore<T>, request: () => Promise<T>): Promise<void> {
+    return readSection(store, this.workspace, request);
   }
-  private async require<T extends RpcMethodName>(
+  private require<T extends RpcMethodName>(
     method: T,
     params: RpcMethodParams<T>,
     timeout?: number,
   ): Promise<RpcMethodResult<T>> {
-    const result = await this.rpc.call(
-      method,
-      params,
-      timeout ? { timeout } : undefined,
-    );
-    if (!result.isSuccess()) throw new Error('Settings request failed');
-    return result.data;
+    return requireRpcData(this.rpc, method, params, timeout);
   }
   /** Best-effort abort. A failure cannot publish a stale result: generations are re-checked. */
   private async abortProbe(probeId: string): Promise<void> {
