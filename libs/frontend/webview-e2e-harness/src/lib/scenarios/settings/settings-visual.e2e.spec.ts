@@ -20,6 +20,16 @@ test.use({ useAppBuild: true });
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, '../../../../../../../.ptah/specs/TASK_2026_555/screenshots/angular');
 
+/**
+ * Per-batch smoke captures are `current-*`. The `baseline-*` "before" images the visual gates
+ * compare against are written only on an explicit `SETTINGS_CAPTURE_BASELINE=1` run.
+ */
+const CAPTURE_KIND = process.env['SETTINGS_CAPTURE_BASELINE'] === '1' ? 'baseline' : 'current';
+
+function capturePath(tab: string, host: string, theme: string): string {
+  return join(OUT_DIR, `${CAPTURE_KIND}-${tab}-${host}-${theme}-1024x768.png`);
+}
+
 test.beforeAll(() => {
   mkdirSync(OUT_DIR, { recursive: true });
 });
@@ -37,9 +47,7 @@ for (const host of ['vscode', 'electron'] as const) {
       for (const tab of TABS) {
         await gotoSettingsTab(page, tab.label);
         await waitForSettled(page);
-        await page.screenshot({
-          path: join(OUT_DIR, `baseline-${tab.name}-${host}-${theme}-1024x768.png`),
-        });
+        await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
     });
   }
