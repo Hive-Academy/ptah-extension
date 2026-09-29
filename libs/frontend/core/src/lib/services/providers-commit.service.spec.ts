@@ -236,4 +236,130 @@ describe('ProvidersCommitService', () => {
       expect(JSON.stringify(operation.fields)).not.toContain('raw-key');
     });
   });
+
+  describe('tier and orchestration writes (Component 7)', () => {
+    /** Answers each RPC from a table; an unlisted method fails the test. */
+    function host(table: Partial<Record<RpcMethodName, () => RpcResult<unknown>>>) {
+      call.mockImplementation(async (method) => {
+        const answer = table[method];
+        if (!answer) throw new Error(`Unexpected RPC: ${method}`);
+        return answer();
+      });
+    }
+    const methods = () => call.mock.calls.map(([method]) => method);
+    const failure = () => new RpcResult(false, undefined, 'raw sk-secret');
+
+    describe('mainAgentTierOperation', () => {
+      it('sets a model in the main-agent scope and reads it back', async () => {
+        host({ 'provider:setModelTier': () => success({ success: true }),
+          'provider:getModelTiers': () => success({ sonnet: null, opus: 'o-1', haiku: null }) });
+        await service.run([service.mainAgentTierOperation('openrouter', 'opus', 'o-1')], context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'saved', saved: ['Main agent opus model'] });
+        expect(call).toHaveBeenCalledWith('provider:setModelTier',
+          { providerId: 'openrouter', tier: 'opus', modelId: 'o-1', scope: 'mainAgent' }, undefined);
+      });
+      it('clears the tier for an empty model', async () => {
+        host({ 'provider:clearModelTier': () => success({ success: true }),
+          'provider:getModelTiers': () => success({ sonnet: null, opus: null, haiku: null }) });
+        await service.run([service.mainAgentTierOperation('openrouter', 'opus', '')], context, hooks);
+        expect(service.commit().status).toBe('saved');
+        expect(methods()).toEqual(['provider:clearModelTier', 'provider:getModelTiers']);
+      });
+      it.each([
+        ['rejected', () => success({ success: false }), 'failed'],
+        ['failed call', failure, 'unconfirmed'],
+      ] as const)('%s write is never saved', async (_label, write, status) => {
+        host({ 'provider:setModelTier': write, 'provider:getModelTiers': () => success({ opus: 'o-1' }) });
+        await service.run([service.mainAgentTierOperation('openrouter', 'opus', 'o-1')], context, hooks);
+        expect(service.commit()).toMatchObject({ status, saved: [] });
+        expect(JSON.stringify(service.commit())).not.toContain('sk-secret');
+      });
+      it('a read-back mismatch is not saved', async () => {
+        host({ 'provider:setModelTier': () => success({ success: true }),
+          'provider:getModelTiers': () => success({ opus: 'someone-else' }) });
+        await service.run([service.mainAgentTierOperation('openrouter', 'opus', 'o-1')], context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'failed', unsaved: ['Main agent opus model'] });
+      });
+    });
+
+    describe('cliInstanceTiersOperation (D5)', () => {
+      const stored = (tierMappings: unknown) => () => success({ success: true, value: [{ id: 'other' }, { id: 'agent-1', tierMappings }] });
+
+      it('writes the full object without blank tiers and reads the instance back', async () => {
+        host({ 'ptahCli:update': () => success({ success: true }), 'settings:get': stored({ sonnet: 's-1', haiku: 'h-1' }) });
+        await service.run([service.cliInstanceTiersOperation('agent-1', { sonnet: ' s-1 ', opus: '  ', haiku: 'h-1' })], context, hooks);
+        expect(call).toHaveBeenCalledWith('ptahCli:update', { id: 'agent-1', tierMappings: { sonnet: 's-1', haiku: 'h-1' } }, undefined);
+        expect(service.commit()).toMatchObject({ status: 'saved', saved: ['ptahCliAgents.agent-1.tierMappings'] });
+      });
+      it.each([
+        ['rejected', () => success({ success: false, error: 'raw sk-secret' }), 'failed'],
+        ['failed call', failure, 'unconfirmed'],
+      ] as const)('%s write is never saved', async (_label, write, status) => {
+        host({ 'ptahCli:update': write, 'settings:get': stored({ sonnet: 's-1' }) });
+        await service.run([service.cliInstanceTiersOperation('agent-1', { sonnet: 's-1' })], context, hooks);
+        expect(service.commit()).toMatchObject({ status, saved: [] });
+        expect(JSON.stringify(service.commit())).not.toContain('sk-secret');
+      });
+      it('clearing every tier on an existing instance is saved', async () => {
+        host({ 'ptahCli:update': () => success({ success: true }), 'settings:get': stored({}) });
+        await service.run([service.cliInstanceTiersOperation('agent-1', { sonnet: '', opus: ' ' })], context, hooks);
+        expect(call).toHaveBeenCalledWith('ptahCli:update', { id: 'agent-1', tierMappings: {} }, undefined);
+        expect(service.commit()).toMatchObject({ status: 'saved', saved: ['ptahCliAgents.agent-1.tierMappings'] });
+      });
+      it('clearing every tier is not saved when the instance is gone', async () => {
+        host({ 'ptahCli:update': () => success({ success: true }), 'settings:get': () => success({ success: true, value: [{ id: 'other' }] }) });
+        await service.run([service.cliInstanceTiersOperation('agent-1', {})], context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'failed', saved: [], unsaved: ['ptahCliAgents.agent-1.tierMappings'] });
+      });
+      it('clearing every tier is unconfirmed when the instances cannot be read', async () => {
+        host({ 'ptahCli:update': () => success({ success: true }), 'settings:get': () => new RpcResult(false, undefined, 'raw') });
+        await service.run([service.cliInstanceTiersOperation('agent-1', {})], context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'unconfirmed', saved: [] });
+      });
+      it.each([
+        ['a different model', { sonnet: 's-2' }],
+        ['a tier left over from before', { sonnet: 's-1', opus: 'old' }],
+        ['a missing instance', undefined],
+      ])('read-back with %s is not saved', async (_label, tierMappings) => {
+        host({ 'ptahCli:update': () => success({ success: true }),
+          'settings:get': tierMappings ? stored(tierMappings) : () => success({ success: true, value: [] }) });
+        await service.run([service.cliInstanceTiersOperation('agent-1', { sonnet: 's-1' })], context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'failed', saved: [] });
+      });
+    });
+
+    describe('orchestration policy fields', () => {
+      const config = (overrides: Record<string, unknown>) => () => success({ disabledClis: [], preferredAgentOrder: [],
+        maxConcurrentAgents: 3, copilotAutoApprove: true, ...overrides });
+
+      it('saves each policy field and reads arrays back element by element', async () => {
+        host({ 'agent:setConfig': () => success({ success: true }), 'agent:getConfig': config({
+          disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'ptah-cli-1'], maxConcurrentAgents: 5, copilotAutoApprove: false }) });
+        await service.run(service.operations({ orchestration: { disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'ptah-cli-1'],
+          maxConcurrentAgents: 5, copilotAutoApprove: false } }), context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'saved', saved: ['agentOrchestration.disabledClis',
+          'agentOrchestration.preferredAgentOrder', 'agentOrchestration.maxConcurrentAgents', 'agentOrchestration.copilotAutoApprove'] });
+        expect(call).toHaveBeenCalledWith('agent:setConfig', { preferredAgentOrder: ['codex', 'ptah-cli-1'] }, undefined);
+      });
+      it.each([
+        ['reordered', ['ptah-cli-1', 'codex']],
+        ['shorter', ['codex']],
+        ['longer', ['codex', 'ptah-cli-1', 'copilot']],
+        ['not an array', 'codex,ptah-cli-1'],
+      ])('an order read back %s is not saved', async (_label, storedOrder) => {
+        host({ 'agent:setConfig': () => success({ success: true }), 'agent:getConfig': config({ preferredAgentOrder: storedOrder }) });
+        await service.run(service.operations({ orchestration: { preferredAgentOrder: ['codex', 'ptah-cli-1'] } }), context, hooks);
+        expect(service.commit()).toMatchObject({ status: 'failed', unsaved: ['agentOrchestration.preferredAgentOrder'] });
+      });
+      it.each([
+        ['rejected', () => success({ success: false, error: 'raw sk-secret' }), 'failed'],
+        ['failed call', failure, 'unconfirmed'],
+      ] as const)('a %s write is never saved', async (_label, write, status) => {
+        host({ 'agent:setConfig': write, 'agent:getConfig': config({ maxConcurrentAgents: 5 }) });
+        await service.run(service.operations({ orchestration: { maxConcurrentAgents: 5 } }), context, hooks);
+        expect(service.commit()).toMatchObject({ status, saved: [] });
+        expect(JSON.stringify(service.commit())).not.toContain('sk-secret');
+      });
+    });
+  });
 });

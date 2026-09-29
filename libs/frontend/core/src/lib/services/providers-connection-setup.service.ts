@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import {
+  CustomProviderEntryChangesSchema,
   CustomProviderEntryInputSchema,
   getAnthropicProvider,
   type AuthCancelDraftVerificationParams,
@@ -7,6 +8,7 @@ import {
   type AuthSaveSettingsParams,
   type AuthVerifyDraftConnectionParams,
   type AuthVerifyDraftConnectionResult,
+  type CustomProviderPricing,
   type RpcMethodName,
   type RpcMethodParams,
   type RpcMethodResult,
@@ -24,6 +26,8 @@ import {
 } from './providers-settings-sections';
 import type {
   ProvidersConnection,
+  ProvidersCustomEntry,
+  ProvidersEffectiveRoute,
   ProvidersConnectionDraft,
   ProvidersEditContext,
   ProvidersExternalAuth,
@@ -51,6 +55,18 @@ export interface ProvidersConnectionSetupHooks {
   /** Re-read after an external sign-in, in parallel. */
   refreshConnections(): Promise<void>;
   refreshRoute(): Promise<void>;
+  /** Effective main-agent route; removing a custom connection checks its driver. */
+  route(): ProvidersSettingsSection<ProvidersEffectiveRoute>;
+}
+
+type CustomEndpointChanges = Partial<Pick<ProvidersCustomEntry, 'baseUrl' | 'modelsEndpoint'>>;
+type CustomMetadataChanges = Partial<Pick<ProvidersCustomEntry, 'helpUrl' | 'pricing'>>;
+const ENDPOINT_FIELDS = { baseUrl: 'Custom connection base URL', modelsEndpoint: 'Custom connection models endpoint' } as const;
+const METADATA_FIELDS = { helpUrl: 'Custom connection help URL', pricing: 'Custom connection pricing' } as const;
+
+function samePricing(stored: CustomProviderPricing | null | undefined, requested: CustomProviderPricing | null | undefined): boolean {
+  if (!stored || !requested) return (stored ?? null) === (requested ?? null);
+  return stored.inputPerMillion === requested.inputPerMillion && stored.outputPerMillion === requested.outputPerMillion;
 }
 
 /**
@@ -127,10 +143,8 @@ export class ProvidersConnectionSetupService {
   ): Promise<boolean> {
     // A blocked result below would overwrite the in-flight save's feedback.
     if (this.commits.commit().status === 'saving') return false;
-    const probe = this.verification();
     const invalid = (draft.providerId === 'anthropic' && draft.activation === 'connect-only') || draft.saveTo !== 'global' || hooks.connections().status !== 'ready' ||
-      probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
-      this.verifiedProviderId !== draft.providerId;
+      !this.verifiedFor(draft.providerId, draft.verified?.probeId);
     if (invalid) {
       this.commits.block(['Connection'], 'Verify this draft and review Global setup storage before saving.');
       return true;
@@ -289,6 +303,114 @@ export class ProvidersConnectionSetupService {
     }
   }
 
+  /** D4: deletes one stored key. No auth-method write and no SDK reset. */
+  deleteStoredKey(providerId: string, context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    return this.commits.run([{ fields: ['Stored key'],
+      write: async () => (await this.require('auth:deleteStoredKey', { providerId })).success,
+      readBack: async () => providerId === 'anthropic'
+        ? (await this.require('auth:getAuthStatus', {})).hasApiKey !== true
+        : (await this.require('auth:getApiKeyStatus', {})).providers.find((entry) => entry.provider === providerId)?.hasApiKey !== true,
+    }], context, hooks.commit);
+  }
+
+  disconnectCopilot(context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    return this.commits.run([{ fields: ['GitHub Copilot sign-in'],
+      write: async () => (await this.require('auth:copilotLogout', {})).success,
+      readBack: async () => (await this.require('auth:getAuthStatus', {})).copilotAuthenticated !== true,
+    }], context, hooks.commit);
+  }
+
+  /** Refused while the connection drives the main agent: that would leave the main agent without a provider. */
+  async removeCustomEntry(id: string, context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    if (this.commits.commit().status === 'saving') return false;
+    const route = hooks.route();
+    if (route.status !== 'ready' || !route.data) {
+      this.commits.block(['Custom connection'], 'Refresh the main agent route before removing this connection.');
+      return true;
+    }
+    if (route.data.driverProviderId === id) {
+      this.commits.block(['Custom connection'], 'Switch the main agent first.');
+      return true;
+    }
+    return this.commits.run([{ fields: ['Custom connection'],
+      write: async () => (await this.require('provider:removeCustomEntry', { id })).removed,
+      readBack: async () => !(await this.customEntries()).some((entry) => entry.id === id),
+    }], context, hooks.commit);
+  }
+
+  /** Help URL and pricing are metadata: saved without a connection check. */
+  async updateCustomEntryFields(id: string, changes: CustomMetadataChanges, context: ProvidersEditContext,
+    hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    if (this.commits.commit().status === 'saving') return false;
+    const parsed = CustomProviderEntryChangesSchema.pick({ helpUrl: true, pricing: true }).strict().safeParse(changes);
+    const fields = parsed.success ? (Object.keys(parsed.data) as (keyof typeof METADATA_FIELDS)[]) : [];
+    if (!parsed.success || !fields.length) {
+      this.commits.block([METADATA_FIELDS.helpUrl, METADATA_FIELDS.pricing], 'Check the help URL and prices; prices cannot be negative.');
+      return true;
+    }
+    const requested = parsed.data;
+    return this.commits.run([{ fields: fields.map((field) => METADATA_FIELDS[field]),
+      write: async () => !!(await this.require('provider:updateCustomEntry', { id, changes: requested })).entry,
+      readBack: async () => {
+        const entry = (await this.customEntries()).find((candidate) => candidate.id === id);
+        return !!entry && (requested.helpUrl === undefined || entry.helpUrl === requested.helpUrl) &&
+          (!('pricing' in requested) || samePricing(entry.pricing, requested.pricing));
+      },
+    }], context, hooks.commit);
+  }
+
+  /**
+   * D7: saved only after a verified probe of this connection (`probeId`). The caller verifies the
+   * new base URL, or the current one with the stored credential when only the models endpoint changes.
+   */
+  async updateCustomEntryEndpoint(id: string, changes: CustomEndpointChanges, probeId: string,
+    context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    if (this.commits.commit().status === 'saving') return false;
+    const parsed = CustomProviderEntryChangesSchema.pick({ baseUrl: true, modelsEndpoint: true }).strict().safeParse(changes);
+    const fields = parsed.success ? (Object.keys(parsed.data) as (keyof typeof ENDPOINT_FIELDS)[]) : [];
+    const names = fields.length ? fields.map((field) => ENDPOINT_FIELDS[field]) : [ENDPOINT_FIELDS.baseUrl];
+    if (!this.verifiedFor(id, probeId)) {
+      this.commits.block(names, 'Verify this connection before saving its endpoint.');
+      return true;
+    }
+    if (!parsed.success || !fields.length) {
+      this.commits.block(names, 'Use an http:// or https:// base URL.');
+      return true;
+    }
+    const requested = parsed.data;
+    return this.commits.run([{ fields: names,
+      write: async () => !!(await this.require('provider:updateCustomEntry', { id, changes: requested })).entry,
+      readBack: async () => {
+        const entry = (await this.customEntries()).find((candidate) => candidate.id === id);
+        return !!entry && (requested.baseUrl === undefined || entry.baseUrl === requested.baseUrl) &&
+          (!('modelsEndpoint' in requested) || (entry.modelsEndpoint ?? null) === (requested.modelsEndpoint ?? null));
+      },
+    }], context, hooks.commit);
+  }
+
+  /** A built-in local server's endpoint; saved only after a verified probe of that URL. */
+  async updateLocalBaseUrl(providerId: string, baseUrl: string, probeId: string, context: ProvidersEditContext,
+    hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
+    if (this.commits.commit().status === 'saving') return false;
+    if (!this.verifiedFor(providerId, probeId)) {
+      this.commits.block(['Connection endpoint'], 'Verify this connection before saving its endpoint.');
+      return true;
+    }
+    return this.commits.run([{ fields: ['Connection endpoint'],
+      write: async () => (await this.require('llm:setProviderBaseUrl', { provider: providerId, baseUrl })).success,
+      readBack: async () => (await this.require('llm:getProviderBaseUrl', { provider: providerId })).baseUrl === baseUrl,
+    }], context, hooks.commit);
+  }
+
+  /** The last check finished `verified`, for this probe and this provider (#27). */
+  private verifiedFor(providerId: string, probeId: string | undefined): boolean {
+    const probe = this.verification();
+    return probe.status === 'ready' && probe.data?.outcome === 'verified' && probe.data.probeId === probeId &&
+      this.verifiedProviderId === providerId;
+  }
+  private async customEntries(): Promise<readonly ProvidersCustomEntry[]> {
+    return (await this.require('provider:listCustomEntries', {})).entries;
+  }
   private read<T>(store: SectionStore<T>, request: () => Promise<T>): Promise<void> {
     return readSection(store, this.workspace, request);
   }

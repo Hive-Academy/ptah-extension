@@ -17,7 +17,7 @@ import {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
-import { ProvidersCommitService, type ProvidersCommitHooks } from './providers-commit.service';
+import { ProvidersCommitService, type ProvidersCommitHooks, type ProvidersModelTier } from './providers-commit.service';
 import {
   ProvidersConnectionSetupService,
   type ProvidersConnectionSetupHooks,
@@ -346,6 +346,41 @@ export class ProvidersSettingsStateService {
     return this.setup.cancelVerification(params);
   }
 
+  // Writes for the redesigned surface. Each resolves `false` when refused because another save is
+  // in flight, and reports through `commit()` like every other save (D15).
+  /** D4: deletes one stored key without changing the auth method or resetting the SDK. */
+  deleteStoredKey(providerId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.deleteStoredKey(providerId, context, this.setupHooks);
+  }
+  disconnectCopilot(context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.disconnectCopilot(context, this.setupHooks);
+  }
+  /** Blocked with "Switch the main agent first." while the connection drives the main agent. */
+  removeCustomEntry(id: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.removeCustomEntry(id, context, this.setupHooks);
+  }
+  /** Help URL and pricing: metadata, saved without a connection check. */
+  updateCustomEntryFields(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'helpUrl' | 'pricing'>>,
+    context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateCustomEntryFields(id, changes, context, this.setupHooks);
+  }
+  /** D7: base URL and/or models endpoint, saved only with a verified probe of this connection. */
+  updateCustomEntryEndpoint(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'baseUrl' | 'modelsEndpoint'>>,
+    probeId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateCustomEntryEndpoint(id, changes, probeId, context, this.setupHooks);
+  }
+  updateLocalBaseUrl(providerId: string, baseUrl: string, probeId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateLocalBaseUrl(providerId, baseUrl, probeId, context, this.setupHooks);
+  }
+  /** An empty `modelId` clears the stored main-agent tier (the provider default applies). */
+  setMainAgentTier(providerId: string, tier: ProvidersModelTier, modelId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit([this.commits.mainAgentTierOperation(providerId, tier, modelId)], context);
+  }
+  /** D5: the instance's own tier mapping, always written as the full object. */
+  setCliInstanceTiers(id: string, tiers: Partial<Record<ProvidersModelTier, string>>, context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit([this.commits.cliInstanceTiersOperation(id, tiers)], context);
+  }
+
   /** Supply concrete provider/auth-key paths, never the allowlist's <...> families. */
   async refreshScopes(keys: readonly string[] = this.scopeKeys): Promise<void> {
     this.scopeKeys = [...new Set(keys)];
@@ -634,6 +669,7 @@ export class ProvidersSettingsStateService {
     commit: this.commitHooks,
     refreshConnections: () => this.refreshConnections(),
     refreshRoute: () => this.refreshRoute(),
+    route: () => this.route(),
   };
   /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
   private runCommit(

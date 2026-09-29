@@ -1535,4 +1535,32 @@ describe('ProvidersSettingsStateService', () => {
       expect(service.connections().data?.find((entry) => entry.id === 'my-endpoint')?.custom).toBe(true);
     });
   });
+
+  describe('writes for the redesigned surface (facade delegation)', () => {
+    it('saves a main-agent tier and a CLI instance mapping through commit(), then refreshes the page', async () => {
+      const reviewed = await context();
+      const store = tierStore({ sonnet: null, opus: null, haiku: null });
+      await expect(service.setMainAgentTier('openrouter', 'haiku', 'fast-model', reviewed)).resolves.toBe(true);
+      expect(store.haiku).toBe('fast-model');
+      expect(service.commit()).toMatchObject({ status: 'saved', saved: ['Main agent haiku model'] });
+      handlers.set('ptahCli:update', async () => success({ success: true }));
+      handlers.set('settings:get', async () => success({ success: true, value: [{ id: 'agent-1', tierMappings: { opus: 'big' } }] }));
+      call.mockClear();
+      await expect(service.setCliInstanceTiers('agent-1', { opus: 'big' }, reviewed)).resolves.toBe(true);
+      expect(call).toHaveBeenCalledWith('ptahCli:update', { id: 'agent-1', tierMappings: { opus: 'big' } }, undefined);
+      expect(service.commit()).toMatchObject({ status: 'saved', saved: ['ptahCliAgents.agent-1.tierMappings'] });
+      expect(call).toHaveBeenCalledWith('auth:getEffectiveRoute', { refresh: true }, undefined);
+      expect(service.cliModels().data).toEqual({ 'agent-1': { selectedModel: undefined, tierMappings: { opus: 'big' } } });
+    });
+
+    it('blocks removing the custom connection that drives the main agent', async () => {
+      await service.open();
+      const reviewed = service.reviewContext();
+      if (!reviewed) throw new Error('Expected context');
+      call.mockClear();
+      await expect(service.removeCustomEntry('first', reviewed)).resolves.toBe(true);
+      expect(service.commit()).toMatchObject({ status: 'blocked', message: 'Switch the main agent first.' });
+      expect(call.mock.calls.some(([method]) => method === 'provider:removeCustomEntry')).toBe(false);
+    });
+  });
 });

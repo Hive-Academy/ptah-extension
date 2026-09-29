@@ -17,6 +17,17 @@ import type {
 } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
+const MODEL_TIERS = ['sonnet', 'opus', 'haiku'] as const;
+export type ProvidersModelTier = (typeof MODEL_TIERS)[number];
+
+/** Read-back equality: arrays match element by element, in order; everything else strictly. */
+function sameSetting(stored: unknown, requested: unknown): boolean {
+  if (Array.isArray(requested))
+    return Array.isArray(stored) && stored.length === requested.length &&
+      requested.every((value, index) => stored[index] === value);
+  return stored === requested;
+}
+
 const EMPTY_COMMIT: ProvidersSettingsCommit = {
   status: 'idle',
   saved: [],
@@ -177,6 +188,10 @@ export class ProvidersCommitService {
       'codexReasoningEffort',
       'copilotReasoningEffort',
       'piReasoningEffort',
+      'disabledClis',
+      'preferredAgentOrder',
+      'maxConcurrentAgents',
+      'copilotAutoApprove',
     ] as const) {
       const value = patch.orchestration?.[field];
       if (value !== undefined)
@@ -185,7 +200,7 @@ export class ProvidersCommitService {
           write: async () =>
             (await this.require('agent:setConfig', { [field]: value })).success,
           readBack: async () =>
-            (await this.require('agent:getConfig', undefined))[field] === value,
+            sameSetting((await this.require('agent:getConfig', undefined))[field], value),
         });
     }
     for (const tier of patch.tiers ?? []) {
@@ -233,6 +248,48 @@ export class ProvidersCommitService {
       });
     }
     return operations;
+  }
+
+  /** Main-agent tier of one provider; an empty model clears the stored tier (provider default). */
+  mainAgentTierOperation(providerId: string, tier: ProvidersModelTier, modelId: string): SaveOperation {
+    const scope = 'mainAgent';
+    return {
+      fields: [`Main agent ${tier} model`],
+      write: async () => modelId
+        ? (await this.require('provider:setModelTier', { providerId, tier, modelId, scope })).success
+        : (await this.require('provider:clearModelTier', { providerId, tier, scope })).success,
+      readBack: async () =>
+        ((await this.require('provider:getModelTiers', { providerId, scope }))[tier] ?? '') === modelId,
+    };
+  }
+
+  /**
+   * A Ptah CLI instance's own tier mapping (D5). `ptahCli:update` replaces the whole object, so
+   * it always carries every set tier; a blank tier is omitted and falls back to the provider tier.
+   */
+  cliInstanceTiersOperation(id: string, tiers: Partial<Record<ProvidersModelTier, string>>): SaveOperation {
+    const tierMappings: Partial<Record<ProvidersModelTier, string>> = {};
+    for (const tier of MODEL_TIERS) {
+      const model = tiers[tier]?.trim();
+      if (model) tierMappings[tier] = model;
+    }
+    return {
+      fields: [`ptahCliAgents.${id}.tierMappings`],
+      write: async () => (await this.require('ptahCli:update', { id, tierMappings })).success,
+      readBack: async () => {
+        const stored = await this.require('settings:get', { key: 'ptahCliAgents' });
+        if (!stored.success || !Array.isArray(stored.value)) throw new Error('CLI tiers unavailable');
+        const agent: unknown = stored.value.find((item: unknown) =>
+          !!item && typeof item === 'object' && 'id' in item && item.id === id);
+        // A missing instance (deleted meanwhile, or a wrong id) is not saved, even for a clear-all.
+        if (!agent || typeof agent !== 'object') return false;
+        const saved: unknown = 'tierMappings' in agent ? agent.tierMappings : undefined;
+        return MODEL_TIERS.every((tier) => {
+          const value: unknown = saved && typeof saved === 'object' ? (saved as Record<string, unknown>)[tier] : undefined;
+          return (value ?? undefined) === tierMappings[tier];
+        });
+      },
+    };
   }
 
   /**

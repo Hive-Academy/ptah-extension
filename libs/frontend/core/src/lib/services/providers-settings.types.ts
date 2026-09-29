@@ -71,6 +71,12 @@ export type ProvidersOrchestrationField =
   | 'codexReasoningEffort'
   | 'copilotReasoningEffort'
   | 'piReasoningEffort';
+/** Orchestration policy the CLI matrix writes. Array fields are read back order-sensitively. */
+export type ProvidersOrchestrationPolicyField =
+  | 'disabledClis'
+  | 'preferredAgentOrder'
+  | 'maxConcurrentAgents'
+  | 'copilotAutoApprove';
 export interface ProvidersSettingsPatch {
   readonly auth?: AuthSaveSettingsParams;
   readonly model?: RpcMethodParams<'config:model-switch'>;
@@ -81,7 +87,10 @@ export interface ProvidersSettingsPatch {
   >;
   readonly judging?: ProvidersJudgingPatch;
   readonly orchestration?: Partial<
-    Pick<RpcMethodParams<'agent:setConfig'>, ProvidersOrchestrationField>
+    Pick<
+      RpcMethodParams<'agent:setConfig'>,
+      ProvidersOrchestrationField | ProvidersOrchestrationPolicyField
+    >
   >;
   readonly tiers?: readonly RpcMethodParams<'provider:setModelTier'>[];
   readonly cli?: readonly (
@@ -99,11 +108,8 @@ export interface ProvidersSettingsPatch {
 export type ProvidersOrchestration = Pick<
   RpcMethodResult<'agent:getConfig'>,
   | ProvidersOrchestrationField
+  | ProvidersOrchestrationPolicyField
   | 'detectedClis'
-  | 'disabledClis'
-  | 'preferredAgentOrder'
-  | 'maxConcurrentAgents'
-  | 'copilotAutoApprove'
   | 'cursorApiKeyConfigured'
   | 'cursorApiKeyStored'
   | 'cursorApiKeyEnvSet'
