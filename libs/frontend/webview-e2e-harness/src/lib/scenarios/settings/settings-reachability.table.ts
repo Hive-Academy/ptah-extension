@@ -290,8 +290,12 @@ async function throughCard(
   }
 }
 
+/**
+ * The Ptah CLI instance manager. Batch 18 (D14) moved it, unchanged, from Providers to the interim
+ * Orchestration container, together with its read states and the commit feedback (#56).
+ */
 async function cliConfigSection(page: Page): Promise<Locator> {
-  await providersTab(page);
+  await orchestrationTab(page);
   const heading = page.locator('#providers-cli-heading');
   await visibleEnabled(heading);
   return heading;
@@ -699,14 +703,17 @@ const other: readonly ReachabilityEntry[] = [
     // The real deep-link trigger: `manageProviders()`
     // (`agent-orchestration-config.component.ts:415-418`) calls
     // `requestSettingsTab({tab:'providers', section:'cli-agents'})` while
-    // Settings is ALREADY open — this clicks that real button on
-    // Orchestration and asserts the tab actually switches to Providers with
-    // the CLI-agents heading reachable, not a manual tab click.
+    // Settings is ALREADY open. Since Batch 18 the `cli-agents` section routes
+    // to the tab that hosts the CLI agents (Orchestration, plan Component 10),
+    // so the request is applied in place: the routed tab stays active and the
+    // CLI-agents heading receives focus (proof the request was consumed and
+    // routed, not just that the heading happens to be on the page).
     reach: async (page) => {
       await orchestrationTab(page);
       await page.getByRole('button', { name: 'Manage provider, model and credentials in Providers' }).first().click();
-      await expect(page.getByRole('button', { name: 'Providers', exact: true })).toHaveClass(/tab-active/);
+      await expect(page.getByRole('button', { name: 'Agent Orchestration', exact: true })).toHaveClass(/tab-active/);
       await visibleEnabled(page.locator('#providers-cli-heading'));
+      await expect(page.locator('#providers-cli-heading')).toBeFocused();
     } },
   { id: '#84', capability: 'VS Code LM model change triggers a CLI re-detect', status: 'present',
     reach: async (page) => { await advancedTab(page); await visibleEnabled(page.locator('ptah-vscode-lm-config')); } },
@@ -752,11 +759,18 @@ const restoredPending: readonly ReachabilityEntry[] = [
 // "capabilities", they are the exact strings those two scripts key off).
 // ---------------------------------------------------------------------------
 
-export const KEPT_SELECTORS: readonly string[] = [
-  '[data-testid="settings-back"]',
-  '[data-testid="provider-connection-card"]',
-  '#providers-connections-heading',
-  '[data-testid="assignments-heading"]',
+export interface KeptSelector {
+  readonly selector: string;
+  /** The tab that hosts it (plan §6: `assignments-heading` "on whichever tab hosts it"). */
+  readonly tab: (typeof SETTINGS_TAB_LABELS)[number];
+}
+
+export const KEPT_SELECTORS: readonly KeptSelector[] = [
+  { selector: '[data-testid="settings-back"]', tab: 'Providers' },
+  { selector: '[data-testid="provider-connection-card"]', tab: 'Providers' },
+  { selector: '#providers-connections-heading', tab: 'Providers' },
+  // Moved with the background roles to Orchestration in Batch 18 (D14).
+  { selector: '[data-testid="assignments-heading"]', tab: 'Agent Orchestration' },
 ];
 
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */

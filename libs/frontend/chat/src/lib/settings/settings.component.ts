@@ -2,9 +2,9 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
+  computed,
   signal,
   OnInit,
-  viewChild,
   effect,
   untracked,
 } from '@angular/core';
@@ -30,7 +30,10 @@ import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.compone
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
-import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
+import {
+  OrchestrationSettingsComponent,
+  type OrchestrationSettingsFocusTarget,
+} from './ptah-ai/orchestration-settings.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 import { GoVetConsentConfigComponent } from './ptah-ai/go-vet-consent-config.component';
@@ -38,8 +41,25 @@ import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
+  ProvidersSettingsStateService,
   VSCodeService,
+  type PendingSettingsTab,
 } from '@ptah-extension/core';
+
+type PendingSection = NonNullable<PendingSettingsTab['section']>;
+
+const PROVIDERS_SECTIONS: ReadonlySet<string> = new Set<ProvidersSettingsFocusTarget>([
+  'main-agent', 'main-model', 'main-effort', 'connections', 'more-providers',
+]);
+const ORCHESTRATION_SECTIONS: ReadonlySet<string> = new Set<OrchestrationSettingsFocusTarget>([
+  'background-models', 'cli-agents',
+  'memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement',
+]);
+
+const isProvidersSection = (section: PendingSection | undefined): section is ProvidersSettingsFocusTarget =>
+  section !== undefined && PROVIDERS_SECTIONS.has(section);
+const isOrchestrationSection = (section: PendingSection | undefined): section is OrchestrationSettingsFocusTarget =>
+  section !== undefined && ORCHESTRATION_SECTIONS.has(section);
 
 /**
  * SettingsComponent - Main settings page container
@@ -61,9 +81,13 @@ import {
  * - Conditional visibility: Show additional sections only after auth configured
  *
  * Child Components:
+ * - ProvidersSettingsComponent: Providers tab
+ * - OrchestrationSettingsComponent: Agent Orchestration tab (policy, background roles, CLI agents)
  * - LicenseStatusCardComponent: Membership status, user profile, actions
  * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
- * - AgentOrchestrationConfigComponent: CLI detection, model selectors, concurrency
+ *
+ * Deep links (`AppStateManager.requestSettingsTab`) are routed by section to the tab that owns
+ * it (implementation-plan.md Component 10); an unknown or missing section opens the requested tab.
  */
 @Component({
   selector: 'ptah-settings',
@@ -76,7 +100,7 @@ import {
     McpPortConfigComponent,
     WorkflowsConfigComponent,
     OutputStyleConfigComponent,
-    AgentOrchestrationConfigComponent,
+    OrchestrationSettingsComponent,
     WebSearchConfigComponent,
     VoiceConfigComponent,
     GoVetConsentConfigComponent,
@@ -95,10 +119,8 @@ export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly providersState = inject(ProvidersSettingsStateService);
   readonly authState = inject(AuthStateService);
-  readonly agentOrchestrationConfig = viewChild(
-    AgentOrchestrationConfigComponent,
-  );
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
   readonly KeyIcon = Key;
@@ -114,6 +136,7 @@ export class SettingsComponent implements OnInit {
   >('claude-auth');
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
+  readonly orchestrationTarget = signal<OrchestrationSettingsFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -123,6 +146,13 @@ export class SettingsComponent implements OnInit {
   readonly requestedProviderId = signal<string | undefined>(undefined);
 
   readonly isElectron = this.vscodeService.isElectron;
+  /** Header "App: …" label. */
+  readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
+  /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
+  readonly workspacePath = computed(() => this.providersState.scopes().data?.activePath ?? null);
+  readonly workspaceName = computed(
+    () => this.workspacePath()?.split(/[\\/]/).filter(Boolean).pop() ?? null,
+  );
 
   /**
    * Initialize: Load auth status on component mount.
@@ -150,12 +180,35 @@ export class SettingsComponent implements OnInit {
     if (this.requestedProviderId() === providerId) this.requestedProviderId.set(undefined);
   }
 
+  /**
+   * A background role asked to set up a provider from the Orchestration tab: the setup wizard
+   * lives on Providers, so switch there and hand it the provider id.
+   */
+  openProviderSetup(providerId: string): void {
+    this.setActiveTab('providers');
+    this.providersTarget.set(null);
+    this.requestedProviderId.set(providerId);
+  }
+
+  /** Routing table: implementation-plan.md Component 10. */
   private applyPendingTab(): void {
     const pending = this.appState.consumePendingSettingsTab();
     if (!pending) return;
-    this.setActiveTab(pending.providerId || pending.section ? 'providers' : pending.tab);
-    this.providersTarget.set(pending.section ?? (pending.tab === 'orchestration' && pending.providerId ? 'cli-agents' : 'main-agent'));
-    this.requestedProviderId.set(pending.providerId);
+    const { section, providerId } = pending;
+    this.requestedProviderId.set(providerId);
+    if (providerId || isProvidersSection(section)) {
+      this.setActiveTab('providers');
+      this.providersTarget.set(isProvidersSection(section) ? section : null);
+      this.orchestrationTarget.set(null);
+    } else if (isOrchestrationSection(section)) {
+      this.setActiveTab('orchestration');
+      this.orchestrationTarget.set(section);
+      this.providersTarget.set(null);
+    } else {
+      this.setActiveTab(pending.tab);
+      this.providersTarget.set(null);
+      this.orchestrationTarget.set(null);
+    }
   }
 
   /**
@@ -226,11 +279,11 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Called when LLM providers config emits modelChanged.
-   * Delegates to AgentOrchestrationConfigComponent to re-detect CLIs.
+   * A VS Code LM model change can change which CLIs are usable (#84). Re-detect through the
+   * shared state: the Orchestration tab is never mounted while Advanced is shown.
    */
   onModelChanged(): void {
-    this.agentOrchestrationConfig()?.redetectClis();
+    void this.providersState.redetectClis();
   }
 
 }

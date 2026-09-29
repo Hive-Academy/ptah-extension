@@ -8,21 +8,15 @@ import {
 import type { AuthVerifyDraftConnectionResult, ConfigGetScopesResult, SettingScope } from '@ptah-extension/shared';
 import { PROVIDER_MODELS_LOADER, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
-import { ProviderConsumerAssignmentsComponent, type BackgroundConsumerId } from './provider-consumer-assignments.component';
+import { ProvidersModelsLoader } from './providers-models-loader.service';
 import {
   ProviderSetupWizardComponent, type DraftVerifyConnectionFn, type DraftCancelVerificationFn,
   type ProviderWizardCommit, type WizardCommitState, type WizardExternalAction,
 } from './provider-setup-wizard.component';
 
-@Component({ selector: 'ptah-provider-consumer-assignments', standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Background child</p>' })
-class ConsumerStub {
-  readonly disabled = input(false);
-  readonly initialEditingConsumerId = input<BackgroundConsumerId | null>(null);
-  readonly setupProviderRequested = output<string>();
-  readonly assignmentSaved = output<{ id: BackgroundConsumerId; provider: string; model: string }>();
-  readonly timeoutSaved = output<number>();
-}
+/** SettingsComponent provides the loader for every tab; the page itself provides none. */
+const SHELL_LOADER = { provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader };
+
 @Component({ selector: 'ptah-provider-setup-wizard', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Wizard draft stays mounted</p>' })
 class WizardStub {
@@ -123,9 +117,10 @@ describe('ProvidersSettingsComponent', () => {
     await TestBed.configureTestingModule({ imports: [ProvidersSettingsComponent], providers: [
       { provide: ProvidersSettingsStateService, useValue: state },
       { provide: ClaudeRpcService, useValue: { call: listModels } },
+      SHELL_LOADER,
     ] }).overrideComponent(ProvidersSettingsComponent, {
-      remove: { imports: [ProviderConsumerAssignmentsComponent, ProviderSetupWizardComponent] },
-      add: { imports: [ConsumerStub, WizardStub] },
+      remove: { imports: [ProviderSetupWizardComponent] },
+      add: { imports: [WizardStub] },
     }).compileComponents();
     fixture = TestBed.createComponent(ProvidersSettingsComponent);
     element = fixture.nativeElement as HTMLElement;
@@ -142,14 +137,14 @@ describe('ProvidersSettingsComponent', () => {
   }
   function wizard(): WizardStub { return fixture.debugElement.query(By.directive(WizardStub)).injector.get(WizardStub); }
 
-  it('renders the real main model picker using only the page-owned loader provider', async () => {
+  it('renders the real main model picker with the loader the Settings shell provides', async () => {
     state.route.set(ready(route));
     await render();
     button('Edit model').click();
     await render();
     const picker = fixture.debugElement.query(By.directive(ProviderModelPickerComponent));
     expect(picker).not.toBeNull();
-    expect(picker.injector.get(PROVIDER_MODELS_LOADER)).toBe(fixture.debugElement.injector.get(PROVIDER_MODELS_LOADER));
+    expect(picker.injector.get(PROVIDER_MODELS_LOADER)).toBe(TestBed.inject(PROVIDER_MODELS_LOADER));
     expect(listModels).toHaveBeenCalledWith('provider:listModels', { providerId: 'first' });
     expect(picker.nativeElement.textContent).toContain('Catalogue model');
   });
@@ -250,18 +245,22 @@ describe('ProvidersSettingsComponent', () => {
     button('Retry main-agent route').click(); await render();
     expect(state.refreshRoute).toHaveBeenCalledTimes(1);
     expect(state.refreshConnections).not.toHaveBeenCalled();
-    expect(element.textContent).toContain('Background child');
   });
   it('never renders raw stored authentication diagnostics', async () => {
     state.route.set(ready({ ...route, ...{ storedAuthMethodDiagnostic: 'secret-diagnostic-value' } }));
     await render(); expect(element.textContent).not.toContain('secret-diagnostic-value');
   });
-  it('focuses the requested section after rendering and forwards consumer field targets', async () => {
-    fixture.componentRef.setInput('focusTarget', 'cli-agents'); await render();
-    expect(document.activeElement).toBe(element.querySelector('[data-focus="cli-agents"]'));
-    fixture.componentRef.setInput('focusTarget', 'judging-enhancement'); await render();
-    expect(fixture.debugElement.query(By.directive(ConsumerStub)).injector.get(ConsumerStub).initialEditingConsumerId()).toBe('judging-enhancement');
-    expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+  it('focuses the requested section after rendering', async () => {
+    fixture.componentRef.setInput('focusTarget', 'connections'); await render();
+    expect(document.activeElement).toBe(element.querySelector('#providers-connections-heading'));
+  });
+  it('no longer mounts the background roles, the CLI agents or their read states (moved to Orchestration, D14)', async () => {
+    state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
+    await render();
+    expect(element.querySelector('ptah-provider-consumer-assignments')).toBeNull();
+    expect(element.querySelector('ptah-cli-config')).toBeNull();
+    expect(element.querySelector('[data-focus="background-models"]')).toBeNull();
+    expect(element.querySelector('[data-read-error="cli-models"]')).toBeNull();
   });
   it('opens the catalogue before focusing its disclosure', async () => {
     fixture.componentRef.setInput('focusTarget', 'more-providers'); await render();
@@ -302,8 +301,8 @@ describe('ProvidersSettingsComponent', () => {
   });
   it('honours a new parent focus target after a local focus action', async () => {
     await render(); button('Change main provider').click(); await render();
-    fixture.componentRef.setInput('focusTarget', 'cli-agents'); await render();
-    expect(document.activeElement).toBe(element.querySelector('[data-focus="cli-agents"]'));
+    fixture.componentRef.setInput('focusTarget', 'main-agent'); await render();
+    expect(document.activeElement).toBe(element.querySelector('[data-focus="main-agent"]'));
   });
   it('cancels without committing and restores the invoking control', async () => {
     await render(); const trigger = button('Connect provider'); trigger.focus(); trigger.click(); await render();
@@ -315,32 +314,6 @@ describe('ProvidersSettingsComponent', () => {
   it('forwards the wizard provider identity with its login event', async () => {
     await render(); button('Connect provider').click(); await render(); wizard().externalActionRequested.emit({ providerId: 'github-copilot', action: 'sign-in' });
     expect(state.performExternalAuth).toHaveBeenCalledWith('github-copilot', 'sign-in');
-  });
-  it('retains a masked CLI setup draft after an unconfirmed write and discards it on cancel', async () => {
-    state.saveSettings.mockImplementation(async () => { state.commit.set({ ...idle, status: 'unconfirmed', unconfirmed: ['CLI instance'] }); });
-    await render(); button('Add CLI agent').click(); await render();
-    for (const [id, value] of [['providers-cli-name', 'Worker'], ['providers-cli-key', 'private-cli-key']]) {
-      const field = element.querySelector<HTMLInputElement>(`#${id}`);
-      if (!field) throw new Error('Missing CLI input');
-      field.value = value; field.dispatchEvent(new Event('input'));
-    }
-    const provider = element.querySelector<HTMLSelectElement>('#providers-cli-provider');
-    if (!provider) throw new Error('Missing provider input');
-    provider.value = 'first'; provider.dispatchEvent(new Event('change')); await render();
-    button('Create CLI agent').click(); await render();
-    expect(state.saveSettings).toHaveBeenCalledWith({ cli: [{ action: 'create', params: { name: 'Worker', providerId: 'first', apiKey: 'private-cli-key' } }] }, { scopeKey: 'workspace', activePath: '/workspace' });
-    expect(element.querySelector<HTMLInputElement>('#providers-cli-key')?.type).toBe('password');
-    expect(element.textContent).not.toContain('private-cli-key');
-    button('Cancel CLI setup').click(); await render();
-    button('Add CLI agent').click(); await render();
-    expect(element.querySelector<HTMLInputElement>('#providers-cli-key')?.value).toBe('');
-  });
-  it('retries CLI model reads without disabling the CLI instance list', async () => {
-    state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
-    await render(); button('Retry CLI instance models').click(); await render();
-    expect(state.refreshCliModels).toHaveBeenCalledTimes(1);
-    expect(state.refreshCliAgents).not.toHaveBeenCalled();
-    expect(element.textContent).toContain('No CLI agents configured.');
   });
   it('uses native controls with 36px height and a visible 2px focus outline', async () => {
     await render();
@@ -376,10 +349,8 @@ describe('ProvidersSettingsComponent deep links with the real wizard', () => {
     await TestBed.configureTestingModule({ imports: [Host], providers: [
       { provide: ProvidersSettingsStateService, useValue: state },
       { provide: ClaudeRpcService, useValue: { call: jest.fn(async () => new RpcResult(true, { models: [] })) } },
-    ] }).overrideComponent(ProvidersSettingsComponent, {
-      remove: { imports: [ProviderConsumerAssignmentsComponent] },
-      add: { imports: [ConsumerStub] },
-    }).compileComponents();
+      SHELL_LOADER,
+    ] }).compileComponents();
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
   });

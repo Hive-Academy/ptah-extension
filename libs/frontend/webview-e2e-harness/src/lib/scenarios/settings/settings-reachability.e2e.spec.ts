@@ -13,7 +13,7 @@
  * batch's own tests are green.
  */
 import { test, expect } from '../../test-fixtures';
-import { bootSettings, waitForSettled } from './settings.fixtures';
+import { bootSettings, gotoSettingsTab, waitForSettled } from './settings.fixtures';
 import {
   BASELINE_PRESENT_IDS,
   EXPECTED_CAPABILITY_COUNT,
@@ -108,7 +108,8 @@ for (const host of HOSTS) {
     }) => {
       await bootSettings(page, fixtureServer.url, host);
       await waitForSettled(page);
-      for (const selector of KEPT_SELECTORS) {
+      for (const { selector, tab } of KEPT_SELECTORS) {
+        await gotoSettingsTab(page, tab);
         await expect(page.locator(selector).first()).toBeVisible();
       }
       // Tab buttons by role and name (plan §6 finding 7's fourth kept item).

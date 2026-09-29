@@ -15,57 +15,87 @@
 
 <div class="h-full overflow-y-auto bg-base-100">
   <div class="max-w-4xl mx-auto px-3 py-3 space-y-3 md:px-6 lg:px-8">
-    <!-- Compact Header with back button -->
-    <div class="flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <button
-          class="btn btn-ghost btn-xs gap-1.5"
-          (click)="backToChat()"
-          aria-label="Back to Chat"
-          data-testid="settings-back"
-        >
-          <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
-          <span class="text-xs">Back</span>
-        </button>
-        <h1 class="text-sm font-semibold">Settings</h1>
+    <!-- Header (prototypes/final/index.html:82-95): Back, title, workspace and app context -->
+    <header>
+      <div class="flex items-center justify-between gap-3 pb-2 border-b border-base-300">
+        <div class="flex items-center gap-2.5">
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost p-1 text-base-content-muted hover:text-base-content"
+            (click)="backToChat()"
+            aria-label="Back to Chat"
+            title="Back to Chat"
+            data-testid="settings-back"
+          >
+            <lucide-angular [img]="ArrowLeftIcon" class="w-4 h-4" aria-hidden="true" />
+          </button>
+          <h1 class="text-base font-bold tracking-tight text-base-content">Settings</h1>
+        </div>
+        <p class="flex min-w-0 items-center text-xs text-base-content-muted whitespace-pre" data-testid="settings-context">
+          @if (workspaceName(); as name) {
+            <span class="min-w-0 truncate" [attr.title]="workspacePath()">Workspace: <strong class="font-medium text-base-content">{{ name }}</strong></span>
+            <span> · </span>
+          }
+          <span class="shrink-0">App: <strong class="font-medium text-base-content">{{ appLabel }}</strong></span>
+        </p>
       </div>
-    </div>
 
-    <!-- Tab Bar (4 tabs: Providers, Agent Orchestration, Advanced, Search & Voice) -->
-    <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1 flex-wrap">
-      <button
-        class="tab tab-sm flex-1 gap-1.5"
-        [class.tab-active]="activeSettingsTab() === 'claude-auth'"
-        (click)="setActiveTab('claude-auth')"
-      >
-        <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-        <span class="text-xs">Providers</span>
-      </button>
-      <button
-        class="tab tab-sm flex-1 gap-1.5"
-        [class.tab-active]="activeSettingsTab() === 'orchestration'"
-        (click)="setActiveTab('orchestration')"
-      >
-        <lucide-angular [img]="CpuIcon" class="w-3 h-3" />
-        <span class="text-xs">Agent Orchestration</span>
-      </button>
-      <button
-        class="tab tab-sm flex-1 gap-1.5"
-        [class.tab-active]="activeSettingsTab() === 'pro-features'"
-        (click)="setActiveTab('pro-features')"
-      >
-        <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-        <span class="text-xs">Advanced</span>
-      </button>
-      <button
-        class="tab tab-sm flex-1 gap-1.5"
-        [class.tab-active]="activeSettingsTab() === 'tools'"
-        (click)="setActiveTab('tools')"
-      >
-        <lucide-angular [img]="GlobeIcon" class="w-3 h-3" />
-        <span class="text-xs">Search &amp; Voice</span>
-      </button>
-    </div>
+      <!-- Tab bar: 4 enabled tabs (D9); buttons keep their names (live-app scripts use getByRole('button')) -->
+      <nav class="tabs tabs-bordered mt-1.5" aria-label="Settings sections">
+        <button
+          type="button"
+          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
+          [class.tab-active]="activeSettingsTab() === 'claude-auth'"
+          [class.!text-base-content]="activeSettingsTab() === 'claude-auth'"
+          [class.!border-primary]="activeSettingsTab() === 'claude-auth'"
+          [class.!border-transparent]="activeSettingsTab() !== 'claude-auth'"
+          [attr.aria-current]="activeSettingsTab() === 'claude-auth' ? 'page' : null"
+          (click)="setActiveTab('claude-auth')"
+        >
+          <lucide-angular [img]="KeyIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Providers</span>
+        </button>
+        <button
+          type="button"
+          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
+          [class.tab-active]="activeSettingsTab() === 'orchestration'"
+          [class.!text-base-content]="activeSettingsTab() === 'orchestration'"
+          [class.!border-primary]="activeSettingsTab() === 'orchestration'"
+          [class.!border-transparent]="activeSettingsTab() !== 'orchestration'"
+          [attr.aria-current]="activeSettingsTab() === 'orchestration' ? 'page' : null"
+          (click)="setActiveTab('orchestration')"
+        >
+          <lucide-angular [img]="CpuIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Agent Orchestration</span>
+        </button>
+        <button
+          type="button"
+          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
+          [class.tab-active]="activeSettingsTab() === 'pro-features'"
+          [class.!text-base-content]="activeSettingsTab() === 'pro-features'"
+          [class.!border-primary]="activeSettingsTab() === 'pro-features'"
+          [class.!border-transparent]="activeSettingsTab() !== 'pro-features'"
+          [attr.aria-current]="activeSettingsTab() === 'pro-features' ? 'page' : null"
+          (click)="setActiveTab('pro-features')"
+        >
+          <lucide-angular [img]="SparklesIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Advanced</span>
+        </button>
+        <button
+          type="button"
+          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
+          [class.tab-active]="activeSettingsTab() === 'tools'"
+          [class.!text-base-content]="activeSettingsTab() === 'tools'"
+          [class.!border-primary]="activeSettingsTab() === 'tools'"
+          [class.!border-transparent]="activeSettingsTab() !== 'tools'"
+          [attr.aria-current]="activeSettingsTab() === 'tools' ? 'page' : null"
+          (click)="setActiveTab('tools')"
+        >
+          <lucide-angular [img]="GlobeIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Search &amp; Voice</span>
+        </button>
+      </nav>
+    </header>
 
     <!-- ============================================ -->
     <!-- Tab 1: Providers (tab id remains claude-auth) -->
@@ -116,7 +146,8 @@
     <!-- Tab 2: Agent Orchestration                  -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'orchestration') {
-      <ptah-agent-orchestration-config />
+      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()"
+        (providerSetupRequested)="openProviderSetup($event)" />
     }
 
     <!-- ============================================ -->

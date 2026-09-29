@@ -44,13 +44,49 @@ import {
   AppStateManager,
   AuthStateService,
   ClaudeRpcService,
+  ProvidersSettingsStateService,
   VSCodeService,
+  type PendingSettingsTab,
+  type ProvidersSettingsCommit,
+  type ProvidersSettingsSection,
 } from '@ptah-extension/core';
+import type { ConfigGetScopesResult } from '@ptah-extension/shared';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SettingsComponent } from './settings.component';
+import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
+
+/** The slice of the shared Providers state the shell and the interim Orchestration container read. */
+function providersStateFake() {
+  const unloaded = { status: 'unloaded' as const, data: null, error: null };
+  return {
+    scopes: signal<ProvidersSettingsSection<ConfigGetScopesResult>>(unloaded),
+    commit: signal<ProvidersSettingsCommit>({
+      status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null,
+    }),
+    cliAgents: signal(unloaded),
+    cliModels: signal(unloaded),
+    orchestration: signal(unloaded),
+    open: jest.fn(async () => undefined),
+    redetectClis: jest.fn(async () => undefined),
+  };
+}
+
+function authStateFake() {
+  return {
+    isLoading: signal(false),
+    hasAnyCredential: signal(false),
+    showProviderModels: signal(false),
+    effectiveProviderId: signal('openrouter'),
+    hasProviderCredential: signal(false),
+    isCustomProviderSelected: signal(false),
+    selectedCustomHost: signal<string | null>(null),
+    loadAuthStatus: jest.fn().mockResolvedValue(undefined),
+  };
+}
 
 describe('SettingsComponent deep-link', () => {
   let appState: AppStateManager;
+  let providersStateStub: ReturnType<typeof providersStateFake>;
 
   const authStateStub = {
     isLoading: signal(false),
@@ -68,6 +104,7 @@ describe('SettingsComponent deep-link', () => {
   };
 
   beforeEach(() => {
+    providersStateStub = providersStateFake();
     TestBed.configureTestingModule({
       providers: [
         // The real `AppStateManager` reads the current surface from the Router
@@ -77,6 +114,7 @@ describe('SettingsComponent deep-link', () => {
         { provide: AuthStateService, useValue: authStateStub },
         { provide: VSCodeService, useValue: vscodeServiceStub },
         { provide: ClaudeRpcService, useValue: claudeRpcStub },
+        { provide: ProvidersSettingsStateService, useValue: providersStateStub },
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
@@ -113,35 +151,173 @@ describe('SettingsComponent deep-link', () => {
     expect(appState.consumePendingSettingsTab()).toBeNull();
   });
 
-  it('forwards provider configuration links to Providers CLI agents', async () => {
-    appState.requestSettingsTab({ tab: 'orchestration', providerId: 'openrouter' });
-    const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
-    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
-    expect(fixture.componentInstance.providersTarget()).toBe('cli-agents');
-    expect(fixture.componentInstance.requestedProviderId()).toBe('openrouter');
+  async function landWith(request: PendingSettingsTab) {
+    appState.requestSettingsTab(request);
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    return fixture.componentInstance;
+  }
+
+  // Routing table, implementation-plan.md Component 10 (S5 rows).
+  it('routes a providerId from any tab to Providers for the setup wizard, with no section focus', async () => {
+    const page = await landWith({ tab: 'orchestration', providerId: 'openrouter' });
+    expect(page.activeSettingsTab()).toBe('claude-auth');
+    expect(page.requestedProviderId()).toBe('openrouter');
+    expect(page.providersTarget()).toBeNull();
+    expect(page.orchestrationTarget()).toBeNull();
   });
-  it('forwards a background field without changing it', async () => {
-    appState.requestSettingsTab({ tab: 'providers', section: 'memory-curator' });
-    const fixture = TestBed.createComponent(SettingsComponent); await fixture.componentInstance.ngOnInit();
-    expect(fixture.componentInstance.providersTarget()).toBe('memory-curator');
+
+  it.each(['main-agent', 'main-model', 'main-effort', 'connections', 'more-providers'] as const)(
+    'routes the %s section to Providers and focuses it there',
+    async (section) => {
+      const page = await landWith({ tab: 'orchestration', section });
+      expect(page.activeSettingsTab()).toBe('claude-auth');
+      expect(page.providersTarget()).toBe(section);
+      expect(page.orchestrationTarget()).toBeNull();
+    },
+  );
+
+  it.each([
+    'background-models', 'memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement',
+  ] as const)('routes the %s background-role section to Orchestration', async (section) => {
+    const page = await landWith({ tab: 'providers', section });
+    expect(page.activeSettingsTab()).toBe('orchestration');
+    expect(page.orchestrationTarget()).toBe(section);
+    expect(page.providersTarget()).toBeNull();
   });
+
+  it('routes cli-agents to Orchestration (the interim #providers-cli-heading lives there)', async () => {
+    const page = await landWith({ tab: 'providers', section: 'cli-agents' });
+    expect(page.activeSettingsTab()).toBe('orchestration');
+    expect(page.orchestrationTarget()).toBe('cli-agents');
+  });
+
+  it('opens the requested tab with no focus when there is no section', async () => {
+    const page = await landWith({ tab: 'pro-features' });
+    expect(page.activeSettingsTab()).toBe('pro-features');
+    expect(page.providersTarget()).toBeNull();
+    expect(page.orchestrationTarget()).toBeNull();
+  });
+
+  it('falls back to the requested tab for an unknown section', async () => {
+    const page = await landWith({ tab: 'tools', section: 'not-a-section' as PendingSettingsTab['section'] });
+    expect(page.activeSettingsTab()).toBe('tools');
+    expect(page.providersTarget()).toBeNull();
+    expect(page.orchestrationTarget()).toBeNull();
+  });
+
   it('R2.7: reacts to a pending tab raised while Settings is already open', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
-    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.componentInstance.setActiveTab('pro-features');
     fixture.detectChanges();
     // Agent Orchestration's "Manage provider, model and credentials in Providers".
     appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
     TestBed.tick();
-    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
-    expect(fixture.componentInstance.providersTarget()).toBe('cli-agents');
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
+    expect(fixture.componentInstance.orchestrationTarget()).toBe('cli-agents');
     expect(appState.pendingSettingsTab()).toBeNull();
   });
+
+  it('a background role asking for provider setup switches to Providers with that provider', async () => {
+    const page = await landWith({ tab: 'providers', section: 'judge' });
+    page.openProviderSetup('moonshot');
+    expect(page.activeSettingsTab()).toBe('claude-auth');
+    expect(page.requestedProviderId()).toBe('moonshot');
+  });
+
+  it('#84: a VS Code LM model change re-detects CLIs through the shared state', async () => {
+    const page = await landWith({ tab: 'pro-features' });
+    page.onModelChanged();
+    expect(providersStateStub.redetectClis).toHaveBeenCalledTimes(1);
+  });
+
   it('ngOnInit leaves the default tab when no pending target', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
 
     expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+  });
+});
+
+/**
+ * Plan :571-574: the harness cannot raise a pending-tab request, so this is the proof that a
+ * direct Orchestration landing opens the shared state without mounting the Providers page.
+ */
+describe('SettingsComponent Orchestration landing', () => {
+  it('renders the interim Orchestration container, not Providers, and opens the state', async () => {
+    const state = providersStateFake();
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: state },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, {
+      set: { imports: [OrchestrationSettingsComponent], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    TestBed.overrideComponent(OrchestrationSettingsComponent, {
+      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    TestBed.inject(AppStateManager).requestSettingsTab({ tab: 'orchestration' });
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('ptah-orchestration-settings')).not.toBeNull();
+    expect(element.querySelector('ptah-providers-settings')).toBeNull();
+    expect(state.open).toHaveBeenCalledTimes(1);
+    TestBed.resetTestingModule();
+  });
+});
+
+describe('SettingsComponent header', () => {
+  function render(isElectron: boolean, activePath: string | null) {
+    const state = providersStateFake();
+    state.scopes.set({ status: 'ready', data: { activePath, entries: [] }, error: null });
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: state },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, { set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(SettingsComponent);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('shows the workspace name (full path in title) and the Desktop app label', () => {
+    const element = render(true, 'C:\\work\\ptah-extension');
+    const context = element.querySelector('[data-testid="settings-context"]');
+    expect(context?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Workspace: ptah-extension · App: Desktop');
+    expect(context?.querySelector('[title]')?.getAttribute('title')).toBe('C:\\work\\ptah-extension');
+  });
+
+  it('shows only the VS Code app label when no folder is open', () => {
+    const element = render(false, null);
+    expect(element.querySelector('[data-testid="settings-context"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('App: VS Code');
+  });
+
+  it('keeps Back and four enabled tab buttons with their names (D9)', () => {
+    const element = render(false, null);
+    expect(element.querySelector('[data-testid="settings-back"]')?.getAttribute('aria-label')).toBe('Back to Chat');
+    const tabs = Array.from(element.querySelectorAll<HTMLButtonElement>('nav[aria-label="Settings sections"] button'));
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['Providers', 'Agent Orchestration', 'Advanced', 'Search & Voice']);
+    expect(tabs.every((tab) => !tab.disabled)).toBe(true);
+    expect(tabs[0].classList.contains('tab-active')).toBe(true);
+    expect(tabs[0].getAttribute('aria-current')).toBe('page');
   });
 });
 
@@ -182,6 +358,7 @@ describe('SettingsComponent security copy', () => {
           provide: ClaudeRpcService,
           useValue: { call: jest.fn().mockResolvedValue(undefined) },
         },
+        { provide: ProvidersSettingsStateService, useValue: providersStateFake() },
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
@@ -292,6 +469,7 @@ describe('SettingsComponent deep-linked provider request', () => {
         { provide: AuthStateService, useValue: authStateStub },
         { provide: VSCodeService, useValue: { isElectron: false } },
         { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: providersStateFake() },
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {

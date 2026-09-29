@@ -6,35 +6,31 @@ import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
   type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
-import { NativeCardComponent, ProviderModelPickerComponent, PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import type { SettingScope, EffortLevel, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
-import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
 import { ProviderConnectionCardComponent, type ProviderConnectionCardStatus } from './provider-connection-card.component';
 import {
   ProviderSetupWizardComponent, type ProviderWizardCommit, type WizardCommitState,
 } from './provider-setup-wizard.component';
-import { PtahCliConfigComponent } from '../ptah-ai/ptah-cli-config.component';
-import {
-  ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
-} from './provider-consumer-assignments.component';
 
+/** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
 export type ProvidersSettingsFocusTarget =
-  | 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'background-models' | 'cli-agents' | 'more-providers'
-  | BackgroundConsumerId;
-
+  | 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'more-providers';
 
 const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-muted bg-base-100 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
-/** Unmounted page composition. All host access and persistence belong to the injected state owner. */
+/**
+ * Providers tab composition. All host access and persistence belong to the injected state owner;
+ * the model-catalogue loader is provided once by `SettingsComponent`.
+ */
 @Component({
   selector: 'ptah-providers-settings',
-  providers: [{ provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader }],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PtahCliConfigComponent, NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
-    ProviderConnectionCardComponent, ProviderSetupWizardComponent, ProviderConsumerAssignmentsComponent],
+  imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
+    ProviderConnectionCardComponent, ProviderSetupWizardComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <div class="max-w-4xl mx-auto px-3 py-3 md:px-6 lg:px-8 space-y-4">
@@ -203,13 +199,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           </section>
         }
 
-        <section data-focus="background-models" tabindex="-1" aria-label="Background models" class="scroll-mt-4">
-          <ptah-provider-consumer-assignments [disabled]="saving()" [initialEditingConsumerId]="consumerTarget()"
-            (setupProviderRequested)="openWizard($event)" (assignmentSaved)="state.refresh()" (timeoutSaved)="state.refreshJudging()" />
-        </section>
-
-        <ptah-cli-config />
-
         <details #catalogDisclosure class="rounded-xl border border-base-300 bg-base-100" [open]="catalogOpen()">
           <summary data-focus="more-providers" class="min-h-9 min-w-6 p-3 font-semibold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content">More providers</summary>
           <div class="p-3 space-y-3">
@@ -343,10 +332,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const configured = new Set(this.connections().map((entry) => entry.id));
     return (this.state.connections().data ?? []).filter((entry) => !configured.has(entry.id) && entry.name.toLowerCase().includes(this.search().toLowerCase()));
   });
-  protected readonly consumerTarget = computed(() => {
-    const target = this.focusTarget();
-    return target && ['memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement'].includes(target) ? target as BackgroundConsumerId : null;
-  });
   protected readonly readStates = computed(() => [
     { id: 'route', label: 'main-agent route', state: this.state.route(), retry: () => this.state.refreshRoute() },
     { id: 'scopes', label: 'setting sources', state: this.state.scopes(), retry: () => this.state.refreshScopes() },
@@ -354,9 +339,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     { id: 'main-sources', label: 'model and effort sources', state: this.state.mainSources(), retry: () => this.state.refreshMainSources() },
     { id: 'effort', label: 'main-agent reasoning effort', state: this.state.effort(), retry: () => this.state.refreshEffort() },
     { id: 'connections', label: 'providers', state: this.state.connections(), retry: () => this.state.refreshConnections() },
-    { id: 'cli', label: 'CLI agents', state: this.state.cliAgents(), retry: () => this.state.refreshCliAgents() },
-    { id: 'cli-models', label: 'CLI instance models', state: this.state.cliModels(), retry: () => this.state.refreshCliModels() },
-    { id: 'orchestration', label: 'delegated CLI models', state: this.state.orchestration(), retry: () => this.state.refreshOrchestration() },
   ]);
 
   constructor() {
@@ -386,13 +368,12 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       if (!target || target === this.focusedTarget) return;
       if (target === 'main-effort' && this.state.effort().status !== 'ready') return;
       if (target === 'more-providers') this.catalogOpen.set(true);
-      const section = this.consumerTarget() === target ? 'background-models' : target;
       if (target === 'main-model' && this.modelDraft() === null) {
         if (this.state.model().status !== 'ready') return;
         this.editModel();
         return;
       }
-      const node = this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${section}"]`);
+      const node = this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`);
       if (node) { node.focus(); this.focusedTarget = target; }
     });
   }
