@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Providers — Variant B (master–detail)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="text-sm" style="font-family: Inter, ui-sans-serif, system-ui, sans-serif;">
+
+<!-- Prototype toolbar (not part of the product) -->
+<div class="proto-toolbar">
+  <span class="proto-label">TASK_2026_555 · Variant B — Master–detail control center</span>
+  <span class="proto-links">
+    <a href="index.html" aria-current="page">Providers</a>
+    <a href="orchestration.html">Agent Orchestration</a>
+  </span>
+  <span class="proto-actions">
+    <button type="button" id="themeToggle" class="btn btn-ghost btn-xs">Theme: anubis</button>
+    <button type="button" id="frameToggle" class="btn btn-ghost btn-xs" aria-pressed="false">1024×768 frame: off</button>
+  </span>
+</div>
+
+<div class="proto-frame" id="frame">
+  <header class="settings-header">
+    <div>
+      <h1 class="text-lg font-semibold leading-tight">Settings</h1>
+      <p class="text-xs text-base-content-muted">Workspace: ptah-extension · App: Desktop</p>
+    </div>
+    <nav role="tablist" aria-label="Settings sections" class="tabs">
+      <a role="tab" aria-selected="true" class="tab tab-active" href="index.html">Providers</a>
+      <a role="tab" aria-selected="false" class="tab" href="orchestration.html">Agent Orchestration</a>
+      <a role="tab" class="tab" aria-disabled="true" title="Unchanged in this task">Advanced</a>
+      <a role="tab" class="tab" aria-disabled="true" title="Unchanged in this task">Search &amp; Voice</a>
+    </nav>
+  </header>
+
+  <div class="md-shell">
+    <!-- ================= master list ================= -->
+    <nav class="md-list" aria-label="Providers list">
+      <button type="button" class="md-row" data-pane="pane-main" aria-selected="true">
+        <span class="flex-1 min-w-0">
+          <span class="block font-medium">Main agent</span>
+          <span class="sub" id="mainRowSub">Claude (Subscription) · Default · medium</span>
+        </span>
+      </button>
+
+      <div class="md-group-label">Connections</div>
+      <div id="connectionsGroup">
+        <button type="button" class="md-row" data-pane="pane-claude" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Claude (Subscription)</span>
+          <span class="sub">Active for main agent</span></span>
+        </button>
+        <button type="button" class="md-row" data-pane="pane-moonshot" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Moonshot (Kimi)</span>
+          <span class="sub">Connected</span></span>
+        </button>
+        <button type="button" class="md-row" data-pane="pane-codex-oai" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">OpenAI Codex</span>
+          <span class="sub">Connected · OAuth</span></span>
+        </button>
+        <button type="button" class="md-row" data-pane="pane-ollama" aria-selected="false">
+          <span class="dot dot-error" id="rowDotOllama"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Ollama Cloud</span>
+          <span class="sub" id="rowSubOllama">Check failed</span></span>
+        </button>
+        <button type="button" class="md-row" data-pane="pane-sovereign" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">sovereigneg</span>
+          <span class="sub">Connected · custom endpoint</span></span>
+        </button>
+      </div>
+
+      <div class="pt-3">
+        <button type="button" class="btn btn-primary btn-sm w-full" data-modal-open="#modal-connect">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          Connect provider
+        </button>
+      </div>
+    </nav>
+
+    <!-- ================= detail panes ================= -->
+    <main class="md-detail" id="detail">
+
+      <!-- Main agent -->
+      <section class="detail-pane" id="pane-main" aria-labelledby="mainTitle">
+        <h2 id="mainTitle" class="text-base font-semibold mb-1">Main agent</h2>
+        <p class="text-xs text-base-content-muted mb-3">What the next request uses · authenticated with Claude CLI subscription</p>
+
+        <div class="detail-section">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="dot dot-success"></span>
+            <span class="text-success font-medium">Active for main agent</span>
+          </div>
+          <p class="text-xs text-base-content-muted">Changes apply to the next request. The running session keeps its provider.</p>
+
+          <div class="setting-row">
+            <div><div class="font-medium">Provider</div>
+              <div class="text-xs text-base-content-muted">Applies to the next main-agent request</div></div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="badge-override" data-pop="#popMainProvScope" aria-haspopup="dialog">App · Desktop</button>
+              <span class="relative">
+                <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popMainProvider" aria-haspopup="dialog">
+                  <span class="ctrl-label" id="mainProviderLabel">Claude (Subscription)</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="popover is-hidden" id="popMainProvider" role="dialog" aria-label="Choose the main provider" style="right:0; top:calc(100% + 6px);">
+                  <div class="pop-note">Choose a configured connection</div>
+                  <div class="pop-list">
+                    <button type="button" class="pop-item" data-set="#mainProviderLabel" aria-checked="true" data-msg="Main provider: Claude (Subscription) — applies to the next request">Claude (Subscription)</button>
+                    <button type="button" class="pop-item" data-set="#mainProviderLabel" data-msg="Main provider: Moonshot (Kimi) — applies to the next request">Moonshot (Kimi)</button>
+                    <button type="button" class="pop-item" data-set="#mainProviderLabel" data-msg="Main provider: OpenAI Codex — applies to the next request">OpenAI Codex</button>
+                    <button type="button" class="pop-item" data-set="#mainProviderLabel" data-msg="Main provider: Ollama Cloud — applies to the next request">Ollama Cloud</button>
+                    <button type="button" class="pop-item" data-set="#mainProviderLabel" data-msg="Main provider: sovereigneg — applies to the next request">sovereigneg</button>
+                  </div>
+                </div>
+              </span>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div>
+              <div class="text-xs text-base-content-muted">Inherited from the provider — no override set</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popMainModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="mainModelLabel">Default (chosen by Claude)</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popMainModel" role="dialog" aria-label="Choose the main model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popMainModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#mainModelLabel" aria-checked="true" data-name="default" data-label="Default (chosen by Claude)" data-msg="Main model: Default (chosen by Claude)">Default (chosen by Claude)</button>
+                  <button type="button" class="pop-item" data-set="#mainModelLabel" data-name="claude-opus-5-5" data-msg="Main model: claude-opus-5-5"><span class="tool-badge ok" aria-hidden="true">tools ✓</span> claude-opus-5-5</button>
+                  <button type="button" class="pop-item" data-set="#mainModelLabel" data-name="claude-sonnet-4-6" data-msg="Main model: claude-sonnet-4-6"><span class="tool-badge ok" aria-hidden="true">tools ✓</span> claude-sonnet-4-6</button>
+                  <button type="button" class="pop-item" data-set="#mainModelLabel" data-name="claude-haiku-4-5" data-msg="Main model: claude-haiku-4-5"><span class="tool-badge warn" aria-hidden="true">tools ⚠</span> claude-haiku-4-5</button>
+                </div>
+              </div>
+            </span>
+          </div>
+
+          <div class="setting-row">
+            <div><div class="font-medium">Reasoning effort</div>
+              <div class="text-xs text-base-content-muted">How long the main agent reasons before it answers</div></div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="badge-override" data-pop="#popEffortScope" aria-haspopup="dialog">Workspace override</button>
+              <span class="relative">
+                <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popMainEffort" aria-haspopup="dialog">
+                  <span class="ctrl-label" id="mainEffortLabel">medium</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="popover is-hidden" id="popMainEffort" role="dialog" aria-label="Choose the reasoning effort" style="right:0; top:calc(100% + 6px);">
+                  <button type="button" class="pop-item" data-set="#mainEffortLabel" data-msg="Reasoning effort: low">low</button>
+                  <button type="button" class="pop-item" data-set="#mainEffortLabel" aria-checked="true" data-msg="Reasoning effort: medium">medium</button>
+                  <button type="button" class="pop-item" data-set="#mainEffortLabel" data-msg="Reasoning effort: high">high</button>
+                </div>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-base-content-muted">Choices save at once. Select <strong>Undo</strong> in the notification to revert a change.</p>
+      </section>
+
+      <!-- Claude (Subscription) -->
+      <section class="detail-pane is-hidden" id="pane-claude" aria-labelledby="claudeTitle">
+        <h2 id="claudeTitle" class="text-base font-semibold mb-1">Claude (Subscription)</h2>
+        <p class="text-xs text-base-content-muted mb-3">CLI subscription · <span class="text-success">Active for main agent</span></p>
+
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-success"></span> <span class="text-success">Active for main agent</span> — Claude CLI login, last check 2 min ago.</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="Claude CLI: 120 ms">Check connection</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-toast="Signed out of the Claude CLI subscription">Sign out</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <p class="text-xs mb-2">No stored key. The CLI subscription uses your Claude CLI login.</p>
+          <p class="text-xs text-base-content-muted mb-2 font-mono-fallback">claude /login</p>
+          <a class="link text-primary text-xs" href="#" onclick="return false;">Claude Code documentation
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Models &amp; tier mapping</div>
+          <input class="input input-sm w-full mb-2" type="search" placeholder="Search models" data-filter="#claudeModelItems .setting-row" aria-label="Search Claude models">
+          <div id="claudeModelItems">
+            <div class="setting-row" data-name="claude-opus-5-5">
+              <div><span class="font-medium">claude-opus-5-5</span> <span class="tool-badge ok">tools ✓</span></div>
+              <span class="tier-chip">Opus</span>
+            </div>
+            <div class="setting-row" data-name="claude-sonnet-4-6">
+              <div><span class="font-medium">claude-sonnet-4-6</span> <span class="tool-badge ok">tools ✓</span></div>
+              <span class="tier-chip">Sonnet</span>
+            </div>
+            <div class="setting-row" data-name="claude-haiku-4-5">
+              <div><span class="font-medium">claude-haiku-4-5</span> <span class="tool-badge warn" title="Tool use not verified on this account">tools ⚠</span></div>
+              <span class="tier-chip">Haiku</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Used by</div>
+          <p class="text-xs"><a class="link text-primary" href="#" onclick="return false;">Main agent</a> — provider, model and effort.</p>
+        </div>
+
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <p class="text-xs mb-2">Disconnect signs out the CLI subscription. The main agent stops.</p>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Claude (Subscription) disconnected">Disconnect</button>
+        </div>
+      </section>
+
+      <!-- Moonshot (Kimi) -->
+      <section class="detail-pane is-hidden" id="pane-moonshot" aria-labelledby="moonTitle">
+        <h2 id="moonTitle" class="text-base font-semibold mb-1">Moonshot (Kimi)</h2>
+        <p class="text-xs text-base-content-muted mb-3">API key · <span class="text-success">Connected</span> · key stored on this machine</p>
+
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-success"></span> <span class="text-success">Connected</span> — last check passed 2 min ago (310 ms).</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="Moonshot: 280 ms">Check connection</button>
+            <button type="button" class="btn btn-primary btn-sm" data-use-main="Moonshot (Kimi)">Use for main agent</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <div class="setting-row">
+            <div><div class="font-medium">API key</div>
+              <div class="text-xs text-base-content-muted font-mono-fallback" data-masked="sk-••••••••••••3f9a" data-full="sk-moon-9f3ac2e1b8d43f7a90c2" data-shown="0">sk-••••••••••••3f9a</div></div>
+            <button type="button" class="btn btn-ghost btn-xs" data-eye aria-label="Show or hide the stored key">
+              <svg class="eye-on is-hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/><path d="m2 2 20 20"/></svg>
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-toggle-form="#moonReplaceForm">Replace key</button>
+            <button type="button" class="btn btn-outline btn-error btn-xs" data-toast="API key deleted from this machine">Delete key</button>
+          </div>
+          <div class="is-hidden mt-2 p-3 border border-base-300 rounded-lg" id="moonReplaceForm">
+            <label class="text-xs" for="moonNewKey">New API key</label>
+            <div class="flex gap-2 mt-1">
+              <input id="moonNewKey" type="password" class="input input-sm flex-1 font-mono-fallback" value="sk-moon-9f3ac2e1b8d43f7a90c2">
+              <button type="button" class="btn btn-ghost btn-sm" data-eye="#moonNewKey" aria-label="Show or hide the new key">
+                <svg class="eye-on is-hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/><path d="m2 2 20 20"/></svg>
+              </button>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="btn btn-primary btn-sm" data-check data-check-msg="Moonshot: 290 ms" data-check-enable="#moonSaveKey">Check connection</button>
+              <button type="button" class="btn btn-sm" id="moonSaveKey" disabled data-toast="API key saved (this machine)">Save key</button>
+            </div>
+            <p class="text-xs text-base-content-muted mt-1">The key is saved only after the connection check passes.</p>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Models &amp; tier mapping</div>
+          <input class="input input-sm w-full mb-2" type="search" placeholder="Search models" data-filter="#moonModelItems .setting-row" aria-label="Search Moonshot models">
+          <div id="moonModelItems">
+            <div class="setting-row" data-name="kimi-k2.5">
+              <div><span class="font-medium">kimi-k2.5</span> <span class="tool-badge ok">tools ✓</span></div><span class="tier-chip">Opus</span>
+            </div>
+            <div class="setting-row" data-name="kimi-k2.5-turbo">
+              <div><span class="font-medium">kimi-k2.5-turbo</span> <span class="tool-badge ok">tools ✓</span></div><span class="tier-chip">Sonnet</span>
+            </div>
+            <div class="setting-row" data-name="kimi-k2-thinking">
+              <div><span class="font-medium">kimi-k2-thinking</span> <span class="tool-badge warn" title="Tool use not verified for this model">tools ⚠</span></div><span class="tier-chip">Haiku</span>
+            </div>
+          </div>
+          <div class="pop-note">Tier mapping feeds the main agent and the roles that follow it.</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Pricing</div>
+          <p class="text-xs">kimi-k2.5 — input $0.60 · output $2.50 per 1M tokens.</p>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Used by</div>
+          <p class="text-xs"><a class="link text-primary" href="orchestration.html">Judge lane</a> (Agent Orchestration) — kimi-k2.5.</p>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Help</div>
+          <a class="link text-primary text-xs" href="#" onclick="return false;">Get a Moonshot API key
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
+        </div>
+
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <p class="text-xs mb-2">Disconnect removes the stored key. Roles that use this provider stop.</p>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Moonshot (Kimi) disconnected">Disconnect</button>
+        </div>
+      </section>
+
+      <!-- OpenAI Codex -->
+      <section class="detail-pane is-hidden" id="pane-codex-oai" aria-labelledby="oaiTitle">
+        <h2 id="oaiTitle" class="text-base font-semibold mb-1">OpenAI Codex</h2>
+        <p class="text-xs text-base-content-muted mb-3">OAuth · <span class="text-success">Connected</span> · OAuth session</p>
+
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-success"></span> <span class="text-success">Connected</span> — signed in as dev@example.com.</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="OpenAI Codex: 260 ms">Check connection</button>
+            <button type="button" class="btn btn-primary btn-sm" data-use-main="OpenAI Codex">Use for main agent</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <p class="text-xs mb-2">OAuth session — no API key is stored.</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-toast="OAuth session refreshed">Refresh session</button>
+            <button type="button" class="btn btn-outline btn-error btn-xs" data-toast="Signed out of OpenAI Codex">Sign out</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Models &amp; tier mapping</div>
+          <input class="input input-sm w-full mb-2" type="search" placeholder="Search models" data-filter="#oaiModelItems .setting-row" aria-label="Search OpenAI Codex models">
+          <div id="oaiModelItems">
+            <div class="setting-row" data-name="gpt-5.6-luna">
+              <div><span class="font-medium">gpt-5.6-luna</span> <span class="tool-badge ok">tools ✓</span></div><span class="tier-chip">Opus</span>
+            </div>
+            <div class="setting-row" data-name="gpt-5.5-codex">
+              <div><span class="font-medium">gpt-5.5-codex</span> <span class="tool-badge ok">tools ✓</span></div><span class="tier-chip">Sonnet</span>
+            </div>
+            <div class="setting-row" data-name="gpt-5.5-mini">
+              <div><span class="font-medium">gpt-5.5-mini</span> <span class="tool-badge ok">tools ✓</span></div><span class="tier-chip">Haiku</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Pricing</div>
+          <p class="text-xs">gpt-5.6-luna — input $1.25 · output $10.00 per 1M tokens.</p>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Used by</div>
+          <p class="text-xs"><a class="link text-primary" href="orchestration.html">Memory curator</a> role — gpt-5.6-luna · <a class="link text-primary" href="orchestration.html">Codex CLI agent</a>.</p>
+        </div>
+
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <p class="text-xs mb-2">Disconnect revokes the OAuth session for Ptah.</p>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="OpenAI Codex disconnected">Disconnect</button>
+        </div>
+      </section>
+
+      <!-- Ollama Cloud -->
+      <section class="detail-pane is-hidden" id="pane-ollama" aria-labelledby="ollamaTitle">
+        <h2 id="ollamaTitle" class="text-base font-semibold mb-1">Ollama Cloud</h2>
+        <p class="text-xs text-base-content-muted mb-3">API key · custom endpoint not set · key stored on this machine</p>
+
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-error" id="ollamaDot"></span>
+            <span class="text-error font-medium" id="ollamaStatusText">Check failed</span>
+            <span class="text-xs text-base-content-muted">— HTTP 503: the service did not answer (14:32).</span></p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-retry
+              data-retry-dot="#ollamaDot" data-retry-text="#ollamaStatusText"
+              data-retry-rowdot="#rowDotOllama" data-retry-rowtext="#rowSubOllama">Retry</button>
+            <button type="button" class="btn btn-primary btn-sm" data-use-main="Ollama Cloud" disabled title="Available after the connection check passes">Use for main agent</button>
+          </div>
+          <p class="text-xs text-base-content-muted mt-1">"Use for main agent" stays locked until the check passes.</p>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <p class="text-xs mb-1">API key stored on this machine. A key is optional for Ollama Cloud; you can leave it empty.</p>
+          <div class="setting-row">
+            <div><div class="font-medium">API key</div>
+              <div class="text-xs text-base-content-muted font-mono-fallback" data-masked="sk-••••••••••••7c21" data-full="sk-ollama-22e91a4f7c5b8d13aa4e" data-shown="0">sk-••••••••••••7c21</div></div>
+            <button type="button" class="btn btn-ghost btn-xs" data-eye aria-label="Show or hide the stored key">
+              <svg class="eye-on is-hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/><path d="m2 2 20 20"/></svg>
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-toggle-form="#ollamaReplaceForm">Replace key</button>
+            <button type="button" class="btn btn-outline btn-error btn-xs" data-toast="API key deleted from this machine">Delete key</button>
+          </div>
+          <div class="is-hidden mt-2 p-3 border border-base-300 rounded-lg" id="ollamaReplaceForm">
+            <div class="flex gap-2">
+              <input type="password" class="input input-sm flex-1 font-mono-fallback" value="sk-ollama-22e91a4f7c5b8d13aa4e" aria-label="New Ollama Cloud API key">
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="btn btn-primary btn-sm" data-check data-check-msg="Ollama Cloud: 410 ms" data-check-enable="#ollamaSaveKey">Check connection</button>
+              <button type="button" class="btn btn-sm" id="ollamaSaveKey" disabled data-toast="API key saved (this machine)">Save key</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Models &amp; tier mapping</div>
+          <input class="input input-sm w-full mb-2" type="search" placeholder="Search models" data-filter="#ollamaModelItems .setting-row" aria-label="Search Ollama Cloud models">
+          <div id="ollamaModelItems">
+            <div class="setting-row" data-name="glm-5.3:cloud">
+              <div><span class="font-medium">glm-5.3:cloud</span> <span class="tool-badge ok">tools ✓</span></div>
+              <span class="flex gap-1"><span class="tier-chip">Opus</span><span class="tier-chip">Sonnet</span></span>
+            </div>
+            <div class="setting-row" data-name="qwen3:8b">
+              <div><span class="font-medium">qwen3:8b</span> <span class="tool-badge warn" title="Tool use not verified for this model">tools ⚠</span></div>
+              <span class="tier-chip">Haiku</span>
+            </div>
+            <div class="setting-row" data-name="gemma3:27b">
+              <div><span class="font-medium">gemma3:27b</span> <span class="tool-badge warn" title="Tool use not verified for this model">tools ⚠</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Pricing</div>
+          <p class="text-xs">Freemium — the quota is shared across your Ollama Cloud account.</p>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Used by</div>
+          <p class="text-xs"><a class="link text-primary" href="orchestration.html">Ptah CLI agent "Glm"</a> (Agent Orchestration) — glm-5.3:cloud.</p>
+        </div>
+
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <p class="text-xs mb-2">Disconnect removes the stored key. The "Glm" CLI agent stops.</p>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Ollama Cloud disconnected">Disconnect</button>
+        </div>
+      </section>
+
+      <!-- sovereigneg (custom provider) -->
+      <section class="detail-pane is-hidden" id="pane-sovereign" aria-labelledby="sovTitle">
+        <h2 id="sovTitle" class="text-base font-semibold mb-1">sovereigneg</h2>
+        <p class="text-xs text-base-content-muted mb-3">API key · custom endpoint · <span class="text-success">Connected</span></p>
+
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-success"></span> <span class="text-success">Connected</span> — custom endpoint https://api.sovereigneg.ai/v1.</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="sovereigneg: 540 ms">Check connection</button>
+            <button type="button" class="btn btn-primary btn-sm" data-use-main="sovereigneg">Use for main agent</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <div class="setting-row">
+            <div><div class="font-medium">API key</div>
+              <div class="text-xs text-base-content-muted font-mono-fallback" data-masked="sg-••••••••••••a551" data-full="sg-live-77c1ee9a4b2f0d6c83ba" data-shown="0">sg-••••••••••••a551</div></div>
+            <button type="button" class="btn btn-ghost btn-xs" data-eye aria-label="Show or hide the stored key">
+              <svg class="eye-on is-hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/><path d="m2 2 20 20"/></svg>
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-toggle-form="#sovReplaceForm">Replace key</button>
+            <button type="button" class="btn btn-outline btn-error btn-xs" data-toast="API key deleted from this machine">Delete key</button>
+          </div>
+          <div class="is-hidden mt-2 p-3 border border-base-300 rounded-lg" id="sovReplaceForm">
+            <div class="flex gap-2">
+              <input type="password" class="input input-sm flex-1 font-mono-fallback" value="sg-live-77c1ee9a4b2f0d6c83ba" aria-label="New sovereigneg API key">
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="btn btn-primary btn-sm" data-check data-check-msg="sovereigneg: 520 ms" data-check-enable="#sovSaveKey">Check connection</button>
+              <button type="button" class="btn btn-sm" id="sovSaveKey" disabled data-toast="API key saved (this machine)">Save key</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Custom endpoint</div>
+          <div class="grid gap-2">
+            <label class="text-xs" for="sovBaseUrl">Base URL</label>
+            <input id="sovBaseUrl" class="input input-sm w-full font-mono-fallback" value="https://api.sovereigneg.ai/v1">
+            <label class="text-xs" for="sovModelsUrl">Models endpoint</label>
+            <input id="sovModelsUrl" class="input input-sm w-full font-mono-fallback" value="https://api.sovereigneg.ai/v1/models">
+            <label class="text-xs" for="sovHelpUrl">Help URL</label>
+            <input id="sovHelpUrl" class="input input-sm w-full" value="https://docs.sovereigneg.ai">
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="text-xs" for="sovPriceIn">Input $ / 1M</label>
+                <input id="sovPriceIn" class="input input-sm w-full" value="0.80"></div>
+              <div><label class="text-xs" for="sovPriceOut">Output $ / 1M</label>
+                <input id="sovPriceOut" class="input input-sm w-full" value="2.40"></div>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button type="button" class="btn btn-primary btn-sm" data-check data-check-msg="sovereigneg: 520 ms" data-check-enable="#sovSaveEndpoint">Check connection</button>
+            <button type="button" class="btn btn-sm" id="sovSaveEndpoint" disabled data-toast="Custom provider settings saved">Save endpoint</button>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Models</div>
+          <input class="input input-sm w-full mb-2" type="search" placeholder="Search models" data-filter="#sovModelItems .setting-row" aria-label="Search sovereigneg models">
+          <div id="sovModelItems">
+            <div class="setting-row" data-name="sovereigneg/sgl-72b">
+              <div><span class="font-medium">sovereigneg/sgl-72b</span> <span class="tool-badge warn" title="Tool use not verified for this model">tools ⚠</span></div>
+            </div>
+            <div class="setting-row" data-name="sovereigneg/sgl-mini">
+              <div><span class="font-medium">sovereigneg/sgl-mini</span> <span class="tool-badge ok">tools ✓</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="section-title">Used by</div>
+          <p class="text-xs text-base-content-muted">Not used by any agent yet.</p>
+        </div>
+
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <p class="text-xs mb-2">Delete removes the custom provider and its stored key. This cannot be undone in the app.</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="sovereigneg disconnected">Disconnect</button>
+            <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Custom provider sovereigneg deleted">Delete custom provider</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- dynamic pane: a provider connected through the wizard -->
+      <section class="detail-pane is-hidden" id="pane-dynamic" aria-labelledby="dynTitle">
+        <h2 class="text-base font-semibold mb-1"><span data-fill="name">New provider</span></h2>
+        <p class="text-xs text-base-content-muted mb-3">API key · <span class="text-success">Connected</span> · key saved on this machine</p>
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="mb-2"><span class="dot dot-success"></span> <span class="text-success">Connected</span> — key verified during setup.</p>
+          <button type="button" class="btn btn-primary btn-sm" data-use-main="New provider">Use for main agent</button>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Credentials</div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" data-toast="Replace key flow opens (demo)">Replace key</button>
+            <button type="button" class="btn btn-outline btn-error btn-xs" data-toast="API key deleted from this machine">Delete key</button>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Models</div>
+          <p class="text-xs text-base-content-muted">No models fetched yet. Run "Check connection" to load the model list.</p>
+        </div>
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Provider disconnected">Disconnect</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- scope-provenance popovers (outside the panes so they overlay correctly) -->
+<div class="popover is-hidden" id="popMainProvScope" role="dialog" aria-label="Provider scope provenance" style="position:fixed;">
+  <div class="pop-note">Provider is set in <strong>App · Desktop</strong>. A workspace override takes precedence.</div>
+  <div class="pop-sep"></div>
+  <div class="pop-note">Save to</div>
+  <button type="button" class="pop-item" aria-checked="false" data-toast="Provider will save to: This workspace">This workspace (ptah-extension)</button>
+  <button type="button" class="pop-item" aria-checked="true" data-toast="Provider will save to: Desktop app">Desktop app</button>
+  <button type="button" class="pop-item" aria-checked="false" data-toast="Provider will save to: All Ptah apps">All Ptah apps</button>
+</div>
+<div class="popover is-hidden" id="popEffortScope" role="dialog" aria-label="Effort override provenance" style="position:fixed;">
+  <div class="pop-note">Effort is overridden in <strong>Workspace (ptah-extension)</strong>. Global value: provider default.</div>
+  <div class="pop-sep"></div>
+  <button type="button" class="pop-item" data-set="#mainEffortLabel" data-label="Provider default" data-msg="Override cleared — effort follows the provider default">Use global value</button>
+  <button type="button" class="pop-item" data-toast="Workspace override for effort removed">Clear override</button>
+  <div class="pop-sep"></div>
+  <div class="pop-note">Save to</div>
+  <button type="button" class="pop-item" aria-checked="true" data-toast="Effort override will save to: This workspace">This workspace (ptah-extension)</button>
+  <button type="button" class="pop-item" aria-checked="false" data-toast="Effort override will save to: Desktop app">Desktop app</button>
+  <button type="button" class="pop-item" aria-checked="false" data-toast="Effort override will save to: All Ptah apps">All Ptah apps</button>
+</div>
+
+<!-- connect-provider modal: catalog + step wizard -->
+<div class="modal-backdrop is-hidden" id="modal-connect" role="dialog" aria-modal="true" aria-labelledby="connectTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="connectTitle" class="text-base font-semibold">Connect a provider</h2>
+      <button type="button" class="btn btn-ghost btn-sm" data-modal-close aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+
+      <div data-wiz-step="1">
+        <input class="input input-sm w-full mb-3" type="search" placeholder="Search 15 providers" data-filter="#wizTiles .wiz-tile" aria-label="Search the provider catalog">
+        <div class="grid grid-cols-2 gap-2" id="wizTiles">
+          <button type="button" class="wiz-tile" data-wiz-provider="Claude (Subscription)" data-auth="cli" data-help="https://claude.com/claude-code">
+            <span class="font-medium">Claude (Subscription)</span><span class="sub">CLI subscription · <span class="text-success">Connected</span></span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Moonshot (Kimi)" data-auth="key" data-help="https://platform.moonshot.ai">
+            <span class="font-medium">Moonshot (Kimi)</span><span class="sub">API key · <span class="text-success">Connected</span></span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="OpenAI Codex" data-auth="oauth" data-help="https://chatgpt.com/codex">
+            <span class="font-medium">OpenAI Codex</span><span class="sub">OAuth · <span class="text-success">Connected</span></span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Ollama Cloud" data-auth="key" data-help="https://ollama.com/cloud">
+            <span class="font-medium">Ollama Cloud</span><span class="sub">API key (optional) · <span class="text-success">Connected</span></span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="sovereigneg" data-auth="key" data-help="https://docs.sovereigneg.ai">
+            <span class="font-medium">sovereigneg</span><span class="sub">API key · custom endpoint · <span class="text-success">Connected</span></span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Anthropic API" data-auth="key" data-help="https://console.anthropic.com/settings/keys">
+            <span class="font-medium">Anthropic API</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="OpenAI API" data-auth="key" data-help="https://platform.openai.com/api-keys">
+            <span class="font-medium">OpenAI API</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="OpenRouter" data-auth="key" data-help="https://openrouter.ai/keys">
+            <span class="font-medium">OpenRouter</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="GitHub Copilot" data-auth="oauth" data-help="https://github.com/settings/copilot">
+            <span class="font-medium">GitHub Copilot</span><span class="sub">GitHub sign-in</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Google Gemini" data-auth="key|oauth" data-help="https://aistudio.google.com/apikey">
+            <span class="font-medium">Google Gemini</span><span class="sub">API key or Google sign-in</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Z.ai (GLM)" data-auth="key" data-help="https://z.ai/manage-apikey/apikey-list">
+            <span class="font-medium">Z.ai (GLM)</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="DeepSeek" data-auth="key" data-help="https://platform.deepseek.com/api_keys">
+            <span class="font-medium">DeepSeek</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Groq" data-auth="key" data-help="https://console.groq.com/keys">
+            <span class="font-medium">Groq</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="Mistral" data-auth="key" data-help="https://console.mistral.ai/api-keys">
+            <span class="font-medium">Mistral</span><span class="sub">API key</span>
+          </button>
+          <button type="button" class="wiz-tile" data-wiz-provider="xAI" data-auth="key" data-help="https://console.x.ai">
+            <span class="font-medium">xAI</span><span class="sub">API key</span>
+          </button>
+        </div>
+        <p class="text-xs text-base-content-muted mt-2">Already-connected providers open their detail pane.</p>
+      </div>
+
+      <div data-wiz-step="2" class="is-hidden">
+        <button type="button" class="btn btn-ghost btn-xs mb-2" data-wiz-goto="1">← Back to catalog</button>
+        <h3 class="font-semibold mb-1">Connect <span data-wiz-name>provider</span></h3>
+        <p class="text-xs text-base-content-muted mb-3">Choose how Ptah authenticates with this provider.</p>
+        <div class="grid gap-2">
+          <button type="button" class="wiz-tile" data-auth-kind="key" data-wiz-auth="key">
+            <span class="font-medium">API key</span><span class="sub">Paste a key from the provider console</span>
+          </button>
+          <button type="button" class="wiz-tile" data-auth-kind="oauth" data-wiz-auth="oauth">
+            <span class="font-medium">OAuth sign-in</span><span class="sub">Sign in in a new browser window</span>
+          </button>
+          <button type="button" class="wiz-tile" data-auth-kind="cli" data-wiz-auth="cli">
+            <span class="font-medium">CLI subscription</span><span class="sub">Reuse the local CLI login</span>
+          </button>
+        </div>
+      </div>
+
+      <div data-wiz-step="3" class="is-hidden">
+        <button type="button" class="btn btn-ghost btn-xs mb-2" data-wiz-goto="2">← Back</button>
+        <h3 class="font-semibold mb-1">Credentials — <span data-wiz-name>provider</span></h3>
+
+        <div data-cred="key">
+          <label class="text-xs" for="wizKey">API key</label>
+          <div class="flex gap-2 mt-1">
+            <input id="wizKey" type="password" class="input input-sm flex-1 font-mono-fallback" placeholder="sk-…">
+            <button type="button" class="btn btn-ghost btn-sm" data-eye="#wizKey" aria-label="Show or hide the API key">
+              <svg class="eye-on is-hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/><path d="m2 2 20 20"/></svg>
+            </button>
+          </div>
+          <a id="wizHelp" class="link text-primary text-xs mt-1 inline-block" href="#" onclick="return false;">Get a key</a>
+        </div>
+
+        <div data-cred="oauth" class="is-hidden">
+          <p class="text-xs mb-2">Ptah opens a browser window. Sign in, then return here.</p>
+          <button type="button" class="btn btn-primary btn-sm" data-toast="OAuth window opened (demo)">Sign in with GitHub</button>
+        </div>
+
+        <div data-cred="cli" class="is-hidden">
+          <p class="text-xs mb-2">Ptah reuses the local CLI login. No key is stored.</p>
+          <p class="text-xs text-base-content-muted font-mono-fallback">claude /login</p>
+        </div>
+
+        <div class="mt-3">
+          <button type="button" class="btn btn-primary btn-sm" data-wiz-goto="4">Continue</button>
+        </div>
+      </div>
+
+      <div data-wiz-step="4" class="is-hidden">
+        <button type="button" class="btn btn-ghost btn-xs mb-2" data-wiz-goto="3">← Back</button>
+        <h3 class="font-semibold mb-1">Verify — <span data-wiz-name>provider</span></h3>
+        <p class="text-xs text-base-content-muted mb-3">The connection must pass before the credential is saved.</p>
+        <button type="button" class="btn btn-primary btn-sm mb-3" data-check data-check-msg="Connection check passed" data-check-enable="#wizSave">Check connection</button>
+        <div class="pop-note mb-2">Save to</div>
+        <div class="grid gap-1 mb-3">
+          <label class="label cursor-pointer flex items-center gap-2 text-xs"><input type="radio" name="wizScope" class="radio radio-sm" checked> This workspace (ptah-extension)</label>
+          <label class="label cursor-pointer flex items-center gap-2 text-xs"><input type="radio" name="wizScope" class="radio radio-sm"> Desktop app</label>
+          <label class="label cursor-pointer flex items-center gap-2 text-xs"><input type="radio" name="wizScope" class="radio radio-sm"> All Ptah apps</label>
+        </div>
+        <button type="button" class="btn btn-sm" id="wizSave" disabled data-connect-new>Save connection</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+<script src="assets/app.js"></script>
+<script>
+/* position the fixed scope popovers near their badges when opened */
+(function () {
+  ['popMainProvScope', 'popEffortScope'].forEach(function (id) {
+    var btn = document.querySelector('[data-pop="#' + id + '"]');
+    var pop = document.getElementById(id);
+    if (!btn || !pop) return;
+    btn.addEventListener('click', function () {
+      var r = btn.getBoundingClientRect();
+      pop.style.left = Math.min(r.left, window.innerWidth - 330) + 'px';
+      pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 220) + 'px';
+    });
+  });
+})();
+</script>
+</body>
+</html>

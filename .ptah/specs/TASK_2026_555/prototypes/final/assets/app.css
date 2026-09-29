@@ -1,0 +1,538 @@
+/**
+ * Prototype styling for TASK_2026_555 (Variant C - Routing Map).
+ * Extends the anubis & anubis-light design tokens from TASK_2026_494_ca38.
+ */
+
+/* ---------------------------------------------------------------------- */
+/* Token variables — source: apps/ptah-extension-webview/tailwind.config.js */
+/* ---------------------------------------------------------------------- */
+
+[data-theme='anubis'] {
+  --brand-primary: #2563eb;
+  --brand-primary-focus: #1d4ed8;
+  --brand-primary-content: #f8f7f4;
+  --brand-secondary: #d4af37;
+  --brand-secondary-content: #131317;
+  --brand-accent: #fbbf24;
+  --brand-accent-content: #131317;
+  --brand-neutral: #1e1e26;
+  --brand-neutral-content: #d1d5db;
+  --brand-base-100: #131317;
+  --brand-base-200: #1a1a20;
+  --brand-base-300: #242430;
+  --brand-content: #e8e6e1;
+  --brand-content-muted: oklch(63.048152% 0.00745 23.427972);
+  --brand-info: #3b82f6;
+  --brand-info-content: #e8e6e1;
+  --brand-success: #16a34a;
+  --brand-success-content: #e8e6e1;
+  --brand-warning: #f97316;
+  --brand-warning-content: #131317;
+  --brand-error: #dc2626;
+  --brand-error-content: #e8e6e1;
+  --brand-rounded-box: 0.75rem;
+  --brand-rounded-btn: 0.375rem;
+  --brand-rounded-badge: 0.25rem;
+  color-scheme: dark;
+}
+
+[data-theme='anubis-light'] {
+  --brand-primary: oklch(85% 0.138 181.071);
+  --brand-primary-focus: oklch(80% 0.15 181);
+  --brand-primary-content: oklch(43% 0.078 188.216);
+  --brand-secondary: oklch(58% 0.132 75);
+  --brand-secondary-content: oklch(98% 0.015 80);
+  --brand-accent: oklch(90% 0.076 70.697);
+  --brand-accent-content: oklch(47% 0.157 37.304);
+  --brand-neutral: oklch(27% 0.006 286.033);
+  --brand-neutral-content: oklch(92% 0.004 286.32);
+  --brand-base-100: oklch(97.788% 0.004 56.375);
+  --brand-base-200: oklch(93.982% 0.007 61.449);
+  --brand-base-300: oklch(91.586% 0.006 53.44);
+  --brand-content: oklch(23.574% 0.066 313.189);
+  --brand-content-muted: oklch(53.2596% 0.0412 354.4634);
+  --brand-info: oklch(68% 0.169 237.323);
+  --brand-info-content: oklch(29% 0.066 243.157);
+  --brand-success: oklch(69% 0.17 162.48);
+  --brand-success-content: oklch(26% 0.051 172.552);
+  --brand-warning: oklch(72% 0.18 55);
+  --brand-warning-content: oklch(28% 0.066 53.813);
+  --brand-error: oklch(64% 0.246 16.439);
+  --brand-error-content: oklch(27% 0.105 12.094);
+  --brand-rounded-box: 1rem;
+  --brand-rounded-btn: 2rem;
+  --brand-rounded-badge: 1rem;
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Base surface + text ladder                                             */
+/* ---------------------------------------------------------------------- */
+
+html,
+body {
+  background-color: var(--brand-base-100);
+  color: var(--brand-content);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+.bg-base-100 { background-color: var(--brand-base-100); }
+.bg-base-200 { background-color: var(--brand-base-200); }
+.bg-base-300 { background-color: var(--brand-base-300); }
+.text-base-content { color: var(--brand-content); }
+.text-base-content-muted { color: var(--brand-content-muted); }
+.border-base-300 { border-color: var(--brand-base-300); }
+.border-base-content\/10 { border-color: color-mix(in oklab, var(--brand-content) 10%, transparent); }
+.border-base-content\/15 { border-color: color-mix(in oklab, var(--brand-content) 15%, transparent); }
+.border-base-content\/20 { border-color: color-mix(in oklab, var(--brand-content) 20%, transparent); }
+.bg-base-300\/30 { background-color: color-mix(in oklab, var(--brand-base-300) 30%, transparent); }
+.bg-base-300\/40 { background-color: color-mix(in oklab, var(--brand-base-300) 40%, transparent); }
+.bg-base-200\/50 { background-color: color-mix(in oklab, var(--brand-base-200) 50%, transparent); }
+.bg-base-200\/80 { background-color: color-mix(in oklab, var(--brand-base-200) 80%, transparent); }
+.hover\:bg-base-300\/50:hover { background-color: color-mix(in oklab, var(--brand-base-300) 50%, transparent); }
+
+/* Semantic text / tint pairs */
+.text-primary { color: var(--brand-primary); }
+.text-secondary { color: var(--brand-secondary); }
+.text-success { color: var(--brand-success); }
+.text-warning { color: var(--brand-warning); }
+.text-error { color: var(--brand-error); }
+.text-info { color: var(--brand-info); }
+
+.border-primary\/20 { border-color: color-mix(in oklab, var(--brand-primary) 20%, transparent); }
+.border-primary\/40 { border-color: color-mix(in oklab, var(--brand-primary) 40%, transparent); }
+.border-success\/20 { border-color: color-mix(in oklab, var(--brand-success) 20%, transparent); }
+.border-info\/20 { border-color: color-mix(in oklab, var(--brand-info) 20%, transparent); }
+.border-warning\/20 { border-color: color-mix(in oklab, var(--brand-warning) 20%, transparent); }
+.border-warning\/30 { border-color: color-mix(in oklab, var(--brand-warning) 30%, transparent); }
+.border-error\/30 { border-color: color-mix(in oklab, var(--brand-error) 30%, transparent); }
+.bg-warning\/10 { background-color: color-mix(in oklab, var(--brand-warning) 10%, transparent); }
+.bg-error\/10 { background-color: color-mix(in oklab, var(--brand-error) 10%, transparent); }
+.bg-success\/10 { background-color: color-mix(in oklab, var(--brand-success) 10%, transparent); }
+.bg-primary\/10 { background-color: color-mix(in oklab, var(--brand-primary) 10%, transparent); }
+.bg-info\/10 { background-color: color-mix(in oklab, var(--brand-info) 10%, transparent); }
+
+/* Buttons & UI controls */
+.btn { border-radius: var(--brand-rounded-btn); text-transform: none; font-size: 0.8125rem; font-weight: 500; transition: all 0.15s ease; }
+.btn-primary {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--brand-primary-content);
+}
+.btn-primary:hover { background-color: var(--brand-primary-focus); border-color: var(--brand-primary-focus); }
+.btn-ghost { background-color: transparent; border-color: transparent; color: var(--brand-content); }
+.btn-ghost:hover { background-color: color-mix(in oklab, var(--brand-content) 10%, transparent); }
+.btn-outline { background-color: transparent; border-color: var(--brand-base-300); color: var(--brand-content); }
+.btn-outline:hover { background-color: var(--brand-base-300); }
+.btn-outline.btn-error { border-color: var(--brand-error); color: var(--brand-error); }
+.btn-outline.btn-error:hover { background-color: var(--brand-error); color: var(--brand-error-content); }
+
+.input, .select, .textarea {
+  background-color: var(--brand-base-200);
+  border: 1px solid var(--brand-base-300);
+  color: var(--brand-content);
+  border-radius: var(--brand-rounded-btn);
+  font-size: 0.8125rem;
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+  border-color: var(--brand-primary);
+}
+
+/* Tabs */
+[role='tab'], .tab {
+  color: var(--brand-content-muted) !important;
+  background: none !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  box-shadow: none !important;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+}
+[role='tab'].tab-active,
+.tab.tab-active,
+[role='tab'][aria-selected='true'] {
+  color: var(--brand-content) !important;
+  background-color: transparent !important;
+  border-bottom: 2px solid var(--brand-primary) !important;
+}
+
+/* Prototype toolbar */
+.proto-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  background-color: var(--brand-base-200);
+  border-bottom: 1px solid var(--brand-base-300);
+  padding: 0.375rem 1rem;
+  font-size: 0.75rem;
+}
+
+/* 1024x768 Container frame mode */
+.frame-1024-active {
+  background-color: #0b0b0e;
+  padding: 1.5rem 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.frame-1024-container {
+  width: 1024px;
+  height: 768px;
+  max-width: 1024px;
+  max-height: 768px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: var(--brand-base-100);
+  border: 2px solid var(--brand-primary);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  position: relative;
+}
+
+/* Routing Overview: Top section of Variant C */
+.routing-flow-card {
+  background-color: var(--brand-base-200);
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-box);
+  padding: 0.875rem 1rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.routing-work-node {
+  background-color: var(--brand-base-100);
+  border: 1px solid var(--brand-base-300);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  position: relative;
+}
+.routing-work-node:hover {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 1px var(--brand-primary);
+}
+.routing-work-node.is-active-focus {
+  border-color: var(--brand-primary);
+  box-shadow: inset 0 0 0 1px var(--brand-primary);
+  background-color: color-mix(in oklab, var(--brand-primary) 6%, var(--brand-base-100));
+}
+
+.routing-connector-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-content-muted);
+}
+
+/* Compact connection cards (≤ 80 px) */
+.conn-card {
+  height: 76px;
+  max-height: 80px;
+  background-color: var(--brand-base-100);
+  border: 1px solid var(--brand-base-300);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.conn-card:hover {
+  border-color: var(--brand-primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.conn-card.is-active-main {
+  border-color: var(--brand-primary);
+  background-color: color-mix(in oklab, var(--brand-primary) 4%, var(--brand-base-100));
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+.conn-card.is-failed {
+  border-color: color-mix(in oklab, var(--brand-error) 40%, var(--brand-base-300));
+  box-shadow: inset 3px 0 0 var(--brand-error);
+}
+
+/* Modals & Dialogs */
+.modal-backdrop-custom {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-box-custom {
+  background-color: var(--brand-base-100);
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-box);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  width: 90%;
+  max-width: 680px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1001;
+}
+
+/* Popovers */
+.popover-custom {
+  position: absolute;
+  z-index: 1100;
+  background-color: var(--brand-base-200);
+  border: 1px solid var(--brand-base-300);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  min-width: 260px;
+  max-width: 380px;
+  overflow: hidden;
+}
+
+/* Scope override badge */
+.scope-badge {
+  font-size: 0.625rem;
+  line-height: 1;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background-color: color-mix(in oklab, var(--brand-secondary) 15%, transparent);
+  color: var(--brand-secondary);
+  border: 1px solid color-mix(in oklab, var(--brand-secondary) 30%, transparent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.15s ease;
+}
+.scope-badge:hover {
+  background-color: color-mix(in oklab, var(--brand-secondary) 25%, transparent);
+  border-color: var(--brand-secondary);
+}
+
+.scope-badge-app {
+  background-color: color-mix(in oklab, var(--brand-info) 15%, transparent);
+  color: var(--brand-info);
+  border-color: color-mix(in oklab, var(--brand-info) 30%, transparent);
+}
+.scope-badge-app:hover {
+  background-color: color-mix(in oklab, var(--brand-info) 25%, transparent);
+  border-color: var(--brand-info);
+}
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.toast-msg {
+  background-color: var(--brand-base-300);
+  border: 1px solid var(--brand-base-content/15);
+  color: var(--brand-content);
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Matrix Table Styling for Agent Orchestration */
+.matrix-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+}
+.matrix-table th {
+  background-color: var(--brand-base-200);
+  color: var(--brand-content-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--brand-base-300);
+  text-align: left;
+}
+.matrix-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--brand-base-300) 60%, transparent);
+  vertical-align: middle;
+}
+.matrix-table tbody tr:hover td {
+  background-color: color-mix(in oklab, var(--brand-base-300) 35%, transparent);
+}
+.matrix-cell-interactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.25rem;
+  border: 1px dashed transparent;
+  transition: all 0.15s ease;
+}
+.matrix-cell-interactive:hover {
+  background-color: var(--brand-base-300);
+  border-color: var(--brand-primary);
+}
+
+/* Tool compatibility badge */
+.tool-compat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Helper class for hidden overlays (Modals, Drawers, Popovers, Tabs)     */
+/* ---------------------------------------------------------------------- */
+.is-hidden {
+  display: none !important;
+}
+
+/* Badge nowrap constraint to prevent badge breaking across lines */
+.badge {
+  white-space: nowrap !important;
+}
+
+/* Dedicated Prototype Toolbar styling (distinct from product UI) */
+.proto-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  background-color: #0d0e12;
+  color: #9ca3af;
+  border-bottom: 1px solid #23242e;
+  padding: 0.25rem 1rem;
+  font-size: 0.6875rem;
+  line-height: 1.25rem;
+}
+[data-theme='anubis-light'] .proto-toolbar {
+  background-color: #f1f3f6;
+  color: #4b5563;
+  border-bottom: 1px solid #d1d5db;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Side Drawer for Connection Management (borrowed from Variant A)        */
+/* ---------------------------------------------------------------------- */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 10000;
+}
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 32rem;
+  max-width: 95vw;
+  background-color: var(--brand-base-100);
+  border-left: 1px solid var(--brand-base-300);
+  box-shadow: -16px 0 36px rgba(0, 0, 0, 0.5);
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  animation: drawerSlideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.drawer-header {
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--brand-base-300);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--brand-base-200);
+}
+.drawer-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--brand-base-300);
+  background-color: var(--brand-base-100);
+  padding: 0 1rem;
+  gap: 0.5rem;
+}
+.drawer-tab {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--brand-content-muted);
+  border-bottom: 2px solid transparent;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.drawer-tab:hover {
+  color: var(--brand-content);
+}
+.drawer-tab.is-active,
+.drawer-tab[aria-selected='true'] {
+  color: var(--brand-content);
+  border-bottom-color: var(--brand-primary);
+}
+.drawer-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+.drawer-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--brand-base-300);
+  background-color: var(--brand-base-200);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Follows main agent link chip (borrowed from Variant A) */
+.follows-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--brand-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.25rem;
+  transition: background-color 0.15s;
+}
+.follows-chip:hover {
+  background-color: color-mix(in oklab, var(--brand-primary) 10%, transparent);
+  text-decoration: underline;
+}

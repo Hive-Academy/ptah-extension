@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_555
-status: backlog
+status: in-progress
 type: FEATURE
 title: 'Providers settings: restore lost capabilities and replace the flat button-heavy UI'
 depends_on: []
 created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-24T08:26:07.000Z"
+updated: "2026-09-29T00:00:00.000Z"
 description: "PR #575 (TASK_2026_523) shipped a flat, button-heavy Providers settings UI and removed 16 working capabilities. PR #581 (TASK_2026_534) fixed the runtime regressions and dead controls only and left the visual design out of scope. No task owned the rest."
 executor: ui-ux-designer
 estimate: L
@@ -57,3 +57,31 @@ Priority: **medium** (the page works, but it has fewer capabilities and a poorer
 
 FEATURE, Full workflow under the TASK_2026_533 gates: PM → parity inventory → designer →
 Gate 1.7 (user) → architect → team-leader → batches with cross-side review → visual review.
+
+## Decisions (2026-09-29)
+
+- Gate 1.7 APPROVED by the user for Providers + Agent Orchestration: `prototypes/final/` (variant C
+  "Routing map" as base, with variant A's calm tone, side drawer, "Follows main agent →" links and
+  "Used by" list). The prototype is the visual source of truth; the drawer content must be
+  per-connection (known prototype defect, fixed before handoff).
+- Parity: restore all 17 missing capabilities in `parity-inventory.md`; drop only the post-save Reload
+  button. Fix every item in "Regressed UX".
+- Save model: popovers for short choices (model, effort, role provider, scope) save on selection with a
+  toast + Undo; connection details in a side drawer; connect flow in a command-palette modal + wizard;
+  credentials still require a passing connection check.
+- Scope widened by the user ("fix all degradation we found"): TASK_2026_551, 552, 553 and 554 are
+  folded into this task.
+- Advanced and Search & Voice tabs: redesign requested; separate prototype + Gate 1.7 before they
+  join the build.
+- Design-spec §6 deviations (2026-09-29): #1 and #2 REJECTED by the user — keep the prototype's
+  centered modals (command-palette catalog → wizard, tier mapping, add Ptah CLI instance) by building a
+  shared `NativeModalComponent` in `libs/frontend/ui` on the native `<dialog>`. #3 (per-tab actions, no
+  single drawer Save), #4 (roles matrix collapsed by default), #5 (up/down chevron reorder, no grip
+  icon — per the design-spec review) proposed as technically required; shown to the user with the
+  spec summary.
+- Implementation-plan clarifications (2026-09-29, user): (1) main-agent provider switch and provider-key
+  scope clear keep an explicit confirm ("ends running chat sessions"); the SDK reset is not changed in
+  this task. (2) The Ptah CLI "Tiers" modal writes that instance's own `tierMappings` via
+  `ptahCli:update`. (3) Model search is Settings-only, via an opt-in `searchable` input. (4) Design-spec
+  deviation 6 APPROVED: colour on icons/dots/badges, text stays `text-base-content`. Deviations 3-5
+  accepted.

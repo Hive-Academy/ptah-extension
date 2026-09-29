@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Providers — Variant A (Talk-to / Does-work split) — TASK_2026_555</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+</head>
+<body class="bg-base-100 text-base-content text-sm min-h-screen">
+
+<!-- Prototype-only toolbar (not part of the product) -->
+<header class="proto-toolbar flex flex-wrap items-center justify-between gap-2">
+  <div class="flex items-center gap-2">
+    <span class="font-semibold">Prototype A — Talk-to / Does-work split</span>
+    <button id="protoThemeToggle" class="btn btn-xs btn-outline">Theme: anubis (dark)</button>
+    <button id="protoFrameToggle" class="btn btn-xs btn-outline">Frame: 1024x768 (off)</button>
+  </div>
+  <nav class="flex items-center gap-2">
+    <a href="index.html" class="btn btn-xs btn-ghost">Providers</a>
+    <a href="orchestration.html" class="btn btn-xs btn-ghost">Agent Orchestration</a>
+    <span class="hf">(states below: Ollama Cloud shows "Check failed" as the error state)</span>
+  </nav>
+</header>
+
+<!-- =========================== PRODUCT SURFACE =========================== -->
+<div id="pageFrame">
+<main class="p-4 space-y-3 max-w-5xl mx-auto">
+
+  <!-- Tab bar -->
+  <div role="tablist" class="tabs flex border-b border-base-300">
+    <button role="tab" class="tab tab-active px-4 py-2 text-sm font-medium" aria-selected="true">Providers</button>
+    <a role="tab" class="tab px-4 py-2 text-sm font-medium" href="orchestration.html">Agent Orchestration</a>
+    <button role="tab" class="tab px-4 py-2 text-sm font-medium" aria-selected="false" disabled>Advanced</button>
+    <button role="tab" class="tab px-4 py-2 text-sm font-medium" aria-selected="false" disabled>Search &amp; Voice</button>
+  </div>
+
+  <!-- Compact header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-base font-semibold">Providers</h1>
+      <p class="hf">5 connected · 15 available in catalog</p>
+    </div>
+    <button id="btnConnectProvider" class="btn btn-primary btn-sm">+ Connect provider</button>
+  </div>
+
+  <!-- Main agent strip -->
+  <div class="card card-bordered p-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="chip-label mr-1">Main agent talks to:</span>
+
+      <button id="chipProvider" class="chip-trigger" aria-haspopup="dialog" aria-expanded="false">
+        <span class="chip-label">Provider</span>
+        <span class="font-medium">Claude (Subscription)</span>
+        <svg class="chip-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+
+      <button id="chipModel" class="chip-trigger" aria-haspopup="dialog" aria-expanded="false">
+        <span class="chip-label">Model</span>
+        <span class="font-medium">Default (chosen by Claude)</span>
+        <svg class="chip-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+
+      <button id="chipEffort" class="chip-trigger" aria-haspopup="dialog" aria-expanded="false">
+        <span class="chip-label">Effort</span>
+        <span class="font-medium">Medium</span>
+        <svg class="chip-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <button id="badgeEffortOverride" class="override-badge" aria-haspopup="dialog" aria-expanded="false" title="Workspace override">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        Workspace override
+      </button>
+
+      <span class="ml-auto inline-flex items-center gap-1.5">
+        <span class="status-dot status-active"></span>
+        <span class="status-text-active font-medium">Active for main agent</span>
+      </span>
+    </div>
+    <p class="hf mt-1">Provider from App · Desktop. Effort overridden at Workspace scope (global default: provider default).</p>
+  </div>
+
+  <!-- Connections -->
+  <section>
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-sm font-semibold">Connections <span class="hf font-normal">(click a row to manage)</span></h2>
+    </div>
+    <div class="card card-bordered overflow-hidden">
+      <div class="row-dense hf font-semibold uppercase" style="cursor:default;" role="row">
+        <span>Provider</span><span>Auth</span><span>Status</span><span>Used by</span><span></span>
+      </div>
+      <div id="connectionsList"></div>
+    </div>
+  </section>
+
+  <!-- Catalog teaser (not-configured, kept out of the fold budget's 5 rows) -->
+  <section>
+    <button id="btnMoreProviders" class="btn btn-ghost btn-xs">
+      + 10 more providers available in the catalog (Anthropic API, OpenAI API, OpenRouter, GitHub Copilot, Google Gemini, Z.ai (GLM), DeepSeek, Groq, Mistral, xAI)
+    </button>
+  </section>
+
+</main>
+</div>
+<!-- ========================= END PRODUCT SURFACE ========================= -->
+
+<script src="assets/app.js"></script>
+<script>
+/* ------------------------------------------------------------------ */
+/* Mock data                                                           */
+/* ------------------------------------------------------------------ */
+const CONNECTIONS = [
+  { id: 'claude-sub', name: 'Claude (Subscription)', auth: 'CLI subscription', status: 'active', statusText: 'Active for main agent', usedBy: ['Main agent'], credType: 'cli', keyLabel: 'Claude CLI login', hasModels: false },
+  { id: 'moonshot', name: 'Moonshot (Kimi)', auth: 'API key', status: 'connected', statusText: 'Connected', usedBy: ['Judge lane'], credType: 'apikey', keyLabel: '•••• 8f21 (stored on this machine)', hasModels: true },
+  { id: 'codex', name: 'OpenAI Codex', auth: 'OAuth', status: 'connected', statusText: 'Connected', usedBy: ['Memory curator', 'Codex CLI'], credType: 'oauth', keyLabel: 'OAuth session', hasModels: true },
+  { id: 'ollama-cloud', name: 'Ollama Cloud', auth: 'API key', status: 'error', statusText: 'Check failed', usedBy: ['Glm CLI instance'], credType: 'apikey', keyLabel: '•••• c003 (stored on this machine)', hasModels: true },
+  { id: 'sovereigneg', name: 'sovereigneg', auth: 'API key (custom endpoint)', status: 'connected', statusText: 'Connected', usedBy: [], credType: 'apikey', keyLabel: '•••• 41aa (stored on this machine)', hasModels: true, custom: true, endpoint: 'https://sovereigneg.internal/v1', modelsEndpoint: '', helpUrl: '', pricing: { input: '', output: '' } },
+];
+
+const PROVIDER_MODELS = {
+  'claude-sub': ['Default (chosen by Claude)', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-6'],
+  moonshot: ['kimi-k2.5', 'kimi-k2.5-lite'],
+  codex: ['gpt-5.5-codex', 'gpt-5.6-luna'],
+  'ollama-cloud': ['glm-5.3:cloud', 'qwen-3.2:cloud'],
+  sovereigneg: ['custom-70b', 'custom-70b-instruct'],
+};
+
+const EFFORT_OPTIONS = ['low', 'medium', 'high'];
+
+let state = {
+  mainAgentProvider: 'claude-sub',
+  mainAgentModel: 'Default (chosen by Claude)',
+  mainAgentEffort: 'medium',
+  effortIsOverride: true,
+};
+
+/* ------------------------------------------------------------------ */
+/* Render connections list                                             */
+/* ------------------------------------------------------------------ */
+function statusDotClass(s) { return s === 'active' ? 'status-active' : s === 'connected' ? 'status-connected' : s === 'error' ? 'status-error' : 'status-idle'; }
+function statusTextClass(s) { return s === 'active' || s === 'connected' ? 'status-text-active' : s === 'error' ? 'status-text-error' : 'status-text-idle'; }
+
+function renderConnections() {
+  const list = document.getElementById('connectionsList');
+  list.innerHTML = '';
+  CONNECTIONS.forEach((c) => {
+    const row = el('div', { class: 'row-dense', role: 'row', tabindex: '0', 'aria-label': 'Manage ' + c.name }, [
+      el('span', { class: 'font-medium truncate' }, [c.name]),
+      el('span', { class: 'hf' }, [c.auth]),
+      el('span', { class: 'inline-flex items-center gap-1.5' }, [
+        el('span', { class: 'status-dot ' + statusDotClass(c.status) }, []),
+        el('span', { class: statusTextClass(c.status) + ' text-xs' }, [
+          c.statusText + (c.status === 'error' ? ' ' : ''),
+        ]),
+        c.status === 'error' ? el('button', { class: 'btn btn-ghost btn-xs', onClick: (e) => { e.stopPropagation(); showToast(c.name + ': retrying connection check…'); setTimeout(() => showToast(c.name + ': check failed again — see drawer for diagnostics.'), 600); } }, ['Retry']) : document.createTextNode(''),
+      ]),
+      el('span', { class: 'hf' }, [c.usedBy.length ? String(c.usedBy.length) + ' · ' + c.usedBy.join(', ') : '0']),
+      el('button', { class: 'kebab-btn', 'aria-label': 'Row actions for ' + c.name, onClick: (e) => { e.stopPropagation(); openConnectionDrawer(c); } }, [
+        (function () { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('width', '16'); s.setAttribute('height', '16'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'currentColor'); s.innerHTML = '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>'; return s; })(),
+      ]),
+    ]);
+    row.addEventListener('click', () => openConnectionDrawer(c));
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter') openConnectionDrawer(c); });
+    list.appendChild(row);
+  });
+}
+renderConnections();
+
+/* ------------------------------------------------------------------ */
+/* Main agent chips: Provider / Model / Effort popovers                */
+/* ------------------------------------------------------------------ */
+document.getElementById('chipProvider').addEventListener('click', function () {
+  const trigger = this;
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, [el('div', { class: 'popover-title' }, ['Switch main-agent provider'])]);
+    CONNECTIONS.forEach((c) => {
+      const opt = el('button', { class: 'popover-option', role: 'option', 'aria-checked': String(c.id === state.mainAgentProvider) }, [
+        el('span', {}, [c.name]),
+        c.id === state.mainAgentProvider ? el('span', { class: 'text-primary' }, ['✓']) : document.createTextNode(''),
+      ]);
+      opt.addEventListener('click', () => {
+        const prev = state.mainAgentProvider;
+        state.mainAgentProvider = c.id;
+        trigger.querySelector('.font-medium').textContent = c.name;
+        closePopover();
+        showToast('Main agent now talks to ' + c.name + '.', () => {
+          state.mainAgentProvider = prev;
+          trigger.querySelector('.font-medium').textContent = CONNECTIONS.find((x) => x.id === prev).name;
+        });
+      });
+      wrap.appendChild(opt);
+    });
+    wrap.appendChild(el('p', { class: 'hf mt-2' }, ['Saves immediately. Only connected providers are listed here — use "+ Connect provider" to add more.']));
+    return wrap;
+  }, { align: 'left' });
+});
+
+document.getElementById('chipModel').addEventListener('click', function () {
+  const trigger = this;
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, []);
+    wrap.appendChild(el('div', { class: 'popover-title' }, ['Main-agent model']));
+    const search = el('input', { class: 'input input-bordered input-xs w-full mb-2', placeholder: 'Search models…', type: 'text' }, []);
+    wrap.appendChild(search);
+    const listEl = el('div', {}, []);
+    wrap.appendChild(listEl);
+    function renderModelOptions(filter) {
+      listEl.innerHTML = '';
+      const models = PROVIDER_MODELS[state.mainAgentProvider] || [];
+      models.filter((m) => m.toLowerCase().includes((filter || '').toLowerCase())).forEach((m) => {
+        const opt = el('button', { class: 'popover-option', role: 'option', 'aria-checked': String(m === state.mainAgentModel) }, [
+          el('span', {}, [m]),
+          m === state.mainAgentModel ? el('span', { class: 'text-primary' }, ['✓']) : document.createTextNode(''),
+        ]);
+        opt.addEventListener('click', () => {
+          const prev = state.mainAgentModel;
+          state.mainAgentModel = m;
+          trigger.querySelector('.font-medium').textContent = m;
+          closePopover();
+          showToast('Main-agent model set to ' + m + '.', () => {
+            state.mainAgentModel = prev;
+            trigger.querySelector('.font-medium').textContent = prev;
+          });
+        });
+        listEl.appendChild(opt);
+      });
+      if (!models.length) listEl.appendChild(el('p', { class: 'hf' }, ['No models listed for this provider.']));
+    }
+    renderModelOptions('');
+    search.addEventListener('input', (e) => renderModelOptions(e.target.value));
+    return wrap;
+  }, { align: 'left' });
+});
+
+document.getElementById('chipEffort').addEventListener('click', function () {
+  const trigger = this;
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, [el('div', { class: 'popover-title' }, ['Reasoning effort'])]);
+    EFFORT_OPTIONS.forEach((eff) => {
+      const opt = el('button', { class: 'popover-option', role: 'option', 'aria-checked': String(eff === state.mainAgentEffort) }, [
+        el('span', { class: 'capitalize' }, [eff]),
+        eff === state.mainAgentEffort ? el('span', { class: 'text-primary' }, ['✓']) : document.createTextNode(''),
+      ]);
+      opt.addEventListener('click', () => {
+        const prev = state.mainAgentEffort;
+        state.mainAgentEffort = eff;
+        trigger.querySelector('.font-medium').textContent = eff.charAt(0).toUpperCase() + eff.slice(1);
+        closePopover();
+        showToast('Effort set to ' + eff + '.', () => {
+          state.mainAgentEffort = prev;
+          trigger.querySelector('.font-medium').textContent = prev.charAt(0).toUpperCase() + prev.slice(1);
+        });
+      });
+      wrap.appendChild(opt);
+    });
+    const scopeLabel = el('label', { class: 'text-xs block mt-2' }, ['Save to']);
+    const scopeSelect = el('select', { class: 'select select-bordered select-xs popover-scope-select' }, [
+      el('option', { value: 'workspace', selected: 'selected' }, ['This workspace']),
+      el('option', { value: 'app' }, ['Desktop app']),
+      el('option', { value: 'global' }, ['All Ptah apps']),
+    ]);
+    wrap.appendChild(scopeLabel);
+    wrap.appendChild(scopeSelect);
+    return wrap;
+  }, { align: 'left' });
+});
+
+document.getElementById('badgeEffortOverride').addEventListener('click', function () {
+  const trigger = this;
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, [
+      el('div', { class: 'popover-title' }, ['Workspace override']),
+      el('p', { class: 'text-xs mb-2' }, ['Effort is set to "Medium" at Workspace scope. Global default is "provider default".']),
+    ]);
+    const clearBtn = el('button', { class: 'btn btn-outline btn-xs w-full mb-1' }, ['Clear override']);
+    clearBtn.addEventListener('click', () => {
+      closePopover();
+      showToast('Workspace override cleared for effort.');
+      document.getElementById('badgeEffortOverride').classList.add('is-hidden');
+    });
+    const useGlobalBtn = el('button', { class: 'btn btn-ghost btn-xs w-full' }, ['Use global value']);
+    useGlobalBtn.addEventListener('click', () => {
+      closePopover();
+      showToast('Effort reset to global default (provider default).');
+      document.getElementById('chipEffort').querySelector('.font-medium').textContent = 'Provider default';
+      document.getElementById('badgeEffortOverride').classList.add('is-hidden');
+    });
+    wrap.appendChild(clearBtn);
+    wrap.appendChild(useGlobalBtn);
+    return wrap;
+  }, { align: 'left' });
+});
+
+/* ------------------------------------------------------------------ */
+/* Connection drawer: Overview / Credentials / Models / Advanced       */
+/* ------------------------------------------------------------------ */
+function openConnectionDrawer(conn) {
+  const tabs = ['Overview', 'Credentials', 'Models', 'Advanced'].filter((t) => t !== 'Advanced' || conn.custom || conn.id === 'sovereigneg' ? true : t !== 'Advanced');
+  let activeTab = 'Overview';
+
+  openDrawer((close) => {
+    const panel = el('div', { class: 'flex flex-col h-full' }, []);
+
+    const header = el('div', { class: 'drawer-header' }, [
+      el('div', {}, [
+        el('h3', { class: 'font-semibold' }, [conn.name]),
+        el('p', { class: 'hf' }, [conn.auth]),
+      ]),
+      el('button', { class: 'btn btn-ghost btn-xs', 'aria-label': 'Close' }, ['✕']),
+    ]);
+    header.querySelector('button').addEventListener('click', close);
+    panel.appendChild(header);
+
+    const tabsEl = el('div', { class: 'drawer-tabs', role: 'tablist' }, []);
+    const bodyEl = el('div', { class: 'drawer-body' }, []);
+
+    function renderBody() {
+      bodyEl.innerHTML = '';
+      if (activeTab === 'Overview') bodyEl.appendChild(buildOverviewTab(conn, close));
+      else if (activeTab === 'Credentials') bodyEl.appendChild(buildCredentialsTab(conn, close));
+      else if (activeTab === 'Models') bodyEl.appendChild(buildModelsTab(conn));
+      else if (activeTab === 'Advanced') bodyEl.appendChild(buildAdvancedTab(conn, close));
+    }
+
+    ['Overview', 'Credentials', 'Models', 'Advanced'].forEach((t) => {
+      const btn = el('button', { class: 'drawer-tab', role: 'tab', 'aria-selected': String(t === activeTab) }, [t]);
+      btn.addEventListener('click', () => {
+        activeTab = t;
+        tabsEl.querySelectorAll('.drawer-tab').forEach((b) => b.setAttribute('aria-selected', String(b.textContent === t)));
+        renderBody();
+      });
+      tabsEl.appendChild(btn);
+    });
+
+    panel.appendChild(tabsEl);
+    panel.appendChild(bodyEl);
+    renderBody();
+    return panel;
+  }, { label: 'Manage ' + conn.name });
+}
+
+function buildOverviewTab(conn, close) {
+  const wrap = el('div', { class: 'space-y-3' }, []);
+  wrap.appendChild(el('div', { class: 'flex items-center gap-2' }, [
+    el('span', { class: 'status-dot ' + statusDotClass(conn.status) }, []),
+    el('span', { class: statusTextClass(conn.status) + ' font-medium' }, [conn.statusText]),
+  ]));
+  const checkBtn = el('button', { class: 'btn btn-outline btn-xs' }, ['Check connection']);
+  checkBtn.addEventListener('click', () => showToast('Checking ' + conn.name + '…'));
+  wrap.appendChild(checkBtn);
+  wrap.appendChild(el('div', {}, [
+    el('h4', { class: 'text-xs font-semibold uppercase text-base-content-muted mt-2' }, ['Used by']),
+    conn.usedBy.length
+      ? el('ul', { class: 'list-disc ml-4 text-sm' }, conn.usedBy.map((u) => el('li', {}, [u])))
+      : el('p', { class: 'hf' }, ['Not currently used by any role or CLI agent.']),
+  ]));
+  if (conn.id !== 'claude-sub') {
+    const disconnectBtn = el('button', { class: 'btn btn-outline btn-error btn-xs mt-2' }, ['Disconnect']);
+    disconnectBtn.addEventListener('click', () => { showToast(conn.name + ' disconnected.'); close(); });
+    wrap.appendChild(disconnectBtn);
+  }
+  return wrap;
+}
+
+function buildCredentialsTab(conn) {
+  const wrap = el('div', { class: 'space-y-3' }, []);
+  if (conn.credType === 'cli') {
+    wrap.appendChild(el('p', { class: 'text-sm' }, [conn.keyLabel]));
+    const reauthBtn = el('button', { class: 'btn btn-outline btn-xs' }, ['Re-authenticate (claude login)']);
+    reauthBtn.addEventListener('click', () => showToast('Opening Claude CLI login…'));
+    wrap.appendChild(reauthBtn);
+  } else if (conn.credType === 'oauth') {
+    wrap.appendChild(el('p', { class: 'text-sm' }, [conn.keyLabel]));
+    const signOutBtn = el('button', { class: 'btn btn-outline btn-error btn-xs' }, ['Sign out']);
+    signOutBtn.addEventListener('click', () => showToast('Signed out of ' + conn.name + '.'));
+    wrap.appendChild(signOutBtn);
+  } else {
+    let shown = false;
+    const keyRow = el('div', { class: 'flex items-center gap-2' }, [
+      el('input', { class: 'input input-bordered input-xs flex-1 font-mono-fallback', type: 'password', value: 'sk-live-4f9c2a1e77b3', readonly: 'readonly' }, []),
+    ]);
+    const toggleBtn = el('button', { class: 'btn btn-ghost btn-xs' }, ['Show']);
+    toggleBtn.addEventListener('click', () => {
+      const input = keyRow.querySelector('input');
+      shown = !shown;
+      input.type = shown ? 'text' : 'password';
+      toggleBtn.textContent = shown ? 'Hide' : 'Show';
+    });
+    keyRow.appendChild(toggleBtn);
+    wrap.appendChild(el('p', { class: 'hf' }, [conn.keyLabel]));
+    wrap.appendChild(keyRow);
+
+    wrap.appendChild(el('div', { class: 'divider my-1' }, []));
+    wrap.appendChild(el('p', { class: 'text-xs font-semibold' }, ['Replace key']));
+    const newKeyInput = el('input', { class: 'input input-bordered input-xs w-full', type: 'password', placeholder: 'Paste new key' }, []);
+    wrap.appendChild(newKeyInput);
+    const checkRow = el('div', { class: 'flex items-center gap-2 mt-1' }, []);
+    const checkBtn = el('button', { class: 'btn btn-outline btn-xs' }, ['Check connection']);
+    const saveBtn = el('button', { class: 'btn btn-primary btn-xs', disabled: 'disabled' }, ['Save']);
+    checkBtn.addEventListener('click', () => {
+      showToast('Checking new key…');
+      setTimeout(() => { saveBtn.removeAttribute('disabled'); showToast('Connection verified — you can now save.'); }, 500);
+    });
+    saveBtn.addEventListener('click', () => showToast('Key replaced for ' + conn.name + '.'));
+    checkRow.appendChild(checkBtn);
+    checkRow.appendChild(saveBtn);
+    wrap.appendChild(checkRow);
+    wrap.appendChild(el('p', { class: 'hf mt-1' }, ['Credentials require a passing connection check before Save is enabled.']));
+
+    const deleteBtn = el('button', { class: 'btn btn-outline btn-error btn-xs mt-2' }, ['Delete key']);
+    deleteBtn.addEventListener('click', () => showToast('Stored key deleted for ' + conn.name + '. This connection is now signed out.'));
+    wrap.appendChild(deleteBtn);
+  }
+  return wrap;
+}
+
+function buildModelsTab(conn) {
+  const wrap = el('div', { class: 'space-y-3' }, []);
+  if (!conn.hasModels) {
+    wrap.appendChild(el('p', { class: 'hf' }, ['This connection has no configurable tier mapping.']));
+    return wrap;
+  }
+  const models = PROVIDER_MODELS[conn.id] || [];
+  const toolUseSupported = models.filter((_, i) => i % 3 !== 2);
+  wrap.appendChild(el('p', { class: 'hf' }, [models.length + ' models • ' + toolUseSupported.length + ' support tool use']));
+  const search = el('input', { class: 'input input-bordered input-xs w-full', placeholder: 'Search models…' }, []);
+  wrap.appendChild(search);
+
+  const tiers = ['opus', 'sonnet', 'haiku'];
+  const tierState = { opus: models[0] || '', sonnet: models[1] || models[0] || '', haiku: models[2] || models[0] || '' };
+  const rows = el('div', { class: 'space-y-1 mt-2' }, []);
+  function renderTierRows() {
+    rows.innerHTML = '';
+    tiers.forEach((tier) => {
+      const row = el('div', { class: 'flex items-center justify-between border border-base-300 rounded-btn px-2 py-1.5' }, []);
+      row.appendChild(el('span', { class: 'text-xs font-semibold uppercase w-16' }, [tier]));
+      const noToolUse = tierState[tier] && !toolUseSupported.includes(tierState[tier]);
+      const pickerBtn = el('button', { class: 'role-cell-btn flex-1 justify-between' }, [
+        el('span', {}, [tierState[tier] || 'Provider default']),
+        noToolUse ? el('span', { class: 'text-warning', title: 'No tool-use support' }, ['⚠'] ) : document.createTextNode(''),
+      ]);
+      pickerBtn.addEventListener('click', () => {
+        openPopover(pickerBtn, () => {
+          const p = el('div', {}, [el('div', { class: 'popover-title' }, [tier + ' tier model'])]);
+          models.forEach((m) => {
+            const opt = el('button', { class: 'popover-option' }, [
+              el('span', {}, [m]),
+              !toolUseSupported.includes(m) ? el('span', { class: 'text-warning', title: 'No tool-use support' }, ['⚠ no tool use']) : document.createTextNode(''),
+            ]);
+            opt.addEventListener('click', () => {
+              tierState[tier] = m;
+              closePopover();
+              renderTierRows();
+              showToast(tier + ' tier set to ' + m + '.');
+            });
+            p.appendChild(opt);
+          });
+          const clearOpt = el('button', { class: 'popover-option text-base-content-muted' }, ['Use provider default']);
+          clearOpt.addEventListener('click', () => { tierState[tier] = ''; closePopover(); renderTierRows(); showToast(tier + ' tier cleared to provider default.'); });
+          p.appendChild(clearOpt);
+          return p;
+        });
+      });
+      row.appendChild(pickerBtn);
+      rows.appendChild(row);
+    });
+  }
+  renderTierRows();
+  search.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    // simple visual filter feedback only (mock)
+    rows.style.opacity = q ? '0.6' : '1';
+  });
+  wrap.appendChild(rows);
+  return wrap;
+}
+
+function buildAdvancedTab(conn, close) {
+  const wrap = el('div', { class: 'space-y-3' }, []);
+  if (!conn.custom) {
+    wrap.appendChild(el('p', { class: 'hf' }, ['No advanced settings for this provider type.']));
+    return wrap;
+  }
+  function field(labelText, value, placeholder) {
+    const box = el('div', {}, [el('label', { class: 'text-xs font-semibold block mb-1' }, [labelText])]);
+    box.appendChild(el('input', { class: 'input input-bordered input-xs w-full', value: value || '', placeholder: placeholder || '' }, []));
+    return box;
+  }
+  wrap.appendChild(field('Custom endpoint', conn.endpoint));
+  wrap.appendChild(field('Models endpoint', conn.modelsEndpoint, 'https://…/v1/models (enables live model listing)'));
+  wrap.appendChild(field('Help URL', conn.helpUrl, 'https://…/docs/api-keys'));
+  const priceRow = el('div', { class: 'grid grid-cols-2 gap-2' }, [
+    field('Price / 1M input tokens', conn.pricing.input, '$0.00'),
+    field('Price / 1M output tokens', conn.pricing.output, '$0.00'),
+  ]);
+  wrap.appendChild(priceRow);
+  const saveBtn = el('button', { class: 'btn btn-primary btn-xs' }, ['Save']);
+  saveBtn.addEventListener('click', () => showToast('Advanced settings saved for ' + conn.name + '.'));
+  wrap.appendChild(saveBtn);
+  wrap.appendChild(el('div', { class: 'divider my-1' }, []));
+  const deleteBtn = el('button', { class: 'btn btn-outline btn-error btn-xs' }, ['Delete provider']);
+  deleteBtn.addEventListener('click', () => { showToast(conn.name + ' deleted.'); close(); });
+  wrap.appendChild(deleteBtn);
+  return wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Connect-provider modal wizard                                       */
+/* ------------------------------------------------------------------ */
+const CATALOG = [
+  { id: 'anthropic-api', name: 'Anthropic API', authKind: 'apikey' },
+  { id: 'openai-api', name: 'OpenAI API', authKind: 'apikey' },
+  { id: 'openrouter', name: 'OpenRouter', authKind: 'apikey' },
+  { id: 'copilot', name: 'GitHub Copilot', authKind: 'oauth' },
+  { id: 'gemini', name: 'Google Gemini', authKind: 'apikey' },
+  { id: 'zai', name: 'Z.ai (GLM)', authKind: 'apikey' },
+  { id: 'deepseek', name: 'DeepSeek', authKind: 'apikey' },
+  { id: 'groq', name: 'Groq', authKind: 'apikey' },
+  { id: 'mistral', name: 'Mistral', authKind: 'apikey' },
+  { id: 'xai', name: 'xAI', authKind: 'apikey' },
+];
+
+function openConnectWizard() {
+  let step = 1;
+  let selectedProvider = null;
+  let checked = false;
+
+  const { panel, close } = openModal((closeFn) => {
+    const wrap = el('div', {}, []);
+    const header = el('div', { class: 'modal-header' }, [
+      el('h3', { class: 'font-semibold' }, ['Connect a provider']),
+      el('button', { class: 'btn btn-ghost btn-xs' }, ['✕']),
+    ]);
+    header.querySelector('button').addEventListener('click', closeFn);
+    wrap.appendChild(header);
+
+    const body = el('div', { class: 'modal-body' }, []);
+    const footer = el('div', { class: 'modal-footer' }, []);
+    wrap.appendChild(body);
+    wrap.appendChild(footer);
+
+    function renderSteps() {
+      body.innerHTML = '';
+      footer.innerHTML = '';
+      const stepsRow = el('div', { class: 'wizard-steps' }, ['Catalog', 'Configure', 'Check connection', 'Done'].map((label, i) => {
+        const n = i + 1;
+        return el('span', { class: 'wizard-step ' + (n === step ? 'wizard-step-active' : n < step ? 'wizard-step-done' : '') }, [n + '. ' + label]);
+      }));
+      body.appendChild(stepsRow);
+
+      if (step === 1) {
+        const search = el('input', { class: 'input input-bordered input-sm w-full mb-3', placeholder: 'Search 10 providers…' }, []);
+        body.appendChild(search);
+        const grid = el('div', { class: 'grid grid-cols-2 gap-2' }, []);
+        function renderCatalog(filter) {
+          grid.innerHTML = '';
+          CATALOG.filter((p) => p.name.toLowerCase().includes((filter || '').toLowerCase())).forEach((p) => {
+            const tile = el('button', { class: 'catalog-tile' }, [
+              el('span', { class: 'font-medium text-sm' }, [p.name]),
+              el('span', { class: 'hf' }, [p.authKind === 'oauth' ? 'Sign in with OAuth' : 'API key']),
+            ]);
+            tile.addEventListener('click', () => { selectedProvider = p; step = 2; renderSteps(); });
+            grid.appendChild(tile);
+          });
+        }
+        renderCatalog('');
+        search.addEventListener('input', (e) => renderCatalog(e.target.value));
+        body.appendChild(grid);
+        footer.appendChild(el('span', { class: 'hf' }, ['Step 1 of 4']));
+      }
+
+      if (step === 2 && selectedProvider) {
+        body.appendChild(el('h4', { class: 'font-medium mb-2' }, ['Configure ' + selectedProvider.name]));
+        if (selectedProvider.authKind === 'oauth') {
+          const signInBtn = el('button', { class: 'btn btn-primary btn-sm' }, ['Sign in with ' + selectedProvider.name]);
+          signInBtn.addEventListener('click', () => { checked = true; showToast('Signed in to ' + selectedProvider.name + '.'); step = 3; renderSteps(); });
+          body.appendChild(signInBtn);
+        } else {
+          body.appendChild(el('label', { class: 'text-xs font-semibold block mb-1' }, ['API key']));
+          const keyRow = el('div', { class: 'flex items-center gap-2' }, []);
+          const keyInput = el('input', { class: 'input input-bordered input-sm flex-1', type: 'password', placeholder: 'Paste API key' }, []);
+          const toggle = el('button', { class: 'btn btn-ghost btn-xs' }, ['Show']);
+          toggle.addEventListener('click', () => { keyInput.type = keyInput.type === 'password' ? 'text' : 'password'; toggle.textContent = keyInput.type === 'password' ? 'Show' : 'Hide'; });
+          keyRow.appendChild(keyInput);
+          keyRow.appendChild(toggle);
+          body.appendChild(keyRow);
+          body.appendChild(el('p', { class: 'hf mt-1' }, ['Get a key at the provider console. Keys are stored locally on this machine.']));
+        }
+        const backBtn = el('button', { class: 'btn btn-ghost btn-sm' }, ['Back']);
+        backBtn.addEventListener('click', () => { step = 1; renderSteps(); });
+        footer.appendChild(backBtn);
+        if (selectedProvider.authKind !== 'oauth') {
+          const nextBtn = el('button', { class: 'btn btn-primary btn-sm' }, ['Continue']);
+          nextBtn.addEventListener('click', () => { step = 3; checked = false; renderSteps(); });
+          footer.appendChild(nextBtn);
+        }
+      }
+
+      if (step === 3) {
+        body.appendChild(el('h4', { class: 'font-medium mb-2' }, ['Check connection']));
+        body.appendChild(el('p', { class: 'hf mb-2' }, ['A live probe request confirms the credential works before it can be saved.']));
+        const checkBtn = el('button', { class: 'btn btn-outline btn-sm' }, [checked ? 'Recheck connection' : 'Check connection']);
+        const resultEl = el('p', { class: 'text-sm mt-2' }, [checked ? 'Connected — 240ms latency.' : '']);
+        checkBtn.addEventListener('click', () => {
+          checked = true;
+          resultEl.textContent = 'Connected — 240ms latency.';
+          resultEl.className = 'text-sm mt-2 status-text-connected';
+        });
+        body.appendChild(checkBtn);
+        body.appendChild(resultEl);
+
+        const backBtn = el('button', { class: 'btn btn-ghost btn-sm' }, ['Back']);
+        backBtn.addEventListener('click', () => { step = 2; renderSteps(); });
+        footer.appendChild(backBtn);
+        const saveBtn = el('button', { class: 'btn btn-primary btn-sm', disabled: checked ? undefined : 'disabled' }, ['Save']);
+        if (!checked) saveBtn.setAttribute('disabled', 'disabled');
+        saveBtn.addEventListener('click', () => { step = 4; renderSteps(); });
+        footer.appendChild(saveBtn);
+      }
+
+      if (step === 4) {
+        body.appendChild(el('div', { class: 'text-center py-6' }, [
+          el('p', { class: 'text-success font-medium' }, ['✓ ' + selectedProvider.name + ' connected']),
+          el('p', { class: 'hf mt-1' }, ['Saved to Desktop app scope. It now appears in Connections.']),
+        ]));
+        const doneBtn = el('button', { class: 'btn btn-primary btn-sm' }, ['Done']);
+        doneBtn.addEventListener('click', () => { showToast(selectedProvider.name + ' connected.'); closeFn(); });
+        footer.appendChild(doneBtn);
+      }
+    }
+    renderSteps();
+    return wrap;
+  }, { label: 'Connect a provider' });
+}
+
+document.getElementById('btnConnectProvider').addEventListener('click', openConnectWizard);
+document.getElementById('btnMoreProviders').addEventListener('click', openConnectWizard);
+</script>
+</body>
+</html>
