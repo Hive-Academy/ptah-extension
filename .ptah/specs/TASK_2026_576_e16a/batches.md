@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 1/69
+Total tasks: 87 | Batches: 69 | Complete: 2/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -111,7 +111,7 @@ Edge cases:
 
 # P1 — Reliability core (RC1-RC8) — ships as its own PR
 
-## Batch 1: Shared git contracts and exec-git primitives — IN_PROGRESS
+## Batch 1: Shared git contracts and exec-git primitives — COMPLETE (74e50a10b)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -168,7 +168,7 @@ Edge cases:
   vscode-core barrel (`libs/backend/vscode-core/src/index.ts`). The first batch whose consumer sits outside
   vscode-core (Batch 5, rpc-handlers) must add them. Do not pass `-- --maxWorkers` to run-many with typecheck (TS5023).
 
-## Batch 2: Pure collaborators — write lock and porcelain v2 status parser — PENDING
+## Batch 2: Pure collaborators — write lock and porcelain v2 status parser — COMPLETE
 
 - Recommended executor: CLI lanes x 2 (one per task)
 - Fallback executor: backend-developer (sub-agent), sequential
@@ -179,7 +179,7 @@ Edge cases:
 - Concurrency-eligible with: Batches 3, 6
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 2.1: `GitRepoWriteLock` — PENDING
+### Task 2.1: `GitRepoWriteLock` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-write-lock.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-write-lock.spec.ts
 - Plan reference: implementation-plan.md:252-293
@@ -188,7 +188,7 @@ Edge cases:
 - Validation notes: R4. Rejected body never poisons the chain. Persistent lock → `{ code: 'LOCKED' }` with `GIT_LOCKED_MESSAGE`, never stderr.
 - Implementation details: `run(workspacePath, body)`, `execWrite(args, cwd, options)` retrying only on `isIndexLockFailure` per `GIT_INDEX_LOCK_RETRY_DELAYS_MS`; fake-timer spec covering serialize, poison, reentrance, retry schedule.
 
-### Task 2.2: Porcelain v2 `-z` status parser (P1 subset) — PENDING
+### Task 2.2: Porcelain v2 `-z` status parser (P1 subset) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.spec.ts
 - Plan reference: implementation-plan.md:295-323
@@ -203,7 +203,33 @@ Edge cases:
 - code-logic-reviewer accepting verdict
 - Reentrance, poison and unicode edge cases covered
 
-## Batch 3: Electron git watcher redesign (RC5) — PENDING
+### Batch 2 result (team-leader)
+
+- Executor fallback: both recommended CLI lanes (antigravity x2) failed with HTTP 429 quota exhaustion before
+  writing anything; Glm unavailable (Ollama Cloud usage limit). Ran the recorded fallback instead: one
+  backend-developer sub-agent per task (file-disjoint), in parallel.
+- Verified on disk: `git-write-lock.ts` (FIFO per folded key, AsyncLocalStorage reentrance -> synchronous
+  `GitReentrantLockError`, poison-free chain, `execWrite` 1 + 5 retries on `isIndexLockFailure` only -> `LOCKED` with
+  `GIT_LOCKED_MESSAGE`, unref'd sleep, injectable exec/sleep) and `git-status-parser.ts` (indexOf/substring scan, no
+  regex/trim, type 1/2/u/?/!, V9 mapping kept, skipped records counted). No TODO/STUB markers.
+- Team-leader verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core --skip-nx-cache`
+  -> typecheck, lint, test all pass (1m 40s). Executor specs: 13/13 (lock), 33/33 (parser).
+- Review: code-logic-review.md `# Batch 2`, in-process code-logic-reviewer, APPROVED 8/10, 0 blocking, 0 serious,
+  2 moderate, 2 minor. **Same-side review, disclosed fallback**: no cross-vendor CLI lane was available (antigravity
+  429, Glm Ollama limit); confidence MEDIUM.
+- Moderate items carried (not fixed in Batch 2: neither is a defect in this batch's code; fixing now would cost a
+  full executor + review round for doc/spec hardening):
+  - MOD-1 (fire-and-forget inside a locked body escapes FIFO/reentrance) -> Task 5.1 validation note; the Batch 5
+    reviewer must check it.
+  - MOD-2 (cancel not observed during retry backoff) -> accepted bound: a cancellation during `execWrite` retry
+    surfaces after at most one backoff step (max 1,600 ms, `GIT_INDEX_LOCK_RETRY_DELAYS_MS`). Task 5.2 (introduces
+    `CANCELLED`) must state this bound in its report; a spec pinning it is optional there.
+- Minor items, no action: `readXy` accepts `U` on type 1/2 records (git never emits it there; harmless); "5 attempts"
+  plan wording vs 1 + 5 implementation — the constants file is authoritative.
+- Carried to Batch 4: `!` records are unreachable under today's flags (no `--ignored`); Task 4.1 keeps the argv as
+  planned and must not treat `'!'` entries as changes if `--ignored` is ever added.
+
+## Batch 3: Electron git watcher redesign (RC5) — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -214,7 +240,7 @@ Edge cases:
 - Concurrency-eligible with: Batches 2, 4, 5, 6, 7
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron`
 
-### Task 3.1: One recursive `IWorkspaceWatcher` subscription on the common git dir + pure classifier — PENDING
+### Task 3.1: One recursive `IWorkspaceWatcher` subscription on the common git dir + pure classifier — IN_PROGRESS
 
 - Files:
   - MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.ts
@@ -281,7 +307,10 @@ Edge cases:
 - Plan reference: implementation-plan.md:252-289, 356
 - Pattern to follow: Task 2.1 API
 - Quality requirements: locked bodies call only private helpers and reads (no-deadlock rule).
-- Validation notes: push, fetch and worktree ops are not locked.
+- Validation notes: push, fetch and worktree ops are not locked. Carried from Batch 2 review (MOD-1): every locked
+  body must await everything it starts before returning — no `void`/unawaited promises, timers or event callbacks
+  that spawn git — otherwise that work runs outside the FIFO while still holding the reentrance context. Report how
+  the applyHunks ladder satisfies this; the Batch 5 reviewer checks it.
 - Implementation details: stage, unstage, discard, commit, checkout, applyHunks (whole ladder `:1559-1892`), stash apply/pop/drop, pull run inside one `run()`; mutating spawns go through `execWrite`.
 
 ### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — PENDING
@@ -314,7 +343,7 @@ Edge cases:
 - CLI-lane logic reviewer accepting verdict
 - V7 and R6 handling stated in the report
 
-## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — PENDING
+## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — IN_PROGRESS (revise round 1: transport-level `git:info` failure not marked stale)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -325,7 +354,7 @@ Edge cases:
 - Concurrency-eligible with: Batches 2, 3, 4, 5
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 6.1: `GitStatusService` keeps last good data with `staleReason` — PENDING
+### Task 6.1: `GitStatusService` keeps last good data with `staleReason` — IN_PROGRESS
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-status.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-status.service.spec.ts
 - Plan reference: implementation-plan.md:436-439
@@ -334,7 +363,7 @@ Edge cases:
 - Validation notes: A15.
 - Implementation details: expose `staleReason` and `isStale` signals; spec cases for keep, no-previous, workspace switch.
 
-### Task 6.2: Branch/stash renderer timeouts — PENDING
+### Task 6.2: Branch/stash renderer timeouts — IN_PROGRESS
 
 - Files:
   - MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-branches.service.ts
@@ -346,7 +375,7 @@ Edge cases:
 - Validation notes: the private wrapper at `git-branches.service.ts:562-571` must accept and forward a timeout.
 - Implementation details: spec asserts the timeout argument per call.
 
-### Task 6.3: `SourceControlService` mutation timeouts (V1) — PENDING
+### Task 6.3: `SourceControlService` mutation timeouts (V1) — IN_PROGRESS
 
 - File: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/source-control.service.ts
 - Plan reference: implementation-plan.md:440-443 (RC8 intent; file added by team-leader, V1)

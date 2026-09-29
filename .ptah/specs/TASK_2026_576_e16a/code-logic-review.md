@@ -168,3 +168,160 @@ None.
 - **Confidence**: HIGH
 - **Top risk**: Downstream consumers in future batches must ensure they propagate `code` and `hookOutput` faithfully through the RPC layer without swallowing them.
 - **What a robust implementation would add**: Add defensive `if (signal.aborted)` check inside `acquireUnlessAborted` for self-contained robustness.
+
+---
+
+# Batch 2 — Pure collaborators: write lock and porcelain v2 status parser (`TASK_2026_576_e16a`)
+
+- **Author**: in-process subagents (`backend-developer` x2, fallback after the antigravity lanes failed on quota)
+- **Reviewer**: in-process subagent (`code-logic-reviewer`)
+- **Same-side review — disclosed fallback**: both CLI lanes unavailable (Glm: Ollama Cloud usage limit; antigravity: quota exhausted, HTTP 429). Weaker evidence than a cross-side review.
+
+## Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Verdict             | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Failure modes found | 3        |
+
+Scope reviewed: `libs/backend/vscode-core/src/services/git/git-write-lock.ts` (+ spec, 13 tests) and `git-status-parser.ts` (+ spec, 33 tests), both read in full. Cross-checked against batches.md Batch 2 (Tasks 2.1/2.2, R4, V9), implementation-plan.md:252-323 (Components 3-4), `libs/shared/src/lib/constants/git-operation.constants.ts`, and the parser it replaces at `git-info.service.ts:3013-3162`. Ran `npx nx test vscode-core --testFile=git-write-lock.spec.ts` (13/13 pass) and `--testFile=git-status-parser.spec.ts` (33/33 pass).
+
+Both modules are small, pure, and well-documented, and their specs are table-driven and genuinely adversarial (reentrance, chain-poisoning, Unicode paths, malformed records, missing NUL terminators). No blocking or serious defect was found. Two moderate gaps: the write lock's AsyncLocalStorage-based reentrance guard has an undocumented interaction with unawaited (fire-and-forget) work started inside a locked body, and the retry loop does not re-check an AbortSignal during the up-to-1.6s sleep between attempts, so a cancellation can be delayed (not lost) by as much as the longest single backoff step.
+
+## Five logic questions
+
+### 1. How does this fail silently?
+
+- Neither module silently converts a real failure into a success-looking result. `execWrite` (git-write-lock.ts:139-155) returns a LOCKED result only after all five retries genuinely still see `isIndexLockFailure`, and any other failure (including a rejection) is returned or thrown unmodified on the first attempt, never coerced into COMPLETED.
+- `parseStatusV2Z` (git-status-parser.ts:51-121) never throws and never fabricates a value for a record it cannot parse; it increments `skippedRecords` and moves on (verified by 7 malformed-record spec cases, all counted correctly). This matches the plan's own contract ("an unparseable record is skipped and counted... it never throws"), but it does mean a caller that ignores `skippedRecords` gets a status result that silently omits real files; the parser's contract makes that the caller's choice, not a defect in this module, and `computeGitInfo` (Batch 4, not yet wired) is documented as the place that must log the count once per workspace.
+
+### 2. What user action produces unexpected behaviour?
+
+- A caller of `execWrite` that does not itself watch for cancellation during the retry window: if a user cancels a mutating git operation while index.lock is contested, the cancellation is not observed until the next attempt is made (see Failure modes, "Cancellation not observed during retry sleep"). Worst case the user's cancel click has no visible effect for up to 1.6s (the largest single delay) instead of being nearly instant. This is a delay, not a lost cancellation: the next `this.exec(args, cwd, options)` call still receives the same `options.signal` and, per Batch 1's `execGitBuffer`, checks `signal.aborted` before spawning.
+- Two application-level bugs would trip the reentrance guard rather than deadlock: any code path that calls a second locked `GitInfoService` method from inside a locked body's synchronous call chain gets `GitReentrantLockError` thrown synchronously, not a hang. This is the intended fail-loud behaviour (R4) and is proven by the "throws GitReentrantLockError synchronously" spec.
+
+### 3. What input data produces a wrong answer?
+
+- None found that produces a wrong (as opposed to skipped) parse result. The field-count constants (ORDINARY_FIELDS_BEFORE_PATH = 8, RENAME_FIELDS_BEFORE_PATH = 9, UNMERGED_FIELDS_BEFORE_PATH = 10) match the documented record shapes exactly, `pathStart` correctly treats the remainder of the record as the path verbatim (so a path containing spaces, café, CJK, Arabic, a"b, a\b, and leading/trailing spaces all round-trip untouched, proven by the table-driven spec), and the type-2 handler always consumes the origPath NUL field even when the record itself is malformed, so a bad rename record can never be misread as a second top-level record (proven by the dedicated "does not read a malformed rename origPath as its own record" case).
+- One latent looseness: `readXy` (git-status-parser.ts:143-148) accepts `'U'` as a valid XY character for any record type, including type 1 and type 2 records, where git never actually emits U for those types. In practice this cannot produce a wrong answer today because git never emits that combination, but it is more permissive than the format actually allows for those record types; a defensive gap rather than a logic bug (folded into Minor issues below).
+
+### 4. What happens when a dependency fails?
+
+- `execWrite`'s underlying `exec` (the git spawn) rejecting outright, whether from a timeout, cancellation, or any other thrown error, is not retried and propagates immediately (git-write-lock.spec.ts "does not retry a rejected spawn"); this matches the plan ("Any other outcome... is returned or thrown after the first attempt, unretried").
+- A non-lock, non-zero exit is returned as COMPLETED with the original exitCode/stderr intact and is not retried (spec: "does not retry a non-lock failure"); callers (Batch 5) get the real git error text for anything other than index.lock contention, which is correct since only index.lock is transient by design here.
+- `run()`'s body rejecting does not poison the FIFO chain for the repository: the tail promise always settles via `.then(noop, noop)` regardless of the body's outcome, proven by "does not let a rejected body poison the chain," including a synchronous throw inside a non-async body.
+
+### 5. What is missing that the requirements never mentioned?
+
+- The plan and quality requirements never address what happens to AsyncLocalStorage's captured store when a locked body kicks off async work it does not await before returning (see Failure modes below). This is not tested and not documented as a constraint on the "locked body" contract, even though the no-deadlock rule already discusses what a locked body may and may not call.
+- No spec exercises cancellation mid-retry-wait for `execWrite` (options.signal becoming aborted while `sleep(delay)` is pending), see Failure modes.
+- The `!`-record handling in the parser (`pushUntrackedOrIgnored`, status `'!'`) is new relative to the parser it replaces, which silently dropped `!` lines entirely (git-info.service.ts:3056-3140 has no `'! '` branch at all). `GitFileStatus['status']` already includes `'!'` in its union (rpc-git.types.ts:10), so this is not a V9 violation; V9 only forbids adding `'U'`/`'T'` in P1. Whether `!` records can even appear depends on the flags `computeGitInfo` passes to `git status`: today's call (git-info.service.ts:603) uses `--untracked-files=all` and no `--ignored`, and git only emits `!` records when `--ignored` is passed, so under today's flags this code path is currently unreachable, dead but harmless. Recommendation: keep the `!` handling as written since it is correct and forward-compatible and matches the documented record grammar, but flag to whoever wires Batch 4/computeGitInfo that passing `--ignored` is what would actually activate it, and that doing so would need a separate decision on whether ignored files should leak into the dock (out of this batch's scope).
+
+## Failure modes
+
+### Fire-and-forget work inside a locked body escapes both FIFO ordering and reentrance detection
+
+- Trigger: a locked body (passed to `GitRepoWriteLock.run`) starts an async operation and does not await it before returning (for example `void someExec(...)` or an unawaited `.then()` chain), and that detached operation later itself calls `lock.run()` for the same repository, or performs a git write directly.
+- Symptom: two distinct failure shapes, neither exercised by the current spec. First, if the detached chain later calls `lock.run()` for the same key, Node's AsyncLocalStorage store is propagated forward through the async resource chain that was created while the store was active, not bounded by when the outer `run()`'s returned promise settles, so the detached call can see `heldKeys.has(key) === true` and throw `GitReentrantLockError` long after the real FIFO chain (`this.tails`) has already advanced to the next queued body: a spurious reentrance error for code that is not actually nested inside the current holder. Second, if the detached work performs a git mutation directly, bypassing `lock.run`/`execWrite`, it runs concurrently with whatever body the FIFO chain admits next for that repository, silently defeating the serialization R4 exists to guarantee.
+- Evidence: git-write-lock.ts:114-131 (`run`); the FIFO tail (`this.tails`) advances based on when the body's returned promise settles, while the AsyncLocalStorage store (`this.held`) is scoped to the synchronous/awaited call graph of `body()`, not to the FIFO tail's lifetime; these are two different notions of "still inside the lock" that the code treats as equivalent.
+- Current handling: none; not documented beyond the general no-deadlock rule (which covers calling another locked public method synchronously, not detached async work), and not covered by any spec case (git-write-lock.spec.ts always awaits everything inside its test bodies).
+- Recommendation: document explicitly, in the class doc comment and the no-deadlock rule paragraph, that a locked body must await every async operation it starts before returning; no fire-and-forget writes. Given Batch 5's consumers (GitInfoService's stage/commit/checkout/applyHunks ladder) are expected to await every spawn already, the practical risk is low, but it is an unstated invariant on a primitive whose whole purpose is serialization correctness, so it belongs in the contract, not just in reviewer notes.
+
+### Cancellation not observed during the retry backoff sleep
+
+- Trigger: a caller passes options.signal to `execWrite`, the first attempt hits index.lock contention, and the caller aborts the signal while `this.sleep(delay)` (git-write-lock.ts:153) is pending; the longest such window is 1,600ms, the final retry delay.
+- Symptom: the abort is not acted on until the sleep completes and the next `this.exec(args, cwd, options)` call is made; only then, assuming the injected exec (Batch 1's execGit) checks `signal.aborted` before spawning as the Batch 1 review confirmed for execGitBuffer, does the operation actually reject with GitCancelledError. The user's cancellation is delayed, not lost, by up to about 1.6s beyond whatever sleep's own timer resolution adds.
+- Evidence: git-write-lock.ts:139-155 (`execWrite`); the for loop's only awaited call between retries is `await this.sleep(delay)`, which takes no signal and cannot be interrupted; `unrefSleep` (:59-65) has no abort wiring either.
+- Current handling: none; the plan's verification seam for execWrite (implementation-plan.md:286-290) lists serialize/poison/reentrance/retry-schedule as the fake-timer coverage and does not mention cancellation during the wait, and no spec case exercises it.
+- Recommendation: acceptable as written given the bound is small (at most 1.6s, and the total retry window is itself capped at 3.1s) and git mutations are not usually cancelled mid-retry in practice, but worth a one-line note in the class doc and, ideally, a spec asserting the bound rather than leaving it implicit. Not blocking for this batch.
+
+### None found in the parser's record-boundary handling
+
+- Trigger: n/a.
+- Symptom: n/a.
+- Evidence: git-status-parser.ts:63-118 (main loop) together with `nextNul`/`pathStart`: every record boundary is NUL-delimited and computed by index, never by regex or split; the type-2 origPath field is always consumed, even when malformed, so it can never be misread as its own record; the final record without a trailing NUL is handled by `nextNul` falling back to `output.length`; an empty or separator-less record is rejected before any field-specific parsing runs. All confirmed by dedicated spec cases, including a targeted "does not read a malformed rename origPath as its own record" test.
+- Current handling: correct.
+- Recommendation: none, recorded to make the "no finding" scope auditable.
+
+## Blocking issues
+
+None.
+
+## Serious issues
+
+None.
+
+## Moderate and minor issues
+
+- Moderate: `GitRepoWriteLock`'s AsyncLocalStorage-based reentrance guard and its FIFO chain use two different lifetimes for "still holding the lock" (see Failure modes, fire-and-forget). No spec exercises a locked body that starts unawaited async work. Recommend documenting the "await everything" invariant before Batch 5 wires real GitInfoService methods through `run()`.
+- Moderate: `execWrite`'s retry backoff (git-write-lock.ts:153) does not accept or re-check options.signal between attempts, so cancellation during the up-to-1.6s sleep is delayed rather than immediate. Bounded and low-impact; worth a doc note or a spec asserting the bound.
+- Minor: `readXy` (git-status-parser.ts:143-148) accepts `'U'` as a valid XY character for type 1 and type 2 records, not just u (unmerged) records, which is more permissive than the actual git porcelain v2 grammar allows for those record types. Harmless today since git never emits that combination for those types, but a stricter per-type character set would be more defensive.
+- Minor: the retry-count wording across documents is inconsistent, but this is not a code defect. git-operation.constants.ts:25 says "five retries, 3,100 ms in total" and implementation-plan.md:1616 says "index.lock retry of 5 attempts, 3.1 s total." The code implements 5 retries after 1 initial attempt (6 total spawns, matching GIT_INDEX_LOCK_RETRY_DELAYS_MS.length + 1 in the spec), which is exactly what the authoritative constants file, already reviewed and approved in Batch 1, specifies. The plan's "5 attempts" phrasing at line 1616 is loose terminology in the plan document, not a discrepancy in this batch's implementation.
+
+## Data flow
+
+### GitRepoWriteLock
+
+1. `run(workspacePath, body)` folds the path via `repoKey` (case-insensitive, separator-normalized) and checks AsyncLocalStorage.getStore() for the folded key: OK, the synchronous reentrance check happens before any promise is created.
+2. If not reentrant, `bodyKeys` is derived from the current store, supporting nested different-repo calls, and the new body is chained onto `this.tails.get(key)`: OK, proven to serialize same-repo calls and run different-repo calls concurrently.
+3. The chain's tail is recorded via `.then(noop, noop)` so a rejection never propagates into the chain itself: OK, proven by the poison-chain spec.
+4. Map cleanup deletes the tails entry once the tail it wrote is still the current one: OK, bounded memory, no leak across many sequential calls to the same repo.
+5. `execWrite(args, cwd, options)` spawns via the injected exec, checks `isIndexLockFailure(result.stderr)` only on a non-zero exit, and either returns COMPLETED immediately or waits GIT_INDEX_LOCK_RETRY_DELAYS_MS[attempt] before retrying: OK for the happy and index-lock paths; gap noted above for signal responsiveness during the wait.
+6. After all delays are exhausted, LOCKED is returned with only GIT_LOCKED_MESSAGE, never stderr: OK, proven by `JSON.stringify(result)).not.toContain('index.lock')`.
+
+### parseStatusV2Z
+
+1. Header records (# branch.*) are matched by prefix and update branch in place; unrecognised # headers, for example # branch.oid or # stash N, are accepted without being counted as skipped: OK, matches the plan's forward-compatibility intent.
+2. Type 1/2 records: readXy validates the XY field, pathStart locates the path by counting exactly the fixed number of leading spaces, and the remainder of the record is taken verbatim as the path with no trim and no split: OK, proven across Unicode and special-character fixtures.
+3. Type 2's extra NUL field (origPath) is always consumed via nextNul, even for a malformed record, so a subsequent record is never misaligned: OK, proven by a dedicated spec.
+4. u records collapse to one unstaged M entry per V9's P1 scope: OK, matches the plan's explicit "P1 subset" instruction.
+5. ?/! records strip a trailing path separator to flag directories and reject an empty path: OK; whether ! records ever actually appear depends on flags this batch does not control, see Q5 above.
+6. Every unrecognised or malformed record increments skippedRecords and the loop continues: OK, proven by 7 distinct malformed-input spec cases plus the "does not read a malformed rename origPath as its own record" case.
+
+## Requirements fulfilment
+
+| Requirement                                                                                                             | Status   | Gap                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| Task 2.1: FIFO per normalized repo path                                                                                 | COMPLETE | none                                                                                           |
+| Task 2.1: AsyncLocalStorage reentrance leads to synchronous GitReentrantLockError                                       | COMPLETE | interaction with unawaited async work inside a body is undocumented and untested (Moderate)    |
+| Task 2.1: rejected body never poisons the chain                                                                         | COMPLETE | none                                                                                           |
+| Task 2.1: execWrite retries only index.lock, per GIT_INDEX_LOCK_RETRY_DELAYS_MS, LOCKED carries only GIT_LOCKED_MESSAGE | COMPLETE | none                                                                                           |
+| Task 2.1: injectable clock/sleep, retry sleep unref'd, no timers left after settle                                      | COMPLETE | jest.getTimerCount() === 0 asserted after both LOCKED and retry-then-success paths             |
+| Task 2.2: parseStatusV2Z over headers/type1/type2/u/?/! per plan grammar                                                | COMPLETE | none                                                                                           |
+| Task 2.2: no trimming, O(n), no per-line regex, never throws                                                            | COMPLETE | none observed; no regex used anywhere in the module                                            |
+| Task 2.2: unparseable records skipped and counted                                                                       | COMPLETE | none                                                                                           |
+| Task 2.2 (V9): u records and T map to today's M/existing status values in P1                                            | COMPLETE | proven by "unmerged row maps to unstaged M (V9)" and "type change T maps to M (V9)" spec cases |
+| Table-driven spec covering café/CJK/Arabic/a"b/a\b/leading-trailing space/rename/unmerged                               | COMPLETE | all present in git-status-parser.spec.ts                                                       |
+
+Implicit requirements not addressed: documenting the "await everything" invariant for locked bodies; a spec bounding cancellation latency during the retry sleep.
+
+## Edge cases
+
+| Case                                                                             | Handled                                              | How                                                                               | Concern                                                                                                                            |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Two concurrent run calls for the same repo serialize in call order               | YES                                                  | spec "runs two concurrent bodies... one after another"                            | none                                                                                                                               |
+| Case/separator/trailing-slash folding treats paths as the same repo              | YES                                                  | spec "folds case, separators and trailing slashes into one queue"                 | documented tradeoff: two case-distinct repos on a case-sensitive FS share a queue, needless serialization only, never a missed one |
+| Different repos run concurrently                                                 | YES                                                  | spec "runs bodies for different repositories concurrently"                        | none                                                                                                                               |
+| Rejected body does not poison the chain, including a synchronous throw           | YES                                                  | spec "does not let a rejected body poison the chain"                              | none                                                                                                                               |
+| Reentrant run on the same repo throws synchronously                              | YES                                                  | spec "throws GitReentrantLockError synchronously..."                              | none                                                                                                                               |
+| Nested run for a different repo is allowed                                       | YES                                                  | spec "allows a nested run for a different repository"                             | none                                                                                                                               |
+| A queued (not nested) caller outside any body is not treated as reentrant        | YES                                                  | spec "does not treat a queued caller outside any body as reentrant"               | none                                                                                                                               |
+| execWrite retries only on index.lock, per the documented schedule                | YES                                                  | spec "retries an index.lock failure on the configured schedule and then succeeds" | none                                                                                                                               |
+| Persistent lock returns LOCKED with no stderr                                    | YES                                                  | spec "returns LOCKED with the fixed message and no stderr..."                     | none                                                                                                                               |
+| Non-lock failure and rejected spawn are never retried                            | YES                                                  | two dedicated specs                                                               | none                                                                                                                               |
+| Fire-and-forget async work inside a locked body                                  | NO                                                   | not addressed by code or spec                                                     | see Moderate finding above                                                                                                         |
+| Cancellation during the retry backoff sleep                                      | NO                                                   | not addressed by code or spec                                                     | see Moderate finding above                                                                                                         |
+| Unparseable status record: skipped and counted, never throws                     | YES                                                  | 7 malformed-record spec cases plus full-flow spec                                 | none                                                                                                                               |
+| Paths with café/CJK/Arabic/a"b/a\b/leading-trailing space; staged rename discard | YES                                                  | table-driven spec, each as its own case                                           | none                                                                                                                               |
+| !-record (ignored file) parsing                                                  | YES (parser); reachability depends on unbuilt caller | pushUntrackedOrIgnored handles it correctly                                       | currently unreachable given today's --untracked-files=all without --ignored at the unbuilt call site, see Q5                       |
+
+## Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: MEDIUM (same-side review only, no cross-vendor CLI lane was available, per the disclosed fallback)
+- **Top risk**: the AsyncLocalStorage reentrance guard's lifetime does not match the FIFO chain's lifetime once a locked body leaves async work unawaited. This is not a defect observed in this batch's own code, since its bodies in the specs always await, but it is an unstated invariant on a primitive whose only job is correctness under concurrency, and Batch 5 is about to wire real, more complex bodies (the applyHunks ladder) through it.
+- **What a robust implementation would add**: (1) a doc-comment sentence on GitRepoWriteLock.run stating that a body must await every async operation before returning; (2) a spec that starts an unawaited async chain inside a body and asserts it does not falsely trip GitReentrantLockError for an unrelated later call, or alternatively asserts that it should trip it, making the current behaviour a documented, tested choice rather than an accident; (3) a spec bounding cancellation latency during execWrite's retry sleep.
