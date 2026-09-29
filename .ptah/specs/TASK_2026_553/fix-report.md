@@ -154,3 +154,56 @@ Batch 2 and Batch 5.
 
 The scoped `nx run-many -t typecheck,test,lint` result over the 11 Batch 1 projects is recorded in
 `.ptah/specs/TASK_2026_555/batch-1-report.md`.
+
+## Startup survives a rejecting write (TASK_2026_555 Batch 2)
+
+### Survey: every settings write that runs by itself at startup
+
+The survey covered VS Code `activate` → `bootstrapVscode`, Electron `bootstrapElectron` / `wire-runtime` /
+`main.ts` / DI phases, and CLI `withEngine`. `*.spec.ts` files were excluded.
+
+| # | Write | Reached from | Containment |
+| --- | --- | --- | --- |
+| 1 | `rpc-handlers/src/lib/migrations/cursor-api-key-migration.ts:28` (`provider.cursor.apiKey` → `undefined`) | VS Code `bootstrap.ts:135`, Electron `bootstrap.ts:277`, CLI `with-engine.ts:321` (full mode) | Catch-all in `run-cursor-api-key-migration.ts:26-42`. It logs `errorType` only; the plain value stays and is retried at the next start |
+| 2 | `rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:1111` (`migrateAgentOrchestrationSettings` loop) | `void` at `agent-rpc.handlers.ts:136`, from `register()` during handler registration in all three hosts | try/catch at `:1094-1123`. The `void` promise cannot reject. A failed key stops the loop before the done-flag write, so the migration retries next boot. Spec owned by Batch 5 (S1b) |
+| 3, 4 | `agent-sdk/src/lib/sdk-agent-adapter.ts:494, 504` (`model.selected` first-run default and legacy-name migration) | SDK adapter `initialize()` in all three hosts | Inner try/catch `:490-511`, with further catches in the adapter and the hosts |
+| 5 | `cli-engine/src/lib/bootstrap/with-engine.ts:536` (`authMethod` `claudeCli` → `claude-cli`) | CLI `with-engine.ts:310` (full mode) | `.catch` at `with-engine.ts:310` |
+| 6 | settings-core `MigrationRunner` v2-v4 | VS Code `bootstrap.ts:108`, Electron `bootstrap.ts:250`, CLI `with-engine.ts:293` | try/catch `catch (settingsError)` in each host (VS Code `:93-133`, Electron `:231-275`, CLI `:288-308`), logged as non-fatal |
+
+Result: **no uncontained startup path**. No write rejects out of `bootstrapVscode`, `bootstrapElectron` or `withEngine`,
+and there is no un-awaited `setConfiguration` without a handler. No production change was needed.
+
+How row 6 relates to Batch 1: the v2-v4 migrations write `settings.json` with raw `fsPromises.writeFile` + `rename`
+(`v2-migration.ts:66-67`, `v3-migration.ts:87-88`, `v4-migration.ts:40-41`), not through `PtahFileSettingsManager.set()`.
+Their failure behaviour is therefore unchanged by Batch 1.
+
+Recorded observations (pre-existing, not caused by this task, not changed):
+
+- In VS Code and Electron, a failing settings migration also skips `customProviders.load()`, which sits in the same
+  try block. Startup continues, but user-defined provider ids do not resolve for that session.
+- `migrateLegacyAuthMethod` resolves `Symbol.for('WorkspaceProvider')`, which no container registers. In production it
+  returns early at its `resolve` catch.
+
+### Specs (each uses a real `SettingsPersistError('EACCES')` rejection, not a thrown string)
+
+- **`apps/ptah-extension-vscode/src/activation/bootstrap.cursor-key.spec.ts`**, describe "startup survives a rejecting
+  settings write (TASK_2026_553)":
+  - "the settings catch around runMigrations() logs and never rethrows": `runMigrations()` sits inside the `try` whose
+    `catch (settingsError)` calls `console.warn` and contains no `throw`.
+  - "the Cursor key step resolves and warns without the key when setConfiguration rejects": the real
+    `runCursorApiKeyMigration` over the container shape `bootstrapVscode` passes, with a rejecting provider. It
+    resolves, reaches the write, warns once with `{ errorType: 'SettingsPersistError' }`, and never logs the key.
+- **`apps/ptah-electron/src/activation/bootstrap.cursor-key.spec.ts`**: the same two cases against `bootstrapElectron`.
+- **`libs/backend/cli-engine/src/lib/bootstrap/with-engine.spec.ts`**, "startup survives a rejecting settings write
+  (TASK_2026_553)": `withEngine` (mode full, verbose) runs with all three startup writers rejecting at once:
+  - the settings `MigrationRunner`
+  - `migrateLegacyAuthMethod`, whose token the spec provides
+  - the real `runCursorApiKeyMigration`
+
+  `withEngine` still resolves `fn`'s result. Both writes are reached. stderr carries
+  `file-settings migration failed (non-fatal): Settings could not be saved to disk (EACCES)` and
+  `authMethod migration skipped: Settings could not be saved to disk (EACCES)`. The Cursor warning carries
+  `errorType: 'SettingsPersistError'`, and neither stderr nor the logger contains the key.
+
+Batch 2 verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/cli-engine ptah-extension-vscode ptah-electron ptah-cli`
+→ **EXIT=0**. All 12 targets passed (`Successfully ran targets typecheck, test, lint for 4 projects`).

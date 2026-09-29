@@ -34,6 +34,13 @@ import type {
 import type { CliBootstrapOptions, CliBootstrapResult } from '../container.js';
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
+import {
+  PLATFORM_TOKENS,
+  SettingsPersistError,
+} from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -194,6 +201,108 @@ describe('withEngine', () => {
         async () => 0,
       );
       expect(runCursorApiKeyMigrationMock).not.toHaveBeenCalled();
+    });
+
+    it('startup survives a rejecting settings write (TASK_2026_553)', async () => {
+      // Every startup writer rejects the way PtahFileSettingsManager.set()
+      // does when ~/.ptah/settings.json cannot be written.
+      const persistError = () => new SettingsPersistError('EACCES');
+      const legacyKey = 'with-engine-553-plain-cursor-key';
+      const logger = createMockLogger();
+      const setConfiguration = jest.fn(async () => {
+        throw persistError();
+      });
+      const setProviderKey = jest.fn(async () => undefined);
+      const workspace = {
+        getConfiguration: (_section: string, key: string) =>
+          key === 'authMethod'
+            ? 'claudeCli'
+            : key === 'provider.cursor.apiKey'
+              ? legacyKey
+              : undefined,
+        setConfiguration,
+      };
+      const byToken = new Map<unknown, unknown>([
+        [
+          SETTINGS_TOKENS.MIGRATION_RUNNER,
+          { runMigrations: async () => Promise.reject(persistError()) },
+        ],
+        // migrateLegacyAuthMethod's token and the platform token.
+        [Symbol.for('WorkspaceProvider'), workspace],
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspace],
+        [TOKENS.LOGGER, logger],
+        [
+          TOKENS.AUTH_SECRETS_SERVICE,
+          { hasProviderKey: async () => false, setProviderKey },
+        ],
+      ]);
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn((token: unknown) =>
+          byToken.has(token) ? byToken.get(token) : c.__sdkAdapter,
+        );
+        return result;
+      };
+      // Run the real catch-all Cursor step against the rejecting provider.
+      const { runCursorApiKeyMigration: realCursorMigration } =
+        jest.requireActual<typeof import('@ptah-extension/rpc-handlers')>(
+          '@ptah-extension/rpc-handlers',
+        );
+      runCursorApiKeyMigrationMock.mockImplementationOnce(((
+        c: DependencyContainer,
+      ) => realCursorMigration(c)) as never);
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      try {
+        await expect(
+          withEngine(
+            { verbose: true },
+            { mode: 'full', requireSdk: false, bootstrap: wrapped },
+            async () => 'ran',
+          ),
+        ).resolves.toBe('ran');
+
+        // Each writer was reached and rejected.
+        expect(setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'authMethod',
+          'claude-cli',
+        );
+        expect(setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'provider.cursor.apiKey',
+          undefined,
+        );
+        const stderr = stderrSpy.mock.calls.map((call) => String(call[0]));
+        expect(stderr).toContainEqual(
+          expect.stringContaining(
+            'file-settings migration failed (non-fatal): Settings could not be saved to disk (EACCES)',
+          ),
+        );
+        expect(stderr).toContainEqual(
+          expect.stringContaining(
+            'authMethod migration skipped: Settings could not be saved to disk (EACCES)',
+          ),
+        );
+        expect(logger.warn).toHaveBeenCalledWith(
+          '[CursorApiKeyMigration] failed; the plain setting is kept and retried next start',
+          { errorType: 'SettingsPersistError' },
+        );
+        // The warnings never carry the value.
+        const logged = JSON.stringify([
+          stderr,
+          Object.values(logger).flatMap((fn) =>
+            jest.isMockFunction(fn) ? fn.mock.calls : [],
+          ),
+        ]);
+        expect(logged).not.toContain(legacyKey);
+      } finally {
+        stderrSpy.mockRestore();
+      }
     });
 
     it('threads cwd from globals to workspacePath', async () => {
