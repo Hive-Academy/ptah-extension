@@ -180,6 +180,7 @@ export class AgentRpcHandlers {
 
           const cliResults = await this.cliDetection.detectAll();
           const detectedClis = await this.mergePtahCliAgents(cliResults);
+          const cursorKey = await this.getCursorApiKeyStatus();
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
@@ -197,7 +198,9 @@ export class AgentRpcHandlers {
             antigravityModel: this.getAgentCfg<string>('antigravityModel', ''),
             opencodeModel: this.getAgentCfg<string>('opencodeModel', ''),
             piModel: this.getAgentCfg<string>('piModel', ''),
-            cursorApiKeyConfigured: await this.isCursorApiKeyConfigured(),
+            cursorApiKeyConfigured: cursorKey.configured,
+            cursorApiKeyStored: cursorKey.stored,
+            cursorApiKeyEnvSet: cursorKey.envSet,
             codexAutoApprove: this.getAgentCfg<boolean>(
               'codexAutoApprove',
               true,
@@ -1043,16 +1046,21 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Whether a Cursor API key is resolvable — either CURSOR_API_KEY in the
-   * environment or `ptah.auth.provider.cursor` in the secrets store. Mirrors
-   * the resolution order in CursorCliAdapter; the raw key is never returned.
+   * Cursor API key sources, reported separately (TASK_2026_551):
+   * - `envSet`: CURSOR_API_KEY is non-blank (it wins at resolution time);
+   * - `stored`: `ptah.auth.provider.cursor` exists in the secrets store;
+   * - `configured`: either source, mirroring CursorCliAdapter's resolution order.
+   * Only booleans leave this method; the raw key is never read or returned.
    */
-  private async isCursorApiKeyConfigured(): Promise<boolean> {
+  private async getCursorApiKeyStatus(): Promise<{
+    configured: boolean;
+    stored: boolean;
+    envSet: boolean;
+  }> {
     const envKey = process.env['CURSOR_API_KEY'];
-    if (envKey && envKey.trim()) {
-      return true;
-    }
-    return this.authSecrets.hasProviderKey('cursor');
+    const envSet = !!envKey && envKey.trim().length > 0;
+    const stored = await this.authSecrets.hasProviderKey('cursor');
+    return { configured: envSet || stored, stored, envSet };
   }
 
   /**

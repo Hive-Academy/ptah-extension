@@ -300,9 +300,15 @@ describe('agent:getConfig Cursor key status', () => {
 
   it('reports false with nothing configured and ignores the legacy plain setting', async () => {
     const h = makeHarness();
-    expect((await h.getConfig()).cursorApiKeyConfigured).toBe(false);
+    const result = await h.getConfig();
+    expect(result.cursorApiKeyConfigured).toBe(false);
+    expect(result.cursorApiKeyStored).toBe(false);
+    expect(result.cursorApiKeyEnvSet).toBe(false);
     h.settings.set('ptah.provider.cursor.apiKey', 'legacy-key');
-    expect((await h.getConfig()).cursorApiKeyConfigured).toBe(false);
+    const afterLegacy = await h.getConfig();
+    expect(afterLegacy.cursorApiKeyConfigured).toBe(false);
+    expect(afterLegacy.cursorApiKeyStored).toBe(false);
+    expect(afterLegacy.cursorApiKeyEnvSet).toBe(false);
     expect(
       h.workspace.getConfiguration.mock.calls.some(
         ([, key]) => key === 'provider.cursor.apiKey',
@@ -313,21 +319,43 @@ describe('agent:getConfig Cursor key status', () => {
   it('reports true from the secret', async () => {
     const h = makeHarness();
     h.authSecrets.hasProviderKey.mockResolvedValue(true);
-    expect((await h.getConfig()).cursorApiKeyConfigured).toBe(true);
+    const result = await h.getConfig();
+    expect(result.cursorApiKeyConfigured).toBe(true);
+    expect(result.cursorApiKeyStored).toBe(true);
+    expect(result.cursorApiKeyEnvSet).toBe(false);
     expect(h.authSecrets.hasProviderKey).toHaveBeenCalledWith('cursor');
   });
 
-  it('reports true from a non-blank environment key without reading secrets', async () => {
+  it('reports true from a non-blank environment key without leaking it', async () => {
     const h = makeHarness();
     process.env['CURSOR_API_KEY'] = ' env-test-key ';
-    expect((await h.getConfig()).cursorApiKeyConfigured).toBe(true);
-    expect(h.authSecrets.hasProviderKey).not.toHaveBeenCalled();
+    const result = await h.getConfig();
+    expect(result.cursorApiKeyConfigured).toBe(true);
+    expect(result.cursorApiKeyStored).toBe(false);
+    expect(result.cursorApiKeyEnvSet).toBe(true);
+    // `cursorApiKeyStored` reads the secret store even when the env var wins,
+    // so the UI can show both sources separately (TASK_2026_551).
+    expect(h.authSecrets.hasProviderKey).toHaveBeenCalledWith('cursor');
+    expect(JSON.stringify(result)).not.toContain('env-test-key');
   });
 
   it('treats a blank environment key as absent', async () => {
     const h = makeHarness();
     process.env['CURSOR_API_KEY'] = ' \t ';
-    expect((await h.getConfig()).cursorApiKeyConfigured).toBe(false);
+    const result = await h.getConfig();
+    expect(result.cursorApiKeyConfigured).toBe(false);
+    expect(result.cursorApiKeyStored).toBe(false);
+    expect(result.cursorApiKeyEnvSet).toBe(false);
     expect(h.authSecrets.hasProviderKey).toHaveBeenCalledWith('cursor');
+  });
+
+  it('reports both sources set at the same time', async () => {
+    const h = makeHarness();
+    h.authSecrets.hasProviderKey.mockResolvedValue(true);
+    process.env['CURSOR_API_KEY'] = 'env-test-key';
+    const result = await h.getConfig();
+    expect(result.cursorApiKeyConfigured).toBe(true);
+    expect(result.cursorApiKeyStored).toBe(true);
+    expect(result.cursorApiKeyEnvSet).toBe(true);
   });
 });
