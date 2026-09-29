@@ -295,7 +295,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard` passes
 - Codex CLI-lane logic review APPROVE and visual-reviewer "after" screenshots (dark + light) accepted against "before"
 
-## Batch 5: TUI session cost from the backend snapshot - COMPLETE (SHA recorded in the Batch 6 section)
+## Batch 5: TUI session cost from the backend snapshot - COMPLETE (6dee59f25)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -327,7 +327,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 - `npx nx run-many -t typecheck,test,lint -p ptah-tui` passes
 - Codex CLI-lane logic review returns APPROVE
 
-## Batch 6: Cross-cutting contract and parity guards - IN_PROGRESS
+## Batch 6: Cross-cutting contract and parity guards - COMPLETE (SHA recorded in the task-specs commit that follows)
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: senior-tester (fresh invocation)
@@ -338,7 +338,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 - Reviewer: code-logic review on a CLI lane (codex) - are the guards real (would they catch the regression)?
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree`
 
-### Task 6.1: Live-vs-disk parity and end-to-end [1m] pricing (scope 6e, 6d live path) - IN_PROGRESS
+### Task 6.1: Live-vs-disk parity and end-to-end [1m] pricing (scope 6e, 6d live path) - COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-cost-contract.spec.ts (new)
 - Plan reference: context.md scope decisions 2, 5, 6(d)(e); research-addendum.md:3-14
@@ -347,7 +347,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 - Validation notes: A1, R10.
 - Implementation details: one fixture session = parent ledger (main-loop per-call usage, model A) + one subagent ledger (model B); drive the live owner with the equivalent cumulative `modelUsage` (A + B rows, `usageCostSource: 'unreported'`, same rate card via the pricing lookup) over several results; assert owner snapshot `totalCost` == `aggregateSessionUsage` ledger `totalCost` (toBeCloseTo), token classes equal, and `recordAgent` for the subagent changes `agentSessionCount` only. Second case: a live `modelUsage` key `claude-opus-5-5[1m]` on the unreported path prices at `claude-opus-5-5` rates end to end (turnCost and snapshot non-null).
 
-### Task 6.2: agent-stats.service sums per-call costs (scope 6f) - IN_PROGRESS
+### Task 6.2: agent-stats.service sums per-call costs (scope 6f) - COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat-execution-tree\src\lib\agent-stats.service.spec.ts
 - Plan reference: context.md scope decision 6(f); A2
@@ -357,6 +357,8 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 - Implementation details: an agent with three child `message_complete` events costing 0.10 / 0.20 / 0.30 -> badge `cost` 0.60; a child with `cost` undefined is skipped without zeroing the total; all-unknown -> `cost` undefined (never 0).
 
 ### Batch 6 verification
+
+Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree --skip-nx-cache` - passed (EXIT 0; tester reported 2309 + 25 tests). Test-only batch: `git diff HEAD` touches no production file. Files: libs/backend/agent-sdk/src/lib/session-stats/session-cost-contract.spec.ts (new: live owner vs disk aggregate parity for parent + subagent ledgers, `[1m]` priced at base rates through the owner, resumed-process base restore parity), libs/backend/agent-sdk/src/lib/helpers/stream-transformer.spec.ts (transformer-level `[1m]` unreported-route case), libs/frontend/chat-execution-tree/src/lib/agent-stats.service.spec.ts (per-call sum, undefined skipped, all-unknown stays undefined), test-report.md. A2 confirmed (message_complete.cost is per call; no production change). Guard proofs (R10): each guard failed under a deliberate production mutation, then reverted. Logic review (antigravity CLI lane): code-logic-review-b6.md APPROVE 8/10, regressions R-a..R-f guarded; 2 moderate (mislabeled `[1m]` test title; try/finally cleanup) fixed by the tester (renamed test, afterEach reset, added the transformer-level `[1m]` case shown to fail under mutation).
 
 - Both spec files exist with real fixtures; mutation evidence reported per guard
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/chat-execution-tree` passes

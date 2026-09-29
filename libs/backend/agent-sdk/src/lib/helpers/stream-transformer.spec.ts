@@ -2238,6 +2238,7 @@ describe('StreamTransformer — per-stream isolation (TASK_2026_370)', () => {
 describe('StreamTransformer — session stats authority (TASK_2026_533)', () => {
   const SESSION = 'sess-1' as SessionId;
   const FOUR_CLASS_MODEL = 'zz-four-class-533';
+  const TAGGED_1M_BASE_MODEL = 'zz-tagged-1m-575';
 
   beforeAll(() => {
     registerProviderPricing({
@@ -2246,6 +2247,10 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
         outputCostPerToken: 0.002,
         cacheReadCostPerToken: 0.0001,
         cacheCreationCostPerToken: 0.0005,
+      },
+      [TAGGED_1M_BASE_MODEL]: {
+        inputCostPerToken: 0.00001,
+        outputCostPerToken: 0.00002,
       },
     });
   });
@@ -2373,6 +2378,39 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
         costUSD: expect.closeTo(expected, 6),
       },
     ]);
+  });
+
+  // Guard (TASK_2026_575 Batch 6, scope 6d): the wiring from a live SDK
+  // `modelUsage` key carrying a trailing `[1m]` tag, through the REAL
+  // `modelResolver.resolveForCost` -> `findModelPricing` -> `calculateMessageCost`
+  // pipeline, to a non-null published `turnCost`/`sessionStats.totalCost` on
+  // the unreported (self-priced) route. `makeModelResolver()`'s
+  // `resolveForCost` mock calls the real `findModelPricing`, so this
+  // genuinely exercises the tag-stripping normalizer end to end, not a stub.
+  it('a [1m]-tagged modelUsage key prices at the base model rate on the unreported route (scope 6d)', async () => {
+    const unreported = makeHarness(makeAuthEnv());
+    unreported.statsOwner.startNew(SESSION);
+    const taggedModel = `${TAGGED_1M_BASE_MODEL}[1m]`;
+    const [priced] = await collect(
+      unreported,
+      [
+        cumulativeResult({
+          model: taggedModel,
+          totalCostUsd: 999,
+          costUSD: 999,
+          input: 1000,
+          output: 500,
+          cacheRead: 0,
+          cacheCreation: 0,
+        }),
+      ],
+      { usageCostSource: 'unreported' },
+    );
+    const expected = 1000 * 0.00001 + 500 * 0.00002;
+    expect(priced.turnCost).not.toBeNull();
+    expect(priced.turnCost).toBeCloseTo(expected, 6);
+    expect(priced.sessionStats?.totalCost).not.toBeNull();
+    expect(priced.sessionStats?.totalCost).toBeCloseTo(expected, 6);
   });
 
   it('replaces the latest cumulative result of a run instead of adding it', async () => {

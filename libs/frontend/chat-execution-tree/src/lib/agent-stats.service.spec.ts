@@ -220,4 +220,113 @@ describe('AgentStatsService', () => {
     expect(after.tokenUsage).toEqual({ input: 5, output: 5 });
     expect(after).not.toBe(before);
   });
+
+  /**
+   * Guard tests (TASK_2026_575 Batch 6, scope 6f; A2): `message_complete.cost`
+   * is already PER API CALL — `assistant-message.transformer.ts:379-405`
+   * prices each message from its OWN `message.usage`, never a cumulative
+   * figure — so summing every child's `cost` across an agent's messages is
+   * the correct total, not a double-count. This behaviour is already correct
+   * on this branch: these are guards, not failing-first tests. Each was
+   * proven to bite by a deliberate mutation of `agent-stats.service.ts`, run
+   * once to see the failing assertion, then reverted (see test-report.md).
+   */
+  describe('cost summation is per-call, never zeroed by an unknown sibling (scope 6f, A2 guard)', () => {
+    it('sums three per-call costs (0.10 + 0.20 + 0.30 = 0.60)', () => {
+      const state = createEmptyStreamingState();
+      const parentToolUseId = 'toolu_agent_sum';
+      const sessionId = 'session_sum';
+
+      const costs = [0.1, 0.2, 0.3];
+      costs.forEach((cost, i) => {
+        setEvent(state, {
+          id: `evt_msg_complete_${i}`,
+          eventType: 'message_complete',
+          timestamp: 100 + i,
+          sessionId,
+          messageId: `msg_${i}`,
+          parentToolUseId,
+          tokenUsage: { input: 10, output: 10 },
+          cost,
+        } as MessageCompleteEvent);
+      });
+
+      const result = svc.aggregateAgentStats(parentToolUseId, state);
+      expect(result.cost).toBeCloseTo(0.6, 6);
+    });
+
+    it('a child with an unknown (undefined) cost is skipped, without zeroing the already-known sum', () => {
+      const state = createEmptyStreamingState();
+      const parentToolUseId = 'toolu_agent_mixed';
+      const sessionId = 'session_mixed';
+
+      setEvent(state, {
+        id: 'evt_known_1',
+        eventType: 'message_complete',
+        timestamp: 100,
+        sessionId,
+        messageId: 'msg_k1',
+        parentToolUseId,
+        tokenUsage: { input: 10, output: 10 },
+        cost: 0.1,
+      } as MessageCompleteEvent);
+
+      // Cost unknown for this call (e.g. an unpriced model mid-run).
+      setEvent(state, {
+        id: 'evt_unknown',
+        eventType: 'message_complete',
+        timestamp: 200,
+        sessionId,
+        messageId: 'msg_u',
+        parentToolUseId,
+        tokenUsage: { input: 5, output: 5 },
+        cost: undefined,
+      } as MessageCompleteEvent);
+
+      setEvent(state, {
+        id: 'evt_known_2',
+        eventType: 'message_complete',
+        timestamp: 300,
+        sessionId,
+        messageId: 'msg_k2',
+        parentToolUseId,
+        tokenUsage: { input: 10, output: 10 },
+        cost: 0.2,
+      } as MessageCompleteEvent);
+
+      const result = svc.aggregateAgentStats(parentToolUseId, state);
+      expect(result.cost).toBeCloseTo(0.3, 6);
+    });
+
+    it('every child with an unknown cost leaves the agent total undefined, never $0', () => {
+      const state = createEmptyStreamingState();
+      const parentToolUseId = 'toolu_agent_all_unknown';
+      const sessionId = 'session_all_unknown';
+
+      setEvent(state, {
+        id: 'evt_unknown_1',
+        eventType: 'message_complete',
+        timestamp: 100,
+        sessionId,
+        messageId: 'msg_u1',
+        parentToolUseId,
+        tokenUsage: { input: 10, output: 10 },
+        cost: null,
+      } as MessageCompleteEvent);
+
+      setEvent(state, {
+        id: 'evt_unknown_2',
+        eventType: 'message_complete',
+        timestamp: 200,
+        sessionId,
+        messageId: 'msg_u2',
+        parentToolUseId,
+        tokenUsage: { input: 5, output: 5 },
+        cost: undefined,
+      } as MessageCompleteEvent);
+
+      const result = svc.aggregateAgentStats(parentToolUseId, state);
+      expect(result.cost).toBeUndefined();
+    });
+  });
 });
