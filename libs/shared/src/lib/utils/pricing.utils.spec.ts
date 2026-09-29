@@ -802,4 +802,41 @@ describe('pricing.utils', () => {
       expect(resolveModelDisplayName('claude-haiku-4-5', [])).toBe('Haiku 4.5');
     });
   });
+
+  describe('inherited Object.prototype keys never resolve as pricing', () => {
+    const prototypeIds = [
+      'constructor',
+      'x/constructor',
+      'x/constructor[1m]',
+      '__proto__',
+      'toString',
+    ];
+
+    it.each(prototypeIds)('findModelPricing(%p) returns null', (id) => {
+      expect(findModelPricing(id)).toBeNull();
+    });
+
+    it.each(prototypeIds)(
+      'calculateMessageCost(%p) returns null, never NaN',
+      (id) => {
+        expect(
+          calculateMessageCost(id, { input: 1000, output: 500 }),
+        ).toBeNull();
+      },
+    );
+
+    it.each(prototypeIds)('getModelContextWindow(%p) returns 0', (id) => {
+      expect(getModelContextWindow(id)).toBe(0);
+    });
+
+    it('still resolves a registered own entry with a prototype-like name', () => {
+      const pricing = {
+        inputCostPerToken: 0.000001,
+        outputCostPerToken: 0.000002,
+        provider: 'test',
+      };
+      updatePricingMap({ constructor: pricing });
+      expect(findModelPricing('x/constructor[1m]')).toBe(pricing);
+    });
+  });
 });

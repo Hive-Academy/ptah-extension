@@ -330,7 +330,9 @@ function lookupPricingEntry(
     stripProviderPrefix(untaggedId),
   ];
   for (const id of exactIds) {
-    if (id && modelPricingMap[id]) {
+    // Own keys only: an id such as `x/constructor` or `__proto__` must not
+    // resolve to an inherited Object.prototype member and yield NaN costs.
+    if (id && Object.hasOwn(modelPricingMap, id) && modelPricingMap[id]) {
       return modelPricingMap[id];
     }
   }
