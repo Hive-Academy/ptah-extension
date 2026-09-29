@@ -15,6 +15,8 @@ import {
 import { runCursorApiKeyMigration } from '@ptah-extension/rpc-handlers';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import { loadCustomProviders } from './bootstrap';
 
 const LEGACY_KEY = 'vscode-553-plain-cursor-key';
 
@@ -119,6 +121,75 @@ describe('bootstrapVscode — Cursor key migration', () => {
         { errorType: 'SettingsPersistError' },
       );
       expect(loggedText(h.logger)).not.toContain(LEGACY_KEY);
+    });
+  });
+
+  describe('custom providers load independently of the settings migrations (Batch 2b)', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('publishes after the settings try/catch, so a rejecting runMigrations() cannot skip it', () => {
+      const migrations = BODY.indexOf('await migrationRunner.runMigrations()');
+      const settingsCatchEnd = findCatchEnd(
+        BODY,
+        BODY.indexOf('catch (settingsError)'),
+      );
+      const load = BODY.indexOf('loadCustomProviders(diContainer);');
+      const cursor = BODY.indexOf('await runCursorApiKeyMigration(diContainer)');
+
+      expect(migrations).toBeGreaterThan(-1);
+      expect(load).toBeGreaterThan(settingsCatchEnd);
+      // Published before anything later in activation resolves a provider.
+      expect(load).toBeLessThan(cursor);
+      // The load no longer lives inside the migration try.
+      expect(BODY).not.toContain('customProviders.load()');
+    });
+
+    it('loads the store, publishes, and logs the entry count and dropped entries', () => {
+      const load = jest.fn(() => ({
+        entries: [{ id: 'a' }, { id: 'b' }],
+        dropped: [{ id: 'bad' }],
+      }));
+      const c = rootContainer.createChildContainer();
+      c.registerInstance(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE, { load });
+
+      expect(() => loadCustomProviders(c)).not.toThrow();
+
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('(2 custom providers)'),
+      );
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Dropped 1 malformed custom provider entry'),
+      );
+    });
+
+    it('logs and does not throw when load() throws', () => {
+      const c = rootContainer.createChildContainer();
+      c.registerInstance(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE, {
+        load: () => {
+          throw new SettingsPersistError('EACCES');
+        },
+      });
+
+      expect(() => loadCustomProviders(c)).not.toThrow();
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Custom provider load failed (non-fatal)'),
+        'Settings could not be saved to disk (EACCES)',
+      );
+    });
+
+    it('logs and does not throw when settings registration never registered the store', () => {
+      expect(() =>
+        loadCustomProviders(rootContainer.createChildContainer()),
+      ).not.toThrow();
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Custom provider load failed (non-fatal)'),
+        expect.any(String),
+      );
     });
   });
 

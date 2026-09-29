@@ -53,6 +53,37 @@ export interface BootstrapResult {
 }
 
 /**
+ * Publish user-defined providers to the shared registry cache. Runs BEFORE
+ * anything resolves a provider by id — until it runs, getAnthropicProvider()
+ * knows only the built-ins. Non-fatal and independent of the settings
+ * migrations' outcome (TASK_2026_555 Batch 2b): a failure is logged and the
+ * app continues with the built-in providers.
+ */
+export function loadCustomProviders(container: DependencyContainer): void {
+  try {
+    const customProviders = container.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah Electron] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah Electron] Custom providers published (${entries.length} custom providers)`,
+    );
+  } catch (loadError) {
+    console.warn(
+      '[Ptah Electron] Custom provider load failed (non-fatal); only built-in providers are available:',
+      loadError instanceof Error ? loadError.message : String(loadError),
+    );
+  }
+}
+
+/**
  * Prime the membership/licence cache for the membership card.
  *
  * NETWORK, and deliberately not on the critical path (TASK_2026_331 B1.T2).
@@ -248,23 +279,7 @@ export async function bootstrapElectron(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    // Publish user-defined providers to the shared registry cache BEFORE
-    // anything resolves a provider by id — until this runs,
-    // getAnthropicProvider() knows only the built-ins.
-    const customProviders = container.resolve<CustomProviderStore>(
-      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
-    );
-    const { entries, dropped } = customProviders.load();
-    if (dropped.length > 0) {
-      console.warn(
-        `[Ptah Electron] Dropped ${dropped.length} malformed custom provider entr${
-          dropped.length === 1 ? 'y' : 'ies'
-        }`,
-      );
-    }
-    console.log(
-      `[Ptah Electron] Settings registered and migrations applied (${entries.length} custom providers)`,
-    );
+    console.log('[Ptah Electron] Settings registered and migrations applied');
   } catch (settingsError) {
     console.warn(
       '[Ptah Electron] Settings registration / migration failed (non-fatal):',
@@ -273,6 +288,9 @@ export async function bootstrapElectron(
         : String(settingsError),
     );
   }
+  // Outside the settings try: a failed migration must not leave user-defined
+  // providers unpublished for the whole session.
+  loadCustomProviders(container);
   // Run outside the settings try so settings failures cannot skip key migration.
   await runCursorApiKeyMigration(container);
   const sentryDsn = typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
