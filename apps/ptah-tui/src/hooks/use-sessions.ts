@@ -215,6 +215,21 @@ export class SessionController {
   stats: SessionStats | null = null;
   loading = false;
 
+  /**
+   * Incremented on every applied `session:stats` push. Only pushes for the
+   * active session are applied, so a change here always concerns the session
+   * an in-flight seed was started for.
+   */
+  private pushGeneration = 0;
+  /**
+   * Latest push per session received while no session is active, so a new
+   * session's first push is not lost if it lands before `session:id-resolved`.
+   * Emptied whenever the active session changes.
+   */
+  private readonly unresolvedPushes = new Map<string, SessionStatsPush>();
+  /** Incremented when a stats-batch seed starts; only the newest may apply. */
+  private seedSequence = 0;
+
   private readonly onStats: (payload: unknown) => void;
   private readonly onIdResolved: (payload: unknown) => void;
 
@@ -277,7 +292,7 @@ export class SessionController {
         unknown
       >('session:load', { sessionId: id });
       if (response.success) {
-        this.activeSessionId = id;
+        this.activate(id);
         await this.seedStats(id);
       }
     } catch {
@@ -288,7 +303,16 @@ export class SessionController {
     }
   }
 
+  /**
+   * Seeds stats from a `session:stats-batch` snapshot. The result is applied
+   * only when it is still the newest information: no push was accepted while
+   * the request was in flight, no later seed has started, and `id` is still
+   * the active session. Otherwise it is dropped, success or failure alike.
+   */
   private async seedStats(id: string): Promise<void> {
+    const seed = ++this.seedSequence;
+    const pushGeneration = this.pushGeneration;
+    let next: SessionStats | null;
     try {
       const response = await this.transport.call<
         { sessionIds: string[]; workspacePath: string },
@@ -300,9 +324,16 @@ export class SessionController {
       const entry = response.success
         ? response.data?.sessionStats?.[0]
         : undefined;
-      this.stats = entry ? deriveStatsFromBatch(id, entry, this.stats) : null;
+      next = entry ? deriveStatsFromBatch(id, entry, this.stats) : null;
     } catch {
-      this.stats = null;
+      next = null;
+    }
+    if (
+      seed === this.seedSequence &&
+      pushGeneration === this.pushGeneration &&
+      this.activeSessionId === id
+    ) {
+      this.stats = next;
     }
   }
 
@@ -315,7 +346,7 @@ export class SessionController {
         unknown
       >('session:delete', { sessionId: id });
       if (response.success) {
-        if (this.activeSessionId === id) this.activeSessionId = null;
+        if (this.activeSessionId === id) this.activate(null);
         if (this.stats && this.stats.sessionId === id) this.stats = null;
         await this.loadSessions();
       }
@@ -328,13 +359,41 @@ export class SessionController {
   }
 
   setActiveSession(id: string | null): void {
-    this.activeSessionId = id;
+    this.activate(id);
     this.onChange();
   }
 
+  /**
+   * Makes `id` the active session. When the session actually changes, the
+   * previous session's stats are cleared so its figures are never shown under
+   * the new session while that session's seed or first push is pending.
+   */
+  private activate(id: string | null): void {
+    if (id !== this.activeSessionId) this.stats = null;
+    this.activeSessionId = id;
+    this.unresolvedPushes.clear();
+  }
+
+  /**
+   * Applies a push only when it belongs to the active session. While no
+   * session is active (a new session whose id is not yet resolved) the push is
+   * held and applied by `handleIdResolved` if it names the resolved id.
+   */
   private handleStats(payload: unknown): void {
-    const next = deriveStats(payload as SessionStatsPush, this.stats);
+    const push = payload as SessionStatsPush;
+    if (!push.sessionId) return;
+    if (this.activeSessionId === null) {
+      this.unresolvedPushes.set(push.sessionId, push);
+      return;
+    }
+    if (push.sessionId !== this.activeSessionId) return;
+    this.applyPush(push);
+  }
+
+  private applyPush(push: SessionStatsPush): void {
+    const next = deriveStats(push, this.stats);
     if (!next) return;
+    this.pushGeneration++;
     this.stats = next;
     this.onChange();
   }
@@ -342,7 +401,9 @@ export class SessionController {
   private handleIdResolved(payload: unknown): void {
     const data = payload as SessionIdResolvedPayload;
     if (data.realSessionId && data.realSessionId.length > 0) {
-      this.activeSessionId = data.realSessionId;
+      const held = this.unresolvedPushes.get(data.realSessionId);
+      this.activate(data.realSessionId);
+      if (held) this.applyPush(held);
       this.onChange();
     }
   }
