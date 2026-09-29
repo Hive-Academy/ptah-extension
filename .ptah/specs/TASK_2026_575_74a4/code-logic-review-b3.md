@@ -16,43 +16,43 @@
 ### 1. How does this fail silently?
 
 - **Unknown turn cost (`turnCost: null`)**:
-  - In [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L564-L568) and [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L656-L661), `stats.turnCost` (`null`) is written to `pendingStats.cost` or `messages[lastAssistantIndex].cost`.
-  - In [cost-badge.component.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69), `knownCost` evaluates `typeof cost === 'number' && Number.isFinite(cost)` to `null`. The template renders `<span data-testid="cost-unavailable">cost unavailable</span>` (lines 37-45). This is explicitly displayed to the user as unavailable rather than silently showing `$0.00` or carrying over an older turn/session value.
+  - In [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L564-L568) and [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L656-L661), `stats.turnCost` (`null`) is written to `pendingStats.cost` or `messages[lastAssistantIndex].cost`.
+  - In [cost-badge.component.ts](../../../libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69), `knownCost` evaluates `typeof cost === 'number' && Number.isFinite(cost)` to `null`. The template renders `<span data-testid="cost-unavailable">cost unavailable</span>` (lines 37-45). This is explicitly displayed to the user as unavailable rather than silently showing `$0.00` or carrying over an older turn/session value.
 - **Session without a bound tab**:
-  - In [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L143-L152), if `targetTabs.length === 0` (e.g., workflow surface session), `recordSurfaceStats` installs the header stats in `SurfaceSessionStatsRegistry` and early-returns without calling `streamingHandler.handleSessionStats`. If the session is also not in `StreamRouter`, it logs a warning (`dropping event`, lines 208-213).
+  - In [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L143-L152), if `targetTabs.length === 0` (e.g., workflow surface session), `recordSurfaceStats` installs the header stats in `SurfaceSessionStatsRegistry` and early-returns without calling `streamingHandler.handleSessionStats`. If the session is also not in `StreamRouter`, it logs a warning (`dropping event`, lines 208-213).
 - **Tab with no assistant messages on post-finalization merge**:
-  - In [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L653), if `mergeStatsOntoLastAssistant` is called on a tab without an assistant message (`messages = [user]`), `lastAssistantIndex` remains `-1` and the function returns early without error.
+  - In [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L653), if `mergeStatsOntoLastAssistant` is called on a tab without an assistant message (`messages = [user]`), `lastAssistantIndex` remains `-1` and the function returns early without error.
 
 ### 2. What user action produces unexpected behaviour?
 
 - **User submits a new prompt before turn stats arrive**:
-  - If the previous turn finalized, the tab has `messages = [user1, assistant1, user2]` and `streamingState === null`. In [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L652), `mergeStatsOntoLastAssistant` scans backward from `messages.length - 1` and stops at the first message with `role === 'assistant'`. It correctly targets `assistant1` and does not attach the cost to `user2`.
+  - If the previous turn finalized, the tab has `messages = [user1, assistant1, user2]` and `streamingState === null`. In [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L652), `mergeStatsOntoLastAssistant` scans backward from `messages.length - 1` and stops at the first message with `role === 'assistant'`. It correctly targets `assistant1` and does not attach the cost to `user2`.
 - **User switches workspaces during a streaming turn**:
-  - Handled cleanly. [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L124-L128) and [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L557-L576) use `findTabBySessionIdAcrossWorkspaces(stats.sessionId)`. The partitioned background tab is found and its `bgState.pendingStats` (or message cost if finalized) is updated.
+  - Handled cleanly. [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L124-L128) and [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L557-L576) use `findTabBySessionIdAcrossWorkspaces(stats.sessionId)`. The partitioned background tab is found and its `bgState.pendingStats` (or message cost if finalized) is updated.
 
 ### 3. What input data produces a wrong answer?
 
 - **Legitimately free turn (`turnCost: 0`)**:
-  - In [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L68-L76), `isSnapshotOnly` tests `stats.turnCost === undefined`. Because `0 !== undefined`, it is recognized as a result event.
-  - In [cost-badge.component.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69), `Number.isFinite(0)` is true, wrapping it in `{ value: 0 }`, and formats as `$0.00` rather than falling into the "cost unavailable" branch.
+  - In [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L68-L76), `isSnapshotOnly` tests `stats.turnCost === undefined`. Because `0 !== undefined`, it is recognized as a result event.
+  - In [cost-badge.component.ts](../../../libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69), `Number.isFinite(0)` is true, wrapping it in `{ value: 0 }`, and formats as `$0.00` rather than falling into the "cost unavailable" branch.
 - **Snapshot-only event (`turnCost: undefined`)**:
-  - `isSnapshotOnly` returns `true`. In [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L130-L139), it installs the snapshot on the tab/surface and returns immediately, never calling `streamingHandler.handleSessionStats` and never touching message costs.
+  - `isSnapshotOnly` returns `true`. In [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L130-L139), it installs the snapshot on the tab/surface and returns immediately, never calling `streamingHandler.handleSessionStats` and never touching message costs.
 - **Non-finite/NaN/negative cost**:
   - Validated and rejected upstream in `stream-transformer.ts` (`validateStats`). If corrupted in-memory, `Number.isFinite(cost)` in `CostBadgeComponent` guards the display, falling back to "cost unavailable".
 
 ### 4. What happens when a dependency fails?
 
 - **Shared wire contract drift**:
-  - `SessionStatsResultEvent` in [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L38-L45) is defined directly from `ResultStatsPayload` (`Omit<ResultStatsPayload, 'sessionId' | 'modelUsage'> & { readonly sessionId: string; readonly modelUsage?: TurnModelUsage[]; }`).
-  - `SessionStatsFooter` in [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L48-L52) is defined as `Pick<ResultStatsPayload, 'turnCost' | 'tokens' | 'duration'> & { readonly sessionId: string }`.
+  - `SessionStatsResultEvent` in [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L38-L45) is defined directly from `ResultStatsPayload` (`Omit<ResultStatsPayload, 'sessionId' | 'modelUsage'> & { readonly sessionId: string; readonly modelUsage?: TurnModelUsage[]; }`).
+  - `SessionStatsFooter` in [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L48-L52) is defined as `Pick<ResultStatsPayload, 'turnCost' | 'tokens' | 'duration'> & { readonly sessionId: string }`.
   - Any future rename or type change on `ResultStatsPayload` causes an immediate compilation failure in both frontend services.
 - **`sessionLoader.loadSessions()` failure**:
-  - In [session-stats-aggregator.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L181-L183), the promise rejection is caught and logged (`console.warn`) without aborting tab stats or dispatch.
+  - In [session-stats-aggregator.service.ts](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L181-L183), the promise rejection is caught and logged (`console.warn`) without aborting tab stats or dispatch.
 
 ### 5. What is missing that the requirements never mentioned?
 
 - **Multi-message turns (tool use cycles with multiple assistant bubbles)**:
-  - In [message-finalization.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/message-finalization.service.ts#L215-L239), only the last newly finalized assistant message (`isLast`) is decorated with `cost`, `tokens`, and `duration`. Intermediate assistant messages omit `cost`. If stats arrive after finalization, `mergeStatsOntoLastAssistant` in [streaming-handler.service.ts](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L663) only updates the last assistant message. Turn cost is never doubled or distributed across multiple assistant bubbles.
+  - In [message-finalization.service.ts](../../../libs/frontend/chat-streaming/src/lib/message-finalization.service.ts#L215-L239), only the last newly finalized assistant message (`isLast`) is decorated with `cost`, `tokens`, and `duration`. Intermediate assistant messages omit `cost`. If stats arrive after finalization, `mergeStatsOntoLastAssistant` in [streaming-handler.service.ts](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L645-L663) only updates the last assistant message. Turn cost is never doubled or distributed across multiple assistant bubbles.
 - **Subagent spend accounting**:
   - `turnCost` on `ResultStatsPayload` includes Task-subagent costs for the turn, while `tokens` reflects main-loop usage. The frontend does not recompute or reprice tokens locally, preserving exact equality between message-cost sums and the backend snapshot total.
 
@@ -74,13 +74,13 @@ None.
 ## Moderate and minor issues
 
 ### Minor 1: Pre-existing activeTab fallback in `handleSessionStats`
-- File: [streaming-handler.service.ts:580-596](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L580-L596)
+- File: [streaming-handler.service.ts:580-596](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L580-L596)
 - Scenario: If `stats.sessionId` matches neither active workspace tabs nor background workspace tabs, lines 591-595 fall back to `primaryTab = activeTab` if `activeTab.status === 'streaming' || activeTab.status === 'loaded'`.
-- Mitigation: In practice, [session-stats-aggregator.service.ts:143-152](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L143-L152) checks `targetTabs.length === 0` first and delegates to `recordSurfaceStats`, early-returning before `streamingHandler.handleSessionStats` is invoked. Thus, unmapped session stats never reach this fallback branch in production.
+- Mitigation: In practice, [session-stats-aggregator.service.ts:143-152](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L143-L152) checks `targetTabs.length === 0` first and delegates to `recordSurfaceStats`, early-returning before `streamingHandler.handleSessionStats` is invoked. Thus, unmapped session stats never reach this fallback branch in production.
 
 ## Data flow
 
-1. **Wire Event Arrives**: IPC event `session:stats` delivers `SessionStatsEvent` to [session-stats-aggregator.service.ts:112](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L112). [OK]
+1. **Wire Event Arrives**: IPC event `session:stats` delivers `SessionStatsEvent` to [session-stats-aggregator.service.ts:112](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L112). [OK]
 2. **Tab Resolution**: `findTabsBySessionId` searches active workspace; fallback to `findTabBySessionIdAcrossWorkspaces` for background workspace tabs. [OK]
 3. **Snapshot-Only Check**: `isSnapshotOnly(stats)` checks if `turnCost`, `tokens`, and `duration` are `undefined`. If so, installs header snapshot via `installSessionStats` / `recordSurfaceStats` and returns early. Message costs are untouched. [OK]
 4. **Header Snapshot Installation**: If `stats.sessionStats` is present, `tabManager.installSessionStats(t.id, snapshot)` installs backend snapshot directly. The webview never sums message costs. [OK]
@@ -88,19 +88,19 @@ None.
 6. **Footer Forwarding**: `streamingHandler.handleSessionStats(stats)` receives `stats: SessionStatsFooter`. [OK]
    - *If tab is still streaming*: Stashes `{ cost: stats.turnCost, tokens: stats.tokens, duration: stats.duration }` onto `state.pendingStats` (lines 564, 618).
    - *If tab is already finalized*: Calls `mergeStatsOntoLastAssistant(tab, stats)`, setting `cost: stats.turnCost` on the last assistant message (line 659).
-7. **Streaming Transcript Display**: [chat-transcript.component.ts:378-382](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts#L378-L382) applies `pendingStats.cost` to active streaming tree node. [OK]
-8. **Finalization Consumption**: [message-finalization.service.ts:160-171](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/message-finalization.service.ts#L160-L171) consumes `pendingStats.cost` onto the final message bubble of the turn. [OK]
-9. **UI Badge Rendering**: [cost-badge.component.ts:64-69](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69) formats `0` as `$0.00`, positive numbers with 2 or 4 decimal places, and `null`/`undefined` as "cost unavailable". [OK]
+7. **Streaming Transcript Display**: [chat-transcript.component.ts:378-382](../../../libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts#L378-L382) applies `pendingStats.cost` to active streaming tree node. [OK]
+8. **Finalization Consumption**: [message-finalization.service.ts:160-171](../../../libs/frontend/chat-streaming/src/lib/message-finalization.service.ts#L160-L171) consumes `pendingStats.cost` onto the final message bubble of the turn. [OK]
+9. **UI Badge Rendering**: [cost-badge.component.ts:64-69](../../../libs/frontend/chat-ui/src/lib/atoms/cost-badge.component.ts#L64-L69) formats `0` as `$0.00`, positive numbers with 2 or 4 decimal places, and `null`/`undefined` as "cost unavailable". [OK]
 
 ## Requirements fulfilment
 
 | Requirement | Status | Gap |
 | ----------- | ------ | --- |
 | Derive `SessionStatsResultEvent` from `ResultStatsPayload` | COMPLETE | None. Defined using `Omit<ResultStatsPayload, 'sessionId' \| 'modelUsage'> & { readonly sessionId: string; readonly modelUsage?: TurnModelUsage[]; }`. |
-| `SessionStatsSnapshotEvent` has `turnCost?: undefined` | COMPLETE | None. [session-stats-aggregator.service.ts:51-58](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L51-L58). |
-| `isSnapshotOnly` checks `turnCost` | COMPLETE | None. [session-stats-aggregator.service.ts:68-76](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L68-L76). |
+| `SessionStatsSnapshotEvent` has `turnCost?: undefined` | COMPLETE | None. [session-stats-aggregator.service.ts:51-58](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L51-L58). |
+| `isSnapshotOnly` checks `turnCost` | COMPLETE | None. [session-stats-aggregator.service.ts:68-76](../../../libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts#L68-L76). |
 | `StreamingHandlerService` writes `turnCost` to `pendingStats.cost` | COMPLETE | None. Both bound tabs and background tabs write `stats.turnCost` to `pendingStats.cost`. |
-| `StreamingHandlerService` writes `turnCost` to last assistant message | COMPLETE | None. [streaming-handler.service.ts:659](file:///D:/projects/ptah-extension/.claude-worktrees/task-575-session-cost/libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L659). |
+| `StreamingHandlerService` writes `turnCost` to last assistant message | COMPLETE | None. [streaming-handler.service.ts:659](../../../libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts#L659). |
 | Webview never sums message cost into header (TASK_2026_533) | COMPLETE | None. Grep confirmed 0 sums of message costs in `libs/frontend`; header reads directly from `tab.sessionStats`. |
 | `turnCost: null` renders as "cost unavailable", never `$0.00` | COMPLETE | None. Pinned by unit test in aggregator spec mounting `CostBadgeComponent`. |
 | Regression tests pin behaviour and are not tautological | COMPLETE | None. 7 new tests across both specs verify per-turn costs, pendingStats, null cost handling, and snapshot-only isolation. |

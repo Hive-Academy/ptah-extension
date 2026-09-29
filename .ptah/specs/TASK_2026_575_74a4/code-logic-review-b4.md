@@ -1,7 +1,7 @@
 # Code Logic Review — TASK_2026_575_74a4, Batch 4 (analytics cost accounting)
 
 Scope: uncommitted changes under `libs/frontend/dashboard/` in worktree
-`D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost` (10 modified files,
+`the task worktree` (10 modified files,
 4 new spec files). Batch 2's concurrent edits in `libs/shared` and `libs/backend` were read
 only to verify the `knownCost` wire contract; they are not judged here.
 

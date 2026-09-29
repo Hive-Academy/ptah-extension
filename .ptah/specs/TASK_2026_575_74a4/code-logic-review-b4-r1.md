@@ -1,7 +1,7 @@
 # Code Logic Review — TASK_2026_575_74a4, Batch 4, revision round 1
 
 Re-review of the executor's revision to the uncommitted `libs/frontend/dashboard/` changes
-in worktree `D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost`
+in worktree `the task worktree`
 (10 modified files, 4 new spec files). Round-0 review: `code-logic-review-b4.md`
 (REVISE, 6/10).
 

@@ -4,7 +4,7 @@ Total tasks: 14 | Batches: 7 | Complete: 7/7 (Batch 4 visual "after" evidence ac
 
 BUGFIX, plan-free. Decomposed from task.md, context.md ("Orchestrator scope decisions" 1-7, binding),
 research-report.md and research-addendum.md, stress-tested against base 722d921ab on disk.
-Worktree: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost (branch fix/task-575-session-cost-accounting).
+Worktree: the task worktree (branch fix/task-575-session-cost-accounting).
 All paths below are relative to that worktree root unless absolute.
 
 Recorded defaults (execution preferences came with the prompt, so no clarification was needed):
@@ -76,7 +76,7 @@ Deferred (recorded, not implemented, per scope decisions 3 and 5):
 
 ### Task 1.1: Export one model-id normalizer and use it in lookupPricingEntry - COMPLETE
 
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\shared\src\lib\utils\pricing.utils.ts (exported from `libs/shared/src/index.ts:55` via `export *`; no index change needed if it lives in this file)
+- File: libs/shared/src/lib/utils/pricing.utils.ts (exported from `libs/shared/src/index.ts:55` via `export *`; no index change needed if it lives in this file)
 - Plan reference: context.md scope decision 5; research-report.md:33-36; research-addendum.md:26-34
 - Pattern to follow: `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:72-89` (`normalizeModelKey`), `pricing.utils.ts:240-302`
 - Quality requirements: never bill a model at another model's rates (keep the date-snapshot-only partial rule and no reverse match); unknown stays null, never 0.
@@ -86,7 +86,7 @@ Deferred (recorded, not implemented, per scope decisions 3 and 5):
 ### Task 1.2: Regression tests for [1m] and provider-prefixed ids (scope 6d) - COMPLETE
 
 - Depends on: Task 1.1
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\shared\src\lib\utils\pricing.utils.spec.ts
+- File: libs/shared/src/lib/utils/pricing.utils.spec.ts
 - Plan reference: context.md scope decision 6(d)
 - Pattern to follow: existing `findModelPricing` / `calculateMessageCost` cases in the same spec
 - Quality requirements: tests FAIL on base (`claude-opus-5-5[1m]` -> null today).
@@ -115,7 +115,7 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 
 ### Task 2.1: SessionStatsOwnerService.replaceRun returns the accepted turn's cost - COMPLETE
 
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.ts
+- File: libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts
 - Plan reference: context.md scope decision 1; research-addendum.md:36-48 (Q4); research-report.md:11-17
 - Pattern to follow: `replaceRun` (:459-499), `applyResult` (:702-719), `subtractRunBase` (:224-283), `publish` (:625-674)
 - Quality requirements: sum of accepted turn costs of a run == that run's contribution to the snapshot `totalCost`; never a cumulative figure.
@@ -126,9 +126,9 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 
 - Depends on: Task 2.1
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\shared\src\lib\types\agent-adapter.types.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\cli-agent-runtime\src\lib\wiring\sdk-callbacks.ts
+  - libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts
+  - libs/shared/src/lib/types/agent-adapter.types.ts
+  - libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts
 - Plan reference: context.md scope decision 1; research-report.md:13-17, 44-49
 - Pattern to follow: stream-transformer.ts:674-787 (result block), agent-adapter.types.ts:31-66
 - Quality requirements: no stubs; `totalCost` computed at :674-687 remains only the value handed to the owner, never published as a message cost.
@@ -139,8 +139,8 @@ Result: `nx run-many -t typecheck,test,lint -p @ptah-extension/shared` passed (t
 
 - Depends on: Task 2.2
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.spec.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.spec.ts
+  - libs/backend/agent-sdk/src/lib/helpers/stream-transformer.spec.ts
+  - libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.spec.ts
 - Plan reference: context.md scope decision 6(a)(b)
 - Pattern to follow: stream-transformer.spec.ts:2240-2400 (`makeHarness`, `cumulativeResult`, `collect`)
 - Quality requirements: new tests FAIL on base (base publishes cumulative); fixed tests assert the new semantics, not loosened ones.
@@ -170,7 +170,7 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 
 ### Task 2b.1: Monotonicity and duplicate checks by cost source - COMPLETE
 
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.ts
+- File: libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts
 - Plan reference: code-logic-review-b2-r1.md (isGrown finding); context.md user request; Batch 2 `acceptedTurnCost` contract
 - Pattern to follow: `applyResult` (:728-745), `isSameUsage` (:903-919), `isGrown` (:926-948), `subtractRunBase` (:224-283), `acceptedTurnCost`
 - Quality requirements: a session snapshot never freezes because a rate changed; token counters stay the monotonicity authority; `'reported'` runs keep dollar monotonicity (SDK dollars are authoritative and cumulative).
@@ -181,8 +181,8 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 
 - Depends on: Task 2b.1
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-stats-owner.service.spec.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.spec.ts (only if an end-to-end publish case is needed; keep it to one case)
+  - libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.spec.ts
+  - libs/backend/agent-sdk/src/lib/helpers/stream-transformer.spec.ts (only if an end-to-end publish case is needed; keep it to one case)
 - Plan reference: orchestrator decision (Batch 2 commit round)
 - Pattern to follow: the Batch 2 `replaceRun().turnCost` owner cases in session-stats-owner.service.spec.ts
 - Quality requirements: tests FAIL on the Batch 2 commit (show the failing assertion, e.g. outcome `rejected-non-monotonic` / frozen snapshot), pass after 2b.1; no loosened assertions.
@@ -217,8 +217,8 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 ### Task 3.1: Derive the session:stats event type from the shared payload and read turnCost - COMPLETE
 
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat-streaming\src\lib\streaming-handler.service.ts
+  - libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts
+  - libs/frontend/chat-streaming/src/lib/streaming-handler.service.ts
 - Plan reference: context.md scope decisions 1 and 6(a); research-report.md:14
 - Pattern to follow: session-stats-aggregator.service.ts:21-70 (event types, `isSnapshotOnly`), streaming-handler.service.ts:524-653
 - Quality requirements: the webview never sums message cost into a header figure (TASK_2026_533 invariant kept); message `cost` field on `ExecutionChatMessage` / `pendingStats` keeps meaning "this message's own cost".
@@ -229,8 +229,8 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 
 - Depends on: Task 3.1
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.spec.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat-streaming\src\lib\streaming-handler.service.spec.ts
+  - libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts
+  - libs/frontend/chat-streaming/src/lib/streaming-handler.service.spec.ts
 - Plan reference: context.md scope decision 6(a)
 - Pattern to follow: existing `handleSessionStats` cases in both specs
 - Quality requirements: at least one test FAILS on base (base reads `cost`, so a `turnCost` payload leaves the footer empty).
@@ -262,12 +262,12 @@ Result: committed 8bbe3418c after code-logic-review-b3.md APPROVE 9/10. Mode 3 r
 ### Task 4.1: Aggregate knownCost of every session with an explicit partial marker - COMPLETE
 
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\services\session-analytics-state.service.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\utils\format.utils.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\components\session-analytics\metrics-cards.component.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\components\session-analytics\session-stats-card.component.ts (and its .html)
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\components\session-analytics\session-detail-modal.component.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\components\analytics-card\analytics-card.component.html
+  - libs/frontend/dashboard/src/lib/services/session-analytics-state.service.ts
+  - libs/frontend/dashboard/src/lib/utils/format.utils.ts
+  - libs/frontend/dashboard/src/lib/components/session-analytics/metrics-cards.component.ts
+  - libs/frontend/dashboard/src/lib/components/session-analytics/session-stats-card.component.ts (and its .html)
+  - libs/frontend/dashboard/src/lib/components/session-analytics/session-detail-modal.component.ts
+  - libs/frontend/dashboard/src/lib/components/analytics-card/analytics-card.component.html
 - Plan reference: context.md scope decisions 3, 4, 7; research-report.md:26-31
 - Pattern to follow: session-analytics-state.service.ts:244-323, 545-581; format.utils.ts:17-75; analytics-card.component.html:97-127
 - Quality requirements: no silent drop, no $0 for unknown; a lower bound is always labeled as one; backend `totalCost` semantics unchanged (no backend edit in this batch).
@@ -278,7 +278,7 @@ Result: committed 8bbe3418c after code-logic-review-b3.md APPROVE 9/10. Mode 3 r
 
 - Depends on: Task 4.1
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\dashboard\src\lib\services\session-analytics-state.service.spec.ts
+  - libs/frontend/dashboard/src/lib/services/session-analytics-state.service.spec.ts
   - format.utils / metrics-cards / session-stats-card specs next to their sources (create where absent)
 - Plan reference: context.md scope decision 6(c)
 - Pattern to follow: existing aggregates cases in session-analytics-state.service.spec.ts and `session-analytics-state.testing.ts`
@@ -312,8 +312,8 @@ OPEN ITEM CLOSED (after Batch 6): visual-review.md APPROVE 9/10 (visual-reviewer
 ### Task 5.1: deriveStats uses sessionStats, never a per-turn or per-row figure - COMPLETE
 
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\apps\ptah-tui\src\hooks\use-sessions.ts
-  - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\apps\ptah-tui\src\hooks\use-sessions.spec.ts
+  - apps/ptah-tui/src/hooks/use-sessions.ts
+  - apps/ptah-tui/src/hooks/use-sessions.spec.ts
   - the TUI component that renders `stats.costUSD` (executor locates it; include it only if its type changes)
 - Plan reference: context.md user request ("total ... in the stats not only the last message cost"); R7
 - Pattern to follow: use-sessions.ts:47-159
@@ -344,7 +344,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 
 ### Task 6.1: Live-vs-disk parity and end-to-end [1m] pricing (scope 6e, 6d live path) - COMPLETE
 
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\backend\agent-sdk\src\lib\session-stats\session-cost-contract.spec.ts (new)
+- File: libs/backend/agent-sdk/src/lib/session-stats/session-cost-contract.spec.ts (new)
 - Plan reference: context.md scope decisions 2, 5, 6(d)(e); research-addendum.md:3-14
 - Pattern to follow: session-stats-owner.service.spec.ts, session-usage-aggregator spec fixtures, stream-transformer.spec.ts harness
 - Quality requirements: guard tests (R10) - executor shows each fails under a deliberate mutation (e.g. `recordAgent` adding cost, dropping subagent ledgers, removing the tag strip) and then reverts the mutation; no production edits.
@@ -353,7 +353,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 
 ### Task 6.2: agent-stats.service sums per-call costs (scope 6f) - COMPLETE
 
-- File: D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\libs\frontend\chat-execution-tree\src\lib\agent-stats.service.spec.ts
+- File: libs/frontend/chat-execution-tree/src/lib/agent-stats.service.spec.ts
 - Plan reference: context.md scope decision 6(f); A2
 - Pattern to follow: existing cases in the same spec
 - Quality requirements: guard test (R10) with a demonstrated mutation failure.
@@ -389,3 +389,24 @@ Deferred (accepted minors, not implemented):
 - Heterogeneous wire-payload type derivations across consumers (each consumer derives the `session:stats` payload type its own way).
 - Untyped `payload as SessionStatsPush` cast in apps/ptah-tui/src/hooks/use-sessions.ts:336; a type guard would be better.
 - Partial-cost formatting diverges between the TUI and the webview.
+
+## PR #605 CodeRabbit round - COMPLETE (190b953dc, 1638e6bff, 1b7b533c3)
+
+CodeRabbit posted 4 actionable comments on PR #605; all were verified valid and fixed.
+
+| Comment    | Fix                                                                                                                                                                                                                                                                                                                                                  | Commit    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 4128751760 | libs/shared/src/lib/utils/pricing.utils.ts: `Object.hasOwn` in the exact-match loop; `constructor`, `x/constructor[1m]`, `__proto__` resolve to null and calculateMessageCost returns null, not NaN (8 new tests failed before).                                                                                                                  | 190b953dc |
+| 4128751753 | libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.ts, session-stats-aggregator.service.ts: `TurnModelUsage.costUSD` is `number \| null`; `deriveLiveModelStats` uses `?? 0` only as the ranking key; unknown stays null (failing-before: TS2322).                                                                             | 1638e6bff |
+| 4128751749 | apps/ptah-tui/src/hooks/use-sessions.ts: seedStats race guard (pushGeneration + seedSequence + active-id check); handleStats applies only active-session pushes, holds pushes while no session is active and applies the held one on id-resolved; activate(id) clears held pushes and clears stats on a session change. 25/25 tests, several failed before. | 1b7b533c3 |
+| 4128751737 | Task-folder review docs, batches.md and test-report.md use repository-relative paths (no file:/// or drive-letter paths).                                                                                                                                                                                                                         | docs commit |
+
+Review (SAME-SIDE, disclosed at the top of both files): all CLI lanes were unavailable (codex usage limit, Glm/Ollama session limit, antigravity quota, opencode error), so an in-process code-logic-reviewer reviewed the fixes. code-logic-review-pr605-coderabbit.md REVISE (serious: global pushGeneration; moderate: handleStats accepted any session) -> fixed -> code-logic-review-pr605-coderabbit-r1.md APPROVE, 0 serious. Its moderate on stale previous-session stats after a switch was fixed afterwards by the one-line clear in activate(), with a test that failed before.
+
+Verification (team-leader): `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/chat,@ptah-extension/chat-streaming,ptah-tui --parallel=2` EXIT 0 (4 projects + 31 dependency tasks); `npx nx run ptah-extension-webview:typecheck` EXIT 0.
+
+Deferred (recorded, not implemented):
+
+- `registerProviderPricing` drops an entry whose id is `__proto__` (write side); build the map with `Object.create(null)`.
+- `handleIdResolved` in apps/ptah-tui/src/hooks/use-sessions.ts ignores `tabId` (the TUI has a single chat).
+- context.md and research-addendum.md still carry machine-local paths (worktree location, a transcript path); they are intent/research notes, not review docs.

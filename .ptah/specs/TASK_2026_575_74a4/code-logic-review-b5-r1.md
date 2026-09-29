@@ -1,6 +1,6 @@
 # Code Logic Review — `TASK_2026_575_74a4` Batch 5, round 1 fix (TUI session cost)
 
-Re-review of `git diff HEAD -- apps/ptah-tui` in `D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost` after the round-0 moderate finding (snapshot/entry `sessionId` not validated) was addressed. Read-only git; only the deliverable written; the Batch 6 test files and screenshots remain out of scope. Round-0 review: `code-logic-review-b5.md`.
+Re-review of `git diff HEAD -- apps/ptah-tui` in `the task worktree` after the round-0 moderate finding (snapshot/entry `sessionId` not validated) was addressed. Read-only git; only the deliverable written; the Batch 6 test files and screenshots remain out of scope. Round-0 review: `code-logic-review-b5.md`.
 
 ## Summary
 

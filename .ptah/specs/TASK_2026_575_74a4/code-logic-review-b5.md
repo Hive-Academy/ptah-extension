@@ -1,6 +1,6 @@
 # Code Logic Review — `TASK_2026_575_74a4` Batch 5 (TUI session cost)
 
-Scope reviewed: `git diff HEAD -- apps/ptah-tui` in `D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost` (use-sessions.ts, status-line.ts, use-commands.ts, use-sessions.spec.ts, status-line.spec.ts), read in full, against the committed contract in `libs/shared/src/lib/types/agent-adapter.types.ts` (`ResultStatsPayload`, `sessionStats?: SessionStatsEntry`) and `libs/shared/src/lib/types/rpc/rpc-session.types.ts:193-283` (`SessionStatsEntry`). Batch 6 test files and screenshots were ignored. Read-only review; no source modified; no git writes; only read-only git used.
+Scope reviewed: `git diff HEAD -- apps/ptah-tui` in `the task worktree` (use-sessions.ts, status-line.ts, use-commands.ts, use-sessions.spec.ts, status-line.spec.ts), read in full, against the committed contract in `libs/shared/src/lib/types/agent-adapter.types.ts` (`ResultStatsPayload`, `sessionStats?: SessionStatsEntry`) and `libs/shared/src/lib/types/rpc/rpc-session.types.ts:193-283` (`SessionStatsEntry`). Batch 6 test files and screenshots were ignored. Read-only review; no source modified; no git writes; only read-only git used.
 
 ## Summary
 
