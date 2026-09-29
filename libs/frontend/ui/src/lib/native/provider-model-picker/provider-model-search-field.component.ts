@@ -45,7 +45,7 @@ export interface ProviderModelSearchOption {
 /** Upper bound on rendered suggestions (restores the old #34 behaviour). */
 export const MAX_MODEL_SUGGESTIONS = 50;
 
-/** Per-instance suffix for the combobox's `aria-controls` target. */
+/** Per-instance id root for the combobox's listbox and option ids. */
 let nextPopupId = 0;
 
 @Component({
@@ -56,9 +56,11 @@ let nextPopupId = 0;
   template: `
     <ptah-native-autocomplete
       #autocomplete
-      [attr.id]="popupId"
       [suggestions]="suggestions()"
       [isOpen]="open()"
+      [listboxId]="listboxId"
+      [optionIdPrefix]="optionIdPrefix"
+      [openActiveIndex]="openActiveIndex()"
       [ariaLabel]="listAriaLabel()"
       [emptyMessage]="emptyMessage"
       [trackBy]="trackById"
@@ -90,7 +92,7 @@ let nextPopupId = 0;
           [disabled]="disabled()"
           [attr.aria-label]="ariaLabel()"
           [attr.aria-expanded]="open()"
-          [attr.aria-controls]="popupId"
+          [attr.aria-controls]="listboxId"
           [attr.aria-activedescendant]="
             open() ? autocomplete.getActiveDescendantId() : null
           "
@@ -145,12 +147,26 @@ export class ProviderModelSearchFieldComponent {
   protected readonly emptyMessage = 'No models match';
 
   /**
-   * `aria-controls` target. `NativeAutocompleteComponent` does not let a host
-   * set an id on its listbox, so this names the autocomplete element that
-   * contains it — unique per field so several pickers on one page do not
-   * collide.
+   * Per-instance id root. The listbox id and the option id prefix derive from
+   * it, so several fields on one page (tier pickers, matrix cells) never
+   * produce colliding DOM ids or cross-instance aria pairings.
    */
   protected readonly popupId = `ptah-provider-model-search-${nextPopupId++}`;
+
+  /** `aria-controls` target: the listbox panel inside this field's autocomplete. */
+  protected readonly listboxId = `${this.popupId}-listbox`;
+
+  /** Prefix for this field's option element ids. */
+  protected readonly optionIdPrefix = `${this.popupId}-option`;
+
+  /**
+   * Row the autocomplete marks active when the panel opens: the current
+   * selection's row, or `-1` when the selection is not in the list, so a
+   * stale keyboard row never survives a close/reopen cycle.
+   */
+  protected readonly openActiveIndex = computed<number>(() =>
+    this.suggestions().findIndex((option) => option.id === this.selectedId()),
+  );
 
   protected readonly trackById = (
     _index: number,

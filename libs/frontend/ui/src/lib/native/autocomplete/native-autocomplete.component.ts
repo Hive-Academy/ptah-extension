@@ -39,6 +39,9 @@ import {
   viewChild,
   viewChildren,
   effect,
+  computed,
+  signal,
+  untracked,
   OnDestroy,
   TemplateRef,
   ElementRef,
@@ -51,6 +54,14 @@ import {
   FloatingUIService,
   KeyboardNavigationService,
 } from '../shared';
+
+/**
+ * Monotonic counter backing the per-instance generated defaults of
+ * {@link NativeAutocompleteComponent.optionIdPrefix} and
+ * {@link NativeAutocompleteComponent.listboxId}. Each default advances it,
+ * so it climbs by two per instance; the suffix is not an instance count.
+ */
+let nextAutocompleteInstanceId = 0;
 
 /**
  * Native autocomplete component using Floating UI and signal-based navigation.
@@ -82,6 +93,7 @@ import {
         class="suggestions-panel bg-base-200 border border-base-300 rounded-lg shadow-lg max-h-80 flex flex-col z-50"
         style="visibility: hidden;"
         role="listbox"
+        [attr.id]="listboxId()"
         [attr.aria-label]="ariaLabel()"
       >
         <!-- Header -->
@@ -121,7 +133,7 @@ import {
               let i = $index
             ) {
               <ptah-native-option
-                [optionId]="'suggestion-' + i"
+                [optionId]="optionIdPrefix() + '-' + i"
                 [value]="suggestion"
                 [isActive]="i === activeIndex()"
                 (selected)="handleSelection($event)"
@@ -182,6 +194,37 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   readonly emptyMessage = input<string>('No matches found');
 
   /**
+   * Prefix for the option element ids inside the listbox.
+   * Each rendered option gets `{prefix}-{index}` as its DOM id, and
+   * getActiveDescendantId() reports the same value for aria-activedescendant.
+   * Defaults to a per-instance generated value so two autocompletes on one
+   * page never produce colliding ids.
+   */
+  readonly optionIdPrefix = input<string>(
+    `ptah-native-autocomplete-option-${nextAutocompleteInstanceId++}`,
+  );
+
+  /**
+   * DOM id of the listbox panel element.
+   * Consumers bind their input's aria-controls to this value so it points at
+   * the listbox itself. Defaults to a per-instance generated value.
+   */
+  readonly listboxId = input<string>(
+    `ptah-native-autocomplete-listbox-${nextAutocompleteInstanceId++}`,
+  );
+
+  /**
+   * List index to mark active when the panel opens: the index of the selected
+   * suggestion, `-1` for no active row, or `null` to reset to the first row.
+   * Without this, the keyboard-active row survives a close/reopen cycle and
+   * Enter picks a row the user never navigated to. The requested state holds
+   * only until the suggestion list changes (the user types): a changed list
+   * makes its first row active, including after a `-1` open.
+   * @default null
+   */
+  readonly openActiveIndex = input<number | null>(null);
+
+  /**
    * Track function for @for loop optimization.
    * @default (index) => index
    */
@@ -215,6 +258,27 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('inputOrigin');
 
   /**
+   * Whether the panel was open on the previous effect run.
+   * Gates the reopen reset to the false→true transition only.
+   */
+  private panelWasOpen = false;
+
+  /**
+   * True while the panel intentionally shows no active row
+   * (openActiveIndex `-1` on open). Keyboard navigation, hover, or a changed
+   * suggestion list (the user typed) clears it.
+   */
+  private readonly _noActiveItem = signal<boolean>(false);
+
+  /**
+   * Current active index from keyboard navigation service.
+   * Used to determine which option should be highlighted.
+   */
+  readonly activeIndex = computed<number>(() =>
+    this._noActiveItem() ? -1 : this.keyboardNav.activeIndex(),
+  );
+
+  /**
    * Reference to the floating suggestions panel.
    * Positioned relative to inputOrigin using Floating UI.
    */
@@ -227,23 +291,28 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    */
   private readonly optionComponents = viewChildren(NativeOptionComponent);
 
-  /**
-   * Current active index from keyboard navigation service.
-   * Used to determine which option should be highlighted.
-   */
-  readonly activeIndex = this.keyboardNav.activeIndex;
-
   constructor() {
     effect(() => {
       const count = this.suggestions().length;
+      // A changed suggestion list while the panel is open means the user
+      // typed (or the parent re-filtered): the first match becomes the
+      // active row, so Enter never stays inert after a suppressed reopen.
+      // applyOpenActiveIndex() re-applies the open contract after this
+      // effect when the change lands on the same tick as the open.
+      this._noActiveItem.set(false);
       this.keyboardNav.configure({ itemCount: count, wrap: true });
     });
     effect(() => {
-      if (this.isOpen()) {
+      const open = this.isOpen();
+      if (open) {
+        if (!this.panelWasOpen) {
+          untracked(() => this.applyOpenActiveIndex());
+        }
         queueMicrotask(() => this.positionPanel());
       } else {
         this.floatingUI.cleanup();
       }
+      this.panelWasOpen = open;
     });
     effect(() => {
       const index = this.activeIndex();
@@ -270,6 +339,43 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
         shift: true,
       });
     }
+  }
+
+  /**
+   * Apply the reopen contract to a freshly opened panel: point the keyboard
+   * active row at openActiveIndex, or reset it when none was requested.
+   * `-1` (or an out-of-range index) leaves the panel with no active row.
+   */
+  private applyOpenActiveIndex(): void {
+    const requested = this.openActiveIndex();
+    const count = this.suggestions().length;
+    const valid = requested !== null && requested >= 0 && requested < count;
+    this._noActiveItem.set(requested !== null && !valid);
+    if (valid) {
+      this.keyboardNav.setActiveIndex(requested);
+    } else {
+      this.keyboardNav.reset();
+    }
+  }
+
+  /**
+   * Handle arrow/Home/End navigation.
+   * From the no-active-row state, ArrowDown enters at the first row and
+   * ArrowUp at the last row, mirroring the listbox keyboard pattern.
+   */
+  private navigateActiveRow(event: KeyboardEvent): boolean {
+    if (this._noActiveItem()) {
+      this._noActiveItem.set(false);
+      if (event.key === 'ArrowDown') {
+        this.keyboardNav.setFirstItemActive();
+        return true;
+      }
+      if (event.key === 'ArrowUp') {
+        this.keyboardNav.setLastItemActive();
+        return true;
+      }
+    }
+    return this.keyboardNav.handleKeyDown(event);
   }
 
   /**
@@ -315,7 +421,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
       case 'ArrowUp':
       case 'Home':
       case 'End':
-        return this.keyboardNav.handleKeyDown(event);
+        return this.navigateActiveRow(event);
 
       default:
         return false;
@@ -342,6 +448,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    * @param index - Index of the hovered option
    */
   handleHover(index: number): void {
+    this._noActiveItem.set(false);
     this.keyboardNav.setActiveIndex(index);
   }
 
@@ -370,7 +477,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    */
   getActiveDescendantId(): string | null {
     const index = this.activeIndex();
-    return index >= 0 ? `suggestion-${index}` : null;
+    return index >= 0 ? `${this.optionIdPrefix()}-${index}` : null;
   }
 
   /**
