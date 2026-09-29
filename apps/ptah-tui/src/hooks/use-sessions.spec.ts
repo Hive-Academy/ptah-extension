@@ -64,7 +64,7 @@ describe('SessionController', () => {
     const c = new SessionController(transport, push, '/w', () => undefined);
     push.emit('session:stats', {
       sessionId: 's1',
-      cost: 0.03,
+      turnCost: 0.03,
       tokens: { input: 100, output: 50 },
       modelUsage: [
         {
@@ -92,6 +92,194 @@ describe('SessionController', () => {
     c.dispose();
   });
 
+  describe('session cost comes from the backend sessionStats snapshot', () => {
+    function snapshot(
+      totalCost: number | null,
+      knownCost: number | null,
+      pricingCoverage: 'full' | 'partial' | 'none',
+    ) {
+      return {
+        sessionId: 's1',
+        model: 'claude-opus',
+        totalCost,
+        knownCost,
+        pricingCoverage,
+        tokens: { input: 100, output: 50, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        status: 'ok',
+        scope: 'session',
+      };
+    }
+
+    function turn(
+      turnCost: number | null,
+      sessionStats?: ReturnType<typeof snapshot>,
+      rowCost: number | null = 3,
+    ) {
+      return {
+        sessionId: 's1',
+        turnCost,
+        tokens: { input: 100, output: 50 },
+        duration: 1000,
+        modelUsage: [
+          {
+            model: 'claude-opus',
+            inputTokens: 100,
+            outputTokens: 50,
+            contextWindow: 200_000,
+            costUSD: rowCost,
+            cacheReadInputTokens: 0,
+          },
+        ],
+        ...(sessionStats ? { sessionStats } : {}),
+      };
+    }
+
+    it('shows the snapshot total, not the last turn or a model row', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(10, snapshot(10, 10, 'full')));
+      expect(c.stats?.costUSD).toBe(10);
+      push.emit('session:stats', turn(5, snapshot(15, 15, 'full')));
+      expect(c.stats?.costUSD).toBe(15);
+      expect(c.stats?.costPartial).toBe(false);
+      c.dispose();
+    });
+
+    it('shows knownCost marked partial when pricing is partial', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(null, snapshot(null, 4, 'partial')));
+      expect(c.stats?.costUSD).toBe(4);
+      expect(c.stats?.costPartial).toBe(true);
+      c.dispose();
+    });
+
+    it('reports an unknown session cost as null, never $0', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(null, undefined, null));
+      expect(c.stats).not.toBeNull();
+      expect(c.stats?.costUSD).toBeNull();
+      push.emit('session:stats', turn(null, snapshot(null, null, 'none')));
+      expect(c.stats?.costUSD).toBeNull();
+      expect(c.stats?.costPartial).toBe(false);
+      c.dispose();
+    });
+
+    it('keeps the previous session cost when a push carries no snapshot', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(10, snapshot(10, 10, 'full')));
+      push.emit('session:stats', turn(5));
+      expect(c.stats?.costUSD).toBe(10);
+      expect(c.stats?.costPartial).toBe(false);
+      c.dispose();
+    });
+
+    it('does not carry one session cost over to another session', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(10, snapshot(10, 10, 'full')));
+      push.emit('session:stats', { ...turn(5), sessionId: 's2' });
+      expect(c.stats?.sessionId).toBe('s2');
+      expect(c.stats?.costUSD).toBeNull();
+      c.dispose();
+    });
+
+    it('ignores a push snapshot that belongs to another session', () => {
+      const push = new EventEmitter();
+      const { transport } = makeTransport();
+      const c = new SessionController(transport, push, '/w', () => undefined);
+      push.emit('session:stats', turn(10, snapshot(10, 10, 'full')));
+      push.emit(
+        'session:stats',
+        turn(5, { ...snapshot(99, 99, 'full'), sessionId: 'other' }),
+      );
+      expect(c.stats?.costUSD).toBe(10);
+      push.emit('session:stats', {
+        ...turn(5, { ...snapshot(99, 99, 'full'), sessionId: 'other' }),
+        sessionId: 's2',
+      });
+      expect(c.stats?.sessionId).toBe('s2');
+      expect(c.stats?.costUSD).toBeNull();
+      c.dispose();
+    });
+
+    it('ignores a stats-batch entry that belongs to another session', async () => {
+      const { transport } = makeTransport((call) =>
+        call.method === 'session:stats-batch'
+          ? {
+              success: true,
+              data: {
+                sessionStats: [
+                  {
+                    sessionId: 'other',
+                    totalCost: 99,
+                    knownCost: 99,
+                    pricingCoverage: 'full',
+                    tokens: { input: 800, output: 300 },
+                    status: 'ok',
+                  },
+                ],
+              },
+            }
+          : { success: true },
+      );
+      const c = new SessionController(
+        transport,
+        new EventEmitter(),
+        '/work',
+        () => undefined,
+      );
+      await c.loadSession('sess-x');
+      expect(c.stats?.sessionId).toBe('sess-x');
+      expect(c.stats?.costUSD).toBeNull();
+      c.dispose();
+    });
+
+    it('seeds a partial or unknown cost from session:stats-batch, never $0', async () => {
+      let entry: Record<string, unknown> = {
+        sessionId: 'sess-p',
+        totalCost: null,
+        knownCost: 0.07,
+        pricingCoverage: 'partial',
+        tokens: { input: 800, output: 300 },
+        status: 'ok',
+      };
+      const { transport } = makeTransport((call) =>
+        call.method === 'session:stats-batch'
+          ? { success: true, data: { sessionStats: [entry] } }
+          : { success: true },
+      );
+      const c = new SessionController(
+        transport,
+        new EventEmitter(),
+        '/work',
+        () => undefined,
+      );
+      await c.loadSession('sess-p');
+      expect(c.stats?.costUSD).toBe(0.07);
+      expect(c.stats?.costPartial).toBe(true);
+
+      entry = {
+        ...entry,
+        sessionId: 'sess-u',
+        knownCost: null,
+        pricingCoverage: 'none',
+      };
+      await c.loadSession('sess-u');
+      expect(c.stats?.costUSD).toBeNull();
+      expect(c.stats?.costPartial).toBe(false);
+      c.dispose();
+    });
+  });
+
   it('seeds stats on session load from session:stats-batch without a push', async () => {
     const { transport, calls } = makeTransport((call) => {
       if (call.method === 'session:stats-batch') {
@@ -100,6 +288,7 @@ describe('SessionController', () => {
           data: {
             sessionStats: [
               {
+                sessionId: 'sess-9',
                 totalCost: 0.12,
                 tokens: { input: 800, output: 300 },
                 modelUsageList: [

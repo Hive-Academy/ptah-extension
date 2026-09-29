@@ -203,7 +203,7 @@ Deferred follow-ups (from code-logic-review-b2b.md, accepted minors, not impleme
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` passes
 - CLI-lane logic review returns APPROVE
 
-## Batch 3: Webview consumers read turnCost - COMPLETE (SHA_PENDING)
+## Batch 3: Webview consumers read turnCost - COMPLETE (8bbe3418c)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -295,7 +295,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard` passes
 - Codex CLI-lane logic review APPROVE and visual-reviewer "after" screenshots (dark + light) accepted against "before"
 
-## Batch 5: TUI session cost from the backend snapshot - IN_PROGRESS
+## Batch 5: TUI session cost from the backend snapshot - COMPLETE (SHA recorded in the Batch 6 section)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: frontend-developer (fresh invocation)
@@ -305,7 +305,7 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - Reviewer: code-logic review on a CLI lane (codex).
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-tui`
 
-### Task 5.1: deriveStats uses sessionStats, never a per-turn or per-row figure - IN_PROGRESS
+### Task 5.1: deriveStats uses sessionStats, never a per-turn or per-row figure - COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-575-session-cost\apps\ptah-tui\src\hooks\use-sessions.ts
@@ -318,6 +318,10 @@ OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-r
 - Implementation details: local `SessionStatsPayload` gains `turnCost` and `sessionStats` (typed from `@ptah-extension/shared` if the app already depends on it); `costUSD` = `sessionStats.totalCost`, else `sessionStats.knownCost` marked partial, else keep the previous known session value / null - never `turnCost`, never a `modelUsage` row. Make `costUSD` `number | null` and render null as unavailable if the view currently prints 0. Test (fails on base): two `session:stats` pushes with turnCost 10/5 and snapshot totals 10/15 -> TUI shows 15.
 
 ### Batch 5 verification
+
+Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p ptah-tui --skip-nx-cache` - passed (EXIT 0). Verified on disk: one helper `sessionCostFor(sessionId, snapshot, previous)` in use-sessions.ts used by both the push path (`deriveStats`) and the batch path (`deriveStatsFromBatch`): snapshot used only when `status === 'ok'` and its `sessionId` matches; `totalCost`, else `knownCost` with `costPartial`, else the previous value for the same session, else null; `turnCost` and `modelUsage` rows never consulted; the local wire types now derive from `ResultStatsPayload` / `SessionStatsEntry`. `SessionStats.costUSD` / `StatusLineStats.costUSD` are `number | null`; the status bar hides unknown and prefixes partial with `>=`; `/status` (use-commands.ts) prints "Cost: unavailable" or `>=$x (partial pricing)`. Files: apps/ptah-tui/src/hooks/use-sessions.ts (+spec), apps/ptah-tui/src/lib/status-line.ts (+spec), apps/ptah-tui/src/hooks/use-commands.ts. Failing-first reported by the executor: 6 tests failed on base (e.g. Expected 10 Received 3; unknown Received 0), then 2 sessionId-guard tests failed before the guard fix (Received 99). Logic review (Glm CLI lane): code-logic-review-b5.md APPROVE 8/10 with 1 moderate (sessionId guard) -> fixed -> code-logic-review-b5-r1.md APPROVE 9/10, 0 moderate.
+
+Accepted minors (recorded, not fixed): a batch entry for another session still seeds display tokens/model (never money); a known $0 cost is hidden on the bar (pre-existing `> 0` rule); the `/status` cost branch has no direct test.
 
 - Files exist; executor names the test that failed on base
 - `npx nx run-many -t typecheck,test,lint -p ptah-tui` passes
