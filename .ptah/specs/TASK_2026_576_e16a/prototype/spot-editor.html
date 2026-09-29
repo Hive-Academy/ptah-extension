@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Spot editor (Req 7)</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+</style>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+    <select id="stateSelector" class="select select-xs select-bordered">
+      <option value="populated">Editing (default)</option>
+      <option value="readonly">Read-only (chat link default)</option>
+      <option value="conflict">Disk conflict dialog</option>
+      <option value="blocked">Blocked path</option>
+    </select>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost btn-active">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<main id="prototypeContainer" class="viewport-wide p-4">
+  <div class="max-w-4xl mx-auto rounded-box border border-base-300 overflow-hidden shadow-sm">
+
+    <div class="state-view" data-state="populated">
+      <div class="flex items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1.5 text-xs">
+        <button class="btn btn-ghost btn-xs">← Back to review</button>
+        <span class="font-mono">src/app.ts</span>
+        <button class="btn btn-ghost btn-xs ml-auto" title="Switch to read-only">Edit ✓</button>
+        <button class="btn btn-primary btn-xs" disabled>Save</button>
+      </div>
+      <div class="bg-base-300/20 font-mono text-[12px] p-3 min-h-[20rem]">
+<pre>import { Component } from '@angular/core';
+
+@Component({
+  selector: 'ptah-app',
+  template: `&lt;div&gt;Hello&lt;/div&gt;`,
+})
+export class AppComponent {
+  <span class="bg-primary/20 px-0.5">// cursor at linked line 8</span>
+}</pre>
+      </div>
+    </div>
+
+    <div class="state-view hidden" data-state="readonly">
+      <div class="flex items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1.5 text-xs">
+        <button class="btn btn-ghost btn-xs">← Back to review</button>
+        <span class="font-mono">src/app.ts</span>
+        <span class="badge badge-ghost badge-xs">Read only</span>
+        <button class="btn btn-ghost btn-xs ml-auto">Edit</button>
+      </div>
+      <div class="bg-base-300/20 font-mono text-[12px] p-3 min-h-[20rem] opacity-90">
+<pre>import { Component } from '@angular/core';
+// Opened from a chat file link — read-only by default (design decision, §7)</pre>
+      </div>
+    </div>
+
+    <div class="state-view hidden p-6" data-state="conflict">
+      <p class="text-xs text-base-content-muted mb-3">Save attempted while the file changed on disk:</p>
+      <div role="alertdialog" aria-modal="true" class="bg-base-200 border border-base-300 rounded-box p-4 max-w-sm">
+        <h3 class="font-semibold text-sm mb-2">File changed on disk</h3>
+        <p class="text-xs text-base-content-muted mb-4">src/app.ts changed on disk since you opened it (the agent may have edited it). Reload discards your unsaved edits; Overwrite keeps them and replaces the disk content.</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-outline btn-xs" autofocus>Reload</button>
+          <button class="btn btn-error btn-xs err-solid-text">Overwrite</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="state-view hidden p-4" data-state="blocked">
+      <div class="alert alert-warning text-xs">
+        <span>This path is outside the workspace and cannot be opened for editing.</span>
+        <button class="btn btn-ghost btn-xs">Open-in</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-4xl mx-auto mt-4 rounded-box border border-base-300 p-3">
+    <h3 class="text-sm font-bold mb-2">Markdown preview toggle (Req 7.5)</h3>
+    <div class="flex items-center gap-0.5 mb-2" role="group" aria-label="Markdown view">
+      <button class="btn btn-ghost btn-xs" aria-pressed="true">Source</button>
+      <button class="btn btn-ghost btn-xs" aria-pressed="false">Preview</button>
+    </div>
+    <p class="text-[11px] text-base-content-muted">Disabled with a tooltip note when the file exceeds 512 KB (kept limit, `file-view.component.ts:32`).</p>
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

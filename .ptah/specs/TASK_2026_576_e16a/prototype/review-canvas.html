@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Review canvas (Req 6)</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+</style>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+    <select id="stateSelector" class="select select-xs select-bordered">
+      <option value="populated">Populated (default)</option>
+      <option value="loading">Loading (off-screen skeleton)</option>
+      <option value="error">Diff read error</option>
+    </select>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost btn-active">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<p class="max-w-6xl mx-auto mt-2 px-4 text-[11px] text-base-content-muted">
+  Round 1 changes (design-spec-review.md findings 2, 5, 6, 7): the file-tree/diff split
+  now reflows by the panel's own rendered width via <code>ResizeObserver</code>
+  (<code>data-responsive-grid</code>, see <code>assets/app.js</code>), not a viewport
+  media query, so it stacks correctly at Electron's actual ~160-480px rail width
+  regardless of the outer window size. Diff +/- text uses per-theme corrected colors
+  (<code>diff-add-text</code>/<code>diff-del-text</code>), the stale-hunk indicator is a
+  bordered chip instead of the failing solid <code>badge-error</code>, and the diff body
+  now shows old/new line-number gutters, illustrative syntax tokens, word-level change
+  highlights and a sticky per-file header — see design-spec.md §6.1/§6.4.
+</p>
+
+<main id="prototypeContainer" class="viewport-wide p-4">
+  <div class="max-w-6xl mx-auto rounded-box border border-base-300 overflow-hidden shadow-sm">
+
+    <!-- Comparison bar -->
+    <div class="flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1.5 text-xs">
+      <div class="relative">
+        <button class="btn btn-ghost btn-xs gap-1" data-popover-trigger="comparisonPopover">Working tree ▾</button>
+        <div id="comparisonPopover" class="popover-panel hidden absolute left-0 top-full mt-1 w-64 bg-base-200 border border-base-300 rounded-lg shadow-xl z-50 p-2 text-xs">
+          <button class="w-full text-left px-2 py-1 rounded hover:bg-base-300/50">Working tree</button>
+          <button class="w-full text-left px-2 py-1 rounded hover:bg-base-300/50">Staged only</button>
+          <div class="border-t border-base-content/10 my-1"></div>
+          <p class="text-base-content-muted px-2 py-1">Branch review</p>
+          <div class="flex gap-1 px-2">
+            <select class="select select-xs select-bordered flex-1"><option>main</option></select>
+            <select class="select select-xs select-bordered flex-1"><option>HEAD</option></select>
+          </div>
+        </div>
+      </div>
+      <input type="text" placeholder="Filter files…" class="input input-xs input-bordered w-32 flex-1 min-w-[6rem] max-w-[12rem]" />
+      <div class="flex items-center gap-0.5" role="group" aria-label="Diff layout">
+        <button class="btn btn-ghost btn-xs" aria-pressed="true">⊞ Split</button>
+        <button class="btn btn-ghost btn-xs" aria-pressed="false">▤ Unified</button>
+      </div>
+      <span class="text-base-content-muted whitespace-nowrap basis-full sm:basis-auto sm:ml-auto">142 files · <span class="diff-add-text">+1,204</span> <span class="diff-del-text">−318</span></span>
+    </div>
+
+    <!-- Changed-file tree + continuous diff: reflows by the panel's own
+         rendered width (ResizeObserver, see assets/app.js initResponsiveGrids),
+         not the browser viewport — fixes design-spec-review.md finding 2. -->
+    <div data-responsive-grid="520" class="grid grid-cols-1">
+      <!-- Changed-file tree -->
+      <aside class="border-r border-base-content/10 bg-base-100 text-xs max-h-[32rem] overflow-y-auto" role="tree" aria-label="Changed files">
+        <div class="px-2 py-1 flex items-center gap-1 font-medium">
+          <button data-collapse-toggle="stagedGroup" class="btn btn-ghost btn-xs px-0.5"><span class="chevron rotate-90 inline-block transition-transform">▸</span></button>
+          Staged (3)
+          <button class="btn btn-ghost btn-xs ml-auto">Unstage all</button>
+        </div>
+        <div id="stagedGroup">
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left" role="treeitem">
+            <span class="badge badge-xs badge-info">M</span> app.ts <span class="ml-auto text-base-content-muted">+12 −3</span>
+          </button>
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left" role="treeitem">
+            <span class="badge badge-xs badge-success">A</span> new.ts <span class="ml-auto text-base-content-muted">+40</span>
+          </button>
+        </div>
+        <div class="px-2 py-1 flex items-center gap-1 font-medium border-t border-base-content/10 mt-1">
+          <button data-collapse-toggle="unstagedGroup" class="btn btn-ghost btn-xs px-0.5"><span class="chevron rotate-90 inline-block transition-transform">▸</span></button>
+          Changes (4)
+          <button class="btn btn-ghost btn-xs ml-auto">Stage all</button>
+        </div>
+        <div id="unstagedGroup">
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left bg-base-300/40" role="treeitem" aria-current="true">
+            <span class="badge badge-xs badge-info">M</span> utils.ts <span class="ml-auto text-base-content-muted">+8 −1</span>
+          </button>
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left" role="treeitem">
+            <span class="badge badge-xs badge-warning">⚠</span> logo.bin <span class="ml-auto text-base-content-muted">binary</span>
+          </button>
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left" role="treeitem">
+            <span class="badge badge-xs err-solid-text bg-error">✕</span> conflicted.ts <span class="ml-auto text-error">conflict</span>
+          </button>
+          <button class="w-full flex items-center gap-1 px-3 py-1 hover:bg-base-300/50 text-left" role="treeitem">
+            <span class="badge badge-xs badge-ghost">⇪</span> assets.psd <span class="ml-auto text-base-content-muted">LFS</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Continuous diff -->
+      <section class="bg-base-100 max-h-[32rem] overflow-y-auto">
+        <div class="state-view" data-state="populated">
+          <!-- File 1: normal hunk, with line-number gutters, syntax tokens
+               and word-level highlight (finding 7 visual-polish upgrade) -->
+          <div class="border-b border-base-content/10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.02)]">
+            <div class="sticky top-0 bg-base-200/95 backdrop-blur-sm px-2 py-1.5 text-xs flex items-center gap-2 z-10 border-b border-base-content/10">
+              <span aria-hidden="true">📄</span>
+              <span class="font-mono font-medium">src/utils.ts</span>
+              <span class="text-base-content-muted text-[11px]">renamed from src/util.ts</span>
+              <span class="badge badge-ghost badge-xs ml-auto">2 hunks</span>
+            </div>
+            <!-- Hunk header: rendered in-flow, directly above its hunk's code —
+                 this models Pierre's per-hunk light-DOM slot
+                 (getHunkSeparatorSlotName), not an absolutely-positioned
+                 overlay (research-report.md; design-spec.md §6.1). -->
+            <div class="flex items-center justify-between flex-wrap gap-1 bg-base-200/60 px-2 py-1 text-[11px] text-base-content-muted border-y border-base-content/5">
+              <span class="font-mono">@@ -12,6 +12,9 @@ Hunk 1 of 2</span>
+              <div class="flex items-center gap-1" role="group" aria-label="Hunk actions">
+                <button class="btn btn-ghost btn-xs" aria-label="Previous hunk">‹</button>
+                <button class="btn btn-ghost btn-xs" aria-label="Next hunk">›</button>
+                <button class="btn btn-success btn-xs ok-solid-text">Accept</button>
+                <button class="btn btn-error btn-xs err-solid-text" data-open-dialog="rejectDialog">Reject</button>
+              </div>
+            </div>
+            <div class="font-mono text-[11px] py-1">
+              <div class="diff-line px-2 py-0.5">
+                <span class="diff-gutter-num text-base-content-muted">11</span>
+                <span class="diff-gutter-num text-base-content-muted">11</span>
+                <span><span class="tok-kw">export</span> <span class="tok-kw">function</span> <span class="tok-fn">run</span>() {</span>
+              </div>
+              <div class="diff-line px-2 py-0.5">
+                <span class="diff-gutter-num text-base-content-muted">12</span>
+                <span class="diff-gutter-num text-base-content-muted">12</span>
+                <span>&nbsp;&nbsp;<span class="tok-kw">const</span> x = <span class="tok-str">1</span>;</span>
+              </div>
+              <div class="diff-line px-2 py-0.5 bg-success/10">
+                <span class="diff-gutter-num text-base-content-muted">·</span>
+                <span class="diff-gutter-num diff-add-text">13</span>
+                <span class="diff-add-text">+&nbsp;&nbsp;<span class="word-add"><span class="tok-kw">const</span> y = <span class="tok-str">2</span>;</span></span>
+              </div>
+              <div class="diff-line px-2 py-0.5 bg-error/10">
+                <span class="diff-gutter-num diff-del-text">13</span>
+                <span class="diff-gutter-num text-base-content-muted">·</span>
+                <span class="diff-del-text">-&nbsp;&nbsp;<span class="word-del"><span class="tok-kw">const</span> z = <span class="tok-fn">legacy</span>();</span></span>
+              </div>
+              <div class="diff-line px-2 py-0.5">
+                <span class="diff-gutter-num text-base-content-muted">14</span>
+                <span class="diff-gutter-num text-base-content-muted">14</span>
+                <span>&nbsp;&nbsp;<span class="tok-kw">return</span> x;</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- File 2: refused/stale hunk state — redesigned as a bordered
+               chip with base-content text (design-spec-review.md finding 6:
+               solid badge-error text failed AA in both themes) -->
+          <div class="border-b border-base-content/10">
+            <div class="sticky top-0 bg-base-200/95 backdrop-blur-sm px-2 py-1.5 text-xs flex items-center gap-2 z-10 border-b border-base-content/10">
+              <span aria-hidden="true">📄</span>
+              <span class="font-mono font-medium">src/app.ts</span>
+              <span class="badge badge-ghost badge-xs ml-auto">3 hunks</span>
+            </div>
+            <div class="flex items-center justify-between flex-wrap gap-1 bg-base-200/60 px-2 py-1 text-[11px] text-base-content-muted border-y border-base-content/5">
+              <span class="font-mono">@@ -40,4 +40,4 @@ Hunk 2 of 3</span>
+            </div>
+            <div class="px-2 py-1.5">
+              <div class="animate-glow-urgent inline-flex items-center gap-1.5 border border-error/60 bg-error/10 rounded px-2 py-0.5 mb-1.5">
+                <span class="text-error text-xs" aria-hidden="true">⚠</span>
+                <span class="text-[11px] font-medium text-base-content">Stale — file changed since this hunk was read</span>
+              </div>
+              <div class="font-mono text-[11px] opacity-85">
+                <div class="diff-line px-0 py-0.5">
+                  <span class="diff-gutter-num text-base-content-muted">40</span>
+                  <span class="diff-gutter-num text-base-content-muted">40</span>
+                  <span><span class="tok-kw">export</span> <span class="tok-kw">function</span> <span class="tok-fn">run</span>() {}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- File 3: binary row -->
+          <div class="border-b border-base-content/10 px-2 py-2 flex items-center gap-2 text-xs">
+            <span aria-hidden="true">⊘</span>
+            <span class="font-mono">assets/logo.bin</span>
+            <span class="text-base-content-muted">Binary file — diff not shown</span>
+            <button class="btn btn-ghost btn-xs ml-auto">Open-in ▾</button>
+          </div>
+
+          <!-- File 4: LFS row -->
+          <div class="border-b border-base-content/10 px-2 py-2 flex items-center gap-2 text-xs">
+            <span aria-hidden="true">⇪</span>
+            <span class="font-mono">assets.psd</span>
+            <span class="text-base-content-muted">Git LFS pointer</span>
+            <button class="btn btn-ghost btn-xs ml-auto">Open-in ▾</button>
+          </div>
+
+          <!-- File 5: conflicted row -->
+          <div class="border-b border-base-content/10 px-2 py-2 flex items-center gap-2 text-xs">
+            <span aria-hidden="true" class="text-error">⚠</span>
+            <span class="font-mono">src/conflicted.ts</span>
+            <span class="text-error">Conflicted — resolve to review</span>
+            <button class="btn btn-ghost btn-xs ml-auto">Open-in ▾</button>
+          </div>
+
+          <!-- File 6: too large -->
+          <div class="border-b border-base-content/10 px-2 py-2 flex items-center gap-2 text-xs">
+            <span aria-hidden="true">▦</span>
+            <span class="font-mono">dist/bundle.js</span>
+            <span class="text-base-content-muted">Too large to display (14,203 changed lines)</span>
+            <button class="btn btn-ghost btn-xs ml-auto">Open-in ▾</button>
+          </div>
+
+          <!-- Comment anchor example -->
+          <div class="border-b border-base-content/10 px-2 py-2">
+            <div class="flex items-center gap-2 text-[11px] text-base-content-muted mb-1">
+              <span class="font-mono">src/app.ts:41</span>
+              <button id="addCommentDraft" class="btn btn-ghost btn-xs">💬 Comment on this line</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="state-view hidden p-4 space-y-2" data-state="loading">
+          <div class="skeleton h-16 w-full"></div>
+          <div class="skeleton h-16 w-full"></div>
+          <p class="text-xs text-base-content-muted text-center">Off-screen files render as fixed-height placeholders while scrolled past.</p>
+        </div>
+
+        <div class="state-view hidden p-4" data-state="error">
+          <div class="alert alert-error text-xs">
+            <span>Failed to read diff for src/app.ts.</span>
+            <button class="btn btn-ghost btn-xs">Retry</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Draft comment bar -->
+    <div id="draftCommentBar" class="hidden bg-base-200 border-t border-base-content/10 px-3 py-1.5 flex flex-wrap items-center justify-between gap-1 text-xs">
+      <div class="relative">
+        <button class="btn btn-ghost btn-xs" data-popover-trigger="draftPopover">✎ <span id="commentDraftCount">0</span> draft comments</button>
+        <div id="draftPopover" class="popover-panel hidden absolute left-0 bottom-full mb-1 w-80 bg-base-200 border border-base-300 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+          <div id="commentDraftList"></div>
+        </div>
+      </div>
+      <button id="sendCommentsBtn" class="btn btn-primary btn-xs" disabled>Send to agent</button>
+    </div>
+  </div>
+</main>
+
+<!-- Reject-hunk confirmation dialog (alertdialog, focus on Cancel, Escape
+     closes, focus trapped and returned — see assets/app.js initDialogs) -->
+<div id="rejectDialog" class="hf-dialog-backdrop hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+  <div role="alertdialog" aria-modal="true" aria-labelledby="rejectTitle" class="bg-base-200 border border-base-300 rounded-box p-4 max-w-sm w-full">
+    <h3 id="rejectTitle" class="font-semibold text-sm mb-2">Reject this hunk?</h3>
+    <p class="text-xs text-base-content-muted mb-4">This reverts the change in your working tree. It cannot be undone from here.</p>
+    <div class="flex justify-end gap-2">
+      <button class="btn btn-ghost btn-xs" data-close-dialog data-default-focus>Cancel</button>
+      <button class="btn btn-error btn-xs err-solid-text" data-close-dialog>Reject hunk</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

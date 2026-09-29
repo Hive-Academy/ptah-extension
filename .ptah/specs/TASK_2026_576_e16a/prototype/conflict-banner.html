@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Conflict banner (Req 11)</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+</style>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost btn-active">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<main id="prototypeContainer" class="viewport-wide p-6 space-y-6">
+  <div class="max-w-2xl mx-auto space-y-6">
+
+    <p class="text-[11px] text-base-content-muted -mb-2">
+      Redesigned in round 1 (design-spec-review.md finding 1): a bordered card on
+      <code>bg-base-200</code> with a warning-filled icon chip, replacing the solid
+      <code>alert-warning</code> fill whose outline/muted text failed WCAG AA in
+      <code>anubis-light</code>. See design-spec.md §11 "Verified contrast" for the
+      measured ratios.
+    </p>
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">Rebase, unresolved conflicts (default)</h2>
+      <div class="bg-base-200 border-l-4 border-warning rounded-box p-3 flex flex-col gap-2" role="alert">
+        <div class="flex items-start gap-2">
+          <span class="flex-shrink-0 grid place-items-center w-5 h-5 rounded-full bg-warning text-warning-content text-xs leading-none" aria-hidden="true">⚠</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-base-content"><strong>Rebase in progress</strong> — 3 files conflicted</p>
+            <p class="font-mono text-[11px] text-base-content-muted mt-0.5">src/app.ts, src/b.ts, src/c.ts</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 pl-7">
+          <button class="btn btn-primary btn-xs">Ask agent to resolve</button>
+          <button class="btn btn-outline btn-xs">Open in editor</button>
+          <button class="btn btn-error btn-xs err-solid-text" data-open-dialog="abortDialog">Abort</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">All conflicts resolved — Continue available</h2>
+      <div class="bg-base-200 border-l-4 border-warning rounded-box p-3 flex flex-col gap-2" role="alert">
+        <div class="flex items-start gap-2">
+          <span class="flex-shrink-0 grid place-items-center w-5 h-5 rounded-full bg-warning text-warning-content text-xs leading-none" aria-hidden="true">⚠</span>
+          <p class="text-sm text-base-content flex-1 min-w-0"><strong>Rebase in progress</strong> — 0 files conflicted</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5 pl-7">
+          <button class="btn btn-primary btn-xs">Continue</button>
+          <button class="btn btn-outline btn-xs">Ask agent to resolve</button>
+          <button class="btn btn-outline btn-xs">Open in editor</button>
+          <button class="btn btn-error btn-xs err-solid-text">Abort</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">Delete/modify, symlink or submodule conflict — no merge tool</h2>
+      <div class="bg-base-200 border-l-4 border-warning rounded-box p-3 flex flex-col gap-2" role="alert">
+        <div class="flex items-start gap-2">
+          <span class="flex-shrink-0 grid place-items-center w-5 h-5 rounded-full bg-warning text-warning-content text-xs leading-none" aria-hidden="true">⚠</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-base-content"><strong>Merge in progress</strong> — 1 file conflicted</p>
+            <p class="font-mono text-[11px] text-base-content-muted mt-0.5">src/b.ts (delete/modify)</p>
+            <p class="text-[11px] text-base-content-muted">src/b.ts is a delete/modify conflict — open its folder instead.</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 pl-7">
+          <button class="btn btn-primary btn-xs">Ask agent to resolve</button>
+          <button class="btn btn-outline btn-xs">Open folder</button>
+          <button class="btn btn-error btn-xs err-solid-text">Abort</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">Cherry-pick, single file</h2>
+      <div class="bg-base-200 border-l-4 border-warning rounded-box p-3 flex flex-col gap-2" role="alert">
+        <div class="flex items-start gap-2">
+          <span class="flex-shrink-0 grid place-items-center w-5 h-5 rounded-full bg-warning text-warning-content text-xs leading-none" aria-hidden="true">⚠</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-base-content"><strong>Cherry-pick in progress</strong> — 1 file conflicted</p>
+            <p class="font-mono text-[11px] text-base-content-muted mt-0.5">src/d.ts</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 pl-7">
+          <button class="btn btn-primary btn-xs">Ask agent to resolve</button>
+          <button class="btn btn-outline btn-xs">Open in editor</button>
+          <button class="btn btn-error btn-xs err-solid-text">Abort</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="abortDialog" class="hf-dialog-backdrop hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+  <div role="alertdialog" aria-modal="true" aria-labelledby="abortTitle" class="bg-base-200 border border-base-300 rounded-box p-4 max-w-sm w-full">
+    <h3 id="abortTitle" class="font-semibold text-sm mb-2">Abort rebase?</h3>
+    <p class="text-xs text-base-content-muted mb-4">Uncommitted work on this branch will be discarded back to before the rebase started.</p>
+    <div class="flex justify-end gap-2">
+      <button class="btn btn-ghost btn-xs" data-close-dialog data-default-focus>Cancel</button>
+      <button class="btn btn-error btn-xs err-solid-text" data-close-dialog>Abort rebase</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

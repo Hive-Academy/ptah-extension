@@ -100,6 +100,17 @@ export interface GitWorkspaceScopedParams {
 /** Parameters for git:info RPC method */
 export type GitInfoParams = GitWorkspaceScopedParams;
 
+/**
+ * Why `git:info` could not read the status. Every reason means an empty
+ * `files` list is NOT a clean tree:
+ * - `output-too-large` — status output passed the backend's cap; the run was killed.
+ * - `timeout` — git did not answer within the backend's timeout.
+ * - `error` — git failed for another reason (details stay in the backend log).
+ * - `locked` — another git process held the repository's `index.lock`.
+ */
+export type GitStatusUnavailableReason =
+  'output-too-large' | 'timeout' | 'error' | 'locked';
+
 /** Response from git:info RPC method */
 export interface GitInfoResult {
   /** Branch and tracking info */
@@ -111,9 +122,10 @@ export interface GitInfoResult {
   /**
    * Set when the status could not be read, so an empty `files` list does NOT
    * mean a clean tree. `output-too-large`: git's status output passed the
-   * backend's cap and the run was killed (TASK_2026_437).
+   * backend's cap and the run was killed (TASK_2026_437). See
+   * {@link GitStatusUnavailableReason} for the other reasons.
    */
-  statusUnavailable?: 'output-too-large';
+  statusUnavailable?: GitStatusUnavailableReason;
 }
 
 /** Parameters for git:worktrees RPC method */
@@ -219,6 +231,19 @@ export interface GitWorktreeChangedNotification {
   error?: string;
 }
 
+/**
+ * Why a git mutation failed, as a closed machine-readable set. Optional on
+ * every mutation result: older backends omit it and older clients ignore it.
+ * - `LOCKED` — another git process held `index.lock`; `error` is then exactly
+ *   `GIT_LOCKED_MESSAGE`, never raw stderr.
+ * - `HOOK_FAILED` — a git hook rejected the operation.
+ * - `TIMEOUT` — git did not finish within the backend's timeout.
+ * - `CANCELLED` — the caller cancelled the operation.
+ * - `GIT_ERROR` — any other git failure.
+ */
+export type GitMutationFailureCode =
+  'LOCKED' | 'HOOK_FAILED' | 'TIMEOUT' | 'CANCELLED' | 'GIT_ERROR';
+
 /** Parameters for git:stage RPC method */
 export interface GitStageParams extends GitWorkspaceScopedParams {
   /** File paths to stage (relative to workspace root) */
@@ -229,6 +254,8 @@ export interface GitStageParams extends GitWorkspaceScopedParams {
 export interface GitStageResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Parameters for git:unstage RPC method */
@@ -241,6 +268,8 @@ export interface GitUnstageParams extends GitWorkspaceScopedParams {
 export interface GitUnstageResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Parameters for git:discard RPC method */
@@ -253,6 +282,8 @@ export interface GitDiscardParams extends GitWorkspaceScopedParams {
 export interface GitDiscardResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Parameters for git:commit RPC method */
@@ -266,7 +297,18 @@ export interface GitCommitResult {
   success: boolean;
   /** Abbreviated commit hash on success */
   commitHash?: string;
+  /** Subject line of the created commit on success */
+  subject?: string;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
+  /**
+   * Hook output, verbatim, when a hook produced any (typically on
+   * `HOOK_FAILED`). Shown to the user as-is: it is output they asked to see.
+   */
+  hookOutput?: string;
+  /** git's exit code when the commit ran and failed. */
+  exitCode?: number;
 }
 
 /** Parameters for git:showFile RPC method */
@@ -469,6 +511,8 @@ export type GitPushParams = GitWorkspaceScopedParams;
 export interface GitPushResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Parameters for git:pull RPC method (`git pull --ff-only`). */
@@ -478,6 +522,8 @@ export type GitPullParams = GitWorkspaceScopedParams;
 export interface GitPullResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Parameters for git:fetch RPC method (`git fetch --prune`). */
@@ -487,6 +533,8 @@ export type GitFetchParams = GitWorkspaceScopedParams;
 export interface GitFetchResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /** Names one stash entry: `stash@{index}`. `index` is a non-negative integer. */
@@ -507,6 +555,8 @@ export type GitStashDropParams = GitStashRefParams;
 export interface GitStashMutationResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
 }
 
 /**
@@ -589,6 +639,8 @@ export interface GitCheckoutParams extends GitWorkspaceScopedParams {
 export interface GitCheckoutResult {
   success: boolean;
   error?: string;
+  /** Machine-readable failure reason; present only when `success` is false. */
+  code?: GitMutationFailureCode;
   /** True when working tree had uncommitted changes and force=false caused the checkout to abort */
   dirty?: boolean;
 }

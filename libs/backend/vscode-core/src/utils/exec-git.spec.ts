@@ -23,6 +23,16 @@
  *   execGit       — `priority: 'background'` lowers the child's OS priority;
  *                   a refused `setPriority` does not fail the call
  *
+ * TASK_2026_576 additions (Component 2, cancellation and streaming):
+ *   execGit       — an abort before the call, or while queued, rejects with
+ *                   GitCancelledError without spawning and leaks no slot
+ *   execGit       — an abort mid-run kills the child like a timeout and holds
+ *                   the slot until it closes; an abort after exit is a no-op
+ *   execGit       — a timeout rejects with the typed GitTimeoutError
+ *   execGit       — `onOutput` receives a multi-byte character split across
+ *                   two chunks whole; a throwing observer does not fail the run
+ *   isIndexLockFailure — true/false table over git's C-locale stderr
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -74,8 +84,11 @@ import {
   configureGitProcessGate,
   execGit,
   execGitBuffer,
+  GitCancelledError,
   GitOutputLimitError,
   GitProcessGate,
+  GitTimeoutError,
+  isIndexLockFailure,
   resetGitProcessGateForTests,
   resetResolvedGitBinaryForTests,
 } from './exec-git';
@@ -1167,5 +1180,216 @@ describe('git process supervision', () => {
     held[0].stdout.emit('data', Buffer.from('ok'));
     held[0].emit('close', 0);
     await expect(call).resolves.toMatchObject({ stdout: 'ok', exitCode: 0 });
+  });
+  // =========================================================================
+  // Cancellation, streaming output, typed timeout — TASK_2026_576 Component 2
+  // =========================================================================
+  describe('cancellation', () => {
+    it('rejects an already-aborted call without spawning or taking a slot', async () => {
+      process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+      resetGitProcessGateForTests();
+      const controller = new AbortController();
+      controller.abort();
+
+      const error = await execGit(['commit'], WS, {
+        ...BG,
+        signal: controller.signal,
+      }).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(GitCancelledError);
+      expect((error as GitCancelledError).code).toBe('GIT_CANCELLED');
+      expect(mockSpawn).not.toHaveBeenCalled();
+
+      // The only background slot is still free.
+      const next = execGit(['status'], WS, BG);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      held[0].emit('close', 0);
+      await next;
+    });
+
+    it('rejects a queued call on abort, never spawns it, and hands its later slot straight back', async () => {
+      process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+      resetGitProcessGateForTests();
+      const controller = new AbortController();
+
+      const first = execGit(['status'], WS, BG);
+      await drain();
+      const queued = execGit(['commit'], WS, {
+        ...BG,
+        signal: controller.signal,
+      });
+      const queuedRejected =
+        expect(queued).rejects.toBeInstanceOf(GitCancelledError);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+      controller.abort();
+      await queuedRejected;
+
+      // The first call finishes; the cancelled waiter is granted and releases
+      // at once, so a third call still gets the single background slot.
+      held[0].emit('close', 0);
+      await first;
+      const third = execGit(['log'], WS, BG);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn.mock.calls[1][1]).toEqual(['log']);
+      held[1].emit('close', 0);
+      await third;
+    });
+
+    it('kills a running child on abort and holds its slot until it closes', async () => {
+      process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
+      resetGitProcessGateForTests();
+      const controller = new AbortController();
+
+      const call = execGit(['commit', '-m', 'x'], WS, {
+        ...BG,
+        signal: controller.signal,
+      });
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+      controller.abort();
+      const error = await call.catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(GitCancelledError);
+      expect((error as GitCancelledError).subcommand).toBe('commit');
+      expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+      await drain();
+      if (process.platform === 'win32') {
+        expect(mockTreeKill).toHaveBeenCalledWith(4242);
+      }
+
+      // The dying child still owns the only background slot.
+      const next = execGit(['status'], WS, BG);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      held[0].emit('close', null);
+      await drain();
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      held[1].emit('close', 0);
+      await next;
+    });
+
+    it('ignores an abort after the child exited', async () => {
+      const controller = new AbortController();
+      const call = execGit(['status'], WS, { signal: controller.signal });
+      await drain();
+      held[0].stdout.emit('data', Buffer.from('ok'));
+      held[0].emit('close', 0);
+      await expect(call).resolves.toMatchObject({ stdout: 'ok', exitCode: 0 });
+
+      controller.abort();
+      await drain();
+      expect(held[0].kill).not.toHaveBeenCalled();
+      expect(mockTreeKill).not.toHaveBeenCalled();
+    });
+
+    it('removes its abort listener once the call settles', async () => {
+      const controller = new AbortController();
+      const remove = jest.spyOn(controller.signal, 'removeEventListener');
+      const call = execGit(['status'], WS, { signal: controller.signal });
+      await drain();
+      held[0].emit('close', 0);
+      await call;
+
+      // One listener while queued, one while running; both removed.
+      expect(remove).toHaveBeenCalledTimes(2);
+      expect(remove.mock.calls.every(([type]) => type === 'abort')).toBe(true);
+    });
+
+    it('rejects a timeout with the typed GitTimeoutError', async () => {
+      const call = execGit(['commit'], WS, { timeoutMs: 20 });
+      const error = await call.catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(GitTimeoutError);
+      expect((error as GitTimeoutError).code).toBe('GIT_TIMEOUT');
+      expect((error as GitTimeoutError).timeoutMs).toBe(20);
+      expect((error as Error).message).toBe('git commit timed out after 20ms');
+      held[0].emit('close', null);
+    });
+  });
+
+  describe('onOutput', () => {
+    it('delivers a multi-byte character split across two chunks whole', async () => {
+      const seen: Array<['stdout' | 'stderr', string]> = [];
+      const call = execGit(['commit'], WS, {
+        onOutput: (stream, chunk) => seen.push([stream, chunk]),
+      });
+      await drain();
+
+      const stdout = Buffer.from('café \u{1F600}\n', 'utf8');
+      // Split inside 'é' (bytes 3..4) and inside the 4-byte emoji.
+      held[0].stdout.emit('data', stdout.subarray(0, 4));
+      held[0].stdout.emit('data', stdout.subarray(4, 8));
+      held[0].stdout.emit('data', stdout.subarray(8));
+      const stderr = Buffer.from('hook: ✓ done\n', 'utf8');
+      held[0].stderr.emit('data', stderr.subarray(0, 7));
+      held[0].stderr.emit('data', stderr.subarray(7));
+      held[0].emit('close', 0);
+      const result = await call;
+
+      const text = (stream: 'stdout' | 'stderr'): string =>
+        seen
+          .filter(([s]) => s === stream)
+          .map(([, chunk]) => chunk)
+          .join('');
+      expect(seen.every(([, chunk]) => !chunk.includes('\uFFFD'))).toBe(true);
+      expect(seen.every(([, chunk]) => chunk.length > 0)).toBe(true);
+      expect(text('stdout')).toBe('café \u{1F600}\n');
+      expect(text('stderr')).toBe('hook: ✓ done\n');
+      // The collected result is unchanged by streaming.
+      expect(result.stdout).toBe('café \u{1F600}\n');
+      expect(result.stderr).toBe('hook: ✓ done\n');
+    });
+
+    it('does not fail the run when the observer throws', async () => {
+      const call = execGit(['commit'], WS, {
+        onOutput: () => {
+          throw new Error('observer broke');
+        },
+      });
+      await drain();
+      held[0].stdout.emit('data', Buffer.from('ok'));
+      held[0].emit('close', 0);
+      await expect(call).resolves.toMatchObject({ stdout: 'ok', exitCode: 0 });
+    });
+
+    it('stops observing once output passes the cap', async () => {
+      const seen: string[] = [];
+      const call = execGitBuffer(['show', 'HEAD:big'], WS, {
+        maxOutputBytes: 4,
+        onOutput: (_stream, chunk) => seen.push(chunk),
+      });
+      await drain();
+      held[0].stdout.emit('data', Buffer.from('abc'));
+      held[0].stdout.emit('data', Buffer.from('defg'));
+      await expect(call).rejects.toBeInstanceOf(GitOutputLimitError);
+      held[0].emit('close', null);
+      expect(seen).toEqual(['abc']);
+    });
+  });
+});
+
+describe('isIndexLockFailure', () => {
+  it.each([
+    [
+      "fatal: Unable to create '/repo/.git/index.lock': File exists.\n\nAnother git process seems to be running",
+      true,
+    ],
+    [
+      "fatal: Unable to create 'C:/work/repo/.git/worktrees/wt/index.lock': File exists.",
+      true,
+    ],
+    ["error: Unable to create '/repo/.git/index.lock': File exists.", true],
+    ["fatal: Unable to create '/repo/.git/HEAD.lock': File exists.", false],
+    [
+      "fatal: Unable to create '/repo/.git/index.lock': Permission denied",
+      false,
+    ],
+    ['fatal: not a git repository (or any of the parent directories)', false],
+    ['', false],
+  ])('%j → %s', (stderr, expected) => {
+    expect(isIndexLockFailure(stderr)).toBe(expected);
   });
 });

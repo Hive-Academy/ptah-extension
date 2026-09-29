@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Task/worktree view (Req 10)</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+</style>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+    <select id="stateSelector" class="select select-xs select-bordered">
+      <option value="populated">PR/CI available (default)</option>
+      <option value="empty">No worktrees besides main</option>
+      <option value="loading">Loading worktrees</option>
+      <option value="error">gh unavailable</option>
+    </select>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost btn-active">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<main id="prototypeContainer" class="viewport-wide p-6">
+  <div class="max-w-2xl mx-auto rounded-box border border-base-300 p-3 space-y-3">
+
+    <!-- Branch panel (kept, always visible) -->
+    <div>
+      <div class="flex items-center justify-between text-sm">
+        <span>⎇ feat/task-576-review-ui → origin/feat/task-576-review-ui</span>
+        <span><span class="text-warning">↑1</span> <span class="text-info">↓0</span></span>
+      </div>
+      <button class="btn btn-ghost btn-xs mt-1" title="Open workspace in external editor">↗ Open in editor</button>
+    </div>
+
+    <!-- PR panel -->
+    <div class="border-t border-base-content/10 pt-2">
+      <div class="state-view" data-state="populated">
+        <div class="flex items-center justify-between text-sm">
+          <span class="font-medium">#412 Advanced git review UI</span>
+          <span class="badge badge-xs badge-success">open</span>
+        </div>
+        <p class="text-xs text-base-content-muted mt-0.5">2 approvals · review decision: approved</p>
+        <div class="flex items-center gap-2 text-xs mt-1">
+          <span class="text-success">✓ 8</span>
+          <span class="text-error">✗ 0</span>
+          <span class="text-base-content-muted">● 1 pending</span>
+          <button class="btn btn-outline btn-xs ml-auto">Open PR ↗</button>
+        </div>
+      </div>
+      <div class="state-view hidden" data-state="error">
+        <p class="text-xs text-base-content-muted">GitHub CLI not available — PR status hidden.</p>
+      </div>
+      <div class="state-view hidden" data-state="loading">
+        <div class="skeleton h-4 w-48 mb-1"></div>
+        <div class="skeleton h-4 w-32"></div>
+      </div>
+      <div class="state-view hidden" data-state="empty">
+        <p class="text-xs text-base-content-muted">No pull request found for this branch.</p>
+      </div>
+    </div>
+
+    <!-- Worktrees panel -->
+    <div class="border-t border-base-content/10 pt-2">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium">Worktrees (3)</span>
+        <button class="btn btn-outline btn-xs">+ Add</button>
+      </div>
+      <div class="space-y-0.5 text-xs">
+        <div class="flex items-center gap-2 px-2 py-1 rounded bg-base-300/40">
+          <button class="flex-1 text-left" title="Switch to this worktree">● feat/task-576-review-ui</button>
+          <span class="badge badge-xs badge-ghost">active</span>
+          <span class="font-mono text-base-content-muted truncate">…/wt/576</span>
+        </div>
+        <div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-base-300/40">
+          <button class="flex-1 text-left" title="Switch to this worktree">main</button>
+          <span class="badge badge-xs badge-ghost">main</span>
+          <span class="font-mono text-base-content-muted truncate">…/ptah-extension</span>
+        </div>
+        <div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-base-300/40">
+          <button class="flex-1 text-left" title="Switch to this worktree">hotfix/urgent</button>
+          <span class="badge badge-xs badge-warning">locked</span>
+          <span class="font-mono text-base-content-muted truncate">…/wt/hotfix</span>
+          <button class="btn btn-ghost btn-xs" aria-label="Remove worktree" data-open-dialog="removeWorktreeDialog">✕</button>
+        </div>
+      </div>
+      <div class="state-view hidden text-xs text-base-content-muted mt-2" data-state="empty">No worktrees found besides main.</div>
+    </div>
+  </div>
+</main>
+
+<div id="removeWorktreeDialog" class="hf-dialog-backdrop hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+  <div role="alertdialog" aria-modal="true" class="bg-base-200 border border-base-300 rounded-box p-4 max-w-sm w-full">
+    <h3 class="font-semibold text-sm mb-2">Remove worktree "hotfix/urgent"?</h3>
+    <p class="text-xs text-base-content-muted mb-4">This worktree is locked. Removing requires force.</p>
+    <div class="flex justify-end gap-2">
+      <button class="btn btn-ghost btn-xs" data-close-dialog data-default-focus>Cancel</button>
+      <button class="btn btn-outline btn-xs" data-close-dialog>Remove</button>
+      <button class="btn btn-error btn-xs err-solid-text" data-close-dialog>Force remove</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

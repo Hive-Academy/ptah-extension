@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — TASK_2026_576_e16a — Review shell overview</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+  /* Fake "Electron window" chrome so the dock reads at its real proportion
+     (design-spec-review.md round 1, finding 8: show the real dock layout at
+     a realistic size, not a small card in empty space). The dock itself
+     (right-hand column) is the actual reviewed surface; the left column is a
+     muted placeholder standing in for the chat transcript that already ships. */
+  .window-chrome { border: 1px solid oklch(var(--bc) / 0.15); }
+</style>
+</head>
+<body class="bg-base-300 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <span class="font-bold">Prototype:</span>
+    <span class="text-base-content-muted">Review shell overview (Requirement IA, §3)</span>
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost btn-active">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<main id="prototypeContainer" class="viewport-wide p-4">
+  <!-- Fake Electron window chrome at realistic proportions: ~1280px wide,
+       chat/transcript on the left (muted placeholder, not the reviewed
+       surface), review dock docked on the right at its real default width. -->
+  <div class="max-w-[1280px] mx-auto window-chrome rounded-box overflow-hidden shadow-lg bg-base-100">
+    <div class="h-7 bg-base-300 flex items-center gap-1.5 px-3">
+      <span class="w-2.5 h-2.5 rounded-full bg-error/60" aria-hidden="true"></span>
+      <span class="w-2.5 h-2.5 rounded-full bg-warning/60" aria-hidden="true"></span>
+      <span class="w-2.5 h-2.5 rounded-full bg-success/60" aria-hidden="true"></span>
+      <span class="ml-3 text-[11px] text-base-content-muted">Ptah — ptah-extension</span>
+    </div>
+    <div class="flex" style="min-height: 640px;">
+      <!-- Chat transcript placeholder (already-shipped surface, not part of this task) -->
+      <div class="flex-1 min-w-0 bg-base-100 p-4 hidden md:block">
+        <p class="text-xs text-base-content-muted mb-3">Chat transcript (existing surface, shown for proportion only)</p>
+        <div class="space-y-2 max-w-md">
+          <div class="skeleton h-3 w-5/6"></div>
+          <div class="skeleton h-3 w-2/3"></div>
+          <div class="skeleton h-16 w-full"></div>
+          <div class="skeleton h-3 w-3/4"></div>
+        </div>
+      </div>
+
+      <!-- The reviewed surface: the Review shell, docked right at its real
+           default width (~420px of a 1280px window). -->
+      <div id="dockColumn" class="w-full md:w-[420px] flex-shrink-0 border-l border-base-300 flex flex-col">
+
+        <!-- Review shell header (kept from git-dock-header.component.ts) -->
+        <div class="relative flex h-8 flex-shrink-0 items-center gap-1 border-b border-base-content/10 bg-base-200 px-2 text-xs">
+          <button class="btn btn-ghost btn-xs px-1" title="Toggle changed-file rail" aria-label="Toggle changed-file rail">☰</button>
+          <div class="relative">
+            <button class="btn btn-ghost btn-xs gap-1" data-popover-trigger="branchPopover">⎇ feat/task-576-review-ui</button>
+            <div id="branchPopover" class="popover-panel hidden absolute left-0 top-full mt-1 w-72 bg-base-200 border border-base-300 rounded-lg shadow-xl z-50 p-3 text-xs">
+              <p class="font-medium mb-1">feat/task-576-review-ui</p>
+              <p class="text-base-content-muted">Upstream: origin/feat/task-576-review-ui</p>
+              <p class="text-base-content-muted">Last commit: a1b2c3d "feat: add hunk toolbar" — you</p>
+              <p class="text-base-content-muted">Remote: origin — git@github.com:hive-academy/ptah-extension.git</p>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-xs gap-1" data-popover-trigger="stashPopover">
+            <span aria-hidden="true">🗃</span> 2
+          </button>
+          <div id="stashPopover" class="popover-panel hidden absolute left-24 top-full mt-1 w-72 bg-base-200 border border-base-300 rounded-lg shadow-xl z-50 p-2 text-xs">
+            <div class="flex items-center justify-between px-2 py-1 hover:bg-base-300/50 rounded">
+              <span class="font-mono">stash@{0}</span>
+              <span class="text-base-content-muted truncate flex-1 px-2">wip: try approach B</span>
+              <span class="text-base-content-muted">3h</span>
+            </div>
+            <div class="flex items-center justify-between px-2 py-1 hover:bg-base-300/50 rounded">
+              <span class="font-mono">stash@{1}</span>
+              <span class="text-base-content-muted truncate flex-1 px-2">local config tweak</span>
+              <span class="text-base-content-muted">2d</span>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-xs px-1" title="Open in external editor" aria-label="Open workspace in external editor">↗</button>
+          <span role="status" aria-label="Git status" class="sr-only">On branch feat/task-576-review-ui, 1 ahead, 0 behind</span>
+          <span class="ml-auto"></span>
+          <button class="btn btn-ghost btn-xs px-1" title="Fetch">⟳</button>
+          <button class="btn btn-ghost btn-xs gap-1" title="Pull">
+            ⇩ <span class="text-info">↓0</span>
+          </button>
+          <button class="btn btn-ghost btn-xs gap-1" title="Push">
+            ⇧ <span class="text-warning">↑1</span>
+          </button>
+        </div>
+
+        <!-- Conflict banner (cross-cutting, hidden by default) — round-1 redesign,
+             see conflict-banner.html and design-spec.md §11 -->
+        <div id="conflictBanner" class="hidden bg-base-200 border-l-4 border-warning p-2 flex-col gap-2" role="alert">
+          <div class="flex items-start gap-2">
+            <span class="flex-shrink-0 grid place-items-center w-5 h-5 rounded-full bg-warning text-warning-content text-xs leading-none" aria-hidden="true">⚠</span>
+            <div class="flex-1 min-w-0 text-xs">
+              <p class="text-base-content"><strong>Rebase in progress</strong> — 3 files conflicted</p>
+              <p class="font-mono text-[10px] text-base-content-muted mt-0.5 break-all">src/app.ts, src/b.ts, src/c.ts</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1.5 pl-7">
+            <button class="btn btn-primary btn-xs">Ask agent</button>
+            <button class="btn btn-outline btn-xs">Open in editor</button>
+            <button class="btn btn-error btn-xs err-solid-text">Abort</button>
+          </div>
+        </div>
+        <div class="px-3 py-1 border-b border-base-content/10 bg-base-100">
+          <button id="conflictToggle" class="btn btn-ghost btn-xs">Toggle conflict banner (demo control)</button>
+        </div>
+
+        <!-- Tab strip -->
+        <div role="tablist" data-tablist class="flex items-center gap-1 border-b border-base-300 bg-base-100 px-2 overflow-x-auto">
+          <button role="tab" id="tab-changes" aria-controls="panel-changes" aria-selected="true" class="relative -mb-px inline-flex items-center gap-2 border-b-2 border-primary px-3 py-2 text-sm text-primary whitespace-nowrap">
+            Changes
+            <span class="rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums bg-base-300">7</span>
+          </button>
+          <button role="tab" id="tab-commit" aria-controls="panel-commit" aria-selected="false" class="relative -mb-px inline-flex items-center gap-2 border-b-2 border-transparent px-3 py-2 text-sm text-base-content-muted whitespace-nowrap">Commit</button>
+          <button role="tab" id="tab-task" aria-controls="panel-task" aria-selected="false" class="relative -mb-px inline-flex items-center gap-2 border-b-2 border-transparent px-3 py-2 text-sm text-base-content-muted whitespace-nowrap">Task</button>
+          <button role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" class="relative -mb-px inline-flex items-center gap-2 border-b-2 border-transparent px-3 py-2 text-sm text-base-content-muted whitespace-nowrap">History</button>
+        </div>
+
+        <!-- Tab panels: compact summaries; deep dives are the dedicated prototype pages -->
+        <div id="panel-changes" data-tabpanel role="tabpanel" aria-labelledby="tab-changes" class="p-2 bg-base-100 flex-1 overflow-y-auto">
+          <p class="text-[11px] text-base-content-muted mb-2">Full detail: <a class="link link-primary" href="review-canvas.html">review-canvas.html</a></p>
+          <div data-responsive-grid="520" class="grid grid-cols-1 gap-2">
+            <div class="border border-base-300 rounded-box p-2 text-xs">
+              <p class="font-medium mb-1">Changed files</p>
+              <ul class="space-y-0.5">
+                <li class="flex items-center gap-1"><span class="badge badge-xs badge-info">M</span> src/app.ts <span class="ml-auto text-base-content-muted">+12 −3</span></li>
+                <li class="flex items-center gap-1"><span class="badge badge-xs badge-success">A</span> src/new.ts <span class="ml-auto text-base-content-muted">+40</span></li>
+                <li class="flex items-center gap-1"><span class="badge badge-xs bg-error err-solid-text">D</span> src/old.ts <span class="ml-auto text-base-content-muted">−39</span></li>
+                <li class="flex items-center gap-1 opacity-70"><span class="badge badge-xs badge-warning">⚠</span> assets/logo.bin <span class="ml-auto text-base-content-muted">binary</span></li>
+              </ul>
+            </div>
+            <div class="border border-base-300 rounded-box p-2 font-mono text-[11px] bg-base-300/30">
+              <div class="flex items-center justify-between mb-1 flex-wrap gap-1">
+                <span class="text-base-content-muted">src/app.ts — Hunk 1 of 3</span>
+                <div class="flex gap-1">
+                  <button class="btn btn-success btn-xs ok-solid-text">Accept</button>
+                  <button class="btn btn-error btn-xs err-solid-text">Reject</button>
+                </div>
+              </div>
+              <div class="text-base-content-muted">@@ -12,6 +12,9 @@</div>
+              <div>&nbsp;&nbsp;const x = 1;</div>
+              <div class="diff-add-text bg-success/10">+ const y = 2;</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="panel-commit" data-tabpanel role="tabpanel" aria-labelledby="tab-commit" class="hidden p-2 bg-base-100 flex-1 overflow-y-auto">
+          <p class="text-[11px] text-base-content-muted mb-2">Full detail: <a class="link link-primary" href="commit-composer.html">commit-composer.html</a></p>
+          <div class="border border-base-300 rounded-box p-3">
+            <div class="flex items-center justify-between mb-2 text-xs flex-wrap gap-1">
+              <span class="text-base-content-muted">Staged: 5 files</span>
+              <button class="btn btn-outline btn-xs">Generate message</button>
+            </div>
+            <textarea class="textarea textarea-bordered w-full font-mono text-sm" rows="3">feat(git): add hunk-level reject confirmation</textarea>
+            <div class="flex justify-end mt-2">
+              <button class="btn btn-primary btn-sm">Commit</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="panel-task" data-tabpanel role="tabpanel" aria-labelledby="tab-task" class="hidden p-2 bg-base-100 flex-1 overflow-y-auto">
+          <p class="text-[11px] text-base-content-muted mb-2">Full detail: <a class="link link-primary" href="task-worktree.html">task-worktree.html</a></p>
+          <div class="border border-base-300 rounded-box p-3 text-xs space-y-2">
+            <div class="flex items-center justify-between flex-wrap gap-1">
+              <span>⎇ feat/task-576-review-ui</span>
+              <span><span class="text-warning">↑1</span> <span class="text-info">↓0</span></span>
+            </div>
+            <div class="flex items-center justify-between border-t border-base-content/10 pt-2">
+              <span>#412 Advanced git review UI</span>
+              <span class="badge badge-xs badge-success">open</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="panel-history" data-tabpanel role="tabpanel" aria-labelledby="tab-history" class="hidden p-2 bg-base-100 flex-1 overflow-y-auto">
+          <p class="text-[11px] text-base-content-muted mb-2">Full detail: <a class="link link-primary" href="history-timeline.html">history-timeline.html</a></p>
+          <ul class="text-xs font-mono space-y-1">
+            <li>a1b2c3d <span class="font-sans text-base-content">feat: add hunk toolbar</span> <span class="text-base-content-muted">you · 2h</span></li>
+            <li>e4f5g6h <span class="font-sans text-base-content">fix: stale snapshot check</span> <span class="text-base-content-muted">you · 1d</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="max-w-[1280px] mx-auto mt-3 text-[11px] text-base-content-muted">
+    The right-hand column above is the Review shell at its real default docked width
+    (~420px of a 1280px window) — the actual reviewed surface. The left column is a
+    muted placeholder for the existing chat transcript, shown only for proportion.
+    "Toggle embedded width" narrows the whole window to demonstrate the dock at the
+    rail's minimum (~360-400px); each linked page is the full-fidelity surface with
+    all states and both themes.
+  </p>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
