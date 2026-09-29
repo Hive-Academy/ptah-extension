@@ -151,14 +151,26 @@ function section<T>() {
   };
 }
 type SectionStore<T> = ReturnType<typeof section<T>>;
+/**
+ * Dependency stage of a connection-setup write. An operation without a stage is independent.
+ * - `setup` (credential, endpoint, custom entry) is skipped when an earlier `setup` write did not save.
+ * - `tier` is skipped only when a `setup` write did not save, never because another tier conflicted.
+ * - `activation` is skipped when any earlier write did not save, including a tier conflict.
+ */
+type SaveStage = 'setup' | 'tier' | 'activation';
 interface SaveOperation {
   readonly fields: readonly string[];
-  /** `'conflict'`: nothing was written because the stored value changed since the draft was read. */
+  /**
+   * `true`: the host acknowledged the write. `false`: the host rejected it, nothing to confirm.
+   * `'conflict'`: nothing was written because the stored value changed since the draft was read.
+   * A throw means the write may or may not have landed.
+   */
   readonly write: () => Promise<boolean | 'conflict'>;
+  /** Runs only after an acknowledged write; it can confirm or refute it, never rescue a failed one. */
   readonly readBack?: () => Promise<boolean>;
-  /** Connection creation must not activate an incomplete setup. */
-  readonly dependsOnPrevious?: boolean;
+  readonly stage?: SaveStage;
 }
+type SaveOutcome = 'saved' | 'unsaved' | 'unconfirmed' | 'conflict';
 const LOAD_ERROR = 'Could not load this section. Retry.';
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
@@ -357,10 +369,16 @@ export class ProvidersSettingsStateService {
   async testCliConnection(id: string): Promise<void> {
     await this.read(this.cliTestStore, async () => ({ id, success: (await this.require('ptahCli:testConnection', { id })).success }));
   }
-  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<void> {
-    await this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
-      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyConfigured === !!apiKey.trim(),
-    }], context, () => true);
+  /**
+   * An empty key clears the stored secret. Read-back checks the secrets store alone
+   * (`cursorApiKeyStored`): `cursorApiKeyConfigured` also counts `CURSOR_API_KEY`, which would make
+   * a successful clear read back as a failure while the env var is set (TASK_2026_551).
+   */
+  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<boolean> {
+    const stored = !!apiKey.trim();
+    return this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
+      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyStored === stored,
+    }], context);
   }
 
   async refreshConnections(): Promise<void> {
@@ -436,8 +454,13 @@ export class ProvidersSettingsStateService {
     await Promise.all([this.refreshConnections(), this.refreshRoute()]);
   }
 
-  /** Store setup without selecting it, then optionally activate only after all earlier writes succeed. */
-  async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<void> {
+  /**
+   * Store setup without selecting it, then optionally activate only after all earlier writes succeed.
+   * Resolves `false` when refused because another save is in flight (see `runCommit`).
+   */
+  async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
+    // A blocked result below would overwrite the in-flight save's feedback.
+    if (this.commit().status === 'saving') return false;
     const probe = this.verification();
     const invalid = (draft.providerId === 'anthropic' && draft.activation === 'connect-only') || draft.saveTo !== 'global' || this.connections().status !== 'ready' ||
       probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
@@ -445,7 +468,7 @@ export class ProvidersSettingsStateService {
     if (invalid) {
       this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection'],
         message: 'Verify this draft and review Global setup storage before saving.' });
-      return;
+      return true;
     }
     const operations: SaveOperation[] = [];
     const custom = draft.authMode === 'custom';
@@ -458,10 +481,10 @@ export class ProvidersSettingsStateService {
       if (!parsed.success) {
         this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Custom connection'],
           message: 'Use a lower-case connection ID with dashes, an HTTP(S) endpoint and explicit models for all three tiers.' });
-        return;
+        return true;
       }
       const exists = this.connections().data?.some((entry) => entry.id === draft.providerId && entry.custom);
-      operations.push({ fields: ['Custom connection'], write: async () => {
+      operations.push({ fields: ['Custom connection'], stage: 'setup', write: async () => {
         if (exists) await this.require('provider:updateCustomEntry', { id: draft.providerId, changes: parsed.data });
         else await this.require('provider:addCustomEntry', { entry: parsed.data });
         return true;
@@ -469,10 +492,10 @@ export class ProvidersSettingsStateService {
     }
     if (draft.providerId !== 'anthropic' && draft.credential?.value.trim()) {
       // llm:setApiKey ALSO selects the main route. auth:setApiKey only stores the provider key.
-      operations.push({ fields: ['Connection credential'], dependsOnPrevious: true,
+      operations.push({ fields: ['Connection credential'], stage: 'setup',
         write: async () => (await this.require('auth:setApiKey', { provider: draft.providerId, apiKey: draft.credential?.value ?? '' })).success });
     }
-    if (!custom && draft.baseUrl) operations.push({ fields: ['Connection endpoint'], dependsOnPrevious: true,
+    if (!custom && draft.baseUrl) operations.push({ fields: ['Connection endpoint'], stage: 'setup',
       write: async () => (await this.require('llm:setProviderBaseUrl', { provider: draft.providerId, baseUrl: draft.baseUrl ?? '' })).success });
     // Native Anthropic auth keeps the SDK's own model defaults: no tiers are collected, validated or written.
     const nativeAnthropic = NATIVE_ANTHROPIC_IDS.has(draft.providerId) || draft.authMode === 'cli';
@@ -480,7 +503,7 @@ export class ProvidersSettingsStateService {
     const defaults = getAnthropicProvider(draft.providerId)?.defaultTiers;
     if (!nativeAnthropic && !custom && tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
       this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection models'], message: 'Choose explicit models where no provider default is available.' });
-      return;
+      return true;
     }
     // Main-agent tiers, for Connect only as well as activation: provider:setModelTier persists
     // provider.<id>.mainAgent.modelTier.<tier> and changes the running env only when <id> is the active
@@ -492,7 +515,8 @@ export class ProvidersSettingsStateService {
       for (const [tier, model] of tiers) {
         const key = wizardKey[tier];
         if (!draft.editedTiers.includes(key)) continue;
-        operations.push({ fields: [`Main agent ${tier} model`], dependsOnPrevious: true,
+        // Tiers depend on the setup writes, not on each other: one conflict reports that tier only (552).
+        operations.push({ fields: [`Main agent ${tier} model`], stage: 'tier',
           write: async () => {
             // Compare-and-set: the edit was made against the snapshot the wizard loaded. If another
             // window changed the stored value since, report a conflict instead of overwriting it.
@@ -510,13 +534,13 @@ export class ProvidersSettingsStateService {
     // Activate LAST. auth:saveSettings auto-maps UNSET tiers, so running it first would fill a tier the
     // wizard snapshot saw as empty and turn the user's own edit into a false conflict. Writing the edits
     // first is safe (an inactive provider's tiers never touch the running env), and a failed or
-    // conflicting tier write stops activation through dependsOnPrevious.
+    // conflicting tier write stops activation through the activation stage.
     if (draft.activation === 'use-main-agent') {
       operations.push(...this.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
         draft.providerId === 'anthropic' ? draft.credential?.value : undefined) })
-        .map((operation) => ({ ...operation, dependsOnPrevious: true })));
+        .map((operation): SaveOperation => ({ ...operation, stage: 'activation' })));
     }
-    await this.runCommit(operations, context, () => draft.activation !== 'use-main-agent' ||
+    return this.runCommit(operations, context, () => draft.activation !== 'use-main-agent' ||
       this.authWritable(draft.saveTo, !nativeAnthropic));
   }
 
@@ -524,16 +548,16 @@ export class ProvidersSettingsStateService {
    * Select an existing connection for the main agent. Tier mapping is left to `auth:saveSettings`,
    * whose autoMapProviderTiers fills only UNSET main-agent tiers; the user's existing tiers stay.
    */
-  async activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<void> {
-    if (this.commit().status === 'saving') return;
+  async activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<boolean> {
+    if (this.commit().status === 'saving') return false;
     const connection = this.connections().data?.find((entry) => entry.id === providerId);
     if (!connection || this.connections().status !== 'ready') {
       this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Main agent connection'],
         message: 'Refresh this connection before activating it.' });
-      return;
+      return true;
     }
     const auth = this.activationAuth(providerId, connection.authMode, applyTo);
-    await this.runCommit(this.operations({ auth }), context,
+    return this.runCommit(this.operations({ auth }), context,
       () => this.authWritable(applyTo, auth.anthropicProviderId !== undefined));
   }
 
@@ -705,13 +729,17 @@ export class ProvidersSettingsStateService {
       : null;
   }
 
-  /** Commands never retain credentials in service state; only field names enter commit feedback. */
+  /**
+   * Commands never retain credentials in service state; only field names enter commit feedback.
+   * Every commit command resolves `false` when refused because another save is in flight (nothing
+   * was written and `commit()` still describes the in-flight save), otherwise `true`.
+   */
   async saveSettings(
     patch: ProvidersSettingsPatch,
     context: ProvidersEditContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const operations = this.operations(patch);
-    await this.runCommit(operations, context, () => {
+    return this.runCommit(operations, context, () => {
       const authTarget = patch.auth?.applyTo ?? 'global';
       if (
         patch.auth &&
@@ -729,8 +757,8 @@ export class ProvidersSettingsStateService {
     });
   }
 
-  async clearWorkspaceOverride(context: ProvidersEditContext): Promise<void> {
-    await this.runCommit(
+  async clearWorkspaceOverride(context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit(
       [
         {
           fields: ['Main agent authentication overrides'],
@@ -746,9 +774,9 @@ export class ProvidersSettingsStateService {
     key: string,
     target: 'nearest' | 'all-above-global',
     context: ProvidersEditContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let clearedResult: ConfigClearScopeOverrideResult | null = null;
-    await this.runCommit(
+    return this.runCommit(
       [
         {
           fields: [key],
@@ -1014,12 +1042,17 @@ export class ProvidersSettingsStateService {
     return operations;
   }
 
+  /**
+   * Resolves `false` without touching `commit()` when another save is in flight: the caller must
+   * tell the user the request was refused (D3). Otherwise resolves `true` once `commit()` describes
+   * this request. `saved` only ever holds acknowledged writes whose read-back, if any, matched (D15).
+   */
   private async runCommit(
     operations: readonly SaveOperation[],
     context: ProvidersEditContext,
     allowed = () => true,
-  ): Promise<void> {
-    if (this.commit().status === 'saving') return;
+  ): Promise<boolean> {
+    if (this.commit().status === 'saving') return false;
     this.commitState.set({ ...EMPTY_COMMIT, status: 'saving' });
     await this.refreshScopes();
     if (!this.contextMatches(context) || !allowed()) {
@@ -1030,53 +1063,33 @@ export class ProvidersSettingsStateService {
         message:
           'Review the current workspace and supported save target before saving.',
       });
-      return;
+      return true;
     }
     const saved: string[] = [],
       unsaved: string[] = [],
       unconfirmed: string[] = [],
       conflicted: string[] = [];
+    let setupFailed = false,
+      anyFailed = false;
     for (const operation of operations) {
-      if (operation.dependsOnPrevious && (unsaved.length || unconfirmed.length)) {
-        unsaved.push(...operation.fields);
-        continue;
-      }
-      if (!this.contextMatches(context)) {
-        unsaved.push(...operation.fields);
-        continue;
-      }
-      let acknowledged = false;
-      try {
-        const outcome = await operation.write();
-        if (outcome === 'conflict') {
-          // Nothing was written: surface the conflict instead of overwriting a newer value.
-          conflicted.push(...operation.fields);
-          unsaved.push(...operation.fields);
-          continue;
-        }
-        acknowledged = outcome;
-      } catch (error: unknown) {
-        // RPC errors may contain credentials. Neither their message nor object enters UI state.
-        void error;
-      }
-      if (operation.readBack && this.contextMatches(context)) {
-        try {
-          const matches = await operation.readBack();
-          (this.contextMatches(context)
-            ? matches
-              ? saved
-              : unsaved
-            : unconfirmed
-          ).push(...operation.fields);
-        } catch (error: unknown) {
-          void error;
-          unconfirmed.push(...operation.fields);
-        }
-      } else {
-        (acknowledged && this.contextMatches(context)
-          ? saved
-          : unconfirmed
-        ).push(...operation.fields);
+      const skipped =
+        operation.stage === 'activation'
+          ? anyFailed
+          : operation.stage !== undefined && setupFailed;
+      const outcome: SaveOutcome =
+        skipped || !this.contextMatches(context)
+          ? 'unsaved'
+          : await this.settle(operation, context);
+      if (outcome === 'conflict') conflicted.push(...operation.fields);
+      (outcome === 'saved'
+        ? saved
+        : outcome === 'unconfirmed'
+          ? unconfirmed
+          : unsaved
+      ).push(...operation.fields);
+      if (outcome !== 'saved') {
+        anyFailed = true;
+        if (operation.stage === 'setup') setupFailed = true;
       }
     }
     // Always refresh, even after rejection: host handlers can fail after a partial write.
@@ -1119,6 +1132,36 @@ export class ProvidersSettingsStateService {
         refreshFailed ? 'Some settings could not be refreshed. Retry those sections.' : '',
       ].filter(Boolean).join(' ') || null,
     });
+    return true;
+  }
+
+  /**
+   * D15: a rejected write (`false`, `'conflict'`) is not saved and a thrown one is unconfirmed (it
+   * may have written; never claim a rollback). Neither runs read-back, so read-back can never
+   * promote a failed write to saved. Only an acknowledged write in the same context is read back.
+   */
+  private async settle(operation: SaveOperation, context: ProvidersEditContext): Promise<SaveOutcome> {
+    let written: boolean | 'conflict';
+    try {
+      written = await operation.write();
+    } catch (error: unknown) {
+      // RPC errors may contain credentials. Neither their message nor object enters UI state.
+      void error;
+      return 'unconfirmed';
+    }
+    // 'conflict': nothing was written; surface it instead of overwriting a newer value.
+    if (written === 'conflict') return 'conflict';
+    if (!written) return 'unsaved';
+    if (!this.contextMatches(context)) return 'unconfirmed';
+    if (!operation.readBack) return 'saved';
+    try {
+      const matches = await operation.readBack();
+      if (!this.contextMatches(context)) return 'unconfirmed';
+      return matches ? 'saved' : 'unsaved';
+    } catch (error: unknown) {
+      void error;
+      return 'unconfirmed';
+    }
   }
 
   private contextMatches(context: ProvidersEditContext): boolean {

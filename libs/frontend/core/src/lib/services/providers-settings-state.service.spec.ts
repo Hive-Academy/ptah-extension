@@ -173,6 +173,9 @@ describe('ProvidersSettingsStateService', () => {
             cursorModel: '',
             codexReasoningEffort: '',
             copilotReasoningEffort: '',
+            cursorApiKeyConfigured: false,
+            cursorApiKeyStored: false,
+            cursorApiKeyEnvSet: false,
           }),
       ],
       [
@@ -453,6 +456,46 @@ describe('ProvidersSettingsStateService', () => {
       tierSnapshot: { everyday: null, complex: null, fast: null }, editedTiers: ['everyday'] }), reviewed);
     expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
     expect(service.commit().status).toBe('partial');
+  });
+  it('552: a conflict on the first edited tier still saves the second tier and does not activate', async () => {
+    const reviewed = await verifiedConnection();
+    const store = tierStore({ sonnet: 'changed-elsewhere', opus: 'old-opus', haiku: null });
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent',
+      tiers: { everyday: 'mine', complex: 'new-opus', fast: 'three' },
+      tierSnapshot: { everyday: 'one', complex: 'old-opus', fast: null }, editedTiers: ['everyday', 'complex'] }), reviewed);
+    expect(store).toEqual({ sonnet: 'changed-elsewhere', opus: 'new-opus', haiku: null });
+    expect(call.mock.calls.some(([method]) => method === 'auth:saveSettings')).toBe(false);
+    expect(service.commit()).toMatchObject({
+      status: 'partial',
+      saved: ['Connection credential', 'Main agent opus model'],
+      unsaved: ['Main agent sonnet model', 'authMethod', 'anthropicProviderId'],
+      unconfirmed: [],
+    });
+    const message = service.commit().message ?? '';
+    expect(message).toContain('not overwritten: Main agent sonnet model.');
+    expect(message).not.toContain('opus');
+  });
+  it('552: tier writes still wait for the setup writes', async () => {
+    const reviewed = await verifiedConnection();
+    const store = tierStore({ sonnet: null, opus: null, haiku: null });
+    handlers.set('auth:setApiKey', async () => success({ success: false }));
+    handlers.set('auth:saveSettings', async () => success({ success: true }));
+    call.mockClear();
+    await service.connectProvider(connectionDraft({ activation: 'use-main-agent', baseUrl: 'https://example.test',
+      tiers: { everyday: 'one', complex: 'two', fast: 'three' },
+      tierSnapshot: { everyday: null, complex: null, fast: null }, editedTiers: ['everyday', 'fast'] }), reviewed);
+    // The rejected credential stops the dependent endpoint, both tiers and activation.
+    expect(call.mock.calls.map(([method]) => method)
+      .filter((method) => ['llm:setProviderBaseUrl', 'provider:setModelTier', 'auth:saveSettings'].includes(method))).toEqual([]);
+    expect(store).toEqual({ sonnet: null, opus: null, haiku: null });
+    expect(service.commit()).toMatchObject({
+      status: 'failed',
+      saved: [],
+      unsaved: ['Connection credential', 'Connection endpoint', 'Main agent sonnet model', 'Main agent haiku model',
+        'authMethod', 'anthropicProviderId'],
+    });
   });
   it('B2-2: Connect only persists edited tiers as main-agent tiers without selecting the provider', async () => {
     const reviewed = await verifiedConnection();
@@ -828,17 +871,19 @@ describe('ProvidersSettingsStateService', () => {
       },
       reviewed,
     );
+    // D15 (deliberate change): an error envelope throws in require(), so the host may have written.
+    // The field is unconfirmed, not unsaved, and read-back no longer runs after the throw.
     expect(service.commit()).toMatchObject({
-      status: 'partial',
+      status: 'unconfirmed',
       saved: ['memory.curatorProvider'],
-      unsaved: ['skillSynthesis.judgeModel'],
-      unconfirmed: [],
+      unsaved: [],
+      unconfirmed: ['skillSynthesis.judgeModel'],
     });
     expect(service.memory().data?.curatorProvider).toBe('second');
     expect(service.judging().data?.judgeModel).toBe('');
   });
 
-  it('recognizes a persisted write even if its response fails', async () => {
+  it('D15: a thrown write is unconfirmed even when read-back would match, and is never saved', async () => {
     const reviewed = await context();
     handlers.set('memory:setTriggers', async () => {
       memoryResponse = { ...memoryResponse, curatorModel: 'persisted' };
@@ -848,7 +893,48 @@ describe('ProvidersSettingsStateService', () => {
       { memory: { curatorModel: 'persisted' } },
       reviewed,
     );
-    expect(service.commit().saved).toEqual(['memory.curatorModel']);
+    // D15 (deliberate change): this spec used to assert saved: ['memory.curatorModel'].
+    expect(service.commit()).toMatchObject({
+      status: 'unconfirmed',
+      saved: [],
+      unsaved: [],
+      unconfirmed: ['memory.curatorModel'],
+    });
+    // The post-commit refresh still shows what the host holds.
+    expect(service.memory().data?.curatorModel).toBe('persisted');
+  });
+  it('D15: a write the host rejects is unsaved and skips a read-back that would match', async () => {
+    const reviewed = await context();
+    handlers.set('agent:setConfig', async () => success({ success: false }));
+    // The stored value already equals the request: read-back alone would have claimed "Saved".
+    handlers.set('agent:getConfig', async () => success({ codexModel: 'gpt-x', copilotModel: '', cursorModel: '',
+      codexReasoningEffort: '', copilotReasoningEffort: '',
+      cursorApiKeyConfigured: false, cursorApiKeyStored: false, cursorApiKeyEnvSet: false }));
+    call.mockClear();
+    await service.saveSettings({ orchestration: { codexModel: 'gpt-x' } }, reviewed);
+    expect(service.commit()).toMatchObject({
+      status: 'failed',
+      saved: [],
+      unsaved: ['agentOrchestration.codexModel'],
+      unconfirmed: [],
+    });
+    // The only agent:getConfig read is the post-commit refresh, not a read-back.
+    expect(call.mock.calls.filter(([method]) => method === 'agent:getConfig')).toHaveLength(1);
+  });
+  it('D15: an acknowledged write whose read-back mismatches is unsaved', async () => {
+    const reviewed = await context();
+    // Acknowledged, but the host kept (or another writer restored) a different value.
+    handlers.set('memory:setTriggers', async () => success({ triggers: memoryResponse }));
+    await service.saveSettings(
+      { memory: { curatorModel: 'wanted' } },
+      reviewed,
+    );
+    expect(service.commit()).toMatchObject({
+      status: 'failed',
+      saved: [],
+      unsaved: ['memory.curatorModel'],
+      unconfirmed: [],
+    });
   });
 
   it('does not claim rollback when auth can have partially written and never stores secrets', async () => {
@@ -1084,6 +1170,35 @@ describe('ProvidersSettingsStateService', () => {
     ).toHaveLength(1);
   });
 
+  it('tells the caller a save was refused while another is in flight, for every commit command', async () => {
+    const reviewed = await verifiedConnection();
+    const pending = deferred<RpcResult<unknown>>();
+    const started = deferred<void>();
+    handlers.set('auth:saveSettings', () => {
+      started.resolve();
+      return pending.promise;
+    });
+    const first = service.saveSettings({ auth: { authMethod: 'apiKey' } }, reviewed);
+    await started.promise;
+    call.mockClear();
+    const refused = await Promise.all([
+      service.saveSettings({ memory: { curatorModel: 'x' } }, reviewed),
+      service.connectProvider(connectionDraft(), reviewed),
+      // An unverifiable draft would otherwise set 'blocked' over the in-flight feedback.
+      service.connectProvider(connectionDraft({ saveTo: 'workspace' }), reviewed),
+      service.activateConnection('openrouter', 'global', reviewed),
+      service.clearWorkspaceOverride(reviewed),
+      service.clearScopeOverride('authMethod', 'nearest', reviewed),
+      service.saveCursorCredential('key', reviewed),
+    ]);
+    expect(refused).toEqual([false, false, false, false, false, false, false]);
+    expect(service.commit().status).toBe('saving');
+    expect(call).not.toHaveBeenCalled();
+    pending.resolve(success({ success: true }));
+    await expect(first).resolves.toBe(true);
+    expect(service.commit().status).toBe('saved');
+  });
+
   it('stops the remaining writes if workspace changes during a commit', async () => {
     const reviewed = await context();
     handlers.set('auth:saveSettings', async () => {
@@ -1220,7 +1335,7 @@ describe('ProvidersSettingsStateService', () => {
     ).toBe(false);
   });
 
-  it('names each uncertain CLI update field without retaining its credential', async () => {
+  it('names each rejected CLI update field without retaining its credential', async () => {
     const reviewed = await context();
     handlers.set('ptahCli:update', async () =>
       success({ success: false, error: 'raw-key' }),
@@ -1236,10 +1351,59 @@ describe('ProvidersSettingsStateService', () => {
       },
       reviewed,
     );
-    expect(service.commit().unconfirmed).toEqual([
+    // D15 (deliberate change): `success:false` is a rejection, so the fields are unsaved (was unconfirmed).
+    expect(service.commit()).toMatchObject({ status: 'failed', unconfirmed: [] });
+    expect(service.commit().unsaved).toEqual([
       'ptahCliAgents.agent-id.name',
       'ptahCliAgents.agent-id.apiKey',
     ]);
     expect(JSON.stringify(service.commit())).not.toContain('raw-key');
+  });
+
+  describe('Cursor credential read-back (551)', () => {
+    /** Host secret store behind agent:setConfig/getConfig, with CURSOR_API_KEY set or not. */
+    function cursorHost(envSet: boolean, initiallyStored: boolean) {
+      const host = { stored: initiallyStored, ignoreWrites: false };
+      handlers.set('agent:setConfig', async (params) => {
+        const key = (params as { cursorApiKey?: string }).cursorApiKey;
+        if (key !== undefined && !host.ignoreWrites) host.stored = !!key.trim();
+        return success({ success: true });
+      });
+      handlers.set('agent:getConfig', async () => success({ codexModel: '', copilotModel: '', cursorModel: '',
+        codexReasoningEffort: '', copilotReasoningEffort: '',
+        cursorApiKeyConfigured: envSet || host.stored, cursorApiKeyStored: host.stored, cursorApiKeyEnvSet: envSet }));
+      return host;
+    }
+
+    it.each([true, false])('saves and then clears the stored key with CURSOR_API_KEY set=%s', async (envSet) => {
+      const reviewed = await context();
+      const host = cursorHost(envSet, false);
+      await expect(service.saveCursorCredential('cursor-secret', reviewed)).resolves.toBe(true);
+      expect(host.stored).toBe(true);
+      expect(service.commit()).toMatchObject({ status: 'saved', saved: ['Cursor credential'] });
+      await service.saveCursorCredential('', reviewed);
+      expect(host.stored).toBe(false);
+      // With the env var set, cursorApiKeyConfigured stays true after the clear; it is not the read-back.
+      expect(service.commit()).toMatchObject({ status: 'saved', saved: ['Cursor credential'] });
+      expect(JSON.stringify(service.commit())).not.toContain('cursor-secret');
+    });
+    it('reports a clear the store did not apply as not saved, even though the env var is set', async () => {
+      const reviewed = await context();
+      const host = cursorHost(true, true);
+      host.ignoreWrites = true;
+      await service.saveCursorCredential('   ', reviewed);
+      expect(service.commit()).toMatchObject({ status: 'failed', saved: [], unsaved: ['Cursor credential'] });
+    });
+    it('never reports "Saved" when the secret store cannot be read back', async () => {
+      const reviewed = await context();
+      cursorHost(true, false);
+      handlers.set('agent:getConfig', async () => new RpcResult(false, undefined, 'keychain unavailable'));
+      await service.saveCursorCredential('cursor-secret', reviewed);
+      expect(service.commit()).toMatchObject({ status: 'unconfirmed', saved: [], unconfirmed: ['Cursor credential'],
+        refreshFailed: true });
+      // The orchestration section reports its own read error (Retry), not a stale value.
+      expect(service.orchestration()).toMatchObject({ status: 'error', error: 'Could not load this section. Retry.' });
+      expect(JSON.stringify(service.commit())).not.toContain('keychain');
+    });
   });
 });

@@ -1,8 +1,7 @@
 # TASK_2026_551 — Fix report
 
-Status: backend half complete (Batch 3 of TASK_2026_555). The UI read-back half
-(`cursorApiKeyStored` / `cursorApiKeyEnvSet`) is Batch 5 and Batch 8; this
-report gains that evidence when they land.
+Status: backend half complete (Batch 3 of TASK_2026_555); read-back fields
+(Batch 5) and the UI read-back half (Batch 8) complete, see section 3.
 
 ## 1. Key → store → reader trace
 
@@ -62,9 +61,31 @@ secrets, blank-secret tolerance, regex-metacharacter safety, redaction before
 the headline cap, usage-limit wording preserved, two-argument Codex call
 untouched.
 
-## 3. UI read-back half
+## 3. UI read-back half (Batch 8 of TASK_2026_555)
 
-Pending Batch 5 (`cursorApiKeyStored` / `cursorApiKeyEnvSet` in
-`agent:getConfig`) and Batch 8 (UI read-back compares against
-`cursorApiKeyStored`; env-precedence note). Evidence is appended here when
-those batches land.
+The backend fields landed in Batch 5 (`cursorApiKeyStored`, `cursorApiKeyEnvSet`
+in `agent:getConfig`, `rpc-agents.types.ts:107-111`).
+
+| Step | Where (file:line) | What happens |
+| --- | --- | --- |
+| Write | `providers-settings-state.service.ts:377-382` (`saveCursorCredential`) | `agent:setConfig { cursorApiKey }` through `runCommit`. An empty or blank key is a valid clear; the host trims and deletes the secret. The key never enters a signal: only the field name `Cursor credential` reaches `commit()`. |
+| Read-back | same method | Compares `cursorApiKeyStored === !!apiKey.trim()`. It no longer reads `cursorApiKeyConfigured`, which stays `true` while `CURSOR_API_KEY` is set and made a successful clear read back as a failure. |
+| Failure | `runCommit` → `settle` (`:1143-`) | D15: a rejected write (`success:false`) is `unsaved` and a thrown write is `unconfirmed`; neither runs read-back. A read-back that throws (for example a keychain outage failing `agent:getConfig`) is `unconfirmed`, never `saved`. |
+
+Spec evidence (`providers-settings-state.service.spec.ts`, describe "Cursor credential read-back (551)"):
+
+1. Save, then clear, with `CURSOR_API_KEY` set and not set (`it.each`): both read back as `saved`, and the key is
+   not in `commit()`. This is the 551 acceptance "with `CURSOR_API_KEY` set, saving and then clearing the stored key
+   both read back as success".
+2. A clear the store did not apply, with the env var set: `failed`, `unsaved: ['Cursor credential']`.
+3. A read-back that cannot reach the secret store: `unconfirmed`, `refreshFailed: true`, and the orchestration
+   section is in `error` with the Retry text; no error text enters `commit()`.
+
+Not in this batch:
+
+- The env-precedence note ("`CURSOR_API_KEY` wins over the stored key") is UI copy in the Cursor credential popover
+  (TASK_2026_555 Batch 31). The state projection of `cursorApiKey{Configured,Stored,EnvSet}` into
+  `orchestration()` is Batch 12.
+- Batch 5 debt: a keychain outage fails the whole `agent:getConfig`. The state layer reports it as a section
+  read error with Retry. When Batch 12 projects the credential flags, a read error must not leave a stale "Set"
+  flag visible.
