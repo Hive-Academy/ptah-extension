@@ -34,7 +34,8 @@ import { MessageDispatchService } from './message-dispatch.service';
  *
  * Two fields are narrowed for the webview: `sessionId` is the raw wire string
  * (routing parses it), and `modelUsage` uses {@link TurnModelUsage}, the shape
- * the context-badge derivation reads.
+ * the context-badge derivation reads. Its `costUSD` keeps the wire's `null`
+ * for an unpriced model; it is forwarded unchanged, never coerced to 0.
  */
 export type SessionStatsResultEvent = Omit<
   ResultStatsPayload,

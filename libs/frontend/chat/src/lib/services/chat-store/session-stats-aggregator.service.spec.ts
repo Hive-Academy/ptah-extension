@@ -394,6 +394,35 @@ describe('SessionStatsAggregatorService', () => {
       expect((liveStats as { model: string }).model).toBe('opus');
     });
 
+    it('forwards an unpriced row as null cost, never 0, and ranks it below a priced row', () => {
+      const event: SessionStatsResultEvent = {
+        ...baseStats,
+        modelUsage: [
+          {
+            model: 'local-model',
+            inputTokens: 90_000,
+            outputTokens: 5_000,
+            contextWindow: 0,
+            costUSD: null,
+          },
+          {
+            model: 'opus',
+            inputTokens: 50,
+            outputTokens: 50,
+            contextWindow: 200000,
+            costUSD: 0.4,
+          },
+        ],
+      };
+      service.handleSessionStats(event);
+
+      const [, liveStats] = setLiveModelStatsMock.mock.calls[0];
+      expect((liveStats as { model: string }).model).toBe('opus');
+      const forwarded = streamHandleStatsMock.mock
+        .calls[0][0] as SessionStatsResultEvent;
+      expect(forwarded.modelUsage?.map((m) => m.costUSD)).toEqual([null, 0.4]);
+    });
+
     it('single-model array uses [0]', () => {
       service.handleSessionStats({
         ...baseStats,
