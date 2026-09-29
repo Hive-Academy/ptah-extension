@@ -1,6 +1,6 @@
 # Batches - TASK_2026_575_74a4
 
-Total tasks: 14 | Batches: 7 | Complete: 5/7 (Batch 4 visual "after" evidence open, capture now unblocked by Batch 3)
+Total tasks: 14 | Batches: 7 | Complete: 7/7 (Batch 4 visual "after" evidence accepted)
 
 BUGFIX, plan-free. Decomposed from task.md, context.md ("Orchestrator scope decisions" 1-7, binding),
 research-report.md and research-addendum.md, stress-tested against base 722d921ab on disk.
@@ -290,6 +290,8 @@ Result: team-leader reran `npx nx run-many -t typecheck,test,lint -p @ptah-exten
 
 OPEN ITEM (moved to final verification / Mode 3, blocks TASK COMPLETE): visual-reviewer "after" screenshots, dark + light, same page and data as `screenshots/before/`, compared with "before" (scope decision 7, including the neutral-colour requirement for "Unknown"). Cannot be taken now: the webview does not compile between Batch 2 and Batch 3 (cost -> turnCost rename, R2). Capture them after Batch 3 is committed; store under `screenshots/after/`.
 
+OPEN ITEM CLOSED (after Batch 6): visual-review.md APPROVE 9/10 (visual-reviewer). `screenshots/after/` holds analytics-dark.png, analytics-light.png, analytics-dark-480.png, analytics-light-480.png (1280 and 480, dark + light, same page and data as `screenshots/before/`) plus analytics-dark-unpriced-vs-priced.png. Before -> after: EST. TOTAL COST $4.82 -> ≥ $7.57; partial session card Unknown -> ≥ $1.15; `[1m]` session Unknown -> $1.60; unknown values render neutral, not success-green. The temporary harness scenario `libs/frontend/webview-e2e-harness/src/lib/scenarios/_tmp-after-575/` is absent from the worktree and was never committed.
+
 - "Before" screenshots (dark + light) exist from base before any Batch 4 edit
 - Files exist and contain the work; executor names the tests that failed on base
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/dashboard` passes
@@ -327,7 +329,7 @@ Accepted minors (recorded, not fixed): a batch entry for another session still s
 - `npx nx run-many -t typecheck,test,lint -p ptah-tui` passes
 - Codex CLI-lane logic review returns APPROVE
 
-## Batch 6: Cross-cutting contract and parity guards - COMPLETE (SHA recorded in the task-specs commit that follows)
+## Batch 6: Cross-cutting contract and parity guards - COMPLETE (b2f74accd)
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: senior-tester (fresh invocation)
