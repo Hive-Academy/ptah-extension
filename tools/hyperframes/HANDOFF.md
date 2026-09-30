@@ -23,7 +23,7 @@ Then `kits/ptah-ui/SPEC.md` before touching a component.
 | Explainer v2 (`projects/agent-lanes-v2`) | 60 s, shader transitions + registry components: `video-output/agent-lanes-v2/ptah-lanes-v2.mp4`. User: text too small, background blobs not good |
 | ptah-ui kit (`kits/ptah-ui`) | 11 components built and checked: session-shell, chat-message, tool-call-row, thinking-block, agent-report-card, subagent-bubble, agents-panel, composer, lane-completion-toast, peer-send, app-window. Gallery: `video-output/ptah-ui-gallery/ptah-ui-gallery.mp4` (approved by the user: "that's awesome") |
 | Playbook | `PLAYBOOK.md`: gated phases, one scene per file, hooks, gates, skill map |
-| Explainer v3 (`projects/agent-lanes-v3`) | Storyboard v1 approved (13 frames, 46.567 s, 26 bars at 134 BPM). Frame 1 (hook) built and approved. Frames 2-13 next. Frames are fragments assembled by `assemble.mjs` (see Traps) |
+| Explainer v3 (`projects/agent-lanes-v3`) | All 13 frames built and checked (46.567 s, 26 bars at 134 BPM); SFX bus + music ducking in. Frames 1-2 approved; the full Studio preview awaits user review. No render yet (user rule: render only after preview approval). Frames are fragments assembled by `assemble.mjs` (see Traps) |
 | Kit contrast | Muted token lifted to `#989291` (SPEC 1.5 deviation 2, user-approved option A); badge text weight 500 |
 
 ## Decisions (user-approved)
@@ -60,3 +60,7 @@ Then `kits/ptah-ui/SPEC.md` before touching a component.
 - `tool-call-row` cues: overriding only c0/c1 leaves c2 (done) at its default, so c2 = c1 and the live text returns after done. Pass all three: `"c0,c1,c1+runFor"`.
 - Layout audit reads `data-layout-allow-overlap` / `-occlusion` only on the flagged element itself (`hasAttribute`), `-overflow` also on ancestors (`closest`).
 - The contrast audit samples rendered pixels. A vignette above the UI darkens badges in the corners below 4.5:1: keep the vignette under the UI (SPEC 3.4 background rule).
+- Kit mounts longer than the template's inner `.clip` (3-8 s) went blank; `runtime.js` now sets the inner clip to the host's `data-duration`. Rebuild the kit after pulling (`node build.mjs`), then `node assemble.mjs` copies the components.
+- A scene that cuts into a running window uses the kit `preroll` variable (SPEC section 2) so every mount opens settled; for a hard cut, give the new mount the same variables and `preroll` = the previous frame's length.
+- A focus beat dims the other parts until the mount ends; pass `dimOthers: 1` when later parts (stats footers) must stay bright.
+- Kit follow-ups: `agent-report-card` expanded body clips the `Parent Session` line and leaves empty space above the heading; `*.motion.json` sidecars were not written for v3.

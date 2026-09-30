@@ -89,12 +89,18 @@ Direction rule: every whip-pan goes leftward. Every `cinematic-zoom` goes into a
 ## Locked
 
 - Storyboard v1 approved by the user on 2026-10-01 as written, including the inferred items under "Still open" (title copy, lane names, outro copy, 46.6 s length). Sketch pass skipped: build scene by scene with a preview per scene.
-- Frame 1 approved on 2026-10-01.
+- Frame 1 approved on 2026-10-01. Frame 2 approved ("continue"). Frames 3-13 built 2026-10-01, awaiting the full-preview review.
 
 ## Build notes
 
 - Frames are fragments assembled into `index.html` by `node assemble.mjs` (kit mounts nested in sub-compositions collapse; see `tools/hyperframes/HANDOFF.md`).
 - Frame 1: the vignette sits under the UI (above it, it darkened corner badges below 4.5:1). Glitch = one SVG filter on a lens wrapper (RGB split + turbulence slice displacement + blur 3.5 px max), a pure function of quantized time.
+
+- Seams are declared per fragment (`data-seam-in="<shader> <s>"`, `cut` for Frame 12) and centered on the bar; music ducks come from `data-duck` (frame-local slam times).
+- Audio: one `<hf-audio-group id="sfx">` bus (compressor -18 dB 3:1, limiter -1 dB, fader 0.79) over every `sx-*` clip; the music dips to 0.63 for 0.3 s under each slam and fades over the last bar.
+- Frame 9: the agent-report-card's expanded body is shorter than its content, so "Parent Session" is clipped (kit follow-up); the frame shows "Report Delivered" and "Delivered: Yes".
+- Frame 11: the peer-send mount sits at the slot's scale (u 0.43) with its trigger over slot 0's footer Peer chip (`peer:false` on that shell hides the duplicate).
+- Frame 12 opens on Frame 11's exact last state (peer-send `preroll` 5.373, same camera pose), so the hard cut is invisible. Held line at 96 px (fits under the window at 0.82).
 
 ## Frame 1 — Hook: glitch to clarity
 
@@ -121,7 +127,7 @@ Why: the viewer sees real work before any claim, and the "clarity" moment is the
 
 ## Frame 2 — Title: one prompt
 
-- status: outline
+- status: animated
 - src: compositions/frames/02-title-team.html
 - duration: 1.791s
 - start: 3.582
@@ -142,7 +148,7 @@ Why: states the message in five words before the proof starts.
 
 ## Frame 3 — The ask
 
-- status: outline
+- status: animated
 - src: compositions/frames/03-ask.html
 - duration: 3.582s
 - start: 5.373
@@ -163,7 +169,7 @@ Why: one prompt is the only human input in the whole film.
 
 ## Frame 4 — Title: it delegates
 
-- status: outline
+- status: animated
 - src: compositions/frames/04-title-delegates.html
 - duration: 1.791s
 - start: 8.955
@@ -184,7 +190,7 @@ Why: names the first capability.
 
 ## Frame 5 — Delegate: a specialist on call
 
-- status: outline
+- status: animated
 - src: compositions/frames/05-delegate.html
 - duration: 5.373s
 - start: 10.746
@@ -205,7 +211,7 @@ Why: shows delegation and that you can steer a running specialist.
 
 ## Frame 6 — Title: lanes in parallel
 
-- status: outline
+- status: animated
 - src: compositions/frames/06-title-lanes.html
 - duration: 1.791s
 - start: 16.119
@@ -226,7 +232,7 @@ Why: names the second capability.
 
 ## Frame 7 — Lanes: two CLIs at once
 
-- status: outline
+- status: animated
 - src: compositions/frames/07-lanes.html
 - duration: 5.373s
 - start: 17.910
@@ -247,7 +253,7 @@ Why: proves parallel lanes with the real panel, not a diagram.
 
 ## Frame 8 — Title: no polling
 
-- status: outline
+- status: animated
 - src: compositions/frames/08-title-push.html
 - duration: 1.791s
 - start: 23.283
@@ -268,7 +274,7 @@ Why: names the third capability in plain words.
 
 ## Frame 9 — Report delivered, pushed back
 
-- status: outline
+- status: animated
 - src: compositions/frames/09-report-push.html
 - duration: 5.373s
 - start: 25.074
@@ -289,7 +295,7 @@ Why: shows the result coming back without the user asking for it.
 
 ## Frame 10 — Title: sessions talk
 
-- status: outline
+- status: animated
 - src: compositions/frames/10-title-peer.html
 - duration: 1.791s
 - start: 30.448
@@ -310,7 +316,7 @@ Why: names the fourth capability.
 
 ## Frame 11 — Peer: accepted
 
-- status: outline
+- status: animated
 - src: compositions/frames/11-peer.html
 - duration: 5.373s
 - start: 32.239
@@ -331,7 +337,7 @@ Why: shows cross-session messaging with the product's own honest wording.
 
 ## Frame 12 — Pull-back: one window (held frame)
 
-- status: outline
+- status: animated
 - src: compositions/frames/12-pullback.html
 - duration: 3.582s
 - start: 37.612
@@ -352,7 +358,7 @@ Why: the scale payoff; everything shown ran in one window at once.
 
 ## Frame 13 — Outro lockup
 
-- status: outline
+- status: animated
 - src: compositions/frames/13-outro.html
 - duration: 5.373s
 - start: 41.194
