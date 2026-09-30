@@ -251,7 +251,7 @@ function validateStats(
   // stats. Negative and non-finite checks are deliberately the whole defence.
   if (
     sdkCost !== null &&
-    (sdkCost < 0 || isNaN(sdkCost) || !isFinite(sdkCost))
+    (sdkCost < 0 || Number.isNaN(sdkCost) || !Number.isFinite(sdkCost))
   ) {
     logger.warn('[StreamTransformer] Invalid cost value from SDK:', {
       cost: sdkCost,

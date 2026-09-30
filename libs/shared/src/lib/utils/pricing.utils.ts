@@ -249,9 +249,6 @@ const DATE_SNAPSHOT_SUFFIX = /^-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
 /** The same date snapshot, anchored at the end of a whole model id. */
 const TRAILING_DATE_SNAPSHOT = /-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
 
-/** One or more trailing bracketed variant tags, e.g. `[1m]` or `[1m][fast]`. */
-const TRAILING_VARIANT_TAGS = /(\[[^\]]*\])+$/;
-
 /**
  * Drop trailing bracketed variant tags from a model id.
  *
@@ -262,7 +259,16 @@ const TRAILING_VARIANT_TAGS = /(\[[^\]]*\])+$/;
  * @example stripModelVariantTags('claude-opus-5-5[1m]'); // 'claude-opus-5-5'
  */
 export function stripModelVariantTags(modelId: string): string {
-  return modelId.replace(TRAILING_VARIANT_TAGS, '');
+  // A linear scan from the end, one `[...]` tag at a time. The equivalent
+  // regex, /(\[[^\]]*\])+$/, backtracks super-linearly on input like `[[[[`.
+  let end = modelId.length;
+  while (end > 0 && modelId[end - 1] === ']') {
+    // A tag holds no `]`, so it opens at the first `[` after the previous `]`.
+    const open = modelId.indexOf('[', modelId.lastIndexOf(']', end - 2) + 1);
+    if (open === -1 || open >= end - 1) break;
+    end = open;
+  }
+  return modelId.slice(0, end);
 }
 
 /** Drop everything up to the last `/` (`anthropic/`, `openrouter/x/`, ...). */
