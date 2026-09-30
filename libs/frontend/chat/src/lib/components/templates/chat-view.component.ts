@@ -708,10 +708,10 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly isCompactViewMode = isCompactViewMode;
 
   /**
-   * Resolved view mode: 'full', 'compact', or 'compact-tall', scoped to tile
-   * or active tab. For any compact mode, the chat view renders a
-   * CompactSessionCard instead of the full message list — see
-   * {@link isCompactViewMode}.
+   * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
+   * In compact mode the chat view renders a CompactSessionCard instead of the
+   * full message list — see {@link isCompactViewMode}. The compact height is
+   * tab state (`compactHeightUnits`) that only canvas reads.
    */
   readonly resolvedViewMode = computed(() => {
     const ctx = this._sessionContext;

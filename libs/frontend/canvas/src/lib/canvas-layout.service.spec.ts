@@ -4,10 +4,11 @@ import {
   MAX_COLUMNS,
   MIN_TILE_WIDTH,
 } from './canvas-layout.service';
-import type {
-  TileIntent,
-  TileViewConstraints,
-  TileWidthIntent,
+import {
+  MIN_COMPACT_TILE_HEIGHT_UNITS,
+  type TileIntent,
+  type TileViewConstraints,
+  type TileWidthIntent,
 } from './canvas-layout-intent';
 
 type ObserverCallback = (entries: ResizeObserverEntry[]) => void;
@@ -32,7 +33,11 @@ const tile = (
   rowBreakBefore,
 });
 const compactOnly = (tabIds: readonly string[]): TileViewConstraints =>
-  tabIds.map((tabId) => ({ tabId, heightTier: 'compact' as const }));
+  tabIds.map((tabId) => ({
+    tabId,
+    compact: true,
+    heightUnits: MIN_COMPACT_TILE_HEIGHT_UNITS,
+  }));
 const compact = (tabId: string): TileViewConstraints => compactOnly([tabId]);
 const geometry = (layout: ReturnType<CanvasLayoutService['computeLayout']>) =>
   layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }));

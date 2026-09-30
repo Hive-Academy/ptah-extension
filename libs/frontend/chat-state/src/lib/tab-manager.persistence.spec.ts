@@ -165,6 +165,29 @@ describe('TabManagerService — persistence payload + write cadence', () => {
     expect(messages[1].streamingState?.id).toBe('node-m2');
   });
 
+  it('persists compactHeightUnits and restores it after a reload (TASK_2026_583)', () => {
+    const tabId = service.createTab('tall');
+    service.setCompactHeight(tabId, 4);
+    jest.advanceTimersByTime(600);
+
+    const stored = readStored();
+    expect(stored.tabs[0].viewMode).toBe('compact');
+    expect(stored.tabs[0].compactHeightUnits).toBe(4);
+
+    // A height change alone is a real change and must reach storage.
+    setItem.mockClear();
+    service.setCompactHeight(tabId, 5);
+    jest.advanceTimersByTime(600);
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(readStored().tabs[0].compactHeightUnits).toBe(5);
+
+    service.loadTabState();
+    const [restored] = service.tabs();
+    expect(restored.id).toBe(tabId);
+    expect(restored.viewMode).toBe('compact');
+    expect(restored.compactHeightUnits).toBe(5);
+  });
+
   it('skips the write when the persisted fields are unchanged', () => {
     const tabId = service.createTab('idle');
     jest.advanceTimersByTime(600);

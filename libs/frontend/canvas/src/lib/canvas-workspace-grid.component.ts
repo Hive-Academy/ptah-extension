@@ -22,9 +22,13 @@ import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
 import {
+  clampCompactHeightUnits,
+  compactResizeBounds,
   effectiveUnits,
   projectDragIntent,
+  sameViewConstraints,
   snapSpan,
+  tileViewConstraint,
   viewConstraintsFingerprint,
   type TilePositionObservation,
   type TileSpan,
@@ -110,7 +114,10 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
       (resizeStopCB)="onGestureStop('resize', $event)"
     >
       @for (item of items(); track item.tabId) {
-        <gridstack-item [options]="item.options">
+        <gridstack-item
+          [options]="item.options"
+          [class.ptah-compact-item]="item.compact"
+        >
           <ptah-canvas-tile
             data-testid="canvas-tile"
             [tabId]="item.tabId"
@@ -151,11 +158,11 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         height: 100% !important;
       }
 
-      /* Gridstack 12's calculated compact inline height is not resolved by the
-         Electron renderer, leaving the item at its content-driven full height.
-         Publish the already-computed pixel height as a calculation-free CSS
-         variable for compact singleton tiers. */
-      gridstack.compact-singleton > gridstack-item {
+      /* Electron does not resolve Gridstack 12's calculated inline height, so
+         pin a compact singleton to its stored height via a pixel variable.
+         Unpinned while its south edge is dragged (Gridstack writes a live
+         pixel height), so the drag previews; the commit re-pins it on stop. */
+      gridstack.compact-singleton > gridstack-item:not(.ui-resizable-resizing) {
         height: var(--ptah-compact-singleton-height) !important;
       }
 
@@ -163,6 +170,15 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
         ::ng-deep
         gridstack-item.ui-resizable-disabled
         > .ui-resizable-handle {
+        display: none !important;
+      }
+
+      /* Gridstack creates one handle set for every item; each tile shows only
+         the edges it can write: a compact tile its height (south), a full
+         tile its span (east and west). */
+      :host ::ng-deep gridstack-item.ptah-compact-item > .ui-resizable-e,
+      :host ::ng-deep gridstack-item.ptah-compact-item > .ui-resizable-w,
+      :host ::ng-deep gridstack-item:not(.ptah-compact-item) > .ui-resizable-s {
         display: none !important;
       }
 
@@ -196,10 +212,11 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     float: false,
     margin: 8,
     draggable: { handle: '.tile-header' },
-    // Horizontal only: intent carries a named span, and rows must stay
-    // height-aligned for the cellHeight scroll rule to hold. Vertical resize
-    // has no field to write into, so its handles are not offered.
-    resizable: { handles: 'e, w' },
+    // Full tiles resize horizontally only (intent carries a named span, and
+    // full rows stay height-aligned for the cellHeight scroll rule). Compact
+    // tiles resize vertically only, into the tab's compact height. Gridstack
+    // creates handles grid-wide, so per-item CSS hides the others.
+    resizable: { handles: 'e, s, w' },
     animate: true,
   };
 
@@ -210,9 +227,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   readonly isSingleton = computed(() => this.tiles().length === 1);
 
   /**
-   * Transient per-tile height tiers, derived from `TabManagerService` view
-   * mode in reading order. Missing tabs or missing `viewMode` project as
-   * full. Structural equality over `(tabId, heightTier)` keeps unrelated
+   * Transient per-tile view constraints, derived from `TabManagerService`
+   * view mode and compact height in reading order. Missing tabs or missing
+   * `viewMode` project as full. Structural equality keeps unrelated
    * `TabState` writes (streaming, status) from producing layout work.
    */
   readonly viewConstraints = computed<TileViewConstraints>(
@@ -221,20 +238,16 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       const byId = new Map(tabs.map((tab) => [tab.id as string, tab]));
       return [...this.tiles()]
         .sort((a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId))
-        .map((tile): TileViewConstraint => ({
-          tabId: tile.tabId,
-          heightTier: byId.get(tile.tabId)?.viewMode ?? 'full',
-        }));
+        .map((tile) => {
+          const tab = byId.get(tile.tabId);
+          return tileViewConstraint(
+            tile.tabId,
+            isCompactViewMode(tab?.viewMode),
+            tab?.compactHeightUnits,
+          );
+        });
     },
-    {
-      equal: (a, b) =>
-        a.length === b.length &&
-        a.every(
-          (constraint, index) =>
-            constraint.tabId === b[index].tabId &&
-            constraint.heightTier === b[index].heightTier,
-        ),
-    },
+    { equal: sameViewConstraints },
   );
 
   /** Structural fingerprint of the current view constraints. */
@@ -246,7 +259,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     () =>
       new Set(
         this.viewConstraints()
-          .filter((constraint) => isCompactViewMode(constraint.heightTier))
+          .filter((constraint) => constraint.compact)
           .map((constraint) => constraint.tabId),
       ),
   );
@@ -256,9 +269,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (!this.isSingleton()) return false;
     if (this.layoutFocusTabId() !== null) return false;
     const constraints = this.viewConstraints();
-    return (
-      constraints.length === 1 && isCompactViewMode(constraints[0].heightTier)
-    );
+    return constraints.length === 1 && constraints[0].compact;
   });
 
   /** Responsive column capacity; spans promote against it at render time. */
@@ -314,9 +325,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     const firstId = firstByOrder(this.tiles());
     return this.tiles().map((tile) => {
       const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
-      // Compact width is derived, not stored: a resize handle would write a
-      // hidden span the user cannot see until returning to full mode.
-      const noResize = frozen || compactIds.has(tile.tabId);
+      // Compact tiles resize too, but only in height (south handle, CSS-gated).
+      const noResize = frozen;
       let options = this.creationOptions.get(tile.tabId);
       if (!options) {
         options = {
@@ -339,6 +349,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         width: tile.width,
         rowBreakBefore: tile.rowBreakBefore,
         firstInOrder: tile.tabId === firstId,
+        compact: compactIds.has(tile.tabId),
         options,
       };
     });
@@ -427,7 +438,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.locked();
       this.isSingleton();
       this.layoutFocusTabId();
-      this.compactTabIds();
       if (!grid) return;
       this.applyNodeInteractionState(grid);
     });
@@ -468,12 +478,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     }
     const draggedId = event.el.gridstackNode?.id;
     if (typeof draggedId !== 'string') {
-      this.metrics.increment('rejectedGestures');
-      return;
-    }
-    // Compact width is derived from the responsive capacity, so a resize has
-    // no durable value to write. Refuse a stale handle event defensively.
-    if (kind === 'resize' && this.compactTabIds().has(draggedId)) {
       this.metrics.increment('rejectedGestures');
       return;
     }
@@ -585,11 +589,24 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       return;
     }
 
+    const draggedNode = grid.engine.nodes.find(
+      (candidate) => candidate.id === gesture.draggedId,
+    );
+    // A compact tile's width is derived, so its resize writes only height,
+    // into the tab. The fingerprint check above guarantees the tile is still
+    // compact. Neighbours the engine pushed settle back on reconcile.
+    const draggedConstraint = this.viewConstraints().find(
+      (constraint) => constraint.tabId === gesture.draggedId,
+    );
+    if (draggedConstraint?.compact) {
+      this.commitCompactHeight(draggedConstraint, draggedNode?.h);
+      this.reconcileGesture(gesture);
+      return;
+    }
+
     // Resize writes only the dragged tile's snapped span; neighbours the engine
     // pushed are settled back from authoritative intent below.
-    const width = grid.engine.nodes.find(
-      (candidate) => candidate.id === gesture.draggedId,
-    )?.w;
+    const width = draggedNode?.w;
     let accepted = false;
     if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
       const snappedSpan = snapSpan(width);
@@ -618,6 +635,23 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.metrics.increment('rejectedGestures');
     }
     this.reconcileGesture(gesture);
+  }
+
+  /**
+   * Commit a compact resize: the engine height, already whole rows, is
+   * clamped into the compact bounds and stored on the tab. A missing or
+   * fractional height is a rejected gesture.
+   */
+  private commitCompactHeight(tile: TileViewConstraint, h?: number): void {
+    if (h === undefined || !Number.isInteger(h)) {
+      this.metrics.increment('rejectedGestures');
+      return;
+    }
+    const units = clampCompactHeightUnits(h);
+    if (units !== tile.heightUnits) {
+      this.tabManager.setCompactHeight(tile.tabId, units);
+    }
+    this.metrics.increment('acceptedGestures');
   }
 
   /** Tile-menu actions: lock refuses them here as well as in the store. */
@@ -722,6 +756,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     if (!grid) return;
 
     const derived = new Map(positioned.map((tile) => [tile.tabId, tile]));
+    // Compact tiles outside layout focus drag within compact bounds.
+    const bounded = (tabId: string) =>
+      this.compactTabIds().has(tabId) && this.layoutFocusTabId() !== tabId;
     const changed: Array<{
       node: GridStackNode & { el: HTMLElement };
       target: { x: number; y: number; w: number; h: number };
@@ -730,11 +767,15 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       if (typeof node.id !== 'string' || !node.el) continue;
       const target = derived.get(node.id);
       if (!target) continue;
+      // Bounds count as a change too: a tile created (or restored) at its
+      // target geometry must still get its drag bounds before the first drag.
+      // minH and maxH are always written together, so maxH stands for both.
       if (
         node.x !== target.x ||
         node.y !== target.y ||
         node.w !== target.w ||
-        node.h !== target.h
+        node.h !== target.h ||
+        node.maxH !== compactResizeBounds(bounded(node.id)).maxH
       ) {
         changed.push({
           node: node as GridStackNode & { el: HTMLElement },
@@ -764,6 +805,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
             y,
             w,
             h,
+            ...compactResizeBounds(bounded(tabId)),
           })),
           false,
         );
@@ -804,16 +846,12 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   }): void {
     const interactive = !this.locked() && this.layoutFocusTabId() === null;
     const movable = !this.isSingleton() && interactive;
-    const compactIds = this.compactTabIds();
     for (const node of grid.engine?.nodes ?? []) {
       if (!node.el) continue;
-      // Compact tiles stay movable but never resizable: their width is a
-      // projection of the responsive capacity, not stored intent.
-      const resizable =
-        interactive &&
-        !(typeof node.id === 'string' && compactIds.has(node.id));
+      // Every tile is resizable while interactive; per-item CSS decides which
+      // edge (height for compact, span for full) the user can grab.
       grid.movable?.(node.el, movable);
-      grid.resizable?.(node.el, resizable);
+      grid.resizable?.(node.el, interactive);
     }
   }
 

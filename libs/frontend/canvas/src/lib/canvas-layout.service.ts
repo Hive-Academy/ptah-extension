@@ -89,8 +89,8 @@ export class CanvasLayoutService {
   /**
    * Derive concrete Gridstack geometry from tile intent plus the measured
    * container. The optional layout-focus tile renders alone at full width.
-   * Transient view constraints select the compact height tier per tile;
-   * absent constraints keep the full-only behaviour. Callers may supply a
+   * Transient view constraints carry each tile's compact flag and clamped
+   * height units; absent constraints keep the full-only behaviour. Callers may supply a
    * frozen measurement pair when projecting a view-only change under lock.
    * Total function: no throws, no side effects, safe to call from a `computed`.
    */

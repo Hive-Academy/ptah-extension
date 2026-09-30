@@ -5,22 +5,22 @@ describe(shortenRowText.name, () => {
     const row =
       'Reading .claude-worktrees/feat-task-494-apps-page-98c5a1802772/libs/backend/vscode-core/src/lib/logger.ts';
 
-    expect(shortenRowText(row, 120)).toBe('Reading …/lib/logger.ts');
+    expect(shortenRowText(row, 120)).toBe('Reading .../lib/logger.ts');
   });
 
   it('shortens a deep path even when the text fits the length budget', () => {
     expect(shortenRowText('Edit libs/frontend/chat-ui/logger.ts', 120)).toBe(
-      'Edit …/chat-ui/logger.ts',
+      'Edit .../chat-ui/logger.ts',
     );
   });
 
-  it('shortens Windows backslash paths the same way', () => {
+  it('shortens Windows backslash paths with forward slashes', () => {
     expect(
       shortenRowText(
         'Read D:\\projects\\ptah-extension\\libs\\frontend\\logger.ts',
         120,
       ),
-    ).toBe('Read …\\frontend\\logger.ts');
+    ).toBe('Read .../frontend/logger.ts');
   });
 
   it('leaves a two-segment path untouched', () => {
@@ -38,7 +38,7 @@ describe(shortenRowText.name, () => {
   it('shortens several path tokens independently and keeps the words between them', () => {
     expect(
       shortenRowText('Diff libs/a/b/old.ts against libs/x/y/new.ts', 100),
-    ).toBe('Diff …/b/old.ts against …/y/new.ts');
+    ).toBe('Diff .../b/old.ts against .../y/new.ts');
   });
 
   it('cuts non-path text from the right when it overflows the budget', () => {
