@@ -12,24 +12,33 @@ import type {
   GitInfoResult,
   GitBranchInfo,
   GitFileStatus,
+  GitStatusUnavailableReason,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 
-/** Reason the backend could not read `git status` (TASK_2026_437). */
-type GitStatusUnavailableReason = NonNullable<
-  GitInfoResult['statusUnavailable']
->;
+/** The git data a workspace shows, without cache bookkeeping. */
+interface GitWorkspaceSnapshot {
+  branch: GitBranchInfo;
+  files: GitFileStatus[];
+  isGitRepo: boolean;
+  /**
+   * Why the latest status read failed, or null when the latest read
+   * succeeded.
+   */
+  statusUnavailable: GitStatusUnavailableReason | null;
+  /**
+   * Set when the latest read failed and `branch`/`files`/`isGitRepo` are the
+   * last successfully read values kept in its place (TASK_2026_576 RC3).
+   * Null when they came from the latest result.
+   */
+  staleReason: GitStatusUnavailableReason | null;
+}
 
 /**
  * Per-workspace git state snapshot.
  * Cached in the workspace map so switching back is instant.
  */
-interface GitWorkspaceState {
-  branch: GitBranchInfo;
-  files: GitFileStatus[];
-  isGitRepo: boolean;
-  /** Why the status could not be read, or null when `files` is authoritative. */
-  statusUnavailable: GitStatusUnavailableReason | null;
+interface GitWorkspaceState extends GitWorkspaceSnapshot {
   /** When this cache entry was last written (data applied or state saved). */
   lastUpdated: number;
   /**
@@ -46,6 +55,15 @@ const EMPTY_BRANCH: GitBranchInfo = {
   upstream: null,
   ahead: 0,
   behind: 0,
+};
+
+/** State shown for a workspace with no cached or fetched data. */
+const EMPTY_SNAPSHOT: GitWorkspaceSnapshot = {
+  branch: EMPTY_BRANCH,
+  files: [],
+  isGitRepo: false,
+  statusUnavailable: null,
+  staleReason: null,
 };
 
 function branchEqual(a: GitBranchInfo, b: GitBranchInfo): boolean {
@@ -73,6 +91,72 @@ function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
       return false;
   }
   return true;
+}
+
+/**
+ * Whether a snapshot holds a successfully read repository state worth keeping
+ * when a later read fails: a git repo whose files were either read by the
+ * latest result or are themselves last-known-good data kept from before.
+ */
+function hasLastGoodData(
+  snapshot: GitWorkspaceSnapshot | undefined,
+): snapshot is GitWorkspaceSnapshot {
+  return (
+    snapshot !== undefined &&
+    snapshot.isGitRepo &&
+    (snapshot.statusUnavailable === null || snapshot.staleReason !== null)
+  );
+}
+
+/**
+ * The snapshot a workspace shows after `data` arrives. A result whose status
+ * could not be read keeps the previous good branch, files and repo flag and
+ * marks them stale; without previous good data the result is shown as is.
+ */
+function nextSnapshot(
+  data: GitInfoResult,
+  previous: GitWorkspaceSnapshot | undefined,
+): GitWorkspaceSnapshot {
+  // Every result is a full snapshot: a result without the flag clears it.
+  const statusUnavailable = data.statusUnavailable ?? null;
+  if (statusUnavailable !== null && hasLastGoodData(previous)) {
+    return {
+      branch: previous.branch,
+      files: previous.files,
+      isGitRepo: previous.isGitRepo,
+      statusUnavailable,
+      staleReason: statusUnavailable,
+    };
+  }
+  return {
+    branch: data.branch,
+    files: data.files,
+    isGitRepo: data.isGitRepo,
+    statusUnavailable,
+    staleReason: null,
+  };
+}
+
+/**
+ * `rpcCall` reports its own renderer-side timeout as a resolved
+ * `{ success: false, error: 'RPC timeout: <method>' }`
+ * (`libs/frontend/core/src/lib/services/rpc-call.util.ts`); that prefix is
+ * the only signal it gives.
+ */
+const RPC_TIMEOUT_ERROR_PREFIX = 'RPC timeout';
+
+/**
+ * Reason for a `git:info` read that produced no usable result: `timeout`
+ * when the RPC itself timed out, `error` for any other transport failure or
+ * a malformed payload.
+ */
+function readFailureReason(
+  success: boolean,
+  error: string | undefined,
+): GitStatusUnavailableReason {
+  return !success && error?.startsWith(RPC_TIMEOUT_ERROR_PREFIX)
+    ? 'timeout'
+    : 'error';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -110,6 +194,9 @@ export class GitStatusService implements MessageHandler {
   private readonly _isLoading = signal(false);
   private readonly _statusUnavailable =
     signal<GitStatusUnavailableReason | null>(null);
+  private readonly _staleReason = signal<GitStatusUnavailableReason | null>(
+    null,
+  );
   private fetchGeneration = 0;
 
   /** Current branch info for the active workspace. */
@@ -125,9 +212,10 @@ export class GitStatusService implements MessageHandler {
   readonly isLoading = this._isLoading.asReadonly();
 
   /**
-   * Why the active workspace's status could not be read, or null. While set,
-   * `files` is empty because nothing was read — NOT because the tree is clean —
-   * so `changedFileCount` / `hasChanges` must not be presented as "no changes".
+   * Why the active workspace's latest status read failed, or null. While set,
+   * `files` is either the last known list (see {@link staleReason}) or empty
+   * because nothing was ever read — NOT because the tree is clean — so
+   * `changedFileCount` / `hasChanges` must not be presented as "no changes".
    */
   readonly statusUnavailable = this._statusUnavailable.asReadonly();
 
@@ -135,6 +223,17 @@ export class GitStatusService implements MessageHandler {
   readonly isStatusUnavailable = computed(
     () => this._statusUnavailable() !== null,
   );
+
+  /**
+   * Why the active workspace shows last-known data instead of the latest
+   * read, or null. Set only when a read failed and an earlier successful read
+   * of the same workspace exists; `branch`, `files` and `isGitRepo` then hold
+   * that earlier read (TASK_2026_576 RC3).
+   */
+  readonly staleReason = this._staleReason.asReadonly();
+
+  /** Whether the active workspace shows last-known data from an earlier read. */
+  readonly isStale = computed(() => this._staleReason() !== null);
 
   /** Number of changed files. */
   readonly changedFileCount = computed(() => this._files().length);
@@ -176,17 +275,7 @@ export class GitStatusService implements MessageHandler {
     this.saveCurrentState();
     this._activeWorkspacePath.set(workspacePath);
     const cached = this._workspaceGitState.get(workspacePath);
-    if (cached) {
-      this._branch.set(cached.branch);
-      this._files.set(cached.files);
-      this._isGitRepo.set(cached.isGitRepo);
-      this._statusUnavailable.set(cached.statusUnavailable);
-    } else {
-      this._branch.set(EMPTY_BRANCH);
-      this._files.set([]);
-      this._isGitRepo.set(false);
-      this._statusUnavailable.set(null);
-    }
+    this.setSignals(cached ?? EMPTY_SNAPSHOT);
 
     // Skip the eager fetch when the restored cache entry is still fresh —
     // repeated A↔B switching otherwise re-hits `git:info` every time. The
@@ -218,10 +307,7 @@ export class GitStatusService implements MessageHandler {
     this._workspaceGitState.delete(workspacePath);
     if (this._activeWorkspacePath() === workspacePath) {
       this._activeWorkspacePath.set(null);
-      this._branch.set(EMPTY_BRANCH);
-      this._files.set([]);
-      this._isGitRepo.set(false);
-      this._statusUnavailable.set(null);
+      this.setSignals(EMPTY_SNAPSHOT);
     }
   }
 
@@ -296,6 +382,11 @@ export class GitStatusService implements MessageHandler {
    * workspace folders from contaminating each other: backend pushes for a
    * newly-activated folder can arrive while this service still displays the
    * previous one.
+   *
+   * A result whose status could not be read keeps the target workspace's
+   * previous good data, marked stale (see {@link nextSnapshot}). The previous
+   * data is always the target's own — the live signals for the active
+   * workspace, its cache entry otherwise — never another workspace's.
    */
   private applyGitInfo(
     data: GitInfoResult,
@@ -305,26 +396,38 @@ export class GitStatusService implements MessageHandler {
     const target = workspaceRoot ?? active;
     if (!target) return;
 
-    // Every result is a full snapshot: a result without the flag clears it.
-    const statusUnavailable = data.statusUnavailable ?? null;
-
     if (target === active) {
-      this._branch.set(data.branch);
-      this._files.set(data.files);
-      this._isGitRepo.set(data.isGitRepo);
-      this._statusUnavailable.set(statusUnavailable);
+      this.setSignals(nextSnapshot(data, this.currentSnapshot()));
       // Fresh data just arrived for the active workspace — stamp fetchedAt.
       this.saveCurrentState(Date.now());
     } else {
+      const now = Date.now();
       this._workspaceGitState.set(target, {
-        branch: data.branch,
-        files: data.files,
-        isGitRepo: data.isGitRepo,
-        statusUnavailable,
-        lastUpdated: Date.now(),
-        fetchedAt: Date.now(),
+        ...nextSnapshot(data, this._workspaceGitState.get(target)),
+        lastUpdated: now,
+        fetchedAt: now,
       });
     }
+  }
+
+  /** The active workspace's live signal values. */
+  private currentSnapshot(): GitWorkspaceSnapshot {
+    return {
+      branch: this._branch(),
+      files: this._files(),
+      isGitRepo: this._isGitRepo(),
+      statusUnavailable: this._statusUnavailable(),
+      staleReason: this._staleReason(),
+    };
+  }
+
+  /** Publish a snapshot to the live signals. */
+  private setSignals(snapshot: GitWorkspaceSnapshot): void {
+    this._branch.set(snapshot.branch);
+    this._files.set(snapshot.files);
+    this._isGitRepo.set(snapshot.isGitRepo);
+    this._statusUnavailable.set(snapshot.statusUnavailable);
+    this._staleReason.set(snapshot.staleReason);
   }
 
   /**
@@ -336,6 +439,13 @@ export class GitStatusService implements MessageHandler {
     if (!workspaceAtFetchTime) return;
 
     const generation = ++this.fetchGeneration;
+    // A response may only publish while it is BOTH the newest fetch and for
+    // the active workspace: two same-workspace refreshes can resolve out of
+    // order, and the older one would otherwise overwrite newer data.
+    const isCurrent = (): boolean =>
+      this._activeWorkspacePath() === workspaceAtFetchTime &&
+      generation === this.fetchGeneration;
+
     this._isLoading.set(true);
     try {
       const result = await rpcCall<GitInfoResult>(
@@ -343,16 +453,7 @@ export class GitStatusService implements MessageHandler {
         'git:info',
         { workspaceRoot: workspaceAtFetchTime },
       );
-
-      // A response may only publish while it is BOTH the newest fetch and for
-      // the active workspace: two same-workspace refreshes can resolve out of
-      // order, and the older one would otherwise overwrite newer data.
-      if (
-        this._activeWorkspacePath() !== workspaceAtFetchTime ||
-        generation !== this.fetchGeneration
-      ) {
-        return;
-      }
+      if (!isCurrent()) return;
 
       // Explicit null checks, not truthiness: the payload shape is what gates
       // the update, never the value of a field inside it.
@@ -366,14 +467,44 @@ export class GitStatusService implements MessageHandler {
         result.data.files !== null
       ) {
         this.applyGitInfo(result.data, workspaceAtFetchTime);
+      } else {
+        this.markReadFailed(readFailureReason(result.success, result.error));
       }
     } catch {
-      // A refresh is best-effort; existing workspace state remains usable.
+      // degradation-audit: reported - a thrown transport failure is published
+      // through `staleReason` when last good data exists; without it the
+      // service stays in its "no data" state rather than inventing a repo.
+      if (isCurrent()) this.markReadFailed('error');
     } finally {
       if (generation === this.fetchGeneration) {
         this._isLoading.set(false);
       }
     }
+  }
+
+  /**
+   * The active workspace's `git:info` read failed before any git result
+   * arrived (transport failure, renderer timeout or malformed payload). Keep
+   * its last good data and mark it stale with `reason`; with no last good
+   * data, leave the current state alone — a failed read proves nothing about
+   * the repository, so it must not be shown as "not a Git repository" nor as
+   * a repository with a clean tree (TASK_2026_576 RC3).
+   *
+   * The cache entry's `fetchedAt` is cleared: the kept data is known to be
+   * out of date, so a switch back must read again instead of skipping the
+   * fetch as fresh.
+   */
+  private markReadFailed(reason: GitStatusUnavailableReason): void {
+    const active = this._activeWorkspacePath();
+    const previous = this.currentSnapshot();
+    if (!active || !hasLastGoodData(previous)) return;
+    const stale: GitWorkspaceSnapshot = {
+      ...previous,
+      statusUnavailable: reason,
+      staleReason: reason,
+    };
+    this.setSignals(stale);
+    this._workspaceGitState.set(active, { ...stale, lastUpdated: Date.now() });
   }
 
   /**
@@ -390,10 +521,7 @@ export class GitStatusService implements MessageHandler {
 
     const existing = this._workspaceGitState.get(activePath);
     this._workspaceGitState.set(activePath, {
-      branch: this._branch(),
-      files: this._files(),
-      isGitRepo: this._isGitRepo(),
-      statusUnavailable: this._statusUnavailable(),
+      ...this.currentSnapshot(),
       lastUpdated: Date.now(),
       fetchedAt: fetchedAt ?? existing?.fetchedAt,
     });

@@ -368,6 +368,22 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       expect(result.success).toBe(true);
     });
 
+    it('calls git:checkout with the hook timeout plus the renderer margin (RC8)', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: true },
+      });
+
+      await service.checkout({ branch: 'main' });
+
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:checkout',
+        expect.objectContaining({ branch: 'main' }),
+        615_000,
+      );
+    });
+
     it('passes dirty:true through from backend without throwing', async () => {
       mockRpcCall.mockResolvedValueOnce({
         success: true,
@@ -394,12 +410,14 @@ describe('GitBranchesService (TASK_2026_111)', () => {
   // push / pull / fetch
   // ==========================================================================
 
+  // Renderer timeouts outlive the backend's git timeout by the 15 s margin
+  // (TASK_2026_576 RC8): hook commands 600 s, fetch 300 s.
   describe.each([
-    ['push', 'git:push'],
-    ['pull', 'git:pull'],
-    ['fetch', 'git:fetch'],
-  ] as const)('%s()', (action, method) => {
-    it(`calls ${method} scoped to the workspace and passes the result through`, async () => {
+    ['push', 'git:push', 615_000],
+    ['pull', 'git:pull', 615_000],
+    ['fetch', 'git:fetch', 315_000],
+  ] as const)('%s()', (action, method, timeoutMs) => {
+    it(`calls ${method} scoped to the workspace with a ${timeoutMs} ms timeout and passes the result through`, async () => {
       mockRpcCall.mockResolvedValueOnce({
         success: true,
         data: { success: false, error: 'Not possible to fast-forward.' },
@@ -407,9 +425,12 @@ describe('GitBranchesService (TASK_2026_111)', () => {
 
       const result = await service[action]();
 
-      expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), method, {
-        workspaceRoot: '/test-workspace',
-      });
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        method,
+        { workspaceRoot: '/test-workspace' },
+        timeoutMs,
+      );
       expect(result).toEqual({
         success: false,
         error: 'Not possible to fast-forward.',

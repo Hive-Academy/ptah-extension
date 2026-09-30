@@ -5,7 +5,10 @@ import {
   inject,
 } from '@angular/core';
 import { DiffViewComponent } from '../diff-view/diff-view.component';
-import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
+import {
+  SourceControlPanelComponent,
+  statusUnavailableLabel,
+} from '../source-control/source-control-panel.component';
 import { DiffTabsService } from '../services/diff-tabs.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
@@ -69,11 +72,13 @@ import { FileViewComponent } from '../file-view/file-view.component';
         />
       } @else {
         <div class="flex-1 min-h-0 flex overflow-hidden">
-          @if (
-            !gitStatus.isLoading() &&
-            gitStatus.isGitRepo() &&
-            !layout.gitRailCollapsed()
-          ) {
+          <!-- Not gated on isLoading(): a re-read (the panel refreshes after
+               every mutation) keeps the last repo state in place, and
+               unmounting here would destroy the panel mid-commit and drop
+               its message draft and commit result (TASK_2026_576 B7). A
+               first load or a switch to an uncached workspace still shows
+               "Loading…", because isGitRepo() is false until data arrives. -->
+          @if (gitStatus.isGitRepo() && !layout.gitRailCollapsed()) {
             <div
               id="git-source-control-rail"
               class="flex-shrink-0 border-r border-base-content/10 overflow-hidden"
@@ -82,7 +87,8 @@ import { FileViewComponent } from '../file-view/file-view.component';
             >
               <ptah-source-control-panel
                 [files]="gitStatus.files()"
-                [statusUnavailable]="gitStatus.isStatusUnavailable()"
+                [statusUnavailable]="gitStatus.statusUnavailable()"
+                [staleReason]="gitStatus.staleReason()"
                 [editorTargets]="launchers.targets()"
                 [workspaceRoot]="gitStatus.activeWorkspacePath() ?? ''"
                 (diffRequested)="diffTabs.openDiff($event)"
@@ -103,6 +109,18 @@ import { FileViewComponent } from '../file-view/file-view.component';
             >
               @if (gitStatus.isLoading()) {
                 Loading repository…
+              } @else if (
+                !gitStatus.isGitRepo() && gitStatus.statusUnavailable();
+                as reason
+              ) {
+                <!-- A failed read proves nothing about the repository: only
+                     a readable result saying isGitRepo:false earns the
+                     "not a Git repository" line (TASK_2026_576 RC3). -->
+                <span role="status" data-testid="git-dock-status-unavailable"
+                  >Git status is unavailable ({{
+                    statusUnavailableLabel(reason)
+                  }}).</span
+                >
               } @else if (!gitStatus.isGitRepo()) {
                 The active workspace is not a Git repository.
               } @else {
@@ -223,6 +241,7 @@ export class GitDockComponent {
   private static instanceCount = 0;
   private readonly instanceId = GitDockComponent.instanceCount++;
   protected readonly diffPanelId = `git-diff-panel-${this.instanceId}`;
+  protected readonly statusUnavailableLabel = statusUnavailableLabel;
 
   protected readonly gitStatus = inject(GitStatusService);
   private readonly gitBranches = inject(GitBranchesService);

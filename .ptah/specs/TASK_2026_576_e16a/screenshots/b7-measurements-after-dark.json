@@ -1,0 +1,24 @@
+{
+  "alertBox": {
+    "color": "oklch(0.925095 0.00705 88.6451)",
+    "backgroundColor": "oklch(0.577099 0.215157 27.325 / 0.1)",
+    "borderColor": "oklch(0.577099 0.215157 27.325 / 0.6)",
+    "fontSize": "12px"
+  },
+  "alertText": {
+    "color": "oklch(0.925095 0.00705 88.6451)",
+    "backgroundColor": "rgba(0, 0, 0, 0)",
+    "borderColor": "rgb(229, 231, 235)",
+    "fontSize": "12px"
+  },
+  "log": {
+    "color": "oklch(0.925095 0.00705 88.6451)",
+    "backgroundColor": "oklch(0.265698 0.022253 284.785 / 0.5)",
+    "borderColor": "rgb(229, 231, 235)",
+    "fontSize": "11px"
+  },
+  "dismissSize": {
+    "w": 22,
+    "h": 20
+  }
+}

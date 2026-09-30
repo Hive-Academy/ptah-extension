@@ -18,10 +18,36 @@ import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { GitFileStatus } from '@ptah-extension/shared';
+import {
+  GIT_HOOK_TIMEOUT_MS,
+  GIT_LOCKED_MESSAGE,
+  gitRpcTimeoutFor,
+} from '@ptah-extension/shared';
+import type {
+  GitFileStatus,
+  GitStatusUnavailableReason,
+} from '@ptah-extension/shared';
 import { SourceControlPanelComponent } from './source-control-panel.component';
 import { SourceControlFileComponent } from './source-control-file.component';
 import { SourceControlService } from '../services/source-control.service';
+import { GitStatusService } from '../services/git-status.service';
+
+/**
+ * `rpcCall` is mocked at the module boundary for the SourceControlService
+ * timeout block at the end of this file (the panel suites use a service stub
+ * and never reach it). Same pattern as `git-branches.service.spec.ts`.
+ */
+const mockRpcCall = jest.fn();
+jest.mock('@ptah-extension/core', () => {
+  const actual = jest.requireActual<Record<string, unknown>>(
+    '@ptah-extension/core',
+  );
+  return {
+    ...actual,
+    rpcCall: (...args: unknown[]) => mockRpcCall(...args),
+  };
+});
+const { VSCodeService } = jest.requireActual('@ptah-extension/core');
 
 /**
  * The worktree section pulls WorktreeService / EditorService / the Electron
@@ -38,18 +64,38 @@ class StubWorktreeSectionComponent {}
 /** Every element a keyboard user or the browser treats as interactive. */
 const INTERACTIVE = 'a[href], button, input, select, textarea, [tabindex]';
 
+/** A git mutation that git itself reports as done. */
+const GIT_OK = { success: true, data: { success: true } };
+
+/**
+ * The failure the commit mock returns by default: the RPC round trip worked
+ * and git refused. The old `{ success: true }` mock hid exactly the bug RC1
+ * fixes — a transport success read as a git success.
+ */
+const HOOK_FAILED = {
+  success: true,
+  data: {
+    success: false,
+    code: 'HOOK_FAILED',
+    error: 'pre-commit hook exited with 1',
+    hookOutput: 'lint failed\n  src/a.ts:1 no-unused-vars',
+    exitCode: 1,
+  },
+};
+
 function makeSourceControlStub() {
   return {
-    stageFile: jest.fn(async () => undefined),
-    unstageFile: jest.fn(async () => undefined),
-    discardChanges: jest.fn(async () => undefined),
-    stageAll: jest.fn(async () => undefined),
-    unstageAll: jest.fn(async () => undefined),
-    commit: jest.fn(async () => ({ success: true })),
-  } as unknown as SourceControlService & {
-    stageAll: jest.Mock;
-    unstageAll: jest.Mock;
+    stageFile: jest.fn(async () => GIT_OK),
+    unstageFile: jest.fn(async () => GIT_OK),
+    discardChanges: jest.fn(async () => GIT_OK),
+    stageAll: jest.fn(async () => GIT_OK),
+    unstageAll: jest.fn(async () => GIT_OK),
+    commit: jest.fn(async (): Promise<unknown> => HOOK_FAILED),
   };
+}
+
+function makeGitStatusStub() {
+  return { refresh: jest.fn(async () => undefined) };
 }
 
 @Component({
@@ -58,12 +104,16 @@ function makeSourceControlStub() {
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `<ptah-source-control-panel
     [files]="files()"
+    [workspaceRoot]="workspaceRoot()"
     [statusUnavailable]="statusUnavailable()"
+    [staleReason]="staleReason()"
     (diffRequested)="diffRequested.push($event)"
   />`,
 })
 class HostComponent {
-  readonly statusUnavailable = signal(false);
+  readonly workspaceRoot = signal('/ws/a');
+  readonly statusUnavailable = signal<GitStatusUnavailableReason | null>(null);
+  readonly staleReason = signal<GitStatusUnavailableReason | null>(null);
   readonly files = signal<GitFileStatus[]>([
     { path: 'src/a.ts', status: 'M', staged: true } as GitFileStatus,
     { path: 'src/b.ts', status: 'A', staged: false } as GitFileStatus,
@@ -74,6 +124,7 @@ class HostComponent {
 describe('SourceControlPanelComponent — header controls are siblings, not nested (D1)', () => {
   let fixture: ComponentFixture<HostComponent>;
   let sourceControl: ReturnType<typeof makeSourceControlStub>;
+  let gitStatus: ReturnType<typeof makeGitStatusStub>;
 
   function q<T extends HTMLElement>(selector: string): T {
     const el = fixture.nativeElement.querySelector(selector) as T | null;
@@ -98,9 +149,13 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
 
   beforeEach(() => {
     sourceControl = makeSourceControlStub();
+    gitStatus = makeGitStatusStub();
     TestBed.configureTestingModule({
       imports: [HostComponent],
-      providers: [{ provide: SourceControlService, useValue: sourceControl }],
+      providers: [
+        { provide: SourceControlService, useValue: sourceControl },
+        { provide: GitStatusService, useValue: gitStatus },
+      ],
     });
     TestBed.overrideComponent(SourceControlPanelComponent, {
       set: {
@@ -511,9 +566,9 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
 
   it('renders the unavailable notice instead of "No changes" or any count when status could not be read', () => {
     const noticeText =
-      "Git status is unavailable: this repository's status output is too large to read.";
+      'Git status is unavailable (the status output is too large to read).';
     fixture.componentInstance.files.set([]);
-    fixture.componentInstance.statusUnavailable.set(true);
+    fixture.componentInstance.statusUnavailable.set('output-too-large');
     fixture.detectChanges();
 
     const notice = fixture.nativeElement.querySelector(
@@ -532,7 +587,7 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     expect(lists()).toHaveLength(0);
 
     // A later readable result restores the normal sections.
-    fixture.componentInstance.statusUnavailable.set(false);
+    fixture.componentInstance.statusUnavailable.set(null);
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector(
@@ -556,5 +611,708 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     expect(stageAll()).toBeTruthy();
     // The toggle is unaffected by the action's absence.
     expect(stagedToggle().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // -- TASK_2026_576 RC1: every result is awaited and surfaced ----------------
+
+  /** Let the awaited handler finish and the template catch up. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+  }
+
+  const textOf = (el: Element | null): string =>
+    (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  const textarea = () =>
+    q<HTMLTextAreaElement>('textarea[aria-label="Commit message"]');
+  const commitButton = () => q<HTMLButtonElement>('button.btn-primary');
+  const rowErrors = () =>
+    Array.from(
+      fixture.nativeElement.querySelectorAll('[data-testid="git-row-error"]'),
+    ) as HTMLElement[];
+
+  /** Top-level files, so every row renders without opening a folder. */
+  function useRootFiles(): void {
+    fixture.componentInstance.files.set([
+      { path: 'a.ts', status: 'M', staged: true } as GitFileStatus,
+      { path: 'b.ts', status: 'M', staged: false } as GitFileStatus,
+    ]);
+    fixture.detectChanges();
+  }
+
+  async function typeAndCommit(message: string): Promise<void> {
+    const field = textarea();
+    field.value = message;
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    clickReal(commitButton());
+    await settle();
+  }
+
+  it('keeps the message and shows the hook output when a hook rejects the commit', async () => {
+    await typeAndCommit('feat: add thing');
+
+    expect(sourceControl.commit).toHaveBeenCalledWith('feat: add thing');
+    expect(textarea().value).toBe('feat: add thing');
+
+    const log = q<HTMLElement>('[role="log"]');
+    expect(log.tagName).toBe('PRE');
+    expect(log.getAttribute('aria-label')).toBe('Commit hook output');
+    // Keyboard-scrollable: focusable, height-capped, scrolls.
+    expect(log.getAttribute('tabindex')).toBe('0');
+    expect(log.className).toContain('max-h-48');
+    expect(log.className).toContain('overflow-y-auto');
+    expect(log.textContent).toBe('lint failed\n  src/a.ts:1 no-unused-vars');
+
+    const alert = q<HTMLElement>(
+      '[data-testid="git-commit-failure"] [role="alert"]',
+    );
+    expect(textOf(alert)).toBe(
+      'Commit failed: pre-commit hook exited with 1 Your message was kept.',
+    );
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-success"]'),
+    ).toBeNull();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the message and shows the hash and subject when the commit succeeds', async () => {
+    sourceControl.commit.mockResolvedValueOnce({
+      success: true,
+      data: {
+        success: true,
+        commitHash: 'a1b2c3d',
+        subject: 'feat: add thing',
+      },
+    });
+
+    await typeAndCommit('feat: add thing');
+
+    expect(textarea().value).toBe('');
+    const success = q<HTMLElement>('[data-testid="git-commit-success"]');
+    expect(success.getAttribute('role')).toBe('status');
+    expect(textOf(success)).toBe('Committed a1b2c3d feat: add thing');
+    expect(fixture.nativeElement.querySelector('[role="log"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-failure"]'),
+    ).toBeNull();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a transport failure as a transport error, never as a commit', async () => {
+    sourceControl.commit.mockResolvedValueOnce({
+      success: false,
+      error: 'RPC timeout: git:commit',
+    });
+
+    await typeAndCommit('feat: add thing');
+
+    expect(textarea().value).toBe('feat: add thing');
+    expect(textOf(q('[data-testid="git-commit-failure"] [role="alert"]'))).toBe(
+      'Commit failed: Could not reach git: RPC timeout: git:commit Your message was kept.',
+    );
+    expect(fixture.nativeElement.querySelector('[role="log"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-success"]'),
+    ).toBeNull();
+  });
+
+  it('treats a transport success without a git result as a failure', async () => {
+    sourceControl.commit.mockResolvedValueOnce({ success: true });
+
+    await typeAndCommit('feat: add thing');
+
+    expect(textarea().value).toBe('feat: add thing');
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-success"]'),
+    ).toBeNull();
+    expect(
+      textOf(q('[data-testid="git-commit-failure"] [role="alert"]')),
+    ).toContain('Git returned no result.');
+  });
+
+  it('reports a thrown commit call as a transport error and keeps the message', async () => {
+    sourceControl.commit.mockRejectedValueOnce(new Error('IPC closed'));
+
+    await typeAndCommit('feat: add thing');
+
+    expect(textarea().value).toBe('feat: add thing');
+    expect(
+      textOf(q('[data-testid="git-commit-failure"] [role="alert"]')),
+    ).toContain('Could not reach git: IPC closed');
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('dismisses the commit error without touching the message', async () => {
+    await typeAndCommit('feat: add thing');
+
+    clickReal(q('button[aria-label="Dismiss commit error"]'));
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-failure"]'),
+    ).toBeNull();
+    expect(textarea().value).toBe('feat: add thing');
+  });
+
+  it('shows a held lock as the lock message on the row, never the raw stderr', async () => {
+    useRootFiles();
+    sourceControl.stageFile.mockResolvedValueOnce({
+      success: true,
+      data: {
+        success: false,
+        code: 'LOCKED',
+        error: "fatal: Unable to create '/home/me/repo/.git/index.lock'",
+      },
+    } as never);
+
+    clickReal(q('button[aria-label="Stage file"]'));
+    await settle();
+
+    expect(sourceControl.stageFile).toHaveBeenCalledWith('b.ts');
+    const errors = rowErrors();
+    expect(errors).toHaveLength(1);
+    expect(textOf(errors[0])).toBe(GIT_LOCKED_MESSAGE);
+    expect(textOf(errors[0])).not.toContain('/home/me');
+    // The error line is owned by the "Changed files" list, next to its row.
+    expect(errors[0].getAttribute('role')).toBe('listitem');
+    expect(errors[0].closest('[role="list"]')?.getAttribute('aria-label')).toBe(
+      'Changed files',
+    );
+    expect(errors[0].querySelector('[role="alert"]')).toBeTruthy();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a row error on the next success of that row', async () => {
+    useRootFiles();
+    sourceControl.discardChanges.mockResolvedValueOnce({
+      success: true,
+      data: {
+        success: false,
+        code: 'GIT_ERROR',
+        error: 'pathspec did not match',
+      },
+    } as never);
+
+    clickReal(
+      q('[aria-label="Changed files"] button[aria-label="Discard changes"]'),
+    );
+    await settle();
+    expect(rowErrors().map(textOf)).toEqual(['pathspec did not match']);
+
+    clickReal(
+      q('[aria-label="Changed files"] button[aria-label="Discard changes"]'),
+    );
+    await settle();
+
+    expect(rowErrors()).toHaveLength(0);
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('dismisses a row error from its own button', async () => {
+    useRootFiles();
+    sourceControl.unstageFile.mockResolvedValueOnce({
+      success: false,
+      error: 'RPC timeout: git:unstage',
+    } as never);
+
+    clickReal(q('button[aria-label="Unstage file"]'));
+    await settle();
+    expect(rowErrors().map(textOf)).toEqual([
+      'Could not reach git: RPC timeout: git:unstage',
+    ]);
+    expect(
+      rowErrors()[0].closest('[role="list"]')?.getAttribute('aria-label'),
+    ).toBe('Staged files');
+
+    clickReal(
+      q('button[aria-label="Dismiss error for a.ts in staged changes"]'),
+    );
+    fixture.detectChanges();
+
+    expect(rowErrors()).toHaveLength(0);
+  });
+
+  it('shows a failed stage-all under its section header, outside the list', async () => {
+    sourceControl.stageAll.mockResolvedValueOnce({
+      success: true,
+      data: { success: false, error: 'index is corrupt' },
+    } as never);
+
+    clickReal(stageAll());
+    await settle();
+
+    const error = q<HTMLElement>('[data-testid="git-section-error"]');
+    expect(textOf(error)).toBe('index is corrupt');
+    expect(error.closest('[role="list"]')).toBeNull();
+    for (const region of lists()) {
+      expect(unownedChildren(region)).toEqual([]);
+    }
+
+    clickReal(q('button[aria-label="Dismiss stage all error"]'));
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-section-error"]'),
+    ).toBeNull();
+  });
+
+  it('refreshes the status after every mutation, success or failure', async () => {
+    useRootFiles();
+    sourceControl.unstageAll.mockResolvedValueOnce({
+      success: false,
+      error: 'RPC timeout: git:unstage',
+    } as never);
+
+    clickReal(q('button[aria-label="Stage file"]'));
+    await settle();
+    clickReal(q('button[aria-label="Unstage file"]'));
+    await settle();
+    clickReal(
+      q('[aria-label="Changed files"] button[aria-label="Discard changes"]'),
+    );
+    await settle();
+    clickReal(stageAll());
+    await settle();
+    clickReal(unstageAll());
+    await settle();
+    await typeAndCommit('feat: add thing');
+
+    for (const call of [
+      sourceControl.stageFile,
+      sourceControl.unstageFile,
+      sourceControl.discardChanges,
+      sourceControl.stageAll,
+      sourceControl.unstageAll,
+      sourceControl.commit,
+    ]) {
+      expect(call).toHaveBeenCalledTimes(1);
+    }
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(6);
+    // Each refresh follows its mutation rather than preceding it.
+    const refreshOrder = gitStatus.refresh.mock.invocationCallOrder;
+    expect(refreshOrder[0]).toBeGreaterThan(
+      sourceControl.stageFile.mock.invocationCallOrder[0],
+    );
+    expect(refreshOrder[5]).toBeGreaterThan(
+      sourceControl.commit.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("never shows one workspace's row error against another workspace", async () => {
+    useRootFiles();
+    sourceControl.stageFile.mockResolvedValueOnce({
+      success: true,
+      data: { success: false, error: 'boom' },
+    } as never);
+
+    clickReal(q('button[aria-label="Stage file"]'));
+    await settle();
+    expect(rowErrors()).toHaveLength(1);
+
+    fixture.componentInstance.workspaceRoot.set('/ws/b');
+    fixture.detectChanges();
+    expect(rowErrors()).toHaveLength(0);
+
+    fixture.componentInstance.workspaceRoot.set('/ws/a');
+    fixture.detectChanges();
+    expect(rowErrors()).toHaveLength(1);
+  });
+
+  // -- TASK_2026_576 RC3: last known list, marked stale ------------------------
+
+  it('keeps the last known list visible, marked stale, when a later read failed', () => {
+    useRootFiles();
+    fixture.componentInstance.statusUnavailable.set('timeout');
+    fixture.componentInstance.staleReason.set('timeout');
+    fixture.detectChanges();
+
+    const notice = q<HTMLElement>('[data-testid="git-status-stale"]');
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(textOf(notice)).toBe(
+      'Git status is unavailable (git timed out) — showing the last known changes.',
+    );
+    expect(notice.className).toContain('text-base-content-muted');
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="git-status-unavailable"]',
+      ),
+    ).toBeNull();
+
+    const regions = lists();
+    expect(regions).toHaveLength(2);
+    for (const region of regions) {
+      expect(region.getAttribute('data-stale')).toBe('true');
+      expect(region.getAttribute('aria-describedby')).toBe(notice.id);
+      expect(region.className).toContain('border-warning');
+      expect(unownedChildren(region)).toEqual([]);
+    }
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-source-control-file'),
+    ).toHaveLength(2);
+    expect(fixture.nativeElement.textContent).toContain('Changes (1)');
+
+    // The next good read drops the marker.
+    fixture.componentInstance.statusUnavailable.set(null);
+    fixture.componentInstance.staleReason.set(null);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-status-stale"]'),
+    ).toBeNull();
+    for (const region of lists()) {
+      expect(region.getAttribute('data-stale')).toBeNull();
+      expect(region.getAttribute('aria-describedby')).toBeNull();
+    }
+  });
+
+  it('names the lock reason in the stale notice', () => {
+    fixture.componentInstance.statusUnavailable.set('locked');
+    fixture.componentInstance.staleReason.set('locked');
+    fixture.detectChanges();
+
+    expect(textOf(q('[data-testid="git-status-stale"]'))).toBe(
+      'Git status is unavailable (another git process is using this repository) — showing the last known changes.',
+    );
+  });
+
+  // -- Batch 7 revise: in-flight guard, workspace-scoped commit ---------------
+
+  /** A promise the test settles by hand, to hold a call in flight. */
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  const button = (label: string) =>
+    q<HTMLButtonElement>(`button[aria-label="${label}"]`);
+
+  it('runs a row action once however often it is activated while in flight', async () => {
+    useRootFiles();
+    const call = deferred<unknown>();
+    sourceControl.stageFile.mockReturnValueOnce(call.promise as never);
+
+    clickReal(button('Stage file'));
+    fixture.detectChanges();
+    expect(button('Stage file').disabled).toBe(true);
+    expect(button('Stage file').getAttribute('aria-busy')).toBe('true');
+    // A second activation that reaches the handler anyway is a no-op.
+    button('Stage file').disabled = false;
+    clickReal(button('Stage file'));
+    clickReal(button('Stage file'));
+    expect(sourceControl.stageFile).toHaveBeenCalledTimes(1);
+    // Other rows stay usable.
+    expect(button('Unstage file').disabled).toBe(false);
+
+    call.resolve(GIT_OK);
+    await settle();
+
+    expect(button('Stage file').disabled).toBe(false);
+    expect(button('Stage file').getAttribute('aria-busy')).toBeNull();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a failed in-flight row action be retried once it settles', async () => {
+    useRootFiles();
+    const call = deferred<unknown>();
+    sourceControl.discardChanges.mockReturnValueOnce(call.promise as never);
+    const discard = () =>
+      q<HTMLButtonElement>(
+        '[aria-label="Changed files"] button[aria-label="Discard changes"]',
+      );
+
+    clickReal(discard());
+    fixture.detectChanges();
+    expect(discard().disabled).toBe(true);
+
+    call.reject(new Error('IPC closed'));
+    await settle();
+    expect(discard().disabled).toBe(false);
+    expect(rowErrors().map(textOf)).toEqual([
+      'Could not reach git: IPC closed',
+    ]);
+
+    clickReal(discard());
+    await settle();
+    expect(sourceControl.discardChanges).toHaveBeenCalledTimes(2);
+    expect(rowErrors()).toHaveLength(0);
+  });
+
+  it('never overlaps a bulk action with another mutation of the same workspace', async () => {
+    useRootFiles();
+    const call = deferred<unknown>();
+    sourceControl.stageAll.mockReturnValueOnce(call.promise as never);
+
+    clickReal(stageAll());
+    fixture.detectChanges();
+
+    expect(stageAll().disabled).toBe(true);
+    expect(stageAll().getAttribute('aria-busy')).toBe('true');
+    expect(unstageAll().disabled).toBe(true);
+    expect(button('Stage file').disabled).toBe(true);
+    expect(button('Unstage file').disabled).toBe(true);
+
+    // Activations that reach the handlers anyway do nothing.
+    for (const el of [stageAll(), unstageAll(), button('Stage file')]) {
+      el.disabled = false;
+      clickReal(el);
+    }
+    expect(sourceControl.stageAll).toHaveBeenCalledTimes(1);
+    expect(sourceControl.unstageAll).not.toHaveBeenCalled();
+    expect(sourceControl.stageFile).not.toHaveBeenCalled();
+
+    call.resolve(GIT_OK);
+    await settle();
+    expect(stageAll().disabled).toBe(false);
+    expect(unstageAll().disabled).toBe(false);
+    expect(button('Stage file').disabled).toBe(false);
+  });
+
+  it('holds both bulk actions while a row action is in flight', async () => {
+    useRootFiles();
+    const call = deferred<unknown>();
+    sourceControl.unstageFile.mockReturnValueOnce(call.promise as never);
+
+    clickReal(button('Unstage file'));
+    fixture.detectChanges();
+    expect(stageAll().disabled).toBe(true);
+    expect(unstageAll().disabled).toBe(true);
+
+    call.resolve(GIT_OK);
+    await settle();
+    expect(stageAll().disabled).toBe(false);
+    expect(unstageAll().disabled).toBe(false);
+  });
+
+  it('starts one commit however often Commit is activated while it runs', async () => {
+    const call = deferred<unknown>();
+    sourceControl.commit.mockReturnValueOnce(call.promise);
+    const field = textarea();
+    field.value = 'feat: once';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    clickReal(commitButton());
+    clickReal(commitButton());
+    fixture.detectChanges();
+    commitButton().disabled = false;
+    clickReal(commitButton());
+
+    expect(sourceControl.commit).toHaveBeenCalledTimes(1);
+    call.resolve(HOOK_FAILED);
+    await settle();
+  });
+
+  it('keeps the commit state and message of each workspace to itself across a switch mid-commit', async () => {
+    const call = deferred<unknown>();
+    sourceControl.commit.mockReturnValueOnce(call.promise);
+    const host = fixture.componentInstance;
+
+    const field = textarea();
+    field.value = 'feat: from a';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    clickReal(commitButton());
+    fixture.detectChanges();
+    expect(textOf(commitButton())).toBe('Committing...');
+
+    // Switch to B while A's commit runs: B is not busy and has its own draft.
+    host.workspaceRoot.set('/ws/b');
+    await settle();
+    expect(textOf(commitButton())).toBe('Commit (1)');
+    expect(textarea().disabled).toBe(false);
+    expect(textarea().value).toBe('');
+
+    textarea().value = 'fix: from b';
+    textarea().dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    // A's commit succeeds while B is displayed: nothing of it shows on B.
+    call.resolve({
+      success: true,
+      data: { success: true, commitHash: 'a1b2c3d', subject: 'feat: from a' },
+    });
+    await settle();
+    expect(textarea().value).toBe('fix: from b');
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-success"]'),
+    ).toBeNull();
+
+    // Back on A: its draft was cleared by its own success, which is shown.
+    host.workspaceRoot.set('/ws/a');
+    await settle();
+    expect(textarea().value).toBe('');
+    expect(textOf(commitButton())).toBe('Commit (1)');
+    expect(textOf(q('[data-testid="git-commit-success"]'))).toBe(
+      'Committed a1b2c3d feat: from a',
+    );
+
+    // And B's draft is still B's.
+    host.workspaceRoot.set('/ws/b');
+    await settle();
+    expect(textarea().value).toBe('fix: from b');
+  });
+
+  it('keeps the message of a workspace whose commit failed while another was displayed', async () => {
+    const call = deferred<unknown>();
+    sourceControl.commit.mockReturnValueOnce(call.promise);
+    const host = fixture.componentInstance;
+
+    await typeAndCommit('feat: from a');
+    // typeAndCommit settles; the commit is still pending on `call`.
+    host.workspaceRoot.set('/ws/b');
+    await settle();
+
+    call.resolve(HOOK_FAILED);
+    await settle();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="git-commit-failure"]'),
+    ).toBeNull();
+
+    host.workspaceRoot.set('/ws/a');
+    await settle();
+    expect(textarea().value).toBe('feat: from a');
+    expect(q('[role="log"]').textContent).toContain('lint failed');
+  });
+
+  it('gives every dismiss button a 24×24 CSS px target (WCAG 2.2 SC 2.5.8)', async () => {
+    // jsdom has no layout, so the target size is pinned through the classes
+    // that produce it: w-6 / h-6 / min-h-6 = 1.5rem = 24px, with p-0 and
+    // btn-square so daisyUI's btn-xs padding and min-height cannot shrink or
+    // stretch it. Measured in the running app by the visual review.
+    useRootFiles();
+    sourceControl.stageFile.mockResolvedValueOnce({
+      success: true,
+      data: { success: false, error: 'row failed' },
+    } as never);
+    sourceControl.stageAll.mockResolvedValueOnce({
+      success: true,
+      data: { success: false, error: 'section failed' },
+    } as never);
+    clickReal(button('Stage file'));
+    await settle();
+    clickReal(stageAll());
+    await settle();
+    await typeAndCommit('feat: size');
+
+    const dismissers = () =>
+      Array.from(
+        fixture.nativeElement.querySelectorAll('button[aria-label^="Dismiss"]'),
+      ) as HTMLButtonElement[];
+    const expectTarget = (el: HTMLButtonElement) => {
+      for (const cls of ['btn-square', 'p-0', 'w-6', 'h-6', 'min-h-6']) {
+        expect(el.classList).toContain(cls);
+      }
+      expect(el.classList).not.toContain('min-h-0');
+      expect(el.classList).not.toContain('h-auto');
+    };
+
+    expect(dismissers().map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Dismiss commit error',
+      'Dismiss stage all error',
+      'Dismiss error for b.ts in changes',
+    ]);
+    dismissers().forEach(expectTarget);
+
+    // The commit success line's dismiss button too.
+    sourceControl.commit.mockResolvedValueOnce({
+      success: true,
+      data: { success: true, commitHash: 'a1b2c3d' },
+    });
+    await typeAndCommit('feat: size');
+    expectTarget(button('Dismiss commit result'));
+  });
+
+  it('survives a rejected status refresh after a mutation', async () => {
+    useRootFiles();
+    gitStatus.refresh.mockRejectedValueOnce(new Error('refresh failed'));
+    sourceControl.stageFile.mockResolvedValueOnce({
+      success: true,
+      data: { success: false, error: 'boom' },
+    } as never);
+
+    clickReal(button('Stage file'));
+    await settle();
+
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+    expect(rowErrors().map(textOf)).toEqual(['boom']);
+    expect(button('Stage file').disabled).toBe(false);
+  });
+});
+
+// -- Batch 6 carry-over (V1 regression guard) ---------------------------------
+
+describe('SourceControlService — mutation RPC timeouts (TASK_2026_576 RC8, V1)', () => {
+  const HOOK_RPC_TIMEOUT_MS = gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS);
+  let service: SourceControlService;
+
+  beforeEach(() => {
+    mockRpcCall.mockReset();
+    mockRpcCall.mockResolvedValue({ success: true, data: { success: true } });
+    TestBed.configureTestingModule({
+      providers: [
+        SourceControlService,
+        { provide: VSCodeService, useValue: {} },
+        {
+          provide: GitStatusService,
+          useValue: { activeWorkspacePath: () => '/ws/a' },
+        },
+      ],
+    });
+    service = TestBed.inject(SourceControlService);
+  });
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('uses the 615,000 ms hook timeout (backend hook timeout + margin)', () => {
+    expect(HOOK_RPC_TIMEOUT_MS).toBe(615_000);
+  });
+
+  it.each([
+    ['stageFile', () => service.stageFile('a.ts'), 'git:stage', ['a.ts']],
+    ['unstageFile', () => service.unstageFile('a.ts'), 'git:unstage', ['a.ts']],
+    ['stageAll', () => service.stageAll(), 'git:stage', ['.']],
+    ['unstageAll', () => service.unstageAll(), 'git:unstage', ['.']],
+    [
+      'discardChanges',
+      () => service.discardChanges('a.ts'),
+      'git:discard',
+      ['a.ts'],
+    ],
+  ] as const)(
+    '%s passes the hook timeout as the fourth rpcCall argument',
+    async (_name, invoke, method, paths) => {
+      await invoke();
+
+      expect(mockRpcCall).toHaveBeenCalledTimes(1);
+      const [, calledMethod, params, timeout] = mockRpcCall.mock.calls[0];
+      expect(calledMethod).toBe(method);
+      expect(params).toEqual({ paths, workspaceRoot: '/ws/a' });
+      expect(timeout).toBe(615_000);
+    },
+  );
+
+  it('commit passes the hook timeout as the fourth rpcCall argument', async () => {
+    await service.commit('feat: x');
+
+    const [, method, params, timeout] = mockRpcCall.mock.calls[0];
+    expect(method).toBe('git:commit');
+    expect(params).toEqual({ message: 'feat: x', workspaceRoot: '/ws/a' });
+    expect(timeout).toBe(615_000);
+  });
+
+  it('git:showFile keeps the default timeout (no fourth argument)', async () => {
+    await service.getOriginalContent('a.ts');
+
+    const call = mockRpcCall.mock.calls[0];
+    expect(call[1]).toBe('git:showFile');
+    expect(call).toHaveLength(3);
+    expect(call[3]).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
+import { GIT_HOOK_TIMEOUT_MS, gitRpcTimeoutFor } from '@ptah-extension/shared';
 import type {
   GitReviewChangesResult,
   GitReviewFileResult,
@@ -60,6 +61,13 @@ const MUTATION_METHODS: Record<GitStashMutation, string> = {
   pop: 'git:stashPop',
   drop: 'git:stashDrop',
 };
+
+/**
+ * Renderer timeout for every stash mutation. Apply and pop run under the
+ * backend's hook timeout; drop takes the same repository write lock, so it can
+ * queue behind a commit whose hooks are still running (TASK_2026_576 RC8).
+ */
+const STASH_MUTATION_RPC_TIMEOUT_MS = gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS);
 
 const STASH_LIST_CHANGED_ERROR =
   'The stash list changed. Refresh and try again.';
@@ -284,6 +292,7 @@ export class GitStashService {
           index: entry.index,
           expectedHash: entry.hash,
         },
+        STASH_MUTATION_RPC_TIMEOUT_MS,
       );
       outcome =
         response.success && response.data
