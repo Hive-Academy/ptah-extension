@@ -209,6 +209,7 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(mockSpawn.mock.calls[0][1]).toEqual([
         'worktree',
         'add',
+        '--end-of-options',
         explicit,
         'feature/x',
       ]);

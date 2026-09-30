@@ -74,6 +74,7 @@ import { GitRepoWriteLock } from './git/git-write-lock';
 import { GitCommitRunner } from './git/git-commit-runner';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
+import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
 
 /** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
 const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
@@ -807,17 +808,24 @@ export class GitInfoService {
     params: { branch: string; path?: string; createBranch?: boolean },
   ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
     try {
+      assertSafeRef(params.branch);
+    } catch {
+      return { success: false, error: 'Invalid branch name' };
+    }
+    try {
       const worktreePath = resolveWorktreePath(
         workspacePath,
         params.branch,
         params.path,
       );
 
+      // `-b` binds the branch as its value; `--end-of-options` keeps the
+      // positional path and branch from being read as options.
       const args = ['worktree', 'add'];
       if (params.createBranch) {
-        args.push('-b', params.branch, worktreePath);
+        args.push('-b', params.branch, '--end-of-options', worktreePath);
       } else {
-        args.push(worktreePath, params.branch);
+        args.push('--end-of-options', worktreePath, params.branch);
       }
 
       const { exitCode, stderr } = await this.execGit(args, workspacePath, {
@@ -853,7 +861,7 @@ export class GitInfoService {
       if (force) {
         args.push('--force');
       }
-      args.push(worktreePath);
+      args.push('--', worktreePath);
 
       const { exitCode, stderr } = await this.execGit(args, workspacePath, {
         timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
@@ -2252,6 +2260,10 @@ export class GitInfoService {
   /**
    * Validate a single path: must be non-empty, no '..' segments.
    * Throws on invalid input.
+   *
+   * A traversal check only: it does not stop a value being read as a git
+   * option (`-b`, `--output=/tmp/x` pass it). Paths go after `--`; refs go
+   * through `assertSafeRef`/`assertSafeRevision` and `--end-of-options`.
    */
   private validatePathSegment(filePath: string): void {
     if (!filePath || !filePath.trim()) {
@@ -2438,7 +2450,8 @@ export class GitInfoService {
   /**
    * Checkout a branch, creating it if requested.
    *
-   * Security: `validatePathSegment(branch)` is called before any git operation.
+   * Security: `assertSafeRef(branch)` runs before any git operation, and the
+   * branch is either `-b`'s bound value or follows `--end-of-options`.
    * Dirty-tree guard: if `force` is not set and the working tree has changes,
    * returns `{ success: false, dirty: true }` without running checkout.
    */
@@ -2450,15 +2463,15 @@ export class GitInfoService {
   ): Promise<GitCheckoutResult> {
     try {
       try {
-        this.validatePathSegment(branch);
+        assertSafeRef(branch);
       } catch {
         return { success: false, error: 'Invalid branch name' };
       }
 
       const args = ['checkout'];
       if (force) args.push('--force');
-      if (createNew) args.push('-b');
-      args.push(branch);
+      if (createNew) args.push('-b', branch);
+      else args.push('--end-of-options', branch);
 
       return await this.writeLock.run(workspacePath, async () => {
         if (!force) {
@@ -2852,11 +2865,11 @@ export class GitInfoService {
 
   /**
    * Get the last commit for a given ref (defaults to HEAD).
-   * Runs: git log -1 --format='%H%n%h%n%s%n%an%n%ae%n%ct%n%b' <ref>
+   * Runs: git log -1 --format='%H%n%h%n%s%n%an%n%ae%n%ct%n%b' --end-of-options <ref>
    *
-   * Security: `ref` is validated via `validatePathSegment` before being passed
-   * to execGit. This prevents git flag injection (e.g. --upload-pack=...) from
-   * a crafted frontend request, consistent with the guard applied to `checkout`.
+   * Security: `ref` must pass `assertSafeRevision` (no leading `-`, so no
+   * `--output=...` from a crafted frontend request) and follows
+   * `--end-of-options`; a refused ref gets the empty result.
    */
   async getLastCommit(
     workspacePath: string,
@@ -2883,14 +2896,20 @@ export class GitInfoService {
       time: 0,
     };
     try {
-      this.validatePathSegment(ref);
+      assertSafeRevision(ref);
     } catch {
       return emptyResult;
     }
 
     try {
       const { stdout, exitCode } = await this.execGit(
-        ['log', '-1', '--format=%H%n%h%n%s%n%an%n%ae%n%ct%n%b', ref],
+        [
+          'log',
+          '-1',
+          '--format=%H%n%h%n%s%n%an%n%ae%n%ct%n%b',
+          '--end-of-options',
+          ref,
+        ],
         workspacePath,
       );
 
